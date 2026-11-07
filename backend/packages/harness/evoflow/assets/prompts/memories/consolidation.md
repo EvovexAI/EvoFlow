@@ -529,63 +529,41 @@ or abstract.
 This entire section is free-form, <= 350 words.
 
 ## User preferences
-Include a dedicated bullet list of actionable user preferences that are likely to matter again,
-not just inside one task group.
+Include a dedicated bullet list of actionable user preferences that are likely to matter again
+**across unrelated situations** (life, work, creative, ops, technical — not one incident).
 This section should be more concrete and easier to apply than `## User Profile`.
-Prefer preferences that repeatedly save user keystrokes or avoid predictable interruption.
-Keep it dense and non-duplicative. Include only stable or high-leverage preferences that would
-change future agent behavior across recurring workflows.
 Treat this as the main actionable payload of `memory/standing.md`.
 
-For example, include (when known):
-- collaboration defaults the user repeatedly asks for
-- verification or reporting behaviors the user expects without restating
-- repeated edit-boundary preferences
-- recurring presentation/output preferences
-- broadly useful workflow defaults promoted from `memory/MEMORY.md` `## User preferences` sections
-- somewhat specific but still reusable defaults when they would likely help again
-- preferences that are strong within one recurring workflow and likely to matter again, even if
-  they are not broad across every task family
+**In standing (yes):**
+- how the user likes to be addressed and talked to
+- collaboration defaults (pace, confirm-then-act, what “good” looks like)
+- hard bans / always-never rules that survive switching topics or domains
+- taste / values / reporting expectations about the *person*, not one project
+
+**Not in standing (put in craft / episodic / MEMORY instead):**
+- one-off event logs, single-job conclusions, long how-to manuals for one theme
+- inventories of names, IDs, or step lists that only help that same kind of job again
+
+Test: would the next agent still need this bullet on a **totally different kind of job**
+for the same user? If no → do **not** promote into standing.
 
 Rules:
-- Use bullets.
-- Keep each bullet actionable and future-facing.
-- Default to lifting or lightly adapting strong bullets from `memory/MEMORY.md` `## User preferences`
-  rather than rewriting them into smoother higher-level summaries.
-- Preserve the user's original point when it is compact and behavior-changing; otherwise compress
-  to the shortest faithful wording.
-- When a short quoted or near-verbatim phrase makes the preference easier to recognize or grep
-  for later, keep that phrase in the bullet instead of replacing it with an abstraction.
-- Merge adjacent preferences unless they would change different future defaults.
+- Use bullets; keep each actionable and future-facing.
+- Prefer lifting strong bullets from `memory/MEMORY.md` `## User preferences` when they pass the
+  cross-situation test; otherwise leave them in MEMORY/craft.
+- Merge adjacent preferences unless they change different future defaults.
 - Prefer a compact set of sharp bullets over a broad inventory.
-- Do not require a preference to be broad across task families. If it is likely to matter again
-  in a recurring workflow, it belongs here.
-- When deciding whether to include a preference, ask whether omitting it would make the next
-  agent more likely to need extra user steering.
-- Keep epistemic status honest when the evidence is inferred rather than explicit.
 ## General Tips
 
-Include information useful for almost every run, especially learnings that help the agent
-self-improve over time.
-Prefer durable, actionable guidance over one-off context. Use bullet points. Prefer
-brief descriptions over long ones.
+Only habits useful on almost every run with this user (domain-agnostic).
+Prefer brief bullets. **Do not** park single-theme playbooks here — those belong in `craft/`
+or episodic/MEMORY.
 
-For example, include (when known):
+**In standing Tips (yes):** how to verify “done”, when to ask vs act, how the user likes
+results presented, durable environment habits that apply everywhere.
 
-- Collaboration preferences: tone/structure the user likes, what “good” looks like, what to avoid.
-- Workflow and environment: OS/shell, repo layout conventions, common commands/scripts, recurring setup steps.
-- Decision heuristics: rules of thumb that improved outcomes (e.g. when to consult
-  memory, when to stop searching and try a different approach).
-- Tooling habits: effective tool-call order, good search keywords, how to minimize
-  churn, how to verify assumptions quickly.
-- Verification habits: the user’s expectations for tests/lints/sanity checks, and what
-  “done” means in practice.
-- Pitfalls and fixes: recurring failure modes, common symptoms/error strings to watch for, and the proven fix.
-- Reusable artifacts: templates/checklists/snippets that consistently used and helped
-  in the past (what they’re for and when to use them).
-- Efficiency tips: ways to reduce tool calls/tokens, stop rules, and when to switch strategies.
-- Give extra weight to guidance that helps the agent proactively do the things the user
-  often has to ask for repeatedly or avoid the kinds of overreach that trigger interruption.
+**Not in Tips:** long command recipes, one-product/one-channel stepbooks, name dumps —
+write/update a `craft/<name>.md` instead and list it under `## What's in Memory` (name-only).
 ## What's in Memory
 
 This is a **name-only** file index. Future agents already get L2 catalog titles every turn;

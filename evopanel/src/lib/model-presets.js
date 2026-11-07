@@ -31,7 +31,7 @@ export const PROVIDER_PRESETS = [
     codingBaseUrl: 'https://api.openai.com/v1',
     api: 'openai-completions',
     site: 'https://platform.openai.com/docs/api-reference',
-    desc: '默认指向官方 api.openai.com；也可把接口地址改成 NewAPI / OneAPI / Azure 兼容端 / 自建网关等任意 OpenAI 兼容端点。需要的是 API Key（按量），不是 ChatGPT Plus 网页订阅。',
+    desc: 'API Key（按量）走 api.openai.com 或兼容网关；也可在详情页用 ChatGPT/Codex 账号登录，使用订阅额度（无需 API Key）。',
   },
   // Official SDK base has no /v1; ChatAnthropic appends /v1/messages itself.
   { key: 'anthropic', label: 'Anthropic 官方', baseUrl: 'https://api.anthropic.com', codingBaseUrl: 'https://api.anthropic.com', api: 'anthropic-messages' },
@@ -71,6 +71,7 @@ export const MODEL_PRESETS = {
     { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000 },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000 },
     { id: 'o3-mini', name: 'o3 Mini', contextWindow: 200000, reasoning: true },
+    { id: 'gpt-5.4', name: 'GPT-5.4（Codex 订阅）', contextWindow: 200000, reasoning: true },
   ],
   anthropic: [
     { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', contextWindow: 200000 },

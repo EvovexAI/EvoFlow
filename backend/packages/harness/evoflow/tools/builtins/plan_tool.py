@@ -17,11 +17,11 @@ logger = logging.getLogger(__name__)
 
 _PLAN_TOOL_GUIDE_ZH = """
 **调用前置条件（三项均成立后才可调用本工具）**：
-三项的取证与核对须用 **`subagent` 委派只读子任务**完成，**禁止主智能体亲自**大范围读仓库、检索做摸底（你只下发子任务说明、验收口径，并综合子任务回报）。轻量 `list_agents` 查列表可直接调。
+三项的取证与核对须用 **`subagent` 委派只读子任务**完成，**禁止主智能体亲自**大范围读仓库、检索做摸底（你只下发子任务说明、验收口径，并综合子任务回报）。轻量查列表可直接调。
 
 1. **用户需求已清晰**：目标、范围、交付物与验收边界明确。仍有缺口时：对用户用 `ask_clarification`；需从仓库/文档/外部信息取证时，**委派 `subagent` 调研子任务**汇总后再判断，勿带着模糊需求落库。
 2. **调研方案已清晰**：写 Plan 前必要的只读摸底（读文件、检索、对照现状等）须已通过 **`subagent` 调研子任务**完成并有书面结论；主智能体不亲自执行摸底。勿在「尚不知如何验证」时硬写步骤。
-3. **角色能力已匹配**：须先通过 **`subagent` 子任务**盘点智能体（子任务内可 `list_agents`、对照各角色工具/技能，输出「agent_code → 能做什么」对照表）；你再据表为每步选定 `assigned_agent`。缺合适角色时先与用户确认是否新建，必要时再 **`subagent` 委派**只读子代理协助设计/创建角色，然后写入计划。
+3. **角色能力已匹配**：须先通过 **`subagent` 子任务**盘点智能体（子任务内可查列表、对照各角色工具/技能，输出「agent_code → 能做什么」对照表）；你再据表为每步选定 `assigned_agent`。缺合适角色时先与用户确认是否新建，必要时再 **`subagent` 委派**只读子代理协助设计/创建角色，然后写入计划。
 
 **你的角色（计划阶段）**：总编排——任务拆解、选人派活、验收设计、调用本工具落库；**不亲自**做调研取证或能力盘点。planning 阶段 `subagent` **仅用于调研型**子任务，禁止委派执行类（改代码、交付物、shell 等）及 `subagent_type=bash`。
 
@@ -49,7 +49,7 @@ _PLAN_STEP_EXAMPLE_1: dict[str, Any] = {
     "goal": "生成「任务1执行完毕」并写入 outputs/task1.txt",
     "inputs": "用户需求",
     "outputs": "outputs/task1.txt",
-    "acceptance": 'read_file("outputs/task1.txt") 包含字符串「任务1执行完毕」',
+    "acceptance": 'read("outputs/task1.txt") 包含字符串「任务1执行完毕」',
     "failure": "重试写入；仍失败则上报",
     "assigned_agent": "code-agent",
 }
@@ -60,7 +60,7 @@ _PLAN_STEP_EXAMPLE_2: dict[str, Any] = {
     "goal": "读取 task1 内容，拼接「 + 任务2执行」写入 outputs/task2.txt",
     "inputs": "outputs/task1.txt",
     "outputs": "outputs/task2.txt",
-    "acceptance": 'read_file("outputs/task2.txt") 包含「任务1执行完毕 + 任务2执行」',
+    "acceptance": 'read("outputs/task2.txt") 包含「任务1执行完毕 + 任务2执行」',
     "failure": "重试；上游不存在则回退 Step 1",
     "assigned_agent": "agent",
     "depends_on": ["1"],
@@ -78,7 +78,7 @@ _PLAN_INPUT_EXAMPLE: dict[str, Any] = {
             "goal": "读取 task1 内容，拼接「 + 任务3执行」写入 outputs/task3.txt",
             "inputs": "outputs/task1.txt",
             "outputs": "outputs/task3.txt",
-            "acceptance": 'read_file("outputs/task3.txt") 包含「任务1执行完毕 + 任务3执行」',
+            "acceptance": 'read("outputs/task3.txt") 包含「任务1执行完毕 + 任务3执行」',
             "failure": "重试；上游不存在则回退 Step 1",
             "assigned_agent": "agent",
             "depends_on": ["1"],
@@ -155,7 +155,7 @@ class PlanStepInput(BaseModel):
     acceptance: str = Field(default="", description="可客观核对的验收标准")
     failure: str = Field(default="", description="失败时的处理策略")
     assigned_agent: str = Field(
-        description="执行人 agent_code（须先 list_agents 对照能力）",
+        description="执行人 agent_code（须先对照智能体能力清单：platform action=agents.list 或 evoflow agents list）",
         examples=["agent", "code-agent", "bash"],
     )
     depends_on: list[str] | str | int | None = Field(
@@ -169,8 +169,8 @@ class PlanStepInput(BaseModel):
     )
     tools: list[str] | str | None = Field(
         default=None,
-        description="worker_profile.tools 覆盖列表（如 read_file、write_file、terminal）",
-        examples=[["read_file", "write_file", "terminal"], "read_file,write_file"],
+        description="worker_profile.tools 覆盖列表（如 read、write、replace、bash）",
+        examples=[["read", "write", "replace", "bash"], "read,write"],
     )
     skills: list[str] | str | None = Field(
         default=None,

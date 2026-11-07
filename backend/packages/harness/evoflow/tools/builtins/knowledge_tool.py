@@ -121,18 +121,65 @@ def _resolve_bound_kb_id(vault_or_kb_id: str) -> str | None:
     return None
 
 
-def resolve_knowledge_tool_scope(agent_code: str | None) -> tuple[bool, list[str]]:
+def _vault_ids_from_runtime(runtime: ToolRuntime[ContextT, dict] | None) -> list[str] | None:
+    """WorkerProfile / step ``knowledge_vault_ids`` override from runtime context, if present."""
+    if runtime is None:
+        return None
+    raw = None
+    ctx = getattr(runtime, "context", None)
+    if ctx is not None:
+        if isinstance(ctx, dict):
+            if "knowledge_vault_ids" in ctx:
+                raw = ctx.get("knowledge_vault_ids")
+        else:
+            getter = getattr(ctx, "get", None)
+            if callable(getter) and (
+                "knowledge_vault_ids" in ctx
+                or (hasattr(ctx, "_EXTRA") and "knowledge_vault_ids" in getattr(ctx, "_EXTRA", {}))
+            ):
+                raw = getter("knowledge_vault_ids")
+            elif hasattr(ctx, "knowledge_vault_ids"):
+                raw = getattr(ctx, "knowledge_vault_ids", None)
+    if raw is None:
+        cfg = getattr(runtime, "config", None) or {}
+        if isinstance(cfg, dict):
+            conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+            if isinstance(conf, dict) and "knowledge_vault_ids" in conf:
+                raw = conf.get("knowledge_vault_ids")
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)):
+        return []
+    return [str(x).strip() for x in raw if str(x).strip()]
+
+
+def resolve_knowledge_tool_scope(
+    agent_code: str | None,
+    *,
+    vault_ids_override: list[str] | None = None,
+) -> tuple[bool, list[str]]:
     """Return ``(is_admin, allowed_kb_ids)``.
 
     ``is_admin=True`` → unrestricted (main / 小V).
     Otherwise ``allowed_kb_ids`` is the concrete owned-KB id allowlist (may be empty).
+    When ``vault_ids_override`` is provided (worker step binding), it replaces agent binding
+    and never elevates to platform admin.
     """
+    if vault_ids_override is not None:
+        seen: set[str] = set()
+        out: list[str] = []
+        for vid in vault_ids_override:
+            kid = _resolve_bound_kb_id(vid)
+            if kid and kid not in seen:
+                seen.add(kid)
+                out.append(kid)
+        return False, out
     if _is_platform_kb_admin(agent_code):
         return True, []
     from evoflow.config.agents_config import get_agent_kb_vault_ids
 
-    seen: set[str] = set()
-    out: list[str] = []
+    seen = set()
+    out = []
     for vid in get_agent_kb_vault_ids(agent_code):
         kid = _resolve_bound_kb_id(vid)
         if kid and kid not in seen:
@@ -201,7 +248,10 @@ Args:
 """
     action = (action or "search").strip().lower()
     agent_code = _agent_code_from_runtime(runtime)
-    is_admin, allowed = resolve_knowledge_tool_scope(agent_code)
+    is_admin, allowed = resolve_knowledge_tool_scope(
+        agent_code,
+        vault_ids_override=_vault_ids_from_runtime(runtime),
+    )
 
     # ── list ──────────────────────────────────────────────────────────────
     if action == "list":

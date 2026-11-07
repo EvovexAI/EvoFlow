@@ -184,6 +184,7 @@ channels:
 | `/claude <session_id>` | 同上并**续用**指定 Claude 会话（字母数字、`_`、`-`、`.`，1–160 字符） |
 | `/lead` | 恢复主智能体 `lead_agent`（重置本话题线程） |
 | `/new` | 为本群绑定**新的** LangGraph 线程（新上下文）；飞书聊天记录不删，旧 Agent 上文不再使用 |
+| `/goal [任务目标]`（别名 `/hd`、`/hosted`） | 创建并启动后台目标任务 |
 | `/status` | 显示模式、线程与最近一次 Claude 会话 ID（若有） |
 | `/models` | 列出可用模型 |
 | `/memory` | 显示记忆状态 |

@@ -8,8 +8,9 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
 
 # Keep in sync with 04-http-platform.md / defect-registry scale line.
-# Prior stale 153/21; now includes media(5) + openai(3) + settings.invoke_model + other drifts → 179 / 24 domains.
-EXPECTED_PLATFORM_ACTION_COUNT = 179
+# Prior stale 153/21; now includes media(5) + openai(3) + settings.invoke_model + other drifts → 179 / 24 domains;
+# 2026-11: + channels.send_message → 180.
+EXPECTED_PLATFORM_ACTION_COUNT = 180
 
 
 def test_assets_in_platform_domains() -> None:
@@ -91,7 +92,7 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     assert "archive" not in emp_line
     assert "已退役" in text
     assert "`employees.delete`" in text
-    assert "179" in text
+    assert "180" in text
     assert "bindings" in text
     assert "**extensions：**" in text
     assert "**plugins：**" in text

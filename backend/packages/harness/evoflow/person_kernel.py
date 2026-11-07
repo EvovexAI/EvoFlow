@@ -446,6 +446,10 @@ def format_soul_prompt_block(
         from evoflow.assets.injection_budget import cap_text_chars
 
         text = cap_text_chars(text, max_chars) + "\n<!-- soul truncated; details in archival -->"
+    # Avoid stacking if caller already stored a wrapped SOUL.md / DB value.
+    raw = text.strip()
+    if raw.startswith("<soul>") and raw.endswith("</soul>"):
+        text = raw[len("<soul>") : -len("</soul>")].strip()
     return f"<soul>\n{text}\n</soul>\n"
 
 
@@ -1079,19 +1083,15 @@ def format_affect_brief(agent_code: str | None, *, principal_id: str = "") -> st
         return ""
 
 
-def format_affect_and_commitments_block(agent_code: str | None) -> str:
-    """Duty-brief inject: prose affect + open commitment count."""
+def format_open_commitments_block(agent_code: str | None) -> str:
+    """Duty-brief inject: open commitment reminders (mood lives in ``<affect>``)."""
     from evoflow.persistence import person_relations_repositories as rel_repo
 
     code = str(agent_code or "").strip().lower()
     if not code:
         return ""
-    aff = rel_repo.get_affect(code)
     opens = rel_repo.list_open_commitments(code, as_to=True, limit=5)
-    lines = [
-        "\n### 此刻心境与开放承诺（内部）",
-        format_affect_brief(code) or "此刻心境：平稳。",
-    ]
+    lines = ["\n### 开放承诺（内部）"]
     if opens:
         lines.append(f"开放承诺 {len(opens)} 条（优先兑现，勿遗忘上游交工）：")
         for c in opens[:4]:
@@ -1101,13 +1101,19 @@ def format_affect_and_commitments_block(agent_code: str | None) -> str:
             lines.append(f"- 欠 {fr} · {kind}" + (f" · task `{child}`" if child else ""))
     else:
         lines.append("开放承诺：无")
-    cortisol = float(aff.get("cortisol") or aff.get("pressure") or 0.25)
-    energy = float(aff.get("energy") or 0.65)
-    if cortisol >= 0.7:
-        lines.append("提示：偏紧 → 本轮聚焦最高优先级事项，必要时向上游澄清。")
-    if energy <= 0.35:
-        lines.append("提示：偏倦 → 控制范围，优先收口与汇报，勿新开大项。")
     return "\n".join(lines) + "\n"
+
+
+def format_affect_and_commitments_block(agent_code: str | None) -> str:
+    """Compat: ``<affect>`` prose + open commitments (prefer separate inject)."""
+    parts: list[str] = []
+    brief = format_affect_brief(agent_code)
+    if brief:
+        parts.append(brief)
+    commits = format_open_commitments_block(agent_code)
+    if commits:
+        parts.append(commits.strip())
+    return ("\n".join(parts) + "\n") if parts else ""
 
 
 def desensitized_person_brief(agent_code: str) -> dict[str, Any]:

@@ -16,6 +16,9 @@
  *   steps?: [                // 操作步骤（可选 → 显示「操作」Tab）
  *     { title: string, desc: string, tip?: string }
  *   ],
+ *   api?: [                  // 接口 / CLI（可选 → 显示「接口」Tab，排在操作之后）
+ *     { title: string, example: string, desc: string, search?: string }
+ *   ],
  *   faq?: [                  // 常见问题（可选 → 显示「FAQ」Tab）
  *     { q: string, a: string }
  *   ],
@@ -130,7 +133,7 @@ const GUIDE = {
       },
       {
         title: '协作任务从哪来',
-        desc: '本页不手动新建任务：协作任务由对话里的 AI 规划、员工值班/派发、工作流与自动化触发产生。',
+        desc: '本页不手动新建任务：由对话 Plan、员工值班/派发、工作流试跑或正式跑、自动化触发产生。类型筛只有对话 / 智能体员工 / 工作流（自动化跑次多归「工作流」）。',
         tip: '要员工干：先在「我的事项」记一条 → 点「派发」',
       },
       {
@@ -151,14 +154,32 @@ const GUIDE = {
     ],
     faq: [
       { q: '事项和协作任务怎么选？', a: '备忘 → 事项；要 AI / 员工执行并验收 → 协作任务（或从事项派发）。' },
-      { q: '任务从哪来的？', a: '聊天 Plan、员工值班/派发、工作流、自动化、事项派发。本页不再手动新建；筛选里可按来源过滤。' },
+      { q: '任务从哪来的？', a: '聊天 Plan、员工值班/派发、工作流、自动化、事项派发。本页不再手动新建；类型筛是对话 / 智能体员工 / 工作流。' },
       { q: '「处理中」是什么意思？', a: '事项已派给别人（如员工）在办；你自己在推进用「进行中」。' },
+      { q: '状态旁「进程失联」是失败吗？', a: '不是主状态。主状态仍跟账本；失联是附注芯片，表示探测不到进程，长步骤仍可能在跑。详情里有账本更新时间。' },
       { q: '只想看要我处理的？', a: '看「需要你处理」（转交待审批）；验收进详情。也可用状态条「待处理 / 异常」。' },
       { q: '不会点界面？', a: '对小V说：「记一条待办」「把XX派给某某员工」「有哪些待确认」。' },
+    ],
+    api: [
+      {
+        title: '协作任务 · 列表 / 结案',
+        example:
+          '```bash\nevoflow tasks list --status executing --limit 20\nevoflow tasks state <task_id> --status completed --summary "已核对无误"\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"tasks.list","args":{"status":"executing","limit":20}}\'\n```',
+        desc: '**怎么调**：platform `tasks.*` 或 CLI `evoflow tasks …`；细粒度也可用 `GET /api/tasks`。\n\n**入参（list）**：`status?`、`assignee?`/`role?`、`source?`、`limit?`（默认 50）。\n\n**入参（set_state / state）**：`task_id`、`state`（pending/executing/completed…）；结案常需 `summary`。写操作 HTTP 需 `confirm:true`。\n\n**出参**：任务台账 / 更新后状态；非法流转时错误含 `next_states`。',
+        search: '任务中心 tasks items 接口 CLI',
+      },
+      {
+        title: '我的事项 · 登记 / 派发',
+        example:
+          '```bash\nevoflow items create --file item.json   # title 必填\nevoflow items dispatch <item_id> --agent <agent_code>\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"items.create","args":{"title":"周五交报告"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `items.*` 或 CLI `evoflow items …`。\n\n**易混**：**tasks ≠ items**——备忘用 items；正式台账结案用 tasks。`items.create` 只记事，不自动开跑；要员工干再 `items.dispatch`。\n\n**入参（create）**：`title` 必填；`notes?`、`priority?`、`due_at?`、`tags?`。\n\n**入参（dispatch）**：`item_id`、`agent_code`；`wake_now?`。\n\n**出参**：`item_id` / 派生的可执行 Task。',
+        search: 'items.create items.dispatch 我的事项',
+      },
     ],
     docs: [
       { label: '任务中心', type: 'doc', search: '任务中心 事项 协作' },
       { label: '员工验收', type: 'doc', search: '智能体员工 验收 待确认' },
+      { label: '接口与 CLI（任务中心）', type: 'doc', search: '任务中心 tasks items 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -175,7 +196,7 @@ const GUIDE = {
     overview: {
       what: '数字员工编制与值班入口。Tab：待审批 · 员工 · 组织/部门 · 健康 · 工作项。加人后可按点巡检、交成果；你派活、同意派发、验收。',
       when: '· 希望不用你盯着，到点自动巡检/汇总\n· 要临时派急活给某个岗位\n· 看谁在忙、待你审批什么\n\n只想聊天问一句 → 用首页 `@` 智能体即可。',
-      how: '1. 本页「加人」写清名称与系统提示词（自动创建能力）\n2. 可选部门、上级、知识库；更多设置里配工作空间与审批策略\n3. 页头开启「自动上班」；或 ⋯「现在开始工作」\n4. 转交卡住 →「待审批」同意派发\n5. 交工 → 任务中心确认完成 / 要求修改\n6. 急活：小V 选员工下目标',
+      how: '1. 本页「加人」写清名称与系统提示词（自动创建能力）\n2. 可选部门、上级、知识库；更多设置里配工作空间与交工审核\n3. 页头开启「自动上班」；或 ⋯「现在开始工作」\n4. 转交卡住 →「待审批」同意派发\n5. 交工 → 任务中心确认完成 / 要求修改\n6. 急活：小V 选员工下目标\n7. 需要改工具 / MCP / 技能：⋯「编辑岗位」八段导航里直接改',
     },
     steps: [
       {
@@ -190,7 +211,7 @@ const GUIDE = {
       },
       {
         title: '打开「自动上班」',
-        desc: '页头右侧把「自动上班」开关拨到开。单岗要停：卡片 ⋯「请假」。关掉总开关后，到期巡检不会再跑。',
+        desc: '页头右侧把「自动上班」开关拨到开（状态「已开启」）。单岗要停：卡片 ⋯「请假」。关掉总开关后到期巡检不会再跑，但员工仍显示「在岗」，可对话 / 派活。',
         tip: '先「现在开始工作」试一轮，再开高频节奏',
       },
       {
@@ -215,10 +236,27 @@ const GUIDE = {
       { q: '必须先建智能体吗？', a: '不必。默认自动创建；更多设置才可沿用未入职能力。' },
       { q: '工作项 Tab 去哪了？', a: '还在：点「工作项」会打开全员看板 #/proactive/board。' },
     ],
-    related: [
+    api: [
+      {
+        title: '名册 / 详情',
+        example:
+          '```bash\nevoflow employees list --status active\nevoflow employees get <agent_code>\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"employees.list","args":{"status":"active"}}\'\n```',
+        desc: '**怎么调**：platform `employees.list|get` 或 CLI `evoflow employees list|get`。\n\n**入参**：`status?`（list）；`agent_code`、`recent_limit?`（get）。\n\n**出参**：岗位列表 / 详情；有 Gateway 时 list 含 `busy`。',
+        search: 'employees.list employees.dispatch 接口 CLI',
+      },
+      {
+        title: '派活 / 唤醒',
+        example:
+          '```bash\nevoflow employees dispatch <agent_code> --goal "核对 lint"\nevoflow employees wake <agent_code> --goal "协助验收"\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"employees.dispatch","args":{"agent_code":"code-reviewer","goal":"核对 lint"},"confirm":true}\'\n```',
+        desc: '**怎么调**：`employees.dispatch` / `employees.wake`（需 Gateway）。写操作 HTTP 必须 `confirm:true`。\n\n**入参（dispatch）**：`agent_code` 或 `role_name`，`goal`；`description?`、`priority?`、`source?`。\n\n**出参**：值班轮 / 关联任务信息。一次创建岗位用 `employees.create`；把已有智能体雇成岗用 `employees.hire`。',
+        search: 'employees.dispatch employees.wake hire create',
+      },
+    ],
+    docs: [
       { label: '加人', type: 'tutorial', search: '加人 员工 新手' },
       { label: '任务中心', type: 'doc', search: '任务中心 事项 协作' },
       { label: '组织 / 部门', type: 'doc', search: '组织 部门 汇报' },
+      { label: '接口与 CLI（员工）', type: 'doc', search: 'employees.list employees.dispatch 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -229,28 +267,46 @@ const GUIDE = {
   '/apps': {
     title: '工作流',
     icon: '🔀',
-    quickstart: '「新建工作流」→ 画布排步骤 →「试跑」→「发布」→ 卡片「▶ 运行」。草稿不能在列表直接跑；发布后看「更多 → 怎么用」。',
-    watchouts: '· 侧栏叫「工作流」，不是应用中心\n· 列表「▶ 运行」要已发布\n· 「#/workflow/:id」是任务 DAG，画布在「#/apps/:id」\n· 归档后不能新开填参或 API，可恢复为草稿\n· 已发布后点「保存」会立刻更新线上定义',
+    quickstart: '「新建工作流」→ 画布排步骤 → 配本步能力与工作空间 →「试跑」→「发布」→ 卡片「▶ 运行」。草稿不能在列表直接跑；发布后看「怎么用」。',
+    watchouts: '· 侧栏叫「工作流」，不是应用中心\n· 列表「▶ 运行」要已发布\n· 「#/workflow/:id」是任务 DAG，画布在「#/apps/:id」\n· 归档后不能新开填参或 API，可恢复为草稿\n· 已发布后点「保存」会立刻更新线上定义\n· 能力按节点挂，勿指望执行者默认能力',
     overview: {
-      what: '把跑通的流程存成工作流，以后填参数就能直接跑。筛选：**活跃 / 已归档 / 全部**。状态徽章：**草稿 · 已发布 · 已归档**。\n\n新建菜单：空白工作流、从模板创建、从任务沉淀。',
+      what: '把跑通的流程存成工作流，以后填参数就能直接跑。筛选：**活跃 / 已归档 / 全部**。状态徽章：**草稿 · 已发布 · 已归档**。\n\n新建菜单：空白工作流、从模板创建、从任务沉淀。每步单独配技能 / 工具 / MCP / 知识库 / 模型。',
       when: '同一类活隔三差五就要干，流程已固定，每次只换参数。探索性的活用聊天 Plan；按点值班用员工。',
-      how: '① 点卡片进画布 → ②「试跑」验证 → ③「发布」→ ④ 卡片「▶ 运行」，或画布「更多 → 怎么用」（API / 自动化）。跑次在「历史」或任务中心。',
+      how: '① 点卡片进画布 → ② 节点库加步骤、配置本步能力与工作空间 → ③「试跑」验证 → ④「发布」→ ⑤ 卡片「▶ 运行」，或画布「怎么用」（面板 / API / 自动化）。跑次在「历史」或任务中心。',
     },
     steps: [
       { title: '新建', desc: '「新建工作流 ▾」选空白、模板，或从已跑通的任务沉淀。', tip: '空列表也可「创建空白工作流」' },
-      { title: '画布编排', desc: '工具栏「节点」打开节点库，连线定先后。点步骤选智能体并写清指令。', tip: '名称可在顶栏直接改' },
-      { title: '填工作流设置', desc: '点「参数」：工作流目标、执行方式（按步骤自动跑完 / 先确认计划再执行）、运行参数。', tip: '无人定时跑可勾「调度触发时自动执行」' },
+      { title: '画布编排', desc: '顶栏「节点」打开右上悬浮面板的节点库，连线定先后。点步骤：写任务名与目标，在「本步能力」挂技能/工具/MCP/知识库，并可本步选模型与思考。', tip: '名称可在顶栏直接改；执行者只是执行壳' },
+      { title: '填工作流设置', desc: '点「设置」：描述可空；建议设「工作空间」（默认运行目录，各步可覆盖）；运行参数按需添加。', tip: '定时 / 接口触发默认直接开跑' },
       { title: '试跑再发布', desc: '「试跑」在画布内填参（草稿也可）。满意后「发布」，列表才能 ▶ 运行；「怎么用」里可建 API Key / 挂自动化。', tip: '已发布后再保存 = 立刻更新线上定义' },
     ],
     faq: [
       { q: '和工作流页 #/workflow 是一回事吗？', a: '不是。本页是可复用模板（#/apps）。#/workflow/:id 是某次协作任务的全屏 DAG。' },
       { q: '草稿为什么不能在列表运行？', a: '列表运行要求已发布。草稿用画布「试跑」。' },
-      { q: '跑完在哪看？', a: '画布「历史」，或任务中心按来源「工作流」。填参页运行中可暂停 / 继续 / 取消。' },
+      { q: '跑完在哪看？', a: '画布「历史」，或任务中心按类型「工作流」。填参页运行中可暂停 / 继续 / 取消。' },
       { q: '能定时跑吗？', a: '先发布，再到「自动化」选这条工作流并设时间。' },
+      { q: '各步文件目录乱了怎么办？', a: '在「设置」里填工作流工作空间，或在本步覆盖；创建与运行会带入各步。' },
+    ],
+    api: [
+      {
+        title: '运行工作流',
+        example:
+          '```bash\nevoflow workflow list\nevoflow workflow run <App_id> --file params.json\nevoflow workflow status <runId>\n```\n```bash\ncurl -s -X POST http://127.0.0.1:8001/api/apps/App_xxx/run \\\n  -H "Content-Type: application/json" \\\n  -d \'{"parameters":{}}\'\n```',
+        desc: '**怎么调**：CLI `evoflow workflow run|status|stop`、platform `workflow.run`，或 REST `POST /api/apps/{id}/run`。\n\n**入参（run）**：`appId`，`parameters?`（对象）。须已发布才能列表 ▶ 运行。\n\n**出参**：`runId` / 关联协作任务；进度进任务中心。',
+        search: 'workflow.run evoflow workflow 接口 CLI',
+      },
+      {
+        title: '创建 / 发布（无完整 CLI）',
+        example:
+          '```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"workflow.create","args":{"name":"日报","goal":"汇总昨日进展","steps":["收集","总结"]},"confirm":true}\'\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"workflow.publish","args":{"appId":"App_xxx"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `workflow.create|publish` 或 REST `POST /api/apps`、`POST /api/apps/{id}/publish`。CLI **没有** create/publish 子命令。\n\n**入参（create）**：`name`；`goal?`、`steps?`、`parameters?`。\n\n**出参**：草稿 `appId`；发布后可运行 / 建 API Key。',
+        search: 'workflow.create workflow.publish /api/apps',
+      },
     ],
     docs: [
       { label: '工作流指南', type: 'doc', search: '工作流 画布 发布 填参运行' },
       { label: '任务中心', type: 'doc', search: '任务中心 工作流 来源' },
+      { label: '接口与 CLI（工作流）', type: 'doc', search: 'workflow.run evoflow workflow 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -346,9 +402,26 @@ const GUIDE = {
       { q: '内置库能删吗？', a: '不能删、不能改名。用「停用（隐藏）」，列表上再点「显示已停用」可以恢复。' },
       { q: '怎么让员工用我的文档？', a: '编辑岗位里绑定该库，检索保持「自动注入」。系统提示词注入里的「知识库检索」不要关掉。' },
     ],
+    api: [
+      {
+        title: '建库 / 检索',
+        example:
+          '```bash\nevoflow knowledge create --name "英语单词库"\nevoflow knowledge recall "怎么配置 MCP" --mode hybrid\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"knowledge.search","args":{"query":"怎么配置 MCP","top_k":5,"mode":"hybrid"}}\'\n```',
+        desc: '**怎么调**：platform `knowledge.*` 或 CLI `evoflow knowledge …`。面板上传 / 问 AI 走 REST `/api/knowledge/owned`（勿用旧 `/api/knowledge` dataset）。\n\n**入参（create）**：`name`；`description?`、`embeddingModelRef?`（需已配向量模型）。\n\n**入参（search / recall）**：`query`；`kbId?`、`top_k?`、`mode?=hybrid|semantic|keyword`。\n\n**出参**：新建 `kb_…` / 命中片段列表。',
+        search: 'knowledge.search knowledge.create 接口 CLI',
+      },
+      {
+        title: '写入笔记',
+        example:
+          '```bash\nevoflow knowledge remember --file note.json   # title + knowledge|content\n```\n```bash\ncurl -s http://127.0.0.1:8001/api/platform \\\n  -H "Content-Type: application/json" \\\n  -d \'{"action":"knowledge.ingest","args":{"title":"备忘","content":"…","kbId":"kb_xxx"},"confirm":true}\'\n```',
+        desc: '**怎么调**：platform `knowledge.ingest` ≈ CLI `knowledge remember`。\n\n**入参**：`title`、`content`/`knowledge`；`kbId?`/`vaultId?`、`tags?`。写操作需 `confirm:true`。\n\n**出参**：笔记路径 / 索引排队状态。大文件上传仍用面板或 `/api/knowledge/owned/bases/{id}/documents`。',
+        search: 'knowledge.ingest remember 知识库 笔记',
+      },
+    ],
     docs: [
       { label: '知识库完整指南', type: 'doc', search: '知识库 上传 检索 问 AI' },
       { label: '员工绑定知识库', type: 'doc', search: '员工 绑定知识库 检索配置' },
+      { label: '接口与 CLI（知识库）', type: 'doc', search: 'knowledge.search knowledge.create 接口 CLI' },
     ],
     onboarding: {
       trigger: 'first-visit',
@@ -360,25 +433,27 @@ const GUIDE = {
   '/models': {
     title: '模型配置',
     icon: '🤖',
-    quickstart: '设置 → 模型 → 对话模型：添加服务商并填 Key →「+ 添加模型」→ 设为主模型 → 新开对话试一句。知识库嵌入在「向量模型」。网页搜索不在这里，去「联网搜索」。',
-    watchouts: '· 五个 Tab：对话模型 / 生图生视频 / 向量模型 / 语音 / 套餐\n· 套餐写入的火山模型要到「套餐」改 Key，不要在对话列表里手改\n· 主模型未配置时，聊天和员工都会空转\n· 模型 Key 不等于联网搜索 Key',
+    quickstart: '设置 → 模型 → 对话模型：添加服务商并填 Key（或 OpenAI 用 ChatGPT/Codex 账号登录）→「+ 添加模型」→ 设为主模型 → 新开对话试一句。知识库嵌入在「向量模型」。网页搜索不在这里，去「联网搜索」。',
+    watchouts: '· 五个 Tab：对话模型 / 生图生视频 / 向量模型 / 语音 / 套餐\n· OpenAI：API Key（按量）与 ChatGPT/Codex 账号登录（订阅）互不替代\n· 套餐写入的火山模型要到「套餐」改 Key，不要在对话列表里手改\n· 主模型未配置时，聊天和员工都会空转\n· 模型 Key 不等于联网搜索 Key',
     overview: {
       what: '设置里的 **模型**：对话脑子、生图生视频渠道、知识库向量、语音，以及 Agent Plan **套餐**（最后一页）。\n\n顶栏显示当前 **主模型**。未单独指定模型的新对话和智能体用它。',
-      when: '第一次还不能聊天；要加 DeepSeek / 兼容网关 / 本机 Ollama；知识库创建按钮不可用（缺向量模型）；要配万相 / GPT 生图 / MiniMax H3 视频。',
-      how: '对话模型：添加服务商 → 填连接与鉴权 → 添加模型 → 设为主模型。生图生视频：填各渠道 Key 并启用。向量：套餐「按套餐目录补齐」，或「+ 添加向量模型」。',
+      when: '第一次还不能聊天；要加 DeepSeek / 兼容网关 / 本机 Ollama；要用 ChatGPT/Codex 订阅额度；知识库创建按钮不可用（缺向量模型）；要配万相 / GPT 生图 / MiniMax 视频。',
+      how: '对话模型：添加服务商 → 填连接与鉴权（OpenAI 还可「授权登录」）→ 添加模型 → 设为主模型。生图生视频：填各渠道 Key 并启用。向量：套餐「按套餐目录补齐」，或「+ 添加向量模型」。',
     },
     steps: [
       { title: '添加服务商', desc: '「+ 添加服务商」，选预设或自定义 OpenAI 兼容地址，填 API Key。本机服务可留空。', tip: '密钥已保存时，编辑留空表示不修改' },
+      { title: '可选：ChatGPT / Codex 登录', desc: 'OpenAI 卡片上「授权登录」或「使用本机 Codex CLI」，再「添加 Codex 模型并可用」。走订阅额度，与 API Key 按量通道分开。', tip: '没有订阅就用任意兼容端点 + Key' },
       { title: '添加模型并设主模型', desc: '「+ 添加模型」勾选模型 ID，再设为「主模型」。', tip: '顶栏应出现模型名，而不是「未配置」' },
-      { title: '向量模型', desc: '切到「向量模型」。有套餐就先去「套餐」补齐；否则手动添加，并可设为知识库默认。', tip: '本地嵌入首次检测可能下载权重' },
+      { title: '向量与生图', desc: '「向量模型」给知识库；有套餐先去「套餐」补齐。「生图生视频」单独填渠道 Key。', tip: '本地嵌入首次检测可能下载权重' },
       { title: '和联网搜索分开', desc: '厂商原生联网不在本页。Agent 的 web_search 到设置「联网搜索」填引擎密钥并测通。', tip: '智能体可在编辑里把默认模型改成不跟随全局' },
     ],
     faq: [
       { q: '都支持哪些模型厂商？', a: '内置支持 OpenAI 兼容接口、Anthropic、Kimi（月之暗面）、DeepSeek、通义千问、Gemini 等主流厂商，以及任意 OpenAI 兼容端点（NewAPI、OneAPI、自建网关、本地 Ollama 等）。' },
-      { q: '没有 OpenAI 官方账号 / ChatGPT Plus，能接模型吗？', a: '能。ChatGPT Plus 是网页订阅，和 API 不是一回事。选「OpenAI / 兼容接口」后可把接口地址改成任意兼容端点并填对应 Key；也可直接选 DeepSeek、Kimi、百炼等，或本机 Ollama。' },
+      { q: '没有 OpenAI 官方账号 / ChatGPT Plus，能接模型吗？', a: '能。选「OpenAI / 兼容接口」后可改成任意兼容端点并填对应 Key；也可直接选 DeepSeek、Kimi、百炼等，或本机 Ollama。有 ChatGPT/Codex 订阅则用账号登录走订阅额度。' },
+      { q: 'ChatGPT Plus 和 API Key 是一回事吗？', a: '不是。网页 Plus ≠ API。订阅额度用「ChatGPT / Codex 账号登录」；按量仍要 API Key 或兼容网关。' },
       { q: 'API Key 存在哪？安全吗？', a: '存在你本地的配置文件里，加密存储，不会上传到任何服务器。只有真正调模型时，会直接发给对应的模型厂商。' },
       { q: '能同时用好几个模型吗？', a: '能。你可以接好几家厂商的好几个模型，不同的 AI 可以用不同的模型，灵活搭配。' },
-      { q: '用模型会收费吗？多少钱？', a: '费用是模型厂商或中转站收的，直接扣你 API Key 里的额度，EvoFlow 不赚差价。具体价格看各家定价。与 ChatGPT Plus 月费无关。' },
+      { q: '用模型会收费吗？多少钱？', a: '费用是模型厂商或中转站收的，直接扣你 API Key / 订阅额度，EvoFlow 不赚差价。具体价格看各家定价。' },
       { q: '能用我自己电脑上的本地模型吗？', a: '能。只要本地模型提供 OpenAI 兼容接口（比如 Ollama、vLLM、LM Studio），选 Ollama 或把接口地址填上本机地址就行。' },
       { q: 'API Key 填了却没用，怎么办？', a: '先检查：Key 抄对没、账号有没有余额、电脑能不能连上厂商的服务器、Base URL 是否指向正确兼容端。都不行就换一个 Key 试试。' },
     ],
@@ -571,7 +646,7 @@ const GUIDE = {
     overview: {
       what: '**自动化**= 给 AI / 工作流设「闹钟」：到点（或按 cron）自动执行你写好的提示词或已发布工作流，并把结果记进任务中心 / 运行历史。\n\n它解决的是「我不想每天手动点同一套活」。和智能体员工的心跳不同：员工偏**岗位巡检与交工**；自动化偏**钟表触发的批处理**（日报、汇总、巡检脚本、定时跑工作流）。\n\n也可以直接对小V说「每天九点巡检」，由平台工具创建自动化——本页适合把规则看清楚、改时间、看失败历史。',
       when: '· 每天 / 每周固定产出（日报、周报、数据拉取）\n· 定时跑已调试好的工作流\n· 一次性预约：明天下午三点跑一次\n· 查看某条规则最近几次是成功还是标红\n\n不适合：临时一问一答（用聊天）；需要人味值班与跨岗转交（用智能体员工）。',
-      how: '推荐路径：\n\n1. （若跑工作流）先在「工作流」里调试并**发布**\n2. 本页点「新建自动化」：起名 + 写提示词，或选择要跑的工作流\n3. 设日程：每天/每周，或 cron；一次性则填具体时间\n4. 填默认参数（工作流用）→ 保存 → 打开启用开关\n5. 先点「立即运行」手测一次 → 再放心交给闹钟\n6. 出问题看本页历史（标红）或任务中心对应跑次',
+      how: '推荐路径：\n\n1. （若跑工作流）先在「工作流」里试跑并**发布**\n2. 本页点「新建自动化」：起名 + 写提示词，或选择要跑的工作流\n3. 设日程：每天/每周，或 cron；一次性则填具体时间\n4. 填默认参数（工作流用）→ 保存 → 打开启用开关\n5. 先点「立即运行」手测一次 → 再放心交给闹钟\n6. 出问题看本页历史（标红）或任务中心对应跑次（类型多为「工作流」）',
     },
     steps: [
       {
@@ -998,39 +1073,45 @@ const GUIDE = {
     title: '工作流画布',
     icon: '🎨',
     overview: {
-      what: '编排页（`#/apps/:id`）。顶栏常驻：**节点 · 设置 · 更多**；右侧 **保存 / 发布 / 试跑**。已发布后顶栏还会出现 **怎么用**。\n\n徽章：草稿可试跑；已发布才能列表 ▶ 运行、建 API Key、挂自动化；已归档不能新开运行。',
-      when: '新建、改步骤、改运行参数、发布前试跑。只想跑已发布流程：回列表点 ▶ 运行。',
-      how: '1. 「节点」加步骤并连线\n2. 点步骤：写任务名称 → 选执行者 → 写做什么\n3. 「设置」填工作流目标与运行参数\n4. 「试跑」→ 「发布」\n5. 「怎么用」：面板运行 / API / 自动化',
+      what: '编排页（`#/apps/:id`）。顶栏：**节点 · 设置 · 历史 ·（怎么用）· 更多**；右侧 **保存 / 发布|更新发布 / 试跑**。节点库与配置在右上悬浮面板（可收起成气泡）。\n\n徽章：草稿可试跑；已发布才能列表 ▶ 运行、建 API Key、挂自动化；已归档不能新开运行。',
+      when: '新建、改步骤、配本步能力与工作空间、发布前试跑。只想跑已发布流程：回列表点 ▶ 运行。',
+      how: '1. 「节点」打开悬浮面板节点库，加步骤并连线\n2. 点步骤：任务名 → 目标 → 工作空间 →「本步能力」（技能/工具/MCP/知识库/模型/思考）\n3. 「设置」：描述、默认工作空间、运行参数\n4. 「试跑」→ 「发布」\n5. 「怎么用」：面板运行 / API / 自动化',
     },
     steps: [
       {
         title: '从节点库排步骤',
-        desc: '打开「节点」。系统节点含开始、输出；任务步骤先写任务名，再选谁来干、写清做什么。用端口连线定先后。',
+        desc: '顶栏「节点」展开悬浮面板。系统节点含开始、输出；任务步骤写任务名与目标，用下拉选执行者（执行壳）。用端口连线定先后。',
         tip: '任务名称用业务语言，别用「步骤 1」',
       },
       {
+        title: '配本步能力与工作空间',
+        desc: '在「本步能力」显式挂技能、工具、MCP、知识库；可为本步选模型与思考开关。工作空间可跟工作流默认，也可本步覆盖。',
+        tip: '勿留空指望执行者默认能力',
+      },
+      {
         title: '工作流设置',
-        desc: '点「设置」：工作流目标（必填）、详细描述、执行方式、运行参数。',
-        tip: '「先确认计划再执行」适合高风险；默认「按步骤自动跑完」',
+        desc: '点「设置」：描述可选；建议填默认工作空间；运行参数按需填。执行方式可选「按步骤自动跑完」或「先确认计划再执行」。',
+        tip: '默认按步骤自动跑完；定时 / 接口触发即开跑',
       },
       {
         title: '试跑再发布',
-        desc: '「试跑」在画布内填参（草稿也可）。满意后「发布」。发布后点「怎么用」可填参运行、建 Key 或挂自动化。',
+        desc: '「试跑」在画布内填参（草稿也可）。满意后「发布」。发布后点「怎么用」可填参运行、建 Key 或挂自动化。跑中点节点可看对话（可续聊、可刷新）。',
         tip: '已发布后再「保存」会立刻更新线上定义，需确认',
       },
       {
-        title: '历史与版本',
-        desc: '「更多 → 历史」看历次运行。「更多 → 版本」可查看快照并恢复为新草稿（恢复后需重新发布）。',
+        title: '历史与更多',
+        desc: '顶栏「历史」看历次运行。「更多」含版本、操作记录、单步验证、整理视图；草稿时「怎么用」也在更多里。',
         tip: 'API Key 须先发布才能创建',
       },
     ],
     faq: [
       { q: '试跑和发布有啥区别？', a: '试跑：草稿也能在画布验证。发布：列表「▶ 运行」、自动化和 API Key 才可用。' },
-      { q: '怎么删节点？', a: '节点上的删除，或选中后在配置区删除。先确认下游不再依赖它的输出。' },
+      { q: '怎么删节点？', a: '选中后在悬浮面板底部「删除此节点」。先确认下游不再依赖它的输出。' },
       { q: '和任务工作流页区别？', a: '本页改模板。#/workflow/:id 是某次任务的全屏 DAG，从任务详情打开。' },
+      { q: '悬浮面板找不到了？', a: '右上若收成「面板」气泡，点一下展开；或再点顶栏「节点」。' },
     ],
     docs: [
-      { label: '工作流指南', type: 'doc', search: '工作流 画布 发布 参数' },
+      { label: '工作流指南', type: 'doc', search: '工作流 画布 发布 工作空间 本步能力' },
       { label: '任务中心', type: 'doc', search: '任务中心 工作流 DAG' },
     ],
     onboarding: {
@@ -1053,7 +1134,7 @@ const GUIDE = {
     ],
     faq: [
       { q: '和 #/apps 画布区别？', a: '本页是某次任务的执行图。#/apps 是可保存、可发布、可填参再跑的模板。' },
-      { q: '填参运行的记录在哪？', a: '工作流画布的「历史」，以及任务中心来源「工作流」。' },
+      { q: '填参运行的记录在哪？', a: '工作流画布的「历史」，以及任务中心类型「工作流」。' },
     ],
     docs: [
       { label: '任务中心', type: 'doc', search: '任务详情 工作流 DAG' },
@@ -1066,9 +1147,9 @@ const GUIDE = {
     icon: '👤',
     showAgentEmployeeNote: true,
     overview: {
-      what: '单个员工主页：状态（工作中 / 在岗 / 已停）+ 能力芯片 + 四个 Tab——**上班记录 · 成长 · 运行数据 · 配置**。\n\n编辑里名称与系统提示词以智能体为准；另可配排班、审批、工作区、知识库。工具与连接器仍回「智能体」页。',
-      when: '· 刚加人，要核对系统提示词并试跑\n· 改上班时间表、工作区、交工审核、预算\n· 改名称、系统提示词或人格 SOUL\n· 看近几轮干了啥、工作过程是否真调了工具\n· 派发、请假、绑 IM、删除岗位',
-      how: '1. 顶栏看状态与下次巡检\n2. 「派发任务 / 跟他聊 / 工作过程」\n3. ⋯「编辑岗位」：先改「智能体」分区的名称/提示词，再调编制与其余分区\n4. 「上班记录」复核小结；空转就开工作过程\n5. 「本岗全部任务」跳任务中心验收',
+      what: '单个员工主页：状态（工作中 / 在岗 / 已停）+ 能力芯片 + 四个 Tab——**上班记录 · 成长 · 运行数据 · 配置**。\n\n「编辑岗位」八段：智能体 · 工作设置 · 内置工具 · MCP · 技能 · 知识库 · 工作策略 · 成本预算。工具与技能可在员工编辑里直接改。',
+      when: '· 刚加人，要核对系统提示词并试跑\n· 改上班时间表、工作区、交工审核、预算\n· 改名称、系统提示词、工具 / MCP / 技能\n· 看近几轮干了啥、工作过程是否真调了工具\n· 派发、请假、绑 IM、删除岗位',
+      how: '1. 顶栏看状态与下次巡检\n2. 「派发任务 / 跟他聊 / 工作过程」\n3. ⋯「编辑岗位」：先改「智能体」分区的名称/提示词，再按需调工具与其余分区\n4. 「上班记录」复核小结；空转就开工作过程\n5. 「本岗全部任务」跳任务中心验收',
     },
     steps: [
       {
@@ -1095,7 +1176,8 @@ const GUIDE = {
     faq: [
       { q: '改系统提示词后立刻生效吗？', a: '保存后，下一轮心跳或下一次派活按新提示词；正在跑的那一轮通常仍按旧上下文收尾。' },
       { q: '工作项和任务中心什么关系？', a: '员工工作项常对应一条协作任务。点进去可到任务详情做确认完成 / 要求修改 / 同意派发。' },
-      { q: '如何限制它乱改文件？', a: '交工审核选「需要审核」、收窄工作区、在智能体页关掉高危工具与连接器。' },
+      { q: '如何限制它乱改文件？', a: '交工审核选「需要审核」、收窄工作区；在「编辑岗位 → 内置工具 / MCP」关掉高危项，或到智能体页改平台能力清单。' },
+      { q: '关了自动上班是不是「已停」？', a: '不是。关总开关或关巡检仍显示「在岗」（可对话、可派活）；「已停」只用于请假和草稿。' },
     ],
     docs: [
       { label: '员工管理指南', type: 'doc', search: '员工 加人 系统提示词' },
@@ -1224,7 +1306,13 @@ const GUIDE = {
 function normalizeGuide(raw) {
   if (!raw) return null
   // 已是 v2 结构（有 overview）
-  if (raw.overview) return raw
+  if (raw.overview) {
+    // 旧字段 related → docs（员工页曾只用 related）
+    if ((!raw.docs || !raw.docs.length) && raw.related?.length) {
+      return { ...raw, docs: raw.related }
+    }
+    return raw
+  }
   // 旧版 v1 结构（直接有 what/when/how）
   return {
     title: raw.title || '',
@@ -1403,9 +1491,10 @@ export function showPageHelpPanel(route, initialTab) {
   panel.setAttribute('aria-label', guide.title + '使用指南')
 
   const hasSteps = guide.steps && guide.steps.length > 0
+  const hasApi = guide.api && guide.api.length > 0
   const hasFaq = guide.faq && guide.faq.length > 0
   const hasDocs = guide.docs && guide.docs.length > 0
-  const hasTabs = hasSteps || hasFaq || hasDocs
+  const hasTabs = hasSteps || hasApi || hasFaq || hasDocs
 
   const tabsHtml = hasTabs ? `
     <div class="guide-tabs" role="tablist">
@@ -1417,6 +1506,12 @@ export function showPageHelpPanel(route, initialTab) {
         <button class="guide-tab ${_currentTab === 'steps' ? 'is-active' : ''}" data-tab="steps" role="tab" aria-selected="${_currentTab === 'steps'}">
           <span class="guide-tab-icon">👣</span>
           <span>操作</span>
+        </button>
+      ` : ''}
+      ${hasApi ? `
+        <button class="guide-tab ${_currentTab === 'api' ? 'is-active' : ''}" data-tab="api" role="tab" aria-selected="${_currentTab === 'api'}">
+          <span class="guide-tab-icon">🔌</span>
+          <span>接口</span>
         </button>
       ` : ''}
       ${hasFaq ? `
@@ -1475,6 +1570,9 @@ export function showPageHelpPanel(route, initialTab) {
   // FAQ 折叠
   _bindFaqAccordion(panel)
 
+  // 接口 Tab 里的「完整说明」链接
+  _bindApiLinks(panel, guide)
+
   // 文档链接
   _bindDocLinks(panel, guide)
 
@@ -1490,8 +1588,8 @@ export function showPageHelpPanel(route, initialTab) {
 }
 
 const AGENT_EMPLOYEE_NOTE = [
-  '1. **区别**：智能体管「会什么」（名称、系统提示词、人设、工具、技能、连接器 MCP）。员工管「何时主动干」（部门与上级、上班时间、交工审核、工作空间、绑定知识库、预算）。名称与提示词共用智能体，不再单独维护岗位名/职责。聊天里 @ 智能体不会自动值班。',
-  '2. **员工能配什么**：加人时填名称、系统提示词、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、交工审核（需要审核 / 无需审核；编辑还可选「有风险才审」）、自动上班。编辑还可改 SOUL、工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。',
+  '1. **区别**：智能体管「会什么」（名称、系统提示词、人设、工具、技能、连接器 MCP、平台能力）。员工管「何时主动干」（部门与上级、上班时间、交工审核、工作空间、绑定知识库、预算）。名称与提示词共用智能体，不再单独维护岗位职责清单。聊天里 @ 智能体不会自动值班。',
+  '2. **员工能配什么**：加人时填名称、系统提示词、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、交工审核（需要审核 / 无需审核；编辑还可选「有风险才审」）、自动上班。编辑八段：智能体 · 工作设置 · 内置工具 · MCP · 技能 · 知识库 · 工作策略 · 成本预算——工具与技能可在员工编辑里直接改。',
   '3. **怎么操作**：侧栏「员工」→「加人」→ 填名称与系统提示词 →「确认加人」→ 打开自动上班，或点「现在开始工作」，急活用小V 派活。交工后到任务中心确认或打回。',
 ].join('\n')
 
@@ -1554,6 +1652,34 @@ function _renderTabContent(guide, tab) {
                 ${step.tip ? `<div class="guide-step-tip">💡 ${_renderText(step.tip)}</div>` : ''}
               </div>
             </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+  }
+
+  if (tab === 'api' && guide.api) {
+    return `
+      <div class="guide-tab-panel" role="tabpanel">
+        <p class="guide-api-intro">脚本、curl 或 <code>evoflow</code> CLI 怎么调；写操作 HTTP 需 <code>confirm:true</code>。Gateway 地址以本机实际端口为准（示例 <code>8001</code>）。</p>
+        <div class="guide-api-list">
+          ${guide.api.map((item, i) => `
+            <article class="guide-api-card" data-api-index="${i}">
+              <h3 class="guide-api-title">${_esc(item.title)}</h3>
+              <section class="guide-api-section" aria-label="接口示例">
+                <div class="guide-api-label">接口示例</div>
+                <div class="guide-api-body help-section-text">${_renderText(item.example || '')}</div>
+              </section>
+              <section class="guide-api-section" aria-label="接口说明">
+                <div class="guide-api-label">接口说明</div>
+                <div class="guide-api-body help-section-text">${_renderText(item.desc || '')}</div>
+              </section>
+              ${item.search ? `
+                <button type="button" class="guide-api-more" data-api-search="${_esc(item.search)}" data-api-label="${_esc(item.title)}">
+                  📄 打开完整说明
+                </button>
+              ` : ''}
+            </article>
           `).join('')}
         </div>
       </div>
@@ -1637,8 +1763,22 @@ function _switchTab(guide, tab) {
     body.innerHTML = _renderTabContent(guide, tab)
     // 重新绑定交互
     if (tab === 'faq') _bindFaqAccordion(_currentPanel)
+    if (tab === 'api') _bindApiLinks(_currentPanel, guide)
     if (tab === 'docs') _bindDocLinks(_currentPanel, guide)
   }
+}
+
+/** 接口 Tab：打开用户指南里的完整接口文档 */
+function _bindApiLinks(root, guide) {
+  if (!guide?.api?.length) return
+  root.querySelectorAll('.guide-api-more').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const search = btn.getAttribute('data-api-search') || ''
+      const label = btn.getAttribute('data-api-label') || '接口说明'
+      if (!search) return
+      void _openGuideDocBySearch(search, label)
+    })
+  })
 }
 
 // FAQ 折叠交互

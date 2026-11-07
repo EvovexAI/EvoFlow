@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 _FM_RE = re.compile(r"^---\s*\n.*?\n---\s*\n?", re.DOTALL)
 _LEAD_CODES = frozenset({"", "main", "lead_agent", "user", "default", "system"})
+# Display names sometimes leak into affect routing (assemble uses them for {agent_name}).
+_LEAD_DISPLAY_ALIASES = frozenset({"evoflow", "assistant", "ai"})
 
 
 def ensure_default_affect_md(entity) -> None:
@@ -51,7 +53,7 @@ def _entity_for_agent_code(agent_code: str, *, principal_id: str = ""):
     from evoflow.assets.paths import EntityRef, entity_root
 
     code = str(agent_code or "").strip().lower()
-    if code in _LEAD_CODES:
+    if code in _LEAD_CODES or code in _LEAD_DISPLAY_ALIASES:
         return _user_entity(principal_id)
 
     emp = EntityRef("employee", code).normalized()

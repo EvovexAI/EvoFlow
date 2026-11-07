@@ -407,11 +407,11 @@ html.dark .app-card-menu {
   margin-top: calc(var(--app-ico-lift) * -1);
 }
 
-/* 工具栏尺寸（36px），与 .wf-toolbar-app-icon 同规格 */
+/* 通用 sm：列表/卡片紧凑位；工作室顶栏另有 .wf-toolbar-brand 覆盖 */
 .app-ico-tile--sm {
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
 }
 
 /* 运行页头部尺寸（40px） */
@@ -985,16 +985,19 @@ textarea.app-run-prompt-input {
   user-select: none;
 }
 
-/* ?? ?????????? */
+/* 运行历史：吃满主列，勿再锁 1100px（全屏时右边会空一半） */
 .page.apps-history-page {
-  max-width: 1100px !important;
+  max-width: none !important;
   width: 100%;
-  padding: 24px 28px 40px !important;
+  padding: 16px 20px 24px !important;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .page.apps-history-page.has-detail {
-  max-width: 1100px !important;
+  max-width: none !important;
 }
 
 .apps-history-page.has-detail .apps-history-layout {
@@ -1007,9 +1010,9 @@ textarea.app-run-prompt-input {
   z-index: 1200;
   background: rgba(15, 23, 42, 0.48);
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 16px;
   box-sizing: border-box;
 }
 
@@ -1018,10 +1021,14 @@ textarea.app-run-prompt-input {
 }
 
 .apps-history-modal {
-  width: min(1180px, 96vw);
-  height: min(860px, 92vh);
+  /* 贴近视口：全屏 / 宽屏不再只占中间一条 */
+  width: calc(100vw - 32px);
+  height: calc(100vh - 32px);
+  max-width: none;
+  max-height: none;
+  margin: auto;
   background: var(--bg-card, #fff);
-  border-radius: 16px;
+  border-radius: 14px;
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.28);
   display: flex;
   flex-direction: column;
@@ -1037,6 +1044,15 @@ textarea.app-run-prompt-input {
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.apps-history-modal .apps-history-detail-main > .app-run-inspect {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
 }
 
 /* Shared inspect: left nodes � split overview | trajectory */
@@ -1276,10 +1292,12 @@ textarea.app-run-prompt-input {
   gap: 16px;
   align-items: stretch;
   min-height: 0;
+  flex: 1 1 auto;
 }
 
 .apps-history-list-col {
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -1290,6 +1308,8 @@ textarea.app-run-prompt-input {
   border-radius: 14px;
   background: var(--bg-card);
   overflow: auto;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .apps-history-table {
@@ -1754,6 +1774,29 @@ textarea.app-run-prompt-input {
   text-align: right;
 }
 
+.app-settings-ws-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.app-settings-ws-row .app-settings-input {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.app-settings-ws-row .btn {
+  flex-shrink: 0;
+  align-self: stretch;
+}
+
+.app-settings-hint {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--app-studio-fg-weak, var(--text-tertiary));
+}
+
 .app-settings-fold-toggle {
   display: inline-flex;
   align-items: center;
@@ -1804,6 +1847,36 @@ textarea.app-run-prompt-input {
   padding: 0 8px;
   font-size: 11px;
   border-radius: 5px;
+}
+
+.app-settings-mode-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-settings-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  background: var(--app-studio-surface);
+  font-size: 12px;
+  color: var(--app-studio-fg);
+  cursor: pointer;
+}
+
+.app-settings-mode-row:has(input:checked) {
+  border-color: var(--app-studio-link);
+  background: var(--app-studio-surface-2);
+}
+
+.app-settings-mode-row input {
+  margin: 0;
+  flex-shrink: 0;
 }
 
 .app-settings-mode-grid {

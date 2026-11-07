@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import os
 import threading
 from typing import Any
+
+from evoflow.timeutil import utc_now_iso_z
 
 from langchain_core.tools import BaseTool
 
@@ -18,9 +21,21 @@ _cache_initialized = False
 _config_fingerprint: str | None = None
 _mcp_server_status: dict[str, dict[str, Any]] = {}
 _mcp_init_error: str | None = None
+# 最近一次「本上下文拿不到 MCP 工具」的原因（isolation-loop / 无注册 loop / 初始化失败）。
+# 不静默降级：状态快照（mcp/status.py）与 worker 日志都会消费它。
+_mcp_unavailable_reason: str | None = None
 _thread_init_lock = threading.Lock()
 _async_init_lock: asyncio.Lock | None = None
 _registered_init_loop: asyncio.AbstractEventLoop | None = None
+
+
+def _set_unavailable_reason(reason: str) -> None:
+    global _mcp_unavailable_reason
+    _mcp_unavailable_reason = reason
+
+
+def mcp_unavailable_reason() -> str | None:
+    return _mcp_unavailable_reason
 
 
 def _get_async_init_lock() -> asyncio.Lock:
@@ -97,6 +112,135 @@ def register_mcp_init_loop(loop: asyncio.AbstractEventLoop) -> None:
     _registered_init_loop = loop
 
 
+# ── 跨进程状态快照（mcp-status 假阴性修复，2026-11-07） ──────────────────────
+# platform(action='mcp.list') / CLI 与网关 HTTP 服务可能不在同一进程：
+# ``_cache_initialized`` 是进程内全局变量，别的进程永远是 False → 假阴性
+# 「total_tools=0 / pending」。warmup 完成后把快照写到 mcp.json 同目录，
+# 任何进程都能读到「整个系统的 MCP 状态」。读取方用 writer_pid 存活检测
+# 区分「网关在跑（信快照）」与「网关已死（降级 unknown，不冒充 ready/pending）」。
+
+
+def _mcp_snapshot_path():
+    from pathlib import Path
+
+    try:
+        from evoflow.mcp.tools import _get_mcp_config_path
+
+        cfg = Path(str(_get_mcp_config_path()))
+        return cfg.parent / "mcp-status-snapshot.json"
+    except Exception:
+        return None
+
+
+def _process_alive(pid: int | None) -> bool:
+    """进程存活探测（stdlib-only）：Windows 用 OpenProcess+WaitForSingleObject，POSIX 用 kill 0。"""
+    pid = int(pid or 0)
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+
+        PROCESS_SYNCHRONIZE = 0x00100000
+        WAIT_TIMEOUT = 0x00000102
+        INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
+        try:
+            kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+            handle = kernel32.OpenProcess(PROCESS_SYNCHRONIZE, False, pid)
+            if not handle or handle == INVALID_HANDLE_VALUE:
+                return False
+            try:
+                return int(kernel32.WaitForSingleObject(handle, 0)) == WAIT_TIMEOUT
+            finally:
+                kernel32.CloseHandle(handle)
+        except Exception:
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True  # 存在但无权发信号 —— 视为存活
+    except OSError:
+        return False
+
+
+def persist_mcp_status_snapshot() -> dict[str, Any] | None:
+    """把当前 MCP 状态持久化到 mcp.json 同目录（跨进程可读）。best-effort。"""
+    path = _mcp_snapshot_path()
+    if path is None:
+        return None
+    tools_by_server: dict[str, list[str]] = {}
+    for t in _mcp_tools_cache or []:
+        name = str(getattr(t, "name", "") or "").strip()
+        if not name:
+            continue
+        parts = name.split("__")
+        server = parts[1] if len(parts) >= 3 and parts[0] == "mcp" else (parts[0] if len(parts) >= 2 else "unknown")
+        tools_by_server.setdefault(server, []).append(name)
+    payload: dict[str, Any] = {
+        "generated_at": utc_now_iso_z(),
+        "writer_pid": os.getpid(),
+        "cache_initialized": bool(_cache_initialized),
+        "total_tools": len(_mcp_tools_cache or []),
+        "server_status": get_mcp_server_load_status(),
+        "config_fingerprint": _config_fingerprint,
+        "init_error": _mcp_init_error,
+        "tools_by_server": tools_by_server,
+    }
+    try:
+        import tempfile
+
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_name = tempfile.mkstemp(dir=str(path.parent), prefix=".mcp-status-", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(payload, fh, ensure_ascii=False)
+            os.replace(tmp_name, str(path))
+        except Exception:
+            try:
+                os.unlink(tmp_name)
+            except OSError:
+                pass
+            raise
+        return payload
+    except Exception:
+        logger.debug("persist_mcp_status_snapshot failed", exc_info=True)
+        return None
+
+
+def load_persisted_mcp_status_snapshot(*, require_writer_alive: bool = True) -> dict[str, Any] | None:
+    """读取持久化快照；writer 进程已死（或快照超龄）时视为不存在。"""
+    path = _mcp_snapshot_path()
+    if path is None or not path.exists():
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            payload = json.load(fh)
+    except Exception:
+        logger.debug("load_persisted_mcp_status_snapshot read failed", exc_info=True)
+        return None
+    if not isinstance(payload, dict):
+        return None
+    try:
+        generated_at = str(payload.get("generated_at") or "")
+        # 超龄保护：writer 存活但快照太久没刷新（异常场景兜底），7 天视为失效。
+        if generated_at:
+            from datetime import datetime, timezone
+
+            age_days = (
+                datetime.now(timezone.utc)
+                - datetime.fromisoformat(generated_at.replace("Z", "+00:00"))
+            ).total_seconds() / 86400.0
+            if age_days > 7:
+                return None
+    except Exception:
+        pass
+    if require_writer_alive and not _process_alive(payload.get("writer_pid")):
+        return None
+    return payload
+
+
 def _on_asyncio_loop_thread() -> bool:
     """True when called from a coroutine running on an event-loop thread."""
     try:
@@ -128,7 +272,11 @@ def _suppress_mcp_stdio_parse_noise():
 
 
 async def initialize_mcp_tools() -> list[BaseTool]:
-    """Initialize and cache MCP tools on the **current running** event loop."""
+    """Initialize and cache MCP tools on the **current running** event loop.
+
+    MCP 工具对象本身经 mcp/pool marshal（会话常驻池专属 loop），**不绑定初始化时
+    所在的 loop**——在 gateway 主 loop 或 worker isolated loop 上初始化都安全。
+    """
     global _mcp_tools_cache, _cache_initialized, _config_fingerprint, _mcp_init_error, _mcp_server_status
 
     async with _get_async_init_lock():
@@ -163,6 +311,12 @@ async def initialize_mcp_tools() -> list[BaseTool]:
 
         _cache_initialized = True
         _config_fingerprint = _get_config_fingerprint()
+        if not _mcp_tools_cache:
+            _set_unavailable_reason(
+                f"MCP initialization produced 0 tools (init_error={_mcp_init_error or 'none'})"
+            )
+        else:
+            _set_unavailable_reason(None)
         logger.info(
             "MCP tools initialized: %d tool(s) loaded (config fingerprint: %s…)",
             len(_mcp_tools_cache or []),
@@ -181,6 +335,16 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         except Exception:
             logger.debug("Could not clear _cached_resolve_tools LRU cache", exc_info=True)
 
+        # Session/agent tool-name LRU also snapshots MCP before remount; clear it
+        # so role mcp_servers bindings see the warm catalog.
+        try:
+            from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+            invalidate_agent_tool_names_cache()
+            logger.info("Cleared agent tool-names cache after MCP init (%d tools)", len(_mcp_tools_cache or []))
+        except Exception:
+            logger.debug("Could not clear agent tool-names cache after MCP init", exc_info=True)
+
         # Also clear the lead-agent graph cache: graphs built before MCP warmup
         # completed may have been compiled without MCP tools, and the graph cache
         # key does not distinguish "has MCP tools" vs "MCP tools not yet loaded".
@@ -192,6 +356,10 @@ async def initialize_mcp_tools() -> list[BaseTool]:
         except Exception:
             logger.debug("Could not clear lead-agent graph cache", exc_info=True)
 
+        # 跨进程快照：别的进程（platform 工具 / CLI / LangGraph 进程）读不到本进程
+        # 内存缓存——不落盘它们会看到假阴性 total_tools=0 / pending。
+        persist_mcp_status_snapshot()
+
         return _mcp_tools_cache or []
 
 
@@ -202,6 +370,58 @@ def _sync_initialize_on_loop(loop: asyncio.AbstractEventLoop, timeout_sec: float
         fut.result(timeout=timeout_sec + 5.0)
     else:
         fut.result()
+
+
+async def ensure_mcp_tools_ready(timeout_sec: float | None = None) -> list[BaseTool]:
+    """Awaitable MCP readiness for **any** event loop (gateway main / worker isolated).
+
+    ``get_cached_mcp_tools`` must return ``[]`` on an asyncio loop thread while the
+    cache is cold (blocking there wedged the whole gateway once). Workers on
+    isolated loops therefore saw an empty ``mcp_catalog`` forever: no warmup ever
+    runs on *their* loop and ``_registered_init_loop`` points elsewhere.
+
+    Fix: run the init coroutine on the **calling** loop. Pool-bound tools marshal
+    every call onto the dedicated pool loop, so tool objects created here are safe
+    to use from any loop/thread afterwards. Idempotent — concurrent callers share
+    the cache via ``_cache_initialized`` (per-loop asyncio locks make a double init
+    merely redundant, never inconsistent).
+
+    Never disables ``EVOFLOW_FORCE_BG_JOB_ISOLATED_LOOPS``; failures are recorded
+    via ``mcp_unavailable_reason()`` instead of silently degrading.
+    """
+    if _is_cache_stale():
+        logger.info("MCP cache is stale, resetting for re-initialization (ensure)...")
+        reset_mcp_tools_cache()
+    if _cache_initialized:
+        _set_unavailable_reason_compat_clear()
+        return _mcp_tools_cache or []
+
+    timeout = _init_timeout_sec() if timeout_sec is None else float(timeout_sec)
+    try:
+        if timeout > 0:
+            tools = await asyncio.wait_for(initialize_mcp_tools(), timeout=timeout)
+        else:
+            tools = await initialize_mcp_tools()
+        if not tools:
+            _set_unavailable_reason(
+                "ensure_mcp_tools_ready: initialization returned 0 tools "
+                f"(init_error={_mcp_init_error or 'none'})"
+            )
+        else:
+            _set_unavailable_reason(None)
+        return tools
+    except Exception as e:
+        logger.error(
+            "ensure_mcp_tools_ready failed on this loop: %s — falling back to warm peek",
+            e,
+            exc_info=True,
+        )
+        _set_unavailable_reason(f"ensure_mcp_tools_ready failed: {str(e)[:300]}")
+        return peek_cached_mcp_tools()
+
+
+def _set_unavailable_reason_compat_clear() -> None:
+    _set_unavailable_reason(None)
 
 
 def peek_cached_mcp_tools() -> list[BaseTool]:
@@ -240,26 +460,43 @@ def get_cached_mcp_tools() -> list[BaseTool]:
     # _thread_init_lock. If we waited for the lock here, a worker thread
     # holding it while waiting for this loop (via _sync_initialize_on_loop)
     # would deadlock — see hang-diagnostics/gateway-hang-*.json.
+    # Async callers must switch to ``await ensure_mcp_tools_ready()`` — that
+    # initializes on the *calling* loop (pool-marshaled tools are loop-agnostic).
     if not _cache_initialized and _on_asyncio_loop_thread():
-        logger.debug("get_cached_mcp_tools: cache cold inside asyncio task; returning []. Use schedule_mcp_tools_warmup() / await initialize_mcp_tools().")
+        _set_unavailable_reason(
+            "get_cached_mcp_tools: cache cold inside asyncio task (use await ensure_mcp_tools_ready())"
+        )
+        logger.debug(
+            "get_cached_mcp_tools: cache cold inside asyncio task; returning []. "
+            "Use schedule_mcp_tools_warmup() / await ensure_mcp_tools_ready()."
+        )
         return []
 
     with _thread_init_lock:
         if _cache_initialized:
+            _set_unavailable_reason(None)
             return _mcp_tools_cache or []
 
         loop = _registered_init_loop
         if loop is None or not loop.is_running():
-            logger.warning("get_cached_mcp_tools: cache cold and no registered init loop. Call register_mcp_init_loop() at gateway startup.")
+            _set_unavailable_reason(
+                "get_cached_mcp_tools: cache cold and no registered init loop (CLI / isolated-loop process)"
+            )
+            logger.warning(
+                "get_cached_mcp_tools: cache cold and no registered init loop. "
+                "Call register_mcp_init_loop() at gateway startup."
+            )
             return []
 
         timeout_sec = _init_timeout_sec()
         try:
             _sync_initialize_on_loop(loop, timeout_sec)
         except Exception as e:
+            _set_unavailable_reason(f"lazy init on registered loop failed: {str(e)[:300]}")
             logger.error("Failed to lazy-initialize MCP tools on registered loop: %s", e, exc_info=True)
             return []
 
+    _set_unavailable_reason(None)
     return _mcp_tools_cache or []
 
 
@@ -306,6 +543,12 @@ def reset_mcp_tools_cache() -> None:
         logger.info("Cleared _cached_resolve_tools LRU cache on MCP reset")
     except Exception:
         logger.debug("Could not clear _cached_resolve_tools LRU cache on reset", exc_info=True)
+    try:
+        from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+
+        invalidate_agent_tool_names_cache()
+    except Exception:
+        logger.debug("Could not clear agent tool-names cache on MCP reset", exc_info=True)
     try:
         from evoflow.agents.lead_agent.graph_cache import clear_lead_agent_graph_cache
 

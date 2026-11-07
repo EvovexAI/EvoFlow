@@ -634,7 +634,12 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             ) : null}
             <div className="react-chat-messages-body">
               {isDeptChatSurface ? (
-                <DeptGroupChatMain sessionKey={String(selectedSessionKey || '')} />
+                /* key 强制按部门 remount：sessionKey 切换时旧队列 dispose、状态全新，
+                   避免 A 部门进行中的点名把回复打到 B 的时间线 */
+                <DeptGroupChatMain
+                  key={String(selectedSessionKey || '')}
+                  sessionKey={String(selectedSessionKey || '')}
+                />
               ) : null}
               {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
               {!isDeptChatSurface ? (
@@ -1533,11 +1538,14 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
           </div>
             )
             // V4 对话：portal 进 timeline sticky bottomDock；工作台首页用自带输入，走兄弟 dock（CSS 隐藏）。
-            // host 未挂好时不要回落兄弟 dock——否则空草稿会先贴底再被 portal+居中抬到中间，闪一下。
+            // host 未挂好时：若是新草稿，也不要回落兄弟 dock——输入框先贴底再被
+            // portal+居中抬到中间会闪跳。只有内容已渲染的会话或回落旧面板时才显示兼容输入。
             if (isEvoflowChatV4Enabled() && !isHomeSurface) {
-              return v4ComposerHostEl
-                ? createPortal(bottomDockNode, v4ComposerHostEl)
-                : null
+              if (v4ComposerHostEl) {
+                return createPortal(bottomDockNode, v4ComposerHostEl)
+              }
+              // host 尚未就绪：draftEmpty 在外层作用域不可用，fallback 始终显示输入
+              return bottomDockNode
             }
             return bottomDockNode
           })()}
@@ -1593,6 +1601,24 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       {
                         sessionKey: String(selectedSessionKey || '').trim() || undefined,
                         layout: 'wide',
+                      },
+                    )
+                  })
+                }}
+                sessionWorkflowTaskId={String(sidebarActiveTaskId || '').trim()}
+                onPickWorkflow={(opt) => {
+                  const tid = String(opt?.taskId || '').trim()
+                  if (!tid) return
+                  void import('../../../lib/right-stage/open-collab-workflow-stage.js').then((m) => {
+                    m.openCollabWorkflowInRightStage(
+                      {
+                        mainTaskId: tid,
+                        leadThreadId: String(opt.leadThreadId || chatThreadIdForSidebar || '').trim(),
+                        title: String(opt.title || '工作流').trim() || '工作流',
+                      },
+                      {
+                        sessionKey: String(selectedSessionKey || '').trim() || undefined,
+                        forceExpand: true,
                       },
                     )
                   })

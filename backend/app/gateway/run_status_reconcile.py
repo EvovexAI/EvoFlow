@@ -533,6 +533,20 @@ async def reconcile_session_run_row(
                 )
                 await _cancel_stale_active_run(sk, tid)
                 return "cancelled"
+            # Fresh live snapshot means the turn is still writing heartbeats
+            # (frontend stream OR TaskOutput wait pulse). Do not fall through to
+            # updatedAt — session.updated_at may lag while tools are silent.
+            try:
+                from evoflow.persistence.live_run_repositories import get_live_run_snapshot
+
+                if get_live_run_snapshot(sk):
+                    return "kept"
+            except Exception:
+                logger.debug(
+                    "reconcile: live snapshot read failed session=%s",
+                    sk,
+                    exc_info=True,
+                )
             if _is_session_run_stale(row):
                 logger.info(
                     "reconcile: cancelling stale run (updatedAt timeout, no live snapshot) session=%s thread=%s run=%s",

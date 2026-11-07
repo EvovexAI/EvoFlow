@@ -84,6 +84,11 @@ export class RightStageStore {
   private activeKey: string | null = null
   /** 默认折叠；用户点侧栏按钮或 show() 时展开。 */
   private collapsed = true
+  /**
+   * 用户点过「收起」：在用户再次 expand 前，show/activate/同签更新不得偷偷撑开。
+   * 否则流式写签 / 平台 autoOpen 会把刚收起的栏立刻弹回，表现为收起钮「没反应」。
+   */
+  private userCollapsed = false
   private rev = 0
   private streams = new Map<string, RightStageStreamSession>()
   private recentClosed: RecentClosedRightStageTab[] = []
@@ -146,20 +151,53 @@ export class RightStageStore {
   setCollapsed(collapsed: boolean) {
     if (this.collapsed === collapsed) return
     this.collapsed = collapsed
+    // 显式折叠 = 用户意图；显式展开清掉，允许后续 auto show 再撑开。
+    this.userCollapsed = collapsed
     this.bump()
   }
 
   expand() {
+    this.userCollapsed = false
     this.setCollapsed(false)
   }
 
   collapse() {
-    logRightStage('store.collapse', { from: this.collapsed }, { stack: true, store: this })
-    this.setCollapsed(true)
+    logRightStage(
+      'store.collapse',
+      { from: this.collapsed, userCollapsed: true },
+      { stack: true, store: this },
+    )
+    this.userCollapsed = true
+    if (this.collapsed) {
+      // 已折叠时也要钉住意图，否则同签 show() 仍会再撑开。
+      return
+    }
+    this.collapsed = true
+    this.bump()
   }
 
   toggleCollapsed() {
-    this.setCollapsed(!this.collapsed)
+    if (this.collapsed) this.expand()
+    else this.collapse()
+  }
+
+  /** 用户是否仍锁定收起（自动开栏应尊重）。 */
+  get isUserCollapsed(): boolean {
+    return this.userCollapsed
+  }
+
+  /** 尝试展开：用户收起锁定时返回 false，不改状态。 */
+  expandUnlessUserCollapsed(): boolean {
+    if (this.userCollapsed) {
+      logRightStage(
+        'store.expandUnlessUserCollapsed blocked',
+        { userCollapsed: true },
+        { store: this },
+      )
+      return false
+    }
+    this.expand()
+    return true
   }
 
   /** 导出当前会话可冻结的侧栏状态（不含 streams）。 */
@@ -209,6 +247,8 @@ export class RightStageStore {
         typeof options?.collapsedWhenNoMemory === 'boolean'
           ? options.collapsedWhenNoMemory
           : carried.length === 0
+      // 切会话重置收起锁，避免上一会话的「收起」钉死新会话。
+      this.userCollapsed = this.collapsed
       this.recentClosed = []
       this.streams.clear()
       this.bump()
@@ -246,6 +286,7 @@ export class RightStageStore {
     this.activeKey = restoredActive ?? (merged.length ? this.tabKeyOf(merged[merged.length - 1]!) : null)
     this.collapsed =
       typeof memory.collapsed === 'boolean' ? memory.collapsed : this.tabs.length === 0
+    this.userCollapsed = this.collapsed
     this.recentClosed = Array.isArray(memory.recentClosed) ? memory.recentClosed : []
     this.streams.clear()
     this.bump()
@@ -274,12 +315,20 @@ export class RightStageStore {
     layout?: RightStageSurface['layout']
     data?: Record<string, unknown>
     sessionKey?: string
+    /**
+     * 用户显式打开（点文件 pill / 编辑卡 / 文件树）时为 true：
+     * 清掉收起锁并展开。自动开栏（平台工具、小V）不要传，以免顶掉用户「收起」。
+     * 关到最后一个签会钉 userCollapsed；若这里不强制，再点文件会只写签不撑开。
+     */
+    forceExpand?: boolean
   }) {
     const kind = normalizeRightStageKind(String(input.kind || '').trim())
     if (!kind) {
       logPanelSet('④ store.show：kind 为空，忽略')
       return
     }
+    const forceExpand = Boolean(input.forceExpand)
+    if (forceExpand) this.userCollapsed = false
     // 产物改由侧栏 Info Rail 呈报，禁止占用 Right Stage
     if (kind === 'artifacts') {
       logPanelSet('④ store.show：拒绝挂 artifacts 标签（设计如此，应走文件预览/状态卡）')
@@ -324,9 +373,9 @@ export class RightStageStore {
         prev.sessionKey === next.sessionKey &&
         JSON.stringify(prev.data) === JSON.stringify(next.data)
       if (same) {
-        // 仅激活并展开（侧栏可能处于折叠）
+        // 仅激活；用户收起锁定时不偷偷展开（forceExpand 除外）
         const needActivate = this.activeKey !== key
-        const needExpand = this.collapsed
+        const needExpand = this.collapsed && (forceExpand || !this.userCollapsed)
         if (needActivate) this.activeKey = key
         if (needExpand) this.collapsed = false
         if (needActivate || needExpand) this.bump()
@@ -337,15 +386,17 @@ export class RightStageStore {
       this.tabs = [...this.tabs, next]
     }
     this.activeKey = key
-    // 打开/激活任一标签时必须展开侧栏，否则用户看不到新页
-    this.collapsed = false
-    logPanelSet('④ store.show 已展开', {
+    // 打开/激活标签：用户未锁收起时才展开；显式打开（forceExpand）始终撑开。
+    if (forceExpand || !this.userCollapsed) this.collapsed = false
+    logPanelSet('④ store.show 已写入', {
       key,
       kind,
       title: next.title,
       sessionKey: next.sessionKey || '(空)',
       tabCount: this.tabs.length,
       collapsed: this.collapsed,
+      userCollapsed: this.userCollapsed,
+      forceExpand,
     })
     this.bump()
   }
@@ -396,7 +447,7 @@ export class RightStageStore {
   activateTab(key: string) {
     if (!this.tabs.some((t) => this.tabKeyOf(t) === key)) return
     const needActivate = this.activeKey !== key
-    const needExpand = this.collapsed
+    const needExpand = this.collapsed && !this.userCollapsed
     if (!needActivate && !needExpand) return
     if (needActivate) this.activeKey = key
     if (needExpand) this.collapsed = false
@@ -441,6 +492,7 @@ export class RightStageStore {
     // 关到最后一个标签：整栏收起，不要落回「打开标签」启动页
     if (!this.tabs.length && !this.collapsed) {
       this.collapsed = true
+      this.userCollapsed = true
     }
     this.bump()
   }
@@ -594,6 +646,7 @@ export class RightStageStore {
     this.tabs = []
     this.activeKey = null
     this.collapsed = true
+    this.userCollapsed = true
     this.bump()
   }
 

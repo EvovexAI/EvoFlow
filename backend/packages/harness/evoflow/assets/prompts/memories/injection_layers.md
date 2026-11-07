@@ -1,30 +1,17 @@
-# Asset injection layers (SoT)
+# Asset injection layers (SoT · 实现/运维)
 
-Runtime injects **indexes + full standing page**; experience bodies stay on disk until `assets read`.
+对话侧「写什么、落哪、何时更新」**唯一口径**：同目录 [`read_path.md`](read_path.md)（注入系统提示 `## Entity assets`）。  
+本文件只描述运行时分层，**不要**再抄落点表。
 
 | Layer | What | When | Owns |
 |-------|------|------|------|
 | **L0 job** | system_prompt / soul | every turn | Duty skeleton only |
-| **L1 standing（长期记忆）** | `memory/standing.md` full page | every turn | Prefs, tips, What's in Memory name index |
-| **L2 catalog** | craft / episodic / journal filenames + `MEMORY.md` | every turn | Discoverability |
-| **L3 body** | craft / episodic / … | on demand | `assets` read / search |
+| **L1b affect** | `profile/affect.md` → `<affect>` | memory on | Main→user vault；employee/小微→own |
+| **L2 standing** | `standing.md` 正文 | **on demand** | 用户长期记忆（像人脑回忆） |
+| **L3 body** | craft / episodic / journal 正文 + 文件名 | **on demand** | `assets` read / search / list |
 
-## Write (agent)
+**standing 与 catalog 不再每轮注入**——按需用 `assets list/search/read` 取，保持上下文干净。
 
-| Content | Tool |
-|---------|------|
-| Prefs / hard constraints | `assets note` `kind=preference` → standing |
-| Process recap | `assets note` `kind=process` → episodic |
-| Experience / reflection | `kind=experience` → craft；`kind=reflection` → journal |
-| User identity | `assets profile`（`mode=append\|replace`） |
-| Employee mood | `assets affect`（`mode=append\|replace`；主动写） |
-| Job duty | short system_prompt only |
+`memory_enabled` 关 → `<affect>`、assets 工具全关。
 
-Outdated / duplicate topics → **model decides**: `read` then `note`+`path=` or `write` to overwrite. Runtime never auto-merges by similarity.
-
-Assets win for details over job prompt; job prompt may keep a one-line pointer.
-
-## Catalog & recall
-
-- Catalog: basename only under kind headings.
-- Hub Recall (`EVOFLOW_HUB_RECALL`, default on): path·title lines on the turn tail; model `assets read` for bodies.
+kind → 路径映射：admin `skills/public/evoflow-admin/references/assets-contract.md` 布局表；行为规则仍以 `read_path.md` 为准。

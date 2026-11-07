@@ -253,7 +253,18 @@ def list_journal_catalog(entity: EntityRef, *, limit: int = TIER0_CATALOG_PER_KI
     return rows
 
 
-def read_standing_text(entity: EntityRef, *, max_chars: int | None = None) -> str:
+def read_standing_text(
+    entity: EntityRef,
+    *,
+    max_chars: int | None = None,
+    for_inject: bool = True,
+) -> str:
+    """Read ``memory/standing.md``.
+
+    ``for_inject=True`` (default): collapse dense What's in Memory + soft-cap
+    prefs/tips for system-prompt L1. Pass ``for_inject=False`` for raw-ish body
+    (still strips a leading H1) when a caller needs the on-disk shape.
+    """
     try:
         path = resolve_entity_file(entity.normalized(), "memory/standing.md")
         if not path.is_file():
@@ -267,6 +278,13 @@ def read_standing_text(entity: EntityRef, *, max_chars: int | None = None) -> st
     if lines and lines[0].startswith("#"):
         lines = lines[1:]
     body = "\n".join(lines).strip()
+    if for_inject:
+        try:
+            from evoflow.assets.standing_format import format_standing_for_inject
+
+            body = format_standing_for_inject(body)
+        except Exception:
+            pass
     cap = TIER0_STANDING_CHARS if max_chars is None else int(max_chars)
     return cap_text_chars(body, cap)
 

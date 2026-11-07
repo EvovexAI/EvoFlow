@@ -462,8 +462,8 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
 .chat-summary-process-label {
   min-width: 0;
   color: var(--text-primary);
-  font-size: var(--ef-text-base);
-  line-height: 1.25rem;
+  font-size: var(--ef-text-sm);
+  line-height: 1.1rem;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   line-clamp: 2;
@@ -1043,6 +1043,7 @@ html[data-translucent-ui='1'] .chat-summary-agent-body .react-chat-asset-quick {
 .chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn,
 .chat-summary-agent-body .react-chat-asset-quick-btn {
   min-height: 26px;
+  height: auto;
   padding: 0 8px;
   font-size: var(--ef-text-sm);
   border-radius: 6px;
@@ -1054,6 +1055,14 @@ html[data-translucent-ui='1'] .chat-summary-agent-body .react-chat-asset-quick {
   );
   border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
   color: var(--text-secondary, #656b73);
+}
+
+.chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-count,
+.chat-summary-agent-body .react-chat-asset-quick-count {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
 .chat-summary-section[data-summary-section='agent'] .react-chat-asset-quick-btn:hover:not(:disabled),

@@ -1,8 +1,8 @@
 """Turn-tail Asset Hub recall — match **catalog titles only**, not file bodies.
 
-When the user query hits a craft/fact/episode/journal title (or path stem),
-remind the model with path + title so it ``assets read`` the right file.
-No body substring search — that was noisy and duplicated L3.
+**Default off.** Tier-0 already injects the full catalog; per-turn title match
+duplicates that index and wastes tokens. Opt in with ``EVOFLOW_HUB_RECALL=1``
+only if you need the old nudge.
 """
 
 from __future__ import annotations
@@ -21,16 +21,17 @@ _HUB_RECALL_MAX_CHARS = 600
 
 
 def hub_recall_enabled() -> bool:
-    """Asset Hub turn-tail recall — **default on** (set EVOFLOW_HUB_RECALL=0 to disable).
+    """Asset Hub turn-tail recall — **default off** (catalog already fully injected).
 
+    Set ``EVOFLOW_HUB_RECALL=1`` to re-enable title-match hints.
     Independent of ``EVOFLOW_QUERY_RECALL`` (legacy SQLite / person-kernel archival).
     """
     raw = (os.getenv("EVOFLOW_HUB_RECALL") or "").strip().lower()
-    if raw in {"0", "false", "no", "off"}:
-        return False
     if raw in {"1", "true", "yes", "on"}:
         return True
-    return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return False
 
 
 _TOKEN_RE = re.compile(r"[\w\u4e00-\u9fff]{2,}", re.UNICODE)

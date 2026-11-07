@@ -3,7 +3,7 @@
 > **先分清智能体和员工**
 >
 > 1. **区别**：智能体管「会什么」（人设、模型、工具、技能、连接器 MCP）。员工管「何时主动干」（岗位、职责、部门与上级、上班时间、转交审批、工作空间、绑定知识库、预算）。聊天里 @ 智能体不会自动值班。
-> 2. **员工能配什么**：加人时填岗位名称、职责、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、转交审批（全自动 / 平衡型 / 谨慎型）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。
+> 2. **员工能配什么**：加人时填名称、系统提示词、部门、上级、知识库；更多设置里有能力来源、工作空间、工作模型、交工审核（需要审核 / 无需审核；编辑还可选「有风险才审」）、自动上班。编辑岗位还可配工作方式、模型思考、系统提示词注入、知识库检索和预算。工具、技能、连接器到「智能体」页改。
 > 3. **怎么操作**：侧栏「员工」→「加人」→ 填岗位和至少一条职责 →「确认加人」→ 打开自动上班，或点「现在开始工作」，急活用小V 派活。交工后到任务中心确认或打回。字段见 [智能体员工](../guides/configuration/smart-employees.md)。
 
 > **比如你刚知道 EvoFlow，想搞清"这玩意儿到底能帮我干嘛？"**：
@@ -92,22 +92,22 @@ EvoFlow 是让 **Agent 把事做完** 的桌面/Web 产品：不只聊天，还�
 小V（全局 AI 小秘书）── 待办管理、任务派发、进度与结果反馈；一员工一会话委派、按需工作轨迹
 ```
 
-| 能力 | 一句话 | 操作指南 |
-|------|--------|----------|
-| 实时聊天 | 主入口；模式决定怎么干 | [基础功能](../guides/chat/basic-functions.md) [[guides/chat/basic-functions|基础功能]] |
-| Plan | 先定稿再「开始执行」 | [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] |
-| 目标 | 聊天里长程自驱 | [目标 Agent](../guides/chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
-| 工作空间 | 项目目录绑定与读写边界 | [工作空间](../guides/chat/workspace.md) [[guides/chat/workspace|工作空间]] |
-| 任务中心 | 用户待办 + 员工协作派发 + 追踪交付；小V 协调 | [概念](../explanation/task-center.md) · [操作](../guides/tasks/task-center.md) |
-| 小V | 全局 AI 小秘书：待办、派发、进度与结果反馈 | [任务中心概念](../explanation/task-center.md) · [EvoPanel 指南](../guides/configuration/evopanel-guide.md) |
-| 工作流（旧名「应用中心」） | 多节点工作流产品化 | [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
-| 自动化 | 提示词 Agent 自动化 ∥ 定时工作流；调度与执行历史 | [概念](../explanation/automation-center.md) · [操作](../guides/tasks/scheduled-tasks.md) |
-| 智能体员工 | 编内值班岗 + 关键审批；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|指南]] · [教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|教程]] · [概念](../explanation/smart-employees.md) [[explanation/smart-employees|概念]] |
-| 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] |
-| 资产中心 | 用户资产∥员工资产；画像可共享、记忆互不共享 | [概念](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] · [操作](../guides/configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] |
-| 知识库 | 上传文档后检索、问 AI，并可绑给员工 | [知识库](../guides/configuration/knowledge-base.md) |
-| Agent 应用 | 多来源业务应用统一列表，平台内打开；可接工作流 / AI 员工 / 知识库 | [概念](../explanation/agent-applications.md) · [操作](../guides/configuration/settings-capabilities.md) |
-| 设置治理套件 | 安全中心 · 费用 · 代码索引 · 资源市场 · 多用户/SSO | [设置](../guides/configuration/settings.md) [[guides/configuration/settings|设置]] · [资源市场](../guides/configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] · [生态对照](../explanation/ecosystem-comparison.md) [[explanation/ecosystem-comparison|生态对照]] |
+| 能力 | 一句话 | 操作指南 | 接口示例与说明 |
+|------|--------|----------|----------------|
+| 实时聊天 | 主入口；模式决定怎么干 | [基础功能](../guides/chat/basic-functions.md) [[guides/chat/basic-functions|基础功能]] | — |
+| Plan | 先定稿再「开始执行」 | [Plan 模式](../guides/chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] | — |
+| 目标 | 聊天里长程自驱 | [目标 Agent](../guides/chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] | — |
+| 工作空间 | 项目目录绑定与读写边界 | [工作空间](../guides/chat/workspace.md) [[guides/chat/workspace|工作空间]] | — |
+| 任务中心 | 用户待办 + 员工协作派发 + 追踪交付；小V 协调 | [概念](../explanation/task-center.md) · [操作](../guides/tasks/task-center.md) | [tasks / items API · CLI](../guides/integration/api-cli-employees-knowledge-workflow-tasks.md#tasks-items) — 协作任务 `tasks.*`，事项 `items.*`；示例与入参出参见该节 |
+| 小V | 全局 AI 小秘书：待办、派发、进度与结果反馈 | [任务中心概念](../explanation/task-center.md) · [EvoPanel 指南](../guides/configuration/evopanel-guide.md) | —（派活底层同员工 / 任务中心接口） |
+| 工作流（旧名「应用中心」） | 多节点工作流产品化 | [工作流](../guides/configuration/app-center.md) [[guides/configuration/app-center|工作流]] | [workflow API · CLI](../guides/integration/api-cli-employees-knowledge-workflow-tasks.md#workflow) — `workflow.run` / `evoflow workflow run`；创建发布走 platform 或 `/api/apps` |
+| 自动化 | 提示词 Agent 自动化 ∥ 定时工作流；调度与执行历史 | [概念](../explanation/automation-center.md) · [操作](../guides/tasks/scheduled-tasks.md) | [调度运维 / API](../guides/tasks/automation-scheduler.md) |
+| 智能体员工 | 编内值班岗 + 人工审批；可用小V 委派 | [指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|指南]] · [教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|教程]] · [概念](../explanation/smart-employees.md) [[explanation/smart-employees|概念]] | [employees API · CLI](../guides/integration/api-cli-employees-knowledge-workflow-tasks.md#employees) — `employees.list` / `dispatch`；`evoflow employees …` |
+| 智能体 | 能力包配置 | [智能体管理](../guides/configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] | — |
+| 资产中心 | 用户资产∥员工资产；画像可共享、记忆互不共享 | [概念](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] · [操作](../guides/configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] | — |
+| 知识库 | 上传文档后检索、问 AI，并可绑给员工 | [知识库](../guides/configuration/knowledge-base.md) | [knowledge API · CLI](../guides/integration/api-cli-employees-knowledge-workflow-tasks.md#knowledge) — `knowledge.search` / `evoflow knowledge recall`；面板 REST `/api/knowledge/owned` |
+| Agent 应用 | 多来源业务应用统一列表，平台内打开；可接工作流 / AI 员工 / 知识库 | [概念](../explanation/agent-applications.md) · [操作](../guides/configuration/settings-capabilities.md) | — |
+| 设置治理套件 | 安全中心 · 费用 · 代码索引 · 资源市场 · 多用户/SSO | [设置](../guides/configuration/settings.md) [[guides/configuration/settings|设置]] · [资源市场](../guides/configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] · [生态对照](../explanation/ecosystem-comparison.md) [[explanation/ecosystem-comparison|生态对照]] | — |
 
 面板入口总表：[EvoPanel 指南](../guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]]。
 
@@ -173,7 +173,7 @@ flowchart TD
 
 ### 路径 C · 小团队：岗位盯仓库
 
-1. 侧栏「员工」点 **加人**，写清职责；更多设置里绑仓库工作区，转交审批先选「谨慎型」（教程 [加人](../tutorials/hire-first-smart-employee.md)）
+1. 侧栏「员工」点 **加人**，写清职责；更多设置里绑仓库工作区，交工审核先选「需要审核」（教程 [加人](../tutorials/hire-first-smart-employee.md)）
 2. 打开自动上班 → 处理待审批；交工后在任务中心看 **任务总结** 再验收  
 3. 临时目标可用 **小V** 委派该员工，不必改职责
 4. 大工程仍走 Plan / 任务中心，不要全塞给值班岗  

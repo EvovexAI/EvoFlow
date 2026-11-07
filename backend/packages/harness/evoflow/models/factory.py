@@ -11,6 +11,12 @@ from evoflow.config import get_app_config, get_tracing_config, is_tracing_enable
 from evoflow.config.app_config import AppConfig
 from evoflow.config.credential_pool import build_pool_from_config
 from evoflow.config.models_yaml import infer_vendor_from_connection
+from evoflow.models.create_payload_sanitize import (
+    ALL_NON_VENDOR_CREATE_KEYS,
+    NON_VENDOR_CREATE_KEYS,
+    PLATFORM_CONTROL_KEYS,
+    scrub_chat_model_runtime_kwargs,
+)
 from evoflow.models.credential_sanitize import (
     patch_chat_model_instance_credentials,
     resolve_and_sanitize_api_key,
@@ -41,6 +47,8 @@ _VOLC_COMPLETION_RESERVE_DEFAULT = 16384
 _OPENAI_COMPAT_MAX_OUTPUT_TOKENS = 65536
 
 # EvoFlow-only config keys that must not reach LangChain / OpenAI SDK constructors.
+# Also includes LangGraph runtime keys that can leak into model ``extra_json`` (extra="allow")
+# and then into ChatOpenAI.model_kwargs → AsyncCompletions.create().
 _PROVIDER_INTERNAL_KEYS = frozenset(
     {
         "credentials",
@@ -60,6 +68,10 @@ _PROVIDER_INTERNAL_KEYS = frozenset(
         # Agent Plan metadata (v124) — EvoFlow-only, not vendor HTTP params
         "plan_type",
         "plan_config",
+        *NON_VENDOR_CREATE_KEYS,
+        # Platform control-plane flags (confirm / dry_run …) — the capability gate
+        # consumed them; they are not vendor HTTP params.
+        *PLATFORM_CONTROL_KEYS,
     }
 )
 
@@ -268,6 +280,18 @@ def _is_anthropic_native(model_class: type) -> bool:
         return issubclass(model_class, ChatAnthropic)
     except ImportError:
         return False
+
+
+def _model_supports_thinking(model_config) -> bool:
+    """``supports_thinking`` 声明的唯一解释权在这里。
+
+    声明为 false 的模型（尤其是走 OpenAI 兼容代理的 Claude / 非 thinking 模型）
+    对 ``thinking`` 参数是严格模式：厂商可能回 400
+    ``requires adaptive thinking or thinking.type=between_tools``，或
+    ``thinking.type 'disabled' is not supported by this model``。
+    这类模型一律 **omit** thinking 参数，让厂商默认策略生效。
+    """
+    return bool(getattr(model_config, "supports_thinking", False))
 
 
 def _effective_when_thinking_enabled(model_config) -> dict:
@@ -881,6 +905,8 @@ def create_chat_model(
             "plan_config",
             # Reserved Pydantic class-config key; may leak via extra="allow".
             "model_config",
+            # LangGraph / session runtime — never constructor kwargs (see create_payload_sanitize).
+            *NON_VENDOR_CREATE_KEYS,
         },
     )
     model_settings_from_config = _strip_provider_internal_keys(dumped)
@@ -915,7 +941,14 @@ def create_chat_model(
     # Explicit off only when user/manual disabled — not for Auto (omit).
     # ``None`` = unspecified: omit thinking kwargs and let the vendor default apply,
     # so always-thinking models (e.g. GLM-5.3, which rejects explicit off) still work.
-    if thinking_enabled is False and thinking_type_norm != "auto":
+    # ``supports_thinking=false`` models: always omit. Hard-injecting
+    # ``thinking.type=disabled`` here is what 400'd Claude behind OpenAI-compatible
+    # proxies (``requires adaptive thinking or thinking.type=between_tools``):
+    # these models have no thinking knob to turn, so we send nothing at all.
+    omit_thinking_for_unsupported = not _model_supports_thinking(model_config)
+    if omit_thinking_for_unsupported and thinking_type_norm != "auto":
+        _omit_vendor_thinking_kwargs(model_settings_from_config, kwargs)
+    elif thinking_enabled is False and thinking_type_norm != "auto":
         if effective_wte.get("extra_body", {}).get("thinking", {}).get("type"):
             # OpenAI-compatible gateway: thinking is nested under extra_body
             kwargs.update({"extra_body": {"thinking": {"type": "disabled"}}})
@@ -1017,6 +1050,10 @@ def create_chat_model(
     _nest_openai_compat_thinking_kwargs(model_class, merged_kwargs)
     _sanitize_openai_compat_reasoning_effort(model_class, model_config, merged_kwargs)
     _clamp_openai_compat_max_tokens(model_class, model_config, merged_kwargs)
+    if omit_thinking_for_unsupported:
+        # 最后一道闸：前面各 vendor 规整函数可能又补回 thinking / reasoning，
+        # 对 supports_thinking=false 的模型必须一个都不留（见 _model_supports_thinking）。
+        _omit_vendor_thinking_kwargs(merged_kwargs, {})
     sanitize_model_connection_settings(merged_kwargs)
     stress_vendor_base = os.environ.get("EVOFLOW_STRESS_VENDOR_BASE_URL", "").strip()
     if stress_vendor_base and issubclass(model_class, ChatOpenAI):
@@ -1050,6 +1087,7 @@ def create_chat_model(
             # ChatOpenAI requires a non-empty api_key; Ollama / local OpenAI-compat ignore it.
             merged_kwargs["api_key"] = "ollama"
     model_instance = model_class(**merged_kwargs)
+    scrub_chat_model_runtime_kwargs(model_instance)
     patch_chat_model_instance_credentials(model_instance)
     if pool is not None:
         try:
@@ -1069,6 +1107,7 @@ def create_chat_model(
         setattr(model_instance, "_evoflow_vendor", vendor)
         setattr(model_instance, "_evoflow_invocation_kind", ik)
         setattr(model_instance, "_evoflow_thinking_enabled", evoflow_thinking_enabled)
+        setattr(model_instance, "_evoflow_supports_thinking", _model_supports_thinking(model_config))
         setattr(model_instance, "_evoflow_reasoning_effort", evoflow_reasoning_effort)
         setattr(model_instance, "_evoflow_thinking_type", evoflow_thinking_type)
         if evoflow_session_mode:

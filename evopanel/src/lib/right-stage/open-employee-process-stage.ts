@@ -55,8 +55,12 @@ export function resolveEmployeeProcessTabTitle(payload: {
 }
 
 /**
- * store tab id 片段。有真实 taskId 用它；派发/唤醒常无 task → `live:{agentCode}`，
- * 仍能开右栏跟岗对话（V4EmployeeProcessPane 按 agentCode 拉 meta）。
+ * store tab id 片段。
+ *
+ * - 对话侧（主聊 / 部门群）：**一人一签** `process:live:{agentCode}`。
+ *   若按 wake 出来的真实 taskId 建签，同员工每次 chat_send 都会新开一签，
+ *   多员工续聊时标签条看起来像「没有 / 点不回去」。
+ * - 任务中心：仍按 task 拆签（`tc:process:{taskId}`），详情页要对准那一单。
  */
 export function employeeProcessStageTabId(
   taskId: string,
@@ -65,10 +69,15 @@ export function employeeProcessStageTabId(
 ): string {
   const tid = String(taskId || '').trim()
   const code = String(agentCode || '').trim()
-  const baseId = tid || (code ? `live:${code}` : '')
-  if (!baseId) return ''
-  const base = `process:${baseId}`
-  return isTaskCenterStageSessionKey(sessionKey) ? `tc:${base}` : base
+  if (isTaskCenterStageSessionKey(sessionKey)) {
+    const baseId = tid || (code ? `live:${code}` : '')
+    if (!baseId) return ''
+    return `tc:process:${baseId}`
+  }
+  // 对话侧：有 agent 就按人钉签；无 code 时才退回 taskId（兼容旧调用）
+  if (code) return `process:live:${code}`
+  if (!tid) return ''
+  return `process:${tid}`
 }
 
 export function employeeProcessStageTabKey(
@@ -115,6 +124,23 @@ export function openEmployeeProcessInRightStage(
     looksLikePathOrGeneric(String(payload.title || ''))
       ? String(existing.title || '').trim()
       : title
+
+  // 收掉同人旧签（历史上按 taskId 建的 process:{uuid}），避免标签条挤满同一员工
+  if (!isTaskCenterStageSessionKey(sk)) {
+    const snap = rightStageStore.getSnapshot()
+    for (const t of snap.tabs || []) {
+      if (t.kind !== 'employeeProcess') continue
+      const tKey = `employeeProcess:${t.id}`
+      if (tKey === key) continue
+      const tCode = String(t.data?.agentCode || t.data?.agent_code || '').trim()
+      if (tCode !== code) continue
+      // 同归属会话（或都无归属）才收，避免误关别的会话记忆里的签
+      const tSk = String(t.sessionKey || '').trim()
+      const owner = String(sk || '').trim()
+      if (owner && tSk && tSk !== owner) continue
+      rightStageStore.closeTab(tKey)
+    }
+  }
 
   const employeeSessionKey =
     String(payload.employeeSessionKey || existing?.data?.employeeSessionKey || '').trim() ||

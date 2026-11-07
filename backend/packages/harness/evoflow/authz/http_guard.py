@@ -172,7 +172,9 @@ def require_app_visible(request: Request | None, app_id: str) -> None:
     aid = str(app_id or "").strip()
     if not aid:
         raise HTTPException(status_code=404, detail="Application not found")
-    if app_repositories.load_app(aid) is None:
+    # Existence + owner scope only — do not full-load/normalize the definition here;
+    # get_app_endpoint already load_app once for the response body.
+    if not app_repositories.app_exists(aid):
         raise HTTPException(status_code=404, detail=f"Application not found: {aid}")
     authz = resolve_authz_from_request(request)
     if authz.get("is_admin"):

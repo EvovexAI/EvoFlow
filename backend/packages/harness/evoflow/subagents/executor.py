@@ -339,9 +339,12 @@ class SubagentExecutor:
             self.parent_model,
             self.config.model,
         )
+        thinking_enabled = False
+        if isinstance(self.extra_context, dict) and self.extra_context.get("thinking_enabled") is True:
+            thinking_enabled = True
         model = create_chat_model(
             name=model_name,
-            thinking_enabled=False,
+            thinking_enabled=thinking_enabled,
             invocation_kind="subagent",
         )
         reset_chat_model_http_clients(model)
@@ -587,6 +590,19 @@ class SubagentExecutor:
                         if val:
                             cfg[key] = val
                             raw_ctx[key] = val
+                    if "knowledge_vault_ids" in self.extra_context:
+                        vaults = self.extra_context.get("knowledge_vault_ids")
+                        vault_list = (
+                            [str(x).strip() for x in vaults if str(x).strip()]
+                            if isinstance(vaults, (list, tuple))
+                            else []
+                        )
+                        cfg["knowledge_vault_ids"] = vault_list
+                        raw_ctx["knowledge_vault_ids"] = vault_list
+                    if "thinking_enabled" in self.extra_context:
+                        te = bool(self.extra_context.get("thinking_enabled"))
+                        cfg["thinking_enabled"] = te
+                        raw_ctx["thinking_enabled"] = te
                 context = LeadAgentRuntimeContext.from_mapping(raw_ctx)
 
                 logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} starting async execution max_turns={self.config.max_turns} recursion_limit={recursion_limit}")

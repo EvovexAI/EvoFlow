@@ -45,6 +45,12 @@
 #content:has(> .app-run-page),
 #content:has(> .apps-history-page) {
   overflow: hidden;
+  max-width: none !important;
+}
+
+#content > .apps-history-page {
+  max-width: none !important;
+  width: 100%;
 }
 
 .app-editor-page--bare .app-wf-page-body {
@@ -151,6 +157,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  position: relative; /* DebugPanel 绝对定位锚点 */
 }
 
 .app-rf-root--fullscreen {
@@ -699,18 +706,20 @@
   font-size: var(--ef-text-sm) !important;
 }
 
-/* ── Debug Panel ── */
+/* ── Debug Panel（单节点 / 从此处重跑 / Trace；与试跑 dock 的 .wf-debug-* 共用类名时用 .wf-debug-panel 限定）── */
 .wf-debug-panel {
   position: absolute;
-  right: 320px;
-  top: 56px;
-  width: 420px;
-  max-height: calc(100vh - 120px);
-  background: var(--surface, #1a1a2e);
-  border: 1px solid var(--border, rgba(128, 128, 128, 0.2));
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  z-index: 50;
+  /* 避开右侧悬浮配置卡（默认 360px） */
+  right: max(16px, calc(var(--wf-studio-card-width, 360px) + 36px));
+  top: 64px;
+  width: min(420px, calc(100% - 48px));
+  max-height: calc(100% - 88px);
+  background: var(--bg-card, #fff);
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary, rgba(128, 128, 128, 0.2));
+  border-radius: 10px;
+  box-shadow: var(--shadow-md, 0 8px 32px rgba(0, 0, 0, 0.12));
+  z-index: 60;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -721,16 +730,19 @@
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+  border-bottom: 1px solid var(--border-primary, rgba(128, 128, 128, 0.15));
+  background: var(--bg-card, #fff);
+  flex-shrink: 0;
 }
 
 .wf-debug-panel-head h3 {
   margin: 0;
-  font-size: var(--ef-text-base) ;
+  font-size: var(--ef-text-base);
   font-weight: 600;
+  color: var(--text-primary);
 }
 
-.wf-debug-close {
+.wf-debug-panel .wf-debug-close {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -743,53 +755,64 @@
   cursor: pointer;
 }
 
-.wf-debug-close:hover {
-  background: rgba(128, 128, 128, 0.15);
+.wf-debug-panel .wf-debug-close:hover {
+  background: var(--bg-hover, rgba(128, 128, 128, 0.15));
+  color: var(--text-primary);
 }
 
-.wf-debug-tabs {
+.wf-debug-panel .wf-debug-tabs {
   display: flex;
   gap: 2px;
   padding: 0 12px;
-  border-bottom: 1px solid var(--border, rgba(128, 128, 128, 0.15));
+  border-bottom: 1px solid var(--border-primary, rgba(128, 128, 128, 0.15));
+  background: var(--bg-card, #fff);
+  flex-shrink: 0;
 }
 
-.wf-debug-tab {
+.wf-debug-panel .wf-debug-tab {
+  appearance: none;
   padding: 8px 12px;
   border: none;
   border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
   background: none;
   color: var(--text-secondary);
-  font-size: var(--ef-text-sm) ;
+  font: inherit;
+  font-size: var(--ef-text-sm);
+  font-weight: 550;
   cursor: pointer;
   transition: color var(--dur-fast), border-color var(--dur-fast);
 }
 
-.wf-debug-tab:hover:not(:disabled) {
+.wf-debug-panel .wf-debug-tab:hover:not(:disabled) {
   color: var(--text-primary);
 }
 
-.wf-debug-tab.is-active {
+.wf-debug-panel .wf-debug-tab.is-active {
   color: var(--accent);
   border-bottom-color: var(--accent);
+  font-weight: 650;
 }
 
-.wf-debug-tab:disabled {
+.wf-debug-panel .wf-debug-tab:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
 .wf-debug-panel-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: 12px 16px;
+  background: var(--bg-card, #fff);
+  color: var(--text-primary);
 }
 
 .wf-debug-section {
   margin-bottom: 12px;
 }
 
-.wf-debug-run-btn {
+.wf-debug-panel .wf-debug-run-btn {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -799,18 +822,18 @@
   border: none;
   border-radius: 6px;
   background: var(--accent);
-  color: white;
+  color: #fff;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: opacity var(--dur-fast);
 }
 
-.wf-debug-run-btn:hover:not(:disabled) {
+.wf-debug-panel .wf-debug-run-btn:hover:not(:disabled) {
   opacity: 0.9;
 }
 
-.wf-debug-run-btn:disabled {
+.wf-debug-panel .wf-debug-run-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
@@ -892,13 +915,15 @@
   color: var(--text-primary);
 }
 
-.wf-debug-pre {
+.wf-debug-panel .wf-debug-pre {
   margin: 0 0 8px;
   padding: 8px;
   max-height: 240px;
   overflow: auto;
   border-radius: 4px;
-  background: rgba(128, 128, 128, 0.08);
+  background: var(--bg-secondary, rgba(128, 128, 128, 0.08));
+  color: var(--text-primary);
+  border: 1px solid var(--border-primary, transparent);
   font-size: 11px;
   line-height: 1.5;
   font-family: var(--font-mono, 'Fira Code', monospace);
@@ -1288,6 +1313,41 @@
   outline-offset: 2px;
 }
 
+.wf-node-agent-detail {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0.55;
+  transition:
+    background var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft),
+    opacity var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-node:hover .wf-node-agent-detail,
+.wf-node.is-selected .wf-node-agent-detail {
+  opacity: 1;
+}
+
+.wf-node-agent-detail:hover {
+  background: color-mix(in srgb, var(--accent, #3b82f6) 12%, transparent);
+  color: var(--accent, #3b82f6);
+}
+
+.wf-node-agent-detail:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent, #3b82f6) 55%, transparent);
+  outline-offset: 1px;
+}
+
 .wf-node-close {
   flex-shrink: 0;
   display: inline-flex;
@@ -1315,17 +1375,48 @@
   color: var(--danger, #e5484d);
 }
 
-.wf-edge-close {
+.wf-edge-chrome {
   position: absolute;
+  z-index: 6;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: all;
+  max-width: 240px;
+}
+
+.wf-edge-hint {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary);
+  background: var(--bg-card, #fff);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 550;
+  line-height: 1.3;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  user-select: none;
+}
+
+.wf-edge-chrome.is-selected .wf-edge-hint {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-primary));
+}
+
+.wf-edge-close {
+  position: relative;
   z-index: 6;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 22px;
   height: 22px;
+  flex-shrink: 0;
   border: 1px solid var(--border-primary);
   border-radius: 999px;
-  background: var(--bg-secondary, #fff);
+  background: var(--bg-card, #fff);
   color: var(--text-tertiary);
   cursor: pointer;
   pointer-events: all;
@@ -1334,16 +1425,35 @@
   transition: opacity var(--dur-fast) var(--ease-out-soft), background var(--dur-fast) var(--ease-out-soft), color var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
 }
 
-/* EdgeLabelRenderer ?? edge DOM ?????? .is-visible???? .react-flow__edge:hover */
 .wf-edge-close.is-visible,
 .wf-edge-close:hover {
   opacity: 1;
 }
 
 .wf-edge-close:hover {
-  background: var(--bg-secondary, #fff);
+  background: var(--bg-card, #fff);
   border-color: color-mix(in srgb, var(--danger, #e5484d) 45%, var(--border-primary));
   color: var(--danger, #e5484d);
+}
+
+/* 选中连线后两端可拖的改接点 */
+.app-rf-flow-wrap .react-flow__edgeupdater {
+  width: 14px;
+  height: 14px;
+  r: 7;
+  fill: var(--bg-card, #fff);
+  stroke: var(--accent, #5b5fef);
+  stroke-width: 2px;
+  cursor: grab;
+}
+
+.app-rf-flow-wrap .react-flow__edgeupdater:active {
+  cursor: grabbing;
+}
+
+.app-rf-flow-wrap .react-flow__edge.selected .react-flow__edgeupdater {
+  fill: var(--accent, #5b5fef);
+  stroke: var(--bg-card, #fff);
 }
 
 .wf-node-head .wf-node-avatar {
@@ -1649,9 +1759,13 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  height: 56px;
-  padding: 0 14px 0 8px;
+  gap: 8px;
+  /* 紧凑顶栏；最终高度以 studio-v2 为准（勿被 58px 盖回） */
+  height: 36px;
+  min-height: 36px;
+  max-height: 36px;
+  box-sizing: border-box;
+  padding: 0 8px 0 6px;
   border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 70%, transparent);
   background: color-mix(in srgb, var(--bg-card) 82%, transparent);
   backdrop-filter: saturate(1.4) blur(var(--blur-lg));
@@ -1683,10 +1797,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--accent, var(--primary));
   cursor: pointer;
@@ -1716,11 +1830,11 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
-  min-width: 34px;
-  height: 32px;
-  padding: 0 8px;
+  min-width: 30px;
+  height: 28px;
+  padding: 0 6px;
   border: none;
-  border-radius: 10px;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
@@ -1851,7 +1965,7 @@
 .wf-toolbar-brand {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
@@ -1981,11 +2095,11 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  height: 32px;
-  padding: 0 12px;
+  height: 28px;
+  padding: 0 10px;
   border: none;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   letter-spacing: -0.01em;
   cursor: pointer;
@@ -2327,7 +2441,8 @@
 
 .wf-drawer-control {
   min-height: 36px;
-  padding: 8px 10px;
+  padding: 10px 14px;
+  box-sizing: border-box;
 }
 
 .wf-folder-input-row {
@@ -2373,9 +2488,9 @@
 }
 
 .wf-drawer-control--area {
-  min-height: 68px;
+  min-height: 120px;
   resize: vertical;
-  line-height: 1.45;
+  line-height: 1.5;
 }
 
 .wf-drawer-control--select {
@@ -2548,38 +2663,36 @@
   cursor: not-allowed;
 }
 
+.wf-drawer-empty-hint {
+  margin: 0 0 10px;
+  padding: 0 2px;
+  font-size: var(--ef-text-xs);
+  line-height: 1.4;
+  color: var(--text-tertiary);
+}
+
 .wf-drawer-empty {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  padding: 28px 16px 20px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0;
   margin-bottom: 8px;
 }
 
 .wf-drawer-empty-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--wf-control-bg));
-  color: var(--accent);
+  display: none;
 }
 
 .wf-drawer-empty p {
-  margin: 0 0 4px;
-  font-size: 13px;
+  margin: 0;
+  font-size: var(--ef-text-xs);
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-tertiary);
 }
 
 .wf-drawer-empty span {
-  font-size: var(--ef-text-sm) ;
-  color: var(--text-tertiary);
-  line-height: 1.45;
+  display: none;
 }
 
 .wf-drawer-howto {
@@ -2770,6 +2883,22 @@
   color: var(--text-secondary);
 }
 
+/* 摘要式分区（悬浮配置默认；非嵌入仍可用） */
+.wf-drawer-section-block {
+  margin-bottom: 10px;
+}
+
+.wf-drawer-section-block-title {
+  margin: 0 0 8px;
+  font-size: var(--ef-text-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.wf-drawer-fold-title {
+  font-weight: 600;
+}
+
 .wf-drawer-fold-head {
   display: flex;
   align-items: center;
@@ -2794,6 +2923,202 @@
 
 .wf-drawer-fold-body {
   padding: 0 12px 12px;
+}
+
+.wf-drawer-workspace-inline {
+  margin-left: auto;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.wf-drawer-workspace-path {
+  margin: 6px 0 0;
+  padding: 0 2px;
+  font-size: var(--ef-text-xs);
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-drawer-field.wf-drawer-workspace .wf-drawer-label {
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.wf-status-workspace {
+  margin-left: 10px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--bg-secondary, var(--bg-primary)) 80%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-primary) 60%, transparent);
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-status-workspace.is-empty {
+  color: var(--text-tertiary, var(--text-secondary));
+  opacity: 0.85;
+}
+
+/* 模型：上标签；下复用主对话 ModelCatalogMenu（bottom-pill），不改写成表单框 */
+.wf-drawer-model-row {
+  margin-bottom: 12px;
+}
+
+.wf-drawer-model-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.wf-drawer-model-label-row .wf-drawer-label {
+  margin-bottom: 0;
+}
+
+.wf-drawer-model-label-row .chat-summary-role-pref-toggle {
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.wf-drawer-model-control-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wf-drawer-model-composer {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.wf-drawer-model-composer .react-chat-bottom-pill {
+  max-width: min(100%, 320px);
+}
+
+.wf-drawer-model-clear {
+  flex-shrink: 0;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.wf-drawer-model-clear:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.wf-drawer-cap-tabs {
+  margin-top: 2px;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap {
+  margin: 0;
+  gap: 6px;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap.is-compact {
+  gap: 6px;
+}
+
+/* 一行四芯片，别再用 2×2 大空卡片 */
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 2px;
+  margin: 0;
+  padding: 2px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 3.5%, transparent);
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-item {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: row;
+  align-items: baseline;
+  justify-content: center;
+  gap: 3px;
+  min-width: 0;
+  min-height: 0;
+  padding: 5px 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  text-align: center;
+  transition:
+    background-color var(--dur-fast, 120ms) ease-out,
+    color var(--dur-fast, 120ms) ease-out;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-item:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-item.is-active {
+  color: var(--text-primary);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-label {
+  order: 0;
+  font-size: 11px;
+  font-weight: 500;
+  color: inherit;
+  opacity: 0.78;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-value {
+  order: 0;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-overview-item.is-active .react-chat-agent-cap-overview-label {
+  opacity: 0.9;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-panel {
+  min-height: 0;
+}
+
+.wf-drawer-cap-tabs .react-chat-agent-cap-toolbar {
+  margin-bottom: 4px;
 }
 
 .wf-drawer-field {
@@ -3023,7 +3348,182 @@
   max-height: min(78vh, 760px);
 }
 
-/* ?? ??????????????????????? ?? */
+/* 执行者下拉：名字 + 头像 */
+.wf-agent-dd {
+  width: 100%;
+  min-width: 0;
+}
+
+.wf-agent-dd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.wf-agent-dd-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px 0 8px;
+  margin: 0;
+  box-sizing: border-box;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  color: var(--text-primary);
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-primary);
+  border-radius: 10px;
+  cursor: pointer;
+  transition:
+    border-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    background var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-agent-dd-trigger:hover,
+.wf-agent-dd-trigger.is-open {
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 40%, var(--border-primary));
+  background: color-mix(in srgb, var(--bg-tertiary, #f8fafc) 50%, var(--bg-primary, #fff));
+}
+
+.wf-agent-dd-trigger:focus-visible {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 55%, var(--border-primary));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #6366f1) 22%, transparent);
+}
+
+.wf-agent-dd-trigger.is-placeholder {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+
+.wf-agent-dd-trigger-icon {
+  flex: 0 0 auto;
+  width: 22px;
+  text-align: center;
+  opacity: 0.7;
+}
+
+.wf-agent-dd-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-agent-dd-caret {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.wf-agent-dd-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.wf-agent-dd-menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: var(--bg-primary, #fff);
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.14);
+}
+
+html[data-theme='dark'] .wf-agent-dd-menu {
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.5);
+}
+
+.wf-agent-dd-search {
+  flex: 0 0 auto;
+}
+
+.wf-agent-dd-search-input {
+  width: 100%;
+  height: 32px;
+  padding: 0 10px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8fafc);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+}
+
+.wf-agent-dd-search-input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent, #6366f1) 50%, var(--border-primary));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #6366f1) 18%, transparent);
+}
+
+.wf-agent-dd-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.wf-agent-dd-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 7px 8px;
+  box-sizing: border-box;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-agent-dd-item:hover {
+  background: var(--bg-tertiary, #f1f5f9);
+}
+
+.wf-agent-dd-item.is-active {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, var(--bg-tertiary, #f1f5f9));
+  font-weight: 600;
+}
+
+.wf-agent-dd-item-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.wf-agent-dd-empty {
+  padding: 16px 8px;
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .wf-agent-picker {
   width: min(880px, 96vw);
   max-height: min(78vh, 760px);
@@ -3444,12 +3944,12 @@
 }
 
 .wf-slash-var.wf-drawer-control--task .wf-slash-var-textarea {
-  min-height: 140px;
+  min-height: 180px;
 }
 
 .wf-slash-var.wf-drawer-control--area .wf-slash-var-textarea {
-  min-height: 68px;
-  line-height: 1.45;
+  min-height: 120px;
+  line-height: 1.5;
 }
 
 /* ?? textarea + overlay ???? ?? */
@@ -3463,8 +3963,8 @@
 .wf-slash-var-textarea {
   font-family: inherit;
   font-size: 13px;
-  line-height: 1.45;
-  padding: 8px 12px;
+  line-height: 1.5;
+  padding: 10px 14px;
   box-sizing: border-box;
   white-space: pre-wrap;
   word-wrap: break-word;
@@ -5310,9 +5810,18 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   background: var(--bg-card) !important;
 }
 
-.wf-debug-chat-portal .react-chat-subtask-modal-header { display: none; }
-.wf-debug-chat-portal .react-chat-subtask-modal-body { min-height: 0; padding-top: 4px; }
-.wf-debug-chat-portal .msg-list { padding: 0 10px 12px; }
+/* 调试坞：挂协作/员工同款节点对话面板 */
+.wf-debug-chat-portal .v4-collab-subtask-transcript {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+}
+/* 末轮齿轮 absolute 伸出回合底边：给滚动区留底，避免被 overflow 裁掉 */
+.wf-debug-chat-portal .wf-step-transcript-scroll,
+.wf-debug-chat-portal .v4-zcode-timeline,
+.wf-debug-chat-portal .msg-list {
+  padding-bottom: 28px;
+}
 
 .wf-run-chip--restore {
   cursor: pointer;
@@ -5745,14 +6254,602 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   box-shadow: none;
 }
 
-.wf-drawer.wf-drawer--config.is-open,
-.wf-drawer.wf-drawer--config.is-open.is-config {
-  width: 300px !important;
-  max-width: 300px;
-  border-right: none;
-  border-left: 1px solid var(--wf-node-border);
-  background: var(--bg-secondary);
+/* 工作流右上悬浮卡：节点库 / 配置 Tab + 收起气泡（对齐摘要面板） */
+.wf-studio-float {
+  /* 收窄：勿跟工作室顶栏同宽感；对齐聊天侧栏 / 摘要卡量级 */
+  --wf-studio-card-width: 360px;
+  --wf-studio-float-bg: var(--surface-overlay-bg, var(--bg-elevated, #fff));
+  --wf-studio-float-border: var(--surface-overlay-border, var(--border-primary, #e6e8ec));
+  --wf-studio-float-hover: var(--bg-hover, color-mix(in srgb, var(--text-primary) 8%, transparent));
+  --wf-studio-tab-bg: color-mix(
+    in srgb,
+    var(--text-primary) 7%,
+    var(--wf-studio-float-bg, #fff)
+  );
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 24;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  pointer-events: none;
+}
+
+.wf-studio-float.is-open {
+  width: min(var(--wf-studio-card-width), calc(100% - 24px));
+  /* 配置内容偏长：默认尽量铺满画布高度，不再卡 640 */
+  height: calc(100% - 24px);
+  max-height: calc(100% - 24px);
+  align-items: stretch;
+}
+
+.wf-studio-float.is-bubble {
+  width: auto;
+}
+
+.wf-studio-float-panel {
+  pointer-events: auto;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  max-height: inherit;
+  overflow: hidden;
+  color: var(--text-primary);
+  border: 1px solid var(--wf-studio-float-border);
+  border-radius: 12px;
+  background: var(--wf-studio-float-bg);
+  box-shadow: var(--surface-overlay-shadow, 0 12px 32px color-mix(in srgb, var(--text-primary) 10%, transparent));
+  transform-origin: top right;
+  animation: wf-studio-float-in var(--dur-base, 180ms) var(--ease-out-soft, ease-out);
+}
+
+.wf-studio-float-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 4px 6px 2px;
+}
+
+.wf-studio-float-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex-wrap: wrap;
+  padding: 2px;
+  border-radius: 8px;
+  background: var(--wf-studio-tab-bg);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.wf-studio-float-tab {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, var(--text-tertiary));
+  font: inherit;
+  font-size: var(--ef-text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.wf-studio-float-tab:hover {
+  background: var(--wf-studio-float-hover);
+  color: var(--text-primary);
+}
+
+.wf-studio-float-tab.is-active {
+  color: var(--text-primary);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--surface-raised-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.wf-studio-float-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.wf-studio-float-icon-btn:hover {
+  color: var(--text-primary);
+  background: var(--wf-studio-float-hover);
+}
+
+.wf-studio-float-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 16px 14px;
+}
+
+.wf-drawer-embed {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.wf-drawer-embed .wf-drawer-body {
+  padding: 0 !important;
+  overflow: visible;
+}
+
+.wf-drawer-embed .wf-drawer-foot {
+  margin-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--border-primary) 55%, transparent);
+  background: transparent;
+}
+
+.wf-studio-float-bubble {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 8px 12px;
+  border: 1px solid var(--wf-studio-float-border);
+  border-radius: 999px;
+  background: var(--wf-studio-float-bg);
+  box-shadow: var(--surface-overlay-shadow, 0 10px 24px color-mix(in srgb, var(--text-primary) 10%, transparent));
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--ef-text-sm);
+  font-weight: 600;
+}
+
+.wf-studio-float-bubble:hover {
+  background: color-mix(in srgb, var(--accent, #635bff) 8%, var(--wf-studio-float-bg));
+}
+
+.wf-studio-float-bubble-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+.wf-studio-float-bubble-label {
+  letter-spacing: 0.02em;
+}
+
+@keyframes wf-studio-float-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+html[data-translucent-ui='1'] .wf-studio-float {
+  --wf-studio-float-bg: var(--surface-glass-strong-bg, var(--ef-glass-surface-strong, var(--bg-elevated)));
+  --wf-studio-float-border: var(--surface-glass-border, var(--ef-glass-border, var(--border-primary)));
+  --wf-studio-tab-bg: transparent;
+}
+
+html[data-translucent-ui='1'] .wf-studio-float-panel,
+html[data-translucent-ui='1'] .wf-studio-float-bubble {
+  backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+  -webkit-backdrop-filter: blur(var(--surface-glass-blur, 12px)) saturate(var(--surface-glass-saturate, 1.28));
+}
+
+/*
+ * 悬浮配置卡：对齐摘要面板手感
+ * — 分区用细分隔，不套厚卡片框
+ * — 输入/按钮浅描边 + 软 focus
+ * — hover / 点击过渡跟摘要同一套 ease
+ */
+.wf-studio-float-panel {
+  /* 跟全局表单同一套表面色，别用透明混色（半透明主题下会发灰、像没配色） */
+  --wf-studio-line: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  --wf-studio-control-bg: var(--surface-control-bg, var(--bg-card, #fff));
+  --wf-studio-control-line: var(--surface-control-border, var(--border-primary, #e6e8ec));
+  --wf-studio-control-fg: var(--surface-control-fg, var(--text-primary));
+}
+
+.wf-studio-float-tab {
+  transition:
+    background-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float-icon-btn {
+  border: 1px solid transparent;
+  transition:
+    background-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft),
+    border-color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float-icon-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+.wf-studio-float-icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-focus, color-mix(in srgb, var(--accent) 35%, transparent));
+}
+
+.wf-studio-float-scroll {
+  padding: 6px 16px 14px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.wf-studio-float .wf-drawer-control {
+  padding: 10px 14px;
+}
+
+.wf-studio-float .wf-drawer-control--area,
+.wf-studio-float #wf-drawer-goal {
+  min-height: 148px;
+}
+
+.wf-studio-float .wf-drawer-control--task {
+  min-height: 180px;
+}
+
+.wf-studio-float .wf-drawer-label {
+  padding: 0 2px;
+  margin-bottom: 6px;
+}
+
+.wf-studio-float-scroll:hover {
+  scrollbar-color: rgba(15, 23, 42, 0.28) transparent;
+}
+
+.wf-studio-float-scroll::-webkit-scrollbar {
+  width: 10px;
+}
+
+.wf-studio-float-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 10px solid transparent;
+  background-clip: padding-box;
+}
+
+.wf-studio-float-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(15, 23, 42, 0.22);
+  background-clip: padding-box;
+  border: 10px solid transparent;
+}
+
+.wf-studio-float-bubble {
+  min-height: 32px;
+  padding: 6px 10px;
+  transition:
+    transform var(--dur-base) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-base) var(--ease-out-soft);
+}
+
+.wf-studio-float-bubble:hover {
+  transform: scale(1.04);
+}
+
+/* 分区：摘要式细分隔，去掉厚卡片边框 */
+.wf-studio-float .wf-drawer-section-block {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.wf-studio-float .wf-drawer-section-block + .wf-drawer-section-block {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--wf-studio-line);
+}
+
+.wf-studio-float .wf-drawer-section-block-title,
+.wf-studio-float .wf-drawer-panel-title {
+  margin: 0 0 8px;
+  padding: 0 2px;
+  font-size: var(--ef-text-base);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.wf-studio-float .wf-drawer-section-block-body {
+  min-width: 0;
+}
+
+.wf-studio-float .wf-drawer-fold-head {
+  height: auto;
+  min-height: 32px;
+  padding: 4px 2px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: var(--ef-text-base);
+  font-weight: 500;
+  transition:
+    color var(--dur-fast) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-drawer-fold-head:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.wf-studio-float .wf-drawer-fold-title {
+  font-size: var(--ef-text-base);
+  font-weight: 500;
+}
+
+.wf-studio-float .wf-drawer-fold-icon {
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition:
+    opacity var(--dur-fast) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-drawer-fold-head:hover .wf-drawer-fold-icon,
+.wf-studio-float .wf-drawer-fold-head:focus-visible .wf-drawer-fold-icon,
+.wf-studio-float .wf-drawer-section-block--fold.is-open .wf-drawer-fold-icon {
+  opacity: 1;
+}
+
+.wf-studio-float .wf-drawer-fold-body {
+  padding: 2px 2px 8px;
+}
+
+/* 输入框：实色表面（surface-control），单层描边 */
+.wf-studio-float .wf-drawer-control,
+.wf-studio-float .wf-drawer-search,
+.wf-studio-float .wf-folder-input-pick {
+  border: 1px solid var(--wf-studio-control-line);
+  border-radius: 10px;
+  background: var(--wf-studio-control-bg);
+  color: var(--wf-studio-control-fg);
+  transition:
+    border-color var(--dur-fast) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft),
+    box-shadow var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-drawer-control:hover,
+.wf-studio-float .wf-folder-input-pick:hover {
+  border-color: color-mix(in srgb, var(--accent, #635bff) 28%, var(--wf-studio-control-line));
+}
+
+.wf-studio-float .wf-drawer-control:focus,
+.wf-studio-float .wf-drawer-control:focus-visible,
+.wf-studio-float .wf-folder-input-pick:focus-visible {
+  border-color: color-mix(in srgb, var(--accent, #635bff) 45%, transparent);
+  background: var(--wf-studio-control-bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #635bff) 16%, transparent);
+  outline: none;
+}
+
+/* 提示词 SlashVar：外层一框，取消 textarea/overlay 双层描边 */
+.wf-studio-float .wf-slash-var.wf-drawer-control {
+  border: 1px solid var(--wf-studio-control-line);
+  border-radius: 10px;
+  background: var(--wf-studio-control-bg);
+  padding: 0;
+  overflow: hidden;
+}
+
+.wf-studio-float .wf-slash-var.wf-drawer-control:focus-within {
+  border: 1px solid color-mix(in srgb, var(--accent, #635bff) 45%, transparent);
+  background: var(--wf-studio-control-bg);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #635bff) 16%, transparent);
+}
+
+.wf-studio-float .wf-slash-var-overlay {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.wf-studio-float .wf-slash-var-textarea {
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  padding: 10px 14px;
+  min-height: 180px;
+}
+
+.wf-studio-float .wf-slash-var:focus-within .wf-slash-var-overlay {
+  border: 0;
+  background: transparent;
+}
+
+.wf-studio-float .wf-slash-var-textarea:focus {
+  border: 0 !important;
   box-shadow: none;
+}
+
+.wf-studio-float .wf-drawer-label {
+  margin-bottom: 6px;
+  padding: 0 2px;
+  font-size: var(--ef-text-xs);
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.wf-studio-float .wf-field-badge {
+  padding: 0 5px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  color: var(--text-tertiary);
+}
+
+.wf-studio-float .wf-field-badge--required {
+  background: color-mix(in srgb, #dc2626 10%, transparent);
+  color: color-mix(in srgb, #dc2626 88%, var(--text-primary));
+}
+
+.wf-studio-float .wf-field-badge--suggest {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--accent);
+}
+
+.wf-studio-float .wf-drawer-model-clear {
+  border-radius: 8px;
+  transition:
+    background-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-insert-chip {
+  border: 1px solid var(--wf-studio-control-line);
+  background: var(--wf-studio-control-bg);
+  color: var(--text-secondary);
+  transition:
+    border-color var(--dur-fast) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft),
+    color var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-insert-chip:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--text-primary);
+}
+
+.wf-studio-float .wf-drawer-lib-card,
+.wf-studio-float .wf-drawer-lib-row {
+  border: 1px solid var(--wf-studio-control-line);
+  border-radius: 10px;
+  background: var(--wf-studio-control-bg);
+  color: var(--wf-studio-control-fg);
+  box-shadow: none;
+  transition:
+    border-color var(--dur-fast) var(--ease-out-soft),
+    background-color var(--dur-fast) var(--ease-out-soft),
+    transform var(--dur-fast) var(--ease-out-soft);
+}
+
+.wf-studio-float .wf-drawer-lib-row:hover {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--wf-studio-control-line));
+  background: color-mix(in srgb, var(--accent) 8%, var(--wf-studio-control-bg));
+}
+
+.wf-studio-float .wf-run-vars-row,
+.wf-studio-float .wf-run-vars-empty {
+  border: 1px solid var(--wf-studio-control-line);
+  border-radius: 10px;
+  background: var(--wf-studio-control-bg);
+}
+
+.wf-studio-float .wf-drawer-lib-row:active {
+  transform: scale(0.992);
+}
+
+.wf-studio-float .wf-drawer-section-hint,
+.wf-studio-float .wf-drawer-tip {
+  margin: 0 0 8px;
+  padding: 0 2px;
+  color: var(--text-tertiary);
+  font-size: var(--ef-text-xs);
+  line-height: 1.45;
+  border: 0;
+  background: transparent;
+}
+
+.wf-studio-float .wf-drawer-empty-hint {
+  margin: 0 0 8px;
+  color: var(--text-tertiary);
+}
+
+.wf-studio-float .wf-drawer-empty {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.wf-studio-float .wf-drawer-empty-icon {
+  display: none;
+}
+
+.wf-studio-float .wf-drawer-foot {
+  border-top: 1px solid var(--wf-studio-line);
+}
+
+.wf-studio-float .wf-drawer-panel {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* 能力切换：跟摘要面板同款一行芯片，不要大卡片 */
+.wf-studio-float .wf-drawer-cap-tabs .react-chat-agent-cap-overview {
+  border-color: var(--wf-studio-control-line);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+}
+
+.wf-studio-float .wf-drawer-cap-tabs .react-chat-agent-cap-overview-item {
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  box-shadow: none;
+}
+
+.wf-studio-float .wf-drawer-cap-tabs .react-chat-agent-cap-overview-item:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+}
+
+.wf-studio-float .wf-drawer-cap-tabs .react-chat-agent-cap-overview-item.is-active {
+  color: var(--text-primary);
+  background: color-mix(
+    in srgb,
+    var(--accent, #635bff) 12%,
+    var(--wf-studio-control-bg, var(--bg-card, #fff))
+  );
+  box-shadow: 0 1px 2px color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.wf-drawer-float-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.wf-drawer-float-close:hover {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
 }
 
 .wf-drawer-panel-heading {
@@ -5779,9 +6876,17 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
   width: 100%;
   text-align: left;
   cursor: grab;
-  -webkit-user-drag: element;
+  touch-action: none; /* pointer 拖；避免触控抢滚动 */
+  -webkit-user-drag: none;
   user-select: none;
   transition: background var(--dur-fast) var(--ease-out-soft), border-color var(--dur-fast) var(--ease-out-soft);
+}
+
+/* 子节点不抢拖：否则 WebView 里拖图标/文字经常拖不起来 */
+.wf-drawer-lib-row > * {
+  pointer-events: none;
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 .wf-drawer-lib-row:active {
@@ -5837,12 +6942,15 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 .wf-studio-toolbar {
   height: 36px !important;
   min-height: 36px !important;
+  max-height: 36px !important;
   padding: 0 8px 0 6px !important;
   background: var(--bg-secondary) !important;
   border-bottom: 1px solid var(--wf-node-border) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   gap: 8px !important;
+  box-sizing: border-box !important;
+  overflow: visible;
 }
 
 .wf-studio-toolbar-left,
@@ -5969,39 +7077,58 @@ body:has(.app-wf-canvas-host) .react-chat-skill-modal-list {
 }
 
 .wf-toolbar-action {
-  height: 26px !important;
-  min-height: 26px !important;
-  padding: 0 9px !important;
-  border-radius: 6px !important;
-  font-size: 12px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 7px !important;
+  border-radius: 5px !important;
+  font-size: 11px !important;
   font-weight: 600 !important;
-  gap: 4px !important;
+  gap: 3px !important;
   white-space: nowrap !important;
   box-shadow: none !important;
 }
 
+.wf-toolbar-action svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+.wf-toolbar-action--run {
+  min-width: 0 !important;
+  padding: 0 9px !important;
+}
+
 .wf-toolbar-back {
-  width: 26px !important;
-  height: 26px !important;
-  min-height: 26px !important;
-  border-radius: 6px !important;
+  width: 22px !important;
+  height: 22px !important;
+  min-height: 22px !important;
+  border-radius: 5px !important;
 }
 
 .wf-toolbar-app-title {
-  font-size: 12.5px !important;
-  height: 22px !important;
+  font-size: 12px !important;
+  height: 20px !important;
   padding: 0 2px !important;
 }
 
 .wf-toolbar-app-icon,
-.wf-toolbar-brand .app-icon-tile {
-  width: 22px !important;
-  height: 22px !important;
-  border-radius: 5px !important;
+.wf-toolbar-brand .app-icon-tile,
+.wf-toolbar-brand .app-ico-tile {
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  border-radius: 4px !important;
+}
+
+.wf-toolbar-brand .app-ico-tile .app-ico,
+.wf-toolbar-brand .app-ico-tile svg {
+  width: 12px !important;
+  height: 12px !important;
 }
 
 .wf-toolbar-actions {
-  gap: 4px !important;
+  gap: 3px !important;
+  padding-left: 8px !important;
 }
 
 .wf-node {

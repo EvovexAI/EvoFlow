@@ -291,6 +291,42 @@ def _all_subtasks_success(task: dict[str, Any]) -> bool:
     return all(str(s.get("status") or "").strip().lower() in ok for s in subs)
 
 
+def _subtasks_awaiting_retry(task: dict[str, Any]) -> bool:
+    """True when a terminal-ish subtask is still inside its auto-retry budget.
+
+    The background monitor flips a failed/timed-out subtask to ``pending`` and
+    re-dispatches it within the same wave. A pipeline tick that lands in that
+    window sees "all subtasks terminal, but not all success" and wrongly
+    condemns the whole main task — wiping finished subtasks and the already
+    written artifacts (prod: workflow rows vanished after a successful run).
+
+    A subtask that still has ``auto_retry_count`` below the configured budget
+    is *not* a verdict; it is a retry in flight.
+    """
+    try:
+        from evoflow.tools.builtins.supervisor.dependency import subtask_auto_retry_max
+
+        limit = max(0, int(subtask_auto_retry_max()))
+    except Exception:
+        limit = 3
+
+    for st in task.get("subtasks") or []:
+        if not isinstance(st, dict):
+            continue
+        status = str(st.get("status") or "").strip().lower()
+        if status in {"completed", "done", "success"}:
+            continue
+        if status not in _TERMINAL_SUB:
+            continue  # still running / pending — handled by the active check
+        try:
+            retry_count = int(st.get("auto_retry_count") or 0)
+        except (TypeError, ValueError):
+            retry_count = 0
+        if retry_count < limit:
+            return True
+    return False
+
+
 async def _advance_lock_for(task_id: str) -> asyncio.Lock:
     global _advance_locks_guard
     if _advance_locks_guard is None:
@@ -616,6 +652,17 @@ async def _finalize_executing_task(task_id: str) -> dict[str, Any] | None:
     if _has_active_subtasks(task) or not _all_subtasks_terminal(task):
         return None
 
+    # A subtask that failed but still has auto-retry budget left is being
+    # retried right now by the background monitor. Do NOT condemn the main
+    # task in that window — the retry may still succeed, and failing here
+    # wipes every finished subtask plus the artifacts already on disk.
+    if _subtasks_awaiting_retry(task):
+        logger.info(
+            "unattended_pipeline: subtasks still within auto-retry budget; defer finalization task_id=%s",
+            task_id,
+        )
+        return None
+
     rollup_root_task_progress_from_subtasks(storage, task_id)
     row = find_main_task(storage, task_id)
     if not row:
@@ -756,6 +803,13 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         if status == "failed" and _retry_due(task):
             attempts = int(task.get("unattended_attempts") or 0)
             if attempts < task_queue_max_retries():
+                # Workflow/App runs own their plan (published snapshot) and their
+                # subtasks are the *work product*. Wiping them here destroys
+                # finished steps and already-written artifacts, then routes the
+                # task back into the Lead planning path — the exact shape of the
+                # "workflow task records disappear" bug. A workflow run is
+                # re-dispatched through its own DAG instead.
+                workflow_bound = _is_workflow_bound(task)
 
                 def _requeue(t: dict[str, Any]) -> dict[str, Any]:
                     t["status"] = "pending"
@@ -766,11 +820,15 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                     t["authorized_by"] = None
                     t["error"] = None
                     t["failed_at"] = None
-                    t["subtasks"] = []
-                    t["plan_bound_at"] = None
-                    t["plan_goal"] = None
-                    t["plan_steps"] = []
-                    t["plan_steps_json"] = None
+                    if not workflow_bound:
+                        # Lead-planned tasks have no published snapshot: their
+                        # plan is regenerated from scratch, so dropping the
+                        # stale plan + subtasks is correct.
+                        t["subtasks"] = []
+                        t["plan_bound_at"] = None
+                        t["plan_goal"] = None
+                        t["plan_steps"] = []
+                        t["plan_steps_json"] = None
                     t["unattended_plan_triggered_at"] = None
                     t["progress"] = 0
                     _schedule_retry(t)
@@ -785,6 +843,28 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
                     progress=0,
                     error=None,
                 )
+                if workflow_bound:
+                    # Re-enter the published DAG; never the Lead plan path.
+                    try:
+                        from evoflow.collab.app_runner import (
+                            _dispatch_result_ok,
+                            dispatch_workflow_task_now,
+                        )
+
+                        parsed = await dispatch_workflow_task_now(task_id, authorized_by="system")
+                        if _dispatch_result_ok(parsed):
+                            return {
+                                "task_id": task_id,
+                                "ok": True,
+                                "action": "workflow_requeued",
+                                "attempt": attempts + 1,
+                            }
+                    except Exception:
+                        logger.warning(
+                            "unattended_pipeline: workflow re-dispatch failed task_id=%s",
+                            task_id,
+                            exc_info=True,
+                        )
                 return {"task_id": task_id, "ok": True, "action": "requeued_for_retry", "attempt": attempts + 1}
             # Retries exhausted — keep task failed and force app_run to match.
             _sync_linked_app_run(

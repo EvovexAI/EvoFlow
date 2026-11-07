@@ -6,10 +6,8 @@ import logging
 import os
 
 from evoflow.assets.catalog import (
-    format_entity_catalog_lines,
     format_entity_catalog_xml,
     read_standing_text,
-    standing_is_placeholder,
 )
 from evoflow.assets.injection_budget import TIER0_ASSET_TOTAL_CHARS, TIER0_STANDING_CHARS, cap_text_chars
 from evoflow.assets.memory_injection import asset_hub_memory_injection
@@ -201,55 +199,30 @@ def _entity_label(entity: EntityRef) -> str:
 
 
 def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = None) -> str:
-    """Per-entity block: 锚点(heading) + 已存在的资产索引(catalog) + standing 摘要。
+    """Per-entity block: 锚点(heading) + 资产索引(catalog) + 可选 standing 摘要。
 
-    资产索引由 ``format_entity_catalog_lines`` 渲染(按类列文件名,无目录前缀、无 XML、无 registry 元数据),
-    让模型一眼能看到"我有哪些资产可用",不用盲读。
-
-    asset-hub 模式下 standing 为空占位符时直接返回空串(不要空骨架)。
+    Catalog is L2 and must inject even when standing is empty/placeholder —
+    otherwise craft/episodic/journal vanish and only ``<user_profile>`` remains.
     """
     e = entity.normalized()
     from evoflow.assets.paths import entity_prompt_root, resolve_workspace_path_for_entity_id
 
     base = entity_prompt_root(e)
-    summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
-    if asset_hub_memory_injection():
-        if standing_is_placeholder(summary) or not str(summary or "").strip():
-            return ""
+    _ = standing  # legacy param: standing body is no longer injected
     try:
         from evoflow.config.paths import get_paths
 
         base_dir_str = str(get_paths().base_dir)
 
-        # 资产索引:扫 frontmatter 列出已存在的事实/过程/反思/专长文件。
-        # 不含 standing (memory_summary 单独输出);不含 profile (USER_PROFILE block 单独处理)。
-        # 这里把 catalog_xml 摊平成 "- <file> — <first line>" 行,去掉 (registry — N task groups) 元数据
-        # (这些信息在 standing 里、也可以通过 `read memory/MEMORY.md` 拿到,不必每轮重复)。
-        catalog_lines = format_entity_catalog_lines(
-            e,
-            include_facts=True,
-            include_episodes=True,
-            include_craft=True,
-            include_journal=True,
-        )
-        if not catalog_lines:
-            catalog_lines = ["(尚无 asset 文件;按 inbox 路径写入新笔记即可)"]
-
-        # 写入路径单独一行附在块尾(heading + base 已经在头部说过根,这里只补写入动词)。
-        # user/agent/employee: 相对路径 = base_dir + 实体根/memory/_inbox/notes。
-        # workspace: 绝对路径(因为 inbox 在 repo 内,而 base_dir 不在 workspace 内)。
         if e.entity_type == "workspace":
             ws_path = resolve_workspace_path_for_entity_id(e.entity_id) or ""
             workspace_context_block = (
-                f"项目根 `{ws_path}` · 写入只用 `assets`（note/search/read；标签 `[project]`）"
+                f"项目根 `{ws_path}` · 写入只用 `assets`（落点见上方 Entity assets）"
             )
             tail_block = ""
         else:
             workspace_context_block = ""
-            tail_block = (
-                f"写入只用 `assets`（note/profile/search/read；根 `{base}`）· "
-                f"标签:`[experience]`/`[process]`/`[reflection]`/`[preference]`"
-            )
+            tail_block = f"写入根 `{base}` · 落点规则见上方 Entity assets"
 
         return render_memory_prompt(
             "read_path_entity",
@@ -257,9 +230,6 @@ def build_read_path_entity_block(entity: EntityRef, *, standing: str | None = No
             entity_root=base,
             base_dir=base_dir_str,
             workspace_context_block=workspace_context_block,
-            # format_entity_catalog_lines already emits bullets + per-kind headings
-            catalog_lines="\n".join(catalog_lines),
-            memory_summary=summary or "（尚无站立摘要）",
             tail_block=tail_block,
         ).strip()
     except Exception:
@@ -273,11 +243,7 @@ def build_read_path_guidance(
     standing: str | None = None,
     include_procedure: bool = True,
 ) -> str:
-    """Render read_path: optional shared procedure + per-entity block (if standing exists).
-
-    In asset-hub mode the entity block is skipped when standing is a placeholder
-    or empty, but the procedure (access rules) is always emitted if requested.
-    """
+    """Render read_path: optional shared procedure + per-entity catalog/standing block."""
     e = entity.normalized()
     summary = standing if standing is not None else read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
     parts: list[str] = []
@@ -285,11 +251,6 @@ def build_read_path_guidance(
         proc = build_read_path_procedure()
         if proc:
             parts.append(proc)
-    # Entity block needs real standing to be useful.
-    if asset_hub_memory_injection():
-        if standing_is_placeholder(summary) or not str(summary or "").strip():
-            # no standing → entity block is empty; return procedure-only if any
-            return "\n\n".join(parts) if parts else ""
     ent = build_read_path_entity_block(e, standing=summary)
     if ent:
         parts.append(ent)
@@ -307,6 +268,8 @@ def build_entity_memory_injection(
 
     asset-hub 模式下 entity block 内部已经渲染了资产索引,所以顶层 ``include_catalog``
     默认 off(避免双发);legacy 模式仍默认 on,行为不变。
+
+    Standing placeholder must NOT suppress catalog — L2 index is independent of L1 prefs.
     """
     e = entity.normalized()
     asset_mode = asset_hub_memory_injection()
@@ -314,8 +277,6 @@ def build_entity_memory_injection(
         include_catalog = not asset_mode
     parts: list[str] = []
     standing = read_standing_text(e, max_chars=TIER0_STANDING_CHARS)
-    if asset_mode and (standing_is_placeholder(standing) or not standing.strip()):
-        return ""
     if include_read_guidance:
         guide = build_read_path_guidance(e, standing=standing, include_procedure=include_procedure)
         if guide.strip():

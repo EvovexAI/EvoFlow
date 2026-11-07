@@ -2,7 +2,6 @@
  * Card-based editor for app run parameters (summary + expand to edit).
  */
 import { toast } from '../components/toast.js'
-import { serializeParamsForEditor, parseParamsFromEditor } from './app-run-form.js'
 
 const TYPE_OPTIONS = [
   { value: 'text', label: '单行文本' },
@@ -223,25 +222,17 @@ export function mountParamsEditor(root, params = []) {
         <div class="app-params-head">
           <div>
             <div class="app-params-title">运行参数</div>
-            <p class="app-params-hint">决定工作流运行时需要填写的内容。步骤说明里可插入 {{参数标识}}。</p>
+            <p class="app-params-hint">开跑时要用户填的项；步骤里用 {{名}}。不需要就空着。</p>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" data-act="add">+ 添加参数</button>
+          <button type="button" class="btn btn-secondary btn-sm" data-act="add">+ 添加</button>
         </div>
         <div class="app-params-list" data-role="list">
           ${
             rows.length
               ? rows.map((p, i) => cardHtml(p, i, rows.length)).join('')
-              : `<div class="app-params-empty">还没有参数。若不需要运行时填写，可直接跳过。</div>`
+              : `<div class="app-params-empty">无</div>`
           }
         </div>
-        <details class="app-params-dsl">
-          <summary>高级：管道文本批量编辑</summary>
-          <textarea class="form-input" data-role="dsl" rows="3" placeholder="topic|主题|text||1">${escapeAttr(
-            serializeParamsForEditor(rows.map(toPersist)),
-          )}</textarea>
-          <p class="form-hint">仅在需要批量粘贴时使用；保存时以上方卡片为准，除非你改了这段并点同步。</p>
-          <button type="button" class="btn btn-ghost btn-xs" data-act="sync-dsl">从文本同步到卡片</button>
-        </details>
       </div>`
   }
 
@@ -352,13 +343,6 @@ export function mountParamsEditor(root, params = []) {
       )
       render()
       root.querySelector('[data-param-row]:last-of-type [data-k="label"]')?.focus()
-      return
-    }
-
-    if (act === 'sync-dsl') {
-      const text = root.querySelector('[data-role="dsl"]')?.value || ''
-      rows = parseParamsFromEditor(text).map((p) => normalizeParam(p))
-      render()
       return
     }
 

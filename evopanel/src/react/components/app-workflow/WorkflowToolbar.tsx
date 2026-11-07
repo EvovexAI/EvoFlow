@@ -138,16 +138,7 @@ export function WorkflowToolbar({
     active?: boolean
     onClick?: () => void
   }> = [
-    onOpenHistory
-      ? {
-          id: 'history',
-          label: '历史',
-          title: '查看运行历史与状态',
-          icon: Clock,
-          onClick: onOpenHistory,
-        }
-      : null,
-    // 草稿时「怎么用」仍放更多；已发布提到一级按钮
+    // 草稿时「怎么用」仍放更多；已发布提到一级按钮。「历史」始终一级，方便查看跑次。
     !isPublished && openHowTo
       ? {
           id: 'howto',
@@ -264,7 +255,7 @@ export function WorkflowToolbar({
           type="button"
           className={`wf-toolbar-icon-btn${drawerOpen ? ' is-active' : ''}`}
           onClick={onToggleDrawer}
-          title={drawerOpen ? '收起节点库' : '打开节点库'}
+          title={drawerOpen ? '收起面板' : '打开节点库 / 配置'}
         >
           <Layers size={14} strokeWidth={2} />
           <span className="wf-toolbar-icon-label">节点</span>
@@ -275,10 +266,22 @@ export function WorkflowToolbar({
             type="button"
             className="wf-toolbar-icon-btn"
             onClick={onOpenSettings}
-            title="工作流目标、执行方式与运行参数"
+            title="描述、工作空间与可选参数"
           >
             <Settings2 size={14} strokeWidth={2} />
             <span className="wf-toolbar-icon-label">设置</span>
+          </button>
+        ) : null}
+
+        {onOpenHistory ? (
+          <button
+            type="button"
+            className="wf-toolbar-icon-btn"
+            onClick={onOpenHistory}
+            title="查看运行历史与状态"
+          >
+            <Clock size={14} strokeWidth={2} />
+            <span className="wf-toolbar-icon-label">历史</span>
           </button>
         ) : null}
 

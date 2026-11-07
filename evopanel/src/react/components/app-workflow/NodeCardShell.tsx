@@ -1,6 +1,6 @@
 import { memo, type ReactNode } from 'react'
 import { Handle, Position } from '@xyflow/react'
-import { X } from 'lucide-react'
+import { Pencil, X } from 'lucide-react'
 
 /** 语义节点类型：用于顶条色与标签 */
 export type NodeVisualKind = 'start' | 'agent' | 'tool' | 'condition' | 'answer' | 'trigger' | 'action'
@@ -16,8 +16,10 @@ type Props = {
   showInput?: boolean
   showOutput?: boolean
   onClose?: () => void
-  /** 点击头像/标题打开智能体选择 */
+  /** 点击头像/标题打开智能体选择（下拉） */
   onAgentPick?: () => void
+  /** 已分配时：查看详情 / 编辑员工或智能体 */
+  onAgentDetail?: () => void
   /**
    * row：整行可点选智能体（未分配时）
    * avatar：仅点头像更换（已有智能体，避免点节点误触）
@@ -50,6 +52,7 @@ function NodeCardShell({
   showOutput = true,
   onClose,
   onAgentPick,
+  onAgentDetail,
   agentPickMode = 'row',
   execStatus,
   typeLabel,
@@ -135,8 +138,8 @@ function NodeCardShell({
                   <button
                     type="button"
                     className="wf-node-agent-avatar-hit nodrag nopan"
-                    title="更换智能体"
-                    aria-label="更换智能体"
+                    title="切换执行者"
+                    aria-label="切换执行者"
                     onClick={(e) => {
                       e.stopPropagation()
                       onAgentPick?.()
@@ -151,6 +154,21 @@ function NodeCardShell({
                 {titleEl}
               </>
             )}
+            {onAgentDetail ? (
+              <button
+                type="button"
+                className="wf-node-agent-detail nodrag nopan"
+                title="编辑执行者资料"
+                aria-label="编辑执行者资料"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onAgentDetail()
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+              >
+                <Pencil size={12} strokeWidth={2.25} />
+              </button>
+            ) : null}
             {onClose ? (
               <button
                 type="button"

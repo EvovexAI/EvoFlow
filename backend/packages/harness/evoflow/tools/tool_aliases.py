@@ -14,9 +14,10 @@ _TOOL_NAME_ALIASES: dict[str, str] = {
     # delete 工具已撤除（对齐 ZCode）：删除走 Bash rm，旧配置名映射到 bash（审批兜底）。
     "delete_file": "bash",
     "delete": "bash",
-    # glob/grep 已注册为专用工具（对齐 ZCode）；旧配置的搜索类名字映射到新工具。
-    "find": "glob",
-    "find_file": "glob",
+    # glob 已撤除：按名查找走 Bash；grep 仍为专用工具。旧配置名映射兼容。
+    "glob": "bash",
+    "find": "bash",
+    "find_file": "bash",
     "ripgrep": "grep",
     "grep": "grep",
     "rg": "grep",

@@ -175,7 +175,7 @@ SCENARIO_EAGER_TOOL_NAMES: dict[str, tuple[str, ...]] = {
         "replace",
         "write",
         # "delete",  # retired — 删除走 Bash rm（审批兜底），对齐 ZCode
-        "glob",
+        # "glob",  # retired — 按名查找走 Bash
         "grep",
         "search_code_index",
     ),
@@ -390,20 +390,20 @@ NON_CORE_TOOL_GROUPS: dict[str, dict[str, tuple[str, ...] | str]] = {
         "tools": ("plan", "supervisor", "subagent"),
     },
     "file_ops": {
-        "zh_description": "工作区读写改查：replace/write + search_code_index/glob/grep；删除与诊断走 Bash（rm / pyright），对齐 ZCode；多文件改写委派 subagent",
+        "zh_description": "工作区读写改查：replace/write + search_code_index/grep；按名查找/删除/诊断走 Bash（find / rm / pyright）；多文件改写委派 subagent",
         "tools": (
             "write",
             "replace",
             # "delete",  # retired — 删除走 Bash rm
             "search_code_index",
-            "glob",
+            # "glob",  # retired — 按名查找走 Bash
             "grep",
             # "read_lints",  # retired — 诊断走 Bash
         ),
     },
     "file_ops_read_present": {
-        "zh_description": "规划阶段只读检索：索引 search_code_index + glob/grep（与 agent file_ops 对齐；Plan 模式已下线，日常走 agent）",
-        "tools": ("search_code_index", "glob", "grep"),
+        "zh_description": "规划阶段只读检索：索引 search_code_index + grep（与 agent file_ops 对齐；Plan 模式已下线，日常走 agent）",
+        "tools": ("search_code_index", "grep"),
     },
     "web_research": {
         "zh_description": "联网检索（agent 场景）：搜索、网页拉取、交互式浏览器走 agent-browser 技能（CLI/MCP）；截图/图片理解用 read",

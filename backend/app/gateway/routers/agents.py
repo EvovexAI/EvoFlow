@@ -41,6 +41,7 @@ from evoflow.config.avatar_presets import (
     pick_random_preset_avatar,
     preset_path,
 )
+from evoflow.config.platform_scope import PlatformScope
 from evoflow.external_runtime_probe import external_runtime_available_for_agent
 from evoflow.persistence import config_repositories as cfg_repo
 from evoflow.tools.ui_metadata import collect_native_tool_specs_for_role_ui
@@ -223,6 +224,14 @@ class AgentResponse(BaseModel):
         default_factory=list,
         description="Bound knowledge base / vault ids (empty = none)",
     )
+    platform_scope: PlatformScope | None = Field(
+        default=None,
+        description=(
+            "Platform-action capability manifest (employee role). "
+            "None = legacy unrestricted (platform mounted = all actions); "
+            "mode=all|none|custom with domains/actions/max_risk narrows the surface."
+        ),
+    )
     soul: str | None = Field(default=None, description="SOUL.md content (included on GET /{name})")
     identity: str | None = Field(
         default=None,
@@ -294,6 +303,13 @@ class AgentCreateRequest(BaseModel):
     avatar: str | None = Field(default=None, description="UI avatar preset / emoji / image")
     avatar_meta: dict[str, Any] | None = Field(default=None, description="Image avatar crop metadata")
     tts_speaker: str | None = Field(default=None, description="Optional Volcengine TTS voice_type")
+    platform_scope: PlatformScope | None = Field(
+        default=None,
+        description=(
+            "Platform-action capability manifest. None/absent = legacy unrestricted "
+            "(platform mounted = all actions)."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -367,6 +383,13 @@ class AgentUpdateRequest(BaseModel):
     avatar: str | None = Field(default=None, description="Updated UI avatar")
     avatar_meta: dict[str, Any] | None = Field(default=None, description="Updated image avatar metadata")
     tts_speaker: str | None = Field(default=None, description="Updated Volcengine TTS voice_type")
+    platform_scope: PlatformScope | None = Field(
+        default=None,
+        description=(
+            "Updated platform-action capability manifest; explicit null clears it "
+            "(back to legacy unrestricted)."
+        ),
+    )
 
 
 def _validate_agent_name(name: str) -> None:
@@ -462,6 +485,7 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
         avatar=getattr(agent_cfg, "avatar", None),
         avatar_meta=getattr(agent_cfg, "avatar_meta", None),
         tts_speaker=getattr(agent_cfg, "tts_speaker", None),
+        platform_scope=getattr(agent_cfg, "platform_scope", None),
         has_avatar_file=has_local_avatar_file(code),
         avatar_rev=avatar_revision_for(code),
     )
@@ -774,6 +798,8 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             config_data["avatar_meta"] = request.avatar_meta
         if request.tts_speaker is not None and str(request.tts_speaker).strip():
             config_data["tts_speaker"] = str(request.tts_speaker).strip()
+        if request.platform_scope is not None:
+            config_data["platform_scope"] = request.platform_scope
 
         save_agent_config(normalized_name, config_data)
         save_agent_soul(normalized_name, request.soul or "")
@@ -868,6 +894,8 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
         if "tts_speaker" in request_dict:
             raw_voice = request.tts_speaker
             updates["tts_speaker"] = str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
+        if "platform_scope" in request_dict:
+            updates["platform_scope"] = request.platform_scope
 
         _save_main_agent_config(updates)
 
@@ -908,6 +936,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             "avatar",
             "avatar_meta",
             "tts_speaker",
+            "platform_scope",
         )
         config_changed = any(k in request_set for k in config_field_names)
 
@@ -917,6 +946,9 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
                 "agent_type": agent_cfg.agent_type,
                 "description": request.description if request.description is not None else agent_cfg.description,
             }
+            if "platform_scope" in request_set:
+                # 显式传 null = 清除能力清单（回到存量不设限语义）。
+                updated["platform_scope"] = request.platform_scope
             if request.agent_name is not None:
                 updated["agent_name"] = request.agent_name
             elif agent_cfg.agent_name is not None:
@@ -1190,12 +1222,34 @@ class SkillInfo(BaseModel):
     icon: str = Field(default="🧩", description="Emoji icon")
 
 
+class PlatformActionInfo(BaseModel):
+    """Single platform action for the role editor's platform sub-picker."""
+
+    name: str = Field(description="Action name (domain.op)")
+    summary: str = Field(default="", description="One-line summary")
+    risk: str = Field(default="read", description="read | write | destructive")
+
+
+class PlatformDomainInfo(BaseModel):
+    """Platform domain with its actions (capability sub-picker data source)."""
+
+    domain: str = Field(description="Domain key (e.g. knowledge)")
+    title: str = Field(default="", description="Localized domain title")
+    action_count: int = Field(default=0)
+    risk_counts: dict[str, int] = Field(default_factory=dict, description="risk -> action count")
+    actions: list[PlatformActionInfo] = Field(default_factory=list)
+
+
 class ToolListResponse(BaseModel):
     """Response containing available tools, MCP servers and skills."""
 
     tools: list[ToolInfo]
     mcp_servers: list[McpServerInfo]
     skills: list[SkillInfo]
+    platform_domains: list[PlatformDomainInfo] = Field(
+        default_factory=list,
+        description="Platform-action catalog (domain -> actions with risk) for the employee capability sub-picker",
+    )
 
 
 # Optional Chinese labels/icons for role editor (falls back to tool docstring / Title Case name)
@@ -1352,6 +1406,40 @@ def _get_skill_metadata() -> list[SkillInfo]:
     return skills
 
 
+def _get_platform_domains() -> list[PlatformDomainInfo]:
+    """Platform-action catalog grouped by domain (employee capability sub-picker source)."""
+    try:
+        from evoflow.admin.platform_actions import PLATFORM_DOMAINS, domain_guide, get_registry
+
+        reg = get_registry()
+        by_dom: dict[str, list[Any]] = {}
+        for entry in reg.values():
+            by_dom.setdefault(entry.domain, []).append(entry)
+        ordered = [d for d in PLATFORM_DOMAINS if d in by_dom] + sorted(set(by_dom) - set(PLATFORM_DOMAINS))
+        out: list[PlatformDomainInfo] = []
+        for dom in ordered:
+            entries = sorted(by_dom[dom], key=lambda e: e.name)
+            risk_counts: dict[str, int] = {}
+            for e in entries:
+                risk_counts[e.risk] = risk_counts.get(e.risk, 0) + 1
+            guide = domain_guide(dom)
+            out.append(
+                PlatformDomainInfo(
+                    domain=dom,
+                    title=str(guide.get("title") or dom),
+                    action_count=len(entries),
+                    risk_counts=risk_counts,
+                    actions=[
+                        PlatformActionInfo(name=e.name, summary=e.summary, risk=e.risk) for e in entries
+                    ],
+                )
+            )
+        return out
+    except Exception as e:
+        logger.warning(f"Failed to load platform domain catalog: {e}")
+        return []
+
+
 @router.get(
     "/tools/metadata",
     response_model=ToolListResponse,
@@ -1369,6 +1457,7 @@ async def get_tools_metadata() -> ToolListResponse:
             tools=_get_all_tools(),
             mcp_servers=_get_mcp_servers(),
             skills=_get_skill_metadata(),
+            platform_domains=_get_platform_domains(),
         )
     except Exception as e:
         logger.error(f"Failed to get tools metadata: {e}", exc_info=True)

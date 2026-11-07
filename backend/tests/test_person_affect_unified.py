@@ -39,7 +39,9 @@ def test_default_insert_and_prose_has_no_floats(db_home: Path):
     for text in (prose, brief):
         assert "oxytocin" not in text.lower()
         assert "0.55" not in text
-        assert "此刻心境" in text
+    # DB prose keeps legacy label; file SoT brief is profile/affect.md body.
+    assert "此刻心境" in prose
+    assert "心境" in brief or "情感" in brief
 
 
 def test_legacy_delta_maps_to_hormones(db_home: Path):
@@ -134,6 +136,8 @@ def test_format_affect_block_title(db_home: Path):
 
     rel.ensure_affect_row("ops-bot")
     block = format_affect_and_commitments_block("ops-bot")
-    assert "此刻心境" in block
+    # File SoT mood + open-commitment section (no hormone floats / legacy title).
+    assert "心境" in block or "情感" in block
+    assert "开放承诺" in block
     assert "职场情绪态" not in block
     assert "0.55" not in block

@@ -383,17 +383,38 @@ export function ShellSessionList({
   const isEmployeesTab = listTab === 'employees'
   const isDeptsTab = listTab === 'depts'
 
-  /** 部门 Tab：拉部门 + 角色，组装群聊入口 */
+  const employeeRolesRef = useRef(employeeRoles)
+  employeeRolesRef.current = employeeRoles
+
+  /** 部门 Tab：拉部门 + 角色，组装群聊入口（可复用已有花名册，失败重试，不清空旧数据） */
   useEffect(() => {
     if (!isDeptsTab) return
     let cancelled = false
     setDeptLoading(true)
     ;(async () => {
+      const { api } = await import('../../lib/tauri-api.js')
+      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+      const fetchWithRetry = async <T,>(fn: () => Promise<T>, tries = 3): Promise<T> => {
+        let last: unknown
+        for (let i = 0; i < tries; i++) {
+          try {
+            return await fn()
+          } catch (e) {
+            last = e
+            // roles 在 Gateway Best-effort 车道，platform 忙时会 503 shed
+            if (i < tries - 1) await sleep(350 * (i + 1))
+          }
+        }
+        throw last
+      }
       try {
-        const { api } = await import('../../lib/tauri-api.js')
+        const cachedRoles = employeeRolesRef.current
+        const hasCached = Array.isArray(cachedRoles) && cachedRoles.length > 0
         const [deptRes, roleRes] = await Promise.all([
-          api.proactiveListDepartments(),
-          api.proactiveListRoles('active'),
+          fetchWithRetry(() => api.proactiveListDepartments()),
+          hasCached
+            ? Promise.resolve({ roles: cachedRoles })
+            : fetchWithRetry(() => api.proactiveListRoles('active')),
         ])
         if (cancelled) return
         const departments = Array.isArray(deptRes?.departments)
@@ -442,8 +463,9 @@ export function ShellSessionList({
           ai += 1
         }
         setDeptRows(rows)
-      } catch {
-        if (!cancelled) setDeptRows([])
+      } catch (e) {
+        console.warn('[shell] dept tab load failed', e)
+        // 保留上一轮 rows，避免 503 时把列表刷成「暂无」
       } finally {
         if (!cancelled) setDeptLoading(false)
       }
@@ -1305,28 +1327,29 @@ export function ShellSessionList({
   )
 
   const handleNewSessionClick = useCallback(() => {
-    setFilterOpen(false)
+    // 曾误写 setFilterOpen(false)（状态不存在）→ 点击抛 ReferenceError，空态 CTA「完全没反应」
     onSessionFilterChange('')
+    document.getElementById('app-shell-aside')?.classList.remove('shell-aside-open')
+    document.getElementById('shell-aside-overlay')?.classList.remove('visible')
     if (isEmployeesTab) {
       const code = String(focusedEmployeeCode || '').trim()
       if (!code) {
         setEmpMenuOpen(true)
         return
       }
+      if (!isChatHashRoute()) navigate('/chat')
       openNewEmployeeChat(code)
       return
     }
     // 一律走新建会话（即时切空白草稿），不要点侧栏「新建对话」——那会走 open-home，
     // 已在空工作台时只滚动不反馈，感觉像「点了没反应」。
-    if (focusedGroup) {
-      const path =
-        focusedGroup.workspaceKey === WORKSPACE_GROUP_UNBOUND
-          ? null
-          : resolveShellGroupWorkspacePath(focusedGroup, registeredWorkspacePaths)
-      onNewSessionInWorkspace?.(path)
-      return
-    }
-    onNewSessionInWorkspace?.(null)
+    const path = focusedGroup
+      ? focusedGroup.workspaceKey === WORKSPACE_GROUP_UNBOUND
+        ? null
+        : resolveShellGroupWorkspacePath(focusedGroup, registeredWorkspacePaths)
+      : null
+    if (!isChatHashRoute()) navigate('/chat')
+    onNewSessionInWorkspace?.(path)
   }, [
     focusedGroup,
     focusedEmployeeCode,
@@ -1369,6 +1392,17 @@ export function ShellSessionList({
               role="tab"
               aria-selected={viewMode === 'depts'}
               className={`shell-view-tab${viewMode === 'depts' ? ' is-active' : ''}`}
+              onPointerEnter={() => {
+                // 悬停预热：departments 很快；roles 常被 Best-effort 503，提前拉降低点进空转
+                void import('../../lib/tauri-api.js')
+                  .then(({ api }) =>
+                    Promise.all([
+                      api.proactiveListDepartments().catch(() => null),
+                      api.proactiveListRoles('active').catch(() => null),
+                    ]),
+                  )
+                  .catch(() => {})
+              }}
               onClick={() => setViewMode('depts')}
             >
               <ShellEmployeesIcon size={12} />
@@ -1393,7 +1427,7 @@ export function ShellSessionList({
                   })
               }}
             >
-              <ShellRefreshIcon size={15} />
+              <ShellRefreshIcon size={13} />
             </button>
           </div>
         </div>
@@ -1847,12 +1881,12 @@ export function ShellSessionList({
                       return (
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
                           <div
-                            className="group/ws flex h-8 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2.5 pr-1 transition-colors hover:bg-surface-hover"
+                            className="group/ws flex h-6 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2 pr-1 transition-colors hover:bg-surface-hover"
                             data-ws-group-head={section.key}
                             onClick={() => toggleGroupCollapsed(section.key)}
                             onPointerDown={(e) => handleWorkspaceGroupHeadPointerDown(section.key, e)}
                           >
-                            <span className="relative flex size-4 shrink-0 items-center justify-center">
+                            <span className="relative flex size-3.5 shrink-0 items-center justify-center">
                               {isEmployeesTab && section.avatarAgentCode ? (
                                 <AssignedAgentAvatar
                                   agentCode={section.avatarAgentCode}
@@ -1860,9 +1894,9 @@ export function ShellSessionList({
                                   size={14}
                                 />
                               ) : collapsed ? (
-                                <FolderIcon className='size-4 text-foreground-subtle' />
+                                <FolderIcon className='size-3.5 text-foreground-subtle' />
                               ) : (
-                                <FolderOpenIcon className='size-4 text-foreground-subtle' />
+                                <FolderOpenIcon className='size-3.5 text-foreground-subtle' />
                               )}
                             </span>
                             <span className='react-chat-session-ws-group-label min-w-0 flex-1 truncate'>
@@ -1871,7 +1905,7 @@ export function ShellSessionList({
                             <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
                                 title={isEmployeesTab ? '新开员工对话' : '新建任务'}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
@@ -1886,9 +1920,14 @@ export function ShellSessionList({
                                     return
                                   }
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
-                                  const wsPath = grp && grp.workspaceKey !== '__unbound__'
-                                    ? grp.path || null
-                                    : null
+                                  const wsPath =
+                                    grp && grp.workspaceKey !== WORKSPACE_GROUP_UNBOUND
+                                      ? resolveShellGroupWorkspacePath(
+                                          grp,
+                                          registeredWorkspacePaths,
+                                        )
+                                      : null
+                                  if (!isChatHashRoute()) navigate('/chat')
                                   onNewSessionInWorkspace?.(wsPath)
                                 }}
                               >
@@ -1896,7 +1935,7 @@ export function ShellSessionList({
                               </button>
                               <button
                                 type='button'
-                                className='flex h-6 w-6 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
+                                className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
                                 title='更多'
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {

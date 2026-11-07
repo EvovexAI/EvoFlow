@@ -1612,6 +1612,54 @@ def delete_task(task_id: str, *, actor: str | None = None) -> dict[str, Any]:
 # ── create_task ──────────────────────────────────────────────────────
 
 
+def _enforce_round_initiative_quota(
+    *,
+    role_code: str,
+    role_name: str | None,
+    round_id: str | None,
+    source_ref: str | None,
+    source_canon: str,
+    raised_by: str | None,
+) -> None:
+    """Reject work items that exceed the employee's per-round initiative cap.
+
+    Only applies to **employee-authored** items in a duty round (the source is a
+    role and the round stamp is present). Human-created tasks and chat tasks are
+    never blocked — the cap is about an employee's own initiative budget, not
+    about the user's ability to assign work.
+
+    Raises ``ValidationError`` when the cap is already reached.
+    """
+    src = str(source_canon or "").strip()
+    if src != "role":
+        return
+    # The acting employee is the **raiser** (it may delegate to a peer), with
+    # the assignee as fallback.
+    actor_code = str(raised_by or "").strip()
+    if not actor_code or actor_code.lower() == "user":
+        actor_code = str(role_code or "").strip()
+    if not actor_code:
+        return
+    try:
+        from evoflow.proactive.cycle_limits import check_round_quota, round_refs
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        refs = round_refs(round_id, source_ref)
+        if not refs:
+            return
+        role = ProactiveRepository.get_role(actor_code)
+        if role is None:
+            return
+        allowed, reason = check_round_quota(role, refs)
+        if not allowed:
+            raise ValidationError(reason)
+    except ValidationError:
+        raise
+    except Exception:
+        # Fail open — a quota probe error must never block real work.
+        logger.debug("admin.tasks: round quota check failed code=%s", actor_code, exc_info=True)
+
+
 def create_task(
     *,
     name: str,
@@ -1705,6 +1753,18 @@ def create_task(
             parent_found = find_main_task(storage, parent_norm, bypass_cache=True)
             if parent_found and task_has_pending_handoff_approval(parent_found[1]):
                 raise ValidationError(f"parent task '{parent_norm}' 交接待审批：批准前禁止手动 create 下游子任务；请等用户同意后再由系统派发，或本岗用 tasks(state=completed, handlers=…) 交工")
+    # Per-cycle ceiling (P0): an employee may raise at most
+    # ``max_initiatives_per_cycle`` work items per duty round. The agent-loop
+    # path used to be unlimited (the prompt-only path truncated the LLM list).
+    # Enforced here — the single choke point every create path funnels through.
+    _enforce_round_initiative_quota(
+        role_code=str(assignee_norm or "").strip(),
+        role_name=role_norm,
+        round_id=round_norm,
+        source_ref=ref_norm,
+        source_canon=source_canon,
+        raised_by=raised_norm,
+    )
     # Default: role-stamped → role; else chat
     default_src = TASK_SOURCE_ROLE if role_norm else TASK_SOURCE_CHAT
     source_canon, source_channel = resolve_write_source(source, default=default_src)

@@ -59,6 +59,52 @@ npm run version:set -- 1.1.0
 
 写作约定见 [`evopanel/docs/changelog-guidelines.md`](evopanel/docs/changelog-guidelines.md)。
 
+### 2.1 谁做的：用户可见与内部追溯分开写
+
+**核心原则：发版说明是给用户看的，只交代「有哪些员工参与、各自做了什么」。
+内部岗位职责、我们怎么分工、谁审谁推，一律不往用户界面上写。**
+
+#### A. 用户可见（`PRODUCT-NOTES-x.y.z.md` 头部、`CHANGELOG.md` 本版条目）
+
+列参与成员，一行一人，格式 `- <岗位名>：<做了什么>`：
+
+```
+### 参与本次发版
+
+- 全栈开发工程师：会话通知面板的状态归一与已读样式
+- 发版工程师：CI/CD 正式包发布
+```
+
+也接受更简的纯名单：`参与本次发版：全栈开发工程师、发版工程师`。
+
+⚠️ **不要**在这里写「负责 CI/CD 与发布：升版本号、备三份说明、提交打 tag、触发正式包流水线、刷新升级清单」
+这类职责清单。那是内部管理口径，用户不关心，也不该看到。
+
+#### B. 内部追溯（git commit message）
+
+commit 用多段 `-m`，保留四字段，供 `git log` 追责。这部分**不进用户界面**：
+
+```bash
+git commit -m "chore(release): x.y.z" \
+  -m "开发负责人：EvoFlow · 智能体员工 · 全栈开发工程师" \
+  -m "修复内容：<具体现象 + 模块，禁空话>" \
+  -m "发版角色：EvoFlow · 智能体员工 · 发版工程师" \
+  -m "推送执行人：EvoFlow · 智能体员工 · 发版工程师"
+```
+
+要点：**开发负责人 ≠ 推送执行人**，分两行写，责任不混。
+
+**署名格式固定为：`EvoFlow · 智能体员工 · <岗位名>`**（中间用全角间隔号 `·` 分隔）。
+
+| # | 字段 | 填什么 | 出现在哪 |
+|---|------|--------|----------|
+| 1 | 开发负责人 | 实现本次需求的人，默认 **EvoFlow · 智能体员工 · 全栈开发工程师** | 仅 commit message（内部） |
+| 2 | 修复内容 | 本次实际修的问题（有现象、有模块，禁空话） | 用户可见说明的正文 + commit |
+| 3 | 发版角色 | 固定 **EvoFlow · 智能体员工 · 发版工程师** | 仅 commit message（内部） |
+| 4 | 推送执行人 | 实际敲 `git push` / 打 tag 的人 | 仅 commit message（内部） |
+
+用户可见的 `PRODUCT-NOTES` 与 `CHANGELOG` 只用「参与本次发版」名单 + 变更正文，不搬上面的字段表。
+
 有用户可感知的新模块时，再补用户文档（指南 / `page-help`），见该文件说明。
 
 ---
@@ -84,6 +130,8 @@ git push origin v1.1.0
 ```
 
 CI：`.github/workflows/release-desktop-public.yml`（也可 `workflow_dispatch`）。
+
+桌面包构建常要 **25～36 分钟**。盯流水线用 `gh run watch <RUN_ID> --exit-status`（可后台），**禁止** `sleep 300/480 && gh run view` 空等（单次 sleep >60s 会被 runtime 拒绝）。
 
 ---
 
@@ -116,6 +164,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/p
 - [ ] `evopanel/VERSION` == 目标版本（不是只改了 package.json）
 - [ ] 跑过 `npm run version:set -- x.y.z`（或确认 sync 后各处一致）
 - [ ] `CHANGELOG.md` 有本版完整条目
+- [ ] 四字段齐备（见 2.1）：开发负责人 / 修复内容 / 发版角色 / 推送执行人
 - [ ] 存在 `PRODUCT-NOTES-x.y.z.md`（否则 Release 正文几乎只有页脚）
 - [ ] `latest.json` 的 `version` / `url` / `changelog` 都是本版
 - [ ] 已推送提交；将打的 `vX.Y.Z` tag 指向含上述文件的 commit

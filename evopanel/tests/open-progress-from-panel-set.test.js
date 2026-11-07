@@ -39,10 +39,60 @@ describe('openProgressFromPanelSet', () => {
       title: '值班过程',
       data: { taskId: 'mt-2', agentCode: 'duty-ops', busy: true },
     })
-    expect(id).toBe('process:mt-2')
+    // 对话侧一人一签：不按 wake taskId 拆签
+    expect(id).toBe('process:live:duty-ops')
     const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
     expect(tab?.data?.agentCode).toBe('duty-ops')
+    expect(tab?.data?.taskId).toBe('mt-2')
     expect(tab?.sessionKey).toBeFalsy()
+  })
+
+  it('stacks one tab per employee when opening two follow-ups', () => {
+    openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        data: { taskId: 't-a', agentCode: 'dev-a', roleName: '全栈工程师', busy: true },
+      },
+      { sessionKey: 'sess-main' },
+    )
+    openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        data: { taskId: 't-b', agentCode: 'dev-b', roleName: '测试工程师', busy: true },
+      },
+      { sessionKey: 'sess-main' },
+    )
+    const tabs = rightStageStore
+      .getSnapshot()
+      .tabs.filter((t) => t.kind === 'employeeProcess')
+    expect(tabs.map((t) => t.id).sort()).toEqual([
+      'process:live:dev-a',
+      'process:live:dev-b',
+    ])
+    expect(tabs.every((t) => t.sessionKey === 'sess-main')).toBe(true)
+  })
+
+  it('reuses the same tab when the same employee is opened again with a new taskId', () => {
+    openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        data: { taskId: 't-1', agentCode: 'dev-a', roleName: '全栈', busy: true },
+      },
+      { sessionKey: 'sess-main' },
+    )
+    openProgressFromPanelSet(
+      {
+        kind: 'employeeProcess',
+        data: { taskId: 't-2', agentCode: 'dev-a', roleName: '全栈', busy: true },
+      },
+      { sessionKey: 'sess-main' },
+    )
+    const tabs = rightStageStore
+      .getSnapshot()
+      .tabs.filter((t) => t.kind === 'employeeProcess')
+    expect(tabs).toHaveLength(1)
+    expect(tabs[0].id).toBe('process:live:dev-a')
+    expect(tabs[0].data?.taskId).toBe('t-2')
   })
 
   it('opens employeeProcess with agent only (dispatch/wake without taskId)', () => {
@@ -114,7 +164,7 @@ describe('openProgressFromPanelSet', () => {
         busy: true,
       },
     })
-    expect(id).toBe('process:mt-role')
+    expect(id).toBe('process:live:duty-ops')
     const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'employeeProcess')
     expect(tab?.title).toBe('值班小助手')
     expect(tab?.data?.roleName).toBe('值班小助手')

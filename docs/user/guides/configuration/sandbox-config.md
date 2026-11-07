@@ -17,21 +17,19 @@
 
 ## 步骤
 
-### 模式一：本地沙箱（默认）
+### 模式一：无沙箱（默认）
 
-命令直接在宿主机上执行，无容器隔离。
+命令直接在宿主机上执行，无容器隔离。旧配置里的 `LocalSandboxProvider` 已移除，加载时会自动迁移为 `NoopSandboxProvider` 并打告警；宿主机 Shell 场景改用 `tools_mode=host_direct` + `terminal` 工具。
 
 ```yaml
 sandbox:
-  use: evoflow.sandbox.local:LocalSandboxProvider
-  allow_host_bash: false
+  use: evoflow.sandbox.noop:NoopSandboxProvider
 ```
 
 **特点：**
 - 零依赖，无需 Docker
 - 适合个人开发、快速验证
 - **安全性最低**：Agent 可访问宿主机文件系统
-- `allow_host_bash` 默认为 `false`，仅用于受信任的单人工作流
 
 ### 模式二：容器化 AIO 沙箱
 
@@ -135,8 +133,8 @@ kubectl get pods -n evo-flow
 **Q: AIO 模式下容器无法启动？**
 检查 Docker 是否运行，以及镜像是否已拉取（`make docker-init`）。
 
-**Q: 本地沙箱的 `allow_host_bash` 能打开吗？**
-仅在全受信任的单人环境中打开。打开后 Agent 可以直接执行宿主机的 bash 命令。
+**Q: 本地（无沙箱）模式安全吗？**
+无隔离，Agent 可直接访问宿主机。要收紧权限，请到「设置 → 安全中心」配置 OS 沙箱开关、新对话默认权限与终端命令策略；全受信任单人环境再考虑放开。
 
 **Q: Docker-in-Docker (DooD) 是什么？**
 生产/开发 compose 中将宿主 Docker Socket 挂载到容器内，使 AioSandboxProvider 能通过宿主 Docker 创建沙箱容器。这不是真正的 Docker-in-Docker，而是 "Docker-outside-of-Docker"。

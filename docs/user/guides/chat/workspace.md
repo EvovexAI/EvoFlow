@@ -9,7 +9,7 @@
 >
 > 切换到工作空间后，顶栏会出现绿色 `workspace` 标签，表示 AI 现在可以操作你的本地文件了。
 >
-> **功能关系**：工作空间是一种**场景（Scenario）**，控制当前会话的工具集——与[项目管理](basic-functions.md#项目管理)（隔离会话/记忆/配置）和[沙箱配置](../configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]]（限定物理可达范围）是三个独立但可叠加的概念；工作空间场景是[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]和[Claude Code](claude-code.md) [[claude-code|Claude Code]]执行代码操作的基础环境。
+> **功能关系**：工作空间是一种**场景（Scenario）**，控制当前会话的工具集——与[项目管理](basic-functions.md#项目管理)（隔离会话/记忆/配置）和[沙箱配置](../configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]]（限定物理可达范围）是三个独立但可叠加的概念；工作空间场景是[Plan 模式](plan-mode.md) [[plan-mode|Plan 模式]]执行代码操作的基础环境。
 
 > **概念区分**：本文讲的是「**工作空间**」——聊天顶栏「场景」下拉里的一个选项，它决定当前会话能用哪些工具（读写文件、执行命令等）。如果你要找的是**多项目隔离**（每个客户/产品一份独立的会话、记忆、配置），请看 [项目管理](basic-functions.md#项目管理) 章节，那是另一套机制。
 
@@ -35,7 +35,7 @@
 |------|------|
 | **顶栏场景下拉** | 点击聊天页顶部「场景」按钮，选择「工作空间」 |
 | **自然语言触发** | 直接说"切换到 Agent 模式"或"我要改代码"，主智能体会调用 `scenario(activate, agent)` 自动切换 |
-| **快捷指令** | `/workspace`（如已在快捷键里绑定） |
+| **快捷指令** | `/workspace query`（查询）/ `/workspace set <路径>`（指定）/ `/workspace create <名称>`（新建） |
 
 切换后顶栏会出现绿色「workspace」标签，且左侧抽屉的可用工具数量明显增加。
 

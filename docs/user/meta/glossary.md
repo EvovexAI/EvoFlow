@@ -21,7 +21,7 @@
 | **知识库** | 自有文档库：上传、检索、问 AI、Wiki、图谱。`#/knowledge`。绑到员工后上班可引用。见 [知识库](../guides/configuration/knowledge-base.md)。 |
 | **自动上班（总开关）** | 页头开关：开启后，在岗员工按上班频率自动干活。 |
 | **上班频率** | 多久自动来一轮（如每 30 分钟、每小时）。 |
-| **交接审批策略** | 岗位档位：全自动 / 平衡型 / 谨慎型；主要决定正式转交同事前要不要你点「同意派发」。 |
+| **交接审批策略（交工审核）** | 岗位档位：**需要审核 / 无需审核**（编辑岗位另有「有风险才审」）；主要决定正式转交同事前要不要你点「同意派发」。 |
 | **同意派发** | 审批按钮：同意后叫醒下级继续干（不是普通「同意」）。 |
 | **待闭环** | 本岗已交活，整单还等下游或收束。 |
 | **工作项** | 员工岗位上的任务（待开始→执行中→待闭环/已完成/失败）。 |
@@ -56,7 +56,7 @@
 | **Harness** | 可发布的 `evoflow` Python 包，含 Agent、工具、沙箱、MCP、技能等（`backend/packages/harness/evoflow/`）。 |
 | **App** | 应用层代码，含 Gateway 与 IM 渠道（`backend/app/`）；**禁止**被 harness 反向依赖。与面板「工作流（旧名：应用中心）」的「应用」不是同一概念。 |
 | **Thread** | LangGraph 会话线程标识；本地文件与上传目录常按 `thread_id` 隔离。 |
-| **Sandbox** | Agent 命令与文件操作的执行环境（本地 / Docker / K8s 等），见 [沙箱模式配置](../guides/configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]。 |
+| **Sandbox** | Agent 命令与文件操作的执行环境（本地容器 Docker / Apple Container，或远程 / K8s 沙箱），见 [沙箱模式配置](../guides/configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱模式配置]]。 |
 | **Skill** | `SKILL.md`（含 YAML 头信息）描述的可选能力包，见 [skill-system.md](../explanation/skill-system.md) [[explanation/skill-system|skill-system.md]]。 |
 | **MCP** | Model Context Protocol，通过 Gateway 配置并供 Agent 侧加载的外部工具协议。 |
 | **ACP** | Agent Communication Protocol；通过配置的外部 ACP 适配进程与主 Agent 协作。 |

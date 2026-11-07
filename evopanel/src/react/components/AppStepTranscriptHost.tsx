@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { fetchSubtaskTranscriptMeta } from '../../lib/subtask-conversation-history.js'
 import type { CollabSubtaskSnapshot, SubtaskTranscriptModalPayload } from '../chat-types.js'
+import { V4CollabSubtaskTranscriptPane } from '../chat-app/right-stage/v4-collab-subtask-transcript-pane.js'
 import { useSubtaskTranscriptModal } from '../hooks/useSubtaskTranscriptModal.js'
 import { SubtaskDetailModal } from './SubtaskDetailModal.js'
 import { SubtaskExecutionDrawer } from './SubtaskExecutionDrawer.js'
@@ -19,10 +21,15 @@ export type AppStepTranscriptOpenRequest = {
   /** 默认 modal；调试坞内嵌用 drawer + portalTarget */
   mode?: 'modal' | 'drawer'
   portalTarget?: HTMLElement | null
-  /** 只读执行记录（正文 / 工具交错），不显示续聊输入框 */
+  /**
+   * 历史字段：调试坞已对齐员工/协作节点面板（可续聊）。
+   * true 时仍显示对话，仅关闭「查看详情」弹层入口。
+   */
   readOnly?: boolean
   /** 变化时重新拉取执行记录（轮询用） */
   refreshKey?: string | number
+  /** 归属会话 key（工具详情 / 工作区） */
+  sessionKey?: string
 }
 
 type Props = {
@@ -31,7 +38,8 @@ type Props = {
 }
 
 /**
- * 应用编辑器内复用协作工作流「节点对话」弹窗（同 SubtaskExecutionDrawer）。
+ * 应用调试坞：直接复用协作节点进度面板（与员工对话同款 V4 + 齿轮 + 可续聊）。
+ * 弹层 modal 路径仍走 SubtaskExecutionDrawer（任务中心等）。
  */
 export function AppStepTranscriptHost({ request, onClose }: Props) {
   const [payload, setPayload] = useState<SubtaskTranscriptModalPayload | null>(null)
@@ -59,78 +67,99 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
       })
       return
     }
+    // drawer 路径交给 V4CollabSubtaskTranscriptPane 自己拉 meta / catchup
+    if (request.mode === 'drawer' && request.portalTarget) {
+      queueMicrotask(() => {
+        setPayload({
+          subtaskId: request.subtaskId,
+          mainTaskId: request.mainTaskId,
+          leadThreadId: request.leadThreadId,
+          subtaskThreadId: request.subtaskThreadId,
+          title: request.title || request.subtaskId,
+          status: request.status || 'pending',
+          rows: [],
+          emptyConversation: !request.subtaskThreadId,
+        })
+        setLoading(false)
+      })
+      return
+    }
+
     const mid = String(request.mainTaskId || '').trim()
     const sid = String(request.subtaskId || '').trim()
     const lead = String(request.leadThreadId || '').trim()
+    const storedThread = String(request.subtaskThreadId || '').trim()
     const title = String(request.title || sid).trim() || sid
     const status = String(request.status || 'pending').trim() || 'pending'
     let cancelled = false
+
     queueMicrotask(() => {
-      setLoading(true)
       setPayload({
         subtaskId: sid,
         mainTaskId: mid,
         leadThreadId: lead,
+        subtaskThreadId: storedThread || undefined,
         title,
         status,
         rows: [],
-        emptyConversation: true,
+        emptyConversation: !storedThread,
       })
+      setLoading(!storedThread)
     })
-    const snapshot = {
-      subtaskId: sid,
-      name: title,
-      description: String(request.description || ''),
-      status,
-      assignedAgent: String(request.assignedAgent || ''),
-      parentTaskId: mid,
-      subtask_thread_id: String(request.subtaskThreadId || ''),
-      subtaskThreadId: String(request.subtaskThreadId || ''),
-    }
+
     void fetchSubtaskTranscriptMeta({
       mainTaskId: mid,
       subtaskId: sid,
       leadThreadId: lead,
-      storedSubtaskThreadId: String(request.subtaskThreadId || ''),
-      subtaskSnapshot: snapshot,
+      storedSubtaskThreadId: storedThread,
+      subtaskSnapshot: {
+        subtaskId: sid,
+        name: title,
+        description: String(request.description || ''),
+        status,
+        assignedAgent: String(request.assignedAgent || ''),
+        parentTaskId: mid,
+        subtask_thread_id: storedThread,
+        subtaskThreadId: storedThread,
+      },
     })
       .then((resp) => {
         if (cancelled) return
-        const threadId = String(resp?.thread_id || request.subtaskThreadId || '').trim()
+        const threadId = String(resp?.thread_id || storedThread || '').trim()
         setPayload({
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
           subtaskThreadId: threadId || undefined,
           title,
-          status,
+          status: String(resp?.status || status).trim() || status,
           rows: [],
           emptyConversation: !threadId,
           outcome: resp.outcome,
         })
       })
       .catch(() => {
-        if (cancelled) return
+        if (cancelled || storedThread) return
         setPayload({
           subtaskId: sid,
           mainTaskId: mid,
           leadThreadId: lead,
-          subtaskThreadId: String(request.subtaskThreadId || '').trim() || undefined,
+          subtaskThreadId: undefined,
           title,
           status,
           rows: [],
-          emptyConversation: !String(request.subtaskThreadId || '').trim(),
+          emptyConversation: true,
         })
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
+
     return () => {
       cancelled = true
     }
-    // only reopen when target ids change or refreshKey bumps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request?.mainTaskId, request?.subtaskId, request?.leadThreadId, request?.refreshKey])
+  }, [request?.mainTaskId, request?.subtaskId, request?.leadThreadId, request?.subtaskThreadId, request?.refreshKey, request?.mode, request?.portalTarget])
 
   const handlePayloadChange = useCallback(
     (next: SubtaskTranscriptModalPayload | null) => {
@@ -141,7 +170,7 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
   )
 
   const transcript = useSubtaskTranscriptModal({
-    payload,
+    payload: request?.mode === 'drawer' && request?.portalTarget ? null : payload,
     onPayloadChange: handlePayloadChange,
     modalSubtask,
     modalStreamTask: null,
@@ -151,44 +180,59 @@ export function AppStepTranscriptHost({ request, onClose }: Props) {
     readOnly: !!request?.readOnly,
   })
 
-  if (!request || !payload) return null
+  if (!request) return null
 
-  const mode = request.mode === 'drawer' ? 'drawer' : 'modal'
-  const portalTarget = mode === 'drawer' ? request.portalTarget || null : null
-  const readOnly = !!request.readOnly
+  // 调试坞：与右栏「节点进度 / 员工对话」同款面板
+  if (request.mode === 'drawer' && request.portalTarget) {
+    return createPortal(
+      <V4CollabSubtaskTranscriptPane
+        mainTaskId={request.mainTaskId}
+        subtaskId={request.subtaskId}
+        leadThreadId={request.leadThreadId}
+        title={request.title}
+        status={request.status}
+        assignedAgent={request.assignedAgent}
+        description={request.description}
+        subtaskThreadId={request.subtaskThreadId}
+        sessionKey={request.sessionKey}
+        embedded
+        allowCompose
+        onClose={onClose}
+      />,
+      request.portalTarget,
+    )
+  }
+
+  if (!payload) return null
+
+  const knownThread =
+    transcript.v4SessionId || request?.subtaskThreadId || payload.subtaskThreadId || ''
 
   return (
     <>
       <SubtaskExecutionDrawer
         open
-        mode={mode}
-        portalTarget={portalTarget}
+        mode="modal"
         subtaskId={payload.subtaskId}
-        v4SessionId={
-          transcript.v4SessionId || String(request?.subtaskThreadId || payload.subtaskThreadId || '')
-        }
+        v4SessionId={String(knownThread)}
         statusClass={transcript.statusClass}
-        statusLabel={loading ? '加载中' : transcript.statusLabel}
-        summaryAgent={readOnly ? '' : transcript.modalSummaryAgent}
-        shortTitle={readOnly ? '执行记录' : transcript.modalShortTitle}
-        rows={
-          transcript.v4SessionId || request?.subtaskThreadId || payload.subtaskThreadId
-            ? []
-            : transcript.modalRowsForDisplay
-        }
+        statusLabel={loading && !knownThread ? '加载中' : transcript.statusLabel}
+        summaryAgent={transcript.modalSummaryAgent}
+        shortTitle={transcript.modalShortTitle}
+        rows={knownThread ? [] : transcript.modalRowsForDisplay}
         streamActive={transcript.modalIsStreaming}
         sending={transcript.sending}
         canCompose={transcript.modalCanCompose}
         composeText={transcript.composeText}
         composeError={transcript.composeError}
         copyPlainText={transcript.modalCopyPlainText}
-        showDetailButton={!readOnly}
+        showDetailButton={!request.readOnly}
         onClose={onClose}
-        onOpenDetail={readOnly ? undefined : () => transcript.setDetailOpen(true)}
+        onOpenDetail={request.readOnly ? undefined : () => transcript.setDetailOpen(true)}
         onComposeTextChange={transcript.setComposeText}
         onSend={() => void transcript.handleSend()}
       />
-      {!readOnly ? (
+      {!request.readOnly ? (
         <SubtaskDetailModal
           open={transcript.detailOpen}
           title={transcript.modalShortTitle}

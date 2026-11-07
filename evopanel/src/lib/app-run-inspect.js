@@ -295,7 +295,11 @@ export function createAppRunInspectController(opts) {
     ).trim()
     let leadThreadId = String(runStatus?.thread_id || '').trim()
     const mainTaskId = String(runStatus?.task_id || '').trim()
-    if (!leadThreadId && mainTaskId) {
+    // Prefer persisted executor thread; else canonical SubThread_{subtaskId} so V4
+    // can hydrate immediately without waiting getTask / conversation-history.
+    let subtaskThreadId = String(fromApi?.subtask_thread_id || '').trim()
+    if (!subtaskThreadId && subtaskId) subtaskThreadId = `SubThread_${subtaskId}`
+    if (!leadThreadId && mainTaskId && !subtaskThreadId) {
       try {
         const task = await api.getTask(mainTaskId)
         leadThreadId = String(task?.thread_id || '').trim()
@@ -325,22 +329,37 @@ export function createAppRunInspectController(opts) {
       logEl.innerHTML = `<div data-role="log-portal" class="wf-debug-chat-portal"></div>`
     }
     const portal = logEl.querySelector('[data-role="log-portal"]')
+    const stepStatus = String(
+      fromApi?.status || resolveWorkflowSubtaskStatus(runStatus?.subtask_status, ref, bridge) || 'pending',
+    )
     try {
+      // 对齐员工/协作节点对话：可续聊 + V4 齿轮；旁观靠面板内 meta/catchup。
+      console.info('[wf-step-transcript] inspect.open', {
+        t: new Date().toISOString(),
+        runId,
+        ref: canonicalRef || ref,
+        title,
+        status: stepStatus,
+        mainTaskId,
+        subtaskId,
+        subtaskThreadId,
+        startedAt: fromApi?.started_at || null,
+        completedAt: fromApi?.completed_at || null,
+        runStatus: runStatus?.status || null,
+      })
       transcript?.open({
         mainTaskId,
         subtaskId,
         leadThreadId,
         title,
-        status: String(
-          fromApi?.status || resolveWorkflowSubtaskStatus(runStatus?.subtask_status, ref, bridge) || 'pending',
-        ),
+        status: stepStatus,
         assignedAgent: String(fromApi?.assigned_agent || planStep?.assigned_agent || ''),
         description: String(fromApi?.description || planStep?.goal || planStep?.description || ''),
-        subtaskThreadId: String(fromApi?.subtask_thread_id || ''),
+        subtaskThreadId,
         mode: 'drawer',
         portalTarget: portal,
-        readOnly: true,
-        refreshKey: `${runId}:${ref}:${fromApi?.status || ''}`,
+        readOnly: false,
+        refreshKey: `${runId}:${ref}:${stepStatus}:${subtaskThreadId}:${fromApi?.completed_at || ''}`,
       })
     } catch (e) {
       logEl.innerHTML = `
@@ -508,7 +527,6 @@ export function createAppRunInspectController(opts) {
           runOutEl.innerHTML = `
             <div class="apps-history-outputs-block">
               <div class="apps-history-outputs-title">综合产物（最终交付）</div>
-              <p class="td-card-sub" style="margin:0 0 8px">优先看带「最终交付」标记的文件；每条会标注来自哪个节点。</p>
               ${renderOutputItemCardsHtml(runItems, escHtml, { enablePreview: true })}
             </div>`
           bindPreview(runOutEl, { assigned_agent: '' })

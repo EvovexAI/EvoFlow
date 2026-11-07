@@ -107,14 +107,75 @@ def build_system_prompt(
     *,
     roster: list[ProactiveRole] | None = None,
     query: str = "",
+    principal_id: str = "",
 ) -> str:
-    """Duty system prompt — shared employee skeleton (mode=duty)."""
+    """Duty system prompt — shared employee skeleton (mode=duty).
+    
+    Args:
+        role: ProactiveRole for this duty session
+        roster: List of peer roles (optional)
+        query: Environment context / duty query
+        principal_id: User ID to optionally inject user profile (scope=full)
+            - If empty or role.memory_enabled is False, no user profile injected
+            - User profile helps employee understand WHO the user is (preferences/style)
+    """
+    # Build user profile if needed (memory gate)
+    user_profile = ""
+    if principal_id and _should_inject_user_profile_for_duty(role):
+        user_profile = _build_user_profile_for_duty(principal_id)
+    
     return assemble_employee_system_prompt(
         mode="duty",
         role=role,
         roster=roster,
         query=query,
+        user_profile_block=user_profile,
     )
+
+
+def _should_inject_user_profile_for_duty(role: ProactiveRole) -> bool:
+    """Determine whether user profile should be injected based on role memory config.
+    
+    Same gate as Chat mode: memory_enabled → inject_user_profile.
+    """
+    try:
+        cfg = getattr(role, "config", None)
+        if cfg is None:
+            return True  # Default: inject
+        # Explicit False = no profile; missing/True = inject
+        memory_enabled = getattr(cfg, "memory_enabled", True)
+        return bool(memory_enabled)
+    except Exception:
+        return True
+
+
+def _build_user_profile_for_duty(principal_id: str) -> str:
+    """Build user profile injection block for duty mode.
+    
+    Mirrors logic from lead_agent/prompt.py:2330-2340 (Chat mode).
+    Injects profile/USER.md so employee knows WHO the user is (preferences/style).
+    Does NOT inject user memory/standing (employee has own memory system).
+    """
+    try:
+        from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
+        from evoflow.assets.profile_injection import build_user_profile_injection_block
+        
+        _pid = str(principal_id or "").strip()
+        if not _pid:
+            return ""
+        
+        _profile_ent = (
+            EntityRef("user", sanitize_user_asset_id(_pid)).normalized()
+        )
+        
+        return build_user_profile_injection_block(
+            prompt_language="zh",  # Default; can be parameterized if needed
+            scope="full",
+            entity=_profile_ent,
+        ).strip()
+    except Exception:
+        return ""
+
 
 
 def wrap_proactive_duty_system_section(duty_prompt: str) -> str:
@@ -208,8 +269,6 @@ def build_user_prompt(
     board = str(task_board or "").strip()
     empty_log = (not log) or ("暂无历史" in log and "首次上岗" in log)
     empty_board = (not board) or ("暂无未结" in board)
-    mem_summary = _memory_brief_without_work_log_echo(memory.summary(max_items=8), log)
-    empty_mem = (not mem_summary) or ("暂无" in mem_summary)
 
     parts: list[str] = [f"# 值班 · 「{role.role_name}」", ""]
 
@@ -233,20 +292,22 @@ def build_user_prompt(
             parts.extend(["", board])
         if not empty_log:
             parts.extend(["", "## 近况", log])
-        if not empty_mem:
-            parts.extend(["", "## 记忆摘要", mem_summary])
         return "\n".join(parts).strip() + "\n"
 
     if not empty_board:
         parts.extend([board, ""])
     if not empty_log:
         parts.extend(["## 近况", log, ""])
-    if not empty_mem:
-        parts.extend(["## 记忆摘要", mem_summary, ""])
     if env:
         parts.extend(["## 环境信号", env, ""])
     parts.extend(
         [
+            "## 长期记忆",
+            "对照上方 Entity assets 目录检索相关细节：",
+            "  - `assets read standing.md` — 用户长期记忆（推荐先读）",
+            "  - `assets search <关键词>` — 按关键词搜索记忆",
+            "  - `assets list craft` — 查看心得/做法列表",
+            "",
             "## 本轮行动",
             "对照职责与上方看板：有具体待办就推进；没有则结束本轮，不要空建单，也不要硬写「巡检完成」报告。",
             "干完直接结案；中间 progress 可选。需要直属下级继续则结案时填 handlers（禁止对下级 create+wake 同一次交接）。",

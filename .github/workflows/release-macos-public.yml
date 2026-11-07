@@ -15,7 +15,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          # macos-14 在 2026-11-06 的 v1.3.3 运行中被解析成
+          # "macos-14-arm64-us-default" 并报 "configuration is not supported"，
+          # 未分配 runner 即 cancelled。改用 macos-15（公开仓库默认 arm64），
+          # 与 x64 的 macos-15-intel 配对，避免跨大版本镜像差异。
+          - runner: macos-15
             tauri_target: aarch64-apple-darwin
             arch_label: aarch64
           - runner: macos-15-intel
@@ -25,6 +29,8 @@ jobs:
     timeout-minutes: 90
     env:
       UV_HTTP_TIMEOUT: "300"
+      RUSTUP_MAX_RETRIES: "10"
+      RUSTUP_TIMEOUT: "300"
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -53,7 +59,9 @@ jobs:
             ${{ runner.os }}-pnpm-store-
 
       - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          toolchain: stable
 
       - name: Set up Python
         uses: actions/setup-python@v6

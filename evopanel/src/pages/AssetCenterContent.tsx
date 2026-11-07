@@ -158,19 +158,24 @@ const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
 /**
  * Tab IA:
  * - 画像：仅「我」(user)。员工共享用户画像，不设画像 Tab。
- * - 情感：仅员工 / agent（每人独立 profile/affect.md；模型用 assets affect 主动改）。
+ * - 情感：用户侧 = 主智能体心境；员工侧 = 该员工心境（profile/affect.md）。
  */
 function assetTabsForEntity(entityType: string): typeof ASSET_TABS {
   const et = String(entityType || "").trim().toLowerCase();
+  const withAffectNearFront = (tabs: typeof ASSET_TABS) => {
+    const affect = tabs.find((t) => t.id === "affect");
+    if (!affect) return tabs;
+    const rest = tabs.filter((t) => t.id !== "affect");
+    // overview → … → keep 情感 early (after overview / profile when present)
+    const head = rest.filter((t) => t.id === "overview" || t.id === "profile");
+    const tail = rest.filter((t) => t.id !== "overview" && t.id !== "profile");
+    return [...head, affect, ...tail];
+  };
   if (et === "user") {
-    return ASSET_TABS.filter((t) => t.id !== "affect");
+    return withAffectNearFront(ASSET_TABS);
   }
   if (et === "employee") {
-    // Keep 情感 near the front so it is not lost in a long tab strip.
-    const tabs = ASSET_TABS.filter((t) => t.id !== "profile");
-    const affect = tabs.find((t) => t.id === "affect");
-    const rest = tabs.filter((t) => t.id !== "affect");
-    return affect ? [rest[0], affect, ...rest.slice(1)] : tabs;
+    return withAffectNearFront(ASSET_TABS.filter((t) => t.id !== "profile"));
   }
   // Workspaces are memory vaults.
   if (et === "workspace") {
@@ -389,7 +394,7 @@ function initialTab(): AssetTab {
   const path = normalizeDeepLinkPath(String(q.path || ""));
   if (path.startsWith("craft/")) return "experience";
   if (path.startsWith("memory/journal/")) return "journal";
-  // 情感镜像：员工专属；勿把整棵 profile/ 当成用户画像
+  // 情感：用户侧=主智能体 / 员工侧=该员工；勿把整棵 profile/ 当成用户画像
   if (path === "profile/affect.md" || path.endsWith("/affect.md")) return "affect";
   if (path.startsWith("profile/")) return "profile";
   if (path.startsWith("memory/")) return "memory";
@@ -579,7 +584,7 @@ export default function AssetCenterContent() {
     setProfileDirty(false);
   }, [currentEntity]);
 
-  /** 员工独立情感镜像（profile/affect.md）；真源仍是 evoflow_person_affect。 */
+  /** 情感真源：profile/affect.md（用户侧=主智能体；员工侧=该员工）。 */
   const loadAffect = useCallback(async () => {
     const data = await api.assetsGetProfile(currentEntity);
     const fields = (data?.fields || {}) as Record<string, string | null>;
@@ -1356,8 +1361,9 @@ export default function AssetCenterContent() {
             ) : activeTab === "affect" ? (
               <div className="ac-affect-pane flex min-h-0 flex-1 flex-col">
                 <div className="ac-affect-banner px-4 py-2 text-[12px] leading-snug opacity-70">
-                  员工独立心境（真源 profile/affect.md）。对话里由模型用 assets affect
-                  主动改写；不会后台自动改。用户画像在「我 → 画像」。
+                  {String(entityType || "").toLowerCase() === "user"
+                    ? "主智能体心境（真源 profile/affect.md）。对话里用 assets affect 主动改；不会后台自动改。"
+                    : "员工独立心境（真源 profile/affect.md）。对话里用 assets affect 主动改；不会后台自动改。用户画像在「我 → 画像」。"}
                 </div>
                 <EditorPanel
                   pathLabel="情感 · profile/affect.md"
@@ -1528,7 +1534,7 @@ function AssetHeader({
           </span>
           <div className="ac-brand-text">
             <h1 className="ac-title">资产中心</h1>
-            <p className="ac-brand-sub">AI 的笔记本 · 用户画像 / 员工情感 / 记忆 / 经验</p>
+            <p className="ac-brand-sub">AI 的笔记本 · 用户画像 / 情感 / 记忆 / 经验</p>
           </div>
         </div>
 
@@ -1709,9 +1715,7 @@ function OverviewPanel({
     tab: AssetTab;
     accent: string;
   }[] = [
-    ...(!isMe
-      ? [{ key: "affect", label: "情感", value: 1, icon: <Heart size={16} />, tab: "affect" as AssetTab, accent: "rose" }]
-      : []),
+    { key: "affect", label: isMe ? "主智能体情感" : "情感", value: 1, icon: <Heart size={16} />, tab: "affect" as AssetTab, accent: "rose" },
     { key: "memory", label: "记忆文件", value: Number(totals.memoryFiles ?? 0), icon: <BrainCircuit size={16} />, tab: "memory", accent: "violet" },
     { key: "craft", label: "经验 / 技能", value: Number(totals.craftFiles ?? 0), icon: <Sparkles size={16} />, tab: "experience", accent: "amber" },
     { key: "uses", label: "工具引用", value: Number(totals.totalUses ?? 0), icon: <Activity size={16} />, tab: "manage", accent: "sky" },

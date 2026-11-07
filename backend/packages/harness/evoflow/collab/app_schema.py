@@ -44,12 +44,14 @@ _STEP_CONTENT_KEYS = (
     "instruction",
     "model",
     "project_path",
-    "mcp_servers",
     # F-1 deterministic nodes: executor="template" renders `template` inline
     # (no LLM worker); default / absent executor keeps the LLM worker path.
     "executor",
     "template",
 )
+
+# list-valued step capability fields (CSV or JSON array on wire)
+_STEP_LIST_KEYS = ("tools", "skills", "mcp_servers", "knowledge_vault_ids")
 
 _PARAM_TYPES = frozenset({"text", "textarea", "select", "number"})
 
@@ -133,12 +135,16 @@ def normalize_step(raw: Any, index: int) -> dict[str, Any] | None:
     if agent:
         step["assigned_agent"] = agent
 
-    tools = _as_str_list(raw.get("tools"))
-    if tools:
-        step["tools"] = tools
-    skills = _as_str_list(raw.get("skills"))
-    if skills:
-        step["skills"] = skills
+    for list_key in _STEP_LIST_KEYS:
+        items = _as_str_list(raw.get(list_key))
+        if items:
+            step[list_key] = items
+
+    thinking = raw.get("thinking_enabled")
+    if thinking is True or thinking is False:
+        step["thinking_enabled"] = thinking
+    elif isinstance(thinking, str) and thinking.strip().lower() in ("true", "false", "1", "0"):
+        step["thinking_enabled"] = thinking.strip().lower() in ("true", "1")
 
     checklist = raw.get("work_checklist")
     if isinstance(checklist, list) and checklist:
@@ -539,6 +545,23 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
         doc["goal_template"] = _as_str(doc.get("goal_template"))
     if "flowchart_mermaid" in doc:
         doc["flowchart_mermaid"] = _as_str(doc.get("flowchart_mermaid"))
+
+    # App-level default workspace; empty string clears (runner falls back to repo root).
+    plan = doc.get("plan")
+    plan_path = ""
+    if isinstance(plan, dict):
+        plan_path = _as_str(plan.get("project_path"))
+        if plan_path:
+            plan = dict(plan)
+            plan["project_path"] = plan_path
+            doc["plan"] = plan
+        elif "project_path" in plan:
+            plan = dict(plan)
+            plan["project_path"] = ""
+            doc["plan"] = plan
+    top_path = _as_str(doc.get("project_path")) or plan_path
+    if top_path or "project_path" in doc:
+        doc["project_path"] = top_path
 
     mode = _as_str(doc.get("execution_mode"), "workflow") or "workflow"
     if mode not in ("workflow", "lead_supervised"):

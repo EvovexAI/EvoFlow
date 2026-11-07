@@ -372,6 +372,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         mission_state_fp: str,
         mcp_fp: str,
         im_channel_fp: str = "",
+        platform_scope_fp: str = "",
     ) -> str:
         cp = str(collab_phase_fp or "")
         crt = str(collab_rt or "")
@@ -380,7 +381,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
         msf = str(mission_state_fp or "")
         mcp = str(mcp_fp or "")
         im = str(im_channel_fp or "").strip().lower()
-        return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}::{im}"
+        psf = str(platform_scope_fp or "")
+        return f"{thread_id}::{scenario_csv}::{'|'.join(tools_sorted)}::{role_disk}::{cp}::{crt}::{st}::{ht}::{msf}::{mcp}::{im}::{psf}"
 
     @staticmethod
     def _refresh_dept_group_im_system(text: str, session_key: str | None) -> str:
@@ -525,6 +527,15 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 mcp_binding if isinstance(mcp_binding, list) or mcp_binding is None else None
             )
         im_channel_fp = str(ctx.get("channel") or "").strip().lower()
+        # 平台能力清单（<capability_profile>）：scope 变更必须重渲染系统提示词。
+        # load_agent_config 走 10s TTL 缓存，此处每 wrap 一次是字典命中。
+        platform_scope_fp = ""
+        try:
+            from evoflow.config.platform_scope import platform_scope_fingerprint
+
+            platform_scope_fp = platform_scope_fingerprint(agent_name_str)
+        except Exception:
+            platform_scope_fp = ""
         session_key_early = str(ctx.get("session_key") or "").strip() or None
         sig = self._fingerprint(
             thread_id=tid,
@@ -538,6 +549,7 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
             mission_state_fp=mission_state_fp,
             mcp_fp=mcp_fp,
             im_channel_fp=im_channel_fp,
+            platform_scope_fp=platform_scope_fp,
         )
 
         def _return_cached_system(raw: str) -> ModelRequest:
@@ -681,6 +693,8 @@ class DynamicSystemPromptOnScenarioMiddleware(AgentMiddleware[AgentState]):
                 thinking_enabled=bool(ctx.get("thinking_enabled")),
                 # ChannelManager stamps ``channel`` on IM inbound only — Panel stays empty.
                 im_channel=str(ctx.get("channel") or "").strip() or None,
+                principal_id=str(ctx.get("principal_id") or ctx.get("created_by") or "").strip() or None,
+                owner_scope_id=str(ctx.get("owner_scope_id") or ctx.get("scope_id") or "").strip() or None,
             )
             record_phase(
                 "apply_prompt_template_ms",

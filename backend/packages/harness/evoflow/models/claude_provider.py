@@ -145,6 +145,12 @@ class ClaudeChatModel(VendorRoundtripChatMixin, ChatAnthropic):
         """Override to inject prompt caching, thinking budget, and OAuth billing."""
         payload = super()._get_request_payload(input_, stop=stop, **kwargs)
 
+        # Platform control-plane / runtime keys must never reach the Anthropic SDK
+        # (``AsyncCompletions.create()``-equivalent rejects unknown kwargs).
+        from evoflow.models.create_payload_sanitize import strip_non_vendor_create_keys
+
+        strip_non_vendor_create_keys(payload)
+
         if self._is_oauth:
             self._apply_oauth_billing(payload)
 

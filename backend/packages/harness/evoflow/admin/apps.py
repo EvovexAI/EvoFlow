@@ -45,6 +45,8 @@ def _normalize_plan_for_storage(document: dict[str, Any]) -> dict[str, Any]:
             doc["canvas"] = plan["canvas"]
         if "answer_from_ref" in plan:
             doc["answer_from_ref"] = plan.get("answer_from_ref")
+        if "project_path" in plan:
+            doc["project_path"] = str(plan.get("project_path") or "").strip()
     return doc
 
 
@@ -135,6 +137,9 @@ def get_app(app_id: str) -> dict[str, Any]:
             "steps_preview": steps_preview,
             "tags": app.get("tags") or [],
             "auto_run": bool(app.get("auto_run")),
+            # Surfaced so callers can confirm the working directory was really
+            # saved; it used to be dropped on both create and read.
+            "project_path": app.get("project_path") or "",
         }
     }
 
@@ -218,6 +223,7 @@ def create_app(
     tags: list[str] | None = None,
     canvas: dict[str, Any] | None = None,
     plan: dict[str, Any] | None = None,
+    project_path: str = "",
 ) -> dict[str, Any]:
     title = str(name or "").strip()
     if not title:
@@ -242,6 +248,11 @@ def create_app(
         "status": "draft",
         "version": 1,
     }
+    # Working directory shared by every step of a run. Blank means "resolve at
+    # run time" (see app_runner._resolve_workflow_project_path).
+    workspace = str(project_path or "").strip()
+    if workspace:
+        document["project_path"] = workspace
     if isinstance(plan, dict):
         document["plan"] = plan
     document = _normalize_plan_for_storage(document)

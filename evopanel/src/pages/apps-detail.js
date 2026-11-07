@@ -9,7 +9,10 @@ import { showModal, showConfirm, showContentModal } from '../components/modal.js
 import { showCelebrateDialog } from '../components/celebrate-dialog.js'
 import { navigate, getCurrentRoute } from '../router.js'
 import { restoreAppsStudioAside, syncAppsStudioAside } from './apps-studio-aside.js'
-import { mountAppWorkflowCanvas } from '../components/app-workflow-canvas.js'
+import {
+  mountAppWorkflowCanvas,
+  preloadAppWorkflowCanvas,
+} from '../components/app-workflow-canvas.js'
 import { mountAppStepTranscript } from '../components/app-step-transcript.js'
 import {
   appRunInspectShellHtml,
@@ -293,7 +296,9 @@ export async function render() {
         steps: exported.steps,
         canvas: exported.canvas || {},
         answer_from_ref: exported.answer_from_ref || '',
+        project_path: exported.project_path || '',
       },
+      project_path: exported.project_path || '',
       flowchart_mermaid: exported.flowchart_mermaid,
       answer_from_ref: exported.answer_from_ref || '',
     }
@@ -305,11 +310,51 @@ export async function render() {
   }
 
   async function loadApp() {
+    // 与画布 chunk 并行：详情页不再等 @xyflow 解析完才发 getApp。
+    void preloadAppWorkflowCanvas()
     try {
-      appData = await api.getApp(appId)
+      const { takeNavWarmOrInflight, putNavWarm } = await import('../lib/nav-panel-prefetch.js')
+      const warmKey = `apps:detail:${appId}`
+      const warmOrInflight = takeNavWarmOrInflight(warmKey)
+      const fetchP = (async () => {
+        const warm = await warmOrInflight
+        if (warm) return { data: warm, fromWarm: true }
+        const data = await api.getApp(appId)
+        putNavWarm?.(warmKey, data)
+        return { data, fromWarm: false }
+      })()
+      const [fetched] = await Promise.all([fetchP, preloadAppWorkflowCanvas()])
+      appData = fetched.data
+      const usedWarm = fetched.fromWarm
       updateHeader()
-      mountCanvas()
+      await mountCanvas()
       void ensureAgentsCache()
+      // hover 预热可能略旧：后台静默刷新定义（不挡首屏）
+      if (usedWarm) {
+        void api
+          .getApp(appId)
+          .then((fresh) => {
+            if (!fresh || !canvasMountEl?.isConnected) return
+            if (workflowCanvas?.isDirty?.()) {
+              appData = { ...fresh, plan: appData?.plan || fresh.plan }
+              updateHeader()
+              return
+            }
+            appData = fresh
+            updateHeader()
+            const plan = fresh.plan || {}
+            workflowCanvas?.setPlan?.({
+              goal: plan.goal || fresh.description || '',
+              steps: plan.steps || [],
+              canvas: plan.canvas || fresh.canvas || null,
+              project_path: plan.project_path || fresh.project_path || '',
+            })
+            void import('../lib/nav-panel-prefetch.js').then((m) =>
+              m.putNavWarm?.(warmKey, fresh),
+            )
+          })
+          .catch(() => {})
+      }
       if (autoRun || resumeRunId) {
         // 去掉 query，避免刷新重复触发
         if (window.location.hash.includes('?')) {
@@ -340,16 +385,17 @@ export async function render() {
     })
   }
 
-  function mountCanvas() {
+  async function mountCanvas() {
     if (workflowCanvas) workflowCanvas.destroy()
     canvasMountEl.innerHTML = ''
 
     const plan = appData.plan || {}
-    workflowCanvas = mountAppWorkflowCanvas(canvasMountEl, {
+    workflowCanvas = await mountAppWorkflowCanvas(canvasMountEl, {
       variant: 'fullscreen',
       goal: plan.goal || appData.description || '',
       steps: plan.steps || [],
       canvas: plan.canvas || appData.canvas || null,
+      projectPath: plan.project_path || appData.project_path || '',
       appName: appData.name || '',
       appStatus: appData.status || 'draft',
       appParameters: Array.isArray(appData.parameters) ? appData.parameters : [],
@@ -1106,6 +1152,31 @@ export async function render() {
         if (debugSession?.runId === runId) debugSession.status = status
         if (status.task_id && debugSession?.runId === runId) debugSession.taskId = status.task_id
 
+        try {
+          const steps = Array.isArray(status.steps) ? status.steps : []
+          const nodeMap = steps.map((s) => ({
+            ref: s?.ref,
+            name: s?.name,
+            status: s?.status,
+            started_at: s?.started_at || null,
+            completed_at: s?.completed_at || null,
+            subtask_id: s?.subtask_id || null,
+            thread: s?.subtask_thread_id || null,
+          }))
+          console.info('[wf-step-transcript] run.poll', {
+            t: new Date().toISOString(),
+            runId,
+            app: appData?.name || appData?.id || null,
+            overall: status.status || null,
+            progress: status.progress ?? null,
+            taskId: status.task_id || null,
+            nodes: nodeMap,
+            subtask_status: status.subtask_status || {},
+          })
+        } catch {
+          /* ignore log errors */
+        }
+
         const { overall } = updateHero(status)
 
         workflowCanvas?.setExecStatus?.(
@@ -1789,7 +1860,7 @@ EVOFLOW_OPENAI_MODEL=${appId}
             closeFn()
             appData = await api.getApp(appId)
             updateHeader()
-            mountCanvas()
+            await mountCanvas()
           } catch (e) {
             toast.error('恢复失败: ' + (e?.message || e))
           }
@@ -1890,74 +1961,37 @@ EVOFLOW_OPENAI_MODEL=${appId}
     }
   }
 
-  // ─── 应用设置（三模块：基础信息 / 执行设置 / 运行参数）───
-
-  function buildDescFromGoal(goal) {
-    const g = String(goal || '').trim().replace(/\s+/g, ' ')
-    if (!g) return ''
-    const core = g.length > 180 ? `${g.slice(0, 177)}…` : g
-    return `本工作流用于完成：${core}`
-  }
+  // ─── 工作流设置（描述 + 可选运行参数；节点各自有目标）───
 
   function showSettingsModal() {
     const goalInit = workflowCanvas?.getGoal?.() || appData.plan?.goal || ''
-    const mode = appData.execution_mode || 'workflow'
-    const descInit = String(appData.description || '').trim()
-    const descOpen = Boolean(descInit)
+    const wsInit =
+      workflowCanvas?.getProjectPath?.() ||
+      appData.plan?.project_path ||
+      appData.project_path ||
+      ''
     const overlay = showContentModal({
       title: '工作流设置',
-      subtitle: '目标 · 执行方式 · 运行参数',
-      width: 640,
+      subtitle: '描述给人看，可空；工作空间与参数按需填',
+      width: 560,
       className: 'app-settings-modal',
       overlayClass: 'app-settings-overlay',
       content: `
         <div class="app-settings">
           <section class="app-settings-section">
-            <h3 class="app-settings-section-title">基础信息</h3>
             <div class="app-settings-field">
-              <label class="app-settings-label" for="app-settings-goal">工作流目标 <span class="app-settings-req">*</span></label>
-              <textarea class="form-input app-settings-input" id="app-settings-goal" data-name="goal" rows="2" maxlength="500" placeholder="用一句话说明这个工作流要完成什么">${escHtml(goalInit)}</textarea>
+              <label class="app-settings-label" for="app-settings-goal">描述</label>
+              <textarea class="form-input app-settings-input" id="app-settings-goal" data-name="goal" rows="3" maxlength="500" placeholder="这个工作流是做什么的">${escHtml(goalInit)}</textarea>
               <div class="app-settings-counter"><span data-role="goal-count">${String(goalInit).length}</span> / 500</div>
             </div>
-            <div class="app-settings-fold" data-role="desc-fold"${descOpen ? ' data-open="1"' : ''}>
-              <button type="button" class="app-settings-fold-toggle" data-act="toggle-desc" aria-expanded="${descOpen ? 'true' : 'false'}">
-                <span class="app-settings-fold-chevron" aria-hidden="true"></span>
-                <span data-role="desc-toggle-label">${descOpen ? '详细描述' : '添加详细描述'}</span>
-              </button>
-              <div class="app-settings-fold-body" data-role="desc-body"${descOpen ? '' : ' hidden'}>
-                <textarea class="form-input app-settings-input" data-name="description" rows="2" placeholder="补充说明、使用场景或注意事项（可选）">${escHtml(descInit)}</textarea>
-                <div class="app-settings-desc-actions">
-                  <button type="button" class="btn btn-ghost btn-xs" data-act="gen-desc">根据工作流目标自动生成</button>
-                  <button type="button" class="btn btn-ghost btn-xs" data-act="regen-desc">重新生成</button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section class="app-settings-section">
-            <h3 class="app-settings-section-title">执行设置</h3>
             <div class="app-settings-field">
-              <div class="app-settings-label">执行方式 <span class="app-settings-req">*</span></div>
-              <div class="app-settings-mode-grid" role="radiogroup" aria-label="执行方式">
-                <label class="app-settings-mode-card${mode !== 'lead_supervised' ? ' is-selected' : ''}">
-                  <input type="radio" name="execution_mode" data-name="execution_mode" value="workflow"${mode !== 'lead_supervised' ? ' checked' : ''}>
-                  <span class="app-settings-mode-title">按步骤自动跑完</span>
-                  <span class="app-settings-mode-desc">推荐，工作流将自动执行全部步骤</span>
-                </label>
-                <label class="app-settings-mode-card${mode === 'lead_supervised' ? ' is-selected' : ''}">
-                  <input type="radio" name="execution_mode" data-name="execution_mode" value="lead_supervised"${mode === 'lead_supervised' ? ' checked' : ''}>
-                  <span class="app-settings-mode-title">先确认计划再执行</span>
-                  <span class="app-settings-mode-desc">适合高风险任务，生成计划后需人工确认</span>
-                </label>
+              <label class="app-settings-label" for="app-settings-ws">工作空间</label>
+              <div class="app-settings-ws-row">
+                <input class="form-input app-settings-input" id="app-settings-ws" data-name="project_path" type="text" value="${escHtml(wsInit)}" placeholder="默认运行目录（各步可覆盖）">
+                <button type="button" class="btn btn-secondary btn-sm" data-act="pick-ws">浏览…</button>
               </div>
+              <p class="app-settings-hint">各节点未单独指定时，用这里的目录读写文件。</p>
             </div>
-            <label class="app-settings-check">
-              <input type="checkbox" data-name="auto_run"${appData.auto_run ? ' checked' : ''}>
-              <span>
-                <span class="app-settings-check-title">调度触发时自动执行</span>
-                <span class="app-settings-check-desc">开启后，定时或接口触发时无需人工确认</span>
-              </span>
-            </label>
           </section>
 
           <section class="app-settings-section app-settings-section--params">
@@ -1965,7 +1999,7 @@ EVOFLOW_OPENAI_MODEL=${appId}
           </section>
         </div>
       `,
-      buttons: [{ label: '保存设置', className: 'btn btn-primary btn-sm', id: 'btn-app-settings-save' }],
+      buttons: [{ label: '保存', className: 'btn btn-primary btn-sm', id: 'btn-app-settings-save' }],
     })
 
     const paramsCtl = mountParamsEditor(
@@ -1981,64 +2015,29 @@ EVOFLOW_OPENAI_MODEL=${appId}
 
     const goalEl = overlay.querySelector('[data-name="goal"]')
     const goalCount = overlay.querySelector('[data-role="goal-count"]')
-    const descBody = overlay.querySelector('[data-role="desc-body"]')
-    const descToggle = overlay.querySelector('[data-act="toggle-desc"]')
-    const descLabel = overlay.querySelector('[data-role="desc-toggle-label"]')
-    const descEl = overlay.querySelector('[data-name="description"]')
+    const wsEl = overlay.querySelector('[data-name="project_path"]')
 
     goalEl?.addEventListener('input', () => {
       if (goalCount) goalCount.textContent = String(goalEl.value.length)
     })
 
-    const setDescOpen = (open) => {
-      if (!descBody || !descToggle) return
-      descBody.hidden = !open
-      descToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
-      if (descLabel) descLabel.textContent = open ? '详细描述' : '添加详细描述'
-      overlay.querySelector('[data-role="desc-fold"]')?.toggleAttribute('data-open', open)
-    }
-
-    descToggle?.addEventListener('click', () => {
-      setDescOpen(descBody?.hidden)
-    })
-
-    const fillDescFromGoal = () => {
-      const goal = String(goalEl?.value || '').trim()
-      if (!goal) {
-        toast.warning('请先填写工作流目标')
-        goalEl?.focus()
-        return
-      }
-      setDescOpen(true)
-      if (descEl) {
-        descEl.value = buildDescFromGoal(goal)
-        descEl.focus()
-      }
-    }
-
-    overlay.querySelector('[data-act="gen-desc"]')?.addEventListener('click', fillDescFromGoal)
-    overlay.querySelector('[data-act="regen-desc"]')?.addEventListener('click', fillDescFromGoal)
-
-    overlay.querySelectorAll('.app-settings-mode-card').forEach((card) => {
-      const input = card.querySelector('input[type="radio"]')
-      input?.addEventListener('change', () => {
-        overlay.querySelectorAll('.app-settings-mode-card').forEach((c) => {
-          c.classList.toggle('is-selected', c.querySelector('input')?.checked)
+    overlay.querySelector('[data-act="pick-ws"]')?.addEventListener('click', () => {
+      void (async () => {
+        const { pickResolvedWorkspaceFolder } = await import('../lib/workspace-field-ui.js')
+        const resolved = await pickResolvedWorkspaceFolder({
+          defaultPath: String(wsEl?.value || ''),
+          title: '选择工作流默认工作空间',
         })
-      })
+        if (resolved && wsEl) wsEl.value = resolved
+      })()
     })
 
     overlay.querySelector('#btn-app-settings-save')?.addEventListener('click', async () => {
       const goal = String(overlay.querySelector('[data-name="goal"]')?.value || '').trim()
-      if (!goal) {
-        toast.warning('请填写工作流目标')
-        goalEl?.focus()
-        return
-      }
-      const description = String(overlay.querySelector('[data-name="description"]')?.value || '').trim()
-      const execution_mode =
-        overlay.querySelector('[data-name="execution_mode"]:checked')?.value || 'workflow'
-      const auto_run = !!overlay.querySelector('[data-name="auto_run"]')?.checked
+      const project_path = String(wsEl?.value || '').trim()
+      // 按步骤自动跑 + 定时/接口触发即开跑（产品默认，不再单独开关）
+      const execution_mode = 'workflow'
+      const auto_run = true
       const parameters = paramsCtl.collect()
       const bad = parameters.find((p) => !/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(p.name))
       if (bad) {
@@ -2052,14 +2051,18 @@ EVOFLOW_OPENAI_MODEL=${appId}
       }
       try {
         workflowCanvas?.setGoal?.(goal)
-        await saveAppMeta({ description, execution_mode, auto_run, parameters })
+        workflowCanvas?.setProjectPath?.(project_path)
+        // plan.goal = 工作流描述；同步到 description 供列表展示
+        await saveAppMeta({ description: goal, project_path, execution_mode, auto_run, parameters })
         if (workflowCanvas?.isDirty?.()) await workflowCanvas.saveDraft()
         else {
           await api.updateApp(appId, {
+            project_path,
             plan: {
               goal,
               steps: appData.plan?.steps || [],
               canvas: appData.plan?.canvas || appData.canvas,
+              project_path,
             },
           })
         }

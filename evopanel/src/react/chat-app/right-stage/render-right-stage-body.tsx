@@ -36,7 +36,9 @@ import { SidePanelBootShell } from '../../components/SidePanelBootShell.js'
 import { WorkspaceFileTree } from '../../components/WorkspaceFileTree.js'
 import { KnowledgeMapPanel } from '../../components/KnowledgeMapPanel.js'
 import { CollabExecutionPanel } from '../../components/CollabExecutionPanel.js'
+import { RightStageWorkflowPickList } from '../../components/RightStageWorkflowPickList.js'
 import { useCollabSubtasksFromApi } from '../../hooks/useCollabSubtasksFromApi.js'
+import { openCollabWorkflowInRightStage } from '../../../lib/right-stage/open-collab-workflow-stage.js'
 
 /** panel_set / 任务中心同构：按 surface.data.mainTaskId 自拉工作流，不绑当前会话 task。 */
 function CollabWorkflowStageBody({
@@ -80,7 +82,36 @@ function CollabWorkflowStageBody({
     return (
       <aside className="react-chat-collab-exec-panel react-chat-right-stage-panel" role="region" aria-label="工作流">
         <div className="react-chat-collab-exec-panel-body collab-wf-panel-body">
-          <div className="collab-exec-dag-empty">当前会话暂无工作流</div>
+          <div className="react-chat-stage-open-tab-shell">
+            <div className="react-chat-stage-open-tab-body">
+              <div className="react-chat-stage-open-tab-content">
+                <div className="react-chat-stage-open-tab-copy">
+                  <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
+                  <p className="react-chat-stage-open-tab-desc">
+                    当前会话还没有绑定任务。用下拉框选 App，再选一次运行。
+                  </p>
+                </div>
+                <RightStageWorkflowPickList
+                  currentTaskId={String(fallbackMainTaskId || '').trim()}
+                  onPick={(opt) => {
+                    openCollabWorkflowInRightStage(
+                      {
+                        mainTaskId: opt.taskId,
+                        leadThreadId: opt.leadThreadId || leadThreadId,
+                        title: opt.title,
+                      },
+                      {
+                        sessionKey: surface.sessionKey,
+                        forceExpand: true,
+                      },
+                    )
+                    // 关掉无 mainTaskId 的空签，避免叠两个「工作流」标签
+                    onClose()
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </aside>
     )

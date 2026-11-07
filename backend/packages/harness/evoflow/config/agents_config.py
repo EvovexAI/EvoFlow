@@ -10,6 +10,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, computed_field, model_validator
 
+from evoflow.config.platform_scope import PlatformScope
+
 logger = logging.getLogger(__name__)
 
 _builtin_agents_materialized: bool = False
@@ -42,16 +44,16 @@ def invalidate_agent_config_cache(agent_code: str | None = None) -> None:
 
 
 def _capability_extra_fingerprint(extra_json: str | None) -> str:
-    """Stable fingerprint of KB / kb_injection mirrors in ``extra_json``."""
+    """Stable fingerprint of KB / kb_injection / platform_scope mirrors in ``extra_json``."""
     raw = str(extra_json or "").strip()
     if not raw:
-        return "kb=-|inj=-"
+        return "kb=-|inj=-|scope=-"
     try:
         extra = json.loads(raw)
     except Exception:
         return f"kb_raw={len(raw)}"
     if not isinstance(extra, dict):
-        return "kb=-|inj=-"
+        return "kb=-|inj=-|scope=-"
     vaults = extra.get("knowledge_vault_ids")
     if isinstance(vaults, list):
         vault_fp = ",".join(sorted(str(v).strip() for v in vaults if str(v).strip()))
@@ -67,7 +69,15 @@ def _capability_extra_fingerprint(extra_json: str | None) -> str:
             inj_fp = str(sorted(inj.keys()))
     else:
         inj_fp = "-"
-    return f"kb={vault_fp or '-'}|inj={inj_fp}"
+    scope = extra.get("platform_scope")
+    if isinstance(scope, dict) and scope:
+        try:
+            scope_fp = json.dumps(scope, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            scope_fp = str(sorted(scope.keys()))
+    else:
+        scope_fp = "-"
+    return f"kb={vault_fp or '-'}|inj={inj_fp}|scope={scope_fp}"
 
 
 def probe_agent_capability_revision(agent_code: str | None) -> str:
@@ -162,6 +172,14 @@ def refresh_agent_config_if_stale(agent_code: str | None) -> str:
             clear_skills_cache()
         except Exception:
             logger.debug("skills cache clear after capability change skipped", exc_info=True)
+        try:
+            # LangGraph worker process: drop per-thread tool freezes so the next
+            # model call uses the new whitelist (Gateway already cleared its own).
+            from evoflow.agents.middlewares.tool_surface_lock_middleware import clear_tool_surface_lock
+
+            clear_tool_surface_lock()
+        except Exception:
+            logger.debug("tool surface lock clear after capability change skipped", exc_info=True)
     _agent_capability_rev[code] = rev
     return rev
 
@@ -328,10 +346,32 @@ class KbInjectionConfig:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> "KbInjectionConfig":
-        """Reconstruct from extra_json payload or return defaults."""
+        """Reconstruct from extra_json payload or return defaults.
+
+        Accepts snake_case and common camelCase aliases (``topK``, ``agentTopK``, …)
+        so platform / hire payloads do not silently fall back to defaults.
+        """
         if not data:
             return cls()
-        merged = {**KB_INJECTION_DEFAULTS, **{k: v for k, v in data.items() if v is not None}}
+        # Normalize camelCase from HTTP / platform tool payloads.
+        aliases = {
+            "topK": "top_k",
+            "agentTopK": "agent_top_k",
+            "scoreThreshold": "score_threshold",
+            "maxInjectTokens": "max_inject_tokens",
+            "recallMultiplier": "recall_multiplier",
+            "bm25Weight": "bm25_weight",
+            "timeoutSec": "timeout_sec",
+            "onFailure": "on_failure",
+            "mountPlatformTools": "mount_platform_tools",
+        }
+        normalized: dict[str, Any] = {}
+        for k, v in data.items():
+            if v is None:
+                continue
+            key = str(k or "").strip()
+            normalized[aliases.get(key, key)] = v
+        merged = {**KB_INJECTION_DEFAULTS, **normalized}
         return cls(
             mode=str(merged.get("mode", "auto")) if merged.get("mode") in KB_INJECTION_MODES else "auto",
             top_k=int(merged.get("top_k", 24)),
@@ -459,6 +499,9 @@ class AgentConfig(BaseModel):
     skills: list[str] | None = None
     # Bound knowledge vault / owned KB ids (empty = none). Unlike tools/MCP, missing is not「全部」.
     knowledge_vault_ids: list[str] = Field(default_factory=list)
+    # 平台动作能力清单（员工岗位；platform 工具挂载后的内容过滤器）。
+    # None = 存量语义：platform 挂载即全量、不设限。持久化走 extra_json（非列字段）。
+    platform_scope: PlatformScope | None = None
 
     # Agent type discriminator
     agent_type: Literal["custom", "subagent", "acp"] = "custom"

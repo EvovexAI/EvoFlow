@@ -1942,7 +1942,11 @@ def apply_compaction_with_summary(plan: CompactionPlan, summary: str) -> list[Ba
                 )
         patched_turn.append(msg)
     compressed.extend(patched_turn)
-    return dedupe_compaction_artifacts(_sanitize_tool_pairs(compressed, patch_missing=False))
+    # MUST stub missing tool results after fold. patch_missing=False left AI
+    # tool_calls without ToolMessages (or with results stranded after a summary
+    # Human) → vendors 400: "insufficient tool messages following tool_calls".
+    # PreCallGuardrail also re-runs after compaction on the lead chain.
+    return dedupe_compaction_artifacts(_sanitize_tool_pairs(compressed, patch_missing=True))
 
 
 def persist_compaction_summary_from_messages(

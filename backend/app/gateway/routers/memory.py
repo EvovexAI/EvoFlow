@@ -153,10 +153,8 @@ async def list_memory_agents(request: Request) -> MemoryAgentsListResponse:
     summary="List memory hub namespaces (agent / workspace / person)",
 )
 async def list_memory_namespaces_api(request: Request) -> dict:
-    from evoflow.memory.migrate_legacy import ensure_legacy_migrated
     from evoflow.memory.namespaces_api import list_memory_namespaces
 
-    ensure_legacy_migrated()
     return list_memory_namespaces(request)
 
 
@@ -478,9 +476,7 @@ async def list_memory_atoms(
     limit: int = Query(100, ge=1, le=500),
 ) -> MemoryAtomsListResponse:
     from evoflow.memory.facade import list_atoms
-    from evoflow.memory.migrate_legacy import ensure_legacy_migrated
 
-    ensure_legacy_migrated()
     ns = _require_resolved_namespace(request, agent=agent, namespace=namespace)
     layers = [layer] if layer else None
     rows = list_atoms(ns, layers=layers, pinned_only=pinned_only, limit=limit)
@@ -500,9 +496,7 @@ async def create_memory_atom(
     from evoflow.authz.http_guard import require_memory_namespace_visible
     from evoflow.memory.document_codec import namespace_for_agent_key
     from evoflow.memory.facade import list_atoms, remember
-    from evoflow.memory.migrate_legacy import ensure_legacy_migrated
 
-    ensure_legacy_migrated()
     agent_name = _normalize_agent_query(agent)
     ns = namespace_for_agent_key(agent_name)
     require_memory_namespace_visible(request, ns)
@@ -598,9 +592,7 @@ async def trial_memory_recall(
     namespace: str | None = Query(None),
 ) -> MemoryRecallResponse:
     from evoflow.memory.facade import recall
-    from evoflow.memory.migrate_legacy import ensure_legacy_migrated
 
-    ensure_legacy_migrated()
     ns = _require_resolved_namespace(request, agent=agent, namespace=namespace)
     hits = recall(
         [ns],
@@ -631,9 +623,7 @@ async def consolidate_memory(request: Request, body: MemoryConsolidateRequest) -
     from evoflow.authz.http_guard import require_memory_namespace_visible
     from evoflow.memory.document_codec import namespace_for_agent_key
     from evoflow.memory.facade import consolidate
-    from evoflow.memory.migrate_legacy import ensure_legacy_migrated
 
-    ensure_legacy_migrated()
     ns = (body.namespace or "").strip()
     if not ns and body.agent is not None:
         agent_name = _normalize_agent_query(body.agent)

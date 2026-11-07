@@ -18,7 +18,11 @@ import {
 } from "@/ToolCallBlocks/toolResultDisplay.js";
 import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
+import { PlatformMediaGeneratingPlaceholder } from "./PlatformMediaGeneratingPlaceholder.js";
 import { PlatformMediaPreview } from "./PlatformMediaPreview.js";
+
+/** 同步生图：一次工具调用内提交+轮询，适合挂「出图中」彩色占位。异步视频提交不走这里。 */
+const SYNC_IMAGE_GENERATE_ACTIONS = new Set(["media.generate_image"]);
 
 const PLATFORM_TOOL_ICON = <Building2 className="size-4 shrink-0 text-foreground-subtle" />;
 
@@ -80,6 +84,18 @@ export function readPlatformToolBrief(input: unknown): string {
     if (s) return s.length > 40 ? `${s.slice(0, 40)}…` : s;
   }
   return "";
+}
+
+/** 从 platform 入参取生图宽高比（占位框比例）。 */
+export function readPlatformMediaAspectRatio(input: unknown): string | undefined {
+  if (!isPlainRecord(input)) return undefined;
+  const payload = parseArgsJson(input) || {};
+  const ratio =
+    readTrimmedString(payload.aspect_ratio) ||
+    readTrimmedString(payload.aspectRatio) ||
+    readTrimmedString(input.aspect_ratio) ||
+    readTrimmedString(input.aspectRatio);
+  return ratio || undefined;
 }
 
 export function isPlatformToolCall(toolCall: {
@@ -349,14 +365,18 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   const kindLabel = context.kindLabelOverride ?? "平台";
   const primaryText = brief ? `${actionLabel} · ${brief}` : actionLabel;
   const mediaPreview = useMemo(() => readPlatformMediaPreview(toolCall), [toolCall]);
+  const aspectRatio = useMemo(() => readPlatformMediaAspectRatio(toolCall.input), [toolCall.input]);
+  const showGeneratingPlaceholder =
+    isRunning &&
+    SYNC_IMAGE_GENERATE_ACTIONS.has(action) &&
+    mediaPreview.length === 0 &&
+    toolCall.status !== "failed";
 
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
+  // 媒体预览挂在工具卡外侧，避免 forceOpen 把入参/结果 JSON 一起摊开。
   const renderContent = useCallback(
     () => (
       <>
-        {mediaPreview.length ? (
-          <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
-        ) : null}
         <ToolCallBody
           childToolList={childToolList}
           displayModel={displayModel}
@@ -379,12 +399,10 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
       </>
     ),
     [
-      actionLabel,
       childToolList,
       codePreviewSettings,
       displayModel,
       handleLoadFullToolCallFields,
-      mediaPreview,
       onOpenBrowserUrl,
       onOpenCodeViewer,
       onOpenFileLink,
@@ -400,22 +418,33 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   );
 
   return (
-    <ToolLayout
-      toolId={toolCall.toolId}
-      icon={PLATFORM_TOOL_ICON}
-      showIcon={context.showIcon !== false}
-      canToggle={context.canToggle ?? true}
-      forceOpen={context.forceOpen ?? mediaPreview.length > 0}
-      kindLabel={kindLabel}
-      sourceLabel={context.sourceLabel}
-      primaryText={primaryTextNode}
-      secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
-      statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
-      statusTooltip={toolCall.status === "failed" ? errorText : undefined}
-      showFailureStatus={toolCall.status === "failed"}
-      isRunning={isRunning}
-      title={primaryText}
-      renderContent={renderContent}
-    />
+    <>
+      <ToolLayout
+        toolId={toolCall.toolId}
+        icon={PLATFORM_TOOL_ICON}
+        showIcon={context.showIcon !== false}
+        canToggle={context.canToggle ?? true}
+        forceOpen={context.forceOpen}
+        kindLabel={kindLabel}
+        sourceLabel={context.sourceLabel}
+        primaryText={primaryTextNode}
+        secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
+        statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
+        statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+        showFailureStatus={toolCall.status === "failed"}
+        isRunning={isRunning}
+        title={primaryText}
+        renderContent={renderContent}
+      />
+      {showGeneratingPlaceholder ? (
+        <PlatformMediaGeneratingPlaceholder
+          aspectRatio={aspectRatio}
+          label={`${actionLabel || "生图"}中`}
+        />
+      ) : null}
+      {mediaPreview.length ? (
+        <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
+      ) : null}
+    </>
   );
 }

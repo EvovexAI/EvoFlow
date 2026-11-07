@@ -8389,7 +8389,8 @@ export class WsClient {
   async chatHistory(sessionKey, limit = 40, opts = {}) {
     const key = sessionKey || MAIN_SESSION_KEY
     const all = !!opts?.all
-    const lim = Math.max(1, Number(limit) || 40)
+    // Gateway list_session_messages: le=200（超限直接 422；部门审计曾传 400）
+    const lim = Math.min(200, Math.max(1, Number(limit) || 40))
     const beforeSeq = !all && opts?.beforeSeq != null ? Number(opts.beforeSeq) : null
     const flightKey = all
       ? `${key}:all`

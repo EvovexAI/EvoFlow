@@ -434,8 +434,9 @@ function truncate(text, n = 120) {
   return s.length > n ? `${s.slice(0, n)}…` : s
 }
 
-/** think「本轮值班开始」+ execute「开始执行」— 可见节拍，非内部 brief */
-const DUTY_BEAT_HEAD_RE = /^(?:本轮值班开始|开始执行)\s*·/
+/** think 派发/巡检一行 + execute「开始执行」(+ 旧版「本轮值班开始」) — 可见节拍，非内部 brief */
+const DUTY_BEAT_HEAD_RE =
+  /^(?:本轮值班开始|开始执行)\s*·|^(?:推进.+派发：|按.+派发目标|看板有 |看板暂无未结|对照职责巡检)/
 
 /** 系统派发 / 超长任务 brief，默认不进搜索全文、不默认展开 */
 export function isSystemPromptLike(text) {
@@ -628,7 +629,8 @@ export function buildEventNaturalSummary(ev) {
       .split(/\n/)
       .map((l) => l.trim())
       .filter(Boolean)
-    return lines.slice(1).join(' ') || lines[0] || '本轮值班开始'
+    // 旧双行节拍：摘要用第二行；新单行节拍直接用全文
+    return lines.slice(1).join(' ') || lines[0] || '值班开场'
   }
   if (ev.action === '用户输入') {
     if (ev.isSystemPrompt) return '收到值班/派发任务说明'
@@ -662,7 +664,7 @@ export function buildEventTitle(ev) {
       .split(/\n/)
       .map((l) => l.trim())
       .find(Boolean)
-    return first || '本轮值班开始'
+    return first || '值班开场'
   }
   if (ev.action === '用户输入') return ev.isSystemPrompt ? '接收任务' : '用户输入'
   return ev.action || '步骤'

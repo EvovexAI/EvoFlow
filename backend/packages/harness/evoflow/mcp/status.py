@@ -9,6 +9,7 @@ from evoflow.mcp.cache import (
     mcp_cache_config_mtime,
     mcp_cache_initialized,
     mcp_init_error,
+    mcp_unavailable_reason,
     peek_cached_mcp_tools,
 )
 from evoflow.mcp.tools import load_mcp_config, mcp_config_fingerprint
@@ -42,7 +43,22 @@ def build_mcp_status_snapshot(
     raw_servers: dict[str, Any] | None = None,
     server_names: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Runtime MCP status for main client + observability (peek cache only)."""
+    """Runtime MCP status for main client + observability.
+
+    三层数据源（2026-11-07 假阴性修复）：
+
+    1. ``memory``      —— 本进程缓存已热：最快最准（网关主进程常态）。
+    2. ``persisted``   —— 本进程未初始化但 mcp.json 同目录有存活 writer 落的
+       快照（platform 工具 / CLI / LangGraph 进程常态）。
+    3. ``none``        —— 都没有：enabled server 报 ``unknown``（不是 pending——
+       pending 意味着「正在加载」，本进程根本无从得知；也绝不报 0 工具冒充
+       「已配置但没加载」）。
+
+    ``peek`` 语义不变：绝不触发初始化（HTTP handler 里会卡事件循环，历史 hang）。
+    """
+    import os as _os
+    from evoflow.timeutil import utc_now_iso_z
+
     from evoflow.mcp.tools import _get_mcp_config_path
 
     config_path = _get_mcp_config_path()
@@ -57,33 +73,73 @@ def build_mcp_status_snapshot(
     server_load_status = get_mcp_server_load_status()
     config_stale = mcp_config_stale()
 
+    # ── 选数据源 ──
+    persisted: dict[str, Any] | None = None
+    snapshot_source = "memory"
+    if not cache_initialized:
+        from evoflow.mcp.cache import load_persisted_mcp_status_snapshot
+
+        persisted = load_persisted_mcp_status_snapshot()
+        snapshot_source = "persisted" if persisted else "none"
+
+    if cache_initialized:
+        effective_status = server_load_status
+        total_tools = len(tools)
+        snapshot_pid = _os.getpid()
+        snapshot_at = utc_now_iso_z()
+        writer_alive = True
+    elif persisted:
+        effective_status = {
+            str(k): v for k, v in (persisted.get("server_status") or {}).items() if isinstance(v, dict)
+        }
+        total_tools = int(persisted.get("total_tools") or 0)
+        snapshot_pid = int(persisted.get("writer_pid") or 0)
+        snapshot_at = str(persisted.get("generated_at") or "")
+        writer_alive = True  # load 时已做过存活过滤
+    else:
+        effective_status = {}
+        total_tools = 0
+        snapshot_pid = None
+        snapshot_at = None
+        writer_alive = None
+
     from evoflow.mcp.binding import mcp_server_from_tool_name
 
     tools_by_server: dict[str, list[dict[str, str]]] = {}
-    for tool in tools:
-        full_name = str(getattr(tool, "name", "") or "").strip()
-        server_name = mcp_server_from_tool_name(full_name) or "unknown"
-        # ``mcp__server__tool`` → tool; legacy ``server__tool`` → tool
-        tool_name = full_name
-        mcp_prefix = f"mcp__{server_name}__"
-        legacy_prefix = f"{server_name}__"
-        if full_name.startswith(mcp_prefix):
-            tool_name = full_name[len(mcp_prefix) :]
-        elif full_name.startswith(legacy_prefix):
-            tool_name = full_name[len(legacy_prefix) :]
+    if cache_initialized:
+        for tool in tools:
+            full_name = str(getattr(tool, "name", "") or "").strip()
+            server_name = mcp_server_from_tool_name(full_name) or "unknown"
+            tool_name = full_name
+            mcp_prefix = f"mcp__{server_name}__"
+            legacy_prefix = f"{server_name}__"
+            if full_name.startswith(mcp_prefix):
+                tool_name = full_name[len(mcp_prefix) :]
+            elif full_name.startswith(legacy_prefix):
+                tool_name = full_name[len(legacy_prefix) :]
 
-        tools_by_server.setdefault(server_name, [])
-        description = ""
-        if hasattr(tool, "description") and tool.description:
-            description = tool.description[:200]
+            tools_by_server.setdefault(server_name, [])
+            description = ""
+            if hasattr(tool, "description") and tool.description:
+                description = tool.description[:200]
 
-        tools_by_server[server_name].append(
-            {
-                "name": tool_name,
-                "full_name": full_name,
-                "description": description,
-            }
-        )
+            tools_by_server[server_name].append(
+                {
+                    "name": tool_name,
+                    "full_name": full_name,
+                    "description": description,
+                }
+            )
+    elif persisted:
+        # 跨进程读：快照只持久化了工具名（描述不入盘），detail 相应降级
+        for srv_name, names in (persisted.get("tools_by_server") or {}).items():
+            if not isinstance(names, list):
+                continue
+            tools_by_server[str(srv_name)] = [
+                {"name": str(n).split("__")[-1], "full_name": str(n), "description": ""}
+                for n in names
+                if str(n or "").strip()
+            ]
 
     tool_counts: dict[str, int] = {name: len(items) for name, items in tools_by_server.items()}
 
@@ -91,18 +147,23 @@ def build_mcp_status_snapshot(
     for name, cfg in raw_servers.items():
         enabled = cfg.get("enabled", True) is not False
         transport = _infer_mcp_transport(cfg)
+        error: str | None = None
+        unknown_reason: str | None = None
         if not enabled:
             load_status = "disabled"
-            error: str | None = None
-        elif not cache_initialized:
-            load_status = "pending"
-            error = None
-        else:
-            st = server_load_status.get(name) or {}
-            load_status = str(st.get("load_status") or "error")
+        elif name in effective_status:
+            st = effective_status[name]
+            load_status = str(st.get("load_status") or "unknown")
             error = st.get("error")
             if load_status == "error" and not error:
                 error = "Failed to connect or load tools"
+        else:
+            # 配置里有、但数据源里没有：memory 冷（未初始化）或快照落后于配置变更
+            load_status = "unknown"
+            if snapshot_source == "persisted":
+                unknown_reason = "not in persisted snapshot (config changed after last gateway warmup?)"
+            else:
+                unknown_reason = "cache not initialized in this process and no persisted snapshot"
 
         server_info: dict[str, Any] = {
             "name": name,
@@ -113,6 +174,8 @@ def build_mcp_status_snapshot(
             "tool_count": tool_counts.get(name, 0),
             "tools": tools_by_server.get(name, []),
         }
+        if unknown_reason:
+            server_info["unknown_reason"] = unknown_reason
         if transport == "stdio":
             server_info["command"] = cfg.get("command", "")
             server_info["args"] = cfg.get("args", [])
@@ -124,9 +187,17 @@ def build_mcp_status_snapshot(
         "config_path": str(config_path),
         "config_exists": bool(raw_servers) or config_path.exists(),
         "config_stale": config_stale,
-        "cache_initialized": cache_initialized,
+        # 系统级真值：memory（本进程已初始化）或 persisted（存活 writer 落的快照）
+        "cache_initialized": cache_initialized or bool(persisted),
+        # 本进程视角：platform 工具 / CLI 进程恒为 False，别把它误读成「MCP 挂了」
+        "initialized_in_this_process": cache_initialized,
+        "snapshot_source": snapshot_source,
+        "snapshot_pid": snapshot_pid,
+        "snapshot_at": snapshot_at,
+        "snapshot_writer_alive": writer_alive,
+        "unavailable_reason": mcp_unavailable_reason(),
         "init_error": mcp_init_error(),
-        "total_tools": len(tools),
+        "total_tools": total_tools,
         "tool_counts": tool_counts,
         "servers": servers,
     }

@@ -5,7 +5,6 @@
 | 文档 | 说明 |
 |------|------|
 | [仓库地图](repo-map.md) | 改哪里、测哪里 |
-| [代码知识库 Wiki](codebase-wiki.md) | `.codebasewiki/` 模块地图与架构 |
 | [分支与检查](branching-and-checks.md) | 拉分支、本地检查、CI |
 | [添加 Skill](add-skill.md) | 社区最常见的扩展方式 |
 | [添加 IM 渠道](add-channel.md) | `app/channels` 扩展（通常先 RFC） |

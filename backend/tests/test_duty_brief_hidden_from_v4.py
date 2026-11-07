@@ -24,6 +24,9 @@ def test_duty_brief_text_sniff_matches_seeded_brief():
 
 
 def test_duty_beat_text_is_not_treated_as_brief():
-    beat = "本轮值班开始 · 抖音拆解师\n对照职责巡检，有待办则推进并结案。"
+    beat = "对照职责巡检，有待办则推进并结案。"
     assert not _is_hidden_duty_brief_text(beat)
     assert not _is_hidden_duty_brief_user_text(beat)
+    legacy = "本轮值班开始 · 抖音拆解师\n对照职责巡检，有待办则推进并结案。"
+    assert not _is_hidden_duty_brief_text(legacy)
+    assert not _is_hidden_duty_brief_user_text(legacy)

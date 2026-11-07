@@ -10,7 +10,7 @@ Contributor helpers for building, checking, and running EvoFlow.
 | `build-sandbox-helpers.sh` | Optional sandbox helper (Unix) |
 | `preflight-build-check.py` | Desktop build gate (CI) |
 | `docs/export_gateway_openapi.py` | OpenAPI regen |
-| `fill_codebasewiki_batch.py` | Fill/refresh `.codebasewiki` module fact docs from path-map |
+| `prompt-audit/prompt_audit.py` | 审计 Agent 提示词栈（L1/L2/L3 反模式扫描） |
 | `git-hooks/` + `setup-git-hooks.sh` | Hooks |
 | `windows/*` | Windows isolated dev stack |
 | `run-github-checks-local.bat` / `run-with-git-bash.cmd` | Windows → `ci-local.sh` |

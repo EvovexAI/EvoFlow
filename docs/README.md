@@ -6,12 +6,10 @@ Public **user documentation** for MkDocs (`mkdocs.yml` → `make docs-serve` / `
 |------|------|
 | `index.md` | Docs home + Quick Links |
 | `user/` | Tutorials, guides, cases, explanation |
-| `contribute/` | Contributor guide (repo map, codebase wiki, branching, skills, RFC) |
+| `contribute/` | Contributor guide (repo map, branching, skills, RFC) |
 | `llms.txt` | Curated LLM / Agent doc index |
 | `assets/` | Screenshots / demo media |
 | `generated/` | OpenAPI export (not in MkDocs nav by default) |
-
-Module-level **codebase wiki** (public source-available tree, not fully MkDocs-rendered): [`.codebasewiki/`](../.codebasewiki/README.md) — see [contribute/codebase-wiki.md](contribute/codebase-wiki.md).
 
 Non-public design / system docs live outside this tree (`internal design docs (not published in this repository). See: `).
 

@@ -118,7 +118,9 @@ export async function render() {
   let appData = null
 
   try {
-    appData = await api.getApp(appId)
+    const { takeNavWarmOrInflight } = await import('../lib/nav-panel-prefetch.js')
+    const warm = await takeNavWarmOrInflight(`apps:detail:${appId}`)
+    appData = warm || (await api.getApp(appId))
   } catch (e) {
     page.querySelector('#app-run-body').innerHTML =
       `<div style="color:var(--danger)">加载失败: ${escHtml(e.message)}</div>`

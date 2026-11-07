@@ -30,6 +30,7 @@ import {
   type OnEdgesChange,
   type OnNodesChange,
   type OnMove,
+  type OnReconnect,
   type Viewport,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
@@ -38,8 +39,6 @@ import StepNode, { type StepNodeData } from './app-workflow/StepNode.tsx'
 import StartNode from './app-workflow/StartNode.tsx'
 import AnswerNode from './app-workflow/AnswerNode.tsx'
 import DeletableSmoothStepEdge from './app-workflow/DeletableSmoothStepEdge.tsx'
-import { WorkflowDrawer } from './app-workflow/WorkflowDrawer.tsx'
-import { AgentPickerModal } from './app-workflow/AgentPickerModal.tsx'
 import {
   WorkflowStudioProvider,
   type StepExecStatus,
@@ -47,6 +46,7 @@ import {
 import { WorkflowToolbar } from './app-workflow/WorkflowToolbar.tsx'
 import { WorkflowStatusBar } from './app-workflow/WorkflowStatusBar.tsx'
 import { WorkflowOnboardingBanner } from './app-workflow/WorkflowOnboardingBanner.tsx'
+import { WorkflowStudioFloat } from './app-workflow/WorkflowStudioFloat.tsx'
 import { DebugPanel } from './app-workflow/DebugPanel.tsx'
 import { useWorkflowResources } from '../hooks/useWorkflowResources.ts'
 import { toast } from '../../components/toast.js'
@@ -66,6 +66,7 @@ import {
   type AppCanvasJson,
 } from '../lib/app-workflow-canvas-json.ts'
 import {
+  DEFAULT_WORKFLOW_AGENT,
   defaultNodePosition,
   nextStepRef,
   normalizeSteps,
@@ -78,14 +79,15 @@ import {
 } from '../lib/app-workflow-plan.ts'
 import {
   endPaletteDrag,
-  getPaletteDragKind,
+  isPaletteDragActive,
   isPaletteDragKind,
+  readPaletteDragKind,
+  setPaletteCanvasDropHandler,
+  type PaletteDragKind,
 } from './app-workflow/palette-dnd.ts'
 
 const nodeTypes = { stepNode: StepNode, startNode: StartNode, answerNode: AnswerNode }
 const edgeTypes = { wfEdge: DeletableSmoothStepEdge, smoothstep: DeletableSmoothStepEdge }
-
-const PALETTE_DND_TYPE = 'application/evoflow-wf-node'
 
 /** 空画布快速模板：点击一键填充，降低上手门槛 */
 const QUICK_TEMPLATES = [
@@ -138,7 +140,9 @@ const DEFAULT_EDGE_OPTS = {
   type: 'wfEdge' as const,
   style: EDGE_STYLE,
   markerEnd: EDGE_MARKER,
-  interactionWidth: 24,
+  interactionWidth: 28,
+  /** 选中后可拖两端改接到其他节点（需配合 onReconnect） */
+  reconnectable: true as boolean | 'source' | 'target',
 }
 
 export type AppWorkflowCanvasHandle = {
@@ -150,6 +154,8 @@ export type AppWorkflowCanvasHandle = {
   deleteSelected: () => void
   getGoal: () => string
   setGoal: (goal: string) => void
+  getProjectPath: () => string
+  setProjectPath: (path: string) => void
   setExecStatus: (byRef: Record<string, StepExecStatus>) => void
   clearExecStatus: () => void
 }
@@ -158,6 +164,8 @@ type Props = {
   goal: string
   steps: Array<Record<string, unknown>>
   canvas?: AppCanvasJson | Record<string, unknown> | null
+  /** 工作流默认工作空间 */
+  projectPath?: string
   /** Return false to abort (e.g. user cancelled published-save confirm). */
   onSave: (plan: AppWorkflowPlan) => Promise<void | boolean>
   /** Return false to abort (e.g. user dismissed soft publish warnings). */
@@ -219,6 +227,9 @@ function FlowViewportBridge({
   return null
 }
 
+/** 默认画布缩放：留白更大 + 上限 zoom，打开时整体看起来更小一档 */
+const WF_FIT_VIEW = { padding: 0.42, maxZoom: 0.78, includeHiddenNodes: false as const }
+
 function FitViewActionBridge({
   actionRef,
 }: {
@@ -227,7 +238,7 @@ function FitViewActionBridge({
   const { fitView } = useReactFlow()
   useEffect(() => {
     actionRef.current = () => {
-      void fitView({ padding: 0.24, duration: 280 })
+      void fitView({ ...WF_FIT_VIEW, duration: 280 })
     }
     return () => {
       actionRef.current = null
@@ -242,8 +253,10 @@ function FlowInner({
   onNodesChange,
   onEdgesChange,
   onConnect,
+  onReconnect,
   isValidConnection,
   onNodeClick,
+  onEdgeDoubleClick,
   onPaneClick,
   onMoveEnd,
   markDirty,
@@ -270,8 +283,10 @@ function FlowInner({
   onNodesChange: OnNodesChange<Node<StepNodeData>>
   onEdgesChange: OnEdgesChange
   onConnect: (conn: Connection) => void
+  onReconnect: OnReconnect
   isValidConnection?: IsValidConnection<Edge>
   onNodeClick: (e: React.MouseEvent, node: Node<StepNodeData>) => void
+  onEdgeDoubleClick: (e: React.MouseEvent, edge: Edge) => void
   onPaneClick: () => void
   onMoveEnd: OnMove
   markDirty: () => void
@@ -297,23 +312,39 @@ function FlowInner({
 }) {
   const { screenToFlowPosition } = useReactFlow()
 
-  const readPaletteKind = (dt: DataTransfer): string => {
-    const fromMem = getPaletteDragKind()
-    if (fromMem) return fromMem
-    const custom = dt.getData(PALETTE_DND_TYPE).trim()
-    if (custom) return custom
-    const plain = dt.getData('text/plain').trim()
-    if (plain.startsWith('evoflow-wf:')) return plain.slice('evoflow-wf:'.length)
-    return ''
-  }
+  const placePaletteKind = useCallback(
+    (kind: PaletteDragKind, clientX: number, clientY: number) => {
+      const raw = screenToFlowPosition({ x: clientX, y: clientY })
+      const pos = {
+        x: Math.round(raw.x / 20) * 20,
+        y: Math.round(raw.y / 20) * 20,
+      }
+      if (kind === 'answer') onDropAnswer?.(pos)
+      else if (kind === 'template-step') onDropTemplate?.(pos)
+      else if (kind.startsWith('agent:')) onDropAgent?.(pos, kind.slice('agent:'.length))
+      else onDropAgent?.(pos)
+    },
+    [onDropAgent, onDropAnswer, onDropTemplate, screenToFlowPosition],
+  )
+
+  // 节点库 pointer 拖的落点（主路径）；HTML5 drop 仍作辅路径
+  useEffect(() => {
+    setPaletteCanvasDropHandler((kind, clientX, clientY) => {
+      placePaletteKind(kind, clientX, clientY)
+    })
+    return () => setPaletteCanvasDropHandler(null)
+  }, [placePaletteKind])
 
   const onDragOver = useCallback(
     (e: React.DragEvent) => {
-      // 以模块状态为准；勿依赖 dataTransfer.types（WebView 常为空）
-      if (!getPaletteDragKind()) return
+      if (!isPaletteDragActive(e.dataTransfer)) return
       e.preventDefault()
       e.stopPropagation()
-      e.dataTransfer.dropEffect = 'copy'
+      try {
+        e.dataTransfer.dropEffect = 'copy'
+      } catch {
+        /* ignore */
+      }
       setDragOver(true)
     },
     [setDragOver],
@@ -331,23 +362,15 @@ function FlowInner({
 
   const onDrop = useCallback(
     (e: React.DragEvent) => {
-      const kind = readPaletteKind(e.dataTransfer)
+      const kind = readPaletteDragKind(e.dataTransfer)
       setDragOver(false)
       endPaletteDrag()
       if (!isPaletteDragKind(kind)) return
       e.preventDefault()
       e.stopPropagation()
-      const raw = screenToFlowPosition({ x: e.clientX, y: e.clientY })
-      const pos = {
-        x: Math.round(raw.x / 20) * 20,
-        y: Math.round(raw.y / 20) * 20,
-      }
-      if (kind === 'answer') onDropAnswer?.(pos)
-      else if (kind === 'template-step') onDropTemplate?.(pos)
-      else if (kind.startsWith('agent:')) onDropAgent?.(pos, kind.slice('agent:'.length))
-      else onDropAgent?.(pos)
+      placePaletteKind(kind, e.clientX, e.clientY)
     },
-    [onDropAgent, onDropAnswer, onDropTemplate, screenToFlowPosition, setDragOver],
+    [placePaletteKind, setDragOver],
   )
 
   return (
@@ -392,16 +415,21 @@ function FlowInner({
           }
         }}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         isValidConnection={isValidConnection}
         onNodeClick={onNodeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={onPaneClick}
         onMoveEnd={onMoveEnd}
         fitView={fitViewOnInit}
-        fitViewOptions={{ padding: 0.24, includeHiddenNodes: false }}
+        fitViewOptions={WF_FIT_VIEW}
+        minZoom={0.2}
+        maxZoom={1.6}
         snapToGrid
         snapGrid={[20, 20]}
         edgesFocusable
-        edgesReconnectable={false}
+        edgesReconnectable
+        reconnectRadius={28}
         connectionLineType={ConnectionLineType.SmoothStep}
         connectionLineStyle={{ stroke: '#5B5FEF', strokeWidth: 2 }}
         defaultEdgeOptions={DEFAULT_EDGE_OPTS}
@@ -500,6 +528,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     goal: initialGoal,
     steps: initialSteps,
     canvas: initialCanvas,
+    projectPath: initialProjectPath = '',
     onSave,
     onPublish,
     variant = 'default',
@@ -531,6 +560,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   )
 
   const [goal, setGoal] = useState(initialGoal || '')
+  const [projectPath, setProjectPath] = useState(String(initialProjectPath || '').trim())
   // Own useState (not xyflow useNodesState) so hooks always bind the app's React —
   // dual React copies with prebundled @xyflow caused Invalid hook call on apps-detail.
   const [nodes, setNodes] = useState<Node<StepNodeData>[]>(seed.nodes)
@@ -545,14 +575,36 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   const [dirty, setDirty] = useState(false)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [busy, setBusy] = useState<'save' | 'publish' | null>(null)
-  const [drawerOpen, setDrawerOpen] = useState(true)
+  const [floatCollapsed, setFloatCollapsed] = useState(false)
+  const [floatOpenToken, setFloatOpenToken] = useState(0)
+  const [floatForceTab, setFloatForceTab] = useState<'library' | 'config' | null>(null)
   const [titleDraft, setTitleDraft] = useState(appName)
   const arrangeActionRef = useRef<(() => void) | null>(null)
   const [dragOver, setDragOver] = useState(false)
-  const [agentPickerNodeId, setAgentPickerNodeId] = useState<string | null>(null)
   const [debugPanelOpen, setDebugPanelOpen] = useState(false)
   const [execByRef, setExecByRef] = useState<Record<string, StepExecStatus>>({})
-  const { agents, tools: toolCatalog, loading: agentsLoading } = useWorkflowResources(true)
+  // 首屏先出画布；agents/tools 空闲后再拉，避免和 getApp 抢网关槽位
+  const [resourcesEnabled, setResourcesEnabled] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    let idleId = 0
+    const enable = () => {
+      if (!cancelled) setResourcesEnabled(true)
+    }
+    if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+      idleId = window.requestIdleCallback(enable, { timeout: 900 })
+      return () => {
+        cancelled = true
+        window.cancelIdleCallback?.(idleId)
+      }
+    }
+    const t = window.setTimeout(enable, 200)
+    return () => {
+      cancelled = true
+      window.clearTimeout(t)
+    }
+  }, [])
+  const { agents } = useWorkflowResources(resourcesEnabled)
 
   useEffect(() => {
     queueMicrotask(() => setTitleDraft(appName))
@@ -573,8 +625,8 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   const exportPlan = useCallback((): AppWorkflowPlan => {
     const steps = flowToSteps(nodes, edges)
     const canvas = flowToCanvasJson(nodes, edges, viewport)
-    return stepsToExport(goal, steps, canvas)
-  }, [goal, nodes, edges, viewport])
+    return stepsToExport(goal, steps, canvas, projectPath)
+  }, [goal, nodes, edges, viewport, projectPath])
 
   const patchFlow = useCallback(
     (patch: { nodes?: Node<StepNodeData>[]; edges?: typeof edges }) => {
@@ -586,8 +638,14 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
   )
 
   const toggleDrawer = useCallback(() => {
-    setDrawerOpen((open) => !open)
-  }, [])
+    if (floatCollapsed) {
+      setFloatForceTab('library')
+      setFloatOpenToken((n) => n + 1)
+      setFloatCollapsed(false)
+      return
+    }
+    setFloatCollapsed(true)
+  }, [floatCollapsed])
 
   const selectNode = useCallback(
     (id: string | null) => {
@@ -596,21 +654,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     },
     [setNodes],
   )
-
-  const openAgentPicker = useCallback(
-    (nodeId: string) => {
-      if (!nodeId || nodeId === START_NODE_ID) return
-      selectNode(nodeId)
-      setAgentPickerNodeId(nodeId)
-    },
-    [selectNode],
-  )
-
-  const agentPickerSelected = useMemo(() => {
-    if (!agentPickerNodeId) return null
-    const node = nodes.find((n) => n.id === agentPickerNodeId && n.type === 'stepNode')
-    return node?.data?.assigned_agent ?? null
-  }, [agentPickerNodeId, nodes])
 
   const onNodeClick = useCallback(
     (_e: React.MouseEvent, node: Node<StepNodeData>) => {
@@ -636,20 +679,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     return node?.data ?? null
   }, [nodes, selectedId])
 
-  const selectedDependsOn = useMemo(() => {
-    if (!selectedId || selectedId === START_NODE_ID || selectedId === ANSWER_NODE_ID) {
-      return [] as string[]
-    }
-    return edges
-      .filter(
-        (e) =>
-          e.target === selectedId &&
-          e.source !== START_NODE_ID &&
-          e.source !== ANSWER_NODE_ID,
-      )
-      .map((e) => e.source)
-  }, [edges, selectedId])
-
   const paramSlots = useMemo(
     () =>
       (appParameters || [])
@@ -662,18 +691,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         .filter((p) => p.name),
     [appParameters],
   )
-
-  const upstreamStepRefs = useMemo(() => {
-    const steps = flowToSteps(nodes, edges)
-    const byRef = new Map(steps.map((s) => [s.ref, s]))
-    return selectedDependsOn.map((ref) => {
-      const step = byRef.get(ref)
-      return {
-        ref,
-        name: String(step?.name || step?.goal || `步骤 ${ref}`).trim() || `步骤 ${ref}`,
-      }
-    })
-  }, [nodes, edges, selectedDependsOn])
 
   const hasStepSelection = useMemo(
     () => nodes.some((n) => n.selected && n.id !== START_NODE_ID),
@@ -741,32 +758,33 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     [edges, nodes],
   )
 
-  const onConnect = useCallback(
-    (conn: Connection) => {
+  /** 在给定边集合上提交一条连线；失败时 toast 并返回 false */
+  const commitConnection = useCallback(
+    (conn: Connection, baseEdges: Edge[]): boolean => {
       if (!conn.source || !conn.target || conn.source === conn.target) {
         toast.warning('不能连接到自己', { duration: 2000 })
-        return
+        return false
       }
       if (conn.target === START_NODE_ID) {
         toast.warning('「开始」节点是起点，不能有前置连线', { duration: 2000 })
-        return
+        return false
       }
       if (conn.source === ANSWER_NODE_ID) {
         toast.warning('「最终答案」是终点，不能从它连出去', { duration: 2000 })
-        return
+        return false
       }
       // 答案节点只接受 Agent 步骤连入；不允许「开始」直连
       if (conn.target === ANSWER_NODE_ID) {
         if (conn.source === START_NODE_ID) {
           toast.warning('「开始」不能直接连到「最终答案」，中间至少需要一个步骤', { duration: 2500 })
-          return
+          return false
         }
         if (!nodes.some((n) => n.id === conn.source && n.type === 'stepNode')) {
           toast.warning('只有步骤节点可以连接到「最终答案」', { duration: 2000 })
-          return
+          return false
         }
         markDirty()
-        const cleared = edges.filter((e) => e.target !== ANSWER_NODE_ID)
+        const cleared = baseEdges.filter((e) => e.target !== ANSWER_NODE_ID)
         const link = {
           id: `${conn.source}->${ANSWER_NODE_ID}`,
           source: conn.source,
@@ -775,19 +793,24 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
           targetHandle: conn.targetHandle || 'in',
           ...DEFAULT_EDGE_OPTS,
         }
-        patchFlow({ edges: [...cleared.filter((e) => e.source !== START_NODE_ID || e.target !== ANSWER_NODE_ID), link] })
+        patchFlow({
+          edges: [
+            ...cleared.filter((e) => e.source !== START_NODE_ID || e.target !== ANSWER_NODE_ID),
+            link,
+          ],
+        })
         toast.success('已设置为最终输出步骤', { duration: 1500 })
-        return
+        return true
       }
 
       if (conn.source === START_NODE_ID) {
         if (conn.target === ANSWER_NODE_ID) {
           toast.warning('「开始」不能直接连到「最终答案」', { duration: 2000 })
-          return
+          return false
         }
         markDirty()
         // 接到「开始」：清掉该节点其它上游依赖，并确保存在 start → target
-        const cleared = edges.filter(
+        const cleared = baseEdges.filter(
           (e) =>
             !(e.target === conn.target && e.source !== START_NODE_ID) &&
             !(e.source === START_NODE_ID && e.target === conn.target),
@@ -799,20 +822,21 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
           sourceHandle: conn.sourceHandle || 'out',
           targetHandle: conn.targetHandle || 'in',
           ...DEFAULT_EDGE_OPTS,
+          reconnectable: 'target' as const,
         }
         patchFlow({ edges: [...cleared, startLink] })
         toast.success('已设为起始步骤', { duration: 1500 })
-        return
+        return true
       }
 
-      const real = edges.filter((e) => e.source !== START_NODE_ID)
+      const real = baseEdges.filter((e) => e.source !== START_NODE_ID)
       if (real.some((e) => e.source === conn.source && e.target === conn.target)) {
         toast.warning('这两个步骤之间已经有连线了', { duration: 2000 })
-        return
+        return false
       }
       if (conn.target !== ANSWER_NODE_ID && wouldCreateCycle(real, conn.source!, conn.target!)) {
         toast.warning('这条连线会形成循环，工作流只能按顺序执行', { duration: 2500 })
-        return
+        return false
       }
       markDirty()
       const next = addEdge(
@@ -825,8 +849,61 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         real,
       )
       patchFlow({ edges: next })
+      return true
     },
-    [edges, nodes, markDirty, patchFlow],
+    [nodes, markDirty, patchFlow],
+  )
+
+  const onConnect = useCallback(
+    (conn: Connection) => {
+      commitConnection(conn, edges)
+    },
+    [commitConnection, edges],
+  )
+
+  /** 拖线两端改接到其他节点 */
+  const onReconnect = useCallback<OnReconnect>(
+    (oldEdge, newConn) => {
+      if (!newConn.source || !newConn.target) return
+      if (
+        oldEdge.source === newConn.source &&
+        oldEdge.target === newConn.target &&
+        (oldEdge.sourceHandle || 'out') === (newConn.sourceHandle || 'out') &&
+        (oldEdge.targetHandle || 'in') === (newConn.targetHandle || 'in')
+      ) {
+        return
+      }
+      // 「开始」引出的边只允许改终点，避免起点悬空
+      if (oldEdge.source === START_NODE_ID && newConn.source !== START_NODE_ID) {
+        toast.warning('从「开始」引出的线只能改接到其他步骤', { duration: 2200 })
+        return
+      }
+      const withoutOld = edges.filter((e) => e.id !== oldEdge.id)
+      // 特殊连线（开始/答案）commit 内已有 toast；普通改接这里提示
+      const isSpecial =
+        newConn.source === START_NODE_ID || newConn.target === ANSWER_NODE_ID
+      if (commitConnection(newConn, withoutOld) && !isSpecial) {
+        toast.success('连线已改接', { duration: 1200 })
+      }
+    },
+    [edges, commitConnection],
+  )
+
+  /** 双击连线 → 选中下游节点，方便直接拖走 */
+  const onEdgeDoubleClick = useCallback(
+    (e: React.MouseEvent, edge: Edge) => {
+      e.stopPropagation()
+      if (!edge.target || edge.target === START_NODE_ID) return
+      selectNode(edge.target)
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          selected: n.id === edge.target,
+        })),
+      )
+      setEdges((eds) => eds.map((ed) => ({ ...ed, selected: false })))
+    },
+    [selectNode, setNodes, setEdges],
   )
 
   const addStepAt = useCallback(
@@ -854,6 +931,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
               ref: refId,
               name: '',
               description: '',
+              assigned_agent: DEFAULT_WORKFLOW_AGENT,
               depends_on: prevRef ? [prevRef] : [],
             }
       const newNode: Node<StepNodeData> = {
@@ -917,6 +995,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
           name: s.name,
           goal: s.goal,
           description: '',
+          assigned_agent: DEFAULT_WORKFLOW_AGENT,
           depends_on: i === 0 ? [] : [String(i)],
         }
         newNodes.push({
@@ -978,15 +1057,25 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     const selectedIds = new Set(
       nodes.filter((n) => n.selected && n.id !== START_NODE_ID).map((n) => n.id),
     )
-    if (!selectedIds.size) return
+    const selectedEdgeIds = new Set(
+      edges
+        .filter((e) => e.selected && e.source !== START_NODE_ID)
+        .map((e) => e.id),
+    )
+    if (!selectedIds.size && !selectedEdgeIds.size) return
     if (selectedId && selectedIds.has(selectedId)) selectNode(null)
     markDirty()
-    patchFlow({
-      nodes: nodes.filter((n) => !selectedIds.has(n.id)),
-      edges: edges.filter(
-        (e) => !e.selected && !selectedIds.has(e.source) && !selectedIds.has(e.target),
-      ),
-    })
+    if (selectedIds.size) {
+      patchFlow({
+        nodes: nodes.filter((n) => !selectedIds.has(n.id)),
+        edges: edges.filter(
+          (e) => !selectedEdgeIds.has(e.id) && !selectedIds.has(e.source) && !selectedIds.has(e.target),
+        ),
+      })
+      return
+    }
+    // 只选中了线：删线（「开始」引出的线不可删）
+    patchFlow({ edges: edges.filter((e) => !selectedEdgeIds.has(e.id)) })
   }, [nodes, edges, markDirty, patchFlow, selectNode, selectedId])
 
   const deleteNode = useCallback(
@@ -1052,12 +1141,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       problems.push('还没有添加任何步骤节点，至少需要 1 个步骤才能发布')
     }
 
-    // 2. 工作流目标不能为空
-    if (!goal.trim()) {
-      problems.push('工作流目标为空 — 请在左上角填写这个工作流要做什么')
-    }
-
-    // 3. 每个步骤必须有真实任务短名（不能空着或留「步骤 N」）
+    // 2. 每个步骤必须有真实任务短名（不能空着或留「步骤 N」）
     const noNameSteps = stepNodes.filter((n) => isMissingStepTaskName(n.data?.name))
     if (noNameSteps.length > 0) {
       const labels = noNameSteps
@@ -1070,10 +1154,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       )
     }
 
-    // 4. 每个步骤都要有执行 Agent（模板变换步除外：不占 LLM worker，但必须有模板内容）
-    const noAgentSteps = stepNodes.filter(
-      (n) => n.data?.executor !== 'template' && !n.data?.assigned_agent?.trim(),
-    )
+    // 3. 模板变换步必须有模板内容（Agent 步默认通用 agent，导出时会补齐）
     const emptyTemplateSteps = stepNodes.filter(
       (n) => n.data?.executor === 'template' && !String(n.data?.template || '').trim(),
     )
@@ -1084,16 +1165,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         .join('、')
       problems.push(
         `${emptyTemplateSteps.length} 个模板节点还没写模板内容：${names} — 选中节点后在右侧填写「模板内容」`,
-      )
-    }
-    if (noAgentSteps.length > 0) {
-      const names = noAgentSteps
-        .map((n) => n.data?.name || n.data?.goal || `步骤 ${n.id}`)
-        .slice(0, 3)
-        .join('、')
-      const more = noAgentSteps.length > 3 ? ` 等 ${noAgentSteps.length} 个` : ''
-      problems.push(
-        `${noAgentSteps.length} 个步骤还没选执行者：${names}${more} — 选中节点后在右侧配置「谁来做」`,
       )
     }
 
@@ -1144,6 +1215,17 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
           return
         }
       }
+      // 旧画布可能缺 assigned_agent：补成通用 agent，避免发布校验失败
+      setNodes((ns) =>
+        ns.map((n) => {
+          if (n.type !== 'stepNode' || n.data?.executor === 'template') return n
+          if (String(n.data?.assigned_agent || '').trim()) return n
+          return {
+            ...n,
+            data: { ...n.data, assigned_agent: DEFAULT_WORKFLOW_AGENT },
+          }
+        }),
+      )
       setBusy(kind)
       try {
         const plan = exportPlan()
@@ -1187,6 +1269,11 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         setGoal(next)
         markDirty()
       },
+      getProjectPath: () => projectPath,
+      setProjectPath: (next: string) => {
+        setProjectPath(String(next || '').trim())
+        markDirty()
+      },
       setExecStatus,
       clearExecStatus,
     }),
@@ -1198,6 +1285,7 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       exportPlan,
       goal,
       markDirty,
+      projectPath,
       runAction,
       setExecStatus,
     ],
@@ -1215,12 +1303,21 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         markDirty()
       },
       onOpenAppSettings,
-      drawerOpen,
-      setDrawerOpen,
-      onOpenConfig: () => {
-        /* 配置已迁至右侧面板：选中节点即显示 */
+      drawerOpen: !floatCollapsed,
+      setDrawerOpen: (open: boolean) => {
+        if (open) {
+          setFloatForceTab('library')
+          setFloatOpenToken((n) => n + 1)
+          setFloatCollapsed(false)
+        } else {
+          setFloatCollapsed(true)
+        }
       },
-      openAgentPicker,
+      onOpenConfig: () => {
+        setFloatForceTab('config')
+        setFloatOpenToken((n) => n + 1)
+        setFloatCollapsed(false)
+      },
       agents,
       appParameters,
       execByRef,
@@ -1233,27 +1330,11 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       goal,
       markDirty,
       onOpenAppSettings,
-      drawerOpen,
-      openAgentPicker,
+      floatCollapsed,
       agents,
       appParameters,
       execByRef,
     ],
-  )
-
-  const agentPickerModal = (
-    <AgentPickerModal
-      open={!!agentPickerNodeId}
-      onClose={() => setAgentPickerNodeId(null)}
-      agents={agents}
-      tools={toolCatalog}
-      loading={agentsLoading}
-      selected={agentPickerSelected}
-      onConfirm={(code) => {
-        if (agentPickerNodeId) updateStep(agentPickerNodeId, { assigned_agent: code })
-        setAgentPickerNodeId(null)
-      }}
-    />
   )
 
   const flowCanvas = (
@@ -1264,8 +1345,10 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        onReconnect={onReconnect}
         isValidConnection={isValidConnection}
         onNodeClick={onNodeClick}
+        onEdgeDoubleClick={onEdgeDoubleClick}
         onPaneClick={onPaneClick}
         onMoveEnd={onMoveEnd}
         markDirty={markDirty}
@@ -1298,6 +1381,11 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
       setGoal(next)
       markDirty()
     },
+    workflowProjectPath: projectPath,
+    onWorkflowProjectPathChange: (next: string) => {
+      setProjectPath(String(next || '').trim())
+      markDirty()
+    },
     onStepChange: updateSelectedStep,
     onAddStep: addStep,
     onAddStepWithAgent: addStepWithAgent,
@@ -1306,25 +1394,22 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     onDeleteSelected: deleteSelected,
     hasSelection: hasStepSelection || selectedId === ANSWER_NODE_ID || selectedId === START_NODE_ID,
     onOpenAppSettings,
-    dndType: PALETTE_DND_TYPE,
     answerSourceRef: answerFromRefFromEdges(edges),
     appParameters: paramSlots,
-    upstreamSteps: upstreamStepRefs,
   }
 
   if (isFullscreen) {
-    const showConfig = !!selectedId
     return (
       <WorkflowStudioProvider value={studioValue}>
         <div className="app-rf-root app-rf-root--fullscreen">
-          <div className={`app-wf-studio${showConfig ? ' has-config' : ''}`}>
+          <div className="app-wf-studio">
             <WorkflowToolbar
               appId={appId || ''}
               appName={appName}
               appStatus={appStatus}
               dirty={dirty}
               busy={busy}
-              drawerOpen={drawerOpen}
+              drawerOpen={!floatCollapsed}
               titleDraft={titleDraft}
               onTitleChange={setTitleDraft}
               onTitleBlur={() => onRename?.(titleDraft)}
@@ -1344,12 +1429,6 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
               onAutoArrange={() => arrangeActionRef.current?.()}
             />
             <div className="app-wf-studio-body">
-              <WorkflowDrawer
-                panelRole="library"
-                open={drawerOpen}
-                onToggle={toggleDrawer}
-                {...sharedDrawerProps}
-              />
               <div className="app-wf-studio-center">
                 <WorkflowOnboardingBanner stepCount={stepCount} />
                 {flowCanvas}
@@ -1357,19 +1436,17 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
                   stepCount={nodeCount}
                   edgeCount={edgeCount}
                   dirty={dirty}
+                  workspacePath={projectPath}
+                />
+                <WorkflowStudioFloat
+                  {...sharedDrawerProps}
+                  forceOpenToken={floatOpenToken}
+                  forceTab={floatForceTab}
+                  onCollapsedChange={setFloatCollapsed}
                 />
               </div>
-              {showConfig ? (
-                <WorkflowDrawer
-                  panelRole="config"
-                  open
-                  onToggle={() => selectNode(null)}
-                  {...sharedDrawerProps}
-                />
-              ) : null}
             </div>
           </div>
-          {agentPickerModal}
           {debugPanelOpen && appId ? (
             <DebugPanel
               appId={appId}
@@ -1388,14 +1465,14 @@ export const AppWorkflowCanvas = forwardRef<AppWorkflowCanvasHandle, Props>(func
     <div className="app-rf-root">
       <div className="app-rf-goal">
         <label className="app-rf-goal-label" htmlFor="app-rf-goal-input">
-          工作流目标
+          描述
         </label>
         <textarea
           id="app-rf-goal-input"
           className="input app-rf-goal-input"
           rows={2}
           value={goal}
-          placeholder="描述此工作流要达成的目标…"
+          placeholder="这个工作流是做什么的…"
           onChange={(e) => {
             setGoal(e.target.value)
             markDirty()

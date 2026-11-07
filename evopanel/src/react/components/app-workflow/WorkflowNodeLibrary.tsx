@@ -1,6 +1,10 @@
-import { useMemo, type DragEvent, type ReactNode } from 'react'
+import { useMemo, type ReactNode } from 'react'
 import { Bot, MessageSquareText, Trash2 } from 'lucide-react'
 import WorkflowNodeAvatar from './WorkflowNodeAvatar.tsx'
+import {
+  startPalettePointerDrag,
+  type PaletteDragKind,
+} from './palette-dnd.ts'
 
 type PaletteNode = {
   id: string
@@ -8,7 +12,7 @@ type PaletteNode = {
   tone: 'trigger' | 'action' | 'system'
   icon: ReactNode
   onClick?: () => void
-  dragKind: string
+  dragKind: PaletteDragKind
 }
 
 type Props = {
@@ -23,18 +27,24 @@ function PaletteRow({
   tone,
   icon,
   onClick,
-  onDragStart,
-}: Omit<PaletteNode, 'id' | 'dragKind'> & {
-  onDragStart?: (e: DragEvent) => void
-}) {
+  dragKind,
+}: Omit<PaletteNode, 'id'>) {
   return (
     <button
       type="button"
       className="wf-palette-row"
-      onClick={onClick}
       title={title}
-      draggable
-      onDragStart={onDragStart}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        startPalettePointerDrag({
+          kind: dragKind,
+          label: title,
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          onTap: () => onClick?.(),
+        })
+      }}
     >
       <WorkflowNodeAvatar tone={tone} size="sm">
         {icon}
@@ -51,8 +61,6 @@ export function WorkflowNodeLibrary({
   onDeleteSelected,
   hasSelection,
 }: Props) {
-  const dndType = 'application/evoflow-wf-node'
-
   const nodes = useMemo<PaletteNode[]>(
     () => [
       {
@@ -79,22 +87,14 @@ export function WorkflowNodeLibrary({
     <aside className="app-wf-sidebar app-wf-sidebar--left">
       <div className="app-wf-sidebar-head app-wf-sidebar-head--stack">
         <h3>添加节点</h3>
-        <p className="app-wf-sidebar-desc">拖到画布 · 执行者在节点上选</p>
+        <p className="app-wf-sidebar-desc">拖到画布 · 右侧配技能与工具</p>
       </div>
 
       <div className="app-wf-node-palette">
         <section className="wf-palette-group">
           <div className="wf-palette-grid wf-palette-grid--1">
             {nodes.map((node) => (
-              <PaletteRow
-                key={node.id}
-                {...node}
-                onDragStart={(e) => {
-                  e.dataTransfer.setData(dndType, node.dragKind)
-                  e.dataTransfer.setData('text/plain', `evoflow-wf:${node.dragKind}`)
-                  e.dataTransfer.effectAllowed = 'copy'
-                }}
-              />
+              <PaletteRow key={node.id} {...node} />
             ))}
           </div>
         </section>
@@ -106,6 +106,7 @@ export function WorkflowNodeLibrary({
           className="wf-palette-delete"
           disabled={!hasSelection}
           onClick={onDeleteSelected}
+          title="删除选中"
         >
           <Trash2 size={14} />
           删除选中

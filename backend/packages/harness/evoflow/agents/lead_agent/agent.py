@@ -14,9 +14,7 @@ from evoflow.agents.goal.goal_auto_continue_middleware import GoalAutoContinueMi
 from evoflow.agents.goal.goal_prompt_assembler import GoalContinuationAssemblerMiddleware
 
 # goal_report tool retired — completion detection handled solely by judge model
-# (goal_reply_interpreter). GoalToolMiddleware import kept for backward compat.
-from evoflow.agents.goal.goal_tool_middleware import GoalToolMiddleware  # noqa: F401
-
+# (goal_reply_interpreter).
 # Lazy-imported to avoid circular import:
 #   scenario_activation → intent_tool_profile → lead_agent/__init__ → agent → scenario_activation
 # from evoflow.tools.builtins.scenario_activation import get_scenario_with_fallback, restore_activated_scenarios
@@ -62,7 +60,6 @@ from evoflow.agents.middlewares.run_latency_timing_middleware import (
 )
 from evoflow.agents.middlewares.scenario_activation_sync_middleware import ScenarioActivationSyncMiddleware
 from evoflow.agents.middlewares.scenario_runtime_hint_middleware import ScenarioRuntimeHintMiddleware
-from evoflow.agents.middlewares.session_intent_middleware import SessionIntentMiddleware
 from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
     SessionTranscriptHydrationMiddleware,
 )
@@ -718,7 +715,8 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     middlewares.append(ToolBindingSyncMiddleware())
     # Strip ``<memory>...</memory>`` when runtime.context disables injection (before other wrap_model_call patches)
     middlewares.append(MemoryRuntimeControlMiddleware())
-    middlewares.append(SessionIntentMiddleware())
+    # SessionIntentMiddleware retired: history already has prior user turns;
+    # the synthetic session_intent tail duplicated goals and confused the model.
     middlewares.append(TurnContextMiddleware())
 
     # Context compaction (Hermes-style) when summarization.enabled in config.
@@ -910,6 +908,16 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     # tokens match the wire payload (active tools + final system prompt).
     if compaction_middleware is not None:
         middlewares.append(compaction_middleware)
+        # AFTER compaction fold (inner wrap): re-sanitize tool pairs. Early
+        # Dangling/PreCall in build_lead_runtime_middlewares run *before* fold and
+        # cannot see summary-Human gaps / dropped ToolMessages. Closest-to-model
+        # pass prevents "insufficient tool messages following tool_calls".
+        # Distinct class name required: create_agent rejects duplicate middleware.name.
+        from evoflow.agents.middlewares.pre_call_guardrail_agent_middleware import (
+            PostCompactionToolPairSanitizeMiddleware,
+        )
+
+        middlewares.append(PostCompactionToolPairSanitizeMiddleware())
     # AFTER compaction: before_model still injects; wrap_model_call reattaches
     # data-URIs if strip left "base64 data omitted" (Mode A). Later in the list
     # ⇒ inner wrap ⇒ runs after compaction's strip.

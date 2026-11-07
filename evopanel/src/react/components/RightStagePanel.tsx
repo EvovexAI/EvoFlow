@@ -55,6 +55,10 @@ import { Popover, PopoverContent, PopoverTrigger } from './ui/popover.js'
 import { KindTabIcon } from './RightStageTabIcon.js'
 import { XiaomiStageAvatar } from './XiaomiStageAvatar.js'
 import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
+import {
+  RightStageWorkflowPickList,
+  type RightStageWorkflowPickOption,
+} from './RightStageWorkflowPickList.js'
 import { RightStageTabOverview } from './RightStageTabOverview.js'
 import { agentCodeFromShellPagePath } from '../../lib/right-stage/open-shell-page-stage.js'
 import {
@@ -343,8 +347,14 @@ export type RightStagePanelProps = {
   employeeChatRoles?: RightStageEmployeeChatOption[]
   /** 选中员工后打开 employeeProcess 标签。 */
   onPickEmployeeChat?: (role: RightStageEmployeeChatOption) => void
+  /** 当前会话已绑定的协作主任务（选择器置顶「当前会话」）。 */
+  sessionWorkflowTaskId?: string
+  /** 选中工作流后打开 collab-workflow 标签。 */
+  onPickWorkflow?: (opt: RightStageWorkflowPickOption) => void
   renderContent?: (surface: RightStageSurface) => ReactNode
 }
+
+export type { RightStageWorkflowPickOption }
 
 export const RightStagePanel = memo(function RightStagePanel({
   tabs,
@@ -360,12 +370,15 @@ export const RightStagePanel = memo(function RightStagePanel({
   launcherItems,
   employeeChatRoles = [],
   onPickEmployeeChat,
+  sessionWorkflowTaskId = '',
+  onPickWorkflow,
   renderContent,
 }: RightStagePanelProps) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
   const [overviewOpen, setOverviewOpen] = useState(false)
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [pickEmployeeOpen, setPickEmployeeOpen] = useState(false)
+  const [pickWorkflowOpen, setPickWorkflowOpen] = useState(false)
   const [tabCtx, setTabCtx] = useState<StageTabContextMenu | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -400,7 +413,12 @@ export const RightStagePanel = memo(function RightStagePanel({
 
   /** 菜单/拖拽进行中强制露出标签条，避免 Portal 弹出后 mouseleave 把条收回去。 */
   const chromeForcedOpen =
-    overviewOpen || addMenuOpen || pickEmployeeOpen || !!tabCtx || !!draggingKey
+    overviewOpen ||
+    addMenuOpen ||
+    pickEmployeeOpen ||
+    pickWorkflowOpen ||
+    !!tabCtx ||
+    !!draggingKey
   // 原生 WebView2 不吃 CSS z-index；下拉/总览打开时先藏 HWND，否则菜单被网页挡住。
   useGlobalOverlayWhen(chromeForcedOpen, 'right-stage-chrome')
 
@@ -408,13 +426,24 @@ export const RightStagePanel = memo(function RightStagePanel({
     (item: RightStageLauncherItem) => {
       if (item.id === 'employee-chat') {
         setAddMenuOpen(false)
+        setPickWorkflowOpen(false)
         setPickEmployeeOpen(true)
         return
       }
+      if (item.id === 'workflow') {
+        setAddMenuOpen(false)
+        setPickEmployeeOpen(false)
+        // 有 onPickWorkflow 时进选择器（可看运行中/最近）；否则回落旧直开。
+        if (onPickWorkflow) {
+          setPickWorkflowOpen(true)
+          return
+        }
+      }
       setPickEmployeeOpen(false)
+      setPickWorkflowOpen(false)
       item.onOpen()
     },
-    [],
+    [onPickWorkflow],
   )
 
   const pickEmployeeRole = useCallback(
@@ -423,6 +452,21 @@ export const RightStagePanel = memo(function RightStagePanel({
       onPickEmployeeChat?.(role)
     },
     [onPickEmployeeChat],
+  )
+
+  const pickWorkflowTask = useCallback(
+    (opt: RightStageWorkflowPickOption) => {
+      setPickWorkflowOpen(false)
+      onPickWorkflow?.(opt)
+    },
+    [onPickWorkflow],
+  )
+
+  const workflowPickList = (
+    <RightStageWorkflowPickList
+      currentTaskId={sessionWorkflowTaskId}
+      onPick={pickWorkflowTask}
+    />
   )
 
   const employeePickList = (
@@ -637,6 +681,24 @@ export const RightStagePanel = memo(function RightStagePanel({
                 <p className="react-chat-stage-open-tab-desc">在右侧打开与该员工的对话标签。</p>
               </div>
               {employeePickList}
+            </>
+          ) : pickWorkflowOpen ? (
+            <>
+              <div className="react-chat-stage-open-tab-copy">
+                <button
+                  type="button"
+                  className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                  onClick={() => setPickWorkflowOpen(false)}
+                >
+                  <ChevronLeftIcon className="size-3.5" aria-hidden />
+                  返回
+                </button>
+                <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
+                <p className="react-chat-stage-open-tab-desc">
+                  用下拉框选 App，再选一次运行；可输入名称搜索。
+                </p>
+              </div>
+              {workflowPickList}
             </>
           ) : (
             <>
@@ -891,6 +953,37 @@ export const RightStagePanel = memo(function RightStagePanel({
         </div>
       ) : null}
 
+      {pickWorkflowOpen ? (
+        <div
+          className="absolute inset-0 z-[40] flex flex-col bg-card/95 backdrop-blur-sm"
+          role="dialog"
+          aria-label="选择工作流"
+          data-tauri-no-drag
+        >
+          <div className="react-chat-stage-open-tab-shell flex min-h-0 flex-1 flex-col">
+            <div className="react-chat-stage-open-tab-body min-h-0 flex-1 overflow-auto">
+              <div className="react-chat-stage-open-tab-content">
+                <div className="react-chat-stage-open-tab-copy">
+                  <button
+                    type="button"
+                    className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                    onClick={() => setPickWorkflowOpen(false)}
+                  >
+                    <ChevronLeftIcon className="size-3.5" aria-hidden />
+                    取消
+                  </button>
+                  <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
+                  <p className="react-chat-stage-open-tab-desc">
+                    用下拉框选 App，再选一次运行；可输入名称搜索。
+                  </p>
+                </div>
+                {workflowPickList}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tabCtx && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -991,6 +1084,7 @@ export function buildDefaultRightStageLauncherItems(handlers: {
     {
       id: 'workflow',
       label: '工作流',
+      description: '下拉选 App / 运行',
       icon: WorkflowIcon,
       onOpen: handlers.onOpenWorkflow,
     },

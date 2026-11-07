@@ -23,9 +23,9 @@ import {
 import {
   asActiveSessionList,
   buildActiveSessionIndex,
-  displayTaskStatusZh,
   renderRuntimeHealthChip,
   resolveTaskRuntimeHealth,
+  runtimeHealthExplainZh,
 } from '../lib/task-runtime-health.js'
 import { normalizeTaskSource, formatTaskSourceZh } from '../lib/task-source.js'
 import { resolveAssignedAgentDisplayName } from '../lib/tool-display.js'
@@ -1488,10 +1488,8 @@ function renderRegisterDateCell(task) {
   return `<span class="tl-reg-stack"><span class="tl-reg-date">${escapeHtml(date)}</span><span class="tl-reg-time">${escapeHtml(time)}</span></span>`
 }
 
-function ledgerCompletionStatus(task, state = null) {
-  if (resolveTaskRuntimeHealth(task, state?.runtimeIndex) === 'interrupted') {
-    return { key: 'interrupted', label: '已中断', tone: 'interrupted' }
-  }
+function ledgerCompletionStatus(task, _state = null) {
+  // 完成状态列：只跟数据库 lifecycle，不把探测「进程失联」抬成主状态
   const u = toUnifiedTaskStatus(task?.status)
   if (u === 'completed') return { key: 'done', label: '已完成', tone: 'done' }
   if (u === 'cancelled') return { key: 'cancelled', label: '已取消', tone: 'muted' }
@@ -2451,18 +2449,16 @@ function renderTaskTable(rowsHtml, state, opts = {}) {
   </table></div>`
 }
 
-/** 运行时存活芯片（在跑 / 已中断）；非进行中任务不展示 */
+/** 运行时附注芯片（在跑 / 进程失联）；主状态仍跟账本 */
 function runtimeChipHtml(task, state) {
   const health = resolveTaskRuntimeHealth(task, state?.runtimeIndex)
-  return renderRuntimeHealthChip(health, escapeHtml)
+  return renderRuntimeHealthChip(health, escapeHtml, {
+    title: runtimeHealthExplainZh(task, health),
+  })
 }
 
-/** 状态色点 + 文字（统一展示态）+ 可选「在跑」芯片；已中断提升为主文案 */
+/** 状态色点 + 文字（账本 lifecycle）+ 可选运行时芯片 */
 function statusDot(status, task = null, state = null) {
-  const health = task ? resolveTaskRuntimeHealth(task, state?.runtimeIndex) : 'n/a'
-  if (health === 'interrupted') {
-    return `<span class="tl-status tl-status--interrupted" title="账本仍为执行中，但未检测到活跃会话"><span class="tl-dot"></span>${escapeHtml('已中断')}</span>`
-  }
   const u = toUnifiedTaskStatus(status)
   const tone = {
     inbox: 'planning',
@@ -2475,9 +2471,13 @@ function statusDot(status, task = null, state = null) {
     failed: 'failed',
     cancelled: 'cancelled',
   }[u] || 'pending'
-  const label = displayTaskStatusZh(task, state?.runtimeIndex, formatUnifiedStatusZh(status))
+  // 主文案：账本状态（执行中…）；运行时后缀由 chip 表达，避免盖成「已中断」
+  const label = formatUnifiedStatusZh(status)
   const chip = task ? runtimeChipHtml(task, state) : ''
-  return `<span class="tl-status tl-status--${tone}"><span class="tl-dot"></span>${escapeHtml(label)}${chip}</span>`
+  const health = task ? resolveTaskRuntimeHealth(task, state?.runtimeIndex) : 'n/a'
+  const title =
+    health === 'interrupted' ? escapeHtml(runtimeHealthExplainZh(task, health)) : ''
+  return `<span class="tl-status tl-status--${tone}"${title ? ` title="${title}"` : ''}><span class="tl-dot"></span>${escapeHtml(label)}${chip}</span>`
 }
 
 /** 按状态的主操作按钮 */
@@ -2650,7 +2650,7 @@ function renderTaskRow(t, state, rowMeta = null) {
         </div>
       </td>
       <td class="tl-col-prog">${renderProgressText(t, state)}</td>
-      <td class="tl-col-status"><span class="tl-status-stack"><span class="tl-ledger-status tl-ledger-status--${st.tone}">${escapeHtml(st.label)}</span>${st.key === 'interrupted' ? '' : runtimeChipHtml(t, state)}</span></td>
+      <td class="tl-col-status"><span class="tl-status-stack"><span class="tl-ledger-status tl-ledger-status--${st.tone}">${escapeHtml(st.label)}</span>${runtimeChipHtml(t, state)}</span></td>
       <td class="tl-col-ops">
         <div class="tl-ops">
           ${renderTaskRowActions(t, state)}

@@ -15,7 +15,6 @@ import logging
 import os
 import re
 import uuid
-
 from pathlib import Path
 from typing import Any
 
@@ -977,7 +976,14 @@ def run_app_workflow(
     # burned tool calls re-verifying a file that did exist. A non-empty
     # project_path is also what lets upstream artifact verification run at all
     # (verification short-circuits to a warning when it is blank).
-    run_project_path = _resolve_workflow_project_path()
+    #
+    # Prefer the app's saved default workspace; fall back to env / repo root.
+    plan_blob = app.get("plan") if isinstance(app.get("plan"), dict) else {}
+    run_project_path = (
+        str(app.get("project_path") or "").strip()
+        or str(plan_blob.get("project_path") or "").strip()
+        or _resolve_workflow_project_path()
+    )
     if run_project_path:
         task_data["project_path"] = run_project_path
         project_data["project_path"] = run_project_path
@@ -1068,7 +1074,13 @@ def run_app_workflow(
     save_task_bundle(task_id, project_data)
 
     # 7. Sync subtasks from plan steps (reads task from DB)
-    sync_result = sync_subtasks_from_plan_steps(task_id, plan_input["steps"], storage=storage, goal=plan_input["goal"])
+    sync_result = sync_subtasks_from_plan_steps(
+        task_id,
+        plan_input["steps"],
+        storage=storage,
+        goal=plan_input["goal"],
+        project_path=run_project_path,
+    )
 
     # 7.5 Auto rollup: append virtual rollup subtask when mode=auto and multi-step.
     # Must happen after sync_subtasks and before auto_authorize so the rollup

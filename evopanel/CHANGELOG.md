@@ -6,6 +6,181 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.7] - 2026-11-07
+
+相对 **1.3.6**：部门群里员工干完活不再无声结束——后台任务终态自动回执到群时间线；同时修复子任务失败后下游卡死、会话键被抢、工具白名单被自动放大等一批问题。
+
+### 参与本次发版
+
+- 全栈开发工程师：部门群自动回执、失败级联阻断、会话越权防护、工具白名单、thinking 参数、MCP 跨进程快照、部门群前端交互、界面紧凑化
+- 发版工程师：CI/CD 正式包发布
+
+### 新增
+
+- **部门群自动回执**：员工在群里起的后台工作流 / 协作任务进入终态时，以该员工名义自动往群里发一条结果气泡，正文标注「自动回执」；同一次运行只发一条，不会刷屏
+- **MCP 状态跨进程可见**：平台工具与 CLI 进程现在能读到别的进程落下的 MCP server 状态，不再一律显示未加载；本进程确实看不到时明确标为「未知」并给出原因，不再用「加载中」冒充
+
+### 改进
+
+- **会话列表与侧栏更紧凑**：行高、图标、字号整体下调一档，同屏能多放几行会话；工作流抽屉里没标题的面板不再显示空标题
+- **群聊读起来更顺**：历史回填不再覆盖你刚发的消息；往上翻历史时不会被新消息拽回底部
+- **员工回合交代更清楚**：部门群里起了后台任务的回合，必须在正文里报出任务名并说明完成后会自动回执
+
+### 修复
+
+- **子任务失败后整条流程卡死**：上游步骤失败 / 超时 / 取消时，下游原先永久停在等待派发，工作流一直显示执行中直到手动停止；现在失败会沿依赖链一路阻断下游并继续排下一波
+- **会话键可被抢走**：用同一个会话键重建会话时，原先会强制改写归属和标题，任何登录用户都能抢走可枚举的键（如部门群会话）并读到历史；现在非本人非管理员直接拒绝
+- **只声明 read 的步骤却跑了 58 次 bash**：步骤显式声明的工具清单被当成「至少这些」自动扩族成 bash / write 全家桶；现在声明即为执行白名单，不再自动扩
+- **员工配置里的 MCP 工具名全判未知**：CLI 冷进程没有运行时缓存，`mcp__server__tool` 一律被判为未知工具；现在按同一份配置里的 mcp_servers 做背书
+- **声明不支持 thinking 的模型被厂商 400**：`supports_thinking=false` 的模型被硬塞 `thinking.type=disabled`，走 OpenAI 兼容代理的 Claude 等直接回 400；现在这类模型一律不发送 thinking 参数
+- **群聊执行中重复 @ 会重复跑一轮**：一轮 LLM 回合常远超 8 秒合并窗口，期间再 @ 会另起完整一轮（重复回复、重复计费）；现在执行中的重复点名并入本轮
+- **切部门时回复打到另一个群**：切换部门后旧队列未销毁，A 部门进行中的点名把回复写进 B 的时间线；现在切部门强制重置
+
+### 覆盖安装即可
+
+无数据迁移。从 **1.3.6**（或更早 1.3.x）覆盖安装至 **1.3.7**。
+
+## [1.3.6] - 2026-11-06
+
+相对 **1.3.5**：修复员工派活时 LLM 调用崩溃问题——平台控制参数（confirm 等）不再泄露进 OpenAI/Anthropic SDK 调用。
+
+### 参与本次发版
+
+- 后端工程师：平台控制参数防护层完善，模型配置多层消毒
+- 发版工程师：CI/CD 正式包发布
+
+### Fixed
+
+- **员工派活 wrap-up 必崩**：平台网关的 `confirm` 等控制标记不再存入模型配置 extra，不再经由 model_kwargs 泄露进 OpenAI/Anthropic 的 AsyncCompletions.create()；覆盖入口/存储/持久化/工厂/模型执行全链路防护
+
+## [1.3.5] - 2026-11-06
+
+相对 **1.3.4**：旧库启动自动补齐 post-baseline 表/列；空 standing 仍注入资产目录；子任务旁观可轮询与手动刷新。
+
+### 参与本次发版
+
+- 全栈开发工程师：旧库 post-baseline 补列/补表、空 standing 仍注入资产目录、子任务旁观轮询与刷新、资产快捷入口计数
+- 发版工程师：CI/CD 正式包发布
+
+### Changed
+
+- **子任务对话旁观**：执行中定时 meta + V4 catchup，结束后 settle 再拉一帧；支持手动刷新；嵌入侧栏顶栏紧凑化并贯通 `sessionBusy` 齿轮
+- **资产快捷入口**：侧栏显示经历 / 经验 / 反思文件数，任务结束后刷新计数
+- **记忆注入**：placeholder / 空 standing 不再压制实体块；catalog（L2）照常注入；read_path 提示改为「记忆仅参考，以最新用户问题为准」
+- **standing 折叠**：仅剩 `v1` 壳时按空串返回，避免挡住 catalog
+
+### Fixed
+
+- **旧库缺列 / 缺表**：已 stamp `APP_SCHEMA_VERSION` 的库启动时补 `evoflow_apps.project_path`、`evoflow_chat_messages.turn_*`，以及 `evoflow_bot_bindings` / `evoflow_departments` / `evoflow_role_push_bindings` 等 post-baseline 表
+- **空 standing 整块记忆消失**：asset-hub 下 placeholder 不再让 craft/episodic/journal 索引从注入里消失
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.5.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+## [1.3.4] - 2026-11-06
+
+相对 **1.3.3**：工作流编排改为按节点配能力（技能/工具/MCP/知识库/模型/思考），画布与编辑面板重做；应用详情与子任务对话打开更快；任务状态不再被「进程失联」盖掉。
+
+### 参与本次发版
+
+- 全栈开发工程师：工作流节点级能力编排、画布与编辑面板重做、应用详情与子任务打开提速、任务状态口径修正、侧栏新建会话与右栏自动打开修复
+- 发版工程师：CI/CD 正式包发布
+
+### Added
+
+- **工作流节点级能力**：每步可单独指定 `skills` / `tools` / `mcp_servers` / `knowledge_vault_ids` / `model` / `thinking_enabled`；执行者降级为「执行壳」（默认通用 agent），能力以本步配置为准
+- **工作流工作目录**：应用新增 `project_path`，写入 `evoflow_apps` 表（启动自动补列）并随运行带入；画布、详情页、平台 schema 三处贯通
+- **悬浮式工作流面板**：节点库与节点配置合并为右上悬浮卡（`WorkflowStudioFloat`），支持收起气泡、选中节点自动切配置、顶栏「节点库」强制展开
+- **员工下拉直选**：节点执行者改用 `AgentPickerDropdown` 内联下拉；「编辑执行者」复用员工编辑 sheet，网关预热未完成时先等就绪，避免 `proactiveGetRole` 超时
+
+### Changed
+
+- **应用详情页加载**：画布代码动态 `import` 并与 `getApp` 并行；列表 hover 预热；命中预热时后台静默刷新定义且不覆盖未保存改动
+- **子任务对话**：`conversation-history` 新增 `meta_only` 参数，打开步骤记录只解析 thread/outcome，不再跑 `get_task` 的 workflow 汇总修复；主任务改用轻量 `load_task_bundle` / `find_main_task`
+- **右栏自动展开**：工作流运行类（run/resume/recover/run_status）强制展开，其它 `autoOpen` 仍尊重用户收起锁；用户点 CTA 一律 `forceExpand`
+- **任务状态口径**：主状态只跟账本 lifecycle，`runtime_health=interrupted` 降级为「进程失联」附注芯片；详情页补账本更新时间与失联含义
+- **排队消息按会话分桶**：`usePendingSendQueue` 切会话不再清空，切回仍可见
+- **员工在岗判定**：关巡检 / 总开关关仍判「在岗」（只改提示），「已停」仅请假与草稿；前后端两处口径统一
+- **工具目录**：撤除 `glob`（按名查找走 Bash），旧配置 `glob` / `find` / `find_file` 映射到 `bash`；MCP 目录增 `peek` 热身兜底与 agent tool-names 缓存失效
+- **token 优化**：资产逐轮标题匹配召回默认关闭（目录已完整注入，`EVOFLOW_HUB_RECALL=1` 可开）；`session_intent` 默认关闭
+
+### Fixed
+
+- **侧栏新建会话无响应**：`handleNewSessionClick` 误用不存在的 `setFilterOpen` 导致 `ReferenceError`；同时补上切回对话页与关闭侧栏抽屉
+- **工作流运行通知标题回落到 id**：`workflow.run` 结果补应用名，不再显示 `Run_xxx`
+- **右栏工作流 CTA 静默失败**：反馈缺 `mainTaskId` 时用 `entityId` 补；挂载失败回落 `/apps/{id}/run?runId=`
+- **工作流 worker 挂不上 MCP**：`parent_model` 不再被重置为 `None`，`task_tool` 合并热身缓存 MCP 工具进目录；`profile.mcp_servers` 覆盖生效，避免 `mcp__*` 挂载为 0
+- **CLI 侧 MCP 工具被拒**：工具名校验对 extensions 里已配置的 MCP 服务器放行 `mcp__<server>__*`
+- **工作流 schema 引导**：建流前先查 `agents.bindings` / `skills.list` / `knowledge.list` / `mcp.list`，节点显式挂能力，不再写「用 Agent 默认能力」
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.4.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+## [1.3.3] - 2026-11-06
+
+相对 **1.3.2**：会话通知面板改为紧凑布局，状态由英文枚举改为中文彩色徽标。
+
+### 参与本次发版
+
+- 全栈开发工程师：会话通知面板的状态中文归一、徽标配色与已读样式
+- 发版工程师：CI/CD 正式包发布
+
+### Changed
+
+- **会话通知面板**：状态改为中文短标签并配语义色——「已完成」绿 /「失败」红 /「已停止、已取消、超时」琥珀 / 其余中性灰；数据源里的中文自由文本（如「任务完成」「执行过程中发生错误」「已手动停止」）同样归一为短标签+对应颜色，长句原文放进悬浮提示，不再把整句塞进 17px 徽标；失败与停止条目左侧加 2px 状态色条
+- **会话通知面板**：会话名与状态徽标合并到同一行；`[Run_xxx] failed` 这类只重复状态的正文不再单独占行；条目内边距 12px→9px，正文最多 2 行。实测单条高度 106px → 60px（无正文行）/ 80px（有正文行），压缩约 43% / 25%
+- **会话通知面板**：已读状态只淡化内容区，保留失败/停止条目的左侧色条实色，已读的异常条目仍可一眼识别
+
+### Fixed
+
+- **会话通知面板**：`outcome` 为「（未知）」等后端兜底占位值时的空状态判定；`未完成 / 未成功` 不再被「完成」关键字误判为成功态
+- **会话通知面板**：`body` 与 `outcome` 内容重复（如 `[Run_xxx] failed`）时多占一行的问题
+
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.3.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+## [1.3.2] - 2026-11-06
+
+相对 **1.3.1**：新增员工平台能力清单（platform scope）与资产 standing 注入折叠；部门群新增派工条状态；run 心跳改 upsert；知识库分块与后台保活修复；媒体下载改流式落盘。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.2.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **员工平台能力清单**：`AgentConfig.platform_scope` 支持不设限 / 全量受风险上限 / 全拒 / 自定义域与动作；三层同源（动作闸门、资产 catalog 过滤、系统提示 `<capability_profile>` 事前告知）；角色编辑新增能力面板
+- **部门群派工条**：合并叫醒队列 / 审计回灌 / 气泡已回，展示「排队中 / 回答中 / 已回 / 失败」
+- **资产记忆**：新增 standing 注入折叠（What's in Memory 折叠为 name-only、prefs / tips 软上限），降低每轮注入体积
+
+### Changed
+
+- **媒体**：下载改为流式落盘，慢日志移出事件循环
+- **资产契约**：assets_tool 说明收敛到系统提示「Entity assets」，补 kind → 文件映射
+- **记忆注入文档**：injection_layers / read_path / consolidation 同步
+
+### Fixed
+
+- **run**：live_run 心跳改 upsert，避免并发插入冲突；run 状态对账补齐
+- **知识库**：owned chunking / service 分块边界与参数修正
+- **后台任务**：background 等待期间保活 run，避免被当作空闲回收
+- **部门群**：嵌套策略与审计回灌细化，重挂后派工条可回填
+
+## [1.3.1] - 2026-11-05
+
+相对 **1.3.0**：模型请求体统一清洗；OpenAI 图片支持参考图生成（image2image）；图片缩略图与内联图渲染修复；工具表面锁与 V4 镜像对齐。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.1.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **参考图生成**：`openai_images` provider 支持 image2image，可携带参考图保持人物 / 风格
+- **媒体生成占位**：平台工具调用时展示生成中占位卡片
+
+### Changed
+
+- **模型请求体**：新增 `create_payload_sanitize` 统一清洗，`factory` / `patched_deepseek` / `patched_minimax` / `patched_openai` 接入
+- **工具表面锁**：`tool_surface_lock_middleware` 与 `agents_config` / `admin/agents` 联动
+- **V4 镜像**：`agui_mirror` 与 `row_mappers` 对齐
+
+### Fixed
+
+- **图片渲染**：缩略图与 Markdown 内联图的尺寸、加载与点击预览
+- **平台工具卡片**：媒体生成结果展示与失败提示
+
 ## [1.3.0] - 2026-11-05
 
 相对 **1.2.9**：用户画像合并为单一 USER.md；右栏新增文件预览与助手预览卡；员工能力变更实时生效；资产记忆 Phase2 索引更紧凑；LangGraph sidecar 启动预热降低首轮延迟；修复轮次追踪死锁与视觉注入伪消息。

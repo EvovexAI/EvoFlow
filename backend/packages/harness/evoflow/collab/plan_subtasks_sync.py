@@ -85,7 +85,8 @@ def build_worker_profile_from_step(
     if depends_refs:
         wp_data["depends_on"] = [str(x).strip() for x in depends_refs if str(x).strip()]
 
-    instr = str(step.get("instruction") or "").strip()
+    # Single prompt path: explicit instruction, else the step goal ("做什么").
+    instr = str(step.get("instruction") or "").strip() or str(step.get("goal") or "").strip()
     if instr:
         wp_data["instruction"] = instr
     model = str(step.get("model") or "").strip()
@@ -100,6 +101,15 @@ def build_worker_profile_from_step(
     skills = _coerce_str_list(step.get("skills"))
     if skills:
         wp_data["skills"] = skills
+    mcp = _coerce_str_list(step.get("mcp_servers"))
+    if mcp:
+        wp_data["mcp_servers"] = mcp
+    vaults = _coerce_str_list(step.get("knowledge_vault_ids"))
+    if vaults:
+        wp_data["knowledge_vault_ids"] = vaults
+    thinking = step.get("thinking_enabled")
+    if thinking is True or thinking is False:
+        wp_data["thinking_enabled"] = bool(thinking)
 
     expected = _coerce_str_list(step.get("expected_outputs"))
     if not expected:
@@ -685,6 +695,7 @@ def sync_subtasks_from_plan_steps(
     *,
     storage: Any | None = None,
     goal: str | None = None,
+    project_path: str | None = None,
 ) -> dict[str, Any]:
     """Create or update subtasks from structured or parsed plan steps (1:1 with ``create_subtasks`` fields)."""
     tid = str(task_id or "").strip()
@@ -724,8 +735,12 @@ def sync_subtasks_from_plan_steps(
         result["success"] = True
         return result
 
+    # Explicit argument wins over the persisted row: ``evoflow_collab_tasks``
+    # has no ``project_path`` column, so the run's working directory is dropped
+    # on the DB round-trip and every step row came back NULL (workers then each
+    # picked their own base). Pass it straight from the run instead.
     run_project_path = str(
-        task.get("project_path") or project.get("project_path") or ""
+        project_path or task.get("project_path") or project.get("project_path") or ""
     ).strip()
 
     goal_text = str(goal or "").strip()

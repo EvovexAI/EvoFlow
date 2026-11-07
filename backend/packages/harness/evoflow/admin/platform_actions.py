@@ -58,7 +58,11 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     },
     "workflow": {
         "title": "工作流/应用",
-        "when": "创建/改/发/删应用，从目标生成流程，复制、查版本、运行/暂停/恢复/查状态",
+        "when": (
+            "创建/改/发/删应用，从目标生成流程，复制、查版本、运行/暂停/恢复/查状态；"
+            "建流前先查 agents.bindings / skills.list / knowledge.list / mcp.list，"
+            "再按节点显式挂 skills/tools/mcp/knowledge（勿滞空再靠默认能力）"
+        ),
         "not": "不是定时自动化（用 automation）；不是岗位 Task 板；不是侧栏 Agent应用网页（用 extensions）",
     },
     "settings": {
@@ -1413,12 +1417,16 @@ def build_catalog(
     domain: str | None = None,
     detailed: bool = False,
     summary: bool = False,
+    allowed: list[str] | None = None,
 ) -> dict[str, Any]:
     """Build platform catalog.
 
     - No domain + not detailed: domain guides + one-line action list (default).
     - ``summary=True``: only ``name`` + ``risk`` (+ domain) — cheap probe mode (DEF-04).
     - domain set + detailed: full params/examples for that domain.
+    - ``allowed``: employee scope filter (``None`` = unrestricted main/admin; list =
+      keep only listed names — empty list denies all). Filtered results carry
+      ``scope_filtered`` so callers can tell「域为空」from「被能力清单裁剪」.
     """
     reg = get_registry()
     dom = str(domain or "").strip().lower() or None
@@ -1431,6 +1439,19 @@ def build_catalog(
             "guides": [domain_guide(d) for d in PLATFORM_DOMAINS],
             "hint": "用 catalog 不带 domain 看域摘要，或指定某一域名看详版；也可 args_json 传 domain。",
         }
+    scope_filtered = allowed is not None
+    if scope_filtered:
+        allowed_set = {str(x).strip().lower() for x in allowed}
+        actions = [a for a in actions if a.name in allowed_set]
+        if not actions:
+            return {
+                "ok": True,
+                "count": 0,
+                "domain": dom,
+                "items": [],
+                "scope_filtered": True,
+                "hint": "当前岗位能力清单内没有该域动作；不带 domain 调用可看全部已授权域。",
+            }
 
     if summary:
         items = [{"name": a.name, "domain": a.domain, "risk": a.risk} for a in actions]
@@ -1440,6 +1461,7 @@ def build_catalog(
             "count": len(items),
             "domain": dom,
             "items": items,
+            "scope_filtered": scope_filtered or None,
             "hint": "摘要模式只含 name/risk；详版：catalog + domain=…（勿传 summary）。",
         }
 
@@ -1455,6 +1477,7 @@ def build_catalog(
             "count": len(items),
             "domains": domain_summaries,
             "items": items,
+            "scope_filtered": scope_filtered or None,
             "routing": ("先按 domains[].when 选域，再选 domains[].actions[].name 作为 action。用户备忘→items；岗位工单推进→专用工具 tasks（或本工具 tasks.* 行政侧）；对话 checklist→todo。写/破坏性操作须用户确认后 confirm=true。"),
             "hint": (
                 "某域详版：action=catalog 且 domain="
@@ -1480,6 +1503,7 @@ def build_catalog(
         "count": len(items),
         "domains": [dom] if dom else sorted({a.domain for a in actions}),
         "items": items,
+        "scope_filtered": scope_filtered or None,
         "hint": "按需选择 action；write/destructive 须用户确认后带 confirm=true。",
     }
     if guide:
@@ -1538,6 +1562,32 @@ def build_help(topic: str | None = None) -> dict[str, Any]:
     }
 
 
+def _employee_scope_for_dispatch() -> tuple[str, Any]:
+    """当前调用者（员工 actor）的 platform scope。
+
+    Returns:
+        (actor_code, scope)。非员工路径（main / 小V / 人工 principal / HTTP admin 面）
+        actor 为空 → ``(\"\", None)``；存量岗位未配置 scope → ``(actor, None)``。
+        二者都不受能力闸门约束（confirm 闸门另行兜底）。
+    """
+    try:
+        from evoflow.authz.agent_actor import get_current_agent_actor
+
+        actor = get_current_agent_actor()
+    except Exception:
+        return "", None
+    actor = str(actor or "").strip().lower()
+    if not actor:
+        return "", None
+    try:
+        from evoflow.config.platform_scope import resolve_agent_platform_scope
+
+        return actor, resolve_agent_platform_scope(actor)
+    except Exception:
+        logger.debug("resolve employee platform scope failed actor=%s", actor, exc_info=True)
+        return actor, None
+
+
 def dispatch_platform_action(
     action: str,
     *,
@@ -1555,6 +1605,15 @@ def dispatch_platform_action(
             "error": "action is required",
             "hint": "先 platform(action='catalog') 看说明书。",
         }
+
+    # 员工能力清单：catalog 过滤 + dispatch 闸门共用同一份 scope（platform_tool
+    # 已在工具入口绑定 agent actor；main/小V/HTTP 面为空 → 不过滤）。
+    _actor, employee_scope = _employee_scope_for_dispatch()
+    allowed_names: list[str] | None = None
+    if employee_scope is not None:
+        from evoflow.config.platform_scope import allowed_action_names
+
+        allowed_names = allowed_action_names(employee_scope, get_registry().values())
 
     key = act.lower()
     # Parse args early so catalog/help can take domain/summary from args_json (DEF-04).
@@ -1578,7 +1637,7 @@ def dispatch_platform_action(
             detailed = bool(dom) and not summary
         else:
             detailed = bool(detailed_flag) and not summary
-        return build_catalog(domain=dom, detailed=detailed, summary=summary)
+        return build_catalog(domain=dom, detailed=detailed, summary=summary, allowed=allowed_names)
 
     reg = get_registry()
     entry = reg.get(act) or reg.get(key)
@@ -1598,6 +1657,28 @@ def dispatch_platform_action(
         args = _parse_args(args_json)
     except ValidationError as exc:
         return {"ok": False, "error": str(exc), "action": entry.name}
+
+    # 员工能力闸门（先于 risk/confirm 闸门）：越界直接结构化拒绝，
+    # 错误体回显允许域 —— 模型一次被拒即可自纠，等于把能力清单再教一遍。
+    if employee_scope is not None:
+        from evoflow.config.platform_scope import action_allowed
+
+        scope_ok, scope_reason = action_allowed(employee_scope, entry.name, entry.risk)
+        if not scope_ok:
+            return {
+                "ok": False,
+                "error": "capability_denied",
+                "action": entry.name,
+                "risk": entry.risk,
+                "reason": scope_reason,
+                "allowed_domains": (
+                    sorted({str(d).strip().lower() for d in employee_scope.domains})
+                    if employee_scope.mode == "custom"
+                    else []
+                ),
+                "max_risk": employee_scope.max_risk,
+                "hint": "该动作超出本岗位能力清单；可调用 action=catalog 查看已授权范围，或告知用户在岗位设置中调整平台能力。",
+            }
 
     risk = entry.risk
     if risk in {"write", "destructive"} and not _truthy_confirm(args, confirm):

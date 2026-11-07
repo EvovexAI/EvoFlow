@@ -84,3 +84,26 @@ def test_mark_sets_instance_flag():
     mark_thinking_disable_unsupported(m)
     assert m._evoflow_thinking_disable_unsupported is True
     assert mark_thinking_disable_unsupported(None) is None  # 不抛
+
+
+def test_detects_claude_strict_mode_400():
+    """走 OpenAI 兼容代理的 Claude：只认 adaptive / between_tools，其余 thinking 写法 400。
+
+    报障原文（claude-sonnet-5-5 / vip.ai-api.cc，员工 wrap-up 环节）：
+    ``claude-sonnet-5-5 requires adaptive thinking or thinking.type=between_tools;
+    omit thinking or use one of those modes``
+    """
+    e = _FakeBadRequest(
+        "Error code: 400 - {'error': {'message': 'claude-sonnet-5-5 requires adaptive "
+        "thinking or thinking.type=between_tools; omit thinking or use one of those modes', "
+        "'type': 'invalid_request_error'}}"
+    )
+    assert is_thinking_unsupported_400(e) is True
+
+
+def test_strict_mode_marker_still_requires_400():
+    msg = "claude-sonnet-5-5 requires adaptive thinking or thinking.type=between_tools"
+    assert is_thinking_unsupported_400(_FakeBadRequest(msg)) is True
+    too_many = _FakeBadRequest(msg)
+    too_many.status_code = 429
+    assert is_thinking_unsupported_400(too_many) is False

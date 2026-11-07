@@ -8,7 +8,7 @@
 >
 > 技能 vs 工具 vs MCP 的区别：技能是"领域知识包"，工具是"内置能力"（read/write/terminal），MCP 是"外部服务"（GitHub API、Notion 等）。
 >
-> **功能关系**：技能是 Agent 能力的"领域知识层"——工具（Tool）提供通用能力，技能（Skill）提供领域特定的指令和指导。技能通过 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 的 `apply_prompt_template()` 注入到系统提示中，与[记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] 的 `<memory>` 注入、子 Agent 指令共同构成系统提示的完整内容。技能与工具的关系是：技能可以声明 `allowed-tools` 白名单，约束该技能范围内允许使用的工具。
+> **功能关系**：技能是 Agent 能力的"领域知识层"——工具（Tool）提供通用能力，技能（Skill）提供领域特定的指令和指导。技能由 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 的技能注入中间件（`SkillsInjectionMiddleware`）以 `<skill_injection>` 消息块注入对话，与[记忆系统](memory-system.md) [[explanation/memory-system|记忆系统]] 的记忆注入、子 Agent 指令共同构成模型可见上下文。技能可以在 frontmatter 里声明 `allowed-tools` 元数据，说明该技能涉及的工具范围。
 
 ## 背景
 
@@ -43,9 +43,11 @@ allowed-tools: ["bash", "read_file", "write_file"]
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `name` | string | 是 | 技能标识符（hyphen-case） |
-| `description` | string | 是 | 技能描述，用于 UI 展示 |
+| `description` | string | 是 | 技能描述，用于 UI 展示与触发判断 |
 | `license` | string | 否 | 许可证（如 MIT） |
-| `allowed-tools` | list | 否 | 技能允许使用的工具白名单 |
+| `when_to_use` | string | 否 | 何时加载该技能的提示（兼容 `whenToUse`） |
+| `allowed-tools` | list | 否 | 技能涉及的工具元数据声明 |
+| `version` / `author` / `tags` / `homepage` 等 | - | 否 | 市场 / 注册表元数据 |
 
 ## 技能发现与加载
 
@@ -81,7 +83,7 @@ allowed-tools: ["bash", "read_file", "write_file"]
 }
 ```
 
-通过 API 动态修改：
+通过 API 动态修改（需组织管理员权限）：
 
 ```bash
 curl -X PUT http://localhost:8001/api/skills/{name} \
@@ -91,30 +93,35 @@ curl -X PUT http://localhost:8001/api/skills/{name} \
 
 ## 技能安装
 
-`.skill` 压缩包可以通过 API 安装：
+技能压缩包可以通过 API 安装（上传到会话文件区后按路径安装；也支持本地路径安装与从技能市场一键安装）：
 
 ```bash
 curl -X POST http://localhost:8001/api/skills/install \
-  -F "file=@my-skill.skill"
+  -H "Content-Type: application/json" \
+  -d '{"thread_id": "...", "path": "my-skill.zip"}'
 ```
 
 安装后解压到 `skills/custom/` 目录并自动注册。
 
-## 技能在系统提示中的注入
+## 技能的注入方式
 
-启用技能的 `SKILL.md` 内容会被注入到系统提示中：
+启用的技能由技能注入中间件（`SkillsInjectionMiddleware`）以独立消息块（`evf_skill_injection`）注入对话：
 
+```xml
+<skill_injection>
+<skill>
+<name>data-analysis</name>
+<location>skill:data-analysis</location>
+（SKILL.md 的内容...）
+</skill>
+...
+</skill_injection>
 ```
-## 可用技能
 
-以下是你可以使用的技能：
-
-### data-analysis
-（SKILL.md 的完整内容...）
-
-### pdfkit-py
-（SKILL.md 的完整内容...）
-```
+要点：
+- 每个技能块带 `<location>skill:<名称></location>`，Agent 通过 `skill:` URI 读写技能目录里的文件、执行 `scripts/` 下的脚本（宿主自动改写路径），不必在工作区里搜索技能文件
+- 单技能注入有字符上限（默认约 48,000 字符），超出会截断提示按需读取
+- Agent 被提示：若 `<skill_injection>` 已注入或 `<available_skills>` 描述已足够，无需重复读取 SKILL.md
 
 这使得 Agent 了解每个技能的能力和使用方法，在适当的场景下自主选择。
 

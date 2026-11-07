@@ -18,7 +18,7 @@
 
 ## 调度器工作原理
 
-Gateway 内置的 `AutomationScheduler` 运行在 asyncio 事件循环中，按 tick 间隔扫描所有 `.toml` 任务文件，匹配到触发时间后自动执行。
+Gateway 内置的 `AutomationScheduler` 运行在 asyncio 事件循环中，按 tick 间隔扫描所有自动化任务（主存储为 Gateway 库表，TOML 目录为遗留/导入路径），匹配到触发时间后自动执行。
 
 ## TOML 任务格式
 
@@ -64,8 +64,8 @@ langgraph_thread_mode = "fresh"
 |------|--------|------|
 | `EVOFLOW_AUTOMATION_SCHEDULER` | `1` | 设为 `0` 禁用调度器 |
 | `EVOFLOW_AUTOMATIONS_DIR` | `~/.evoflow/tasks/automations` | 任务目录 |
-| `EVOFLOW_AUTOMATION_TICK_SECONDS` | `30` | 扫描间隔 |
-| `EVOFLOW_AUTOMATION_LANGGRAPH_TIMEOUT` | `600` | LangGraph 超时秒数 |
+| `EVOFLOW_AUTOMATION_TICK_SECONDS` | `60` | 扫描间隔（最小 5 秒） |
+| `EVOFLOW_AUTOMATION_LANGGRAPH_TIMEOUT` | `14400`（4h 墙钟） | LangGraph 超时秒数（默认随 `EVOFLOW_LONG_RUN_WALL_SECONDS`） |
 | `EVOFLOW_AUTOMATION_LANGGRAPH_MAX_CONCURRENT` | `2` | 最大并发执行数 |
 | `EVOFLOW_AUTOMATION_LANGGRAPH_RECURSION_LIMIT` | `800` | LangGraph 递归限制 |
 | `EVOFLOW_AUTOMATION_PLAN_MODE` | `0` | 自动化是否启用 plan 模式 |
@@ -112,7 +112,7 @@ curl -X POST http://localhost:8001/api/automation/{id}/run
 
 ## 执行历史
 
-每次执行记录写入 `~/.evoflow/tasks/automations/{task_id}_history.jsonl`：
+执行历史主路径是 Gateway 数据库（SQLite）中的 runs 表（面板「历史」读取的就是它）；旧版 `~/.evoflow/tasks/automations/{task_id}_history.jsonl` 为遗留路径，形如：
 
 ```json
 {"run_id": "task_id_ab", "started_at": "2025-01-15T09:30:00", "trigger_type": "schedule", "status": "success", "output": "langgraph: ok thread=xxx", "error": "", "duration_seconds": 0, "langgraph_thread_id": "xxx", "langgraph_run": true}

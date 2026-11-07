@@ -707,14 +707,45 @@ def _is_xiaomi_lead_run(agent_name: str | None) -> bool:
         return str(agent_name or "").strip().lower() in {"xiaomi", "小v", "小蜜", "xiaov"}
 
 
-def _strip_outer_identity_xml(text: str) -> str:
-    """Strip a single outer ``<soul>`` / ``<agent_system_prompt>`` wrapper if present."""
+_RE_IDENTITY_BLOCK = re.compile(
+    r"<identity\b[^>]*>.*?</identity>", re.DOTALL | re.IGNORECASE
+)
+_RE_SOUL_INNER = re.compile(
+    r"<soul\b[^>]*>(.*?)</soul>", re.DOTALL | re.IGNORECASE
+)
+
+
+def _peel_identity_blocks(text: str) -> tuple[list[str], str]:
+    """Split leading/embedded ``<identity>`` blocks from the rest (keep tags intact)."""
+    t = str(text or "")
+    blocks = [m.group(0).strip() for m in _RE_IDENTITY_BLOCK.finditer(t) if m.group(0).strip()]
+    rest = _RE_IDENTITY_BLOCK.sub("", t).strip()
+    return blocks, rest
+
+
+def _bare_soul_body(text: str) -> str:
+    """Unwrap any ``<soul>`` / ``<agent_system_prompt>`` shells to bare body text.
+
+    ``get_agent_soul`` already returns ``<soul>…</soul>`` (often after ``<identity>``).
+    Inject re-wraps once; without peeling we stack tags and the prompt ends with
+    ``</soul></soul>``.
+    """
     t = str(text or "").strip()
+    inners = _RE_SOUL_INNER.findall(t)
+    if inners:
+        t = "\n\n".join(s.strip() for s in inners if str(s).strip())
     for tag in ("soul", "agent_system_prompt"):
         open_t, close_t = f"<{tag}>", f"</{tag}>"
-        if t.startswith(open_t) and t.endswith(close_t):
-            return t[len(open_t) : -len(close_t)].strip()
-    return t
+        while t.startswith(open_t) and t.endswith(close_t):
+            t = t[len(open_t) : -len(close_t)].strip()
+    t = re.sub(r"</?soul\b[^>]*>", "", t, flags=re.IGNORECASE)
+    t = re.sub(r"</?agent_system_prompt\b[^>]*>", "", t, flags=re.IGNORECASE)
+    return t.strip()
+
+
+def _strip_outer_identity_xml(text: str) -> str:
+    """Strip outer ``<soul>`` / ``<agent_system_prompt>`` wrappers (possibly nested)."""
+    return _bare_soul_body(text)
 
 
 def _normalize_prompt_body_for_dedupe(text: str) -> str:
@@ -761,15 +792,19 @@ def _inject_identity_layers(
     _ = dyn
 
     def _append_soul() -> None:
-        if soul.strip():
-            safe_soul = scan_content(soul.strip(), source="soul")
-            # Defensive: callers may pass already-wrapped `<soul>...</soul>` text
-            # (e.g. via `get_agent_soul()` which XML-wraps for the employee chat path).
-            # We re-wrap here ourselves, so strip any outer tag first to avoid stacking
-            # two `<soul>` / `<agent_system_prompt>` blocks for the same content.
-            safe_soul = _strip_outer_identity_xml(safe_soul)
-            if safe_soul.strip():
-                blocks.append(f"<soul>\n{safe_soul}\n</soul>")
+        if not soul.strip():
+            return
+        # ``get_agent_soul()`` returns ``<identity>…</identity><soul>…</soul>``.
+        # Peel identity out (keep as its own block); unwrap soul before re-wrapping once.
+        id_blocks, rest = _peel_identity_blocks(soul.strip())
+        for ib in id_blocks:
+            blocks.append(ib)
+        bare = _bare_soul_body(rest)
+        if not bare:
+            return
+        safe_soul = _bare_soul_body(scan_content(bare, source="soul"))
+        if safe_soul.strip():
+            blocks.append(f"<soul>\n{safe_soul}\n</soul>")
 
     def _append_override() -> None:
         extra = (custom_system_prompt or "").strip()
@@ -778,8 +813,8 @@ def _inject_identity_layers(
         # ``save_agent_config`` 把 soul 复制到 ``system_prompt`` 字段(调度器只看 system_prompt)。
         # 这里不要把同一份 SOUL 文本在 ``<soul>`` 和 ``<agent_system_prompt>`` 两个标签里重复显示——
         # 已是 soul 内容的 custom_system_prompt 由 ``<soul>`` 段承载,这里跳过注入。
-        bare_soul = _strip_outer_identity_xml(soul)
-        bare_extra = _strip_outer_identity_xml(extra)
+        bare_soul = _bare_soul_body(_peel_identity_blocks(soul)[1])
+        bare_extra = _bare_soul_body(extra)
         if bare_extra == bare_soul or (
             bare_soul
             and _normalize_prompt_body_for_dedupe(bare_extra)
@@ -860,6 +895,8 @@ def _assemble_system_prompt(
     xiaomi_page_context: dict | None = None,
     im_channel: str = "",
     principal_id: str = "",
+    affect_agent_code: str = "",
+    include_affect: bool = True,
 ) -> str:
     modules = _enabled_modules_for_scenario(scenario)
     pure_chat = _is_pure_chat_modules(modules)
@@ -903,10 +940,14 @@ def _assemble_system_prompt(
             blocks.append(static.VOICE_MODE_BLOCK.strip())
         if is_im and getattr(static, "IM_CHANNEL_REPLY_BLOCK", "").strip():
             blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
-        # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-        affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
-        if affect_block:
-            blocks.append(affect_block.strip())
+        # 易变块靠后：心境放最后（与 memory/assets 同开关）
+        if include_affect:
+            affect_block = get_agent_affect_block(
+                affect_agent_code or agent_name,
+                principal_id=principal_id,
+            )
+            if affect_block:
+                blocks.append(affect_block.strip())
         return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
     # 统一裁决链：静态块（role/communication/entity_assets）是基础，
@@ -1049,10 +1090,14 @@ def _assemble_system_prompt(
         blocks.append(static.IM_CHANNEL_REPLY_BLOCK.strip())
 
     # Final join with blank lines
-    # 易变块靠后：心境放最后（UI context footer 由 middleware 在其后追加）
-    affect_block = get_agent_affect_block(agent_name, principal_id=principal_id)
-    if affect_block:
-        blocks.append(affect_block.strip())
+    # 易变块靠后：心境放最后（与 memory/assets 同开关）
+    if include_affect:
+        affect_block = get_agent_affect_block(
+            affect_agent_code or agent_name,
+            principal_id=principal_id,
+        )
+        if affect_block:
+            blocks.append(affect_block.strip())
     return "\n\n".join([b for b in blocks if b]).strip() + "\n"
 
 
@@ -1753,12 +1798,13 @@ def _build_skills_prompt_section(
     if available_skills is not None and skills:
         skills = [skill for skill in skills if skill.name in available_skills]
 
-    # Tier 0 craft/skills catalog: hard cap item count (entity-asset-hub §8.2)
+    # Tier 0 skills catalog: <=0 means uncapped (same convention as standing/catalog).
     try:
         from evoflow.assets.injection_budget import TIER0_SKILLS_MAX_ITEMS
 
-        if len(skills) > TIER0_SKILLS_MAX_ITEMS:
-            skills = skills[:TIER0_SKILLS_MAX_ITEMS]
+        max_items = int(TIER0_SKILLS_MAX_ITEMS or 0)
+        if max_items > 0 and len(skills) > max_items:
+            skills = skills[:max_items]
     except Exception:
         pass
 
@@ -1974,12 +2020,11 @@ def get_agent_affect_block(agent_name: str | None, *, principal_id: str = "") ->
     易变块靠后，避免打碎厂商前缀缓存。
     """
     try:
-        from evoflow.person_affect import AFFECT_DISCIPLINE_PROMPT
         from evoflow.person_kernel import format_affect_brief
 
         brief = format_affect_brief(agent_name, principal_id=principal_id)
         if brief:
-            return f"\n<affect>\n{brief}\n{AFFECT_DISCIPLINE_PROMPT.strip()}\n</affect>\n"
+            return f"\n<affect>\n{brief}\n</affect>\n"
     except Exception:
         logger.debug("get_agent_affect_block: inject skipped", exc_info=True)
     return ""
@@ -2032,6 +2077,32 @@ def get_loaded_tools_prompt_section(tool_names: list[str] | None) -> str:
     return ""
 
 
+def _build_capability_profile_section(
+    agent_name: str | None,
+    *,
+    loaded_tool_names: list[str] | None = None,
+    prompt_language: str = "zh",
+) -> str:
+    """员工平台能力清单段（``<capability_profile>``）。
+
+    与「提示词不重复列已绑定工具」的既有决策不冲突：platform 的 function schema
+    只有一个，不列范围模型无从知晓边界 —— 这里列的是**能力范围与负向边界**。
+    短路条件（platform 未挂载 / scope 未配置）见
+    ``evoflow.admin.platform_scope_prompt.build_capability_profile_section``。
+    """
+    try:
+        from evoflow.admin.platform_scope_prompt import build_capability_profile_section
+
+        return build_capability_profile_section(
+            agent_name,
+            loaded_tool_names=loaded_tool_names,
+            prompt_language=prompt_language,
+        )
+    except Exception:
+        logger.debug("capability profile section skipped agent=%s", agent_name, exc_info=True)
+        return ""
+
+
 def get_available_subagents_prompt_section(subagent_names: list[str] | None) -> str:
     """(Deprecated) Kept for backward-compatibility; not used in current template."""
     return ""
@@ -2053,14 +2124,14 @@ def _build_acp_section(*, use_virtual_paths: bool = False) -> str:
             "\n**ACP Agent Tasks (invoke_acp_agent):**\n"
             "- ACP agents run in their own independent workspace (与当前工作空间隔离)\n"
             "- When writing prompts for ACP agents, describe the task only — do NOT reference current workspace paths\n"
-            "- ACP agent results are accessible in ACP workspace (read-only) — use `ls`, `read_file`, or `bash cp` to retrieve output files\n"
+            "- ACP agent results are accessible in ACP workspace (read-only) — list the directory with `bash`, then open files with `read`\n"
             "- To deliver ACP output to the user: copy into current workspace, then surface it to the right-side artifacts panel"
         )
     return (
         "\n**ACP Agent Tasks (invoke_acp_agent):**\n"
         "- ACP agents run in their own independent local workspace (not the user's upload/work directory).\n"
         "- When writing prompts for ACP agents, describe the task only — do NOT reference sandbox virtual paths.\n"
-            "- ACP agent results are accessible in the local ACP workspace (read-only) — use `ls` / `read_file` to retrieve output files.\n"
+            "- ACP agent results are accessible in the local ACP workspace (read-only) — list the directory with `bash`, then open files with `read`.\n"
             "- To deliver ACP output to the user: copy into the local workspace, then surface it to the right-side artifacts panel."
     )
 
@@ -2170,8 +2241,10 @@ def apply_prompt_template(
     # Lead/main interactive sessions use compact user memory so Work/role narratives
     # (e.g.「验证岗」) don't outweigh the latest user ask. Specialized agents keep full.
     mem_profile = "chat_compact" if (pure_chat or _is_lead_agent_code(agent_name)) else "full"
+    # Memory / assets master switch — same gate for standing/catalog AND <affect>.
+    mem_on = include_memory is not False and inject_memory is not False
     # inject_memory: None=注入, False=禁用
-    if include_memory is False or inject_memory is False:
+    if not mem_on:
         memory_context = ""
         workspace_memory_context = ""
         person_memory_context = ""
@@ -2248,7 +2321,7 @@ def apply_prompt_template(
         # 不传会读到共享 user 桶（多用户部署下是别人的画像）。
         # Memory off / inject_user_profile=false → no profile (matches MemoryLiveFooter).
         emp_user_profile = ""
-        _emp_profile_on = include_memory is not False and inject_user_profile is not False
+        _emp_profile_on = mem_on and inject_user_profile is not False
         if _emp_profile_on:
             try:
                 from evoflow.assets.paths import EntityRef, sanitize_user_asset_id
@@ -2268,9 +2341,8 @@ def apply_prompt_template(
             except Exception:
                 emp_user_profile = ""
         emp_person_memory = person_memory_context
-        if include_memory is not False and not str(emp_person_memory or "").strip():
+        if mem_on and not str(emp_person_memory or "").strip():
             try:
-                from evoflow.assets.injection_budget import TIER1_PERSON_MEMORY_CHARS
                 from evoflow.person_kernel import format_person_memory_context
 
                 emp_person_memory = format_person_memory_context(
@@ -2293,14 +2365,15 @@ def apply_prompt_template(
             runtime_shell=runtime_shell,
             runtime_host_hint=runtime_host_hint,
             runtime_now=runtime_now,
-            memory_context=memory_context if include_memory is not False else "",
-            person_memory_context=emp_person_memory if include_memory is not False else "",
+            memory_context=memory_context if mem_on else "",
+            person_memory_context=emp_person_memory if mem_on else "",
             user_profile_block=emp_user_profile,
             custom_system_prompt=(custom_system_prompt or "").strip(),
             prompt_language=lang,
             # Pass through runtime-resolved gate (session override → role default).
             # Do not remap True→None or session「开」会被岗位默认盖掉。
-            include_memory=include_memory,
+            # Affect rides the same gate inside assemble (memory/assets switch).
+            include_memory=include_memory if include_memory is not None else mem_on,
             loaded_tool_names=loaded_tool_names,
         )
         # 部门群聊：系统提示强制「正文 @ 才叫醒」——与前端群编排对齐
@@ -2369,7 +2442,20 @@ def apply_prompt_template(
             # Page UI → ephemeral HumanMessage (XiaomiUiContextLiveFooterMiddleware), not system.
             xiaomi_page_context=None,
             im_channel=im_ch,
+            principal_id=str(principal_id or "").strip(),
+            affect_agent_code=str(agent_name or "").strip() or "main",
+            include_affect=mem_on,
         )
+
+    # 平台能力清单（<capability_profile>）：员工 scope 变更经动态提示词指纹重渲染；
+    # main / 未配置 scope 时为空串（存量行为零变化）。
+    capability_section = _build_capability_profile_section(
+        agent_name=agent_name,
+        loaded_tool_names=loaded_tool_names,
+        prompt_language=lang,
+    )
+    if capability_section:
+        prompt = f"{prompt.rstrip()}\n\n{capability_section}\n"
 
     if not use_virtual_paths:
         lw = (local_workspace_root or "").strip()

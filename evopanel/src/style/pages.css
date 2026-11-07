@@ -3494,6 +3494,47 @@ html.dark .config-section-title {
   --td-mode-soft: color-mix(in srgb, #2563eb 10%, transparent);
 }
 
+/* 工作流模式：关注节点执行信息 */
+.task-detail-page.td-mode--workflow .task-decision-panel {
+  display: none !important;
+}
+
+.task-detail-page.td-mode--workflow .td-result {
+  order: -1;
+}
+
+/* 员工模式：关注审核决策 */
+.task-detail-page.td-mode--employee .task-obs-panel {
+  order: 1;
+}
+
+.task-detail-page.td-mode--employee .td-result {
+  order: 2;
+}
+
+.task-detail-page.td-mode--employee .task-decision-panel {
+  order: 0;
+}
+
+/* 侧栏模式差异 */
+.task-detail-page.td-mode--workflow .td-aside-card:first-of-type .td-aside-k {
+  color: var(--td-mode-accent, #2563eb);
+}
+
+.task-detail-page.td-mode--employee .td-aside-card:first-of-type .td-aside-k {
+  color: var(--td-mode-accent, #0d9488);
+}
+
+/* 工作流模式：隐藏员工特定字段（风险、动作等） */
+.task-detail-page.td-mode--workflow .td-aside-more,
+.task-detail-page.td-mode--workflow .td-aside-fold {
+  display: none !important;
+}
+
+/* 员工模式：保持所有信息展示 */
+
+
+
 .task-detail-page .td-title-row {
   display: flex;
   align-items: center;
@@ -3515,6 +3556,61 @@ html.dark .config-section-title {
   color: var(--td-mode-accent, #2563eb);
   background: var(--td-mode-soft, color-mix(in srgb, #2563eb 10%, transparent));
   border: 1px solid color-mix(in srgb, var(--td-mode-accent, #2563eb) 28%, transparent);
+}
+
+/* Hero 区 inline badges（替代 meta-line / status-line） */
+.task-detail-page .td-hero-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  min-width: 0;
+}
+
+.task-detail-page .td-hero-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border: 1px solid;
+}
+
+.task-detail-page .td-hero-badge--transfer {
+  background: #fef3c7;
+  color: #92400e;
+  border-color: #fcd34d;
+}
+
+.task-detail-page .td-hero-badge--handler {
+  background: #e0e7ff;
+  color: #3730a3;
+  border-color: #c7d2fe;
+}
+
+.task-detail-page .td-hero-badge--progress {
+  background: #d1fae5;
+  color: #065f46;
+  border-color: #a7f3d0;
+}
+
+.task-detail-page .td-hero-badge--app {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-color: #e9d5ff;
+}
+
+.task-detail-page .td-hero-badge--risk {
+  background: #fee2e2;
+  color: #7f1d1d;
+  border-color: #fca5a5;
 }
 
 /* ???????????????????????????????????????? */
@@ -4335,6 +4431,54 @@ html.dark .config-section-title {
   border-color: color-mix(in srgb, #22c55e 28%, #e5e7eb);
 }
 
+/* 工作流「运行结果」紧凑卡：标题+结论同行，统计一行小标签，减少纵向占位 */
+.task-detail-page .td-card--result-compact {
+  padding: 12px 16px;
+}
+
+.task-detail-page .td-result-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+
+.task-detail-page .td-result-head .td-card-title {
+  margin: 0;
+  flex: none;
+}
+
+.task-detail-page .td-result-headline {
+  font-size: var(--ef-text-sm);
+  color: color-mix(in srgb, var(--td-ink) 82%, #6b7280);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.task-detail-page .td-result-bits {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.task-detail-page .td-result-bits li {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--td-muted);
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--td-bg);
+  border: 1px solid var(--td-border);
+  white-space: nowrap;
+}
+
+.task-detail-page .td-card--result-compact .td-card-actions {
+  margin-top: 10px;
+}
+
 .task-detail-page .td-findings,
 .task-detail-page .td-next-steps {
   margin: 0;
@@ -4677,7 +4821,74 @@ html.dark .config-section-title {
 .task-detail-page .td-aside {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+}
+
+/* 侧栏卡片：关键信息紧凑化 */
+.task-detail-page .td-aside-card {
+  display: flex;
+  flex-direction: column;
+}
+
+/* 第一个卡片（关键信息）固定展开，视觉优先 */
+.task-detail-page .td-aside-card:first-of-type {
+  background: var(--td-card);
+  border: 1px solid var(--td-border);
+  border-radius: 12px;
+  padding: 14px 16px;
+}
+
+/* 次要信息卡（meta）改为 details 折叠 */
+.task-detail-page .td-aside-card--meta {
+  border: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+
+.task-detail-page .td-aside-card--meta details {
+  margin-top: 8px;
+  padding: 12px 14px;
+  border: 1px solid var(--td-border);
+  border-radius: 8px;
+  background: var(--td-bg);
+  font-size: 12px;
+}
+
+.task-detail-page .td-aside-card--meta summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--td-muted);
+  user-select: none;
+  padding: 0;
+  margin-bottom: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-detail-page .td-aside-card--meta summary::-webkit-details-marker {
+  display: none;
+}
+
+.task-detail-page .td-aside-card--meta summary::before {
+  content: '▶';
+  display: inline-block;
+  transition: transform 120ms;
+  font-size: 10px;
+}
+
+.task-detail-page .td-aside-card--meta[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.task-detail-page .td-aside-card--meta .td-aside-dl {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--td-border);
 }
 
 .task-detail-page .td-aside-dl {
@@ -4686,11 +4897,12 @@ html.dark .config-section-title {
 
 .task-detail-page .td-aside-row {
   display: grid;
-  grid-template-columns: 76px minmax(0, 1fr);
-  gap: 8px;
-  padding: 6px 0;
-  border-bottom: 1px solid #f1f5f9;
-  font-size: 13px;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .task-detail-page .td-aside-row:last-child {
@@ -4700,13 +4912,18 @@ html.dark .config-section-title {
 .task-detail-page .td-aside-row dt {
   margin: 0;
   color: var(--td-muted);
+  font-weight: 500;
+  font-size: 12px;
+  word-break: keep-all;
 }
 
 .task-detail-page .td-aside-row dd {
   margin: 0;
   color: #334155;
   word-break: break-word;
+  min-width: 0;
 }
+
 
 .task-detail-page .td-aside-block {
   margin-top: 12px;
@@ -4732,9 +4949,10 @@ html.dark .config-section-title {
 .task-detail-page .td-aside-links,
 .task-detail-page .td-aside-chips {
   display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 12px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
 }
 
 .task-detail-page .td-aside-link {
@@ -6194,12 +6412,16 @@ html.dark .config-section-title {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
-  border-radius: 8px;
+  padding: 2px 10px;
+  border-radius: 6px;
   background: var(--bg-card);
   color: var(--text-secondary);
   border: 1px solid var(--border-primary);
   font-weight: 500;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .task-meta-chip code {

@@ -1,5 +1,10 @@
 /**
- * Task Center：业务 lifecycle（执行中）vs 运行时存活（在跑 / 已中断）。
+ * Task Center：业务 lifecycle（账本 status）vs 运行时存活（在跑 / 进程失联）。
+ *
+ * 展示原则（2026-11）：
+ * - **主状态永远跟数据库 lifecycle**（执行中 / 已完成 / 失败…）
+ * - ``runtime_health=interrupted`` 只做附注「进程失联」，不把主文案改成「已中断」
+ *   （否则 78% 执行中会被盖成莫名其妙的「已中断」，且说不清何时/为何）
  *
  * Prefer server field ``task.runtime_health`` (joined from ``evoflow_chat_sessions``
  * on list/detail). Client ``active-sessions`` index is only a fallback when the
@@ -127,7 +132,7 @@ export function resolveTaskRuntimeHealth(task, index, opts = {}) {
   if (task.run_alive === true || task.runAlive === true) return 'live'
   if (task.run_alive === false || task.runAlive === false) return 'interrupted'
 
-  // No probe yet — don't guess (avoids flashing「已中断」on first paint)
+  // No probe yet — don't guess (avoids flashing「进程失联」on first paint)
   if (!index) return 'n/a'
 
   const threadId = String(
@@ -157,45 +162,77 @@ export function resolveTaskRuntimeHealth(task, index, opts = {}) {
 }
 
 /**
- * Primary status label for Task Center when runtime is interrupted.
- * Prefer this over raw「执行中」so zombies are not mistaken for live work.
+ * Format last ledger activity for tooltips / detail trail.
+ * @param {any} task
+ */
+export function formatTaskLedgerActivityZh(task) {
+  const ms = taskActivityMs(task)
+  if (!ms) return ''
+  const d = new Date(ms)
+  if (Number.isNaN(d.getTime())) return ''
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}/${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+/**
+ * Explain runtime disconnect for title / detail (DB time + meaning).
+ * @param {any} task
+ * @param {TaskRuntimeHealth} [health]
+ */
+export function runtimeHealthExplainZh(task, health) {
+  const h = health || resolveTaskRuntimeHealth(task, null)
+  if (h === 'live') return '执行进程仍在运行（会话/租约存活）'
+  if (h !== 'interrupted') return ''
+  const when = formatTaskLedgerActivityZh(task)
+  const base =
+    '账本仍为进行中，但未检测到活跃会话或租约（进程可能已退出、崩溃或被停止）'
+  return when ? `${base}。账本最近更新：${when}` : base
+}
+
+/**
+ * Primary status label：永远以账本 lifecycle 为准；运行时只做后缀。
  * @param {any} task
  * @param {{ byThread: Map<string, any>, byTaskId: Map<string, any> } | null | undefined} index
  * @param {(status: unknown) => string} formatLifecycleZh
  */
 export function formatTaskStatusWithRuntime(task, index, formatLifecycleZh) {
+  const base = formatLifecycleZh(task?.status)
   const health = resolveTaskRuntimeHealth(task, index)
-  if (health === 'interrupted') return '已中断'
   if (health === 'live') {
-    const base = formatLifecycleZh(task?.status)
     return base === '执行中' ? '执行中·在跑' : `${base}·在跑`
   }
-  return formatLifecycleZh(task?.status)
+  if (health === 'interrupted') {
+    // 不盖成「已中断」——那是探测态，不是库里的终态
+    return `${base}·进程失联`
+  }
+  return base
 }
 
 /** @type {Record<TaskRuntimeHealth, { label: string, tone: string }>} */
 export const RUNTIME_HEALTH_UI = {
   live: { label: '在跑', tone: 'live' },
-  interrupted: { label: '已中断', tone: 'interrupted' },
+  interrupted: { label: '进程失联', tone: 'interrupted' },
   idle: { label: '', tone: 'idle' },
   'n/a': { label: '', tone: 'na' },
 }
 
 /**
- * Compact chip: only「在跑」.「已中断」is the primary status label (not a chip).
+ * Compact chip for runtime: 在跑 / 进程失联（附注，不替代账本状态）。
  * @param {TaskRuntimeHealth} health
  * @param {(s: string) => string} escapeHtml
+ * @param {{ title?: string }} [opts]
  */
-export function renderRuntimeHealthChip(health, escapeHtml) {
-  if (health !== 'live') return ''
+export function renderRuntimeHealthChip(health, escapeHtml, opts = {}) {
+  if (health !== 'live' && health !== 'interrupted') return ''
   const esc = typeof escapeHtml === 'function' ? escapeHtml : (s) => String(s)
-  return `<span class="tl-runtime tl-runtime--live" title="${esc('执行进程仍在运行')}">${esc('在跑')}</span>`
+  const meta = RUNTIME_HEALTH_UI[health]
+  const title = esc(opts.title || (health === 'live' ? '执行进程仍在运行' : '账本仍进行中，但进程已失联'))
+  return `<span class="tl-runtime tl-runtime--${meta.tone}" title="${title}">${esc(meta.label)}</span>`
 }
 
 /** @deprecated use formatTaskStatusWithRuntime */
 export function displayTaskStatusZh(task, index, lifecycleZh) {
-  if (resolveTaskRuntimeHealth(task, index) === 'interrupted') return '已中断'
-  return String(lifecycleZh || '')
+  return formatTaskStatusWithRuntime(task, index, () => String(lifecycleZh || ''))
 }
 
 /**
@@ -204,6 +241,6 @@ export function displayTaskStatusZh(task, index, lifecycleZh) {
  */
 export function runtimeHealthStatusSuffix(health) {
   if (health === 'live') return '进程在跑'
-  if (health === 'interrupted') return '进程已停'
+  if (health === 'interrupted') return '进程失联'
   return ''
 }

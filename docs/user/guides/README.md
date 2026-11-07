@@ -18,7 +18,7 @@
 | 项目级 Plan 流程（project-* 团队） | [project-team-plan-workflow.md](chat/project-team-plan-workflow.md) [[guides/chat/project-team-plan-workflow|项目级 Plan 流程]] |
 | 目标 Agent | [goal-agent.md](chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
 | 工作空间（workspace 场景） | [workspace.md](chat/workspace.md) [[guides/chat/workspace|工作空间]] |
-| Claude Code 编码助手 | ~~[claude-code.md](chat/claude-code.md)~~ 已移除 |
+| Claude Code 编码助手 | ~~chat/claude-code.md~~ 已移除（Claude Code 模式用 `/claude` 指令，见 [快捷指令](chat/shortcut-commands.md)） |
 | 快捷指令 / 斜杠命令 | [shortcut-commands.md](chat/shortcut-commands.md) [[guides/chat/shortcut-commands|快捷指令]] |
 | 文件上传与解析 | [file-upload.md](chat/file-upload.md) [[guides/chat/file-upload|文件上传]] |
 
@@ -55,6 +55,7 @@
 |------|------|
 | 飞书集成 | [feishu-integration.md](integration/feishu-integration.md) [[guides/integration/feishu-integration|飞书集成]] |
 | IM 渠道总览 | [im-channels.md](integration/im-channels.md) [[guides/integration/im-channels|IM 渠道]] |
+| **员工 / 知识库 / 工作流 / 任务中心 · 接口与 CLI** | [api-cli-employees-knowledge-workflow-tasks.md](integration/api-cli-employees-knowledge-workflow-tasks.md) [[guides/integration/api-cli-employees-knowledge-workflow-tasks|接口与 CLI]] |
 
 ## 安全（security/）
 

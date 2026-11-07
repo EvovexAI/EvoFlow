@@ -187,7 +187,9 @@ if (Test-Path -LiteralPath '$frontendDist') {
   Remove-Item -LiteralPath '$frontendDist' -Recurse -Force
   Write-Host '[frontend] cleaned stale dist/'
 }
-npm run build
+`$ErrorActionPreference = 'Continue'
+npm run build 2>&1
+exit `$LASTEXITCODE
 "@
   $frontendProc = Start-Process -FilePath "powershell.exe" -PassThru -NoNewWindow -Wait:$false `
     -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", $frontendCmd) `

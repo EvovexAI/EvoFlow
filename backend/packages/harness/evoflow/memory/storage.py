@@ -55,12 +55,8 @@ class OwnedMemoryStorage(MemoryStorage):
         self._migrate_once()
 
     def _migrate_once(self) -> None:
-        try:
-            from evoflow.memory.migrate_legacy import ensure_legacy_migrated
-
-            ensure_legacy_migrated()
-        except Exception:
-            logger.debug("memory migrate on init skipped", exc_info=True)
+        # Legacy migration is no longer needed; all data is now in asset center
+        pass
 
     def _validate_agent_name(self, agent_name: str) -> None:
         if not agent_name:

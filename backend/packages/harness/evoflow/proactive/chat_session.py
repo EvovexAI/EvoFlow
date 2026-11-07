@@ -353,13 +353,96 @@ def resolve_transcript_round_id(session_key: str, round_id: str | None) -> str |
 
 
 _BOARD_TASK_LINE = re.compile(r"^-\s+`[^`]+`\s+\[(?P<status>[^\]]+)\]\s+\d+%\s+·\s+(?P<title>.+?)(?:\s+·\s+.+)?\s*$")
+# Runner writes ``**目标：** x`` / ``**来源：** x`` (colon inside the bold markers).
+_GOAL_LINE_RE = re.compile(r"^\*{0,2}目标\*{0,2}[：:]\*{0,2}\s*(.+)$")
+_SOURCE_LINE_RE = re.compile(r"^\*{0,2}来源\*{0,2}[：:]\*{0,2}\s*(.+)$")
 
 
-def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") -> str:
+def _local_user_display_name() -> str:
+    """Operator-facing name for human dispatches (not bare「用户」)."""
+    try:
+        from evoflow.authz.principals import get_or_create_local_admin, username_for
+
+        p = get_or_create_local_admin()
+        name = str(p.get("display_name") or "").strip()
+        if name:
+            return name
+        uname = username_for(p)
+        if uname:
+            return str(uname).strip()
+    except Exception:
+        pass
+    return "用户"
+
+
+def _dispatcher_label_from_prompt(body: str, *, from_agent: str = "") -> str:
+    """Who woke/dispatched this turn: user display name, role name, or 小V."""
+    who = ""
+    for raw in str(body or "").splitlines():
+        m = _SOURCE_LINE_RE.match(raw.strip())
+        if not m:
+            # 「**优先级：** high · **来源：** …」on one line
+            if "**来源：**" in raw or "来源：" in raw:
+                tail = raw.split("**来源：**", 1)[-1] if "**来源：**" in raw else raw.split("来源：", 1)[-1]
+                src = tail.strip()
+            else:
+                continue
+        else:
+            src = str(m.group(1) or "").strip()
+        if " · " in src:
+            who = src.rsplit(" · ", 1)[-1].strip()
+        elif src.startswith("小V") or "小V催办" in src:
+            who = "小V"
+        break
+
+    code = str(from_agent or "").strip()
+    if not who and code:
+        try:
+            from evoflow.proactive.work_items import format_raised_by_label
+
+            who = format_raised_by_label(code)
+        except Exception:
+            who = code
+
+    if not who or who in {"用户", "user", "human", "manual", "me", "owner", "operator"}:
+        return _local_user_display_name()
+    return who
+
+
+def _dispatch_goal_from_prompt(body: str) -> str:
+    for raw in str(body or "").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or line.startswith("###"):
+            continue
+        gm = _GOAL_LINE_RE.match(line)
+        if gm:
+            goal = str(gm.group(1) or "").strip()
+            if goal:
+                return goal
+        if line.startswith("-") or line.startswith("`"):
+            continue
+        if line.startswith("**") and "目标" not in line:
+            continue
+        if "派发" in line and len(line) < 12:
+            continue
+        if "来源" in line or "优先级" in line or "补充" in line:
+            continue
+        return line
+    return ""
+
+
+def build_duty_beat_text(
+    *,
+    role_name: str,
+    prompt: str,
+    kind: str = "think",
+    from_agent: str = "",
+) -> str:
     """Short human-facing duty open line for the work-process timeline.
 
-    ``think`` / patrol open with「本轮值班开始」; ``execute`` is the same task's
-    second phase and must not re-announce a new duty shift (same task session).
+    ``think`` / patrol: one line (no「本轮值班开始」prefix). Dispatch names who
+    sent the work (user display name / employee / 小V). ``execute`` keeps
+    「开始执行」— same task's second phase, not a new duty shift.
     """
     name = str(role_name or "").strip() or "智能体员工"
     body = str(prompt or "")
@@ -369,25 +452,14 @@ def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") ->
     if kind_l == "execute":
         return f"开始执行 · {name}\n按已批计划执行并结案。"
 
-    head = f"本轮值班开始 · {name}"
-
     if "### 用户派发任务" in body or "用户派发目标" in body:
-        goal = ""
-        for raw in body.splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#") or line.startswith("###"):
-                continue
-            if line.startswith("-") or line.startswith("`"):
-                continue
-            if "派发" in line and len(line) < 12:
-                continue
-            goal = line
-            break
+        who = _dispatcher_label_from_prompt(body, from_agent=from_agent)
+        goal = _dispatch_goal_from_prompt(body)
         if goal:
             if len(goal) > 72:
                 goal = goal[:71] + "…"
-            return f"{head}\n推进用户派发：{goal}"
-        return f"{head}\n按用户派发目标推进并结案。"
+            return f"推进{who}派发：{goal}"
+        return f"按{who}派发目标推进并结案。"
 
     open_titles: list[str] = []
     for raw in body.splitlines():
@@ -407,12 +479,12 @@ def build_duty_beat_text(*, role_name: str, prompt: str, kind: str = "think") ->
         if len(shown) > 64:
             shown = shown[:63] + "…"
         more = f"（等 {count} 项）" if count > 2 else ""
-        return f"{head}\n看板有 {count} 项未结：{shown}{more}。推进并结案。"
+        return f"看板有 {count} 项未结：{shown}{more}。推进并结案。"
 
     if "本岗看板暂无未结" in body or "暂无未结 Task" in body:
-        return f"{head}\n看板暂无未结，本轮无事可做。"
+        return "看板暂无未结，本轮无事可做。"
 
-    return f"{head}\n对照职责巡检，有待办则推进并结案。"
+    return "对照职责巡检，有待办则推进并结案。"
 
 
 def _session_title(

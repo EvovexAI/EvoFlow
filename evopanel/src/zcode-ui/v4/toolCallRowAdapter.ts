@@ -19,6 +19,8 @@ import { readPlatformToolAction } from "@/ToolCallBlocks/renderers/platform.js";
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
 // pending/in_progress/completed/failed/stopped）。
 // pendingApproval 视为 pending：审批中输入已定，展示为待执行。
+// 注：inputStreaming 本应立即通过 TOOL_CALL_END 转 running，但遗留内容可能直接
+// 跳到 success/error，需要确保此映射完整覆盖。
 const STATUS_MAP: Record<ToolCallRow["status"], string> = {
   inputStreaming: "pending",
   pendingApproval: "pending",

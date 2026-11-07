@@ -525,17 +525,32 @@ async def _finalize_collab_subtask_terminal(
                 )
             # Follow-up already scheduled when done succeeded; do not wait for post-report chat.
             return "completed", f"Task Succeeded (done). Result: {body[:4000]}"
-        if status == "timed_out":
+        if status in {"failed", "timed_out", "cancelled", "blocked"}:
+            # worker 已自报失败：同样要级联阻断下游 + 排波，否则下游 waiting_dispatch 卡死。
+            try:
+                from evoflow.collab.subtask_outcome import cascade_failure_to_dependents
+
+                await cascade_failure_to_dependents(
+                    resolved_collab,
+                    resolved_subtask,
+                    outcome=status,
+                    summary=body or err,
+                    error=err or None,
+                )
+            except Exception:
+                logger.exception("cascade (reported failure) failed main=%s sub=%s", resolved_collab, resolved_subtask)
+            _schedule_collab_followup_wave(runtime, resolved_collab)
+            if status == "timed_out":
+                if writer:
+                    writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err or body}))
+                return "timed_out", f"Task timed out. {err or body}"
+            if status == "cancelled":
+                if writer:
+                    writer(ws({"type": "task_cancelled", "task_id": stream_task_id, "error": err or body}))
+                return "cancelled", f"Task cancelled. {err or body}"
             if writer:
-                writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err or body}))
-            return "timed_out", f"Task timed out. {err or body}"
-        if status == "cancelled":
-            if writer:
-                writer(ws({"type": "task_cancelled", "task_id": stream_task_id, "error": err or body}))
-            return "cancelled", f"Task cancelled. {err or body}"
-        if writer:
-            writer(ws({"type": "task_failed", "task_id": stream_task_id, "error": err or body}))
-        return "failed", f"Task failed. {err or body}"
+                writer(ws({"type": "task_failed", "task_id": stream_task_id, "error": err or body}))
+            return "failed", f"Task failed. {err or body}"
 
     ex = str(executor_outcome or "").strip().lower()
     draft = str(result.result or "").strip()
@@ -576,27 +591,37 @@ async def _finalize_collab_subtask_terminal(
             _schedule_collab_followup_wave(runtime, resolved_collab)
             return "completed", f"Task Succeeded (auto). Result: {summary[:4000]}"
 
+        # Executor already said ``completed``, so the work is done. Treat a
+        # missing ``done`` as a *reporting* miss, not a failure: killing a
+        # finished step here marked it ``failed`` ~50s after dispatch, the
+        # watchdog then requeued it, and the whole wave re-ran for nothing
+        # (task 2611061932_f598: step 4 failed at 19:34:54 with no error text,
+        # re-dispatched at 19:34:55, completed again at 19:35:05).
+        fallback_summary = draft or body or "子智能体回合结束（未调用 done，已按执行器结论记为完成）"
         await apply_subtask_system_outcome(
             main_task_id=resolved_collab,
             subtask_id=resolved_subtask,
-            outcome="failed",
-            summary=draft or "子智能体回合结束",
-            error="未调用 done；模型返回结束不能视为子任务完成。",
+            outcome="completed",
+            summary=fallback_summary[:8000],
         )
         if writer:
             writer(
                 ws(
                     {
-                        "type": "task_failed",
+                        "type": "task_completed",
                         "task_id": stream_task_id,
                         "collab_subtask_id": resolved_subtask,
-                        "error": "未调用 done",
+                        "result": fallback_summary[:12000],
+                        "note": "completed_without_done",
                     }
                 )
             )
+        # Same follow-up scheduling as the auto path: the step is complete, so
+        # dependents must be released (missing this stranded the rest of the DAG).
+        _schedule_collab_followup_wave(runtime, resolved_collab)
         return (
-            "failed",
-            "Task failed. Subagent finished its turn without calling done. You must call done(outcome=completed|failed, summary=...) before ending.",
+            "completed",
+            f"Task Succeeded (executor=completed, done not called). Result: {fallback_summary[:4000]}",
         )
 
     sys_outcome = ex if ex in {"failed", "timed_out", "cancelled", "blocked"} else "failed"
@@ -614,6 +639,21 @@ async def _finalize_collab_subtask_terminal(
         summary=draft or err or fallback_summary,
         error=err or None,
     )
+    # 失败/超时/取消必须传播：级联阻断（传递）下游 + 排下一波，否则下游永久
+    # waiting_dispatch、run 卡 executing（workflow-audit R6）。
+    try:
+        from evoflow.collab.subtask_outcome import cascade_failure_to_dependents
+
+        await cascade_failure_to_dependents(
+            resolved_collab,
+            resolved_subtask,
+            outcome=sys_outcome,
+            summary=draft or err or fallback_summary,
+            error=err or None,
+        )
+    except Exception:
+        logger.exception("cascade failure to dependents failed main=%s sub=%s", resolved_collab, resolved_subtask)
+    _schedule_collab_followup_wave(runtime, resolved_collab)
     if sys_outcome == "timed_out":
         if writer:
             writer(ws({"type": "task_timed_out", "task_id": stream_task_id, "error": err}))
@@ -1006,10 +1046,13 @@ async def task_tool(
     if effective_subagent_type == "bash" and not is_host_bash_allowed():
         return f"Error: {LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE}"
 
-    # Extract parent context from runtime
+    # Extract parent context from runtime.
+    # Keep ``parent_model`` from resolve_session_model_name_from_runtime above —
+    # resetting it to None forced get_available_tools onto a separate LRU key
+    # that often lacked MCP tools even after gateway warmup (workflow workers
+    # then remounted 0 mcp__* from an empty catalog).
     sandbox_state = None
     thread_data = None
-    parent_model = None
     trace_id = None
     project_workspace_path = None
     parent_local_workspace_root: str | None = None
@@ -1055,9 +1098,27 @@ async def task_tool(
         session_tool_context_from_runtime,
     )
     from evoflow.tools import get_available_tools
+    from evoflow.tools.tools import merge_cached_mcp_tools_into_catalog
+
+    # Worker isolated loop 上 catalog 可能因 MCP 缓存冷而拿不到 mcp__*：在本 loop
+    # 上等待初始化完成（pool marshal 工具跨 loop 安全）。失败只留痕不阻断。
+    try:
+        from evoflow.mcp.cache import ensure_mcp_tools_ready, mcp_unavailable_reason
+
+        mcp_ready = await ensure_mcp_tools_ready()
+        if not mcp_ready:
+            logger.warning(
+                "task_tool: ensure_mcp_tools_ready returned 0 tools "
+                "(reason=%s); workers may miss mcp__* this turn",
+                mcp_unavailable_reason(),
+            )
+    except Exception:
+        logger.debug("task_tool: ensure_mcp_tools_ready skipped", exc_info=True)
 
     tools = get_available_tools(model_name=parent_model, subagent_enabled=False)
     tools = [t for t in tools if str(getattr(t, "name", "") or "").strip().lower() not in _SUBAGENT_FORBIDDEN_TOOLS]
+    # Heal empty-MCP catalog (stale LRU / cold sync get) before worker remount.
+    tools = merge_cached_mcp_tools_into_catalog(tools)
     allowed_tool_names: set[str] = set()
     for t in tools:
         if isinstance(t, str):
@@ -1074,6 +1135,12 @@ async def task_tool(
     if profile_tools is not None and not profile_tools:
         return f"Error: worker_profile.tools is empty after parsing. Provide valid tool names from: {sorted(allowed_tool_names)!r}"
 
+    profile_mcp_override = profile_model is not None and profile_model.mcp_servers is not None
+    profile_mcp_servers = (
+        [str(s).strip() for s in (profile_model.mcp_servers or []) if str(s).strip()]
+        if profile_mcp_override
+        else None
+    )
     final_tools = resolve_worker_tool_allowlist(
         profile_tools=profile_tools,
         assignee_agent_code=assignee_for_tools,
@@ -1082,6 +1149,8 @@ async def task_tool(
         catalog_names=allowed_tool_names,
         session_key=parent_session_key,
         session_mode=parent_session_mode,
+        profile_mcp_servers=profile_mcp_servers,
+        profile_mcp_override=profile_mcp_override,
     )
     if profile_tools is not None and not final_tools:
         return f"Error: worker_profile.tools has no valid tool names after validation. Requested: {profile_tools!r}; available: {sorted(allowed_tool_names)!r}"
@@ -1225,6 +1294,15 @@ async def task_tool(
     if parent_tid_for_subagent:
         subagent_extra_context = dict(subagent_extra_context or {})
         subagent_extra_context["parent_thread_id"] = parent_tid_for_subagent
+    if profile_model is not None:
+        if profile_model.knowledge_vault_ids is not None:
+            subagent_extra_context = dict(subagent_extra_context or {})
+            subagent_extra_context["knowledge_vault_ids"] = [
+                str(x).strip() for x in profile_model.knowledge_vault_ids if str(x).strip()
+            ]
+        if profile_model.thinking_enabled is True or profile_model.thinking_enabled is False:
+            subagent_extra_context = dict(subagent_extra_context or {})
+            subagent_extra_context["thinking_enabled"] = bool(profile_model.thinking_enabled)
     if resolved_collab and resolved_subtask:
         subagent_extra_context = dict(subagent_extra_context or {})
         subagent_extra_context.update(

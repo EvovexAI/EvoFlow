@@ -5,9 +5,12 @@ import {
   FOLDER_FILE_ICON_SRC,
   resolveFileDisplayDescriptor,
 } from "@/lib/fileDisplay.js";
+import { isImagePreviewPath } from "@/lib/codeViewer.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { ToolLayout } from "../ToolLayout.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
+import { PlatformMediaPreview } from "./PlatformMediaPreview.js";
+import type { PlatformUiToolResultDisplay } from "@/ToolCallBlocks/toolResultDisplay.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 
 const READ_TOOL_ICON = <SearchIcon className="size-4 shrink-0 text-foreground-subtle" />;
@@ -403,6 +406,16 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
   const { toolCallNode, isRunning, statusLabel, errorText, onOpenCodeViewer } = context;
   const { toolCall } = toolCallNode;
   const summaries = useMemo(() => buildReadSummaries(toolCall), [toolCall]);
+  const imageMedia = useMemo((): NonNullable<PlatformUiToolResultDisplay["media"]> => {
+    return summaries
+      .filter((summary) => summary.entryType === "file" && isImagePreviewPath(summary.path))
+      .map((summary) => ({
+        kind: "image",
+        mimeType: "image/*",
+        absolutePath: summary.path,
+        artifactUri: summary.path,
+      }));
+  }, [summaries]);
   const canOpenPreview = Boolean(onOpenCodeViewer);
   const openFilePreview = useCallback(
     (summary: ReadSummary) => {
@@ -431,6 +444,13 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
       ),
     [canOpenPreview, intl, openFilePreview, summaries, toolCall.kind, toolCall.title],
   );
+  const renderContent = useCallback(
+    () =>
+      imageMedia.length > 0 ? (
+        <PlatformMediaPreview media={imageMedia} label="读取图片" />
+      ) : null,
+    [imageMedia],
+  );
 
   return (
     <>
@@ -438,7 +458,8 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
         toolId={toolCall.toolId}
         icon={READ_TOOL_ICON}
         showIcon={context.showIcon !== false}
-        canToggle={false}
+        canToggle={imageMedia.length > 0}
+        forceOpen={imageMedia.length > 0 && !isRunning && toolCall.status !== "failed"}
         kindLabel={intl.formatMessage({
           id: isRunning ? "chat.toolCall.read.reading" : "chat.toolCall.kind.read",
         })}
@@ -452,7 +473,8 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
         showFailureStatus={toolCall.status === "failed"}
         isRunning={isRunning}
         title={toolCall.title}
-        content={null}
+        renderContent={imageMedia.length > 0 ? renderContent : undefined}
+        content={imageMedia.length > 0 ? undefined : null}
       />
       <ToolSnapshotFieldNotice
         refs={toolCall.snapshotRefs ?? []}
@@ -462,10 +484,6 @@ export function ReadToolCallBlock(context: ToolCallBlockRenderContext) {
             : undefined
         }
       />
-
-      {/* <pre className="px-4 py-3 rounded-xl bg-surface text-ui-xs mt-1 text-foreground-subtle max-h-50 overflow-auto">
-        {JSON.stringify(toolCall, null, 2)}
-      </pre> */}
     </>
   );
 }

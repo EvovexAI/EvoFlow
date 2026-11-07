@@ -90,7 +90,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
                 lines.append(f"  Path: {file['path']}")
                 lines.append("")
 
-        lines.append("You can read these files using the `read_file` tool with the paths shown above.")
+        lines.append("You can read these files using the `read` tool with the paths shown above.")
         lines.append("</uploaded_files>")
 
         return "\n".join(lines)

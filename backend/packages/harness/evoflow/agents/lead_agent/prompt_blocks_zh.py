@@ -10,11 +10,11 @@ from __future__ import annotations
 # ``TOOL_CALLING_BLOCK`` 已停用（不再注入系统提示）。
 
 # ----------------------------------------------------------------------
-# 反模式守卫（参见 .codebasewiki/meta/agent-prompt-architecture.md §4）：
+# 反模式守卫（规则编号见 scripts/prompt-audit/prompt_audit.py 的 PATTERNS）：
 #   - P-002 多重 identity：本文件内的 <role> 是身份锚点；不要在这里另写「我是 X」。
 #   - P-004 决策链：已停用，裁决优先级由 system prompt 注入层（C<builder> + L1 上下文优先级）隐式承担，本文件不再单独声明。
 #   - P-005 引用未声明段：新增块时若引用 `<段>`，要确保目标段在当前注入顺序中存在。
-# 修改前请跑：python .claude/skills/prompt-audit/scripts/prompt_audit.py <file>
+# 修改前请跑：python scripts/prompt-audit/prompt_audit.py <file>
 # ----------------------------------------------------------------------
 
 
@@ -40,9 +40,9 @@ SAFETY_BLOCK = """<safety_guidelines>
 
 
 # 身份定义（最重要的"我是谁"）：以 role agent_name 为唯一身份锚点。
-# 反模式：同时声明多套身份会让模型混乱，见 `.codebasewiki/meta/agent-prompt-architecture.md` P-002。
+# 反模式：同时声明多套身份会让模型混乱，见 `scripts/prompt-audit/prompt_audit.py` P-002。
 ROLE_BLOCK_CHAT_TEMPLATE = r"""<role>
-你是 {agent_name}（隶属 **EvovexAI** EvoFlow）。
+你是 {agent_name}，一个协作工具智能体。
 
 你与用户协同处理各类任务。会话可能附带上下文、状态或参考资料，是否相关由你判断。
 你是一名智能体：把**用户这条消息**解决后再回复。不要根据站立摘要、长期记忆或历史对话，自行续跑、重开或复查用户没点名的旧任务。
@@ -54,7 +54,7 @@ ROLE_BLOCK_CHAT_TEMPLATE = r"""<role>
 """
 
 ROLE_BLOCK_CHAT_COMPACT_TEMPLATE = r"""<role>
-你是 {agent_name}（EvovexAI EvoFlow，岗位智能体）。只完成用户这条消息；勿因记忆/站立摘要自动续跑旧任务。
+你是 {agent_name}，协作工具智能体。只完成用户这条消息；勿因记忆/站立摘要自动续跑旧任务。
 </role>
 """
 
@@ -96,17 +96,6 @@ COMMUNICATION_STYLE_COMPACT_BLOCK = """<communication_style>
 """
 
 
-SESSION_MODE_POLICY_BLOCK = """<session_mode_policy>
-当前模式：{active_modes}
-
-- **调用前自检**：非核心工具须在本回合 `tools`/`activated_tools` 中；否则先 `tool_search`。
-- **工具路由**：代码读写改查/命令/web_search/glob/grep→直接用（agent）；写方案→`plan` 工具；子任务委派→subagent；平台行政→`platform`（细则见 `<platform_tool>`）。
-- **无 Plan 模式**：勿调用 mode_set/scenario，勿 activate plan；没有也不需要「切 Plan」。
-</session_mode_policy>
-"""
-
-# 向后兼容别名（请用 SESSION_MODE_POLICY_BLOCK）。
-SCENARIO_ACTIVATION_BLOCK = SESSION_MODE_POLICY_BLOCK
 
 # 主智能体 / 小V 同源：平台行政统一走 ``platform``。标签勿用 ``<platform>``（员工身份壳占用）。
 PLATFORM_TOOL_BLOCK = """<platform_tool>
@@ -252,14 +241,13 @@ CONTEXT_PRIORITY_BLOCK = """<context_priority>
 </context_priority>
 """
 
-# Legacy empty — policy+recall live in ``<memory_assets>`` (see memory_assets_prompt).
+# 资产中心的用法与维护说明已并入 ``assets/prompts/memories/read_path.md``（Entity assets 段）。
 ENTITY_ASSETS_BLOCK = ""
 ENTITY_ASSETS_COMPACT_BLOCK = ""
 
 
 # 决策链（裁决链）—— 已停用。裁决优先级由 system prompt 注入层（C<builder> + L1 上下文优先级）隐式承担，不再单独声明。<decision_chain> 块标签保留为空字符串以兼容旧 prompt.py 导入。
 DECISION_CHAIN_BLOCK = ""
-# 旧版（已废弃）：# 设计依据 .codebasewiki/meta/agent-prompt-architecture.md §3 模板 + §4 反模式
 # 旧版（已废弃）：# 关键约束：本块描述 L1 对话级裁决原则；soul/agent_system_prompt 是 L1 内的行为/覆盖段
 
 CONTEXT_PRIORITY_MIND_MAP_LINE = "以及**思维导图（知识/逻辑导图）结果**"

@@ -73,7 +73,6 @@ nav:
   - 贡献:
       - 贡献者指南: contribute/index.md
       - 仓库地图: contribute/repo-map.md
-      - 代码知识库 Wiki: contribute/codebase-wiki.md
       - 分支与检查: contribute/branching-and-checks.md
       - 添加 Skill: contribute/add-skill.md
       - 添加 IM 渠道: contribute/add-channel.md

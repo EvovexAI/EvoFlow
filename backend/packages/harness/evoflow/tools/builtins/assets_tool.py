@@ -21,7 +21,7 @@ assets_tool_ui_metadata = {
     "label": "实体资产",
     "icon": "🗂️",
     "group": "memory",
-    "description": "统一读写实体资产：记忆、过程、反思、经验(craft)、用户画像、员工情感 — search/read/list/note/write/profile/affect。",
+    "description": "统一读写实体资产：记忆、过程、反思、经验(craft)、用户画像、员工情感 — search/read/list/note/write/delete/rename/profile/affect。",
 }
 
 _SLUG_RE = re.compile(r"[^a-zA-Z0-9\u4e00-\u9fff_-]+")
@@ -194,41 +194,28 @@ def assets_tool(
     scope: str = "",
     max_results: int = 12,
 ) -> str:
-    """Search, read, list, note, write, or update Entity Asset Hub files.
+    """Search / read / list / note / write / delete / rename / profile / affect on Entity Asset Hub.
 
-    Families:
-      - 长期记忆 ``memory/standing.md`` — ``note`` + ``kind=preference``
-      - 过程 ``memory/episodic/`` — ``kind=process``
-      - 经验 ``craft/`` — ``kind=experience``；反思 ``memory/journal/`` — ``kind=reflection``
-      - 画像 ``profile/USER.md`` — ``action=profile``
-      - 情感 ``profile/affect.md`` — ``action=affect``
+    落点、何时写、何时更新：以系统提示 ``## Entity assets``（read_path）为准，此处不重复。
 
-    WHEN: stable prefs / hard constraints / high-signal process → note same turn
-          (optional "已记下…"); chitchat → skip. No secrets / huge dumps.
-    LOAD: standing + catalog already in prompt; details via read/search.
-
-    UPDATE (model decides — runtime does not guess "similar" topics):
-      1. See catalog / standing; if outdated, ``read`` it.
-      2. Overwrite with ``note`` + ``path=<existing file>`` (or ``write``).
-      3. Standing full rewrite: ``note`` kind=preference + ``mode=replace``.
-
-    Actions:
-      - search / read / list
-      - note: requires ``kind`` (preference|process|experience|reflection)
-      - write: overwrite ``path`` with ``content``
-      - profile / affect: ``mode=append`` (default) or ``mode=replace``
-
-    If memory files informed the reply, end with ``<evo-asset-citation>``.
+    Actions: search | read | list | note | write | delete | rename | profile | affect.
+    note 必须带 kind；write 默认**追加**（mode=replace 才整份覆盖）；
+    delete 删一个文件（不可撤销，先 read 确认过时）；rename 改文件名（content 传新名，只在同目录内）。
+    profile/affect 用 mode=append|replace。query 仅 search。
 
     Args:
-        action: search | read | list | note | write | profile | affect
+        action: search | read | list | note | write | delete | rename | profile | affect
         query: Search keywords only (not write mode)
-        path: Basename or relative path; for note = update target when set
+        path: Basename or relative path; for note = update target when set;
+            for delete/rename = target file
         kinds: Search filter: standing,episodic,journal,craft,handbook,all
         kind: Note type: preference | process | experience | reflection
-        mode: append | replace (profile / affect / preference standing rewrite)
-        content: Note / write / profile / affect markdown body (no type tag needed)
-        entity_type / entity_id / scope: Optional entity override
+        mode: append (default) | replace — write/profile/affect
+        content: Note / write / profile / affect markdown body (no type tag needed);
+            for rename = new file name
+        entity_type: Optional entity type override (user|employee|agent|…)
+        entity_id: Optional entity id override
+        scope: Optional scope shorthand (user|employee|…)
         max_results: Search hit cap (default 12)
     """
     _ = tool_call_id
@@ -460,9 +447,29 @@ def assets_tool(
                 ensure_ascii=False,
             )
         try:
-            from evoflow.assets.hub import write_text_file
+            from evoflow.assets.hub import read_text_file, write_text_file
 
-            data = write_text_file(entity, rel, text if text.endswith("\n") else text + "\n")
+            # Write is append-by-default: a full overwrite must be explicit
+            # (``mode=replace``). Without this, "tweak one paragraph" silently
+            # wiped the whole file — the model rarely sends the full body.
+            write_mode = _resolve_write_mode(mode, query)
+            body = text if text.endswith("\n") else text + "\n"
+            if write_mode == "replace":
+                data = write_text_file(entity, rel, body)
+            else:
+                try:
+                    existing = read_text_file(entity, rel).get("content") or ""
+                except Exception:
+                    existing = ""
+                merged = existing
+                if merged and not merged.endswith("\n"):
+                    merged += "\n"
+                # Idempotent append: re-sending the same paragraph must not stack.
+                if body.strip() and body.strip() in merged:
+                    data = write_text_file(entity, rel, merged)
+                else:
+                    merged += body
+                    data = write_text_file(entity, rel, merged)
             try:
                 from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
 
@@ -481,10 +488,105 @@ def assets_tool(
                     "action": "write",
                     "path": data.get("path") or rel,
                     "updated": True,
-                    "hint": f"已覆盖写入 {rel}。",
+                    "mode": write_mode,
+                    "hint": (
+                        f"已覆盖写入 {rel}。"
+                        if write_mode == "replace"
+                        else f"已追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
+                    ),
                 },
                 ensure_ascii=False,
             )
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
+    if act == "delete":
+        rel = _normalize_asset_rel(path, entity)
+        if not rel:
+            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+        try:
+            from evoflow.assets.hub import delete_text_file
+
+            data = delete_text_file(entity, rel)
+            try:
+                from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
+
+                tid = _ctx_get(getattr(runtime, "context", None), "thread_id")
+                if not tid:
+                    cfg = getattr(runtime, "config", None) or {}
+                    if isinstance(cfg, dict):
+                        conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+                        tid = str(conf.get("thread_id") or "").strip()
+                invalidate_standing_memory(tid or None)
+            except Exception:
+                logger.debug("assets delete: standing invalidate skipped", exc_info=True)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "action": "delete",
+                    "path": data.get("path") or rel,
+                    "deleted": True,
+                    "hint": f"已删除 {rel}。删除不可撤销——先确认内容确实过时了。",
+                },
+                ensure_ascii=False,
+            )
+        except FileNotFoundError:
+            return json.dumps({"ok": False, "error": f"not_found:{rel}"}, ensure_ascii=False)
+        except ValueError as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
+
+    if act == "rename":
+        rel = _normalize_asset_rel(path, entity)
+        if not rel:
+            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+        new_name = str(content or "").strip() or str(query or "").strip()
+        if not new_name:
+            return json.dumps(
+                {"ok": False, "error": "content_required", "hint": "new file name goes in content"},
+                ensure_ascii=False,
+            )
+        try:
+            from evoflow.assets.hub import rename_text_file
+
+            data = rename_text_file(entity, rel, new_name)
+            try:
+                from evoflow.agents.memory.standing_freeze import invalidate_standing_memory
+
+                tid = _ctx_get(getattr(runtime, "context", None), "thread_id")
+                if not tid:
+                    cfg = getattr(runtime, "config", None) or {}
+                    if isinstance(cfg, dict):
+                        conf = cfg.get("configurable") if isinstance(cfg.get("configurable"), dict) else {}
+                        tid = str(conf.get("thread_id") or "").strip()
+                invalidate_standing_memory(tid or None)
+            except Exception:
+                logger.debug("assets rename: standing invalidate skipped", exc_info=True)
+            return json.dumps(
+                {
+                    "ok": True,
+                    "action": "rename",
+                    "path": data.get("path") or rel,
+                    "newPath": data.get("newPath"),
+                    "renamed": bool(data.get("renamed")),
+                    "hint": (
+                        f"已重命名为 {data.get('newPath')}。"
+                        if data.get("renamed")
+                        else "文件名未变。"
+                    ),
+                },
+                ensure_ascii=False,
+            )
+        except FileNotFoundError:
+            return json.dumps({"ok": False, "error": f"not_found:{rel}"}, ensure_ascii=False)
+        except FileExistsError as exc:
+            return json.dumps(
+                {"ok": False, "error": f"target_exists:{exc}"},
+                ensure_ascii=False,
+            )
+        except ValueError as exc:
+            return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -525,27 +627,33 @@ def assets_tool(
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
     if act == "affect":
-        # Route to the speaking employee/agent entity (not the user bucket).
+        # Lead/main → user vault affect；employee → employee vault.
         affect_entity = entity
-        if affect_entity.normalized().entity_type == "user":
-            agent_code = _agent_from_runtime(runtime)
-            if agent_code and agent_code not in {"main", "lead_agent", "user", "default"}:
-                try:
-                    from evoflow.assets.guidance import is_employee_agent_name
-                    from evoflow.assets.paths import EntityRef
+        agent_code = _agent_from_runtime(runtime)
+        code_l = str(agent_code or "").strip().lower()
+        try:
+            from evoflow.assets.guidance import is_employee_agent_name
+            from evoflow.assets.paths import EntityRef
 
-                    if is_employee_agent_name(agent_code):
-                        affect_entity = EntityRef("employee", agent_code).normalized()
-                    else:
-                        affect_entity = EntityRef("agent", agent_code).normalized()
-                except Exception as exc:
-                    return json.dumps({"ok": False, "error": f"bad_affect_entity:{exc}"}, ensure_ascii=False)
-        if affect_entity.normalized().entity_type not in ("employee", "agent"):
+            if code_l and code_l not in {"main", "lead_agent", "user", "default", ""} and is_employee_agent_name(
+                code_l
+            ):
+                affect_entity = EntityRef("employee", code_l).normalized()
+            elif affect_entity.normalized().entity_type != "user":
+                # Prefer the authenticated user bucket for main-agent 心境.
+                pid = _principal_from_runtime(runtime)
+                if pid:
+                    affect_entity = EntityRef("user", pid).normalized()
+                elif code_l and code_l not in {"main", "lead_agent", "user", "default", ""}:
+                    affect_entity = EntityRef("agent", code_l).normalized()
+        except Exception as exc:
+            return json.dumps({"ok": False, "error": f"bad_affect_entity:{exc}"}, ensure_ascii=False)
+        if affect_entity.normalized().entity_type not in ("employee", "agent", "user"):
             return json.dumps(
                 {
                     "ok": False,
-                    "error": "affect_only_for_employee_or_agent",
-                    "hint": "情感写在员工/agent 的 profile/affect.md；请在员工会话里调用。",
+                    "error": "affect_entity_unsupported",
+                    "hint": "情感写在用户（主智能体）或员工的 profile/affect.md。",
                 },
                 ensure_ascii=False,
             )
@@ -581,7 +689,7 @@ def assets_tool(
         {
             "ok": False,
             "error": "unknown_action",
-            "hint": "Use action=search|read|list|note|write|profile|affect",
+            "hint": "Use action=search|read|list|note|write|delete|rename|profile|affect",
         },
         ensure_ascii=False,
     )

@@ -40,6 +40,7 @@ export default defineConfig({
     environment: 'happy-dom',
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
+      'tests/platform-scope-ui.test.js',
       'tests/v4-wire-conformance.test.ts',
       'tests/v4-running-text-interleave.test.ts',
       'tests/zcode-flat-reasoning.test.js',
@@ -218,6 +219,8 @@ export default defineConfig({
       'tests/dept-group-handoff.test.js',
       'tests/dept-group-steward.test.js',
       'tests/dept-group-wake-queue.test.js',
+      'tests/dept-group-nest-policy.test.js',
+      'tests/dept-group-dispatch-status.test.js',
       'tests/dept-group-mentions.test.js',
       'tests/dept-group-transcript.test.js',
       'tests/dept-member-work-session.test.js',

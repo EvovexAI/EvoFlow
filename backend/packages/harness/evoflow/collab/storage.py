@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import threading
+import time
 from pathlib import Path
 from typing import Any, Literal
 
@@ -23,6 +24,13 @@ _MAIN_TASK_LOCK_GUARD = threading.Lock()
 _DEFAULT_PROJECT_CACHE_TTL_SECONDS = float(os.getenv("EVOFLOW_PROJECT_CACHE_TTL", "30") or 30)
 _DEFAULT_PROJECT_CACHE_MAX_ENTRIES = max(8, int(os.getenv("EVOFLOW_PROJECT_CACHE_MAX", "64") or 64))
 _DEFAULT_TASK_DETAIL_CACHE_MAX_ENTRIES = max(32, int(os.getenv("EVOFLOW_TASK_DETAIL_CACHE_MAX", "256") or 256))
+
+# Optimistic-concurrency retry budget for ``save_project_merge``. A stale-bundle
+# rejection means another writer won the race; reload+replay usually succeeds on
+# the second attempt, so a small budget keeps latency low while absorbing the
+# heartbeat/progress interleaving that broke the ``done`` tool.
+_SAVE_MERGE_ATTEMPTS = max(1, int(os.getenv("EVOFLOW_SAVE_MERGE_ATTEMPTS", "3") or 3))
+_SAVE_MERGE_BACKOFF_S = float(os.getenv("EVOFLOW_SAVE_MERGE_BACKOFF_S", "0.05") or 0.05)
 
 
 def main_task_mutation_lock(main_task_id: str) -> threading.RLock:
@@ -234,6 +242,62 @@ class ProjectStorage:
                     return False
                 logger.error("Failed to save project %s: %s", project_id, e)
                 return False
+
+    def save_project_merge(self, project_data: dict[str, Any], mutate: Any) -> bool:
+        """Save with optimistic-concurrency retry (load → re-apply ``mutate`` → save).
+
+        ``save_project`` gives up when another writer persisted between our load
+        and save (``StaleBundleWriteError``). For high-frequency callers such as
+        the ``done`` tool this surfaced as a bare ``persist subtask snapshot
+        failed`` with no explanation, and the worker had to burn another model
+        round re-reporting the same outcome.
+
+        ``mutate(project)`` must be replayable: it is re-invoked against the
+        freshly loaded project, so it must re-read the subtask row each time
+        instead of closing over a stale dict.
+        """
+        attempts = max(1, int(_SAVE_MERGE_ATTEMPTS))
+        last_error = ""
+        for attempt in range(attempts):
+            try:
+                ok = self.save_project(project_data)
+            except Exception as exc:  # pragma: no cover - defensive
+                last_error = str(exc)
+                ok = False
+            if ok:
+                if attempt:
+                    logger.info(
+                        "save_project_merge succeeded after %d retry(ies) project=%s",
+                        attempt,
+                        project_data.get("id"),
+                    )
+                return True
+            if attempt == attempts - 1:
+                break
+            # Optimistic-concurrency loss: reload the authoritative bundle and
+            # replay this write onto it. The cache was invalidated by
+            # ``save_project`` already, so ``load_project`` returns fresh rows.
+            project_id = str(project_data.get("id") or "").strip()
+            if not project_id:
+                break
+            fresh = self.load_project(project_id, bypass_cache=True)
+            if not fresh:
+                last_error = last_error or "project_missing_on_reload"
+                break
+            project_data = fresh
+            try:
+                mutate(project_data)
+            except Exception as exc:
+                last_error = f"mutate_failed: {exc}"
+                break
+            time.sleep(_SAVE_MERGE_BACKOFF_S * (attempt + 1))
+        logger.warning(
+            "save_project_merge exhausted %d attempt(s) project=%s last_error=%s",
+            attempts,
+            project_data.get("id"),
+            last_error or "unknown",
+        )
+        return False
 
     def delete_project(self, project_id: str) -> bool:
         """Delete a project."""
@@ -500,7 +564,18 @@ def _try_hot_patch_subtask(
 
     if not mid or not sid or not updates:
         return False
-    if not set(updates).issubset({"status", "progress", "error_text", "error", "updated_at"}):
+    if not set(updates).issubset(
+        {
+            "status",
+            "progress",
+            "error_text",
+            "error",
+            "updated_at",
+            # Heartbeat lease ticks (folded into extra_json downstream).
+            "lease_until_ts",
+            "last_heartbeat_ts",
+        }
+    ):
         return False
 
     old_status = task_repo.get_subtask_row_status(mid, sid)
@@ -529,6 +604,15 @@ def _try_hot_patch_subtask(
 
     new_status = str(applied.get("status") or old_status).strip().lower()
     if old_status != new_status:
+        logger.info(
+            "[wf-step-transcript] subtask_status_changed source=hot main=%s sub=%s from=%s to=%s started=%s completed=%s",
+            mid,
+            sid,
+            old_status or "-",
+            new_status or "-",
+            applied.get("started_at") or "-",
+            applied.get("completed_at") or "-",
+        )
         try:
             from evoflow.debug.task_lifecycle_trace import write_task_lifecycle_trace
 
@@ -612,7 +696,18 @@ def patch_collab_subtask_in_project_storage(
         task["updated_at"] = now
         project["updated_at"] = now
         ok = storage.save_project(project)
-        if ok and old_status != str(row.get("status") or "").strip().lower():
+        new_status = str(row.get("status") or "").strip().lower()
+        if ok and old_status != new_status:
+            logger.info(
+                "[wf-step-transcript] subtask_status_changed source=patch main=%s sub=%s name=%s from=%s to=%s started=%s completed=%s",
+                str(main_task_id).strip(),
+                str(subtask_id).strip(),
+                str(row.get("name") or "")[:80],
+                old_status or "-",
+                new_status or "-",
+                row.get("started_at") or "-",
+                row.get("completed_at") or "-",
+            )
             try:
                 from evoflow.debug.task_lifecycle_trace import write_task_lifecycle_trace
 
@@ -622,10 +717,10 @@ def patch_collab_subtask_in_project_storage(
                     event="subtask_status_changed",
                     main_task_id=str(main_task_id).strip(),
                     subtask_id=str(subtask_id).strip(),
-                    status=str(row.get("status") or "").strip().lower() or None,
+                    status=new_status or None,
                     detail={
                         "from": old_status or None,
-                        "to": str(row.get("status") or "").strip().lower() or None,
+                        "to": new_status or None,
                         "source": "patch_collab_subtask",
                     },
                 )
@@ -853,51 +948,74 @@ def persist_subtask_runtime_snapshot(
         return False
 
     now = utc_now_iso_z()
-    row = dict(subs[idx])
-    prev_status_for_trace = str(row.get("status") or "").strip().lower()
-    agent_id = str(row.get("assigned_to") or task.get("assigned_to") or "").strip()
 
-    if status is not None:
-        s = str(status).strip().lower()
-        if s:
-            row["status"] = s
-            if s == "completed":
-                row["completed_at"] = row.get("completed_at") or now
-                row.pop("failed_at", None)
-                # Success clears stale errors (e.g. watchdog timed_out then real completion overwrites status only).
-                row.pop("error", None)
-            elif s in {"failed", "timed_out", "cancelled"}:
-                row["failed_at"] = row.get("failed_at") or now
-    if progress is not None:
-        try:
-            row["progress"] = max(0, min(100, int(progress)))
-        except (TypeError, ValueError):
-            pass
-    if task_report is not None:
-        tr = str(task_report)[:8000]
-        row["task_report"] = tr
-        row["result"] = tr
-        row.pop("execution_preview", None)
-    if result is not None and task_report is None:
-        row["result"] = str(result)
-    if error is not None:
-        row["error"] = str(error)
-    if execution_preview is not None:
-        # Short status hints only; running body text lives in execution_conversation.
-        hint = str(execution_preview).strip()
-        if hint and len(hint) <= 160:
-            row["execution_preview"] = hint
-        elif hint:
-            row.pop("execution_preview", None)
-    # Tool observations live in execution_conversation; do not duplicate on the row.
-    _ = observed_tools
-    _ = observed_tool_calls
-    row["updated_at"] = now
-    subs[idx] = row
-    task["subtasks"] = subs
-    task["updated_at"] = now
-    project["updated_at"] = now
-    if not storage.save_project(project):
+    def _apply(project: dict[str, Any]) -> dict[str, Any] | None:
+        """(Re)apply this write onto ``project``; returns the subtask row or None.
+
+        Called again with a freshly loaded project when the optimistic save
+        loses a race, so it must re-read the subtask row from ``project``
+        instead of trusting the row captured before the conflict.
+        """
+        task_now = None
+        for t in project.get("tasks") or []:
+            if isinstance(t, dict) and str(t.get("id") or "").strip() == str(main_task_id).strip():
+                task_now = t
+                break
+        if task_now is None:
+            return None
+        subs_now = list(task_now.get("subtasks") or [])
+        i_now = -1
+        for i, st in enumerate(subs_now):
+            if isinstance(st, dict) and str(st.get("id") or "").strip() == str(subtask_id or "").strip():
+                i_now = i
+                break
+        if i_now < 0:
+            return None
+        fresh = dict(subs_now[i_now])
+        if status is not None:
+            s = str(status).strip().lower()
+            if s:
+                fresh["status"] = s
+                if s == "completed":
+                    fresh["completed_at"] = fresh.get("completed_at") or now
+                    fresh.pop("failed_at", None)
+                    # Success clears stale errors (e.g. watchdog timed_out then real completion overwrites status only).
+                    fresh.pop("error", None)
+                elif s in {"failed", "timed_out", "cancelled"}:
+                    fresh["failed_at"] = fresh.get("failed_at") or now
+        if progress is not None:
+            try:
+                fresh["progress"] = max(0, min(100, int(progress)))
+            except (TypeError, ValueError):
+                pass
+        if task_report is not None:
+            tr = str(task_report)[:8000]
+            fresh["task_report"] = tr
+            fresh["result"] = tr
+            fresh.pop("execution_preview", None)
+        elif result is not None:
+            fresh["result"] = str(result)
+        if error is not None:
+            fresh["error"] = str(error)
+        if execution_preview is not None:
+            # Short status hints only; running body text lives in execution_conversation.
+            hint = str(execution_preview).strip()
+            if hint and len(hint) <= 160:
+                fresh["execution_preview"] = hint
+            elif hint:
+                fresh.pop("execution_preview", None)
+        fresh["updated_at"] = now
+        subs_now[i_now] = fresh
+        task_now["subtasks"] = subs_now
+        task_now["updated_at"] = now
+        project["updated_at"] = now
+        return fresh
+
+    if _apply(project) is None:
+        return False
+    prev_status_for_trace = str(dict(subs[idx]).get("status") or "").strip().lower()
+    agent_id = str(dict(subs[idx]).get("assigned_to") or task.get("assigned_to") or "").strip()
+    if not storage.save_project_merge(project, _apply):
         return False
 
     if status is not None:

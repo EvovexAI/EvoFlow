@@ -375,7 +375,14 @@ def create_role_work_item(
         "parent_task_id": parent,
         "risk_level": risk_level.value,
         "action_type": action_type.value,
-        "needs_approval": needs_approval(risk_level, role.config.autonomy_level),
+        "needs_approval": needs_approval(
+            risk_level,
+            role.config.autonomy_level,
+            getattr(role.config, "risk_threshold", None),
+            risk_threshold_enabled=bool(
+                getattr(role.config, "risk_threshold_enabled", False)
+            ),
+        ),
     }
 
 
@@ -843,7 +850,16 @@ def task_needs_approval(role: ProactiveRole, task: dict[str, Any]) -> bool:
             autonomy = ProactiveAutonomyLevel(str(autonomy))
         except ValueError:
             autonomy = ProactiveAutonomyLevel.APPROVAL_FOR_RISKY
-    return needs_approval(task_risk_level(task), autonomy)
+    # Role-level risk floor also applies — but only when the role opted in
+    # (see ``models.needs_approval``).
+    return needs_approval(
+        task_risk_level(task),
+        autonomy,
+        getattr(role.config, "risk_threshold", None),
+        risk_threshold_enabled=bool(
+            getattr(role.config, "risk_threshold_enabled", False)
+        ),
+    )
 
 
 def task_to_bridge_initiative(task: dict[str, Any]) -> Initiative:

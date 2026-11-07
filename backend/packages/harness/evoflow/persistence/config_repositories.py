@@ -836,7 +836,9 @@ def upsert_agent_extra_json(agent_code: str, extra: dict[str, Any] | None) -> bo
     Used by employee-edit / hire flows to mirror ``kb_injection`` into the agent row
     while leaving other extra_json keys (e.g. team_code legacy) intact.
 
-    Returns True on success.
+    Returns True only when a row was actually updated. Previously returned True
+    even on 0-row UPDATE (missing agent), which made kb_injection "mirror"
+    look successful while agents.get still showed defaults.
     """
     code = str(agent_code or "").strip().lower()
     if not code:
@@ -844,7 +846,7 @@ def upsert_agent_extra_json(agent_code: str, extra: dict[str, Any] | None) -> bo
     payload = json.dumps(extra or {}, ensure_ascii=False)
     try:
         now = utc_now_iso_z()
-        get_db().execute(
+        cur = get_db().execute(
             "UPDATE evoflow_agents SET extra_json = ?, updated_at = ? WHERE agent_code = ?",
             (payload, now, code),
         )
@@ -855,7 +857,7 @@ def upsert_agent_extra_json(agent_code: str, extra: dict[str, Any] | None) -> bo
             _g().commit()
         except Exception:
             pass
-        return True
+        return int(getattr(cur, "rowcount", 0) or 0) > 0
     except Exception:
         return False
 

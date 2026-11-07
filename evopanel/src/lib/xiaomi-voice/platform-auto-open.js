@@ -125,7 +125,7 @@ export function maybeAutoOpenXiaomiPlatformTools(tools) {
       if (id) _seen.add(id)
       if (diag.opened) {
         allowXwVoiceSummary()
-        if (rightStageStore.getSnapshot().collapsed) rightStageStore.expand()
+        rightStageStore.expandUnlessUserCollapsed()
       }
     }
     return
@@ -133,9 +133,7 @@ export function maybeAutoOpenXiaomiPlatformTools(tools) {
 
   allowXwVoiceSummary()
   try {
-    if (rightStageStore.getSnapshot().collapsed) {
-      rightStageStore.expand()
-    }
+    rightStageStore.expandUnlessUserCollapsed()
   } catch {
     /* ignore */
   }

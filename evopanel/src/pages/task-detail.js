@@ -23,8 +23,10 @@ import {
 import {
   asActiveSessionList,
   buildActiveSessionIndex,
+  formatTaskLedgerActivityZh,
   formatTaskStatusWithRuntime,
   resolveTaskRuntimeHealth,
+  runtimeHealthExplainZh,
   runtimeHealthStatusSuffix,
 } from '../lib/task-runtime-health.js'
 import { formatCompactNum, formatDurationMs, formatSubtaskObsLine } from '../lib/task-observability-format.js'
@@ -192,8 +194,7 @@ export function createTaskDetailView(taskId, opts = {}) {
                   <span class="td-mode-badge" id="td-mode-badge" data-mode="workflow">工作流</span>
                   <h1 class="td-title" id="task-title">加载中...</h1>
                 </div>
-                <p class="td-meta-line" id="task-meta-line" hidden></p>
-                <p class="td-status-line" id="task-status-line"></p>
+                <div class="td-hero-inline" id="task-hero-inline"></div>
               </div>
             </div>
             <div class="td-topbar-actions">
@@ -462,6 +463,10 @@ export function createTaskDetailView(taskId, opts = {}) {
       clearInterval(state.outputRefreshInterval)
       state.outputRefreshInterval = null
     }
+    if (state._lazyObserver) {
+      state._lazyObserver.disconnect()
+      state._lazyObserver = null
+    }
     if (state.eventSubscription) {
       state.eventSubscription.close()
       state.eventSubscription = null
@@ -609,19 +614,15 @@ function renderTaskOutcomePanel(page, state) {
       else if (group === 'reviewed') headline = '员工已交工，等待你确认。'
       else headline = '任务已完成。'
     }
-    const bits = []
-    if (workflow && subtaskCount > 0) bits.push(`${completedCount} / ${subtaskCount} 个节点全部成功`)
-    if (outputs.length) bits.push(`共生成 ${outputs.length} 个产出`)
-    if (inputRefs.length) bits.push(`${inputRefs.length} 项上游参考`)
-    if (sections.findings.length) bits.push(`${sections.findings.length} 项发现`)
     const resultTitle = workflow
       ? '运行结果'
       : (group === 'reviewed' ? '交工结果' : '完成结果')
-    cards.push(`
-      <section class="td-card td-card--result">
-        <h2 class="td-card-title">${resultTitle}</h2>
-        <p class="td-card-lead">${escapeHtml(headline)}</p>
-        ${bits.length ? `<p class="td-card-sub">${escapeHtml(bits.join(' · '))}</p>` : ''}
+    const bits = []
+    if (workflow && subtaskCount > 0) bits.push(`节点 ${completedCount}/${subtaskCount} 成功`)
+    if (outputs.length) bits.push(`产出 ${outputs.length} 个`)
+    if (inputRefs.length) bits.push(`上游参考 ${inputRefs.length} 项`)
+    if (sections.findings.length) bits.push(`发现 ${sections.findings.length} 项`)
+    const actionHtml = `
         <div class="td-card-actions">
           ${canResumeChat
             ? `<button type="button" class="btn btn-sm btn-primary" data-act="resume-employee-chat" data-agent-code="${escapeHtml(agentCode)}" data-task-id="${escapeHtml(state.taskId)}">续聊</button>`
@@ -630,8 +631,27 @@ function renderTaskOutcomePanel(page, state) {
           ${outputs[0] && (/^https?:\/\//i.test(outputs[0].value))
             ? `<a class="btn btn-sm btn-primary" href="${escapeHtml(outputs[0].value)}" target="_blank" rel="noopener noreferrer">查看产出</a>`
             : ''}
+        </div>`
+    if (workflow) {
+      // 工作流运行结果：标题与结论同一行，统计折叠为一行小标签，避免大卡片占高
+      cards.push(`
+      <section class="td-card td-card--result td-card--result-compact">
+        <div class="td-result-head">
+          <h2 class="td-card-title">${resultTitle}</h2>
+          <span class="td-result-headline">${escapeHtml(headline)}</span>
         </div>
+        ${bits.length ? `<ul class="td-result-bits">${bits.map((b) => `<li>${escapeHtml(b)}</li>`).join('')}</ul>` : ''}
+        ${actionHtml}
       </section>`)
+    } else {
+      cards.push(`
+      <section class="td-card td-card--result">
+        <h2 class="td-card-title">${resultTitle}</h2>
+        <p class="td-card-lead">${escapeHtml(headline)}</p>
+        ${bits.length ? `<p class="td-card-sub">${escapeHtml(bits.join(' · '))}</p>` : ''}
+        ${actionHtml}
+      </section>`)
+    }
   } else if (group === 'failed') {
     const failLead = workflow && failedNodes.length
       ? `「${failedNodes[0]}」节点执行失败${completedCount > 0 ? `，前 ${completedCount} 个节点已成功` : ''}`
@@ -879,14 +899,11 @@ function renderHandoffReviewBodyHtml(task, state, { reviewLocked = false } = {})
 function renderTaskHero(page, state) {
   const task = state.task
   const titleEl = page.querySelector('#task-title')
-  const metaEl = page.querySelector('#task-meta-line')
+  const inlineEl = page.querySelector('#task-hero-inline')
   const bannerEl = page.querySelector('#task-status-banner')
   if (!task) {
     if (titleEl) titleEl.textContent = '加载中...'
-    if (metaEl) {
-      metaEl.hidden = true
-      metaEl.textContent = ''
-    }
+    if (inlineEl) inlineEl.innerHTML = ''
     if (bannerEl) {
       bannerEl.hidden = true
       bannerEl.innerHTML = ''
@@ -912,26 +929,36 @@ function renderTaskHero(page, state) {
   const riskKey = String(task.risk_level || '').trim().toLowerCase()
   const riskZh = DETAIL_RISK_LABEL[riskKey] || ''
   const appName = resolveSourceAppName(task) || resolveSourceAppId(task)
-  const metaParts = []
   const handoffPending = Boolean(task.handlers_pending_approval) && statusKey !== 'reviewed'
-  if (handoffPending) metaParts.push('转交审核')
+  
+  // 构建 inline badges（替代之前的 meta-line 和 status-line）
+  const inlineBits = []
+  
+  // 转交状态
+  if (handoffPending) inlineBits.push({ text: '转交审核', kind: 'transfer' })
+  
+  // 模式特定的 badge
   if (mode === 'employee') {
-    if (fromRole && toNames.length) metaParts.push(`${fromRole} → ${toNames.join('、')}`)
-    else if (fromRole) metaParts.push(fromRole)
-    if (riskZh) metaParts.push(riskZh)
+    // 员工模式：来源角色 → 审核人，风险等级
+    if (fromRole && toNames.length) {
+      inlineBits.push({ text: `${fromRole} → ${toNames.join('、')}`, kind: 'handler' })
+    } else if (fromRole) {
+      inlineBits.push({ text: fromRole, kind: 'handler' })
+    }
+    if (riskZh) inlineBits.push({ text: riskZh, kind: 'risk' })
   } else {
-    if (appName) metaParts.push(appName)
-    const { completedCount, subtaskCount } = taskProgressMeta(task, state.subtasks)
-    if (subtaskCount > 0) metaParts.push(`${completedCount}/${subtaskCount} 节点`)
-    if (fromRole) metaParts.push(fromRole)
+    // 工作流模式：应用名 + 来源角色（节点进度在运行结果卡中展示，避免重复）
+    if (appName) inlineBits.push({ text: appName, kind: 'app' })
+    if (fromRole) inlineBits.push({ text: fromRole, kind: 'handler' })
   }
-  if (metaEl) {
-    if (metaParts.length) {
-      metaEl.hidden = false
-      metaEl.textContent = metaParts.join(' · ')
+  
+  if (inlineEl) {
+    if (inlineBits.length) {
+      inlineEl.innerHTML = inlineBits
+        .map((bit) => `<span class="td-hero-badge td-hero-badge--${bit.kind}">${escapeHtml(bit.text)}</span>`)
+        .join('')
     } else {
-      metaEl.hidden = true
-      metaEl.textContent = ''
+      inlineEl.innerHTML = ''
     }
   }
 
@@ -1525,7 +1552,6 @@ async function loadTaskDetail(page, state) {
 
     await ensureTaskDetailMaps(state)
     renderTaskHero(page, state)
-    renderTaskDescription(page, state.task)
     updateTaskStatusTag(page, state.task.status)
     syncTaskHeroProgress(page, state)
     updateButtons(page, state)
@@ -1534,6 +1560,30 @@ async function loadTaskDetail(page, state) {
     renderTaskObsSubtasks(page, state)
     renderTaskOutcomePanel(page, state)
     renderTaskDecisionPanel(page, state)
+    
+    // 延迟渲染说明，降低首屏渲染时间
+    requestAnimationFrame(() => {
+      renderTaskDescription(page, state.task)
+    })
+    
+    // 添加 lazy loading observer for non-critical blocks
+    const lazyObserver = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          const el = entry.target
+          const act = el.dataset.lazyAct
+          if (act === 'render-obs-timeline') {
+            // Obs timeline 进视区时再完全渲染
+            el.dataset.lazyAct = ''
+          }
+          lazyObserver.unobserve(el)
+        }
+      })
+    }, { rootMargin: '100px' })
+    
+    // 观察需要lazy load的块
+    page.querySelectorAll('[data-lazy-act]').forEach((el) => lazyObserver.observe(el))
+    state._lazyObserver = lazyObserver
     state.rightStageHost?.update?.({
       taskId: state.taskId,
       threadId: String(task?.thread_id || state.currentThreadId || '').trim(),
@@ -2112,7 +2162,6 @@ function syncTaskHeroProgress(page, state) {
     }
   }
   renderTaskHero(page, state)
-  renderTaskStatusLine(page, state)
   renderTaskInfoChips(page, state)
   renderExecTimeline(page, state)
   renderTaskChangelog(page, state)
@@ -2386,7 +2435,6 @@ function renderTaskStatusLine(page, state) {
     const parts = []
     if (kindZh) parts.push(kindZh)
     parts.push(statusZh)
-    // statusZh already says 已中断 / 执行中·在跑 — only append suffix when still raw lifecycle
     if (health === 'live' && !String(statusZh).includes('在跑')) {
       const runtimeSuffix = runtimeHealthStatusSuffix(health)
       if (runtimeSuffix) parts.push(runtimeSuffix)
@@ -2400,6 +2448,12 @@ function renderTaskStatusLine(page, state) {
     }
     if (dur) parts.push(live ? `已运行 ${dur}` : `耗时 ${dur}`)
     if (updated && live) parts.push(`最近更新 ${updated}`)
+    // 进程失联：把账本时间与原因写进状态行，避免只剩一个莫名其妙的「已中断」
+    if (health === 'interrupted') {
+      const ledgerAt = formatTaskLedgerActivityZh(task) || updated
+      if (ledgerAt) parts.push(`账本更新 ${ledgerAt}`)
+      parts.push('未检测到活跃会话/租约')
+    }
     if (subtaskCount > 0) {
       const ok = u === 'completed'
       parts.push(ok
@@ -2407,6 +2461,7 @@ function renderTaskStatusLine(page, state) {
         : nodeProgressLabel(completedCount, subtaskCount))
     }
     el.textContent = parts.join(' · ')
+    el.title = health === 'interrupted' ? runtimeHealthExplainZh(task, health) : ''
     el.dataset.group = toTaskStatusGroup(task.status)
     el.dataset.runtime = health
     return
@@ -2418,11 +2473,15 @@ function renderTaskStatusLine(page, state) {
   const parts = [`${icon} ${statusZh}`]
   if (live && updated) parts.push(`最近更新 ${updated}`)
   if (live && dur) parts.push(`已运行 ${dur}`)
-  else if (health === 'interrupted' && dur) parts.push(`曾运行 ${dur}`)
-  else if (finished) parts.push(finished)
+  else if (health === 'interrupted') {
+    const ledgerAt = formatTaskLedgerActivityZh(task) || updated
+    if (ledgerAt) parts.push(`账本更新 ${ledgerAt}`)
+    if (dur) parts.push(`曾运行 ${dur}`)
+    parts.push('未检测到活跃会话/租约')
+  } else if (finished) parts.push(finished)
   else if (dur) parts.push(`耗时 ${dur}`)
-  // 取消原因已在顶部 Banner 展示，状态行保持短句
   el.textContent = parts.join(' · ')
+  el.title = health === 'interrupted' ? runtimeHealthExplainZh(task, health) : ''
   el.dataset.group = toTaskStatusGroup(task.status)
   el.dataset.runtime = health
 }
@@ -2474,7 +2533,6 @@ async function loadTaskObservability(page, state) {
     state.observability = obs && typeof obs === 'object' ? obs : null
     renderTaskObservabilityMeta(metaEl, state.observability)
     renderTaskObsSubtasks(page, state)
-    renderTaskStatusLine(page, state)
   } catch (e) {
     logTaskDetail('loadTaskObservability:error', { taskId: state.taskId, error: String(e) })
     state.observability = null
@@ -2561,7 +2619,7 @@ function renderTaskObservabilityMeta(el, obs) {
     return
   }
   el.hidden = false
-  el.innerHTML = `<h3 class="td-aside-title">运行观测</h3><div class="td-aside-chips">${chips.join('')}</div>`
+  el.innerHTML = `<details><summary>观测指标</summary><div class="td-aside-chips">${chips.join('')}</div></details>`
 }
 
 /**

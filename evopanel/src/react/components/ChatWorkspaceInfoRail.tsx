@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { Pencil } from 'lucide-react'
 import { toast } from '../../components/toast.js'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
@@ -196,6 +196,51 @@ export function assetsCenterHref(opts?: {
   return `#/assets?${params.toString()}`
 }
 
+type AssetQuickCounts = {
+  episode: number
+  craft: number
+  journal: number
+}
+
+async function resolveAssetQuickEntity(opts: {
+  entityType?: string | null
+  entityId?: string | null
+}): Promise<{ entityType: string; entityId: string } | null> {
+  const et = String(opts.entityType || '').trim()
+  const eid = String(opts.entityId || '').trim()
+  if (et && eid) return { entityType: et, entityId: eid }
+  try {
+    const { api } = await import('../../lib/tauri-api.js')
+    const payload = (await api.assetsListEntities()) as {
+      entities?: Array<{ entityType?: unknown; entityId?: unknown }>
+    }
+    const rows = Array.isArray(payload?.entities) ? payload.entities : []
+    const me = rows.find((e) => String(e?.entityType || '').toLowerCase() === 'user')
+    const myId = String(me?.entityId || '').trim()
+    if (myId) return { entityType: 'user', entityId: myId }
+  } catch {
+    /* ignore — counts stay hidden */
+  }
+  return null
+}
+
+async function countTreeFiles(
+  entityType: string,
+  entityId: string,
+  path: string,
+): Promise<number> {
+  try {
+    const { api } = await import('../../lib/tauri-api.js')
+    const data = (await api.assetsListTree({ entityType, entityId, path })) as {
+      entries?: Array<{ kind?: string }>
+    }
+    const entries = Array.isArray(data?.entries) ? data.entries : []
+    return entries.filter((e) => String(e?.kind || '') === 'file').length
+  } catch {
+    return 0
+  }
+}
+
 /** 资产沉淀（记录过程 / 沉淀经验 / 反思 / 查看资产中心）—— 状态面板智能体区复用 */
 export function AssetQuickActions({
   onAction,
@@ -209,11 +254,70 @@ export function AssetQuickActions({
   entityType?: string | null
   entityId?: string | null
 }) {
-  const href = assetsCenterHref({ entityType, entityId })
+  const [resolvedEntity, setResolvedEntity] = useState<{
+    entityType: string
+    entityId: string
+  } | null>(() => {
+    const et = String(entityType || '').trim()
+    const eid = String(entityId || '').trim()
+    return et && eid ? { entityType: et, entityId: eid } : null
+  })
+  const [counts, setCounts] = useState<AssetQuickCounts | null>(null)
+  const prevBusyRef = useRef(busy)
+
+  const href = assetsCenterHref({
+    entityType: resolvedEntity?.entityType || entityType,
+    entityId: resolvedEntity?.entityId || entityId,
+  })
   const linkTitle =
-    entityType === 'employee' && entityId
-      ? `打开「${entityId}」的资产中心`
+    (resolvedEntity?.entityType || entityType) === 'employee' &&
+    (resolvedEntity?.entityId || entityId)
+      ? `打开「${resolvedEntity?.entityId || entityId}」的资产中心`
       : '打开资产中心'
+
+  const refreshCounts = useCallback(async () => {
+    const ent =
+      (String(entityType || '').trim() && String(entityId || '').trim()
+        ? { entityType: String(entityType).trim(), entityId: String(entityId).trim() }
+        : null) ||
+      (await resolveAssetQuickEntity({ entityType, entityId }))
+    if (!ent) {
+      setCounts(null)
+      return
+    }
+    setResolvedEntity(ent)
+    const [episode, craft, journal] = await Promise.all([
+      countTreeFiles(ent.entityType, ent.entityId, 'memory/episodic'),
+      countTreeFiles(ent.entityType, ent.entityId, 'craft'),
+      countTreeFiles(ent.entityType, ent.entityId, 'memory/journal'),
+    ])
+    setCounts({ episode, craft, journal })
+  }, [entityType, entityId])
+
+  useEffect(() => {
+    void refreshCounts()
+  }, [refreshCounts])
+
+  // 沉淀动作结束后再拉一次（Agent 写盘可能稍晚，仍尽量刷新）
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current
+    prevBusyRef.current = busy
+    if (wasBusy && !busy) {
+      const t = window.setTimeout(() => {
+        void refreshCounts()
+      }, 1200)
+      return () => window.clearTimeout(t)
+    }
+    return undefined
+  }, [busy, refreshCounts])
+
+  const countLabel = (n: number | undefined) =>
+    counts == null || n == null ? null : (
+      <span className="react-chat-asset-quick-count" aria-hidden>
+        {n}
+      </span>
+    )
+
   return (
     <section className="react-chat-asset-quick" aria-label="资产沉淀">
       <div className="react-chat-asset-quick-label">资产沉淀</div>
@@ -222,28 +326,43 @@ export function AssetQuickActions({
           type="button"
           className="react-chat-asset-quick-btn"
           disabled={busy}
-          title="把当前对话过程记下来，方便以后回顾"
+          title={
+            counts
+              ? `把当前对话过程记下来（已有 ${counts.episode} 条）`
+              : '把当前对话过程记下来，方便以后回顾'
+          }
           onClick={() => onAction('episode')}
         >
           记录过程
+          {countLabel(counts?.episode)}
         </button>
         <button
           type="button"
           className="react-chat-asset-quick-btn"
           disabled={busy}
-          title="让 Agent 根据对话沉淀经验"
+          title={
+            counts
+              ? `让 Agent 根据对话沉淀经验（已有 ${counts.craft} 条）`
+              : '让 Agent 根据对话沉淀经验'
+          }
           onClick={() => onAction('craft')}
         >
           沉淀经验
+          {countLabel(counts?.craft)}
         </button>
         <button
           type="button"
           className="react-chat-asset-quick-btn"
           disabled={busy}
-          title="让 Agent 根据对话写反思"
+          title={
+            counts
+              ? `让 Agent 根据对话写反思（已有 ${counts.journal} 条）`
+              : '让 Agent 根据对话写反思'
+          }
           onClick={() => onAction('journal')}
         >
           反思
+          {countLabel(counts?.journal)}
         </button>
       </div>
       <a className="react-chat-asset-quick-link" href={href} title={linkTitle}>

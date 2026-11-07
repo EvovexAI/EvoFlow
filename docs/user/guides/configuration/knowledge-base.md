@@ -142,9 +142,16 @@
 
 ---
 
+## 接口与 CLI
+
+建库、写笔记、检索可用 platform `knowledge.*` 或 `evoflow knowledge …`；面板上传与问 AI 走 `/api/knowledge/owned`。接口示例、入参出参见 [员工 · 知识库 · 工作流 · 任务中心：接口与 CLI](../integration/api-cli-employees-knowledge-workflow-tasks.md#knowledge)。
+
+---
+
 ## 相关阅读
 
 - [[guides/configuration/smart-employees|员工]] — 绑定知识库与检索配置
 - [[guides/chat/file-upload|文件上传]] — 仅本轮附件
 - [[guides/configuration/asset-center|资产中心]] — 偏好与经验
 - [[guides/chat/knowledge-map|思维导图]] — 聊天里的思路图，不是资料库
+- [[guides/integration/api-cli-employees-knowledge-workflow-tasks|接口与 CLI]] — knowledge / employees / workflow / tasks

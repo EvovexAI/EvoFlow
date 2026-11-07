@@ -318,6 +318,24 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     if task_id:
         out["task_id"] = task_id
         out["taskId"] = task_id
+    # 通知标题用应用名，勿回落到 task/run id
+    app_blob = data.get("app") if isinstance(data.get("app"), dict) else {}
+    app_name = str(
+        run.get("app_name") or data.get("app_name") or app_blob.get("name") or ""
+    ).strip()
+    if not app_name:
+        try:
+            from evoflow.persistence import app_repositories
+
+            loaded = app_repositories.load_app(app_id)
+            if isinstance(loaded, dict):
+                nested = loaded.get("app") if isinstance(loaded.get("app"), dict) else {}
+                app_name = str(loaded.get("name") or nested.get("name") or "").strip()
+        except Exception:
+            app_name = ""
+    if app_name:
+        out["name"] = app_name
+        out["app"] = {"id": app_id, "name": app_name}
     return out
 
 
@@ -409,6 +427,11 @@ def workflow_create(args: dict[str, Any]) -> dict[str, Any]:
         tags=tags,
         canvas=canvas if isinstance(canvas, dict) else None,
         plan=plan if isinstance(plan, dict) else None,
+        # Top-level ``project_path`` was silently dropped: the parameter is
+        # advertised in workflow.schema but create_app has no such kwarg, so
+        # every step fell back to "no working dir" and workers picked their own
+        # base. Accept both spellings and pass it through.
+        project_path=_arg_str(args, "project_path", "projectPath"),
     )
     return _workflow_app_result({**data, "hint": "已创建草稿；发布前可用 workflow.publish。"})
 
@@ -619,7 +642,12 @@ def settings_get_model(args: dict[str, Any]) -> dict[str, Any]:
 def settings_create_model(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import models as models_admin
 
-    return {"ok": True, "model": models_admin.create_model(args)}
+    # ``confirm`` is the platform gate flag — it must never be persisted as a model
+    # config extra (it would later be replayed as a vendor create() kwarg).
+    from evoflow.models.create_payload_sanitize import strip_platform_control_keys
+
+    payload = strip_platform_control_keys(dict(args or {}))
+    return {"ok": True, "model": models_admin.create_model(payload)}
 
 
 def settings_update_model(args: dict[str, Any]) -> dict[str, Any]:
@@ -630,6 +658,11 @@ def settings_update_model(args: dict[str, Any]) -> dict[str, Any]:
         raise ValidationError("model is required（要更新的模型名）")
     skip = {"model", "name", "modelName", "model_name", "confirm", "principal_id"}
     payload = {k: v for k, v in args.items() if k not in skip and v is not None}
+    # Drop any remaining platform gate flags (confirmed / yes / dry_run …) so they
+    # never become persisted model config extras.
+    from evoflow.models.create_payload_sanitize import strip_platform_control_keys
+
+    strip_platform_control_keys(payload)
     api_key = payload.get("api_key")
     if is_masked_api_key(api_key):
         payload.pop("api_key", None)

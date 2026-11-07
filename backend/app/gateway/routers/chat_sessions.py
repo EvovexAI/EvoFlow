@@ -541,12 +541,17 @@ async def list_chat_sessions(
     summary="Resolve session titles for LangGraph thread_id values",
 )
 async def get_titles_by_thread(
+    request: Request,
     thread_ids: str = Query(default="", description="Comma-separated LangGraph thread_id values"),
 ) -> ThreadTitleMapResponse:
     raw = [p.strip() for p in str(thread_ids or "").split(",")]
     ids = [p for p in raw if p][:100]
     if not ids:
         return ThreadTitleMapResponse(titles={})
+    from evoflow.authz.http_guard import require_thread_visible
+
+    for tid in ids:
+        require_thread_visible(request, tid)
     return ThreadTitleMapResponse(titles=sess_repo.resolve_titles_by_thread_ids(ids))
 
 
@@ -555,6 +560,7 @@ async def create_chat_session(request: Request, body: CreateSessionBody) -> Sess
     ctx = dict(body.context or {})
     jwt_present = False
     pid = ""
+    is_admin = False
     try:
         from evoflow.authz.context import resolve_request_principal
         from evoflow.authz.debug_log import authz_debug
@@ -591,6 +597,26 @@ async def create_chat_session(request: Request, body: CreateSessionBody) -> Sess
         )
     except Exception:
         logger.debug("create_chat_session identity resolve failed", exc_info=True)
+    # Takeover guard: re-creating an existing session_key must stay limited to the
+    # current owner, an org admin, or the local/desktop path without an
+    # authenticated principal. create_new_session force-restamps ownership and
+    # overwrites the title, so an unguarded re-create would let any authenticated
+    # user steal an enumerable key (e.g. `dept:{id}:chat`) and read its history.
+    sk_req = str(body.sessionKey or "").strip()
+    if sk_req:
+        try:
+            existing = sess_repo.get_session_row_for_ui(sk_req)
+        except Exception:
+            logger.debug("create_chat_session existing-row probe failed", exc_info=True)
+            existing = None
+        if existing is not None:
+            existing_owner = str(existing.get("createdBy") or "").strip()
+            if pid:
+                if existing_owner and existing_owner != pid and not is_admin:
+                    raise HTTPException(status_code=409, detail="session_key already exists")
+            elif jwt_present and existing_owner:
+                # Authenticated request but identity resolution failed — fail closed.
+                raise HTTPException(status_code=409, detail="session_key already exists")
     try:
         row = await chat_svc.create_new_session(
             session_key=body.sessionKey,
@@ -899,10 +925,13 @@ async def get_session_artifacts(request: Request, session_key: str) -> SessionAr
     response_model=KnowledgeMapResponse,
     summary="Knowledge/logic mind map snapshot by LangGraph thread_id",
 )
-async def get_knowledge_map_by_thread(thread_id: str) -> KnowledgeMapResponse:
+async def get_knowledge_map_by_thread(request: Request, thread_id: str) -> KnowledgeMapResponse:
     tid = thread_id.strip()
     if not tid:
         raise HTTPException(status_code=422, detail="thread_id required")
+    from evoflow.authz.http_guard import require_thread_visible
+
+    require_thread_visible(request, tid)
     sk = sess_repo.find_session_key_by_thread_id(tid) or ""
     return _knowledge_map_payload(thread_id=tid, session_key=sk)
 
@@ -1193,17 +1222,26 @@ _CLIENT_HTTP_APPEND_ROLES = frozenset({"user"})
 _MAX_APPEND_CONTENT_BYTES = 256 * 1024  # 256 KiB per message content
 
 
-def _validate_append_body(role: str, content: Any) -> None:
-    """Validate role and content size for transcript append endpoints."""
+def _validate_append_body(role: str, content: Any, *, content_json: Any | None = None) -> None:
+    """Validate role and content size for transcript append endpoints.
+
+    ``content_json`` (dept group bubble metadata, tool payloads) is checked with
+    the same cap — otherwise a caller can dodge the limit by moving the payload
+    there and posting an empty ``content``.
+    """
     r = str(role or "").strip().lower()
     if r not in _VALID_APPEND_ROLES:
         raise HTTPException(status_code=422, detail=f"role must be one of {sorted(_VALID_APPEND_ROLES)}, got: {role!r}")
-    try:
-        raw = json.dumps(content, ensure_ascii=False) if content is not None else ""
-    except (TypeError, ValueError):
-        raw = str(content)
-    if len(raw.encode("utf-8")) > _MAX_APPEND_CONTENT_BYTES:
-        raise HTTPException(status_code=413, detail=f"content too large (max {_MAX_APPEND_CONTENT_BYTES} bytes)")
+    payloads: list[Any] = [content]
+    if content_json is not None:
+        payloads.append(content_json)
+    for payload in payloads:
+        try:
+            raw = json.dumps(payload, ensure_ascii=False) if payload is not None else ""
+        except (TypeError, ValueError):
+            raw = str(payload)
+        if len(raw.encode("utf-8")) > _MAX_APPEND_CONTENT_BYTES:
+            raise HTTPException(status_code=413, detail=f"content too large (max {_MAX_APPEND_CONTENT_BYTES} bytes)")
 
 
 def _validate_client_http_append_role(role: str, *, session_key: str = "") -> None:
@@ -1235,10 +1273,10 @@ def _flat_append_kwargs(body: AppendMessageBody) -> dict[str, Any]:
 @router.post("/{session_key:path}/messages", summary="Append one transcript message")
 async def append_session_message(request: Request, session_key: str, body: AppendMessageBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     _validate_client_http_append_role(body.role, session_key=key)
-    _validate_append_body(body.role, body.content)
+    _validate_append_body(body.role, body.content, content_json=body.contentJson)
     uid = _request_principal_id(request)
     try:
         if body.upsertByMessageId and str(body.messageId or "").strip():
@@ -1248,7 +1286,8 @@ async def append_session_message(request: Request, session_key: str, body: Appen
             flat.pop("messageId", None)
             if body.contentJson is not None:
                 flat["content_json"] = body.contentJson
-            result = chat_svc.upsert_message_and_touch_session(
+            result = await run_db(
+                chat_svc.upsert_message_and_touch_session,
                 key,
                 role=body.role,
                 message_id=str(body.messageId).strip(),
@@ -1260,7 +1299,8 @@ async def append_session_message(request: Request, session_key: str, body: Appen
                 **flat,
             )
         else:
-            result = chat_svc.append_message_and_touch_session(
+            result = await run_db(
+                chat_svc.append_message_and_touch_session,
                 key,
                 role=body.role,
                 content=body.content,
@@ -1275,32 +1315,39 @@ async def append_session_message(request: Request, session_key: str, body: Appen
         if busy:
             raise busy from e
         logger.exception("append_session_message sqlite error session_key=%s", key)
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise HTTPException(status_code=500, detail="internal error") from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     if result is None:
-        return {"ok": True, "skipped": True, "messageCount": msg_repo.count_messages(key)}
+        return {"ok": True, "skipped": True, "messageCount": await run_db(msg_repo.count_messages, key)}
     return {"ok": True, **result}
 
 
 @router.post("/{session_key:path}/messages/batch", summary="Append transcript messages (flat columns, dedupe by messageId)")
 async def append_session_messages_batch(request: Request, session_key: str, body: AppendMessagesBatchBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     for item in body.messages:
         if isinstance(item, dict):
             role = str(item.get("role", ""))
             _validate_client_http_append_role(role, session_key=key)
-            _validate_append_body(role, item.get("content"))
+            _validate_append_body(role, item.get("content"), content_json=item.get("contentJson"))
     try:
-        result = chat_svc.append_messages_batch_and_touch_session(
+        result = await run_db(
+            chat_svc.append_messages_batch_and_touch_session,
             key,
             body.messages,
             run_id=body.runId,
             thread_id=body.threadId,
             principal_id=_request_principal_id(request),
         )
+    except sqlite3.OperationalError as e:
+        busy = _transcript_db_busy_http(e)
+        if busy:
+            raise busy from e
+        logger.exception("append_session_messages_batch sqlite error session_key=%s", key)
+        raise HTTPException(status_code=500, detail="internal error") from e
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return {"ok": True, **result}
@@ -1491,7 +1538,7 @@ async def ensure_session_thread(
     import time as _time
 
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     _t0 = _time.perf_counter()
     try:
@@ -1501,7 +1548,8 @@ async def ensure_session_thread(
     _ensure_ms = round((_time.perf_counter() - _t0) * 1000.0, 2)
     # Hot path: do not COUNT(*) the transcript on every ensure-thread (old/long
     # sessions were paying multi-second TTFT here). Prefer denormalized row count.
-    row = sess_repo.load_session_map().get(key) or {}
+    session_map = await run_db(sess_repo.load_session_map)
+    row = session_map.get(key) or {}
     message_count = int(row.get("messageCount") or 0)
     try:
         from evoflow.observability.run_latency_trace import write_run_latency_event
@@ -1747,12 +1795,14 @@ async def patch_session_title(request: Request, session_key: str, body: SessionT
 
 
 @router.put("/pinned-order", summary="Reorder pinned sessions (drag)")
-async def put_pinned_session_order(body: PinnedOrderBody) -> dict[str, Any]:
+async def put_pinned_session_order(request: Request, body: PinnedOrderBody) -> dict[str, Any]:
     keys = [str(k or "").strip() for k in (body.sessionKeys or []) if str(k or "").strip()]
     if not keys:
         raise HTTPException(status_code=422, detail="sessionKeys required")
+    for k in keys:
+        _require_session_access(request, k)
     sess_repo.reorder_pinned_sessions(keys)
-    rows = sess_repo.list_sessions_for_ui(limit=max(20, len(keys) + 5))
+    rows = sess_repo.list_sessions_for_ui(limit=max(20, len(keys) + 5), **_session_acl_kwargs(request))
     return {"ok": True, "sessions": rows}
 
 

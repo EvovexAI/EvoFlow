@@ -61,16 +61,22 @@ def mark(task: BackgroundBashTask, *, status: str, exit_code: int | None = None,
 
 
 def _pulse_wait_alive(task: BackgroundBashTask) -> None:
-    """Refresh live-run heartbeat + activity while TaskOutput is blocking."""
+    """Refresh live-run heartbeat + activity while TaskOutput is blocking.
+
+    Gateway reconcile runs in another process and cannot see in-memory ``_TASKS``.
+    Without a SQLite heartbeat / session ``updated_at`` pulse, long media waits
+    (TaskOutput timeout up to 10min) get false-cancelled as stale — UI then
+    thinks the turn ended while the agent is still working ("不对话了").
+    """
     sk = str(task.session_key or "").strip()
+    tid = str(task.thread_id or "").strip()
     if sk:
         try:
             from evoflow.persistence.live_run_repositories import update_live_run_heartbeat
 
-            update_live_run_heartbeat(sk)
+            update_live_run_heartbeat(sk, thread_id=tid or None)
         except Exception:
             pass
-    tid = str(task.thread_id or "").strip()
     if not tid:
         return
     try:

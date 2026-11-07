@@ -259,6 +259,29 @@ function parseWakeEventFromRow(row: any): DeptGroupWakeEvent | null {
   }
 }
 
+/** 审计事件 → 派工条可用的最新 job 快照（同 jobId 取终态优先的最新一条） */
+export function wakeEventsToJobSnapshots(events: DeptGroupWakeEvent[]): WakeJobSnapshot[] {
+  const byJob = new Map<string, WakeJobSnapshot>()
+  const sorted = [...events].sort((a, b) => a.ts - b.ts)
+  for (const ev of sorted) {
+    const jobId = String(ev.jobId || '').trim()
+    const code = String(ev.agentCode || '').trim()
+    if (!jobId || !code) continue
+    byJob.set(jobId, {
+      id: jobId,
+      agentCode: code,
+      roleName: String(ev.roleName || '').trim() || code,
+      goal: String(ev.goal || '').trim(),
+      status: ev.status,
+      attempts: Math.max(0, Number(ev.attempts) || 0),
+      error: ev.error,
+      sourceMsgId: ev.sourceMsgId,
+      updatedAt: Number(ev.ts) || Date.now(),
+    })
+  }
+  return [...byJob.values()].sort((a, b) => a.updatedAt - b.updatedAt)
+}
+
 export function deriveMemberStatusFromWakeEvents(
   events: DeptGroupWakeEvent[],
 ): DeptMemberAuditStatus[] {
@@ -297,7 +320,8 @@ export async function loadDeptGroupAuditTrail(
 ): Promise<DeptGroupAuditTrail> {
   const id = String(deptId || '').trim()
   const sk = deptChatSessionKey(id)
-  const limit = opts?.limit ?? 400
+  // Gateway ``/messages`` Query le=200 — 400 会 422，正式包里表现为部门会话「一直转圈/空白」.
+  const limit = Math.min(200, Math.max(1, Number(opts?.limit) || 200))
   const messages = (await loadDeptGroupMessages(id, {
     limit,
     deptName: opts?.deptName,

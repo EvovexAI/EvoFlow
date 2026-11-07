@@ -5,6 +5,7 @@ import faulthandler
 import json
 import logging
 import os
+import queue
 import sys
 import threading
 import time
@@ -40,7 +41,6 @@ _SLOW_REQUEST_DUMP_THRESHOLD_S = 5.0
 # Dedicated daily file — grep ``[SLOW]`` in ``logs/gateway-slow-YYYY-MM-DD.log``.
 # Populated independently of hang JSON dumps so "前端访问后端慢" is one path to check.
 _last_slow_request_log: dict[str, float] = {}  # throttled warn lines
-_slow_file_lock = threading.Lock()
 
 
 def _flag_enabled(name: str, default: str = "1") -> bool:
@@ -159,6 +159,11 @@ def append_gateway_slow_log(
     """Append one line to the dedicated slow-API log (best-effort, never raises).
 
     ``kind`` examples: ``http_done``, ``inflight``, ``event_loop_lag``, ``stream_block_suspect``.
+
+    File I/O is delegated to a background writer thread: callers include the
+    on-loop heartbeat monitor and async middleware, and a disk hiccup here must
+    never freeze the event loop (2026-11-06 stall dumps caught MainThread inside
+    this function's ``open``/``mkdir``).
     """
     try:
         lag = get_event_loop_lag_seconds()
@@ -193,13 +198,64 @@ def append_gateway_slow_log(
         if extra:
             parts.append(extra)
         line = " ".join(parts) + "\n"
-        path_out = _slow_log_path()
-        with _slow_file_lock:
-            path_out.parent.mkdir(parents=True, exist_ok=True)
-            with path_out.open("a", encoding="utf-8") as f:
-                f.write(line)
+        _enqueue_slow_log_line(line)
     except Exception:
         logger.debug("append_gateway_slow_log failed", exc_info=True)
+
+
+_SLOW_LOG_QUEUE: "queue.SimpleQueue[tuple[Path, str]] | None" = None
+_SLOW_LOG_WRITER_STARTED = False
+_SLOW_LOG_MAX_QUEUE = 1000
+
+
+def _enqueue_slow_log_line(line: str) -> None:
+    """Hand one formatted line to the background slow-log writer (drops on overflow)."""
+    global _SLOW_LOG_QUEUE, _SLOW_LOG_WRITER_STARTED
+    if not _SLOW_LOG_WRITER_STARTED:
+        _SLOW_LOG_QUEUE = queue.SimpleQueue()
+        writer = threading.Thread(
+            target=_slow_log_writer_main,
+            name="gateway-slow-log-writer",
+            daemon=True,
+        )
+        writer.start()
+        _SLOW_LOG_WRITER_STARTED = True
+    assert _SLOW_LOG_QUEUE is not None
+    if _SLOW_LOG_QUEUE.qsize() >= _SLOW_LOG_MAX_QUEUE:
+        return
+    _SLOW_LOG_QUEUE.put((_slow_log_path(), line))
+
+
+def _slow_log_writer_main() -> None:
+    """Background writer: serializes slow-log file I/O off the event loop."""
+    q = _SLOW_LOG_QUEUE
+    assert q is not None
+    last_path: Path | None = None
+    handle = None
+    while True:
+        try:
+            path, line = q.get()
+        except Exception:  # pragma: no cover - queue never raises in practice
+            continue
+        try:
+            if handle is not None and last_path is not None and path != last_path:
+                handle.close()
+                handle = None
+            if handle is None:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                handle = path.open("a", encoding="utf-8")
+                last_path = path
+            handle.write(line)
+            handle.flush()
+        except Exception:
+            try:
+                if handle is not None:
+                    handle.close()
+            except Exception:
+                pass
+            handle = None
+            last_path = None
+            logger.debug("slow-log writer failed", exc_info=True)
 
 
 def get_event_loop_lag_seconds() -> float:

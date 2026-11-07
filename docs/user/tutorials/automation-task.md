@@ -134,7 +134,7 @@ AI 会帮你确认配置并创建，和 GUI 创建效果一样。
 
 如果你**习惯编辑配置文件**，或者需要批量管理多个自动化任务，也可以使用 TOML 方式。
 
-> 以下内容为**替代方案**，对大多数用户来说直接用 GUI 面板更简单。需要了解 TOML 完整字段和运维配置的，参考 [自动化任务调度指南](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度指南]]。
+> 以下内容为**替代方案**，对大多数用户来说直接用 GUI 面板更简单。注意：TOML 文件只在启动时**一次性导入**到数据库（legacy 迁移路径），导入后请以 GUI 面板为准进行编辑管理，再改 TOML 不会同步。需要了解完整字段和运维配置的，参考 [自动化任务调度指南](../guides/tasks/automation-scheduler.md) [[guides/tasks/automation-scheduler|自动化任务调度指南]]。
 
 ### 创建任务目录
 

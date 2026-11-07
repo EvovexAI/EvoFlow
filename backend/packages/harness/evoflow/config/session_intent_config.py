@@ -6,7 +6,10 @@ from pydantic import BaseModel, Field
 
 
 class SessionIntentConfig(BaseModel):
-    enabled: bool = Field(default=True)
+    enabled: bool = Field(
+        default=False,
+        description="Retired: do not inject <session_intent> turn-tail (chat history already has prior goals).",
+    )
     max_turns: int = Field(default=5, ge=1, le=20)
     llm_rollup_enabled: bool = Field(
         default=False,

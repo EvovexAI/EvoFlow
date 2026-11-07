@@ -37,7 +37,13 @@ export function warmFrequentMenuModules() {
   const run = () => {
     let i = 0
     const next = () => {
-      if (i >= IDLE_WARM_ROUTES.length) return
+      if (i >= IDLE_WARM_ROUTES.length) {
+        // After menu chunks, soft-warm workflow canvas (heavy @xyflow).
+        void import('../components/app-workflow-canvas.js')
+          .then((m) => m.preloadAppWorkflowCanvas?.())
+          .catch(() => {})
+        return
+      }
       const path = IDLE_WARM_ROUTES[i++]
       void prefetchRoute(path)
         .catch(() => {})

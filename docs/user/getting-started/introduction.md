@@ -17,7 +17,9 @@
 
 ## 1. 一句话定义
 
-EvoFlow 是基于 LangGraph 构建的 AI Agent 运行时。你给它一个目标，它会自主规划、调用工具、委派子 Agent、读写文件、执行命令——直到任务完成。
+**本项目后续由 EvoFlow 研发部的 AI 员工持续迭代，自我进化优化。**
+
+EvoFlow 是 **进化的工作流（Evolutionary Workflow）**：基于 LangGraph 的 AI Agent 运行时 + 智能体员工组织。你给它一个目标，它会自主规划、调用工具、委派子 Agent、读写文件、执行命令——直到任务完成。
 
 ## 2. 与传统对话式 Agent 的差异
 
@@ -110,11 +112,11 @@ Plan 确认执行后，Supervisor 将目标展开为**有向无环子任务图�
 
 ### 沙箱（Sandbox）
 
-每个任务在隔离的执行环境中运行，拥有独立的文件系统视图。支持本地、Docker、Kubernetes 三种模式。
+每个任务在隔离的执行环境中运行，拥有独立的文件系统视图。支持本地容器（Docker / Apple Container）与远程沙箱（含 Kubernetes）两种部署方式。
 
 ### 子 Agent（Subagents）
 
-复杂任务会被拆解，主 Agent 委派多个子 Agent 并行执行，最后综合结果。每轮最多 3 个并行，默认超时 15 分钟（可配置）。
+复杂任务会被拆解，主 Agent 委派多个子 Agent 并行执行，最后综合结果。每轮最多 5 个并行，默认超时 15 分钟（可配置）。
 
 ## 6. 架构速览
 
@@ -135,9 +137,9 @@ EvoFlow 由四层组成，从上到下依次是：
 
 | 模式 | 隔离级别 | 典型场景 |
 |------|----------|----------|
-| **Local** | 路径隔离；默认 **不启用** `bash` 工具 | 个人桌面快速体验 |
-| **Docker（AioSandbox）** | 容器隔离；可执行 Shell | 团队/生产推荐 |
-| **Kubernetes** | Pod 隔离 | 大规模部署 |
+| **未启用（Noop）** | 无容器隔离；默认 **不启用** `bash` 工具 | 个人桌面快速体验 |
+| **AioSandbox 本地容器** | Docker / Apple Container 隔离；可执行 Shell | 团队/生产推荐 |
+| **AioSandbox 远程 / K8s** | 连接预置沙箱服务（含 Kubernetes） | 大规模部署 |
 
 ### 其他安全机制
 

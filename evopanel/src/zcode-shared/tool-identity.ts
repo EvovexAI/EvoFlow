@@ -34,6 +34,8 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   // wire 名就是 snake_case 的 submit_result（仓库里唯一一个），下划线必须字面在场：
   // 未登记时 UI identity 退回 unknown，动态工作流 actor 的提交会落到 raw fallback renderer。
   "submit_result",
+  // EvoFlow 资产工具：统一 read/search/list/profile/note 操作。
+  "assets",
 ] as const;
 
 export type ZCodeKnownToolName = (typeof ZCODE_KNOWN_TOOL_NAMES)[number];

@@ -229,6 +229,7 @@ export function showRightStageCodeViewer(
     title: source.title || basename(pathOrTitle) || '代码对比',
     layout: opts?.layout || 'half',
     sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    forceExpand: true,
     data: {
       // 原样透传，PreviewPane 需要完整联合成员字段（patch / media 等）
       source: source as RightStageCodeViewerSource,
@@ -361,6 +362,7 @@ export function showRightStageFilePreview(
     title: name,
     layout,
     sessionKey,
+    forceExpand: true,
     data: {
       path: id,
       name,
@@ -431,6 +433,7 @@ export function showRightStageWorkspaceBrowse(
     title,
     layout: 'workspace-browse',
     sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    forceExpand: true,
     data: {
       ...(workspaceRoot ? { workspaceRoot } : {}),
       ...(focusPath ? { focusPath } : {}),
@@ -477,6 +480,7 @@ export function showRightStageAssetPreview(
     id,
     title: name,
     layout,
+    forceExpand: true,
     sessionKey,
     data: {
       path,

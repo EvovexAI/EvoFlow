@@ -349,12 +349,3 @@ def parse_affect_tag(text: str) -> dict[str, float] | None:
 
 def strip_affect_tags(text: str) -> str:
     return _AFFECT_TAG_RE.sub("", str(text or "")).strip()
-
-
-AFFECT_DISCIPLINE_PROMPT = """
-情感纪律（内部）：
-- 称对方为「你」，勿用仆从式尊称。
-- 不对用户念激素名、小数或「我现在心情是…」。
-- 只有明显触动才更新心境：用工具 ``assets(action="affect", content="…")``（默认 append；整份重写 ``mode="replace"``）。平静涟漪不写。
-- 不要依赖后台自动改情感；调了就按新状态自然说话。
-""".strip()

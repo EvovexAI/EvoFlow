@@ -68,7 +68,7 @@ def test_wait_task_pulses_heartbeat_while_running(tmp_path: Path):
         heartbeats: list[str] = []
         activities: list[str] = []
 
-        def _hb(sk: str) -> int:
+        def _hb(sk: str, **_kwargs) -> int:
             heartbeats.append(sk)
             return 1
 

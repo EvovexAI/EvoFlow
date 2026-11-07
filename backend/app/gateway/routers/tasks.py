@@ -2419,11 +2419,51 @@ async def get_subtask_enriched_prompt(http_request: Request, task_id: str, subta
     summary="Get Subtask Conversation History",
     description="Get persisted conversation-structure history for a subtask.",
 )
-async def get_subtask_conversation_history(http_request: Request, task_id: str, subtask_id: str, limit: int = Query(500, ge=1, le=5000)) -> SubtaskConversationHistoryResponse:
+async def get_subtask_conversation_history(
+    http_request: Request,
+    task_id: str,
+    subtask_id: str,
+    limit: int = Query(500, ge=1, le=5000),
+    meta_only: bool = Query(
+        False,
+        description="Resolve thread_id + outcome only (skip message scan). Used by V4 pane open.",
+    ),
+) -> SubtaskConversationHistoryResponse:
+    """Return subtask history from ``evoflow_chat_messages`` (executor thread scope).
+
+    Prefer a light ``find_main_task`` load — do **not** call ``get_task`` here:
+    that path runs workflow rollup heal (``sync_main_task_from_subtasks``) and made
+    workflow step transcript opens feel stuck on「加载中…」.
+    """
     require_task_visible(http_request, task_id)
-    """Return subtask history from ``evoflow_chat_messages`` (executor thread scope)."""
-    task = await get_task(http_request, task_id)
-    target_subtask = next((st for st in (task.get("subtasks") or []) if str(st.get("id") or "").strip() == str(subtask_id or "").strip()), None)
+    sid = str(subtask_id or "").strip()
+    task: dict[str, Any] | None = None
+    try:
+        from evoflow.persistence import task_repositories as task_repo
+
+        bundle = task_repo.load_task_bundle(task_id)
+        if bundle:
+            task = next(
+                (t for t in (bundle.get("tasks") or []) if isinstance(t, dict) and t.get("id") == task_id),
+                None,
+            )
+    except Exception:
+        task = None
+    if task is None:
+        found = find_main_task(get_project_storage(), task_id)
+        if not found:
+            raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+        _proj, task = found
+    if not isinstance(task, dict):
+        raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+    target_subtask = next(
+        (
+            st
+            for st in (task.get("subtasks") or [])
+            if isinstance(st, dict) and str(st.get("id") or "").strip() == sid
+        ),
+        None,
+    )
     if target_subtask is None:
         raise_task_error(
             ErrorCode.SUBTASK_NOT_FOUND,
@@ -2434,9 +2474,20 @@ async def get_subtask_conversation_history(http_request: Request, task_id: str, 
         list_subtask_conversation_ui_messages,
         resolve_subtask_transcript_thread,
     )
+    from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
 
-    sid = str(subtask_id or "").strip()
     sub_row = target_subtask if isinstance(target_subtask, dict) else None
+    thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=sub_row)
+    outcome = build_subtask_outcome_snapshot(sub_row or {})
+    if meta_only:
+        return SubtaskConversationHistoryResponse(
+            task_id=task_id,
+            subtask_id=sid,
+            count=0,
+            messages=[],
+            thread_id=thread_id,
+            outcome=outcome,
+        )
     cap = max(1, min(int(limit or 500), 5000))
     rows = list_subtask_conversation_ui_messages(
         task,
@@ -2444,10 +2495,6 @@ async def get_subtask_conversation_history(http_request: Request, task_id: str, 
         subtask_row=sub_row,
         limit=cap,
     )
-    thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=sub_row)
-    from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
-
-    outcome = build_subtask_outcome_snapshot(sub_row or {})
     return SubtaskConversationHistoryResponse(
         task_id=task_id,
         subtask_id=sid,

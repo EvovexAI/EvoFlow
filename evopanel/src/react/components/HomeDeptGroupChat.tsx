@@ -43,12 +43,19 @@ import {
 } from '../lib/dept-group-wake-queue.js'
 import {
   diffWakeJobTransitions,
+  loadDeptGroupAuditTrail,
   persistDeptGroupWakeEvent,
+  wakeEventsToJobSnapshots,
 } from '../lib/dept-group-audit.js'
 import {
   deptGroupWakeChainKey,
+  isTrivialGroupNestGoal,
   shouldAutoNestWake,
 } from '../lib/dept-group-nest-policy.js'
+import {
+  mergeWakeJobSnapshots,
+  resolveMentionDispatchStatus,
+} from '../lib/dept-group-dispatch-status.js'
 import {
   clearDeptGroupLiveMap,
   DEPT_GROUP_INSERT_MENTION_EVENT,
@@ -250,12 +257,27 @@ function renderTextWithMentions(
   return nodes.length ? nodes : raw
 }
 
-function wakeStatusLabel(status: WakeJobSnapshot['status'] | undefined): string {
-  if (status === 'queued') return '排队中'
-  if (status === 'running') return '回答中'
-  if (status === 'done') return '已回'
-  if (status === 'failed') return '失败'
-  return ''
+/** 该 @ 消息之后，时间线上是否已有此人定稿回复（重挂无队列时兜底「已回」） */
+function hasLaterAgentReply(
+  msgs: GroupChatMsg[],
+  sourceMsgId: string | undefined,
+  agentCode: string,
+): boolean {
+  const code = String(agentCode || '').trim()
+  const sid = String(sourceMsgId || '').trim()
+  if (!code || !sid || !msgs?.length) return false
+  const idx = msgs.findIndex((m) => m.id === sid)
+  if (idx < 0) return false
+  for (let i = idx + 1; i < msgs.length; i++) {
+    const m = msgs[i]
+    if (m.kind !== 'agent') continue
+    if (String(m.agentCode || '').trim() !== code) continue
+    if (m.streaming) continue
+    const body = String(m.text || '').trim()
+    if (!body || /排队|正忙|重试|正在回复|未能回复/.test(body)) continue
+    return true
+  }
+  return false
 }
 
 /** 气泡下挂派工条：谁被 @、队列态（排队/回答中/已回） */
@@ -264,11 +286,13 @@ function MentionDispatchStrip({
   members,
   wakeJobs,
   sourceMsgId,
+  msgs,
 }: {
   text: string
   members: HomeCmdPerson[]
   wakeJobs: WakeJobSnapshot[]
   sourceMsgId?: string
+  msgs: GroupChatMsg[]
 }) {
   const hits = parseMentions(text, members)
   if (!hits.length) return null
@@ -277,30 +301,29 @@ function MentionDispatchStrip({
       {hits.map((h) => {
         const goal = extractMentionGoal(text, h).replace(/\s+/g, ' ').trim()
         const preview = goal.length > 36 ? `${goal.slice(0, 36)}…` : goal
-        const job =
-          [...wakeJobs]
-            .reverse()
-            .find(
-              (j) =>
-                j.agentCode === h.agent_code &&
-                (!sourceMsgId || !j.sourceMsgId || j.sourceMsgId === sourceMsgId),
-            ) || null
-        const st = job?.status
-        const stLabel = wakeStatusLabel(st)
+        const resolved = resolveMentionDispatchStatus({
+          wakeJobs,
+          agentCode: h.agent_code,
+          sourceMsgId,
+          hasLaterReply: hasLaterAgentReply(msgs, sourceMsgId, h.agent_code),
+        })
+        const st = resolved.status
         return (
           <span
             key={h.agent_code}
-            className={`dept-im__dispatch-chip${st ? ` is-${st}` : ''}`}
-            title={job?.error || preview || undefined}
+            className={`dept-im__dispatch-chip${st ? ` is-${st}` : resolved.miss ? ' is-miss' : ''}`}
+            title={preview || undefined}
           >
             <span className="dept-im__dispatch-arrow" aria-hidden>
               →
             </span>
             <EmployeeStageAvatar agentCode={h.agent_code} title={h.role_name} size={14} />
             <span className="dept-im__dispatch-who">@{h.role_name}</span>
-            {stLabel ? <span className="dept-im__dispatch-status">{stLabel}</span> : (
-              <span className="dept-im__dispatch-status is-miss">未入队</span>
-            )}
+            <span
+              className={`dept-im__dispatch-status${resolved.miss ? ' is-miss' : ''}`}
+            >
+              {resolved.label}
+            </span>
             {preview ? <span className="dept-im__dispatch-goal">{preview}</span> : null}
           </span>
         )
@@ -376,6 +399,7 @@ export function HomeDeptGroupChat({
   const [threadLines, setThreadLines] = useState<ThreadLine[]>([])
   const [threadLoading, setThreadLoading] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
+  const stickBottomRef = useRef(true)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const mentionListRef = useRef<HTMLUListElement>(null)
   const membersRef = useRef(members)
@@ -385,7 +409,14 @@ export function HomeDeptGroupChat({
   const aliveRef = useRef(true)
   const wakeQueueRef = useRef<DeptGroupWakeQueue | null>(null)
   const bubbleByJobRef = useRef(new Map<string, string>())
+  const threadReqRef = useRef(0)
   const [wakeJobs, setWakeJobs] = useState<WakeJobSnapshot[]>([])
+  /** 重挂后从审计事件回灌，避免历史 @ 全显示「未入队」 */
+  const [auditWakeJobs, setAuditWakeJobs] = useState<WakeJobSnapshot[]>([])
+  const stripWakeJobs = useMemo(
+    () => mergeWakeJobSnapshots(wakeJobs, auditWakeJobs),
+    [wakeJobs, auditWakeJobs],
+  )
   /** 成员资料卡：点头像弹身份信息（过程/对话/编辑收进卡内动作） */
   const [profile, setProfile] = useState<{ person: HomeCmdPerson; x: number; y: number } | null>(null)
   /** 与左下角账号芯片同源：displayName / 头像 */
@@ -468,7 +499,9 @@ export function HomeDeptGroupChat({
   useEffect(() => {
     aliveRef.current = true
     bubbleByJobRef.current = new Map()
+    stickBottomRef.current = true
     setWakeJobs([])
+    setAuditWakeJobs([])
     setMsgs([])
     setDraft('')
     setThreadCode(null)
@@ -501,10 +534,25 @@ export function HomeDeptGroupChat({
           }),
         )
         if (cancelled || !aliveRef.current) return
-        setMsgs(recovered)
+        // 历史回填不整表覆盖：加载窗口内本地已 append 的气泡（用户消息/流式占位）
+        // 保留在尾部，避免被更早发起的 DB 读结果抹掉、后续 delta 全部 no-op
+        setMsgs((prev) => {
+          if (!prev.length) return recovered
+          const localIds = new Set(prev.map((m) => m.id))
+          const backfill = recovered.filter((m) => !localIds.has(m.id))
+          return [...backfill, ...prev]
+        })
       })
       .catch(() => {
         /* keep empty */
+      })
+    void loadDeptGroupAuditTrail(deptId, { limit: 200, deptName })
+      .then((trail) => {
+        if (cancelled || !aliveRef.current) return
+        setAuditWakeJobs(wakeEventsToJobSnapshots(trail.wakeEvents || []))
+      })
+      .catch(() => {
+        /* 无审计也不挡聊天 */
       })
     return () => {
       cancelled = true
@@ -518,6 +566,18 @@ export function HomeDeptGroupChat({
   useEffect(() => {
     const el = listRef.current
     if (!el) return
+    // 只有用户本来就在底部附近才跟随新消息；流式期间向上翻历史不被拽回
+    const onScroll = () => {
+      const gap = el.scrollHeight - el.scrollTop - el.clientHeight
+      stickBottomRef.current = gap < 80
+    }
+    el.addEventListener('scroll', onScroll, { passive: true })
+    return () => el.removeEventListener('scroll', onScroll)
+  }, [])
+
+  useEffect(() => {
+    const el = listRef.current
+    if (!el || !stickBottomRef.current) return
     el.scrollTop = el.scrollHeight
   }, [msgs])
 
@@ -673,6 +733,8 @@ export function HomeDeptGroupChat({
         openEmployeeProcess(person)
         return
       }
+      // 请求序号守卫：连点两人时，慢的旧响应不得覆盖新对话
+      const req = ++threadReqRef.current
       setThreadCode(code)
       setThreadLoading(true)
       try {
@@ -680,6 +742,7 @@ export function HomeDeptGroupChat({
         const res = sk
           ? await api.chatHistory(sk, 60)
           : await api.proactiveGetMessages(code, { limit: 60 })
+        if (req !== threadReqRef.current) return
         const rows = Array.isArray(res?.messages)
           ? res.messages
           : Array.isArray(res)
@@ -702,6 +765,7 @@ export function HomeDeptGroupChat({
           .filter(Boolean) as ThreadLine[]
         setThreadLines(lines)
       } catch (e: unknown) {
+        if (req !== threadReqRef.current) return
         const msg = String((e as { message?: string })?.message || e || '加载失败')
         setThreadLines([
           {
@@ -712,7 +776,7 @@ export function HomeDeptGroupChat({
           },
         ])
       } finally {
-        setThreadLoading(false)
+        if (req === threadReqRef.current) setThreadLoading(false)
       }
     },
     [dept.id, openEmployeeProcess, variant],
@@ -855,6 +919,8 @@ export function HomeDeptGroupChat({
           : await streamBodyIntoBubble(bubbleId, reply)
 
         if (input.depth >= MAX_NEST_DEPTH) return {}
+        // 本轮只是打招呼/回一声：即便模型硬 @ 派活，也不自动接力（防总监借报到开单）
+        if (input.depth >= 1 && isTrivialGroupNestGoal(input.goal)) return {}
         // 嵌套接力只叫醒部门员工，避免 @小V 自循环
         const nestRoster = membersRef.current.filter(
           (m) => !isDeptGroupStewardCode(m.agent_code),
@@ -902,7 +968,9 @@ export function HomeDeptGroupChat({
         if (!q || !nested.length) return {}
         const ctx = `【${person.role_name}】：${finalText.slice(0, 400)}`
         // 同一轮用户消息下，每人最多叫醒一次（root|->code），防相互 @ 死循环
+        // chain 用本轮用户根消息防环；sourceMsgId 用当前气泡——派工条挂在谁说的 @ 上就对谁
         const rootId = String(input.sourceMsgId || bubbleId || '').trim()
+        const mentionMsgId = String(bubbleId || rootId).trim()
         // 只入队、不 await：否则父任务会一直 running，名单上「回复中」卡到所有下级说完
         for (const item of nested) {
           void q
@@ -913,7 +981,7 @@ export function HomeDeptGroupChat({
               depth: input.depth + 1,
               fromAgentName: person.role_name,
               contextSummary: ctx,
-              sourceMsgId: rootId || bubbleId,
+              sourceMsgId: mentionMsgId,
               chainKey: deptGroupWakeChainKey(rootId || bubbleId, item.person.agent_code, {
                 fromAgentCode: person.agent_code,
                 goal: item.goal,
@@ -955,9 +1023,9 @@ export function HomeDeptGroupChat({
     const q = new DeptGroupWakeQueue({
       run: (input) => runWakeJobRef.current(input),
       onChange: (jobs) => {
-        if (!aliveRef.current) return
-        setWakeJobs(jobs)
-        // 审计：queued/running/done/failed 变迁落盘（运维「群聊」页可读）
+        // 审计：queued/running/done/failed 变迁落盘（运维「群聊」页可读）。
+        // 必须先于 aliveRef 拦截：dispose 产生的「已取消」终态也落盘，
+        // 否则审计页成员永远卡在排队中/回复中。
         const changed = diffWakeJobTransitions(wakeSigByJob, jobs)
         for (const j of changed) {
           void persistDeptGroupWakeEvent({
@@ -976,6 +1044,8 @@ export function HomeDeptGroupChat({
             console.warn('[dept-group] persist wake event failed', j.id, err)
           })
         }
+        if (!aliveRef.current) return
+        setWakeJobs(jobs)
         for (const j of jobs) {
           if (j.status !== 'failed') continue
           const bid = bubbleByJobRef.current.get(j.id)
@@ -1176,8 +1246,10 @@ export function HomeDeptGroupChat({
           return `${who}：${String(m.text || '').trim().slice(0, 240)}`
         })
         .join('\n')
-      // 未 @ → 小V；@ 多人 → 各人入队（同人串行、异人并行；忙则重试）
-      await Promise.all(
+      // 未 @ → 小V；@ 多人 → 各人入队（同人串行、异人并行；忙则重试）。
+      // 入队即解锁：不 await 整轮回复，否则输入框被锁到所有目标说完（busy 退避可拖几分钟）。
+      // 回复进度看时间线气泡与派工条。
+      void Promise.all(
         targets.map((person) =>
           enqueueWake({
             person,
@@ -1190,25 +1262,29 @@ export function HomeDeptGroupChat({
             sourceMsgId: userMsgId,
             // 首轮也占坑：后面成员再 @ 同一人会被 nestSeen 丢掉
             chainKey: deptGroupWakeChainKey(userMsgId, person.agent_code),
+          }).catch((e: unknown) => {
+            const msg = String((e as { message?: string })?.message || e || '失败')
+            appendMsg({
+              id: `sys-err-${Date.now()}-${person.agent_code}`,
+              kind: 'system',
+              text: `点名 @${person.role_name} 失败：${msg}`,
+              ts: Date.now(),
+              error: true,
+            })
+            toast(`点名失败：${msg}`, 'error')
           }),
         ),
-      )
-    } catch (e: unknown) {
-      const msg = String((e as { message?: string })?.message || e || '失败')
-      appendMsg({
-        id: `sys-err-${Date.now()}`,
-        kind: 'system',
-        text: `群聊点名失败：${msg}`,
-        ts: Date.now(),
-        error: true,
+      ).catch(() => {
+        /* 各目标已自行提示 */
       })
-      toast(`点名失败：${msg}`, 'error')
     } finally {
       setSending(false)
     }
   }
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // 中文 IME 组合中：Enter 是选词/上屏确认，不是发送；候选导航同样不触发
+    if (e.nativeEvent.isComposing || (e.nativeEvent as { keyCode?: number }).keyCode === 229) return
     if (mentionOpen && mentionCandidates.length) {
       if (e.key === 'ArrowDown') {
         e.preventDefault()
@@ -1310,7 +1386,11 @@ export function HomeDeptGroupChat({
                       m.busy ? ' is-busy' : ''
                     }${onDuty ? ' is-on-duty' : ' is-off-duty'}${steward ? ' is-steward' : ''}`}
                     onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => insertMention(m)}
+                    onClick={(e) => {
+                      // 双击开线程时 DOM 会先派发两次 click，第二跳不再插 @
+                      if (e.detail >= 2) return
+                      insertMention(m)
+                    }}
                     onDoubleClick={() => void loadThread(m.agent_code)}
                     title={`${m.role_name} · ${steward ? '群管家' : personDutyLabel(m)}`}
                   >
@@ -1506,8 +1586,9 @@ export function HomeDeptGroupChat({
                           <MentionDispatchStrip
                             text={msg.text}
                             members={roster}
-                            wakeJobs={wakeJobs}
+                            wakeJobs={stripWakeJobs}
                             sourceMsgId={msg.id}
+                            msgs={msgs}
                           />
                         ) : null}
                       </div>
@@ -1554,8 +1635,9 @@ export function HomeDeptGroupChat({
                       <MentionDispatchStrip
                         text={msg.text}
                         members={roster}
-                        wakeJobs={wakeJobs}
+                        wakeJobs={stripWakeJobs}
                         sourceMsgId={msg.id}
+                        msgs={msgs}
                       />
                     ) : null}
                   </button>

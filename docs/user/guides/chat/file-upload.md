@@ -6,7 +6,7 @@
 > 2. AI 自动读取内容，你说"帮我总结一下这份合同的关键条款和风险点"
 > 3. AI 基于 PDF 内容直接回答
 >
-> 支持 PDF、PowerPoint、Excel、Word 格式，单文件最大 100MB。上传后自动转成 Markdown，AI 就能读。文件不会长期保存，适合一次性分析。
+> 支持 PDF、PowerPoint、Excel、Word 格式。上传后自动转成 Markdown，AI 就能读。文件不会长期保存，适合一次性分析。
 >
 > **功能关系**：文件上传是**当前会话的附件**。要长期检索，把文件放进 [知识库](../configuration/knowledge-base.md)：新建库、上传或整夹同步，再绑到员工或智能体。
 
@@ -32,11 +32,11 @@
 
 ```bash
 # 上传单个文件
-curl -X POST http://localhost:2026/api/threads/{thread_id}/uploads \
+curl -X POST http://localhost:8001/api/threads/{thread_id}/uploads \
   -F "files=@/path/to/document.pdf"
 
 # 上传多个文件
-curl -X POST http://localhost:2026/api/threads/{thread_id}/uploads \
+curl -X POST http://localhost:8001/api/threads/{thread_id}/uploads \
   -F "files=@/path/to/document.pdf" \
   -F "files=@/path/to/presentation.pptx" \
   -F "files=@/path/to/spreadsheet.xlsx"
@@ -62,13 +62,13 @@ curl -X POST http://localhost:2026/api/threads/{thread_id}/uploads \
 ### 列出已上传文件
 
 ```bash
-curl http://localhost:2026/api/threads/{thread_id}/uploads/list
+curl http://localhost:8001/api/threads/{thread_id}/uploads/list
 ```
 
 ### 删除文件
 
 ```bash
-curl -X DELETE http://localhost:2026/api/threads/{thread_id}/uploads/document.pdf
+curl -X DELETE http://localhost:8001/api/threads/{thread_id}/uploads/document.pdf
 ```
 
 ## 自动文档转换
@@ -100,13 +100,13 @@ backend/.evo-flow/threads/
 
 ## 限制
 
-- **最大文件大小**：100MB（可通过 nginx `client_max_body_size` 调整）
+- **文件大小**：接口本身未设硬性上限，但上传文件可达数十 MB 量级，过大文件会拖慢写盘与沙箱拷贝；若经反向代理部署，注意 `client_max_body_size` 等代理层限制
 - **路径安全**：自动验证文件路径，防止目录遍历攻击
 
 ## 常见问题
 
 **Q: 文件上传失败？**
-检查文件大小是否超过 100MB 限制。确认磁盘空间充足。查看 Gateway 日志。
+确认磁盘空间充足。若经 nginx 等反向代理部署，检查 `client_max_body_size`。查看 Gateway 日志。
 
 **Q: 文档转换失败？**
 确认 `markitdown` 已正确安装（`uv run python -c "import markitdown"`）。加密或损坏的文档可能无法转换，但原文件仍会保存。

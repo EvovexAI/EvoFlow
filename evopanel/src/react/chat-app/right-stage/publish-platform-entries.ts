@@ -85,9 +85,11 @@ export function publishPlatformEntries(
     } else {
       ctx.rightStageStore.hide()
     }
+  } else if (typeof ctx.rightStageStore.expandUnlessUserCollapsed === 'function') {
+    // 工作流签还在但可能已被 setChatPanelDisplayMode 误 collapse：再展开（尊重用户收起）
+    ctx.rightStageStore.expandUnlessUserCollapsed()
   } else if (typeof ctx.rightStageStore.expand === 'function') {
-    // 工作流签还在但可能已被 setChatPanelDisplayMode 误 collapse：强制展开
-    ctx.rightStageStore.expand()
+    if (!ctx.rightStageStore.isUserCollapsed) ctx.rightStageStore.expand()
   }
   // 强制展开右上角状态卡并切到「平台」（ChatSummaryPanel 靠 focus id 跳 tab）
   // 有进度签时 setChatPanelDisplayMode 不会再 collapse 侧栏（见该函数）。

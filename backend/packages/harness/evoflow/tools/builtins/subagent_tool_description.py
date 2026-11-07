@@ -7,7 +7,7 @@ Delegate a sub-problem to an isolated worker (stream default on). After a plan i
 committed, use **`supervisor`** for batch lifecycle — not this tool.
 
 **Use when**: multi-file/complex edits, long research/recon/log triage, parallel \
-independent sub-problems. Prefer `find`/`rg`/`read` for simple locate; \
+independent sub-problems. Prefer `grep`/`search_code_index`/`read` for simple locate; \
 `read`+`replace` for single-file small edits.
 
 **Types (default = `agent`)**: Prefer the built-in generic **`agent`** unless you \

@@ -147,33 +147,33 @@ def test_read_state_stale_hint_still_works() -> None:
 # ── glob/grep registration ──────────────────────────────────────────────────
 
 
-def test_glob_grep_registered_in_host_direct_catalog() -> None:
+def test_grep_registered_glob_retired_in_host_direct_catalog() -> None:
     from evoflow.tools.host_direct import HOST_DIRECT_TOOLS
 
     names = [getattr(t, "name", "") for t in HOST_DIRECT_TOOLS]
-    assert "glob" in names and "grep" in names
+    assert "grep" in names
+    assert "glob" not in names
 
 
-def test_glob_grep_args_fields_match_read_convention() -> None:
+def test_grep_args_fields_match_read_convention() -> None:
     # Raw ``model_json_schema()`` raises for ALL host-direct tools carrying
     # ``runtime: ToolRuntime`` (read/write/replace included) — langchain strips
     # injected args at bind_tools time. Asserting field shape instead.
     from evoflow.tools.host_direct.read_file import read_file_hd
-    from evoflow.tools.zcode_port.glob_grep import glob_tool, grep_tool
+    from evoflow.tools.zcode_port.glob_grep import grep_tool
 
-    for tool_obj in (glob_tool, grep_tool, read_file_hd):
+    for tool_obj in (grep_tool, read_file_hd):
         fields = tool_obj.args_schema.model_fields
         assert "runtime" in fields  # injected at graph runtime, stripped on bind
-    assert "pattern" in glob_tool.args_schema.model_fields
     assert "pattern" in grep_tool.args_schema.model_fields
 
 
-def test_glob_grep_auto_risk_and_aliases() -> None:
+def test_grep_auto_risk_and_aliases() -> None:
     from evoflow.agents.tool_approval_config import RISK_AUTO, tool_risk_level
     from evoflow.tools.tool_aliases import canonical_tool_name
 
-    assert tool_risk_level("glob", {}) == RISK_AUTO
     assert tool_risk_level("grep", {}) == RISK_AUTO
     assert canonical_tool_name("rg") == "grep"
-    assert canonical_tool_name("find") == "glob"
+    assert canonical_tool_name("find") == "bash"
+    assert canonical_tool_name("glob") == "bash"
     assert canonical_tool_name("grep") == "grep"

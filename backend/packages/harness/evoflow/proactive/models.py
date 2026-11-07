@@ -84,15 +84,79 @@ _AUTONOMY_THRESHOLD = {
 }
 
 
+def effective_risk_threshold(
+    autonomy: ProactiveAutonomyLevel | str,
+    risk_threshold: InitiativeRiskLevel | str | None = None,
+    *,
+    enabled: bool = False,
+) -> InitiativeRiskLevel:
+    """Resolve the risk level at which this role needs a human.
+
+    Baseline comes from ``autonomy`` (see ``_AUTONOMY_THRESHOLD``) and is
+    never loosened. When ``risk_threshold`` is **enabled**, it may only
+    *tighten* the baseline (lower risk level = stricter).
+
+    ``enabled=False`` (the legacy default) ignores ``risk_threshold``
+    entirely — the field used to be inert, so existing roles keep behaving
+    exactly as before.
+    """
+    a = (
+        ProactiveAutonomyLevel(autonomy)
+        if not isinstance(autonomy, ProactiveAutonomyLevel)
+        else autonomy
+    )
+    effective = _AUTONOMY_THRESHOLD[a]
+    if not enabled or risk_threshold is None:
+        return effective
+    try:
+        floor = (
+            InitiativeRiskLevel(risk_threshold)
+            if not isinstance(risk_threshold, InitiativeRiskLevel)
+            else risk_threshold
+        )
+    except ValueError:
+        return effective
+    if _RISK_ORDER[floor] < _RISK_ORDER[effective]:
+        return floor
+    return effective
+
+
 def needs_approval(
     risk: InitiativeRiskLevel | str,
     autonomy: ProactiveAutonomyLevel | str,
+    risk_threshold: InitiativeRiskLevel | str | None = None,
+    *,
+    risk_threshold_enabled: bool = False,
 ) -> bool:
-    """Whether a given risk level triggers approval for this autonomy level."""
+    """Whether a given risk level triggers approval for this autonomy level.
+
+    The **autonomy level** sets the baseline threshold (see
+    ``_AUTONOMY_THRESHOLD``): it is never loosened by anything else.
+
+    ``risk_threshold`` is the role's optional **tightening floor**. It only
+    has an effect when ``risk_threshold_enabled`` is True; it can then only
+    make approval *more* likely, never less — a role marked
+    ``approval_for_all`` cannot use it to skip approvals.
+
+    ``risk_threshold`` used to be a dead config field (stored on every role,
+    editable through the API, but never read). It is now honoured, but only
+    when explicitly opted in, so no existing role changes behaviour silently.
+
+    ======================  ====================  ==========================
+    autonomy                baseline threshold    with risk_threshold=high
+    ======================  ====================  ==========================
+    ``full_auto``           critical              critical (no loosening)
+    ``approval_for_risky``  medium                medium   (no loosening)
+    ``approval_for_all``    low                   low      (no loosening)
+    ======================  ====================  ==========================
+    """
     r = InitiativeRiskLevel(risk) if not isinstance(risk, InitiativeRiskLevel) else risk
-    a = ProactiveAutonomyLevel(autonomy) if not isinstance(autonomy, ProactiveAutonomyLevel) else autonomy
-    threshold = _AUTONOMY_THRESHOLD[a]
-    return _RISK_ORDER[r] >= _RISK_ORDER[threshold]
+    effective = effective_risk_threshold(
+        autonomy,
+        risk_threshold,
+        enabled=risk_threshold_enabled,
+    )
+    return _RISK_ORDER[r] >= _RISK_ORDER[effective]
 
 
 # ── Dataclasses ───────────────────────────────────────────────────────
@@ -113,6 +177,17 @@ class ProactiveRoleConfig:
     autonomy_level: ProactiveAutonomyLevel = ProactiveAutonomyLevel.APPROVAL_FOR_ALL
     max_initiatives_per_cycle: int = 3
     risk_threshold: InitiativeRiskLevel = InitiativeRiskLevel.MEDIUM
+    # Whether ``risk_threshold`` actually gates approvals.
+    #
+    # ``risk_threshold`` shipped as a dead field: every role row carried a
+    # value (default ``medium``), it was editable through the API, but no code
+    # ever read it. Turning it on unconditionally would silently tighten every
+    # existing role — and would break ``full_auto`` roles whose stored value is
+    # ``low`` (xiaomi / 系统前台), making *every* task need a human.
+    #
+    # So the threshold is **opt-in**: it only gates when this flag is on.
+    # Legacy rows (no flag) keep the pure ``autonomy_level`` behaviour.
+    risk_threshold_enabled: bool = False
     # Desktop-only until the employee binds an IM channel (bind flow adds feishu/wecom/…).
     approval_channels: list[str] = field(default_factory=lambda: ["desktop"])
     approval_timeout_minutes: int = 30
@@ -374,8 +449,17 @@ class Initiative:
     created_at: str = ""
     updated_at: str = ""
 
+    # Role-level risk floor (optional; unset → autonomy level only).
+    config_risk_threshold: InitiativeRiskLevel | None = None
+    config_risk_threshold_enabled: bool = False
+
     def needs_approval(self) -> bool:
-        return needs_approval(self.risk_level, self.config_autonomy_level)
+        return needs_approval(
+            self.risk_level,
+            self.config_autonomy_level,
+            self.config_risk_threshold,
+            risk_threshold_enabled=self.config_risk_threshold_enabled,
+        )
 
     # Convenience for needs_approval; set by engine when loading.
     config_autonomy_level: ProactiveAutonomyLevel = ProactiveAutonomyLevel.APPROVAL_FOR_RISKY

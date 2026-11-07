@@ -9,7 +9,7 @@
 >
 > 3 个一起查，查完汇总给你。这就是子 AI 委派——把复杂任务拆成多路并行，效率更高。
 >
-> 每轮最多 3 个子 AI 同时跑，默认超时 15 分钟。读完本文你会了解子 AI 的调度机制、并发限制和超时配置。
+> 每轮最多 5 个子 AI 同时跑，默认超时 15 分钟。读完本文你会了解子 AI 的调度机制、并发限制和超时配置。
 >
 > **功能关系**：子 Agent 是 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 的扩展能力——Lead Agent 通过 `task` 工具委派子任务，子 Agent 共享主 Agent 的线程上下文但拥有独立的执行环境。与 [外部 ACP Agent](agent-system.md) [[explanation/agent-system|外部 ACP Agent]] 不同，子 Agent 运行在内置 LangGraph 线程中，通过 SSE 事件实时反馈进度。并发控制机制（`SubagentLimitMiddleware`）是 Lead Agent 中间件链的一部分。
 
@@ -33,19 +33,26 @@
 
 | 线程池 | Worker 数 | 职责 |
 |--------|-----------|------|
-| `_scheduler_pool` | 3 | 调度：接受任务、分配子 Agent、管理队列 |
-| `_execution_pool` | 3 | 执行：实际运行子 Agent 的 LangGraph 对话 |
+| `_scheduler_pool` | 5 | 调度：接受任务、分配子 Agent、管理队列 |
+| `_execution_pool` | 5 | 执行：实际运行子 Agent 的 LangGraph 对话 |
 
 双池设计将调度和执行分离，避免调度逻辑阻塞执行，也避免执行压力影响调度决策。
 
 ### 内置子 Agent
 
-| 类型 | 说明 | 可用工具 |
-|------|------|----------|
-| `general-purpose` | 通用型，处理多步骤复杂任务 | 除 task 外的所有工具（防止递归委派） |
-| `bash` | 命令执行专家 | 仅 bash 工具 |
+除通用型与终端型外，还内置了一批领域专精子 Agent（检索、知识、文件、代码以及媒体 / 财务 / 营销等团队型 worker）：
 
-子 Agent 的注册表在 `SubagentRegistry` 中管理，支持动态扩展。
+| 类型 | 说明 |
+|------|------|
+| `agent`（旧名 `general-purpose`） | 通用型，处理多步骤复杂任务；继承父会话工具集（禁止再委派 task，防止递归） |
+| `bash` | 终端执行：独立子上下文中跑命令行与沙箱内文件操作 |
+| `code-agent` | 代码助手：在项目仓库中搜索、阅读、修改、调试代码 |
+| `search-worker` | 工作区代码检索专精：只处理一个 search 查询（只读） |
+| `file-worker` | 文件操作 worker |
+| `knowledge-retriever` / `knowledge-curator` | 知识库检索 / 整理 |
+| `media-*`、`finance-*`、`marketing-*`、`hf-*` 等 | 团队型领域 worker（编剧、画师、风控、渲染等） |
+
+子 Agent 的注册表在 `SubagentRegistry` 中管理，`general-purpose` 作为旧别名自动解析到 `agent`，支持动态扩展。
 
 ## 执行流程
 
@@ -75,8 +82,8 @@ SSE 事件广播：task_started → task_running → task_completed/failed/timed
 
 在 Lead Agent 的模型响应后（`after_model` 阶段），检查 `task` 工具调用数量：
 
-- 如果 `task` 调用数 <= `MAX_CONCURRENT_SUBAGENTS`（3），全部放行
-- 如果超过，只保留前 3 个，截断其余的并注入错误 ToolMessage
+- 如果 `task` 调用数 <= `MAX_CONCURRENT_SUBAGENTS`（5），全部放行
+- 如果超过，只保留前 5 个，截断其余的并注入错误 ToolMessage
 
 这确保模型即使一次性生成多个 task 调用，也不会超过并发限制。
 
@@ -98,11 +105,11 @@ SSE 事件广播：task_started → task_running → task_completed/failed/timed
 | `task_failed` | 任务失败 | task_id, 错误信息 |
 | `task_timed_out` | 任务超时 | task_id |
 
-## 为什么选择 3 作为默认并发数？
+## 为什么默认并发是 5？
 
 - 太少：无法充分利用并行能力，复杂任务仍需串行等待
 - 太多：资源竞争加剧，每个子 Agent 获取的上下文可能受限
-- 3 是经验值：在大多数场景下，3 个并行子 Agent 足以覆盖"研究 + 编码 + 验证"的典型分工
+- 5 是经验值：调度池与执行池各 5 个 worker，足以覆盖「研究 + 编码 + 验证」的典型分工，也和上游模型的并发配额匹配
 
 ## 与外部 Agent（ACP）的区别
 

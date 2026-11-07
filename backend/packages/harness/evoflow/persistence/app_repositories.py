@@ -64,6 +64,7 @@ def _snapshot_from_document(document: dict[str, Any]) -> dict[str, Any]:
         "final_rollup": document.get("final_rollup", "auto"),
         "final_rollup_agent": document.get("final_rollup_agent", ""),
         "final_rollup_instruction": document.get("final_rollup_instruction", ""),
+        "project_path": str(document.get("project_path") or "").strip(),
     }
 
 
@@ -174,6 +175,7 @@ _RESTORE_SNAPSHOT_KEYS = (
     "final_rollup",
     "final_rollup_agent",
     "final_rollup_instruction",
+    "project_path",
 )
 
 
@@ -248,8 +250,8 @@ INSERT OR REPLACE INTO evoflow_apps (
     parameters_json, steps_json, goal_template, validation_template_json, flowchart_mermaid,
     execution_mode, auto_run, source, source_task_id, version,
     status, tags_json, created_at, updated_at, usage_count, last_used_at, canvas_json,
-    answer_from_ref, final_rollup, final_rollup_agent, final_rollup_instruction
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    answer_from_ref, final_rollup, final_rollup_agent, final_rollup_instruction, project_path
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """,
             (
                 app_id,
@@ -278,6 +280,7 @@ INSERT OR REPLACE INTO evoflow_apps (
                 document_n.get("final_rollup", "off"),
                 document_n.get("final_rollup_agent", ""),
                 document_n.get("final_rollup_instruction", ""),
+                str(document_n.get("project_path") or "").strip(),
             ),
         )
         if prev_owner and "owner_scope_id" in cols:
@@ -427,6 +430,16 @@ def app_visible_to_principal(
         personal_scope=personal_scope,
         org_scope=org_scope,
     )
+
+
+def app_exists(app_id: str) -> bool:
+    """Cheap existence check — avoid full ``load_app`` (JSON + normalize) in authz guards."""
+    aid = str(app_id or "").strip()
+    if not aid:
+        return False
+    conn = get_db()
+    row = conn.execute("SELECT 1 FROM evoflow_apps WHERE id = ? LIMIT 1", (aid,)).fetchone()
+    return row is not None
 
 
 def load_app(app_id: str) -> dict[str, Any] | None:
@@ -785,7 +798,7 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
     # Read-back the effective timestamps so the derived durations match the row.
     try:
         cur = conn.execute(
-            "SELECT created_at, started_at, completed_at FROM evoflow_app_runs WHERE id = ?",
+            "SELECT created_at, started_at, completed_at, status FROM evoflow_app_runs WHERE id = ?",
             (run_id,),
         )
         existing = cur.fetchone()
@@ -809,6 +822,31 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
     params.append(run_id)
     conn.execute(f"UPDATE evoflow_app_runs SET {', '.join(set_clauses)} WHERE id = ?", params)
     conn.commit()
+    # 部门群自动回执：仅在真实转入终态时投递（幂等 message_id，reconciler
+    # 重复 heal 同一终态不会重复刷群）。任何失败都不能影响状态写本身。
+    status_norm = str(status or "").strip().lower()
+    if status_norm in ("completed", "failed", "cancelled"):
+        pre_status = ""
+        try:
+            pre_status = str(existing[3] or "").strip().lower() if existing else ""
+        except Exception:
+            pre_status = ""
+        if pre_status != status_norm:
+            try:
+                from evoflow.proactive.dept_group_receipt import (
+                    maybe_push_dept_group_run_receipt_async,
+                )
+
+                maybe_push_dept_group_run_receipt_async(
+                    str(run_id),
+                    status_norm,
+                    result_summary=str(fields.get("result_summary") or "")[:200],
+                    error=str(fields.get("error") or "")[:200],
+                )
+            except Exception:
+                logging.getLogger("evoflow.app_repositories").debug(
+                    "dept group receipt hook skipped run=%s", run_id, exc_info=True
+                )
 
 
 def count_runs(app_id: str) -> int:

@@ -45,6 +45,9 @@ def test_build_dept_group_im_block_mentions_at_rule():
     assert "打招呼" in block
     assert "纯文本" in block or "普通文字" in block
     assert "Markdown" in block
+    assert "岗位" in block or "角色名" in block
+    assert "agent_code" in block or "内部编码" in block
+    assert "旧任务" in block or "站立摘要" in block
     # 提示词自身也不要用 Markdown 标题井号
     assert not any(line.lstrip().startswith("# ") for line in block.splitlines())
 
@@ -66,6 +69,7 @@ def test_build_dept_group_im_steward_block():
     assert "Markdown" in block
     assert "本群可点名：技术总监、测试工程师、全栈工程师" in block
     assert "【群近期】" in block
+    assert "agent_code" in block or "内部编码" in block
     assert "被点名" not in block
     assert not any(line.lstrip().startswith("# ") for line in block.splitlines())
 

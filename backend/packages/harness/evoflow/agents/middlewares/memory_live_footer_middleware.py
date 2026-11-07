@@ -194,19 +194,30 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             # Keep live bits inside ``<memory_assets>…</memory_assets>`` so the
             # region still ends with a proper closing tag (not an orphaned tail).
             standing = _splice_before_memory_assets_close(standing, live)
+        # strip_memory_xml_blocks also drops ``<affect>`` — re-append fresh from
+        # profile/affect.md each turn (same memory/assets gate; per-agent vault).
+        affect_footer = ""
+        try:
+            from evoflow.agents.lead_agent.prompt import get_agent_affect_block
+
+            affect_footer = get_agent_affect_block(
+                agent_name,
+                principal_id=principal_id,
+            ).strip()
+        except Exception:
+            logger.debug("MemoryLiveFooter: affect inject skipped", exc_info=True)
         base = strip_memory_xml_blocks(str(getattr(sm, "content", "") or "")).rstrip()
-        if standing:
-            merged = f"{base}\n\n{standing}".strip() if base else standing
-        else:
-            merged = base
+        chunks = [c for c in (base, standing, affect_footer) if c]
+        merged = "\n\n".join(chunks).strip()
 
         if merged != str(getattr(sm, "content", "") or "").strip():
             request = request.override(system_message=sm.model_copy(update={"content": merged}))
             logger.debug(
-                "MemoryLiveFooter: applied frozen standing memory agent=%s profile=%s chars=%d",
+                "MemoryLiveFooter: applied frozen standing memory agent=%s profile=%s chars=%d affect=%s",
                 agent_name,
                 mem_profile,
                 len(standing),
+                bool(affect_footer),
             )
 
         query = _latest_user_query(messages)
@@ -214,8 +225,8 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         if len(preview) > 400:
             preview = preview[:400] + "…"
 
-        # Asset Hub recall: default ON — written craft/facts must reach the turn
-        # without relying on the model to voluntarily ``assets read``.
+        # Asset Hub title-match recall: default OFF — L2 catalog is already fully
+        # injected; per-turn matching duplicates it. Opt in: EVOFLOW_HUB_RECALL=1.
         hub_block = ""
         try:
             from evoflow.assets.guidance import resolve_memory_entity

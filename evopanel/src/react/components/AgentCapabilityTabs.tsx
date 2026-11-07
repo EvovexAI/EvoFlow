@@ -12,7 +12,7 @@ type CapTab = 'skills' | 'tools' | 'mcp' | 'knowledge'
 
 type CapRow = { id: string; name: string; tokens?: number | null }
 
-type CatalogItem = { id: string; name: string }
+type CatalogItem = { id: string; name: string; tier?: string }
 
 const TABS: { id: CapTab; label: string }[] = [
   { id: 'skills', label: '技能' },
@@ -58,10 +58,16 @@ async function loadToolCatalog(): Promise<CatalogItem[]> {
     const meta = await api.getToolsMetadata()
     const tools = Array.isArray(meta?.tools) ? meta.tools : []
     return tools
-      .map((t: { value?: string; name?: string; label?: string }) => {
+      .map((t: { value?: string; name?: string; label?: string; tool_type?: string }) => {
         const id = String(t?.value || t?.name || '').trim()
         if (!id) return null
-        return { id, name: String(t?.label || t?.name || id).trim() || id }
+        const tier = String(t?.tool_type || 'optional').trim() || 'optional'
+        if (tier === 'retired') return null
+        return {
+          id,
+          name: String(t?.label || t?.name || id).trim() || id,
+          tier,
+        }
       })
       .filter(Boolean) as CatalogItem[]
   } catch {
@@ -116,6 +122,8 @@ export function AgentCapabilityTabs({
   modelName = '',
   editable = false,
   busy = false,
+  /** 工作流侧栏：一行芯片切换，不要大四格 + 重复 Tab */
+  compact = false,
   onPatch,
 }: {
   skillNames: string[]
@@ -127,6 +135,7 @@ export function AgentCapabilityTabs({
   modelName?: string
   editable?: boolean
   busy?: boolean
+  compact?: boolean
   onPatch?: (patch: AgentCapabilityPatch) => Promise<void>
 }) {
   const [tab, setTab] = useState<CapTab>('skills')
@@ -148,17 +157,36 @@ export function AgentCapabilityTabs({
   const mcpUnrestricted = mcpServers == null
   const toolsUnrestricted = toolNames == null
   const boundToolNames = Array.isArray(toolNames) ? toolNames : []
+  const boundMcpNames = Array.isArray(mcpServers) ? mcpServers : []
   // Parent panels may recreate these arrays on every render.  Depend on a
   // content signature below so token estimation only runs when the actual
   // capability selection changes (rather than on every render).
   const skillNamesSignature = JSON.stringify(skillNames)
   const toolNamesSignature = JSON.stringify(toolNames)
+  const mcpNamesSignature = JSON.stringify(mcpServers)
+  const knowledgeSignature = JSON.stringify(knowledgeVaultIds)
+  /** 步骤切换时的能力指纹：用来把默认 Tab 切到「已有内容」的那一栏 */
+  const stepCapSignature = `${skillNamesSignature}|${toolNamesSignature}|${mcpNamesSignature}|${knowledgeSignature}`
 
   useEffect(() => {
     setExpanded(false)
     setPickerOpen(false)
     setPickerQ('')
   }, [tab])
+
+  // 点节点时若已绑工具却停在「技能」空态，看起来像「没配工具」——自动切到有内容的栏
+  useEffect(() => {
+    if (boundToolNames.length) setTab('tools')
+    else if (skillNames.length) setTab('skills')
+    else if (knowledgeVaultIds.length) setTab('knowledge')
+    else if (!mcpUnrestricted && boundMcpNames.length) setTab('mcp')
+    else setTab('skills')
+    setExpanded(false)
+    setPickerOpen(false)
+    setPickerQ('')
+    // 仅随步骤能力指纹变化；不要跟 tab 本身循环
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stepCapSignature])
 
   useEffect(() => {
     let cancelled = false
@@ -241,12 +269,15 @@ export function AgentCapabilityTabs({
     if (toolsUnrestricted) {
       return toolCatalog.map((t) => ({ id: t.id, name: t.name, tokens: toolTok.get(t.id) ?? null }))
     }
-    const byId = new Map(toolCatalog.map((t) => [t.id, t.name]))
-    return boundToolNames.map((name) => ({
-      id: name,
-      name: byId.get(name) || name,
-      tokens: toolTok.get(name) ?? null,
-    }))
+    if (boundToolNames.length) {
+      const byId = new Map(toolCatalog.map((t) => [t.id, t.name]))
+      return boundToolNames.map((name) => ({
+        id: name,
+        name: byId.get(name) || name,
+        tokens: toolTok.get(name) ?? null,
+      }))
+    }
+    return []
   }, [toolsUnrestricted, toolCatalog, boundToolNames, toolTok])
 
   const activeRows =
@@ -336,8 +367,10 @@ export function AgentCapabilityTabs({
 
   const boundIds = useMemo(() => {
     if (tab === 'skills') return new Set(skillNames)
-    if (tab === 'tools')
-      return toolsUnrestricted ? new Set(toolCatalog.map((t) => t.id)) : new Set(boundToolNames)
+    if (tab === 'tools') {
+      if (toolsUnrestricted) return new Set(toolCatalog.map((t) => t.id))
+      return new Set(boundToolNames)
+    }
     if (tab === 'mcp') return mcpUnrestricted ? new Set(mcpCatalog.map((m) => m.id)) : new Set(mcpServers || [])
     return new Set(knowledgeVaultIds)
   }, [
@@ -446,24 +479,29 @@ export function AgentCapabilityTabs({
   const showTokens = tab === 'skills' || tab === 'tools'
   const disabled = !editable || patching || busy
 
-  const overviewCounts = {
-    skills: skillNames.length,
-    tools: toolsUnrestricted ? toolCatalog.length || toolRows.length : boundToolNames.length,
-    knowledge: knowledgeVaultIds.length,
-    mcp: mcpUnrestricted ? mcpCatalog.length || mcpRows.length : (mcpServers || []).length,
-  }
+  const toolsOverviewCount = toolsUnrestricted
+    ? toolCatalog.length || toolRows.length
+    : boundToolNames.length
+  const mcpOverviewCount = mcpUnrestricted
+    ? mcpCatalog.length || mcpRows.length
+    : (mcpServers || []).length
+
+  const overviewItems = (
+    [
+      { id: 'skills' as CapTab, label: '技能', value: skillNames.length },
+      { id: 'tools' as CapTab, label: '工具', value: toolsOverviewCount },
+      { id: 'knowledge' as CapTab, label: '知识', value: knowledgeVaultIds.length },
+      { id: 'mcp' as CapTab, label: 'MCP', value: mcpOverviewCount },
+    ] as const
+  )
 
   return (
-    <section className="react-chat-agent-cap is-tabbed" aria-label="能力概览">
+    <section
+      className={`react-chat-agent-cap is-tabbed${compact ? ' is-compact' : ''}`}
+      aria-label="能力概览"
+    >
       <div className="react-chat-agent-cap-overview" role="tablist" aria-label="能力概览">
-        {(
-          [
-            { id: 'skills' as CapTab, label: '技能', value: overviewCounts.skills },
-            { id: 'tools' as CapTab, label: '工具', value: overviewCounts.tools },
-            { id: 'knowledge' as CapTab, label: '知识', value: overviewCounts.knowledge },
-            { id: 'mcp' as CapTab, label: 'MCP', value: overviewCounts.mcp },
-          ] as const
-        ).map((item) => (
+        {overviewItems.map((item) => (
           <button
             key={item.id}
             type="button"
@@ -472,25 +510,36 @@ export function AgentCapabilityTabs({
             className={`react-chat-agent-cap-overview-item${tab === item.id ? ' is-active' : ''}`}
             onClick={() => setTab(item.id)}
           >
-            <span className="react-chat-agent-cap-overview-value">{item.value}</span>
-            <span className="react-chat-agent-cap-overview-label">{item.label}</span>
+            {compact ? (
+              <>
+                <span className="react-chat-agent-cap-overview-label">{item.label}</span>
+                <span className="react-chat-agent-cap-overview-value">{item.value}</span>
+              </>
+            ) : (
+              <>
+                <span className="react-chat-agent-cap-overview-value">{item.value}</span>
+                <span className="react-chat-agent-cap-overview-label">{item.label}</span>
+              </>
+            )}
           </button>
         ))}
       </div>
-      <div className="react-chat-agent-cap-tabs is-detail-tabs" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            className={`react-chat-agent-cap-tab${tab === t.id ? ' is-active' : ''}`}
-            onClick={() => setTab(t.id)}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {!compact ? (
+        <div className="react-chat-agent-cap-tabs is-detail-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`react-chat-agent-cap-tab${tab === t.id ? ' is-active' : ''}`}
+              onClick={() => setTab(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="react-chat-agent-cap-toolbar">
         <span className="react-chat-agent-cap-sum" title={sumLabel}>
           {sumLabel}
@@ -511,6 +560,18 @@ export function AgentCapabilityTabs({
           </button>
         ) : null}
       </div>
+
+      {compact && boundToolNames.length > 0 && tab !== 'tools' ? (
+        <button
+          type="button"
+          className="react-chat-agent-cap-bound-hint"
+          onClick={() => setTab('tools')}
+          title={boundToolNames.join(', ')}
+        >
+          已绑工具 {boundToolNames.length}：{boundToolNames.slice(0, 4).join(', ')}
+          {boundToolNames.length > 4 ? '…' : ''} · 点此查看
+        </button>
+      ) : null}
 
       <div className="react-chat-agent-cap-panel" role="tabpanel">
         {activeRows.length === 0 ? (

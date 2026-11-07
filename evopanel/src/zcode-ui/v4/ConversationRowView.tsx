@@ -854,7 +854,8 @@ const UserInputAttachmentList = memo(function UserInputAttachmentList({
 });
 
 /** 值班开场节拍（proactive_duty_beat），非真人气泡。 */
-const DUTY_BEAT_USER_TEXT_RE = /^(?:本轮值班开始|开始执行)\s*·/;
+const DUTY_BEAT_USER_TEXT_RE =
+  /^(?:本轮值班开始|开始执行)\s*·|^(?:推进.+派发：|按.+派发目标|看板有 |看板暂无未结|对照职责巡检)/;
 
 function isDutyBeatUserText(text: string): boolean {
   return DUTY_BEAT_USER_TEXT_RE.test(String(text || "").trim());

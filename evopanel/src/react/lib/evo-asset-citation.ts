@@ -32,8 +32,13 @@ export function normalizeAssetCitationPath(path: string): string {
   return p.replace(/^\//, '').trim()
 }
 
-/** Align with backend ``_SAFE_REL_PATH`` — reject ``note=[…]`` etc. as paths. */
-const SAFE_ASSET_REL_PATH_RE = /^[\w./\-]+$/u
+/**
+ * Align with backend ``_SAFE_REL_PATH`` — reject ``note=[…]`` etc. as paths.
+ * Backend uses Python ``\w`` with ``re.UNICODE`` (matches CJK); JS ``\w`` is
+ * ASCII-only, so spell the CJK range out explicitly to keep both ends in sync.
+ * Without this, asset paths with Chinese filenames were silently dropped.
+ */
+const SAFE_ASSET_REL_PATH_RE = /^[A-Za-z0-9_\-./\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]+$/u
 const NOTE_ONLY_LINE_RE = /^note\s*=\s*\[.*\]\s*$/i
 
 export function isSafeAssetRelPath(path: string): boolean {

@@ -1454,7 +1454,7 @@ html[data-theme='dark'] .sidebar-logo img {
   max-width: none;
 }
 #app.evopanel-app-studio-mode #content:has(> .apps-history-page) {
-  overflow-y: auto;
+  overflow: hidden;
 }
 #app.evopanel-app-studio-mode #content > .app-editor-page,
 #app.evopanel-app-studio-mode #content > .app-run-page {
@@ -1478,10 +1478,12 @@ html[data-theme='dark'] .sidebar-logo img {
   overscroll-behavior: none;
 }
 #app.evopanel-app-studio-mode #content > .apps-history-page {
-  flex: 0 0 auto;
-  height: auto !important;
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100% !important;
   max-width: none !important;
   width: 100%;
+  overflow: auto;
 }
 
 /* Knowledge detail (Owned KB) — full-screen immersion; ← back to list restores sidebar */
@@ -2029,6 +2031,88 @@ html[data-theme='dark'] .help-section-text strong {
 @keyframes guideFadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* 接口 / CLI Tab */
+.guide-api-intro {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.guide-api-intro code {
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.06));
+}
+
+.guide-api-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.guide-api-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: var(--radius-md, 10px);
+  background: var(--bg-primary, #fff);
+}
+
+.guide-api-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text-primary);
+}
+
+.guide-api-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guide-api-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.guide-api-body {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  line-height: 1.55;
+}
+
+.guide-api-body .guide-code-block {
+  margin: 6px 0 0;
+}
+
+.guide-api-more {
+  align-self: flex-start;
+  margin-top: 2px;
+  border: none;
+  background: none;
+  padding: 0;
+  color: var(--accent-color, #6366f1);
+  font-size: var(--font-size-sm);
+  font-weight: 550;
+  cursor: pointer;
+}
+
+.guide-api-more:hover {
+  text-decoration: underline;
+}
+
+html[data-theme='dark'] .guide-api-card {
+  background: var(--bg-elevated, var(--bg-primary));
 }
 
 /* 步骤卡片 */

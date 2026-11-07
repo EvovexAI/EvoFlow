@@ -1,8 +1,12 @@
 """Recursive chunker with protected spans (tables, images, fenced code).
 
-Short docs (≤ ~5000 chars) stay as a single chunk — splitting them only
-hurts retrieval. Longer docs keep character-budget splits with boundary-aware
-overlap so neighboring chunks share readable context instead of mid-sentence cuts.
+Docs that already fit ``chunk_size`` stay as one chunk. Longer docs use
+character-budget splits with boundary-aware overlap so neighboring chunks
+share readable context instead of mid-sentence cuts.
+
+Historical foot-gun: a fixed 5000-char ``_NO_SPLIT_MAX_CHARS`` ignored
+``chunkSize``, so a multi-FAQ pack (~3k) became one vector and retrieval
+collapsed. Ceiling is gone — configured ``chunk_size`` is authoritative.
 """
 
 from __future__ import annotations
@@ -10,8 +14,10 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
-# Docs at or under this length are kept whole (user: 「5000 字左右不必分块」).
-_NO_SPLIT_MAX_CHARS = 5000
+# Backward-compat alias for tests / callers that imported the old ceiling.
+# Kept equal to a small floor so ``len <= _NO_SPLIT_MAX_CHARS`` style asserts
+# still mean "tiny doc"; splitting is driven by ``chunk_size`` only.
+_NO_SPLIT_MAX_CHARS = 1500
 
 _FENCE_RE = re.compile(r"```[\s\S]*?```")
 _IMAGE_RE = re.compile(r"!\[[^\]]*\]\([^)]+\)")
@@ -304,17 +310,20 @@ def split_text(
 ) -> list[ChunkPiece]:
     """Split text using recursive | heading | auto strategies.
 
-    Documents at or under ``_NO_SPLIT_MAX_CHARS`` (~5000) are returned as one
-    chunk regardless of strategy — fine splits add noise without helping RAG.
+    Documents that already fit ``chunk_size`` are returned as one chunk.
+    ``chunk_size`` is always honored — there is no separate hard ceiling that
+    can collapse a multi-topic FAQ pack into a single retrieval vector.
     """
     raw = text or ""
     stripped = raw.strip()
     if not stripped:
         return []
 
-    # Short / medium docs: keep whole. Over-splitting ~5k docs loses more
-    # context than it gains for retrieval.
-    if len(stripped) <= _NO_SPLIT_MAX_CHARS:
+    size = max(64, int(chunk_size or 2048))
+    overlap = max(0, int(chunk_overlap or 0))
+
+    # Already fits the configured budget → keep whole (strategy irrelevant).
+    if len(stripped) <= size:
         heading = ""
         m = _HEADING_LINE_RE.search(stripped)
         if m:
@@ -326,9 +335,9 @@ def split_text(
         headings = len(_HEADING_LINE_RE.findall(stripped))
         strategy = (
             "heading"
-            if headings >= 2 and len(stripped) > max(128, int(chunk_size))
+            if headings >= 2 and len(stripped) > max(128, size)
             else "recursive"
         )
     if strategy == "heading":
-        return _split_by_heading(stripped, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-    return _split_recursive(stripped, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+        return _split_by_heading(stripped, chunk_size=size, chunk_overlap=overlap)
+    return _split_recursive(stripped, chunk_size=size, chunk_overlap=overlap)

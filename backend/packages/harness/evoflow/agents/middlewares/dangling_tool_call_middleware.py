@@ -1,15 +1,18 @@
 """Middleware to fix mismatched tool_call / tool_result pairs before the LLM call.
 
-Vendors (e.g. Volc Ark ``11148``) reject histories where:
+Vendors (OpenAI / Volc Ark ``11148``) reject histories where:
 
 - an AIMessage ``tool_calls`` entry has no matching ToolMessage, or
-- a ToolMessage ``tool_call_id`` has no matching AIMessage tool_call
+- a ToolMessage ``tool_call_id`` has no matching AIMessage tool_call, or
+- tool results are not **immediately after** the assistant ``tool_calls`` message
+  (``insufficient tool messages following tool_calls message``)
 
-Common causes: user interrupt, cancelled runs, compaction dropping the AIMessage
-while leaving results, or transcript hydration gaps.
+Common causes: user interrupt, cancelled runs, compaction folding a Human/summary
+between an AIMessage and its ToolMessages, or transcript hydration gaps.
 
 This middleware patches ``request.messages`` (not only state) via
-``wrap_model_call`` so stubs land immediately after each dangling AIMessage.
+``wrap_model_call`` so results land immediately after each AIMessage with
+``tool_calls``.
 """
 
 from __future__ import annotations
@@ -44,11 +47,16 @@ def _tool_call_name(tc: object) -> str:
     return str(getattr(tc, "name", "") or "unknown")
 
 
+def _msg_tool_call_id(msg: object) -> str:
+    return str(getattr(msg, "tool_call_id", "") or "").strip()
+
+
 def sanitize_tool_call_pairs(messages: list) -> list | None:
     """Return a patched message list, or None when already well-formed.
 
     - Drops ToolMessages whose tool_call_id is not referenced by any AIMessage
-    - Inserts stub ToolMessages for AIMessage tool_calls missing a result
+    - Ensures every AIMessage ``tool_calls`` is followed by ToolMessages for each id
+      (pulls late results forward; stubs still-missing ids)
     """
     surviving_call_ids: set[str] = set()
     for msg in messages:
@@ -59,41 +67,79 @@ def sanitize_tool_call_pairs(messages: list) -> list | None:
             if tc_id:
                 surviving_call_ids.add(tc_id)
 
-    result_call_ids: set[str] = set()
+    # Index first ToolMessage per id (for pulling late results forward).
+    first_tool_by_id: dict[str, ToolMessage] = {}
     for msg in messages:
-        if isinstance(msg, ToolMessage):
-            cid = str(getattr(msg, "tool_call_id", "") or "").strip()
-            if cid:
-                result_call_ids.add(cid)
+        if not isinstance(msg, ToolMessage):
+            continue
+        cid = _msg_tool_call_id(msg)
+        if cid and cid not in first_tool_by_id:
+            first_tool_by_id[cid] = msg
 
-    orphaned = result_call_ids - surviving_call_ids
-    missing = surviving_call_ids - result_call_ids
-    if not orphaned and not missing:
+    orphaned = {cid for cid in first_tool_by_id if cid not in surviving_call_ids}
+
+    # Detect adjacency gaps: AI tool_calls not followed by a complete consecutive
+    # ToolMessage run covering every id (even if the results exist later).
+    adjacency_broken = False
+    missing_ids: set[str] = set()
+    for i, msg in enumerate(messages):
+        if getattr(msg, "type", None) != "ai":
+            continue
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        expected = [_tool_call_id(tc) for tc in tool_calls]
+        expected = [cid for cid in expected if cid]
+        if not expected:
+            continue
+        expected_set = set(expected)
+        j = i + 1
+        adjacent: set[str] = set()
+        while j < len(messages) and isinstance(messages[j], ToolMessage):
+            cid = _msg_tool_call_id(messages[j])
+            if cid in expected_set:
+                adjacent.add(cid)
+            j += 1
+        still_missing = expected_set - adjacent
+        if still_missing:
+            missing_ids |= still_missing
+            # Results exist later but not adjacent → still a vendor reject.
+            if still_missing & set(first_tool_by_id) or still_missing - set(first_tool_by_id):
+                adjacency_broken = True
+
+    if not orphaned and not missing_ids and not adjacency_broken:
         return None
 
-    without_orphans = [
-        msg
-        for msg in messages
-        if not (
-            isinstance(msg, ToolMessage)
-            and str(getattr(msg, "tool_call_id", "") or "").strip() in orphaned
-        )
-    ]
-
-    if not missing:
-        logger.warning("Dropped %d orphan ToolMessage(s) with no matching tool_call", len(orphaned))
-        return without_orphans
-
+    consumed_tool_ids: set[str] = set()
     patched: list = []
-    patched_ids: set[str] = set()
     stub_count = 0
-    for msg in without_orphans:
+    pulled_count = 0
+
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            cid = _msg_tool_call_id(msg)
+            if cid in orphaned:
+                continue
+            # Already placed immediately after its AIMessage (pulled or adjacent).
+            if cid in consumed_tool_ids:
+                continue
+            # Defer: will be pulled forward when we hit the owning AIMessage.
+            if cid in surviving_call_ids:
+                continue
+            patched.append(msg)
+            continue
+
         patched.append(msg)
         if getattr(msg, "type", None) != "ai":
             continue
-        for tc in getattr(msg, "tool_calls", None) or []:
+        tool_calls = getattr(msg, "tool_calls", None) or []
+        for tc in tool_calls:
             tc_id = _tool_call_id(tc)
-            if tc_id and tc_id in missing and tc_id not in patched_ids:
+            if not tc_id or tc_id in consumed_tool_ids:
+                continue
+            existing = first_tool_by_id.get(tc_id)
+            if existing is not None:
+                patched.append(existing)
+                pulled_count += 1
+            else:
                 patched.append(
                     ToolMessage(
                         content=_INTERRUPTED_STUB,
@@ -102,13 +148,18 @@ def sanitize_tool_call_pairs(messages: list) -> list | None:
                         status="error",
                     )
                 )
-                patched_ids.add(tc_id)
                 stub_count += 1
+            consumed_tool_ids.add(tc_id)
+
+    # Already well-formed (same object sequence) — nothing to patch.
+    if len(patched) == len(messages) and all(a is b for a, b in zip(patched, messages, strict=True)):
+        return None
 
     logger.warning(
-        "Tool-pair sanitize: dropped_orphans=%d stubbed_missing=%d",
+        "Tool-pair sanitize: dropped_orphans=%d stubbed_missing=%d placed_results=%d",
         len(orphaned),
         stub_count,
+        pulled_count,
     )
     return patched
 

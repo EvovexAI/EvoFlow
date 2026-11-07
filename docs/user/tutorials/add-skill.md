@@ -31,7 +31,7 @@
 ---
 name: my-skill
 description: 我的自定义技能
-allowed-tools: bash, read_file, write_file
+---
 
 ## 工作流程
 

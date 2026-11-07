@@ -81,7 +81,10 @@ describe('work process live progress', () => {
 
   it('treats execute beat head as duty beat, not a second duty-start', () => {
     assert.equal(isDutyBeatText('本轮值班开始 · AIGC\n推进用户派发：x'), true)
+    assert.equal(isDutyBeatText('推进张三派发：写周报'), true)
+    assert.equal(isDutyBeatText('对照职责巡检，有待办则推进并结案。'), true)
     assert.equal(isDutyBeatText('开始执行 · AIGC\n按已批计划执行并结案。'), true)
     assert.equal(isSystemPromptLike('开始执行 · AIGC\n按已批计划执行并结案。'), false)
+    assert.equal(isSystemPromptLike('推进技术总监派发：写周报'), false)
   })
 })

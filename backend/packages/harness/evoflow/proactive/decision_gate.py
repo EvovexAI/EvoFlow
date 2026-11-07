@@ -434,6 +434,181 @@ class DecisionGate:
 
     # ── Timeout / escalation ────────────────────────────────────
 
+    def _on_handoff_timeout(self, task_id: str) -> bool:
+        """Release a handoff gate whose approval timed out.
+
+        The parent task of a handoff is already terminal (``completed`` /
+        ``awaiting_close``).  ``set_work_item_status(task, "cancelled")``
+        cannot move it — ``completed`` has **no** outgoing transitions — so
+        the old timeout path silently failed and left
+        ``handlers_pending_approval=True`` forever: the parent looked done,
+        the downstream was never created, and nobody was told.
+
+        On timeout we now:
+        1. clear the gate flag (so the task is not re-blocked),
+        2. keep the parent's terminal status (it *did* finish its own part),
+        3. stamp an explicit reason so the board shows why downstream never ran,
+        4. notify the role + desktop so the timeout is visible, not silent.
+
+        Returns True when the gate was released.
+        """
+        from evoflow.collab.storage import (
+            get_project_storage,
+            patch_collab_main_task_in_project_storage,
+        )
+        from evoflow.collab.task_handlers import task_handlers_of
+        from evoflow.proactive.work_items import load_work_item_task
+
+        tid = str(task_id or "").strip()
+        if not tid:
+            return False
+
+        task = load_work_item_task(tid)
+        if not task:
+            return False
+
+        # Only handoff gates get this treatment.
+        #   - the gate flag was set (waiting for a human ack), or
+        #   - the parent is terminal AND still carries undispatched handlers
+        #     (the flag may have been lost across a restart).
+        # A task still running (pending / executing) has neither and must not
+        # be cancelled by an approval timeout.
+        gate_flag = bool(task.get("handlers_pending_approval"))
+        terminal = str(task.get("status") or "").strip().lower() in {
+            "completed",
+            "reviewed",
+            "awaiting_close",
+        }
+        undispatched = bool(task_handlers_of(task)) and not str(
+            task.get("handlers_dispatched_at") or ""
+        ).strip()
+        if not (gate_flag or (terminal and undispatched)):
+            return False
+
+        reason = "交接审批超时未回复，下游未派发（本岗已完成，可重新交工或手动派发）"
+        try:
+            patch_collab_main_task_in_project_storage(
+                get_project_storage(),
+                tid,
+                {
+                    "handlers_pending_approval": False,
+                    "handoff_timeout_at": utc_now_iso_z(),
+                    "handoff_timeout_reason": reason,
+                },
+            )
+        except Exception:
+            logger.warning(
+                "proactive.approval: clear handoff gate failed task=%s",
+                tid,
+                exc_info=True,
+            )
+            return False
+
+        logger.warning(
+            "proactive.approval.handoff_timeout task=%s reason=%s",
+            tid,
+            reason,
+        )
+        self._notify_handoff_timeout(task, reason)
+        return True
+
+    def _notify_handoff_timeout(self, task: dict, reason: str) -> None:
+        """Tell the role + desktop that the handoff expired (best-effort)."""
+        tid = str(task.get("id") or task.get("task_id") or "").strip()
+        name = str(task.get("name") or task.get("title") or tid).strip()
+        role = None
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            assignee = str(task.get("assigned_to") or "").strip()
+            if assignee:
+                role = ProactiveRepository.get_role(assignee)
+        except Exception:
+            role = None
+
+        try:
+            from evoflow.collab.ws_notify import broadcast_to_channels
+
+            asyncio.get_running_loop().create_task(
+                broadcast_to_channels(
+                    ["proactive"],
+                    "proactive_handoff_timeout",
+                    {
+                        "task_id": tid,
+                        "task_name": name,
+                        "role_agent_code": str(getattr(role, "agent_code", "") or ""),
+                        "role_name": str(getattr(role, "role_name", "") or ""),
+                        "reason": reason,
+                    },
+                )
+            )
+        except Exception:
+            logger.debug(
+                "proactive.approval: handoff timeout desktop notify failed task=%s",
+                tid,
+                exc_info=True,
+            )
+
+        # Feishu: reuse the approval channel so the user sees it where they
+        # would have answered the original approval.
+        try:
+            from evoflow.proactive.feishu_notify import _outbound_feishu_target
+
+            if role is not None and _outbound_feishu_target(role):
+                asyncio.get_running_loop().create_task(
+                    self._push_handoff_timeout_feishu(role, task, reason)
+                )
+        except Exception:
+            logger.debug(
+                "proactive.approval: handoff timeout feishu notify failed task=%s",
+                tid,
+                exc_info=True,
+            )
+
+    async def _push_handoff_timeout_feishu(
+        self,
+        role: ProactiveRole,
+        task: dict,
+        reason: str,
+    ) -> None:
+        """Push a plain markdown notice that the handoff approval expired."""
+        try:
+            from evoflow.proactive.feishu_notify import resolve_role_feishu_target
+            from evoflow.runtime.ports import get_channel_service
+
+            target = resolve_role_feishu_target(role)
+            if not target:
+                return
+            target_id, receive_id_type = target
+            service = get_channel_service()
+            channel = service._channels.get("feishu") if service is not None else None
+            if channel is None or not getattr(channel, "is_running", False):
+                return
+            tid = str(task.get("id") or task.get("task_id") or "").strip()
+            name = str(task.get("name") or task.get("title") or tid).strip()
+            text = (
+                f"**交接审批超时** · {role.role_name}（`{role.agent_code}`）\n\n"
+                f"任务「{name}」（`{tid}`）的交接审批超时未回复，已自动放行本岗结果，"
+                f"**下游未派发**。\n\n原因：{reason}\n\n"
+                "如需继续推进，请重新交工或手动派发下游。"
+            )
+            await channel.send_proactive_markdown(
+                target_id,
+                text,
+                receive_id_type=receive_id_type,
+                account_id=str(role.agent_code or "").strip(),
+                kind="handoff_timeout",
+                role_agent_code=str(role.agent_code or ""),
+                task_id=tid,
+                title="交接审批超时",
+                triggered_by="system",
+            )
+        except Exception:
+            logger.debug(
+                "proactive.approval: push handoff timeout feishu failed",
+                exc_info=True,
+            )
+
     async def check_timeouts(self) -> list[Approval]:
         """Check all pending approvals for timeout / escalation.
 
@@ -487,13 +662,18 @@ class DecisionGate:
                 ProactiveRepository.save_approval(approval)
 
                 if approval.task_id:
-                    from evoflow.proactive.work_items import set_work_item_status
+                    # Handoff gate: the parent task is already terminal, so it
+                    # cannot be "cancelled". Release the gate explicitly instead
+                    # of leaving handlers_pending_approval stuck forever.
+                    released = self._on_handoff_timeout(approval.task_id)
+                    if not released:
+                        from evoflow.proactive.work_items import set_work_item_status
 
-                    set_work_item_status(
-                        approval.task_id,
-                        "cancelled",
-                        result="approval timeout",
-                    )
+                        set_work_item_status(
+                            approval.task_id,
+                            "cancelled",
+                            result="approval timeout",
+                        )
                 elif initiative and not str(initiative.id or "").startswith("task:"):
                     initiative.status = InitiativeStatus.TIMEOUT_REJECTED
                     ProactiveRepository.save_initiative(initiative)

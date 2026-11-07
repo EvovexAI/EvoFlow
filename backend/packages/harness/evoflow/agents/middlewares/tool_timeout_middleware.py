@@ -1,23 +1,10 @@
-"""Tool timeout middleware — enforces per-tool execution time limits.
+"""Per-tool timeout configuration used by tool-approval execution.
 
-Some tools (terminal, web_fetch, browser) can hang indefinitely on slow
-operations. This middleware wraps tool handlers with a configurable timeout
-and raises a clear error when exceeded.
+The former ``ToolTimeoutMiddleware`` (never mounted) was retired on 2026-11-07;
+``tool_approval_executor`` still resolves per-tool timeouts from this module.
 """
 
-import asyncio
 import logging
-import signal
-import threading
-import time
-from collections.abc import Awaitable, Callable
-from typing import Any
-
-from langchain.agents.middleware import AgentMiddleware
-from langchain_core.messages import ToolMessage
-from langgraph.errors import GraphBubbleUp
-from langgraph.prebuilt.tool_node import ToolCallRequest
-from langgraph.types import Command
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +25,6 @@ _TOOL_TIMEOUTS: dict[str, int] = {
 _DEFAULT_TIMEOUT = 300
 
 
-class ToolTimeoutError(TimeoutError):
-    """Raised when a tool execution exceeds its allowed timeout."""
-
-    def __init__(self, tool_name: str, timeout: int):
-        self.tool_name = tool_name
-        self.timeout = timeout
-        super().__init__(f"Tool '{tool_name}' timed out after {timeout}s")
-
-
 def _timeout_for_tool(tool_name: str) -> int:
     """Get timeout for a tool, with env var override support."""
     env_key = f"EVOFLOW_TIMEOUT_{tool_name.upper()}"
@@ -57,155 +35,3 @@ def _timeout_for_tool(tool_name: str) -> int:
         except ValueError:
             pass
     return _TOOL_TIMEOUTS.get(tool_name, _DEFAULT_TIMEOUT)
-
-
-_BASH_LIKE = frozenset({"bash", "Bash", "terminal"})
-
-
-def _force_kill_bash_after_timeout(*, tool_name: str, tool_call_id: str) -> None:
-    """Hard-kill hung bash/LibreOffice so the worker thread can release exec locks.
-
-    On Windows the timeout path abandons the worker thread; without killing the
-    process tree the thread stays blocked in ``communicate()`` holding the
-    per-thread bash lock — the next turn then looks like the runtime froze.
-    """
-    if tool_name not in _BASH_LIKE:
-        return
-    try:
-        from evoflow.tools.zcode_port.bash_tool import force_kill_active_bash
-
-        n = force_kill_active_bash(
-            reason="tool_timeout_middleware",
-            tool_call_id=tool_call_id or None,
-        )
-        logger.warning(
-            "Tool '%s' timeout: force-killed %d active bash tree(s) (id=%s)",
-            tool_name,
-            n,
-            tool_call_id or "-",
-        )
-    except Exception:
-        logger.exception("Tool '%s' timeout: bash force-kill failed", tool_name)
-
-
-def _run_with_timeout(
-    fn: Callable[[], Any],
-    timeout: int,
-    *,
-    tool_name: str = "",
-    tool_call_id: str = "",
-) -> Any:
-    """Run *fn* in a thread with a timeout.
-
-    Falls back to thread-based timeout on Windows (signal.SIGALRM unavailable).
-    """
-    if hasattr(signal, "SIGALRM"):
-        # Unix: use SIGALRM (more responsive)
-        class _TimeoutError(Exception):
-            pass
-
-        def _handler(_sig, _frame):
-            raise _TimeoutError()
-
-        old_handler = signal.signal(signal.SIGALRM, _handler)
-        signal.alarm(timeout)
-        try:
-            result = fn()
-            signal.alarm(0)
-            return result
-        except _TimeoutError:
-            _force_kill_bash_after_timeout(tool_name=tool_name, tool_call_id=tool_call_id)
-            raise TimeoutError(f"Timed out after {timeout}s")
-        finally:
-            signal.alarm(0)
-            signal.signal(signal.SIGALRM, old_handler)
-    else:
-        # Windows / fallback: thread-based timeout
-        result_box: list[Any] = []
-        exc_box: list[Exception] = []
-
-        def _target():
-            try:
-                result_box.append(fn())
-            except Exception as e:
-                exc_box.append(e)
-
-        thread = threading.Thread(target=_target, daemon=True)
-        thread.start()
-        thread.join(timeout)
-        if thread.is_alive():
-            _force_kill_bash_after_timeout(tool_name=tool_name, tool_call_id=tool_call_id)
-            # Give the abandoned worker a short window to finish communicate()
-            # and drop the bash exec lock before the next turn starts.
-            thread.join(5)
-            raise TimeoutError(f"Timed out after {timeout}s")
-        if exc_box:
-            raise exc_box[0]
-        return result_box[0]
-
-
-class ToolTimeoutMiddleware(AgentMiddleware):
-    """Middleware that enforces per-tool execution timeouts.
-
-    Usage — add to the middleware chain in agent.py:
-        middlewares.append(ToolTimeoutMiddleware())
-    """
-
-    def wrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], ToolMessage | Command],
-    ) -> ToolMessage | Command:
-        """Wrap sync tool call with timeout."""
-        tool_name = str(request.tool_call.get("name") or "unknown")
-        timeout = _timeout_for_tool(tool_name)
-
-        tool_call_id = str(request.tool_call.get("id") or "")
-        start = time.time()
-        try:
-            result = _run_with_timeout(
-                lambda: handler(request),
-                timeout,
-                tool_name=tool_name,
-                tool_call_id=tool_call_id,
-            )
-            elapsed = time.time() - start
-            if elapsed > timeout * 0.8:
-                logger.warning("Tool '%s' ran near timeout (%.1fs/%ds)", tool_name, elapsed, timeout)
-            return result
-        except TimeoutError:
-            elapsed = time.time() - start
-            logger.error("Tool '%s' timed out after %.1fs (limit=%ds)", tool_name, elapsed, timeout)
-            msg = (
-                f"Error: Tool '{tool_name}' timed out after {timeout}s. "
-                f"The hung process was killed so the next turn can run. "
-                f"Try a simpler operation or split into smaller steps."
-            )
-            return ToolMessage(content=msg, tool_call_id=tool_call_id, status="error")
-        except GraphBubbleUp:
-            raise
-        except Exception:
-            raise
-
-    async def awrap_tool_call(
-        self,
-        request: ToolCallRequest,
-        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
-    ) -> ToolMessage | Command:
-        """Wrap async tool call with timeout."""
-        tool_name = str(request.tool_call.get("name") or "unknown")
-        tool_call_id = str(request.tool_call.get("id") or "")
-        timeout = _timeout_for_tool(tool_name)
-
-        try:
-            result = await asyncio.wait_for(handler(request), timeout=timeout)
-            return result
-        except TimeoutError:
-            _force_kill_bash_after_timeout(tool_name=tool_name, tool_call_id=tool_call_id)
-            logger.error("Tool '%s' timed out after %ds (async)", tool_name, timeout)
-            msg = (
-                f"Error: Tool '{tool_name}' timed out after {timeout}s. "
-                f"The hung process was killed so the next turn can run. "
-                f"Try a simpler operation."
-            )
-            return ToolMessage(content=msg, tool_call_id=tool_call_id, status="error")

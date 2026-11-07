@@ -42,6 +42,9 @@ export type DropdownSelectProps = {
   placement?: 'up' | 'down'
   /** 挂到 body，避免父级 overflow 裁切 */
   portal?: boolean
+  /** 菜单顶部搜索框，按 label / description 过滤 */
+  searchable?: boolean
+  searchPlaceholder?: string
   className?: string
   triggerClassName?: string
   menuClassName?: string
@@ -51,6 +54,12 @@ export type DropdownSelectProps = {
   title?: string
   /** 未匹配到选项时展示的文案；默认回退到 value 本身 */
   emptyLabel?: string
+}
+
+function optionMatchesQuery(opt: DropdownSelectOption, q: string): boolean {
+  if (!q) return true
+  const hay = `${opt.label || ''} ${opt.description || ''} ${opt.value || ''}`.toLowerCase()
+  return hay.includes(q)
 }
 
 function flattenOptions(
@@ -74,6 +83,8 @@ export function DropdownSelect({
   variant = 'field',
   placement,
   portal = false,
+  searchable = false,
+  searchPlaceholder = '搜索…',
   className = '',
   triggerClassName = '',
   menuClassName = '',
@@ -86,7 +97,9 @@ export function DropdownSelect({
   const rootRef = useRef<HTMLDivElement | null>(null)
   const triggerRef = useRef<HTMLButtonElement | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
+  const searchRef = useRef<HTMLInputElement | null>(null)
   const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
   const [portalStyle, setPortalStyle] = useState<CSSProperties | null>(null)
 
   const resolvedPlacement = placement ?? (variant === 'pill' ? 'up' : 'down')
@@ -94,8 +107,31 @@ export function DropdownSelect({
   const selected = flat.find((o) => o.value === value)
   const triggerText = selected?.label || (value ? emptyLabel || value : placeholder)
   const showPlaceholder = !selected && !value
+  const q = searchable ? query.trim().toLowerCase() : ''
+  const filteredOptions = useMemo(() => {
+    if (!options?.length) return []
+    if (!q) return options
+    return options.filter((o) => optionMatchesQuery(o, q))
+  }, [options, q])
+  const filteredGroups = useMemo(() => {
+    if (!groups?.length) return []
+    if (!q) return groups
+    return groups
+      .map((g) => ({
+        ...g,
+        options: g.options.filter((o) => optionMatchesQuery(o, q)),
+      }))
+      .filter((g) => g.options.length > 0)
+  }, [groups, q])
+  const filteredFlat = useMemo(
+    () => flattenOptions(filteredOptions, filteredGroups),
+    [filteredOptions, filteredGroups],
+  )
 
-  const close = useCallback(() => setOpen(false), [])
+  const close = useCallback(() => {
+    setOpen(false)
+    setQuery('')
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -120,6 +156,12 @@ export function DropdownSelect({
       document.removeEventListener('pointerdown', onPointer, true)
     }
   }, [open, close])
+
+  useEffect(() => {
+    if (!open || !searchable) return
+    const t = window.setTimeout(() => searchRef.current?.focus(), 0)
+    return () => window.clearTimeout(t)
+  }, [open, searchable])
 
   useLayoutEffect(() => {
     if (!open || !portal || typeof window === 'undefined') {
@@ -201,17 +243,46 @@ export function DropdownSelect({
       role="listbox"
       className={`ef-dropdown-select__menu ef-dropdown-select__menu--${resolvedPlacement}${
         portal ? ' ef-dropdown-select__menu--portal' : ''
-      }${menuClassName ? ` ${menuClassName}` : ''}`}
+      }${searchable ? ' ef-dropdown-select__menu--searchable' : ''}${
+        menuClassName ? ` ${menuClassName}` : ''
+      }`}
       style={portal ? portalStyle || { display: 'none' } : undefined}
     >
-      {options?.length ? options.map(renderOption) : null}
-      {groups?.map((g) => (
-        <div key={g.label} className="ef-dropdown-select__group" role="group" aria-label={g.label}>
-          <div className="ef-dropdown-select__group-label">{g.label}</div>
-          {g.options.map(renderOption)}
+      {searchable ? (
+        <div className="ef-dropdown-select__search" onMouseDown={(e) => e.stopPropagation()}>
+          <input
+            ref={searchRef}
+            type="search"
+            className="ef-dropdown-select__search-input"
+            value={query}
+            placeholder={searchPlaceholder}
+            aria-label={searchPlaceholder}
+            autoComplete="off"
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                e.stopPropagation()
+                close()
+                triggerRef.current?.focus()
+              }
+            }}
+          />
         </div>
-      ))}
-      {!flat.length ? <div className="ef-dropdown-select__empty">暂无选项</div> : null}
+      ) : null}
+      <div className="ef-dropdown-select__menu-scroll">
+        {filteredOptions.length ? filteredOptions.map(renderOption) : null}
+        {filteredGroups.map((g) => (
+          <div key={g.label} className="ef-dropdown-select__group" role="group" aria-label={g.label}>
+            <div className="ef-dropdown-select__group-label">{g.label}</div>
+            {g.options.map(renderOption)}
+          </div>
+        ))}
+        {!filteredFlat.length ? (
+          <div className="ef-dropdown-select__empty">
+            {flat.length ? '无匹配项' : '暂无选项'}
+          </div>
+        ) : null}
+      </div>
     </div>
   ) : null
 
@@ -236,7 +307,11 @@ export function DropdownSelect({
         title={title}
         onClick={() => {
           if (disabled) return
-          setOpen((v) => !v)
+          setOpen((v) => {
+            const next = !v
+            if (!next) setQuery('')
+            return next
+          })
         }}
       >
         {leading ? <span className="ef-dropdown-select__leading">{leading}</span> : null}

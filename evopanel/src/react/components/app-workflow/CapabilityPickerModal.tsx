@@ -163,7 +163,7 @@ export function CapabilityPickerModal({
         <div className="react-chat-modal-header">
           <div className="react-chat-skill-modal-header-main">
             <span className="react-chat-modal-title">技能与工具</span>
-            <span className="react-chat-skill-modal-sub">可多选 · 都不选也能跑（用智能体默认能力）</span>
+            <span className="react-chat-skill-modal-sub">可多选 · 按本步任务显式挂载</span>
           </div>
           <button type="button" className="react-chat-modal-close" onClick={onClose} aria-label="关闭">
             ×

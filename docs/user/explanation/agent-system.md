@@ -38,8 +38,8 @@ from evoflow.agents.lead_agent.agent import make_lead_agent
 
 1. **模型选择**：通过 `create_chat_model()` 从 SQLite **`evoflow_models`**（EvoFlow 设置 → 模型）选取模型
 2. **工具组装**：通过 `get_available_tools()` 组合所有可用工具
-3. **中间件配置**：按固定顺序构建 13 个中间件
-4. **系统提示生成**：通过 `apply_prompt_template()` 注入技能、记忆、子 Agent 指令
+3. **中间件配置**：按固定顺序构建中间件链（澄清、技能注入、记忆、外部记忆插件、循环检测、协作阶段等数十个中间件）
+4. **系统提示生成**：通过 `apply_prompt_template()` 生成，再由各中间件注入技能、记忆、子 Agent 指令
 
 ### 动态模型选择
 
@@ -64,8 +64,8 @@ get_available_tools()
 系统提示包含以下部分：
 - Agent 角色描述
 - 可用工具列表
-- 已启用技能的 SKILL.md 内容
-- 记忆上下文（前 15 条事实 + 用户上下文）
+- 已启用技能（由技能注入中间件以 `<skill_injection>` 块注入 SKILL.md 内容，详见[技能系统](skill-system.md)）
+- 记忆上下文（默认 asset 模式注入记忆读取路径 + 长期偏好，详见[记忆系统](memory-system.md)）
 - 子 Agent 委派说明
 - SOUL.md 内容（自定义 Agent 的人格）
 

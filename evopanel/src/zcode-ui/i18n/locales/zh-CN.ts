@@ -4328,7 +4328,7 @@ const zhCN: Record<string, string> = {
   "chat.history.workingFor": "工作中 {duration}",
   "chat.history.workedFor": "已工作 {duration}",
   "chat.history.worked": "已处理",
-  "chat.history.stopped": "已停止",
+  "chat.history.stopped": "用户停止",
   "chat.history.duration.day": "天",
   "chat.history.duration.hour": "时",
   "chat.history.duration.minute": "分",

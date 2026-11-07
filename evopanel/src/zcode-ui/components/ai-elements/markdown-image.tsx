@@ -4,7 +4,7 @@ import type { FileMediaPreview } from "@zcode/shared";
 import { decodeMarkdownArtifactImageSource } from "@zcode/shared";
 import { ImageIcon, ImageOffIcon } from "lucide-react";
 import { Children, isValidElement } from "react";
-import type { ComponentProps, MouseEvent } from "react";
+import type { ComponentProps, MouseEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ImagePreviewDialog } from "@/components/ai-elements/image-preview-dialog.js";
 import {
@@ -93,9 +93,20 @@ export function normalizeConsecutiveMarkdownImageBlocks(markdown: string): strin
   return normalized.join("\n");
 }
 
+/** Streamdown 有时不透传 hast `node`；用 src 兜底识别映射后的图片子节点。 */
+function isMarkdownImageChild(child: ReactNode): boolean {
+  if (!isValidElement(child)) return false;
+  const props = child.props as { node?: { tagName?: string }; src?: unknown };
+  if (props.node?.tagName === "img") return true;
+  // message.tsx 的 img → MarkdownImage 映射会带上 src
+  return typeof props.src === "string" && props.src.length > 0;
+}
+
 /**
  * Streamdown 的 harden 会过滤 rehype 自定义属性，因此在 React component mapping
  * 层识别纯图片段落，确保画廊标记和响应式 class 不会被安全层剥离。
+ *
+ * 单图段落去掉 `<p>` 壳，让连续截图以 inline-block 横排；多图进画廊 flex-wrap。
  */
 export function MarkdownImageParagraph({
   children,
@@ -106,12 +117,7 @@ export function MarkdownImageParagraph({
     (child) => typeof child !== "string" || child.trim().length > 0,
   );
   const isImageGallery =
-    meaningfulChildren.length >= 2 &&
-    meaningfulChildren.every(
-      (child) =>
-        isValidElement(child) &&
-        (child.props as { node?: { tagName?: string } }).node?.tagName === "img",
-    );
+    meaningfulChildren.length >= 2 && meaningfulChildren.every(isMarkdownImageChild);
 
   if (isImageGallery) {
     return (
@@ -119,6 +125,10 @@ export function MarkdownImageParagraph({
         {meaningfulChildren}
       </ImageThumbnailGallery>
     );
+  }
+
+  if (meaningfulChildren.length === 1 && isMarkdownImageChild(meaningfulChildren[0])) {
+    return <>{meaningfulChildren}</>;
   }
 
   return <p {...props}>{children}</p>;
@@ -130,9 +140,33 @@ function formatMediaPreviewDataUrl(preview: FileMediaPreview): string {
 
 function readPreviewGroup(target: HTMLButtonElement): ImagePreviewDialogItem[] {
   const gallery = target.closest("[data-markdown-image-gallery]");
-  const buttons = gallery
-    ? Array.from(gallery.querySelectorAll<HTMLButtonElement>("[data-markdown-image-trigger]"))
-    : [target];
+  let buttons: HTMLButtonElement[];
+  if (gallery) {
+    buttons = Array.from(
+      gallery.querySelectorAll<HTMLButtonElement>("[data-markdown-image-trigger]"),
+    );
+  } else {
+    // 连续单图段落已拆掉 <p>，按兄弟节点收成一组，方便左右翻图。
+    let start: Element = target;
+    while (
+      start.previousElementSibling?.matches?.(
+        "button[data-markdown-image-trigger], [data-markdown-image-gallery]",
+      )
+    ) {
+      const prev = start.previousElementSibling;
+      if (prev.matches("[data-markdown-image-gallery]")) break;
+      start = prev;
+    }
+    buttons = [];
+    for (
+      let el: Element | null = start;
+      el?.matches?.("button[data-markdown-image-trigger]");
+      el = el.nextElementSibling
+    ) {
+      buttons.push(el as HTMLButtonElement);
+    }
+    if (!buttons.length) buttons = [target];
+  }
   return buttons.flatMap((button) => {
     const image = button.querySelector<HTMLImageElement>("img[data-markdown-image]");
     return image?.src ? [{ alt: image.alt, filename: image.alt, src: image.src }] : [];
@@ -260,7 +294,7 @@ export function MarkdownImage({
       <div
         aria-label={failed ? intl.formatMessage({ id: "codeViewer.imageUnavailable" }) : undefined}
         className={cn(
-          "flex min-h-32 w-full items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle md:h-44 md:w-56 md:shrink-0",
+          "inline-flex h-44 w-56 max-w-[min(100%,20rem)] shrink-0 items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle align-top",
           className,
         )}
         data-markdown-local-image={failed ? "error" : "loading"}
@@ -282,7 +316,7 @@ export function MarkdownImage({
       <div
         aria-label={intl.formatMessage({ id: "codeViewer.imageUnavailable" })}
         className={cn(
-          "flex min-h-32 w-full items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle md:h-44 md:w-56 md:shrink-0",
+          "inline-flex h-44 w-56 max-w-[min(100%,20rem)] shrink-0 items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle align-top",
           className,
         )}
         data-markdown-image-state="error"

@@ -54,10 +54,15 @@ export function usePendingSendQueue(opts: {
     activeChatRunIdRef,
   } = opts
 
-  /** 流式中排队等待发送（仅前端内存；runtime queued follow-ups；切换会话清空） */
-  const [pendingSendQueue, setPendingSendQueue] = useState<PendingSendItem[]>([])
+  /**
+   * 流式中排队等待发送：按 sessionKey 分桶，切走再切回要还能看见。
+   * （此前单数组 + 切会话清空，导致「排队消息丢了」。）
+   */
+  const [pendingSendQueue, setPendingSendQueueState] = useState<PendingSendItem[]>([])
   const pendingSendQueueRef = useRef(pendingSendQueue)
   pendingSendQueueRef.current = pendingSendQueue
+  const queuesBySessionRef = useRef(new Map<string, PendingSendItem[]>())
+  const queueOwnerSessionRef = useRef(String(selectedSessionKey || '').trim())
   /**
    * runtime pending_steers：已 ↑/steer 入队、等待下一次 before_model 消费。
    * 只在输入框上方预览，不进 transcript 气泡，直到 consumed ack。
@@ -72,22 +77,41 @@ export function usePendingSendQueue(opts: {
   /** 忙时 ↑ 已入 pending-inject；本轮结束后若尚未被模型消费则 skipAppend 续跑 */
   const midTurnInjectRef = useRef<Array<{ messageId: string; text: string; sessionKey: string }>>([])
 
+  const setPendingSendQueue = useCallback(
+    (updater: SetStateAction<PendingSendItem[]>) => {
+      setPendingSendQueueState((prev) => {
+        const next = typeof updater === 'function' ? updater(prev) : updater
+        const sk = String(sessionRef.current || queueOwnerSessionRef.current || '').trim()
+        if (sk) queuesBySessionRef.current.set(sk, next)
+        return next
+      })
+    },
+    [sessionRef],
+  )
+
   const handleQueueWhileBusy = useCallback((text: string) => {
     const t = String(text || '').trim()
     if (!t) return
+    const owner = String(sessionRef.current || '').trim()
+    if (!owner) return
     const id =
       typeof crypto !== 'undefined' && crypto.randomUUID
         ? crypto.randomUUID()
         : `pending-${Date.now()}`
-    setPendingSendQueue((prev) => {
-      if (prev.length >= PENDING_SEND_QUEUE_MAX) {
-        toast(`最多排队 ${PENDING_SEND_QUEUE_MAX} 条，请先发送或删除`, 'warning')
-        return prev
-      }
-      return [...prev, { id, text: t }]
-    })
+    const base =
+      queuesBySessionRef.current.get(owner) ||
+      (owner === queueOwnerSessionRef.current ? pendingSendQueueRef.current : [])
+    if (base.length >= PENDING_SEND_QUEUE_MAX) {
+      toast(`最多排队 ${PENDING_SEND_QUEUE_MAX} 条，请先发送或删除`, 'warning')
+      return
+    }
+    const next = [...base, { id, text: t }]
+    queuesBySessionRef.current.set(owner, next)
+    if (owner === queueOwnerSessionRef.current) {
+      setPendingSendQueueState(next)
+    }
     toast('已排队，回合结束后发送', 'info')
-  }, [])
+  }, [sessionRef])
 
   const enqueueSteerWhileBusy = useCallback(
     (text: string) => {
@@ -150,13 +174,19 @@ export function usePendingSendQueue(opts: {
 
   const handleSteerWhileBusy = enqueueSteerWhileBusy
 
-  const handleCancelPendingSend = useCallback((id: string) => {
-    setPendingSendQueue((prev) => prev.filter((x) => x.id !== id))
-  }, [])
+  const handleCancelPendingSend = useCallback(
+    (id: string) => {
+      setPendingSendQueue((prev) => prev.filter((x) => x.id !== id))
+    },
+    [setPendingSendQueue],
+  )
 
-  const handleEditPendingSend = useCallback((id: string, text: string) => {
-    setPendingSendQueue((prev) => prev.map((x) => (x.id === id ? { ...x, text } : x)))
-  }, [])
+  const handleEditPendingSend = useCallback(
+    (id: string, text: string) => {
+      setPendingSendQueue((prev) => prev.map((x) => (x.id === id ? { ...x, text } : x)))
+    },
+    [setPendingSendQueue],
+  )
 
   const promoteConsumedSteersToRows = useCallback(
     (sessionKey: string, messageIds: string[]) => {
@@ -242,7 +272,7 @@ export function usePendingSendQueue(opts: {
       }
       void handleSendRef.current(text)
     },
-    [enqueueSteerWhileBusy, sessionRef, sessionsRef, handleSendRef],
+    [enqueueSteerWhileBusy, sessionRef, sessionsRef, handleSendRef, setPendingSendQueue],
   )
 
   const handleCancelPendingSteer = useCallback(
@@ -294,36 +324,31 @@ export function usePendingSendQueue(opts: {
     } finally {
       interruptSendSteersRef.current = false
     }
-  }, [sessionRef, stopSessionExecutionRef, handleSendRef])
+  }, [sessionRef, stopSessionExecutionRef, handleSendRef, setPendingSendQueue])
 
-  // 当前回复结束后：① 未消费的 ↑ 注入续跑；② 再发排队队首
-  useEffect(() => {
-    const wasBusy = prevTurnBusyForDrainRef.current
-    prevTurnBusyForDrainRef.current = selectedTurnBusy
-    if (selectedTurnBusy || !wasBusy) return
-    if (pendingDrainBusyRef.current) return
+  const runPendingDrain = useCallback(
+    async (skRaw: string) => {
+      const sk = String(skRaw || '').trim()
+      if (!sk || pendingDrainBusyRef.current) return
+      if (String(sessionRef.current || '').trim() !== sk) return
 
-    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
-    const injects = midTurnInjectRef.current.filter((x) => x.sessionKey === sk)
-    const steers = pendingSteersRef.current.filter((s) => s.sessionKey === sk)
-    const hasOrphanPendingUi = (
-      (sk ? getSessionRuntime(sk).rows : null) ||
-      rowsRef.current ||
-      []
-    ).some((r) => r.role === 'user' && r.pendingInject)
+      const queueForSk =
+        queuesBySessionRef.current.get(sk) ||
+        (sk === queueOwnerSessionRef.current ? pendingSendQueueRef.current : [])
+      const injects = midTurnInjectRef.current.filter((x) => x.sessionKey === sk)
+      const steers = pendingSteersRef.current.filter((s) => s.sessionKey === sk)
+      const hasOrphanPendingUi = (
+        getSessionRuntime(sk).rows ||
+        (sk === queueOwnerSessionRef.current ? rowsRef.current : null) ||
+        []
+      ).some((r) => r.role === 'user' && r.pendingInject)
 
-    if (
-      !injects.length &&
-      !steers.length &&
-      !pendingSendQueueRef.current.length &&
-      !hasOrphanPendingUi
-    ) {
-      return
-    }
+      if (!injects.length && !steers.length && !queueForSk.length && !hasOrphanPendingUi) {
+        return
+      }
 
-    pendingDrainBusyRef.current = true
-    void Promise.resolve(
-      (async () => {
+      pendingDrainBusyRef.current = true
+      try {
         let pendingCount = -1
         let statusItems: Array<{ messageId: string; text: string }> = []
         try {
@@ -345,6 +370,8 @@ export function usePendingSendQueue(opts: {
         } catch {
           pendingCount = -1
         }
+
+        if (String(sessionRef.current || '').trim() !== sk) return
 
         if (pendingCount === 0) {
           const localIds = steers.map((s) => s.messageId)
@@ -423,40 +450,74 @@ export function usePendingSendQueue(opts: {
 
         midTurnInjectRef.current = midTurnInjectRef.current.filter((x) => x.sessionKey !== sk)
 
-        const next = pendingSendQueueRef.current[0]
+        const queueNow =
+          queuesBySessionRef.current.get(sk) ||
+          (sk === queueOwnerSessionRef.current ? pendingSendQueueRef.current : [])
+        const next = queueNow[0]
         if (!next) return
         const rowStill = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
         if (isSessionExecuting(sk, { sessionRow: rowStill })) {
           return
         }
+        if (String(sessionRef.current || '').trim() !== sk) return
         setPendingSendQueue((prev) => prev.filter((x) => x.id !== next.id))
         await handleSendRef.current(next.text)
-      })(),
-    ).finally(() => {
-      pendingDrainBusyRef.current = false
-    })
-  }, [
-    selectedTurnBusy,
-    selectedSessionKey,
-    promoteConsumedSteersToRows,
-    sessionRef,
-    rowsRef,
-    setRows,
-    sessionsRef,
-    handleSendRef,
-  ])
+      } finally {
+        pendingDrainBusyRef.current = false
+      }
+    },
+    [
+      promoteConsumedSteersToRows,
+      sessionRef,
+      rowsRef,
+      setRows,
+      sessionsRef,
+      handleSendRef,
+      setPendingSendQueue,
+    ],
+  )
+  const runPendingDrainRef = useRef(runPendingDrain)
+  runPendingDrainRef.current = runPendingDrain
 
-  // 切换会话：清空本地排队；从 DB 恢复未消费 steers
+  // 切换会话：按 session 恢复本地排队；从 DB 恢复未消费 steers
+  // 必须先于 busy→idle drain，以免把上一会话 busy 边沿误触发到新会话。
   useEffect(() => {
-    setPendingSendQueue([])
-    pendingDrainBusyRef.current = false
-    midTurnInjectRef.current = []
+    const prevSk = queueOwnerSessionRef.current
     const sk = String(selectedSessionKey || '').trim()
+
+    if (prevSk) {
+      queuesBySessionRef.current.set(prevSk, [...pendingSendQueueRef.current])
+    }
+
+    queueOwnerSessionRef.current = sk
+    pendingDrainBusyRef.current = false
+
+    const restored = sk ? queuesBySessionRef.current.get(sk) || [] : []
+    setPendingSendQueueState(restored)
+
+    const row = sk
+      ? sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
+      : null
+    const busy = sk ? isSessionExecuting(sk, { sessionRow: row }) : false
+    // 避免把上一会话的 busy 边沿误当成当前会话的 busy→idle
+    prevTurnBusyForDrainRef.current = busy
+
+    let cancelled = false
+    let resumeTimer: ReturnType<typeof setTimeout> | null = null
+    if (sk && restored.length && !busy) {
+      // 后台回合已结束时选中态不会再走 busy→idle，切回后补一次 drain
+      resumeTimer = setTimeout(() => {
+        if (!cancelled) void runPendingDrainRef.current(sk)
+      }, 0)
+    }
+
     if (!sk) {
       setPendingSteers([])
-      return
+      return () => {
+        cancelled = true
+        if (resumeTimer) clearTimeout(resumeTimer)
+      }
     }
-    let cancelled = false
     void getPendingInjectStatus(sk).then((status) => {
       if (cancelled) return
       const items = Array.isArray(status?.items) ? status.items : []
@@ -476,8 +537,19 @@ export function usePendingSendQueue(opts: {
     })
     return () => {
       cancelled = true
+      if (resumeTimer) clearTimeout(resumeTimer)
     }
-  }, [selectedSessionKey])
+  }, [selectedSessionKey, sessionsRef])
+
+  // 当前回复结束后：① 未消费的 ↑ 注入续跑；② 再发排队队首
+  useEffect(() => {
+    const wasBusy = prevTurnBusyForDrainRef.current
+    prevTurnBusyForDrainRef.current = selectedTurnBusy
+    if (selectedTurnBusy || !wasBusy) return
+    const sk = String(sessionRef.current || selectedSessionKey || '').trim()
+    if (!sk) return
+    void runPendingDrainRef.current(sk)
+  }, [selectedTurnBusy, selectedSessionKey, sessionRef])
 
   return {
     pendingSendQueue,

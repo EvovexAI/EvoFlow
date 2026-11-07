@@ -2,9 +2,11 @@
 
 # EvoFlow
 
-**A native Agent Runtime and Control Plane for long-running work.**
+**Evolutionary Workflow.**
 
-Built by [EvovexAI](https://www.evovexai.com): plan, decompose, execute, recover, and deliver — with observable, intervenable Agent Teams.
+**Going forward, this project is iterated and self-evolved by AI employees in the EvoFlow R&D department.**
+
+Built by [EvovexAI](https://www.evovexai.com): AI employees finish long-running work — plan, decompose, execute, recover, and deliver, with full observability and human gates.
 
 [![Release](https://img.shields.io/github/v/release/EvovexAI/EvoFlow?style=flat-square&color=6366f1)](https://github.com/EvovexAI/EvoFlow/releases)
 [![License](https://img.shields.io/badge/license-Source--available%20Non--Commercial-orange?style=flat-square)](LICENSE)
@@ -22,7 +24,9 @@ Built by [EvovexAI](https://www.evovexai.com): plan, decompose, execute, recover
 
 ## Overview
 
-EvoFlow runs long tasks with collaborative Agent Teams: clarify and plan first, then execute tools and sandboxed work in isolated context, with recovery and human review. The control plane covers chat, Plan, Goal, task center, workflows, and observability.
+**Going forward, this project is iterated and self-evolved by AI employees in the EvoFlow R&D department.**
+
+EvoFlow = **Evo**lutionary **Flow**: not another chat window, but work that can evolve as an organization — AI employees with posts, duty shifts, approvals, and reports; experience lands in the Asset Center so the next round starts smarter. The control plane covers chat, Plan, Goal, task center, workflows, and observability.
 
 Further reading: [Why EvoFlow](docs/user/explanation/why-evoflow.md) · [Ecosystem comparison (DeerFlow / Hermes / Codex / OpenClaw)](docs/user/explanation/ecosystem-comparison.md) · [Agent system](docs/user/explanation/agent-system.md)
 
@@ -34,7 +38,7 @@ Further reading: [Why EvoFlow](docs/user/explanation/why-evoflow.md) · [Ecosyst
 - **Agent Teams · smart employees** — multi-agent division of labor; on-duty posts with checkpoint approval and reports
 - **App Center / automation** — productize multi-node fixed business workflows; schedules and IM dispatch
 - **Workspace · code index** — project-directory bounds; symbol/import graphs for agent retrieval
-- **Self-evolution** — Asset Center: experience capture, reflection journals, profiles and memory
+- **Self-evolution** — Asset Center (experience / reflection / profiles); this project is continuously iterated by EvoFlow R&D AI employees
 - **Governance suite** — multi-account / SSO, cost ledger, ops observability, Security Center
 - **Resource market** — install packs and extension apps; Skills and MCP for capability expansion
 - **Sandbox & observability** — isolated execution; visible tasks, tool calls, and usage

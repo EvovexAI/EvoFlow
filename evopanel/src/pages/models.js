@@ -17,6 +17,7 @@ import {
 import { isEmbeddingModel } from '../lib/model-classification.js'
 import { openPlanBundleWizard, planBundlePromoHtml } from '../lib/plan-bundle.js'
 import { applyModalTauriDragChrome } from '../lib/modal-chrome.js'
+import { bindCodexAuthCard, codexAuthCardHtml, fetchCodexAuthStatus } from '../lib/codex-auth-panel.js'
 
 /** 从网关模型行读取上下文窗口（仅 model 表 context_length） */
 function resolvePanelContextWindow(m) {
@@ -1048,6 +1049,11 @@ function buildProviderConnectionDetailHTML(title, presetKey, pks, state, primary
         </div>`
       : ''
 
+  const codexSlot =
+    presetKey === 'openai'
+      ? `<div data-codex-auth-host>${codexAuthCardHtml({ logged_in: false, cli_auth_present: false })}</div>`
+      : ''
+
   return `<div class="models-vendor-detail">
     ${planPromo}
     ${planManaged}
@@ -1060,6 +1066,7 @@ function buildProviderConnectionDetailHTML(title, presetKey, pks, state, primary
         ${addBtn}
       </div>
     </header>
+    ${codexSlot}
     ${picker}
     <div id="providers-list">${section}</div>
   </div>`
@@ -1091,7 +1098,7 @@ function renderVendorInlineSetupForm(preset, state = {}) {
   const baseUrlLabel = PROVIDER_URL_MODE_KEYS.includes(preset.key) ? 'Base URL（自定义时编辑）' : '接口地址'
   const isOpenAICompatPreset = preset.key === 'openai'
   const baseUrlHint = isOpenAICompatPreset
-    ? `<div class="form-hint">默认可保留官方地址；也可改为 NewAPI / OneAPI / Azure 兼容端 / 自建网关等。不强制 OpenAI 官方账号，也不是 ChatGPT Plus 订阅。</div>`
+    ? `<div class="form-hint">默认可保留官方地址；也可改为 NewAPI / OneAPI / Azure 兼容端 / 自建网关等。API Key 按量计费；ChatGPT/Codex 订阅请用下方「账号登录」。</div>`
     : (!PROVIDER_URL_MODE_KEYS.includes(preset.key) && !preset.apiKeyOptional
       ? `<div class="form-hint">模型服务的 API 地址，通常以 /v1 结尾</div>`
       : '')
@@ -1114,6 +1121,9 @@ function renderVendorInlineSetupForm(preset, state = {}) {
     preset.key === 'volcengine'
       ? `<div class="models-plan-manual-divider"><span>或不使用套餐，手动填按量/通用 API</span></div>`
       : ''
+  const codexSlot = isOpenAICompatPreset
+    ? `<div data-codex-auth-host style="margin:0 0 14px">${codexAuthCardHtml({ logged_in: false, cli_auth_present: false })}</div>`
+    : ''
   return `
     <div class="models-inline-setup" data-inline-preset="${escAttr(preset.key)}">
       ${planPromo}
@@ -1126,6 +1136,7 @@ function renderVendorInlineSetupForm(preset, state = {}) {
         ${site}
       </header>
       ${desc}
+      ${codexSlot}
       <div class="models-inline-setup-form">
         <input type="hidden" data-inline-field="key" value="${escAttr(preset.key)}">
         ${urlModeBlock}
@@ -2439,7 +2450,21 @@ function renderProviders(page, state) {
   bindVendorDetailActions(detailMount, page, state)
   const listEl = detailMount.querySelector('#providers-list')
   if (listEl) bindProviderButtons(listEl, page, state)
+  void mountCodexAuthIfNeeded(detailMount, page, state)
   updateModelsToolbarMode(page, state)
+}
+
+async function mountCodexAuthIfNeeded(mount, page, state) {
+  const host = mount?.querySelector?.('[data-codex-auth-host]')
+  if (!host) return
+  const status = await fetchCodexAuthStatus()
+  host.innerHTML = codexAuthCardHtml(status)
+  bindCodexAuthCard(mount, {
+    toast,
+    onChanged: async () => {
+      await loadConfig(page, state)
+    },
+  })
 }
 
 /** 按右侧内容切换：内联配置时隐藏主模型摘要 */

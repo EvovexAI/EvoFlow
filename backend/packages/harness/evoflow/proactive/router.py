@@ -101,6 +101,10 @@ class CreateRoleRequest(BaseModel):
     )
     max_initiatives_per_cycle: int = Field(3)
     risk_threshold: str = Field("medium", description="low|medium|high|critical")
+    risk_threshold_enabled: bool = Field(
+        False,
+        description="是否启用 risk_threshold 参与审批判定（默认关闭＝沿用 autonomy_level）",
+    )
     approval_channels: list[str] = Field(default_factory=lambda: ["desktop"])
     approval_timeout_minutes: int = Field(30)
     heartbeat_rrule: str = Field(
@@ -152,6 +156,7 @@ class UpdateRoleRequest(BaseModel):
     autonomy_level: str | None = None
     max_initiatives_per_cycle: int | None = None
     risk_threshold: str | None = None
+    risk_threshold_enabled: bool | None = None
     approval_channels: list[str] | None = None
     approval_timeout_minutes: int | None = None
     heartbeat_rrule: str | None = None
@@ -582,6 +587,7 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
         autonomy_level=autonomy,
         max_initiatives_per_cycle=req.max_initiatives_per_cycle,
         risk_threshold=risk,
+        risk_threshold_enabled=bool(req.risk_threshold_enabled),
         approval_channels=req.approval_channels,
         approval_timeout_minutes=req.approval_timeout_minutes,
         soul_md=req.soul_md,
@@ -736,6 +742,8 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
             cfg.risk_threshold = InitiativeRiskLevel(req.risk_threshold)
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid risk_threshold: {req.risk_threshold}")
+    if req.risk_threshold_enabled is not None:
+        cfg.risk_threshold_enabled = bool(req.risk_threshold_enabled)
     if req.approval_channels is not None:
         cfg.approval_channels = req.approval_channels
     if req.approval_timeout_minutes is not None:
@@ -2624,6 +2632,9 @@ def _role_to_dict(role: ProactiveRole) -> dict[str, Any]:
             "autonomy_level": role.config.autonomy_level.value,
             "max_initiatives_per_cycle": role.config.max_initiatives_per_cycle,
             "risk_threshold": role.config.risk_threshold.value,
+            "risk_threshold_enabled": bool(
+                getattr(role.config, "risk_threshold_enabled", False)
+            ),
             "approval_channels": role.config.approval_channels,
             "approval_timeout_minutes": role.config.approval_timeout_minutes,
             "soul_md": role.config.soul_md[:200] if role.config.soul_md else "",

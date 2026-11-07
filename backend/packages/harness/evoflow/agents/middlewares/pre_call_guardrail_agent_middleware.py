@@ -54,3 +54,12 @@ class PreCallGuardrailAgentMiddleware(AgentMiddleware[AgentState]):
         handler: Callable[[ModelRequest], Awaitable[ModelCallResult]],
     ) -> ModelCallResult:
         return await handler(self._patch_request(request))
+
+
+class PostCompactionToolPairSanitizeMiddleware(PreCallGuardrailAgentMiddleware):
+    """Same sanitize as PreCall, mounted *after* ContextCompactionMiddleware.
+
+    ``create_agent`` rejects duplicate middleware ``.name`` (defaults to class name),
+    so this subclass exists solely to allow a second pass after the fold without
+    colliding with the early PreCall in ``build_lead_runtime_middlewares``.
+    """

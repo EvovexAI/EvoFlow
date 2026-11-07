@@ -360,7 +360,7 @@ def upsert_message_by_message_id(
         now = now_iso_z()
         existing = db.execute(
             """
-            SELECT seq FROM evoflow_chat_messages
+            SELECT seq, turn_state FROM evoflow_chat_messages
             WHERE session_key = ? AND message_id = ?
             LIMIT 1
             """,
@@ -371,6 +371,22 @@ def upsert_message_by_message_id(
                 seq = int(existing["seq"])
             except Exception:
                 seq = int(existing[0])
+            try:
+                existing_state = str(existing["turn_state"] or "").strip().lower()
+            except Exception:
+                existing_state = ""
+            # Monotonic turn state: a late/reordered streaming write must not
+            # drag a finalized (or errored) bubble back to partial content.
+            if state == "streaming" and existing_state in ("final", "error"):
+                return {
+                    "session_key": sk,
+                    "seq": seq,
+                    "role": r,
+                    "message_id": mid,
+                    "updated": False,
+                    "staleSkipped": True,
+                    "created_at_ms": iso_z_to_ms(now),
+                }
             db.execute(
                 """
                 UPDATE evoflow_chat_messages

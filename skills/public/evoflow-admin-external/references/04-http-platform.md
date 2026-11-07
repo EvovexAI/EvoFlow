@@ -17,7 +17,7 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
-> 计数：`len(get_registry())` = **179**（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
+> 计数：`len(get_registry())` = **180**（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
 
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
@@ -35,7 +35,7 @@ Content-Type: application/json
 **plugins：** `overview` `list` `describe` `install` `enable` `update` `restore` `uninstall` `marketplace_add` `marketplace_remove` `marketplace_refresh`  
 **mcp：** `get` `list` `add` `remove` `test` `login` `logout` `set`  
 **org：** `preflight` `install` `list` `get` `uninstall` `export` `market_catalog` `market_install`  
-**channels：** `list` `get` `set_config` `enable` `restart` `push_targets` `registration_begin` `registration_poll` `registration_apply`  
+**channels：** `list` `get` `set_config` `enable` `restart` `push_targets` `registration_begin` `registration_poll` `registration_apply` `send_message`  
 **automation：** `list` `get` `history` `create` `update` `set_status` `delete`  
 **approvals：** `list` `approve` `reject`  
 **sessions：** `search`  

@@ -1,8 +1,8 @@
 #!/usr/bin/env python
 """prompt-audit · 通用 Agent 提示词栈审计器 (stdlib-only)。
 
-参考 .codebasewiki/meta/agent-prompt-architecture.md 的反模式库，对任意
-L1/L2/L3 文本做结构化扫描，输出 Markdown 报告与 JSON 结果。
+基于内置反模式库（见下方 PATTERNS），对任意 L1/L2/L3 文本做结构化扫描，
+输出 Markdown 报告与 JSON 结果。
 
 用法：
     # 审计单文件（自动判层）
@@ -115,7 +115,7 @@ class Report:
             "",
             f"**审计对象**：`{self.target}`  ",
             f"**审计日期**：{self.audited_at}  ",
-            f"**审计依据**：`.codebasewiki/meta/agent-prompt-architecture.md`",
+            f"**审计依据**：`scripts/prompt-audit/prompt_audit.py` 内置 PATTERNS",
             "",
             "### 严重度汇总",
             f"- HIGH: {self.high_count}",
