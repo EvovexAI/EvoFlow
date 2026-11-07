@@ -12,7 +12,7 @@ import type { DisplayRow } from '../../chat-types.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
-import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
+import { V4StreamRowsBridge, retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
@@ -777,6 +777,11 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         v4Phase === 'connecting' || v4Phase === 'failed'
                       }
                       connectionFailed={v4Phase === 'failed'}
+                      onRetryConnection={
+                        v4Phase === 'failed' && selectedThreadId
+                          ? () => retryEvoflowV4Session(String(selectedThreadId))
+                          : undefined
+                      }
                       draftEmpty={draftEmpty}
                       optimisticUserText={optimisticUserText}
                       evoflowSessionKey={selectedSessionKey}
