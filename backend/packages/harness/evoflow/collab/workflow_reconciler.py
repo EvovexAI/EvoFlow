@@ -6,6 +6,7 @@ this module re-reads project storage + app_runs and calls ``workflow_runtime``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -261,33 +262,46 @@ async def reconcile_task(
 
     storage = get_project_storage()
     now_ts = time.time()
-    healed: list[dict[str, Any]] = []
 
-    with main_task_mutation_lock(tid):
-        row = find_main_task(storage, tid, bypass_cache=True)
-        if not row:
-            report["error"] = "task_not_found"
-            return report
-        project, task = row
-        if not is_workflow_scheduler_task(task):
-            report["error"] = "not_workflow_task"
-            return report
+    def _heal_locked() -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
+        """同步 DB 临界区：持 mutation 锁做 heal + save（worker 线程执行）。
 
-        healed = _heal_subtasks(task, reason=reason, now_ts=now_ts)
-        if healed:
-            main_st = str(task.get("status") or "").strip().lower()
-            if main_st in _PAUSED | _FAILED | {"cancelled", "canceled"}:
-                # Re-open for dispatch (state machine on main is looser via direct assign).
-                if main_st in _PAUSED or main_st in _FAILED:
-                    task["status"] = "executing"
-            task["updated_at"] = utc_now_iso_z()
-            storage.save_project(project)
-            try:
-                from evoflow.collab.app_run_events import emit_app_run_from_main_task
+        2026-11-08 hang-diagnostics 现场：本段原样跑在 event loop 上，
+        find_main_task → load_task_bundle 在两把 threading.Lock 下等 agent 回合
+        的 DB 写，每 45s tick 把 loop 卡 5-25s，V4 订阅/HTTP 全部排队。
+        """
+        healed_local: list[dict[str, Any]] = []
+        error = ""
+        task_ref: dict[str, Any] | None = None
+        with main_task_mutation_lock(tid):
+            row = find_main_task(storage, tid, bypass_cache=True)
+            if not row:
+                return healed_local, "task_not_found", None
+            project, task = row
+            task_ref = task
+            if not is_workflow_scheduler_task(task):
+                return healed_local, "not_workflow_task", task_ref
+            healed_local = _heal_subtasks(task, reason=reason, now_ts=now_ts)
+            if healed_local:
+                main_st = str(task.get("status") or "").strip().lower()
+                if main_st in _PAUSED | _FAILED | {"cancelled", "canceled"}:
+                    # Re-open for dispatch (state machine on main is looser via direct assign).
+                    if main_st in _PAUSED or main_st in _FAILED:
+                        task["status"] = "executing"
+                task["updated_at"] = utc_now_iso_z()
+                storage.save_project(project)
+                try:
+                    from evoflow.collab.app_run_events import emit_app_run_from_main_task
 
-                emit_app_run_from_main_task(task, reason=f"reconcile_{reason}")
-            except Exception:
-                logger.debug("reconcile emit_app_run failed task=%s", tid, exc_info=True)
+                    emit_app_run_from_main_task(task, reason=f"reconcile_{reason}")
+                except Exception:
+                    logger.debug("reconcile emit_app_run failed task=%s", tid, exc_info=True)
+        return healed_local, error, task_ref
+
+    healed, heal_error, task_ref = await asyncio.to_thread(_heal_locked)
+    if heal_error:
+        report["error"] = heal_error
+        return report
 
     report["healed"] = healed
     report["ok"] = True
@@ -296,9 +310,9 @@ async def reconcile_task(
         report["action"] = "heal_only"
         return report
 
-    # Decide Runtime entry
-    row2 = find_main_task(storage, tid, bypass_cache=True)
-    task2 = row2[1] if row2 else task
+    # Decide Runtime entry（同样同步 DB，勿回 loop）
+    row2 = await asyncio.to_thread(lambda: find_main_task(storage, tid, bypass_cache=True))
+    task2 = row2[1] if row2 else task_ref
     need_retry = any(h.get("why") in {"zombie_executing", "failed_retry"} for h in healed)
     need_start = any(h.get("why") == "paused_resume" for h in healed) or (
         not healed and _has_runnable_pending(task2) and not _has_live_executing(task2)
@@ -378,7 +392,8 @@ async def reconcile_open_workflows(
     from evoflow.persistence import app_repositories
 
     lim = max(1, min(int(limit or 50), 200))
-    runs = app_repositories.list_open_runs(limit=lim)
+    # 同步 SQLite 扫描，勿在 event loop 上跑（同 reconcile_task 的现场结论）。
+    runs = await asyncio.to_thread(lambda: app_repositories.list_open_runs(limit=lim))
     reports: list[dict[str, Any]] = []
     for run in runs:
         rid = str(run.get("id") or "").strip()
