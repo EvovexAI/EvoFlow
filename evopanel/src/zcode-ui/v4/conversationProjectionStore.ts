@@ -36,6 +36,15 @@ import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
 const RUNTIME_RECYCLE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
 
 /**
+ * 一般瞬态 subscribe 失败（网关重启 / 网络抖动 / 503 等）的有界退避。
+ *
+ * 与 runtime 换代退避分开计数：换代路径 3 次即落 error，而网关重启在 dev 场景
+ * 常见且几十秒内恢复——退避期间保持 connecting（UI 显示加载中，不渲染失败横幅），
+ * 额度耗尽才落 error 暴露「重新连接」。成功 ACK 即复位计数。
+ */
+const CONNECT_RETRY_DELAYS_MS = [500, 1_500, 4_000, 10_000, 15_000, 15_000] as const;
+
+/**
  * accepted ACK 后等待权威输入投影的宽限期。
  *
  * Core admission 的 ACK 不等待 TurnStarted/QueueItem/userInput 投影；正常情况下这两条
@@ -325,6 +334,8 @@ export class ConversationProjectionStore {
   private readonly offRuntimeLifecycle: (() => void) | null = null;
   private runtimeRecycleRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private runtimeRecycleRetryAttempt = 0;
+  private connectRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectRetryAttempt = 0;
   private sessionOpenRendererTiming: SessionOpenRendererTiming = {};
   private initialSubscribeAckAt: number | null = null;
   private planQueryInFlight = false;
@@ -458,6 +469,7 @@ export class ConversationProjectionStore {
       // 会原子替换整个投影，旧恢复流已无意义；否则其迟到失败会把 live 的新订阅打成 error。
       this.discardRecovery();
       this.runtimeRecycleRetryAttempt = 0;
+      this.connectRetryAttempt = 0;
       this.initialSubscribeAckAt = monotonicNow();
       this.setState({
         status: "live",
@@ -517,6 +529,19 @@ export class ConversationProjectionStore {
         logger.warn(`[v4-store] subscribe ${this.topic} 被 runtime 换代打断，退避重连: ${message}`);
         return;
       }
+      if (this.scheduleConnectRetry(generation)) {
+        logger.lifecycle.warn("v4 conversation store connect transient retry scheduled", {
+          durationMs: roundedDuration(subscribeStartedAt, monotonicNow()),
+          errorMessage: message,
+          event: "v4.conversation.store.connect.transient_retry_scheduled",
+          generation,
+          module: "ui.v4.conversation_projection_store",
+          status: "retrying",
+          topic: this.topic,
+        });
+        logger.warn(`[v4-store] subscribe ${this.topic} 瞬态失败，退避重连: ${message}`);
+        return;
+      }
       logger.lifecycle.warn("v4 conversation store connect failed", {
         durationMs: roundedDuration(subscribeStartedAt, monotonicNow()),
         errorMessage: message,
@@ -569,6 +594,32 @@ export class ConversationProjectionStore {
     return true;
   }
 
+  private clearConnectRetryTimer(): void {
+    if (this.connectRetryTimer === null) return;
+    clearTimeout(this.connectRetryTimer);
+    this.connectRetryTimer = null;
+  }
+
+  /**
+   * 瞬态 subscribe 失败的有界退避重连：保持 connecting（UI 不渲染失败横幅），
+   * 额度耗尽返回 false 由调用方落 error 暴露「重新连接」入口。
+   * 返回 true 表示已接管本次失败，调用方不应再落 error。
+   */
+  private scheduleConnectRetry(generation: number): boolean {
+    if (this.closed) return false;
+    const delayMs = CONNECT_RETRY_DELAYS_MS[this.connectRetryAttempt];
+    if (delayMs === undefined) return false;
+    this.connectRetryAttempt += 1;
+    this.clearConnectRetryTimer();
+    this.setState({ status: "connecting" });
+    this.connectRetryTimer = setTimeout(() => {
+      this.connectRetryTimer = null;
+      if (this.closed || generation !== this.generation) return;
+      void this.connect();
+    }, delayMs);
+    return true;
+  }
+
   /** workspace-dispose 当场：旧 runtime 已死，新的尚不存在，不可重订阅。 */
   private handleRuntimeUnavailable(): void {
     if (this.closed) return;
@@ -607,6 +658,8 @@ export class ConversationProjectionStore {
   retry(): Promise<void> {
     this.clearRuntimeRecycleRetry();
     this.runtimeRecycleRetryAttempt = 0;
+    this.clearConnectRetryTimer();
+    this.connectRetryAttempt = 0;
     return this.connect();
   }
 
@@ -1390,6 +1443,7 @@ export class ConversationProjectionStore {
     this.offRuntimeRestart?.();
     this.offRuntimeLifecycle?.();
     this.clearRuntimeRecycleRetry();
+    this.clearConnectRetryTimer();
     this.clearInitialFrameWatchdog();
     for (const timer of this.acceptedInputProjectionTimers.values()) clearTimeout(timer);
     this.acceptedInputProjectionTimers.clear();
