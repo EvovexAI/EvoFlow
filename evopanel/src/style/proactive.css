@@ -435,8 +435,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 18px;
+  gap: 8px;
+  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
@@ -444,9 +444,9 @@
   display: flex;
   gap: 2px;
   margin-bottom: 0;
-  padding: 3px;
+  padding: 2px;
   background: var(--bg-tertiary);
-  border-radius: 10px;
+  border-radius: 8px;
   width: fit-content;
   max-width: 100%;
   overflow-x: auto;
@@ -459,14 +459,16 @@
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  min-width: 160px;
-  max-width: 240px;
-  width: min(240px, 100%);
+  min-width: 132px;
+  max-width: 200px;
+  width: min(200px, 100%);
 }
 
 .pro-roles-search-icon {
   position: absolute;
-  left: 10px;
+  left: 8px;
+  width: 12px;
+  height: 12px;
   color: var(--text-tertiary);
   pointer-events: none;
 }
@@ -474,13 +476,13 @@
 .pro-roles-search-input {
   box-sizing: border-box;
   width: 100%;
-  height: 36px;
-  padding: 0 10px 0 32px;
-  border-radius: 8px;
+  height: 28px;
+  padding: 0 8px 0 25px;
+  border-radius: 6px;
   border: 1px solid var(--border-primary, var(--pro-slate-line, #e2e8f0));
   background: var(--bg-secondary, #fff);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 11.5px;
   outline: none;
 }
 
@@ -507,18 +509,18 @@
 
 .pro-roles-dept-filter-select {
   box-sizing: border-box;
-  height: 36px;
-  max-width: 168px;
-  padding: 0 26px 0 10px;
-  border-radius: 8px;
+  height: 28px;
+  max-width: 150px;
+  padding: 0 22px 0 8px;
+  border-radius: 6px;
   border: 1px solid var(--border-primary, var(--pro-slate-line, #e2e8f0));
   background-color: var(--bg-secondary, #fff);
   background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
-  background-position: right 9px center;
-  background-size: 10px 10px;
+  background-position: right 7px center;
+  background-size: 9px 9px;
   background-repeat: no-repeat;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 11.5px;
   outline: none;
   appearance: none;
   cursor: pointer;
@@ -532,15 +534,15 @@
 .pro-tab {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 14px;
+  gap: 4px;
+  padding: 5px 10px;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 550;
   color: var(--text-tertiary);
-  border-radius: 8px;
+  border-radius: 7px;
   white-space: nowrap;
   transition: color var(--dur-fast), background var(--dur-fast);
 }
@@ -561,14 +563,14 @@
 
 .pro-tab-count {
   display: inline-flex;
-  min-width: 18px;
-  height: 18px;
+  min-width: 15px;
+  height: 15px;
   align-items: center;
   justify-content: center;
-  padding: 0 5px;
-  font-size: 11px;
+  padding: 0 4px;
+  font-size: 10px;
   font-weight: 650;
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--pro-teal-soft);
   color: var(--pro-teal);
 }
@@ -4198,51 +4200,51 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .pro-org-panel {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 4px 2px 24px;
+  gap: 8px;
+  padding: 2px 0 12px;
   min-width: 0;
 }
 .pro-org-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .pro-org-head-aside {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .pro-org-stat {
-  font-size: var(--ef-text-sm) ;
+  font-size: 11.5px;
   font-weight: 600;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
 .pro-org-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
 }
 .pro-org-view-tabs {
   display: inline-flex;
-  gap: 4px;
-  margin-top: 10px;
-  padding: 3px;
-  border-radius: 10px;
+  gap: 3px;
+  margin-top: 6px;
+  padding: 2px;
+  border-radius: 8px;
   background: var(--bg-muted, rgba(127, 127, 127, 0.12));
 }
 .pro-org-view-tab {
   border: 0;
   background: transparent;
   color: var(--text-secondary);
-  font-size: var(--ef-text-sm) ;
+  font-size: 11.5px;
   font-weight: 600;
-  padding: 6px 12px;
-  border-radius: 8px;
+  padding: 4px 9px;
+  border-radius: 6px;
   cursor: pointer;
 }
 .pro-org-view-tab.is-on {
@@ -4286,18 +4288,18 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 .dd-org-dept-person {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.18));
   background: var(--bg-muted, rgba(127, 127, 127, 0.04));
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 9px;
+  padding: 6px 8px;
   cursor: pointer;
   color: var(--text-primary);
 }
@@ -4310,17 +4312,17 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 .dd-org-dept-person-text strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dd-org-dept-person-text span {
-  font-size: 11px;
+  font-size: 10.5px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4328,7 +4330,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-dept-person-go {
   flex: none;
-  font-size: var(--ef-text-sm) ;
+  font-size: 11px;
   font-weight: 700;
   color: var(--accent, #2563eb);
 }
@@ -4337,24 +4339,24 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-dept-layout {
   display: grid;
-  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr);
-  gap: 14px;
+  grid-template-columns: minmax(180px, 232px) minmax(0, 1fr);
+  gap: 10px;
   align-items: stretch;
-  min-height: min(70vh, 640px);
+  min-height: min(68vh, 560px);
 }
 .dd-dept-side {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
-  padding: 12px;
+  padding: 9px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--bg-elevated, transparent);
 }
 .dd-dept-create {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 .dd-dept-create .hire-input {
@@ -4373,13 +4375,13 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
   background: transparent;
-  border-radius: 10px;
-  padding: 10px 12px;
+  border-radius: 8px;
+  padding: 7px 9px;
   cursor: pointer;
   color: var(--text-primary);
 }
@@ -4400,13 +4402,13 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .dd-dept-name {
   display: block;
   font-weight: 650;
-  font-size: 13px;
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dd-dept-row-head {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4460,17 +4462,17 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 16px 18px;
+  gap: 12px;
+  padding: 11px 13px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.22));
-  border-radius: 14px;
+  border-radius: 10px;
   background: var(--bg-elevated, transparent);
 }
 .dd-dept-main-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 .dd-dept-main-head > div:first-of-type {
@@ -4479,29 +4481,29 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-dept-main-title {
   margin: 0;
-  font-size: 18px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-primary);
 }
 .dd-dept-main-sub {
-  margin: 4px 0 0;
-  font-size: var(--ef-text-sm) ;
+  margin: 2px 0 0;
+  font-size: 11px;
   color: var(--text-tertiary);
 }
 .dd-dept-main-actions {
   display: inline-flex;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
 }
 .dd-dept-block {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 7px;
   min-width: 0;
 }
 .dd-dept-block-title {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-secondary);
 }
@@ -4510,30 +4512,30 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 .dd-dept-avatar-err {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--danger, #dc2626);
 }
 .dd-dept-avatar-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
   width: 100%;
 }
 .dd-dept-avatar-opt {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 8px 4px;
-  border-radius: 10px;
+  gap: 3px;
+  padding: 6px 3px;
+  border-radius: 8px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.25));
   background: var(--bg-elevated, transparent);
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
   min-width: 0;
 }
@@ -4550,23 +4552,29 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.dd-dept-avatar-opt-img {
-  flex: none;
+.dd-dept-avatar-grid .dd-dept-avatar-opt-img {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
 }
 .dd-dept-member-grid {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 6px;
 }
 .dd-dept-card {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  border-radius: 12px;
+  gap: 8px;
+  padding: 6px 9px;
+  border-radius: 9px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.18));
   background: var(--bg-muted, rgba(127, 127, 127, 0.05));
   min-width: 0;
@@ -4576,10 +4584,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 .dd-dept-card-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   color: var(--text-primary);
   overflow: hidden;
@@ -4587,7 +4595,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   white-space: nowrap;
 }
 .dd-dept-card-sub {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4595,13 +4603,13 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-dept-card-rm {
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 22px;
+  height: 22px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: var(--text-tertiary);
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
 }
@@ -4610,10 +4618,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   color: var(--text-primary);
 }
 .dd-dept-empty-members {
-  padding: 14px 12px;
-  border-radius: 12px;
+  padding: 10px 9px;
+  border-radius: 9px;
   border: 1px dashed var(--border-subtle, rgba(127, 127, 127, 0.28));
-  font-size: var(--ef-text-sm) ;
+  font-size: 11px;
   color: var(--text-tertiary);
   text-align: center;
 }
@@ -4626,39 +4634,39 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .dd-dept-picker-bar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .dd-dept-picker-search {
   flex: 1;
-  min-width: 180px;
+  min-width: 150px;
 }
 .dd-dept-picker-meta {
-  font-size: var(--ef-text-sm) ;
+  font-size: 11px;
   color: var(--text-tertiary);
   white-space: nowrap;
 }
 .dd-dept-picker-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  max-height: min(36vh, 320px);
+  gap: 3px;
+  max-height: min(34vh, 280px);
   overflow: auto;
-  padding: 4px;
-  border-radius: 12px;
+  padding: 3px;
+  border-radius: 9px;
   border: 1px solid var(--border-subtle, rgba(127, 127, 127, 0.18));
   background: var(--bg-muted, rgba(127, 127, 127, 0.04));
 }
 .dd-dept-pick {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   text-align: left;
   border: 0;
   background: transparent;
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: 7px;
+  padding: 5px 7px;
   cursor: pointer;
   color: var(--text-primary);
 }
@@ -4670,17 +4678,17 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 .dd-dept-pick-text strong {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .dd-dept-pick-text span {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4688,7 +4696,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-dept-pick-add {
   flex: none;
-  font-size: var(--ef-text-sm) ;
+  font-size: 11px;
   font-weight: 700;
   color: var(--accent, #2563eb);
 }
@@ -4712,22 +4720,22 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   max-width: 40rem;
 }
 .pro-org-hint {
-  font-size: var(--ef-text-sm) ;
-  line-height: 1.45;
+  font-size: 11.5px;
+  line-height: 1.4;
   color: var(--pro-teal);
   background: var(--pro-teal-soft);
-  border-radius: 8px;
-  padding: 10px 12px;
+  border-radius: 7px;
+  padding: 7px 9px;
 }
 .pro-org-select {
   width: 100%;
-  max-width: 360px;
-  padding: 7px 10px;
+  max-width: 320px;
+  padding: 5px 8px;
   border-radius: 6px;
   border: 1px solid var(--border, #e5e7eb);
   background: var(--bg-primary, #fff);
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
 }
 .pro-org-select:disabled {
   opacity: 0.6;
@@ -4735,44 +4743,44 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 
 .dd-org-layout {
   display: grid;
-  grid-template-columns: minmax(240px, 340px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 280px) minmax(0, 1fr);
   gap: 0;
-  min-height: 420px;
+  min-height: 320px;
   border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
-  border-radius: 12px;
+  border-radius: 10px;
   overflow: hidden;
   background: var(--bg-primary, #fff);
 }
 .dd-org-tree-pane {
   border-right: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
   background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 88%, transparent);
-  padding: 10px 8px 16px;
+  padding: 6px 6px 12px;
   overflow: auto;
-  max-height: min(70vh, 640px);
+  max-height: min(68vh, 560px);
 }
 .dd-org-detail-pane {
-  padding: 18px 20px;
+  padding: 12px 14px;
   overflow: auto;
-  max-height: min(70vh, 640px);
+  max-height: min(68vh, 560px);
 }
 .dd-org-company {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 8px 10px;
+  gap: 6px;
+  padding: 5px 6px 7px;
   cursor: pointer;
   user-select: none;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
 }
 .dd-org-children {
   list-style: none;
   margin: 0;
-  padding: 0 0 0 14px;
+  padding: 0 0 0 12px;
   position: relative;
 }
 .dd-org-children--root {
-  padding-left: 10px;
+  padding-left: 8px;
 }
 .dd-org-node {
   position: relative;
@@ -4781,7 +4789,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 .dd-org-children > .dd-org-node::before {
   content: '';
   position: absolute;
-  left: -8px;
+  left: -7px;
   top: 0;
   bottom: 0;
   width: 1px;
@@ -4789,23 +4797,23 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-children > .dd-org-node.is-last::before {
   bottom: auto;
-  height: 18px;
+  height: 14px;
 }
 .dd-org-children > .dd-org-node::after {
   content: '';
   position: absolute;
-  left: -8px;
-  top: 18px;
-  width: 10px;
+  left: -7px;
+  top: 14px;
+  width: 8px;
   height: 1px;
   background: color-mix(in srgb, var(--border, #cbd5e1) 85%, transparent);
 }
 .dd-org-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  border-radius: 8px;
+  gap: 5px;
+  padding: 4px 6px;
+  border-radius: 7px;
   cursor: pointer;
   min-width: 0;
 }
@@ -4817,8 +4825,8 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pro-teal) 28%, transparent);
 }
 .dd-org-twist {
-  width: 18px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -4838,10 +4846,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-twist-icon {
   display: block;
-  width: 5px;
-  height: 5px;
-  border-right: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
+  width: 4px;
+  height: 4px;
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
   transform: rotate(-45deg) translate(-0.5px, -0.5px);
   transition: transform var(--dur-fast) var(--ease-out-soft);
 }
@@ -4849,12 +4857,12 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   transform: rotate(45deg) translate(-0.5px, -0.5px);
 }
 .dd-org-avatar {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  flex: 0 0 28px;
-  border-radius: 6px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  flex: 0 0 22px;
+  border-radius: 5px;
   overflow: visible;
   display: inline-flex;
   align-items: center;
@@ -4863,19 +4871,19 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   line-height: 0;
 }
 .dd-org-avatar--sm {
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
-  flex-basis: 28px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
+  flex-basis: 22px;
 }
 .dd-org-avatar--lg {
-  width: 56px;
-  height: 56px;
-  min-width: 56px;
-  min-height: 56px;
-  flex-basis: 56px;
-  border-radius: 12px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  flex-basis: 44px;
+  border-radius: 10px;
 }
 /* 部门头像（组织架构树 / 部门管理列表 / 详情头图共用）：
    有预设图时铺满，无图/加载失败回落部门名首字 */
@@ -4898,15 +4906,15 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-avatar.dd-org-dept-avatar.dd-org-avatar--lg,
 .dd-org-avatar.dd-dept-main-avatar {
-  border-radius: 12px;
-  font-size: 18px;
+  border-radius: 10px;
+  font-size: 15px;
 }
 .dd-dept-row-avatar {
-  flex: 0 0 28px;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
-  min-height: 28px;
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -4929,10 +4937,10 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 .dd-org-name {
-  font-size: 13px;
+  font-size: 11.5px;
   font-weight: 650;
   color: var(--text-primary);
   overflow: hidden;
@@ -4940,7 +4948,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   white-space: nowrap;
 }
 .dd-org-dept {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4948,7 +4956,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-badge {
   flex: 0 0 auto;
-  font-size: var(--ef-text-xs) ;
+  font-size: 10px;
   font-weight: 600;
   color: var(--warning, #f59e0b);
   background: color-mix(in srgb, var(--warning, #f59e0b) 14%, transparent);
@@ -4974,80 +4982,83 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-org-count {
   flex: 0 0 auto;
-  min-width: 18px;
+  min-width: 15px;
   text-align: center;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 650;
   color: var(--text-tertiary);
   background: color-mix(in srgb, var(--bg-primary, #fff) 70%, transparent);
   border-radius: 999px;
-  padding: 1px 6px;
+  padding: 0 5px;
 }
 .dd-org-detail-empty {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  min-height: 240px;
+  min-height: 180px;
   color: var(--text-secondary);
-  gap: 6px;
+  gap: 4px;
 }
 .dd-org-detail-hint {
   margin: 0;
-  font-size: var(--ef-text-sm) ;
+  font-size: 11.5px;
   color: var(--text-tertiary);
 }
 .dd-org-detail-head {
   display: flex;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 .dd-org-detail-name {
   margin: 0;
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
 }
 .dd-org-detail-meta {
-  margin: 4px 0 0;
-  font-size: var(--ef-text-sm) ;
+  margin: 2px 0 0;
+  font-size: 11.5px;
   color: var(--text-tertiary);
 }
 .dd-org-facts {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
-  margin: 0 0 16px;
+  gap: 8px;
+  margin: 0 0 12px;
 }
 .dd-org-facts dt {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-tertiary);
-  margin: 0 0 2px;
+  margin: 0 0 1px;
 }
 .dd-org-facts dd {
   margin: 0;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
   color: var(--text-primary);
 }
 .dd-org-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: var(--ef-text-sm) ;
+  gap: 4px;
+  font-size: 11.5px;
   color: var(--text-secondary);
-  margin-bottom: 18px;
+  margin-bottom: 14px;
 }
 .dd-org-section h4 {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 6px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--text-primary);
 }
+.dd-org-section + .dd-org-section {
+  margin-top: 12px;
+}
 .dd-org-muted {
   margin: 0;
-  font-size: var(--ef-text-sm) ;
+  font-size: 11.5px;
   color: var(--text-tertiary);
 }
 .dd-org-reports {
@@ -5056,20 +5067,20 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 .dd-org-report-item {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
   background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 80%, transparent);
-  border-radius: 8px;
-  padding: 6px 8px;
+  border-radius: 7px;
+  padding: 4px 6px;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
 }
 .dd-org-report-item:hover {
@@ -5077,22 +5088,22 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: var(--pro-teal-soft);
 }
 .dd-org-detail-actions {
-  margin-top: 20px;
-  padding-top: 14px;
+  margin-top: 14px;
+  padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 85%, transparent);
 }
 
 /* DingTalk-style org chart diagram (top → self → reports row) */
 .dd-org-section--diagram {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .dd-org-diagram {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0;
-  padding: 16px 12px 8px;
-  border-radius: 10px;
+  padding: 10px 8px 6px;
+  border-radius: 8px;
   background: color-mix(in srgb, var(--bg-secondary, #f8fafc) 85%, transparent);
   overflow-x: auto;
   min-width: 0;
@@ -5101,7 +5112,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: flex;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 8px;
 }
 .dd-org-diagram-tier--kids {
   align-items: flex-start;
@@ -5111,8 +5122,8 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   flex-direction: column;
   align-items: center;
   position: relative;
-  padding-top: 14px;
-  min-width: 88px;
+  padding-top: 11px;
+  min-width: 72px;
 }
 .dd-org-diagram-branch::before {
   content: '';
@@ -5120,19 +5131,19 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   top: 0;
   left: 50%;
   width: 1px;
-  height: 14px;
+  height: 11px;
   background: color-mix(in srgb, var(--pro-teal) 40%, var(--border, #cbd5e1));
 }
 .dd-org-diagram-vline {
   width: 2px;
-  height: 16px;
+  height: 12px;
   background: color-mix(in srgb, var(--pro-teal) 45%, var(--border, #cbd5e1));
   flex: 0 0 auto;
 }
 .dd-org-diagram-hbar {
   height: 2px;
-  min-width: 40px;
-  width: min(100%, 420px);
+  min-width: 32px;
+  width: min(100%, 340px);
   background: color-mix(in srgb, var(--pro-teal) 40%, var(--border, #cbd5e1));
   margin-bottom: 0;
 }
@@ -5140,23 +5151,23 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
-  min-width: 72px;
-  max-width: 110px;
-  padding: 8px 6px;
-  border-radius: 8px;
+  gap: 3px;
+  min-width: 60px;
+  max-width: 92px;
+  padding: 6px 5px;
+  border-radius: 7px;
   border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
   background: var(--bg-primary, #fff);
   cursor: pointer;
   text-align: center;
 }
 .dd-org-mini .dd-org-avatar {
-  width: 40px;
-  height: 40px;
-  min-width: 40px;
-  min-height: 40px;
-  flex-basis: 40px;
-  border-radius: 10px;
+  width: 30px;
+  height: 30px;
+  min-width: 30px;
+  min-height: 30px;
+  flex-basis: 30px;
+  border-radius: 8px;
 }
 .dd-org-mini:hover {
   border-color: color-mix(in srgb, var(--pro-teal) 35%, transparent);
@@ -5167,7 +5178,7 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   box-shadow: 0 2px 10px color-mix(in srgb, var(--pro-teal) 12%, transparent);
 }
 .dd-org-mini-name {
-  font-size: 11px;
+  font-size: 10.5px;
   font-weight: 650;
   color: var(--text-primary);
   line-height: 1.25;

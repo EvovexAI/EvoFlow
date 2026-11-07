@@ -394,9 +394,9 @@ function isRetryableGatewayResponse(status, result, method) {
 }
 
 /**
- * 扫码注册会话（/channels/*/registration/*）在网关侧是内存态：网关重启或
- * TTL 清理后 /poll 返回 404 session_not_found。轮询方据此停止轮询并提示
- * 重新扫码，而不是当作瞬时错误永远轮询下去（UI 卡死在「等待扫码…」）。
+ * 扫码注册会话（channels 下各渠道的 registration poll 路由）在网关侧是内存态：
+ * 网关重启或 TTL 清理后 /poll 返回 404 session_not_found。轮询方据此停止轮询
+ * 并提示重新扫码，而不是当作瞬时错误永远轮询下去（UI 卡死在「等待扫码…」）。
  */
 export function isRegistrationSessionGone(err) {
   if (Number(err?.status || 0) === 404) return true

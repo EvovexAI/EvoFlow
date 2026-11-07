@@ -168,10 +168,10 @@ async function refreshAgentsAvatarIndex() {
 function _avatarSizeForEl(el, fallback = 44) {
   const raw = parseInt(String(el.getAttribute('data-avatar-size') || ''), 10)
   if (raw > 0) return raw
-  if (el.classList.contains('dd-org-avatar--lg')) return 56
-  if (el.classList.contains('dd-org-avatar--sm')) return 28
-  if (el.closest('.dd-org-mini')) return 40
-  if (el.classList.contains('dd-org-avatar')) return 28
+  if (el.classList.contains('dd-org-avatar--lg')) return 44
+  if (el.classList.contains('dd-org-avatar--sm')) return 22
+  if (el.closest('.dd-org-mini')) return 30
+  if (el.classList.contains('dd-org-avatar')) return 22
   if (el.classList.contains('pro-role-avatar')) return 40
   return fallback
 }
@@ -278,7 +278,7 @@ function renderDeptAvatarEditor(dept) {
       const active = pid === cur
       return `
         <button type="button" class="dd-dept-avatar-opt${active ? ' is-active' : ''}" data-act="dept-avatar-pick" data-id="${esc(realId)}" data-preset="${esc(pid)}" role="option" aria-selected="${active ? 'true' : 'false'}" title="${esc(p.label || pid)}">
-          <span class="dd-org-avatar dd-dept-avatar-opt-img" data-dept-avatar="${esc(pid)}" data-dept-name="${esc(p.label || pid)}" data-dept-size="32" aria-hidden="true"></span>
+          <span class="dd-org-avatar dd-dept-avatar-opt-img" data-dept-avatar="${esc(pid)}" data-dept-name="${esc(p.label || pid)}" data-dept-size="28" aria-hidden="true"></span>
           <span class="dd-dept-avatar-opt-label">${esc(p.label || pid)}</span>
         </button>`
     })
@@ -496,7 +496,6 @@ export async function render() {
           <div class="pro-hero-main">
             <p class="pro-hero-kicker">数字员工</p>
             <h1 class="page-title">员工</h1>
-            <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
           </div>
           <div class="page-actions">
             <div class="pro-actions-state">
@@ -553,7 +552,7 @@ export async function render() {
           </div>
           <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
             <span class="sr-only">搜索员工</span>
-            <svg class="pro-roles-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="pro-roles-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
@@ -2004,7 +2003,7 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
         <button type="button" class="dd-org-twist${hasKids ? (expanded ? ' is-open' : '') : ' is-leaf'}" data-act="org-toggle" data-code="${esc(code)}" aria-label="${hasKids ? (expanded ? '收起下级' : '展开下级') : '无下级'}" title="${hasKids ? (expanded ? '收起下级' : '展开下级') : ''}" ${hasKids ? '' : 'tabindex="-1"'}>
           <span class="dd-org-twist-icon" aria-hidden="true"></span>
         </button>
-        <div class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="28" aria-hidden="true"></div>
+        <div class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="22" aria-hidden="true"></div>
         <div class="dd-org-text">
           <span class="dd-org-name">${esc(name)}</span>
           ${statusLabel ? `<span class="dd-org-badge">${esc(statusLabel)}</span>` : ''}
@@ -2036,7 +2035,7 @@ function _orgMiniCard(roleOrNode, { focus = false } = {}) {
   if (!code) return ''
   return `
     <button type="button" class="dd-org-mini${focus ? ' is-focus' : ''}" data-act="org-select" data-code="${esc(code)}">
-      <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="40" aria-hidden="true"></span>
+      <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="30" aria-hidden="true"></span>
       <span class="dd-org-mini-name">${esc(name)}</span>
     </button>`
 }
@@ -2089,7 +2088,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   const headCode = String(deptNode.head_agent_code || '').trim()
   const headName = String(deptNode.head_role_name || '').trim()
   const deptAvatar = String(deptNode.avatar || '').trim()
-  const deptHeadAvatarHtml = `<span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar" data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="56" aria-hidden="true"></span>`
+  const deptHeadAvatarHtml = `<span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar" data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="44" aria-hidden="true"></span>`
   const members = []
   const walk = (nodes) => {
     for (const n of nodes || []) {
@@ -2128,7 +2127,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
           return `
             <li>
               <button type="button" class="dd-org-dept-person${isHead ? ' is-head' : ''}" data-act="org-select" data-code="${esc(code)}">
-                <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="36" aria-hidden="true"></span>
+                <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="28" aria-hidden="true"></span>
                 <span class="dd-org-dept-person-text">
                   <strong>${esc(rn)}${isHead ? '<span class="dd-dept-head-badge">负责人</span>' : ''}</strong>
                   <span>上级：${esc(mgrLabel)}${st ? ` · ${esc(st)}` : ''}</span>
@@ -2235,7 +2234,7 @@ function renderOrgDetail(flatRoles, forest) {
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
-        <div class="dd-org-avatar dd-org-avatar--lg" data-avatar-agent="${esc(code)}" data-avatar-size="56" aria-hidden="true"></div>
+        <div class="dd-org-avatar dd-org-avatar--lg" data-avatar-agent="${esc(code)}" data-avatar-size="44" aria-hidden="true"></div>
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}${selfStatus ? ` <span class="dd-org-badge">${esc(selfStatus)}</span>` : ''}</h3>
           <p class="dd-org-detail-meta"><code>${esc(code)}</code>${dept ? ` · ${esc(dept)}` : ' · 未分部门'} · ${esc(dutyLabel)}</p>
@@ -2390,7 +2389,7 @@ function renderDepartmentsPanel(departments, roles) {
             const st = _orgStatusLabel(m.status)
             return `
               <li class="dd-dept-card${String(selected?.head_agent_code || '') === code ? ' is-head' : ''}">
-                <span class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="40" aria-hidden="true"></span>
+                <span class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="30" aria-hidden="true"></span>
                 <span class="dd-dept-card-text">
                   <strong class="dd-dept-card-name">${esc(name)}${
                     String(selected?.head_agent_code || '') === code
@@ -2436,7 +2435,7 @@ function renderDepartmentsPanel(departments, roles) {
                     const st = _orgStatusLabel(r.status)
                     return `
                       <button type="button" class="dd-dept-pick" data-act="dept-add-member" data-code="${esc(code)}" role="option">
-                        <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="32" aria-hidden="true"></span>
+                        <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="22" aria-hidden="true"></span>
                         <span class="dd-dept-pick-text">
                           <strong>${esc(name)}</strong>
                           <span>${esc(code)}${st ? ` · ${esc(st)}` : ''}${dept ? ` · 现属「${esc(dept)}」` : ' · 未分部门'}</span>
@@ -2472,7 +2471,7 @@ function renderDepartmentsPanel(departments, roles) {
             selected
               ? `
             <div class="dd-dept-main-head">
-              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg" data-dept-avatar="${esc(String(selected.avatar || '').trim())}" data-dept-name="${esc(String(selected.name || '').trim())}" data-dept-size="56" aria-hidden="true"></span>
+              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg" data-dept-avatar="${esc(String(selected.avatar || '').trim())}" data-dept-name="${esc(String(selected.name || '').trim())}" data-dept-size="44" aria-hidden="true"></span>
               <div>
                 <h3 class="dd-dept-main-title">${esc(selected.name || '')}</h3>
                 <p class="dd-dept-main-sub">${members.length} 名成员 · 先指定负责人，再理清汇报线</p>

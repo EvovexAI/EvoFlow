@@ -129,6 +129,7 @@ export default defineConfig({
       'tests/session-list-pin.test.js',
       'tests/session-list-dept-reselect.test.js',
       'tests/session-list-proactive-group.test.js',
+      'tests/session-list-employee-orphan-prune.test.js',
       'tests/shell-running-preview.test.js',
       'tests/turn-text-isolation.test.js',
       'tests/ws-turn-slice.test.js',

@@ -10,6 +10,7 @@ import { isSessionRecoveryCooldownActive } from '../stream-reattach-cooldown.js'
 import { STORAGE_SESSION_NAMES_KEY } from './constants.js'
 import { getSessionNames, isPlaceholderSessionTitle, pickSessionRowTitle } from './display.js'
 import { resolveMergedSessionPin } from './session-pin-pending.js'
+import { isOrphanEmployeeSessionRow } from './employee-session-prune.js'
 import { isDeptChatSessionKey } from '../dept-chat-session.js'
 
 export function isDefaultMainSessionKey(sessionKey: string | null | undefined): boolean {
@@ -231,6 +232,7 @@ export function mergeSessionsFromApi(
   prev: ChatSessionRow[],
   apiRows: ChatSessionRow[],
   currentSessionKey: string,
+  opts?: { liveEmployeeCodes?: ReadonlySet<string> | null },
 ): ChatSessionRow[] {
   const cur = String(currentSessionKey || '').trim()
   let next = dedupeSessionRows(
@@ -247,10 +249,22 @@ export function mergeSessionsFromApi(
   }
 
   const nextKeys = new Set(next.map((s) => String(s.sessionKey || '').trim()))
-  const newSessions = prev.filter((s) => {
+  let newSessions = prev.filter((s) => {
     const k = String(s.sessionKey || '').trim()
     return k && !nextKeys.has(k) && !isDeletedChatSessionKey(k)
   })
+
+  // 员工孤儿会话剪枝：并集合并会把「本次接口没返回」的删员工残留行从 prev
+  // 粘回侧栏（快照水合同理），这里按最新花名册对账剪掉。花名册未知（null，
+  // 拉取失败）时跳过 —— 宁漏剪不误剪；当前会话豁免，避免正在看的对话被
+  // ensureSessionRowPresent 换成「新对话」占位。
+  const liveEmployeeCodes = opts?.liveEmployeeCodes
+  if (liveEmployeeCodes) {
+    const isPrunable = (s: ChatSessionRow) =>
+      String(s.sessionKey || '').trim() !== cur && isOrphanEmployeeSessionRow(s, liveEmployeeCodes)
+    next = next.filter((s) => !isPrunable(s))
+    newSessions = newSessions.filter((s) => !isPrunable(s))
+  }
 
   if (cur) {
     next = ensureSessionRowPresent(next, cur)
