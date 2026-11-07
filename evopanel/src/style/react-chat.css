@@ -25261,27 +25261,43 @@ html.dark .evo-home-cmd__dept-node.is-path {
   margin-right: 2px;
 }
 
+/* 头像本体即换头像入口（hover 高亮 + 可点） */
+.evo-home-cmd__detail-dept-avatar-btn {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast, 0.15s), transform var(--dur-fast, 0.15s);
+}
+
+.evo-home-cmd__detail-dept-avatar-btn:hover {
+  box-shadow: 0 0 0 2px var(--cmd-accent-ring, rgba(20, 184, 166, 0.45));
+}
+
+.evo-home-cmd__detail-dept-avatar-btn:active {
+  transform: scale(0.96);
+}
+
+.evo-home-cmd__detail-dept-avatar-btn:focus-visible {
+  outline: 2px solid var(--cmd-accent-ring, rgba(20, 184, 166, 0.65));
+  outline-offset: 2px;
+}
+
+.evo-home-cmd__detail-dept-avatar-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 .evo-home-cmd__dept-avatar-editor {
   display: flex;
   flex-direction: column;
   gap: 8px;
   padding: 0 12px 8px;
-}
-
-.evo-home-cmd__dept-avatar-change {
-  appearance: none;
-  align-self: flex-start;
-  border: 1px solid var(--cmd-border, rgba(15, 23, 42, 0.12));
-  border-radius: 8px;
-  background: transparent;
-  color: var(--cmd-text, #0f172a);
-  font-size: 11px;
-  padding: 4px 8px;
-  cursor: pointer;
-}
-
-.evo-home-cmd__dept-avatar-change:hover {
-  background: var(--bg-secondary, #f4f4f5);
 }
 
 .evo-home-cmd__dept-avatar-err {

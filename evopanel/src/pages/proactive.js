@@ -260,17 +260,30 @@ function loadDeptAvatarPresets() {
   return _deptAvatarPresetsLoading
 }
 
-/**
- * 部门头像编辑器（部门管理 / 组织架构部门详情共用）。
- * 只有真实部门（有数据库 id）才可改；`__none__` / `name:` 伪节点返回空串。
- */
-function renderDeptAvatarEditor(dept) {
+/** 真实部门 id（`__none__` / `name:` 伪节点不可改头像） */
+function _deptRealId(dept) {
   const id = String(dept?.id || '').trim()
-  const realId =
-    id && id !== '__none__' && !id.startsWith('name:') ? id : String(dept?.dept_id || '').trim()
-  if (!realId || realId === '__none__' || realId.startsWith('name:')) return ''
+  const real = id && id !== '__none__' && !id.startsWith('name:') ? id : String(dept?.dept_id || '').trim()
+  if (!real || real === '__none__' || real.startsWith('name:')) return ''
+  return real
+}
+
+/** 头像本体当按钮用：属性串（不可改的部门返回空串） */
+function deptAvatarTriggerAttrs(dept) {
+  const id = _deptRealId(dept)
+  if (!id) return ''
+  return ` data-act="dept-avatar-toggle" data-id="${esc(id)}" role="button" tabindex="0" title="点击更换部门头像"`
+}
+
+/**
+ * 部门头像选择宫格（部门管理 / 组织架构部门详情共用）。
+ * 点击头像后原地展开，不再额外占一行按钮。
+ */
+function renderDeptAvatarPicker(dept) {
+  const realId = _deptRealId(dept)
+  if (!realId) return ''
+  if (_orgUi.deptAvatarPickerOpen !== realId) return ''
   const cur = String(dept?.avatar || '').trim()
-  const open = _orgUi.deptAvatarPickerOpen === realId
   const cards = _deptAvatarPresets
     .map((p) => {
       const pid = String(p?.id || '').trim()
@@ -285,20 +298,13 @@ function renderDeptAvatarEditor(dept) {
     .join('')
   return `
     <div class="dd-dept-avatar-editor">
-      <button type="button" class="btn btn-sm btn-outline" data-act="dept-avatar-toggle" data-id="${esc(realId)}" aria-expanded="${open ? 'true' : 'false'}">
-        ${open ? '收起头像选择' : '更换部门头像'}
-      </button>
       ${_orgUi.deptAvatarErr ? `<span class="dd-dept-avatar-err">${esc(_orgUi.deptAvatarErr)}</span>` : ''}
-      ${
-        open
-          ? `<div class="dd-dept-avatar-grid" role="listbox" aria-label="选择部门头像">
-              ${
-                cards ||
-                `<span class="dd-dept-empty-members">${_deptAvatarPresetsLoading ? '加载中…' : '暂无头像预设'}</span>`
-              }
-            </div>`
-          : ''
-      }
+      <div class="dd-dept-avatar-grid" role="listbox" aria-label="选择部门头像">
+        ${
+          cards ||
+          `<span class="dd-dept-empty-members">${_deptAvatarPresetsLoading ? '加载中…' : '暂无头像预设'}</span>`
+        }
+      </div>
     </div>`
 }
 
@@ -494,8 +500,7 @@ export async function render() {
       <div class="pro-detail-pane">
         <div class="pro-hero">
           <div class="pro-hero-main">
-            <p class="pro-hero-kicker">数字员工</p>
-            <h1 class="page-title">员工</h1>
+            <h1 class="page-title">数字员工<span class="pro-hero-bot">（BOT）</span></h1>
           </div>
           <div class="page-actions">
             <div class="pro-actions-state">
@@ -2088,7 +2093,6 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   const headCode = String(deptNode.head_agent_code || '').trim()
   const headName = String(deptNode.head_role_name || '').trim()
   const deptAvatar = String(deptNode.avatar || '').trim()
-  const deptHeadAvatarHtml = `<span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar" data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="44" aria-hidden="true"></span>`
   const members = []
   const walk = (nodes) => {
     for (const n of nodes || []) {
@@ -2142,7 +2146,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
-        ${deptHeadAvatarHtml}
+        <span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar"${deptAvatarTriggerAttrs({ id: deptNode.dept_id })} data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="44" aria-hidden="true"></span>
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}</h3>
           <p class="dd-org-detail-meta">${members.length} 名成员 · 负责人：${
@@ -2150,18 +2154,11 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
           }</p>
         </div>
       </div>
+      ${renderDeptAvatarPicker({ id: deptNode.dept_id, avatar: deptNode.avatar, name })}
       <div class="dd-org-section">
         <h4>部门成员</h4>
         ${listHtml}
       </div>
-      ${
-        deptNode.dept_id && deptNode.dept_id !== '__none__' && !String(deptNode.dept_id).startsWith('name:')
-          ? `<div class="dd-org-section dd-org-section--dept-avatar">
-              <h4>部门头像</h4>
-              ${renderDeptAvatarEditor({ id: deptNode.dept_id, avatar: deptNode.avatar, name })}
-            </div>`
-          : ''
-      }
       ${
         deptNode.dept_id && deptNode.dept_id !== '__none__' && !String(deptNode.dept_id).startsWith('name:')
           ? `<div class="dd-org-detail-actions">
@@ -2471,7 +2468,7 @@ function renderDepartmentsPanel(departments, roles) {
             selected
               ? `
             <div class="dd-dept-main-head">
-              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg" data-dept-avatar="${esc(String(selected.avatar || '').trim())}" data-dept-name="${esc(String(selected.name || '').trim())}" data-dept-size="44" aria-hidden="true"></span>
+              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg"${deptAvatarTriggerAttrs(selected)} data-dept-avatar="${esc(String(selected.avatar || '').trim())}" data-dept-name="${esc(String(selected.name || '').trim())}" data-dept-size="44" aria-hidden="true"></span>
               <div>
                 <h3 class="dd-dept-main-title">${esc(selected.name || '')}</h3>
                 <p class="dd-dept-main-sub">${members.length} 名成员 · 先指定负责人，再理清汇报线</p>
@@ -2481,10 +2478,7 @@ function renderDepartmentsPanel(departments, roles) {
                 <button type="button" class="btn btn-sm btn-outline" data-act="dept-delete" data-id="${esc(selected.id)}">删除</button>
               </div>
             </div>
-            <div class="dd-dept-block">
-              <h4 class="dd-dept-block-title">部门头像</h4>
-              ${renderDeptAvatarEditor(selected)}
-            </div>
+            ${renderDeptAvatarPicker(selected)}
             <div class="dd-dept-block">
               <h4 class="dd-dept-block-title">部门负责人</h4>
               <label class="hire-field dd-dept-head-field">
@@ -2898,16 +2892,30 @@ function bindOrgPanel(page, container) {
       }
     })()
   })
-  container.querySelector('[data-act="dept-avatar-toggle"]')?.addEventListener('click', (e) => {
-    const id = String(e.currentTarget?.getAttribute('data-id') || '').trim()
-    _orgUi.deptAvatarErr = ''
-    _orgUi.deptAvatarPickerOpen = _orgUi.deptAvatarPickerOpen === id ? '' : id
-    if (_orgUi.deptAvatarPickerOpen) {
-      void loadDeptAvatarPresets().then(() => {
-        if (_currentTab === 'org') _rerenderOrg(page)
-      })
+  // 点击部门头像本身即展开/收起预设宫格（不再需要单独按钮）
+  container.querySelectorAll('[data-act="dept-avatar-toggle"]').forEach((el) => {
+    const toggle = () => {
+      const id = String(el.getAttribute('data-id') || '').trim()
+      if (!id) return
+      _orgUi.deptAvatarErr = ''
+      _orgUi.deptAvatarPickerOpen = _orgUi.deptAvatarPickerOpen === id ? '' : id
+      if (_orgUi.deptAvatarPickerOpen) {
+        void loadDeptAvatarPresets().then(() => {
+          if (_currentTab === 'org') _rerenderOrg(page)
+        })
+      }
+      _rerenderOrg(page)
     }
-    _rerenderOrg(page)
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggle()
+    })
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()
+      e.stopPropagation()
+      toggle()
+    })
   })
   container.querySelectorAll('[data-act="dept-avatar-pick"]').forEach((btn) => {
     btn.addEventListener('click', () => {

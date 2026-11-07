@@ -908,13 +908,25 @@ function DeptDetail({
       <header className="evo-home-cmd__detail-head">
         <div className="evo-home-cmd__detail-titles">
           <div className="evo-home-cmd__detail-title-row">
-            <DeptAvatar
-              avatar={dept.avatar}
-              name={dept.name}
-              size={32}
-              title={dept.name}
-              className="evo-home-cmd__detail-dept-avatar"
-            />
+            <button
+              type="button"
+              className="evo-home-cmd__detail-dept-avatar-btn"
+              onClick={() => {
+                setPickerOpen((v) => !v)
+                loadPresets()
+              }}
+              disabled={savingAvatar}
+              aria-expanded={pickerOpen}
+              aria-label={pickerOpen ? '收起部门头像选择' : '更换部门头像'}
+              title={pickerOpen ? '收起部门头像选择' : '点击更换部门头像'}
+            >
+              <DeptAvatar
+                avatar={dept.avatar}
+                name={dept.name}
+                size={32}
+                className="evo-home-cmd__detail-dept-avatar"
+              />
+            </button>
             <h3 className="evo-home-cmd__detail-title">{dept.name}</h3>
             <span
               className={`evo-home-cmd__status${onDutyCount > 0 ? ' is-on' : ' is-off'}`}
@@ -932,47 +944,38 @@ function DeptDetail({
         </button>
       </header>
 
-      <div className="evo-home-cmd__dept-avatar-editor">
-        <button
-          type="button"
-          className="evo-home-cmd__dept-avatar-change"
-          onClick={() => {
-            setPickerOpen((v) => !v)
-            loadPresets()
-          }}
-          disabled={savingAvatar}
-        >
-          {pickerOpen ? '收起头像' : '更换部门头像'}
-        </button>
-        {avatarError ? <span className="evo-home-cmd__dept-avatar-err">{avatarError}</span> : null}
-        {pickerOpen ? (
-          <div className="evo-home-cmd__dept-avatar-grid" role="listbox" aria-label="选择部门头像">
-            {presetsLoading && !presets.length ? (
-              <span className="evo-home-cmd__people-empty">加载中…</span>
-            ) : null}
-            {presets.map((p) => (
-              <button
-                key={p.id}
-                type="button"
-                role="option"
-                aria-selected={normalizeDeptAvatarId(dept.avatar) === p.id}
-                className={`evo-home-cmd__dept-avatar-opt${
-                  normalizeDeptAvatarId(dept.avatar) === p.id ? ' is-active' : ''
-                }`}
-                title={p.label}
-                onClick={() => applyAvatar(p.id)}
-                disabled={savingAvatar}
-              >
-                <DeptAvatar avatar={p.id} name={p.label} size={30} title={p.label} />
-                <span>{p.label}</span>
-              </button>
-            ))}
-            {!presetsLoading && !presets.length ? (
-              <span className="evo-home-cmd__people-empty">暂无头像预设</span>
-            ) : null}
-          </div>
-        ) : null}
-      </div>
+      {pickerOpen || avatarError ? (
+        <div className="evo-home-cmd__dept-avatar-editor">
+          {avatarError ? <span className="evo-home-cmd__dept-avatar-err">{avatarError}</span> : null}
+          {pickerOpen ? (
+            <div className="evo-home-cmd__dept-avatar-grid" role="listbox" aria-label="选择部门头像">
+              {presetsLoading && !presets.length ? (
+                <span className="evo-home-cmd__people-empty">加载中…</span>
+              ) : null}
+              {presets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  role="option"
+                  aria-selected={normalizeDeptAvatarId(dept.avatar) === p.id}
+                  className={`evo-home-cmd__dept-avatar-opt${
+                    normalizeDeptAvatarId(dept.avatar) === p.id ? ' is-active' : ''
+                  }`}
+                  title={p.label}
+                  onClick={() => applyAvatar(p.id)}
+                  disabled={savingAvatar}
+                >
+                  <DeptAvatar avatar={p.id} name={p.label} size={30} title={p.label} />
+                  <span>{p.label}</span>
+                </button>
+              ))}
+              {!presetsLoading && !presets.length ? (
+                <span className="evo-home-cmd__people-empty">暂无头像预设</span>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="evo-home-cmd__detail-snap">
         <span>今日快照</span>

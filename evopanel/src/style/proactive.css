@@ -112,6 +112,16 @@
   color: var(--pro-teal);
 }
 
+/* 「数字员工（BOT）」：BOT 与主标题同字号，仅颜色略淡以作区分 */
+.pro-hero-main .page-title .pro-hero-bot {
+  margin-left: 2px;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
 .proactive-page .page-desc {
   max-width: 36em;
   line-height: 1.55;
@@ -1086,18 +1096,22 @@ body > .pro-role-more-menu .pro-role-more-item--danger:hover,
   color: var(--text-primary);
 }
 
-/* 名册卡第二行：部门 chip + 一句话简介（chip 在前，简介占剩余宽度并省略） */
+/* 名册卡第二行：部门 chip + 一句话简介（部门优先完整显示，简介让位并省略） */
 .pro-role-meta-line {
   display: flex;
   align-items: center;
   gap: 6px;
   min-width: 0;
   margin-top: 3px;
+  flex-wrap: wrap;
 }
 .pro-role-meta-line > .pro-role-duty {
   margin: 0;
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 1 1 6em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .pro-role-sub {
@@ -1114,22 +1128,21 @@ body > .pro-role-more-menu .pro-role-more-item--danger:hover,
   font-weight: 500;
 }
 
-/* 名册卡：部门 chip（无部门时不渲染，不占位） */
+/* 名册卡：部门 chip（无部门时不渲染，不占位）
+   部门优先：永不截断、不省略；简介放不下时整段换到下一行 */
 .pro-role-dept-chip {
   display: inline-block;
   flex: 0 0 auto;
-  max-width: 7.5em;
+  max-width: 100%;
   padding: 1px 7px;
   border-radius: 999px;
-  border: 1px solid var(--pro-slate-line);
-  background: color-mix(in srgb, var(--text-tertiary) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-secondary) 22%, transparent);
+  background: color-mix(in srgb, var(--text-secondary) 10%, transparent);
   font-size: 10px;
-  font-weight: 500;
+  font-weight: 600;
   line-height: 14px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   vertical-align: middle;
 }
 
@@ -4507,13 +4520,14 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   font-weight: 700;
   color: var(--text-secondary);
 }
-/* 部门头像选择器（部门管理 / 组织架构部门详情共用） */
+/* 部门头像选择器：点击部门头像原地展开，不再额外占「部门头像」标题 + 按钮两行 */
 .dd-dept-avatar-editor {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 6px;
   min-width: 0;
+  margin: 6px 0 2px;
 }
 .dd-dept-avatar-err {
   font-size: 11px;
@@ -4898,6 +4912,21 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   font-weight: 700;
   line-height: 1;
   user-select: none;
+}
+/* 可点击换头像的部门头像：给出明确交互暗示 */
+.dd-org-avatar[data-act="dept-avatar-toggle"] {
+  cursor: pointer;
+  transition: box-shadow var(--dur-fast), transform var(--dur-fast);
+}
+.dd-org-avatar[data-act="dept-avatar-toggle"]:hover {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--pro-teal, #14b8a6) 45%, transparent);
+}
+.dd-org-avatar[data-act="dept-avatar-toggle"]:active {
+  transform: scale(0.96);
+}
+.dd-org-avatar[data-act="dept-avatar-toggle"]:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--pro-teal, #14b8a6) 65%, transparent);
+  outline-offset: 2px;
 }
 .dd-org-avatar.dd-org-dept-avatar.has-image,
 .dd-org-avatar.dd-dept-row-avatar.has-image,
