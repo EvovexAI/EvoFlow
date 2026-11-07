@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.3.10] - 2026-11-08
 
-相对 **1.3.9**：会话目标模式（ZCode 式）指令与停止语义落地，模型失败（429 配额 / `model_error` / 合成 `RUN_ERROR`）不再被误判为运行成功；工作流新增发布前校验（未知依赖不再被静默清空、条件节点完整性检查）；部门与员工头像支持预设宫格与自定义上传；知识库 `search` 命中的 docId 可直接 `read`。
+相对 **1.3.9**：会话目标模式指令与停止语义落地，模型失败（429 配额 / `model_error` / 合成 `RUN_ERROR`）不再被误判为运行成功；工作流新增发布前校验（未知依赖不再被静默清空、条件节点完整性检查）；部门与员工头像支持预设宫格与自定义上传；知识库 `search` 命中的 docId 可直接 `read`。
 GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.10.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
 
 ### 参与本次发版
