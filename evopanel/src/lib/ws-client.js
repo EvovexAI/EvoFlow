@@ -701,6 +701,25 @@ async function _gatewayAuthFetch(url, options = {}) {
   return fetch(url, { ...options, headers: _authHeaders(options) })
 }
 
+/**
+ * stale thread 404 → force_recreate 重建成功后的用户提示。
+ * 重建期间 UI 停在「发送中」数秒无任何反馈，最像「卡死/发丢了」；一句话说明
+ * 消除中断感。同一会话 60s 只提示一次（连续多轮 remint 不刷屏）。
+ */
+const _threadRemintToastedAt = new Map()
+function _toastThreadReminted(key) {
+  try {
+    const last = _threadRemintToastedAt.get(key) || 0
+    if (Date.now() - last < 60_000) return
+    _threadRemintToastedAt.set(key, Date.now())
+    import('../components/toast.js')
+      .then(({ toast }) => toast('会话线程已失效（网关可能重启过），已自动重建并重发', 'info'))
+      .catch(() => {})
+  } catch {
+    /* ignore */
+  }
+}
+
 function buildGatewayProxyRequest(url, options = {}) {
   const method = (options.method || 'GET').toUpperCase()
   const [pathPart, search] = url.split('?')
@@ -6998,6 +7017,7 @@ export class WsClient {
                 sessionKey: key,
                 threadId: activeThreadId,
               })
+              _toastThreadReminted(key)
               continue
             }
             throw new Error('重试创建会话失败：后端无响应', { cause: streamStartErr })

@@ -1701,7 +1701,9 @@ export function V4ZCodeTimeline(props: {
                 ? "invisible flex min-h-0 flex-1 flex-col"
                 : "flex min-h-0 flex-1 flex-col"
             }
-            aria-hidden={sessionSwitchHold || undefined}
+            // inert（而非 aria-hidden）：hold 期间 composer 焦点仍在树内，aria-hidden
+            // 会触发「焦点藏在隐藏子树」告警；inert 同时摘焦点并对辅助技术隐藏。
+            inert={sessionSwitchHold || undefined}
           >
             <ConversationTimeline
               rows={rows}
