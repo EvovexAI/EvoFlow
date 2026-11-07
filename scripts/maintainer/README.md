@@ -18,6 +18,7 @@ Release helpers for the public repo. Not needed for day-to-day contribute.
 | `update/` | Updater draft → publish after installer ready |
 | `gitee/` | Gitee 说明（现行：清单优先；独立打包未启用） |
 | `voice_latency_report.py` | 小V 语音时延报表：解析 voice 日志四锚点 → p50/p95/max（`python scripts/maintainer/voice_latency_report.py --days 7`） |
+| `model_channel_probe.py` | 对话模型渠道探活 / 试调用：直读 SQLite，直连厂商 HTTP（`--list` / `--probe` / `--call <连接键> <模型ID>`） |
 
 Desktop CI（现行）：`.github/workflows/release-desktop-public.yml`  
 检查更新：客户端优先 Gitee `update/latest.json`。
