@@ -10,6 +10,8 @@ export const LS_FOCUSED_DEPT_ID = 'evopanel_shell_focused_dept_id'
 export type DeptChatMeta = {
   id: string
   name: string
+  /** 部门头像预设 id（裸 id，如 ``studio``）；空则文字首字兜底 */
+  avatar?: string
   head_agent_code?: string
   head_role_name?: string
   accent?: string

@@ -14,6 +14,7 @@ import { X } from 'lucide-react'
 import { api } from '../../lib/tauri-api.js'
 import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
 import { HomeDeptGroupChat } from './HomeDeptGroupChat.js'
+import { DeptAvatar, normalizeDeptAvatarId } from './DeptAvatar.js'
 import {
   deptChatSessionKey,
   rememberDeptChatMeta,
@@ -53,6 +54,8 @@ function formatCmdClock(raw?: string | null): string {
 export type HomeCmdDept = {
   id: string
   name: string
+  /** 部门头像预设 id（裸 id，如 ``studio``）；空则头像兜底文字 */
+  avatar?: string
   head_agent_code: string
   head_role_name: string
   members: HomeCmdPerson[]
@@ -206,6 +209,7 @@ function buildDeptBoard(
     membersRaw: any[],
     headCode = '',
     headName = '',
+    avatar = '',
   ) => {
     const members = sortMembers(membersRaw.map(toPerson), headCode)
     // 指挥台只展示有人的部门，空壳部门不占位
@@ -213,6 +217,7 @@ function buildDeptBoard(
     out.push({
       id,
       name,
+      avatar: String(avatar || '').trim(),
       head_agent_code: headCode,
       head_role_name: headName,
       members,
@@ -233,6 +238,7 @@ function buildDeptBoard(
       byDept.get(name) || [],
       String(d?.head_agent_code || '').trim(),
       String(d?.head_role_name || '').trim(),
+      String(d?.avatar || '').trim(),
     )
   }
   for (const [name, members] of byDept.entries()) {
@@ -596,6 +602,13 @@ export function HomeOrgCommandBoard({
                       onSelectDept={() => openDept(dept.id)}
                       onSelectPerson={openPerson}
                       onCloseFloat={() => setSelectedKey(null)}
+                      onAvatarChanged={(deptId, avatar) => {
+                        setDepartments((prev) =>
+                          (Array.isArray(prev) ? prev : []).map((d) =>
+                            String(d?.id || '') === deptId ? { ...d, avatar } : d,
+                          ),
+                        )
+                      }}
                       onOpenChat={() => {
                         try {
                           rememberDeptChatMeta(dept)
@@ -674,6 +687,7 @@ function DeptColumn({
   onSelectPerson,
   onCloseFloat,
   onOpenChat,
+  onAvatarChanged,
 }: {
   dept: HomeCmdDept
   selectedPersonCode: string | null
@@ -684,6 +698,7 @@ function DeptColumn({
   onSelectPerson: (code: string) => void
   onCloseFloat: () => void
   onOpenChat: () => void
+  onAvatarChanged?: (deptId: string, avatar: string) => void
 }) {
   const rootRef = useRef<HTMLDivElement>(null)
   const [dockLeft, setDockLeft] = useState(false)
@@ -755,7 +770,10 @@ function DeptColumn({
         onClick={onSelectDept}
       >
         <span className="evo-home-cmd__dept-node-top">
-          <span className="evo-home-cmd__dept-name">{dept.name}</span>
+          <span className="evo-home-cmd__dept-node-id">
+            <DeptAvatar avatar={dept.avatar} name={dept.name} size={28} title={dept.name} />
+            <span className="evo-home-cmd__dept-name">{dept.name}</span>
+          </span>
           <span
             className={`evo-home-cmd__status${onDutyCount > 0 ? ' is-on' : ' is-off'}`}
             aria-hidden
@@ -820,7 +838,12 @@ function DeptColumn({
       ) : null}
 
       {showFloat ? (
-        <DeptDetail dept={dept} onClose={onCloseFloat} onOpenChat={onOpenChat} />
+        <DeptDetail
+          dept={dept}
+          onClose={onCloseFloat}
+          onOpenChat={onOpenChat}
+          onAvatarChanged={(avatar) => onAvatarChanged?.(dept.id, avatar)}
+        />
       ) : null}
     </div>
   )
@@ -830,17 +853,53 @@ function DeptDetail({
   dept,
   onClose,
   onOpenChat,
+  onAvatarChanged,
 }: {
   dept: HomeCmdDept
   onClose: () => void
   onSelectPerson?: (code: string) => void
   onOpenChat: () => void
+  onAvatarChanged?: (avatar: string) => void
 }) {
   const total = dept.members.length
   const onDutyCount = dept.members.filter((m) => isPersonOnDuty(m)).length
   const busyCount = dept.members.filter((m) => m.busy).length
   const offDutyCount = Math.max(0, total - onDutyCount)
   const lastAt = deptLastActivityClock(dept.members)
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [presets, setPresets] = useState<Array<{ id: string; label: string; url?: string }>>([])
+  const [presetsLoading, setPresetsLoading] = useState(false)
+  const [savingAvatar, setSavingAvatar] = useState(false)
+  const [avatarError, setAvatarError] = useState('')
+
+  const loadPresets = () => {
+    if (presets.length || presetsLoading) return
+    setPresetsLoading(true)
+    void api
+      .proactiveListDeptAvatarPresets?.()
+      .then((rows: Array<{ id: string; label: string; url?: string }>) => {
+        setPresets(Array.isArray(rows) ? rows : [])
+      })
+      .catch(() => setPresets([]))
+      .finally(() => setPresetsLoading(false))
+  }
+
+  const applyAvatar = (presetId: string) => {
+    if (!presetId || savingAvatar) return
+    setSavingAvatar(true)
+    setAvatarError('')
+    void api
+      .proactiveUpdateDepartment(dept.id, { avatar: presetId })
+      .then(() => {
+        onAvatarChanged?.(presetId)
+        setPickerOpen(false)
+      })
+      .catch((err: unknown) => {
+        setAvatarError(String((err as Error)?.message || err || '换头像失败'))
+      })
+      .finally(() => setSavingAvatar(false))
+  }
+
   return (
     <aside
       className={`evo-home-cmd__detail evo-home-cmd__detail--float evo-home-cmd__detail--dock evo-home-cmd__detail--${dept.accent}`}
@@ -849,6 +908,13 @@ function DeptDetail({
       <header className="evo-home-cmd__detail-head">
         <div className="evo-home-cmd__detail-titles">
           <div className="evo-home-cmd__detail-title-row">
+            <DeptAvatar
+              avatar={dept.avatar}
+              name={dept.name}
+              size={32}
+              title={dept.name}
+              className="evo-home-cmd__detail-dept-avatar"
+            />
             <h3 className="evo-home-cmd__detail-title">{dept.name}</h3>
             <span
               className={`evo-home-cmd__status${onDutyCount > 0 ? ' is-on' : ' is-off'}`}
@@ -865,6 +931,48 @@ function DeptDetail({
           <X className="evo-home-ic" />
         </button>
       </header>
+
+      <div className="evo-home-cmd__dept-avatar-editor">
+        <button
+          type="button"
+          className="evo-home-cmd__dept-avatar-change"
+          onClick={() => {
+            setPickerOpen((v) => !v)
+            loadPresets()
+          }}
+          disabled={savingAvatar}
+        >
+          {pickerOpen ? '收起头像' : '更换部门头像'}
+        </button>
+        {avatarError ? <span className="evo-home-cmd__dept-avatar-err">{avatarError}</span> : null}
+        {pickerOpen ? (
+          <div className="evo-home-cmd__dept-avatar-grid" role="listbox" aria-label="选择部门头像">
+            {presetsLoading && !presets.length ? (
+              <span className="evo-home-cmd__people-empty">加载中…</span>
+            ) : null}
+            {presets.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                role="option"
+                aria-selected={normalizeDeptAvatarId(dept.avatar) === p.id}
+                className={`evo-home-cmd__dept-avatar-opt${
+                  normalizeDeptAvatarId(dept.avatar) === p.id ? ' is-active' : ''
+                }`}
+                title={p.label}
+                onClick={() => applyAvatar(p.id)}
+                disabled={savingAvatar}
+              >
+                <DeptAvatar avatar={p.id} name={p.label} size={30} title={p.label} />
+                <span>{p.label}</span>
+              </button>
+            ))}
+            {!presetsLoading && !presets.length ? (
+              <span className="evo-home-cmd__people-empty">暂无头像预设</span>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
 
       <div className="evo-home-cmd__detail-snap">
         <span>今日快照</span>

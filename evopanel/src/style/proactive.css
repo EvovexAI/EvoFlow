@@ -4468,10 +4468,14 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 }
 .dd-dept-main-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+}
+.dd-dept-main-head > div:first-of-type {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .dd-dept-main-title {
   margin: 0;
@@ -4824,6 +4828,49 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   min-height: 56px;
   flex-basis: 56px;
   border-radius: 12px;
+}
+/* 部门头像（组织架构树 / 部门管理列表 / 详情头图共用）：
+   有预设图时铺满，无图/加载失败回落部门名首字 */
+.dd-org-avatar.dd-org-dept-avatar,
+.dd-org-avatar.dd-dept-row-avatar,
+.dd-org-avatar.dd-dept-main-avatar {
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg-muted, rgba(127, 127, 127, 0.1));
+  color: var(--text-secondary, #64748b);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  user-select: none;
+}
+.dd-org-avatar.dd-org-dept-avatar.has-image,
+.dd-org-avatar.dd-dept-row-avatar.has-image,
+.dd-org-avatar.dd-dept-main-avatar.has-image {
+  background: transparent;
+}
+.dd-org-avatar.dd-org-dept-avatar.dd-org-avatar--lg,
+.dd-org-avatar.dd-dept-main-avatar {
+  border-radius: 12px;
+  font-size: 18px;
+}
+.dd-dept-row-avatar {
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  min-width: 28px;
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 2px;
+}
+.dd-org-dept-avatar img,
+.dd-dept-row-avatar img,
+.dd-dept-main-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
 }
 .dd-org-avatar .agent-avatar,
 .dd-org-avatar .agent-custom-figure {

@@ -1,62 +1,157 @@
 [
   {
-    "id": "pm",
-    "label": "产品",
+    "id": "finance",
+    "label": "财务",
     "sort": 10
   },
   {
-    "id": "engineer",
-    "label": "工程",
+    "id": "legal",
+    "label": "法务",
+    "sort": 12
+  },
+  {
+    "id": "sales",
+    "label": "销售",
+    "sort": 14
+  },
+  {
+    "id": "service",
+    "label": "客服",
+    "sort": 16
+  },
+  {
+    "id": "growth",
+    "label": "增长",
     "sort": 20
+  },
+  {
+    "id": "operations",
+    "label": "运营",
+    "sort": 22
+  },
+  {
+    "id": "planner",
+    "label": "计划",
+    "sort": 24
+  },
+  {
+    "id": "data",
+    "label": "数据",
+    "sort": 30
   },
   {
     "id": "analyst",
     "label": "分析",
-    "sort": 30
+    "sort": 32
+  },
+  {
+    "id": "curator",
+    "label": "知识",
+    "sort": 34
+  },
+  {
+    "id": "script",
+    "label": "编导",
+    "sort": 40
+  },
+  {
+    "id": "writer",
+    "label": "文案",
+    "sort": 42
+  },
+  {
+    "id": "editor",
+    "label": "剪辑",
+    "sort": 44
+  },
+  {
+    "id": "director",
+    "label": "导演",
+    "sort": 46
+  },
+  {
+    "id": "audio",
+    "label": "音频",
+    "sort": 48
+  },
+  {
+    "id": "artist",
+    "label": "美术",
+    "sort": 50
+  },
+  {
+    "id": "reviewer",
+    "label": "审核",
+    "sort": 52
+  },
+  {
+    "id": "qa",
+    "label": "测试",
+    "sort": 58
+  },
+  {
+    "id": "coach",
+    "label": "教练",
+    "sort": 60
+  },
+  {
+    "id": "maker",
+    "label": "实施",
+    "sort": 64
+  },
+  {
+    "id": "pm",
+    "label": "产品",
+    "sort": 70
+  },
+  {
+    "id": "engineer",
+    "label": "工程",
+    "sort": 72
   },
   {
     "id": "designer",
     "label": "设计",
-    "sort": 40
+    "sort": 74
   },
   {
     "id": "ops",
     "label": "运维",
-    "sort": 50
+    "sort": 76
   },
   {
     "id": "researcher",
     "label": "研究",
-    "sort": 60
+    "sort": 78
   },
   {
     "id": "support",
     "label": "支持",
-    "sort": 70
+    "sort": 80
   },
   {
     "id": "lead",
     "label": "管理",
-    "sort": 80
+    "sort": 82
   },
   {
     "id": "intern",
     "label": "新人",
-    "sort": 90
+    "sort": 84
   },
   {
     "id": "creator",
     "label": "创作",
-    "sort": 100
+    "sort": 86
   },
   {
     "id": "guardian",
     "label": "安全",
-    "sort": 110
+    "sort": 88
   },
   {
     "id": "scientist",
     "label": "科学",
-    "sort": 120
+    "sort": 90
   }
 ]

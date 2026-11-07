@@ -79,6 +79,7 @@ import {
   type HomeCmdPerson,
 } from './HomeOrgCommandBoard.js'
 import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
+import { DeptAvatar } from './DeptAvatar.js'
 
 export type GroupChatMsg = {
   id: string
@@ -1357,11 +1358,33 @@ export function HomeDeptGroupChat({
         }
         aria-label={`${dept.name} 群聊`}
       >
-        {isMain ? null : (
+        {isMain ? (
+          <header className="dept-im__head dept-im__head--dept">
+            <DeptAvatar avatar={dept.avatar} name={dept.name} size={36} title={dept.name} />
+            <div className="dept-im__titles">
+              <div className="dept-im__title-row">
+                <h3 className="dept-im__title">{dept.name}</h3>
+                {roster.length ? (
+                  <span className="evo-home-cmd__gc-badge">{roster.length} 人</span>
+                ) : null}
+              </div>
+              <p className="dept-im__sub">
+                {dept.head_role_name ? `负责人 ${dept.head_role_name}` : '部门群聊'}
+              </p>
+            </div>
+          </header>
+        ) : (
           <>
             <header className="evo-home-cmd__detail-head">
               <div className="evo-home-cmd__detail-titles">
                 <div className="evo-home-cmd__detail-title-row">
+                  <DeptAvatar
+                    avatar={dept.avatar}
+                    name={dept.name}
+                    size={36}
+                    title={dept.name}
+                    className="evo-home-cmd__detail-dept-avatar"
+                  />
                   <h3 className="evo-home-cmd__detail-title">
                     {dept.name}
                     {roster.length ? (

@@ -1063,6 +1063,7 @@ CREATE TABLE IF NOT EXISTS evoflow_departments (
             name TEXT NOT NULL UNIQUE,
             sort_order INTEGER NOT NULL DEFAULT 0,
             head_agent_code TEXT NOT NULL DEFAULT '',
+            avatar TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );

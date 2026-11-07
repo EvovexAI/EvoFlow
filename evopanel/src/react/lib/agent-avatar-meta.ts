@@ -49,6 +49,16 @@ export function agentAvatarPresetUrl(baseUrl: string, presetId: string, version?
   return `${baseUrl.replace(/\/$/, '')}${path}`
 }
 
+/** Department cutout: ``GET /api/proactive/departments/avatar-presets/{id}``. */
+export function deptAvatarPresetUrl(baseUrl: string, presetId: string, version?: string | number): string {
+  const id = String(presetId || '').trim().toLowerCase()
+  if (!id) return ''
+  const v = version != null ? `?v=${encodeURIComponent(String(version))}` : ''
+  const path = `/api/proactive/departments/avatar-presets/${encodeURIComponent(id)}${v}`
+  if (!baseUrl) return path
+  return `${baseUrl.replace(/\/$/, '')}${path}`
+}
+
 export function bustCropStyle(
   headBox: { x: number; y: number; w: number; h: number },
   aspect: number,

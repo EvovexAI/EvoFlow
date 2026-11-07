@@ -1211,6 +1211,19 @@ html.dark .shell-view-tab.is-active {
   flex-shrink: 0;
 }
 
+/* 部门群聊（主区）头部：36px 部门头像 + 名称/负责人两行 */
+.dept-im__head--dept {
+  align-items: center;
+  gap: 10px;
+}
+
+.dept-im__head--dept .dept-im__titles {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
+}
+
 .dept-im__titles {
   display: flex;
   align-items: baseline;
@@ -25230,6 +25243,77 @@ html.dark .evo-home-cmd__dept-node.is-path {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+}
+
+/* 部门头像：与员工头像同圆角（10px @28–36） */
+.evo-home-cmd__dept-node-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.evo-home-cmd__dept-node-id .dept-avatar {
+  border: 1px solid var(--cmd-border, rgba(15, 23, 42, 0.08));
+}
+
+.evo-home-cmd__detail-title-row .evo-home-cmd__detail-dept-avatar {
+  margin-right: 2px;
+}
+
+.evo-home-cmd__dept-avatar-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 12px 8px;
+}
+
+.evo-home-cmd__dept-avatar-change {
+  appearance: none;
+  align-self: flex-start;
+  border: 1px solid var(--cmd-border, rgba(15, 23, 42, 0.12));
+  border-radius: 8px;
+  background: transparent;
+  color: var(--cmd-text, #0f172a);
+  font-size: 11px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.evo-home-cmd__dept-avatar-change:hover {
+  background: var(--bg-secondary, #f4f4f5);
+}
+
+.evo-home-cmd__dept-avatar-err {
+  font-size: 11px;
+  color: #dc2626;
+}
+
+.evo-home-cmd__dept-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 6px;
+}
+
+.evo-home-cmd__dept-avatar-opt {
+  appearance: none;
+  border: 1px solid var(--cmd-border, rgba(15, 23, 42, 0.12));
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.evo-home-cmd__dept-avatar-opt.is-active,
+.evo-home-cmd__dept-avatar-opt:hover {
+  border-color: color-mix(in srgb, var(--cmd-green, #22c55e) 55%, var(--cmd-border, transparent));
+  background: color-mix(in srgb, var(--cmd-green, #22c55e) 8%, transparent);
 }
 
 .evo-home-cmd__dept-name {

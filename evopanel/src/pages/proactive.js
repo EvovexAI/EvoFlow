@@ -194,6 +194,64 @@ function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }
   return { action: 'open', label: '打开', className: 'pro-role-cta pro-role-cta--ghost', code }
 }
 
+/**
+ * 部门头像：`data-dept-avatar` 挂预设 id，`data-dept-name` 作兜底首字。
+ * 预设图走 `/api/proactive/departments/avatar-presets/{id}`；
+ * 无 id / 加载失败时回落首字，不留白。
+ */
+const _DEPT_AVATAR_PRESET_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/
+
+function _deptAvatarSrc(baseUrl, presetId) {
+  const id = String(presetId || '').trim().toLowerCase().replace(/^preset:/, '')
+  if (!_DEPT_AVATAR_PRESET_RE.test(id)) return ''
+  const path = `/api/proactive/departments/avatar-presets/${encodeURIComponent(id)}`
+  return baseUrl ? `${String(baseUrl).replace(/\/$/, '')}${path}` : path
+}
+
+function _paintDeptAvatar(el, baseUrl) {
+  const presetId = String(el.getAttribute('data-dept-avatar') || '').trim()
+  const name = String(el.getAttribute('data-dept-name') || '').trim()
+  const size = parseInt(String(el.getAttribute('data-dept-size') || ''), 10) || 28
+  const src = _deptAvatarSrc(baseUrl, presetId)
+  const initial = name.slice(0, 1) || '部'
+  const showInitial = () => {
+    el.innerHTML = ''
+    el.classList.remove('has-image')
+    el.textContent = initial
+  }
+  if (!src) {
+    showInitial()
+    return
+  }
+  const img = new Image()
+  img.alt = ''
+  img.draggable = false
+  img.decoding = 'async'
+  img.style.width = `${size}px`
+  img.style.height = `${size}px`
+  img.style.objectFit = 'cover'
+  img.style.display = 'block'
+  img.onload = () => {
+    el.innerHTML = ''
+    el.appendChild(img)
+    el.classList.add('has-image')
+  }
+  img.onerror = showInitial
+  img.src = src
+}
+
+function mountProactiveDeptAvatars(root) {
+  if (!root) return
+  const els = root.querySelectorAll('[data-dept-avatar]')
+  if (!els.length) return
+  void gatewayBaseForAvatars().then((baseUrl) => {
+    els.forEach((el) => {
+      el.textContent = ''
+      _paintDeptAvatar(el, baseUrl)
+    })
+  })
+}
+
 function mountProactiveAvatars(root, defaultSize = 44) {
   if (!root) return
   void gatewayBaseForAvatars().then(async (baseUrl) => {
@@ -1828,6 +1886,8 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
     const selected = _orgUi.selectedKind === 'dept' && _orgUi.selected === key
     const count = Number(node.member_count || kids.length || 0)
     const headLabel = String(node.head_role_name || node.head_agent_code || '').trim()
+    const deptAvatar = String(node.avatar || '').trim()
+    const avatarHtml = `<span class="dd-org-avatar dd-org-dept-avatar" data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="28" aria-hidden="true"></span>`
     const childHtml =
       hasKids && expanded
         ? `<ul class="dd-org-children">${kids
@@ -1840,7 +1900,7 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
           <button type="button" class="dd-org-twist${hasKids ? (expanded ? ' is-open' : '') : ' is-leaf'}" data-act="org-toggle" data-code="${esc(key)}" aria-label="${hasKids ? (expanded ? '收起部门' : '展开部门') : '无成员'}" ${hasKids ? '' : 'tabindex="-1"'}>
             <span class="dd-org-twist-icon" aria-hidden="true"></span>
           </button>
-          <span class="dd-org-dept-icon" aria-hidden="true"></span>
+          ${avatarHtml}
           <div class="dd-org-text">
             <span class="dd-org-name">${esc(name)}</span>
             <span class="dd-org-dept">${headLabel ? `负责人 · ${esc(headLabel)}` : '未设负责人'}</span>
@@ -1962,6 +2022,8 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   const name = String(deptNode.dept_name || '').trim()
   const headCode = String(deptNode.head_agent_code || '').trim()
   const headName = String(deptNode.head_role_name || '').trim()
+  const deptAvatar = String(deptNode.avatar || '').trim()
+  const deptHeadAvatarHtml = `<span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar" data-dept-avatar="${esc(deptAvatar)}" data-dept-name="${esc(name)}" data-dept-size="56" aria-hidden="true"></span>`
   const members = []
   const walk = (nodes) => {
     for (const n of nodes || []) {
@@ -2015,7 +2077,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
-        <span class="dd-org-dept-icon dd-org-dept-icon--lg" aria-hidden="true"></span>
+        ${deptHeadAvatarHtml}
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}</h3>
           <p class="dd-org-detail-meta">${members.length} 名成员 · 负责人：${
@@ -2228,6 +2290,7 @@ function renderDepartmentsPanel(departments, roles) {
           const n = Number(d.member_count || (d.members || []).length || 0)
           return `
             <button type="button" class="dd-dept-row${on ? ' is-selected' : ''}" data-act="dept-select" data-id="${esc(id)}">
+              <span class="dd-dept-row-avatar dd-org-avatar" data-dept-avatar="${esc(String(d.avatar || '').trim())}" data-dept-name="${esc(String(d.name || '').trim())}" data-dept-size="28" aria-hidden="true"></span>
               <span class="dd-dept-row-main">
                 <span class="dd-dept-name">${esc(d.name || '')}</span>
                 ${
@@ -2335,6 +2398,7 @@ function renderDepartmentsPanel(departments, roles) {
             selected
               ? `
             <div class="dd-dept-main-head">
+              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg" data-dept-avatar="${esc(String(selected.avatar || '').trim())}" data-dept-name="${esc(String(selected.name || '').trim())}" data-dept-size="56" aria-hidden="true"></span>
               <div>
                 <h3 class="dd-dept-main-title">${esc(selected.name || '')}</h3>
                 <p class="dd-dept-main-sub">${members.length} 名成员 · 先指定负责人，再理清汇报线</p>
@@ -2421,7 +2485,7 @@ function _buildDeptForest(flatRoles, departments) {
     byDeptName.get(d).push(r)
   }
 
-  const makeDeptNode = (id, name, members, headCode = '', headName = '') => {
+  const makeDeptNode = (id, name, members, headCode = '', headName = '', avatar = '') => {
     const children = _buildForestFromFlat(members)
     // Prefer head as first root when they sit at dept root (no in-dept manager).
     if (headCode && children.length > 1) {
@@ -2443,6 +2507,7 @@ function _buildDeptForest(flatRoles, departments) {
       member_count: members.length,
       head_agent_code: headCode,
       head_role_name: headName,
+      avatar: String(avatar || '').trim(),
       children,
     }
   }
@@ -2457,7 +2522,7 @@ function _buildDeptForest(flatRoles, departments) {
     const id = String(d.id || '').trim() || `name:${name}`
     const headCode = String(d.head_agent_code || '').trim()
     const headName = String(d.head_role_name || '').trim()
-    roots.push(makeDeptNode(id, name, members, headCode, headName))
+    roots.push(makeDeptNode(id, name, members, headCode, headName, d.avatar))
   }
   for (const [name, members] of byDeptName.entries()) {
     if (seen.has(name)) continue
@@ -2606,6 +2671,7 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
         : renderOrgTree(trees, flat)
     await refreshAgentsAvatarIndex()
     mountProactiveAvatars(container)
+    mountProactiveDeptAvatars(container)
     bindOrgPanel(page, container)
   } catch (e) {
     if (_currentTab === 'org' && container) {
@@ -2622,6 +2688,7 @@ function _rerenderOrg(page) {
       ? renderDepartmentsPanel(_orgUi.departments, _orgUi.flat)
       : renderOrgTree(_orgUi.forest, _orgUi.flat)
   void refreshAgentsAvatarIndex().then(() => mountProactiveAvatars(container))
+  mountProactiveDeptAvatars(container)
   bindOrgPanel(page, container)
 }
 

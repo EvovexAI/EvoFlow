@@ -28,6 +28,7 @@ function metaToDept(meta: DeptChatMeta): HomeCmdDept {
   return {
     id: meta.id,
     name: meta.name,
+    avatar: meta.avatar || '',
     head_agent_code: meta.head_agent_code || '',
     head_role_name: meta.head_role_name || '',
     members,
@@ -38,7 +39,8 @@ function metaToDept(meta: DeptChatMeta): HomeCmdDept {
 
 async function loadDeptMeta(deptId: string): Promise<DeptChatMeta | null> {
   const cached = getDeptChatMeta(deptId)
-  if (cached?.members?.length) return cached
+  // 头像可能是后加的：缓存里没头像也回去拉一次，别把老 meta 永久钉住
+  if (cached?.members?.length && cached.avatar) return cached
   try {
     const [deptRes, roleRes] = await Promise.all([
       api.proactiveListDepartments(),
@@ -74,6 +76,7 @@ async function loadDeptMeta(deptId: string): Promise<DeptChatMeta | null> {
     const meta: DeptChatMeta = {
       id: deptId,
       name,
+      avatar: String(d.avatar || '').trim(),
       head_agent_code: String(d.head_agent_code || '').trim(),
       head_role_name: String(d.head_role_name || '').trim(),
       accent: cached?.accent || 'lead',

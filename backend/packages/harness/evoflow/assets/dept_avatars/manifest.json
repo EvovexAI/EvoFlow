@@ -1,0 +1,47 @@
+[
+  {
+    "id": "studio",
+    "label": "内容运营",
+    "sort": 10
+  },
+  {
+    "id": "engineering",
+    "label": "研发",
+    "sort": 20
+  },
+  {
+    "id": "commerce",
+    "label": "电商",
+    "sort": 30
+  },
+  {
+    "id": "aigc",
+    "label": "AIGC",
+    "sort": 40
+  },
+  {
+    "id": "office",
+    "label": "办公室",
+    "sort": 50
+  },
+  {
+    "id": "classroom",
+    "label": "教学",
+    "sort": 60
+  },
+  {
+    "id": "design",
+    "label": "产品设计",
+    "sort": 70
+  },
+  {
+    "id": "finance",
+    "label": "财务",
+    "sort": 80
+  },
+  {
+    "id": "support",
+    "label": "客服",
+    "sort": 90
+  }
+]
