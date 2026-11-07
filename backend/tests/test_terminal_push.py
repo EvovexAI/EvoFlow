@@ -80,10 +80,23 @@ async def test_terminal_push_skips_when_push_disabled():
 
 
 async def test_terminal_push_sends_summary_when_enabled():
+    """Declare an explicit push target.
+
+    Without ``push_channel``/``push_target_id`` the record falls through to
+    ``resolve_push_target``'s Feishu default-chat lookup (global config + the
+    machine's learned chat_id), so this test passed or failed depending on
+    which cases ran before it.
+    """
     pushed = AsyncMock(return_value=(True, "ok"))
     with patch.object(crp, "push_markdown_result", pushed), patch(
         "evoflow.persistence.automation_repositories.load_automation",
-        return_value={"id": "auto1", "name": "日报", "feishu_push_enabled": True},
+        return_value={
+            "id": "auto1",
+            "name": "日报",
+            "feishu_push_enabled": True,
+            "push_channel": "feishu",
+            "push_target_id": "oc_test_chat",
+        },
     ):
         ok, msg = await crp.push_automation_run_terminal(
             {
@@ -105,8 +118,19 @@ async def test_terminal_push_sends_summary_when_enabled():
 
 
 async def test_terminal_fan_out_is_deduped_per_run_status(monkeypatch):
+    """Patch the runtime port registry, not the gateway module attribute.
+
+    Since the arch split, ``_fan_out_terminal_im_push`` resolves its adapter
+    through ``evoflow.runtime.ports`` at call time, so patching
+    ``app.gateway.channel_result_push`` no longer intercepts the call and the
+    assertion counted 0 pushes for the wrong reason. Registry keys are looked
+    up per call, which is what ``setitem`` on ``_impls`` exercises (and
+    monkeypatch restores afterwards).
+    """
+    from evoflow.runtime import ports
+
     pushed = AsyncMock(return_value=(True, "ok"))
-    monkeypatch.setattr("app.gateway.channel_result_push.push_automation_run_terminal", pushed)
+    monkeypatch.setitem(ports._impls, "channels.push_automation_run_terminal", pushed)
     app_run_events._im_push_dedup.clear()
 
     task = {"id": "mt-x", "source_run_id": "run-dedup", "status": "completed", "automation_id": "auto1"}

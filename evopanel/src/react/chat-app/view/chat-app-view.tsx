@@ -70,6 +70,9 @@ function ClearPendingOptimisticOnV4Echo(props: {
   return null
 }
 
+/** render_state 日志签名去重（renderChatAppView 是普通函数，无 hooks；本视图单例）。 */
+let _v4RenderStateSig = ''
+
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
   const [xwVoiceOn, setXwVoiceOn] = useState(() => isXwVoiceMode())
@@ -687,6 +690,48 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
                   const optimisticUserText = localOptimisticHold ? optimisticNeedle : null
+                  // 切会话诊断：渲染层四源的绑定状态一次看清——
+                  // ①V4 投影（phase/sessionMatched/行数）②乐观气泡（needle/echo/hold）
+                  // ③本地行（rows/lastLocalUserText）④运行计时（turnLive 绑的是哪个会话）。
+                  // 「输入在回复下面」= optimistic 注入且投影无当前轮 userInput（hasV4UserEcho=0）；
+                  // 「打开空白」= phase 停在 connecting 且 v4RowCount=0。签名变化才打一行，流式不刷屏。
+                  const v4RenderSig = [
+                    selectedSessionKey,
+                    selectedThreadId,
+                    v4Phase,
+                    v4SessionMatched ? 1 : 0,
+                    v4RowCount,
+                    selectedTurnBusy ? 1 : 0,
+                    selectedSessionLive ? 1 : 0,
+                    optimisticNeedle ? 1 : 0,
+                    hasV4UserEcho ? 1 : 0,
+                    localOptimisticHold ? 1 : 0,
+                    historyLoading ? 1 : 0,
+                    Array.isArray(rows) ? rows.length : 0,
+                  ].join('|')
+                  if (_v4RenderStateSig !== v4RenderSig) {
+                    _v4RenderStateSig = v4RenderSig
+                    logV4Life({
+                      event: 'render_state',
+                      sessionKey: selectedSessionKey,
+                      threadId: selectedThreadId || undefined,
+                      zh: `渲染层绑定：phase=${v4Phase} matched=${v4SessionMatched ? 1 : 0} v4行=${v4RowCount} turnLive=${turnLive ? 1 : 0}(busy=${selectedTurnBusy ? 1 : 0}/live=${selectedSessionLive ? 1 : 0}) 乐观针=${optimisticNeedle ? `「${optimisticNeedle.slice(0, 16)}」` : '∅'} echo=${hasV4UserEcho ? 1 : 0} 乐观挂=${localOptimisticHold ? 1 : 0} 本地行=${Array.isArray(rows) ? rows.length : 0}`,
+                      detail: {
+                        v4Phase,
+                        v4SessionMatched,
+                        v4RowCount,
+                        turnLive,
+                        selectedTurnBusy,
+                        selectedSessionLive,
+                        optimisticNeedle: optimisticNeedle.slice(0, 40) || null,
+                        hasV4UserEcho,
+                        localOptimisticHold,
+                        historyLoading,
+                        localRows: Array.isArray(rows) ? rows.length : 0,
+                      },
+                      skipDedupe: true,
+                    })
+                  }
                   let knownEmptyDraft = false
                   try {
                     knownEmptyDraft =

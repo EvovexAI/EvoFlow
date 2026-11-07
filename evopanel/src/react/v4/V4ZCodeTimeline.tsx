@@ -63,6 +63,7 @@ import { proactiveAgentCodeFromSessionKey } from "../lib/session-list/workspace-
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
+import { logV4Life } from "../lib/v4-lifecycle-log.js";
 import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import { apiUrlAsync } from "../../lib/api-client.js";
 import {
@@ -1144,30 +1145,71 @@ export function V4ZCodeTimeline(props: {
     : sessionId || "draft";
   const [sessionSwitchHold, setSessionSwitchHold] = useState(false);
   const timelineKeyRef = useRef(timelineSessionKey);
+  const switchHoldStartedAtRef = useRef(0);
   useLayoutEffect(() => {
     if (timelineKeyRef.current === timelineSessionKey) return;
+    const prevKey = timelineKeyRef.current;
     timelineKeyRef.current = timelineSessionKey;
     if (!timelineSessionKey || timelineSessionKey === "draft") {
       setSessionSwitchHold(false);
       return;
     }
+    switchHoldStartedAtRef.current = Date.now();
     setSessionSwitchHold(true);
-  }, [timelineSessionKey]);
+    // 空白开诊断：hold 从此刻开始盖住时间线，release 行给出持有时长与释放原因。
+    logV4Life({
+      event: "switch_hold",
+      threadId: sessionId,
+      zh: `会话切换：时间线遮罩起（${String(prevKey || "∅").slice(-30)} → ${timelineSessionKey.slice(-30)}）`,
+      detail: { from: prevKey, to: timelineSessionKey },
+      skipDedupe: true,
+    });
+  }, [timelineSessionKey, sessionId]);
   useLayoutEffect(() => {
     if (!sessionSwitchHold) return;
     // 仍在等租约：底下本就是「加载中…」，遮罩可与之一致；有行后多留两帧给测高。
-    if (connecting && !(snapshot?.rows.window?.length)) return;
+    if (connecting && !(snapshot?.rows.window?.length)) {
+      // 持续 connecting 时每 2s 报一次「还没行」——空白开就是卡在这。
+      const t = window.setTimeout(() => {
+        if (!sessionSwitchHold) return;
+        logV4Life({
+          event: "switch_hold_wait",
+          level: "warn",
+          threadId: sessionId,
+          zh: `切会话遮罩已持有 ${Date.now() - switchHoldStartedAtRef.current}ms 仍未释放（connecting=${connecting ? 1 : 0}，窗口行=${snapshot?.rows.window?.length ?? 0}）——若长时间如此即为空白开的现场。`,
+          detail: {
+            heldMs: Date.now() - switchHoldStartedAtRef.current,
+            connecting,
+            windowRows: snapshot?.rows.window?.length ?? 0,
+            totalCount: snapshot?.rows.totalCount ?? 0,
+          },
+          skipDedupe: true,
+        });
+      }, 2_000);
+      return () => window.clearTimeout(t);
+    }
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
         setSessionSwitchHold(false);
+        logV4Life({
+          event: "switch_hold_release",
+          threadId: sessionId,
+          zh: `会话切换：遮罩释放（持有 ${Date.now() - switchHoldStartedAtRef.current}ms，窗口行=${snapshot?.rows.window?.length ?? 0}）`,
+          detail: {
+            heldMs: Date.now() - switchHoldStartedAtRef.current,
+            windowRows: snapshot?.rows.window?.length ?? 0,
+            totalCount: snapshot?.rows.totalCount ?? 0,
+          },
+          skipDedupe: true,
+        });
       });
     });
     return () => {
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
     };
-  }, [sessionSwitchHold, connecting, snapshot?.seq, snapshot?.rows.totalCount]);
+  }, [sessionSwitchHold, connecting, snapshot?.seq, snapshot?.rows.totalCount, sessionId]);
 
   // 宿主保证引用稳定（ConversationRowView/MessageResponse 的 memo 依赖 context 引用）。
   // fetchFileChanges 闭包经 ref 读最新快照水位；待授权列表变时才允许 rowContext 换引用。
@@ -1190,6 +1232,46 @@ export function V4ZCodeTimeline(props: {
   const optimisticRowInjected = rows.length > authoritativeRows.length;
   const displayTotalCount =
     (snapshot?.rows.totalCount ?? authoritativeRows.length) + (optimisticRowInjected ? 1 : 0);
+
+  // 切会话/流式诊断：时间线尾部的实际行序（谁在上谁在下）。
+  // 「用户输入跑到最新回复下面」类问题直接看这里：每行带窗口下标（0=窗口顶）。
+  // optimistic 注入恒在尾部（mergeOptimisticUserInputRow append），若投影里当前轮
+  // userInput 缺失/文案不匹配，就会出现「回复在上、输入在下」——digest 会直接显示。
+  const tailDigestSigRef = useRef("");
+  useEffect(() => {
+    const sig = `${timelineSessionKey}|${displayTotalCount}|${optimisticRowInjected ? 1 : 0}`;
+    if (tailDigestSigRef.current === sig) return;
+    tailDigestSigRef.current = sig;
+    const win = authoritativeRows as ReadonlyArray<Record<string, unknown>>;
+    const n = win.length;
+    const take = Math.min(6, n);
+    const tail = win.slice(-take).map((r, i) => ({
+      i: n - take + i,
+      kind: String(r?.kind || ""),
+      rowId: Number(r?.rowId) || 0,
+      origin: String(r?.origin || ""),
+      state: String(r?.state || ""),
+      turnId: String(r?.turnId || "").slice(0, 18),
+      text: String(r?.text || "").slice(0, 24),
+    }));
+    const tailText = tail
+      .map((t) => `#${t.i} ${t.kind}${t.origin ? `/${t.origin}` : ""}${t.text ? `「${t.text}」` : ""}`)
+      .join(" → ");
+    logV4Life({
+      event: "tail_digest",
+      threadId: sessionId,
+      zh: `时间线尾部行序（窗口下标 0=顶）：${tailText}${optimisticRowInjected ? "；尾部另挂乐观 userInput" : ""}`,
+      detail: {
+        sessionKey: timelineSessionKey,
+        authoritativeRows: n,
+        totalCount: displayTotalCount,
+        optimisticInjected: optimisticRowInjected,
+        optimisticText: String(optimisticUserText || "").slice(0, 24) || null,
+        tail,
+      },
+      skipDedupe: true,
+    });
+  }, [timelineSessionKey, displayTotalCount, optimisticRowInjected, authoritativeRows, optimisticUserText, sessionId]);
 
   type PendingApprovalItem = {
     toolCallId: string;

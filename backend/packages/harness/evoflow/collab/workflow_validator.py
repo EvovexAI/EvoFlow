@@ -147,6 +147,59 @@ def validate_app_definition(app_def: dict[str, Any]) -> dict[str, Any]:
     checks["circular_deps"] = {"errors": len(check2_errors), "cycles": cycles}
     errors.extend(check2_errors)
 
+    # ── Check 2b: Condition node integrity ──────────────────────────
+    # ``step_type=condition`` is currently NOT evaluated by the DAG runner:
+    # nothing in collab/ reads ``condition.true_branch`` / ``false_branch``,
+    # so both branch steps get dispatched and run. Rather than let a half-built
+    # branch look like it works, refuse to publish anything whose branch wiring
+    # would silently mis-execute, and say which shape is actually supported.
+    check2b_errors: list[str] = []
+    check2b_warnings: list[str] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        if _as_str(step.get("step_type")).strip().lower() != "condition":
+            continue
+        ref = _as_str(step.get("ref"))
+        step_name = _as_str(step.get("name"), ref)
+        cond = step.get("condition") if isinstance(step.get("condition"), dict) else {}
+        expr = _as_str(cond.get("expression"))
+        true_b = _as_str(cond.get("true_branch"))
+        false_b = _as_str(cond.get("false_branch"))
+        step_errors = 0
+        # NOTE: ``expr`` legitimately keeps ``{{param}}`` placeholders here —
+        # render_plan substitutes them per run — so never treat a placeholder
+        # as a defect; only an *undeclared* one is (Check 5 covers names).
+        if not expr:
+            check2b_errors.append(
+                f"Step {step_name} (ref={ref}): condition node has no expression"
+            )
+            step_errors += 1
+        if not true_b and not false_b:
+            check2b_errors.append(
+                f"Step {step_name} (ref={ref}): condition node declares no branch target "
+                "(set condition.true_branch / condition.false_branch to step refs)"
+            )
+            step_errors += 1
+        for label, target in (("true_branch", true_b), ("false_branch", false_b)):
+            if target and target not in step_refs:
+                check2b_errors.append(
+                    f"Step {step_name} (ref={ref}): condition.{label} references "
+                    f"non-existent step '{target}'"
+                )
+                step_errors += 1
+        if step_errors == 0:
+            check2b_warnings.append(
+                f"Step {step_name} (ref={ref}): 条件分支暂不由运行时求值，两条分支都会派发执行；"
+                "确定性判断请改用 executor=template 节点"
+            )
+    checks["condition_integrity"] = {
+        "errors": len(check2b_errors),
+        "warnings": len(check2b_warnings),
+    }
+    errors.extend(check2b_errors)
+    warnings.extend(check2b_warnings)
+
     # ── Check 3: Input binding reference integrity ───────────────────
     check3_errors: list[str] = []
     check3_warnings: list[str] = []

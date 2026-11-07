@@ -467,7 +467,7 @@ class V4GoalEngine:
         # 续跑 run 的工时结算
         self._settle_continuation_time(session_id, row, run_id=rid, run_failed=run_failed)
         if run_failed:
-            logger.info(
+            logger.warning(
                 "[v4-goal] run failed, skip verification (stay active) session=%s",
                 session_id,
             )

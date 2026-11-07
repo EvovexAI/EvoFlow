@@ -410,10 +410,26 @@ def _sync_depends_on_from_canvas(steps: list[dict[str, Any]], canvas: dict[str, 
     if not incoming:
         return list(steps)
 
+    # Edge set per target, used to tell "user deleted the wire" apart from
+    # "depends_on names a ref the canvas can never express".
+    known_refs = {s["ref"] for s in steps}
     synced: list[dict[str, Any]] = []
     for step in steps:
         row = dict(step)
-        row["depends_on"] = list(incoming.get(step["ref"], []))
+        edges_in = list(incoming.get(step["ref"], []))
+        # Unknown deps must survive this rewrite: silently emptying them turns
+        # a broken node into an entry point that fires immediately, and
+        # Check 1 in workflow_validator (which *does* catch this) never sees
+        # it because it runs on the already-cleaned steps.
+        dropped = [
+            _as_str(d)
+            for d in (step.get("depends_on") or [])
+            if _as_str(d) and _as_str(d) not in known_refs
+        ]
+        for d in dropped:
+            if d not in edges_in:
+                edges_in.append(d)
+        row["depends_on"] = edges_in
         synced.append(row)
     return synced
 

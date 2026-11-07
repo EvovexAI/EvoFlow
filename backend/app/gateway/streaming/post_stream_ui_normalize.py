@@ -463,6 +463,7 @@ class PostStreamUiTransform:
                 state=self.normalizer._state,
                 ledger=self.normalizer.inner.block_ledger,
             )
+            self._mark_run_error_if_emitted(out)
             if run_end:
                 self._run_end_emitted = True
             return out
@@ -504,9 +505,12 @@ class PostStreamUiTransform:
                 event_name.lower() == "error"
                 or (
                     isinstance(data_json, dict)
-                    and str(data_json.get("type") or "").strip() == "RUN_ERROR"
+                    and str(data_json.get("type") or "").strip() in ("RUN_ERROR", "model_error")
                 )
             ):
+                # EvoFlow：模型失败以 custom/model_error 事件出现（429 配额等）；
+                # RUN_ERROR wire 帧由 normalizer 在 finish 合成，另由
+                # _mark_run_error_if_emitted 扫描产出帧兜底。
                 self._saw_run_error = True
             # Per-frame guard: a single malformed/oversized model frame or any
             # bug inside the chosen normalizer (UiStreamNormalizer /
@@ -543,6 +547,7 @@ class PostStreamUiTransform:
                 out.append(comment)
                 continue
             out.extend(frames)
+            self._mark_run_error_if_emitted(frames)
             if isinstance(self.normalizer, OpenAiStreamNormalizer) and self.normalizer._run_end_emitted:
                 self._run_end_emitted = True
                 self._notify_goal_engine_run_finished()
@@ -559,6 +564,16 @@ class PostStreamUiTransform:
                     pass
         return out
 
+    def _mark_run_error_if_emitted(self, frames: list[bytes] | None) -> None:
+        """从产出的 AG-UI wire 帧识别 RUN_ERROR（上游 429/异常经 normalizer 合成，
+        不一定以上游 ``event: error`` 形态出现——goal engine 的 run_failed 判定用）。"""
+        if self._saw_run_error or not frames:
+            return
+        for frame in frames:
+            if isinstance(frame, (bytes, bytearray)) and b'"RUN_ERROR"' in frame:
+                self._saw_run_error = True
+                return
+
     def _notify_goal_engine_run_finished(self) -> None:
         """ZCode 式目标模式：run 收口钩子（去重交给 goal_engine 的 run_id 账本）。
 
@@ -567,12 +582,6 @@ class PostStreamUiTransform:
         """
         if not self.thread_id or not self._run_end_emitted or self._goal_notified:
             return
-        logger.info(
-            "[v4-goal-transform] notify entry tid=%s run_id=%s saw_err=%s",
-            self.thread_id,
-            self.run_id,
-            self._saw_run_error,
-        )
         self._goal_notified = True
         try:
             from app.gateway.v4.goal_engine import get_v4_goal_engine
@@ -638,6 +647,8 @@ class PostStreamUiTransform:
                 comment = (f": [post-stream-ui][finish error] exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n").encode("utf-8", errors="replace")
                 finish_frames = [comment]
             out.extend(finish_frames)
+            # 先识别失败再置位 run_end：setter 置位即触发 goal 通知，错误标记必须就绪。
+            self._mark_run_error_if_emitted(finish_frames)
             self._run_end_emitted = True
         if self.thread_id:
             try:
