@@ -783,6 +783,26 @@ CREATE TABLE IF NOT EXISTS evoflow_goal_sessions (
             updated_at TEXT NOT NULL
         , push_channel TEXT NOT NULL DEFAULT '', push_target_id TEXT NOT NULL DEFAULT '', interpreter_fallback_streak INTEGER NOT NULL DEFAULT 0);
 
+-- ZCode 式会话目标（v4 主聊天目标模式）：每 thread 一行，与 hosted goal
+-- （evoflow_goal_sessions，planner+步进语义）互不复用。verifier/续跑状态机见
+-- app/gateway/v4/goal_engine.py。
+CREATE TABLE IF NOT EXISTS evoflow_v4_session_goals (
+            session_key TEXT NOT NULL PRIMARY KEY,
+            target_id TEXT NOT NULL DEFAULT '',
+            objective TEXT NOT NULL DEFAULT '',
+            summary_title TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'active',
+            iteration INTEGER NOT NULL DEFAULT 0,
+            verifications_json TEXT NOT NULL DEFAULT '[]',
+            time_used_seconds INTEGER NOT NULL DEFAULT 0,
+            active_run_started_at_ms INTEGER,
+            last_next_action TEXT NOT NULL DEFAULT '',
+            continuation_count INTEGER NOT NULL DEFAULT 0,
+            last_verify_reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
 CREATE TABLE IF NOT EXISTS evoflow_groups (
             org_id TEXT NOT NULL,
             group_id TEXT NOT NULL,
@@ -2229,6 +2249,7 @@ _POST_BASELINE_TABLES: tuple[str, ...] = (
     "evoflow_bot_bindings",
     "evoflow_departments",
     "evoflow_role_push_bindings",
+    "evoflow_v4_session_goals",
 )
 
 

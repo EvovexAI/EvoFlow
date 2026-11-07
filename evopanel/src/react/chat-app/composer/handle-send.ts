@@ -264,10 +264,12 @@ export async function handleSend(
         toast('已切换为 EvoFlow（当前会话）', 'success')
         return
       }
-      // /goal <目标内容> — 直接启动当前会话目标（不进入普通聊天）
+      // /goal — ZCode 式会话目标（v4 命令面：sendGoalCommand/pauseGoal/resumeGoal）。
+      // /hosted、/hd 与 start|apply 仍走 hosted goal（planner 流程，GoalModePanel）。
       const goalDirectMatch = slash.match(/^\/(?:goal|hosted|hd)\s+([\s\S]+)$/i)
       if (goalDirectMatch) {
         const goalText = goalDirectMatch[1].trim()
+        const isHostedAlias = /^\/(?:hosted|hd)/i.test(slash)
         if (/^(start|apply)$/i.test(goalText)) {
           const fromPanel = threadPanelState.goalProposal
           const fromRows = !fromPanel ? extractLatestGoalProposalFromRows(rows) : null
@@ -281,6 +283,40 @@ export async function handleSend(
             return
           }
           toast('当前会话没有可应用的目标方案', 'warning')
+          return
+        }
+        if (!isHostedAlias) {
+          // v4 目标模式：pause / resume / 直接设目标
+          const { sendV4GoalCommand } = await import('../../v4/goalCommand.js')
+          if (/^pause$/i.test(goalText)) {
+            const res = await sendV4GoalCommand(sessionKey, 'pauseGoal', {})
+            toast(
+              res.ok ? '目标已暂停（/goal resume 恢复）' : `暂停失败：${res.reasonCode || res.status}`,
+              res.ok ? 'success' : 'warning',
+            )
+            return
+          }
+          if (/^resume$/i.test(goalText)) {
+            const res = await sendV4GoalCommand(sessionKey, 'resumeGoal', {})
+            toast(
+              res.ok ? '目标已恢复推进' : `恢复失败：${res.reasonCode || res.status}`,
+              res.ok ? 'success' : 'warning',
+            )
+            return
+          }
+          const res = await sendV4GoalCommand(sessionKey, 'sendGoalCommand', {
+            text: goalText,
+            displayText: slash,
+          })
+          if (res.ok) {
+            toast('目标已设定，将自动持续推进（/goal pause 可暂停）', 'success')
+          } else if (res.reasonCode === 'guard.planGoalMutuallyExclusive') {
+            toast('Plan 模式与目标互斥：请先退出 Plan 再设定目标', 'warning')
+          } else if (res.reasonCode === 'emptyObjective') {
+            toast('目标内容为空', 'warning')
+          } else {
+            toast(`目标设定失败：${res.reasonCode || res.status}`, 'warning')
+          }
           return
         }
         void goal.goal.startGoalWithPrompt(goalText)

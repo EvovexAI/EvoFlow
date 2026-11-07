@@ -21,7 +21,6 @@ export function runSessionSwitchLayoutEffect(ctx: RunSessionSwitchLayoutCtx): vo
     rowsRef,
     seenRunIdsRef,
     selectedSessionKey,
-    sessionRef,
     sessionSwitchFromRef,
     sessionsRef,
     setRows,
@@ -40,11 +39,13 @@ export function runSessionSwitchLayoutEffect(ctx: RunSessionSwitchLayoutCtx): vo
   sessionSwitchFromRef.current = prev ? prev : ''
   if (prev) {
     const prevRt = getSessionRuntime(prev)
-    const activeSkNow = String(sessionRef.current || '').trim()
+    // streamForCommit：提交给旧会话的流快照。
+    // ⚠️ 注意：此时 sessionRef.current 可能已经指向新会话（sessionRef 同步已提前到切换 effect 之前），
+    // 所以不能再用 `sessionRef.current === prev` 判定「当前流属于旧会话」。
+    // 可靠依据是对象身份：streamRef.current 若仍挂在旧会话的 runtime 上，就用当前引用，
+    // 否则用旧 runtime 自带的 stream（避免把新会话的流写进旧会话）。
     const streamForCommit =
-      streamRef.current === prevRt.stream || activeSkNow === prev
-        ? streamRef.current
-        : prevRt.stream
+      streamRef.current === prevRt.stream ? streamRef.current : prevRt.stream
     commitActiveSessionRuntime(prev, {
       rows: rowsRef.current,
       stream: streamForCommit,

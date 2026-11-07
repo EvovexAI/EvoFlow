@@ -287,7 +287,9 @@ class PostStreamUiTransform:
         self.stream_format = fmt if fmt in {"openai", "agui"} else "agui"
         self._buffer = ""
         self._upstream_closed = False
-        self._run_end_emitted = False
+        self._run_end_flag = False
+        self._saw_run_error = False
+        self._goal_notified = False
         self._stream_closed = False
         self._bootstrap_sent = False
         # Fast path: use prior fields from POST body only. Defer DB transcript
@@ -322,6 +324,22 @@ class PostStreamUiTransform:
                 )
             except Exception:
                 pass
+
+    # ── run_end 置位统一通知（ZCode 式目标模式钩子）──────────────────────────
+    # ``_run_end_emitted`` 在多处被置位（流中 end 帧 / inject drain / finish 收尾），
+    # 用 property setter 兜底：任何一处首个 True 都触发 goal engine 通知一次
+    # （_goal_notified 去重；goal_engine 内部还有 run_id 账本二级去重）。
+
+    @property
+    def _run_end_emitted(self) -> bool:
+        return self._run_end_flag
+
+    @_run_end_emitted.setter
+    def _run_end_emitted(self, value: bool) -> None:
+        previous = self._run_end_flag
+        self._run_end_flag = bool(value)
+        if value and not previous:
+            self._notify_goal_engine_run_finished()
 
     def _ensure_prior_from_db(self) -> None:
         """Lazy DB prior-turn isolation — after bootstrap SSE has already flushed."""
@@ -480,6 +498,16 @@ class PostStreamUiTransform:
                 rid = str(data_json.get("run_id") or data_json.get("runId") or "").strip()
                 if rid:
                     self._apply_upstream_run_id(rid)
+            # run 失败追踪（goal engine 的 run_failed 判定用）：上游 error 事件或
+            # AG-UI RUN_ERROR wire 帧都算。
+            if (
+                event_name.lower() == "error"
+                or (
+                    isinstance(data_json, dict)
+                    and str(data_json.get("type") or "").strip() == "RUN_ERROR"
+                )
+            ):
+                self._saw_run_error = True
             # Per-frame guard: a single malformed/oversized model frame or any
             # bug inside the chosen normalizer (UiStreamNormalizer /
             # OpenAiStreamNormalizer / AgUiStreamNormalizer) must NOT
@@ -517,8 +545,10 @@ class PostStreamUiTransform:
             out.extend(frames)
             if isinstance(self.normalizer, OpenAiStreamNormalizer) and self.normalizer._run_end_emitted:
                 self._run_end_emitted = True
+                self._notify_goal_engine_run_finished()
             elif isinstance(self.normalizer, AgUiStreamNormalizer) and self.normalizer._run_end_emitted:
                 self._run_end_emitted = True
+                self._notify_goal_engine_run_finished()
             if self.thread_id:
                 try:
                     from app.gateway.streaming.live_run_snapshot import schedule_snapshot_from_normalizer
@@ -528,6 +558,32 @@ class PostStreamUiTransform:
                 except Exception:
                     pass
         return out
+
+    def _notify_goal_engine_run_finished(self) -> None:
+        """ZCode 式目标模式：run 收口钩子（去重交给 goal_engine 的 run_id 账本）。
+
+        调用点可能在流中（RUN_FINISHED 帧先行置位 run_end）或流关闭收尾；
+        也可能运行在 asyncio.to_thread 工作线程——goal_engine 内部会投递回主循环。
+        """
+        if not self.thread_id or not self._run_end_emitted or self._goal_notified:
+            return
+        logger.info(
+            "[v4-goal-transform] notify entry tid=%s run_id=%s saw_err=%s",
+            self.thread_id,
+            self.run_id,
+            self._saw_run_error,
+        )
+        self._goal_notified = True
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            get_v4_goal_engine().on_run_finished(
+                self.thread_id,
+                run_id=str(self.run_id or "") or None,
+                run_failed=self._saw_run_error,
+            )
+        except Exception:
+            logger.debug("v4 goal on_run_finished (transform) failed thread=%s", self.thread_id, exc_info=True)
 
     def _feed_upstream_chunk(self, chunk: bytes) -> list[bytes]:
         if chunk and self.thread_id and not self._mirror_lane_owned:
@@ -590,6 +646,8 @@ class PostStreamUiTransform:
                 clear_gateway_live_snapshot(self.thread_id)
             except Exception:
                 pass
+        # ZCode 式目标模式：流关闭收尾同样通知（流中已通知则由 _goal_notified 去重）。
+        self._notify_goal_engine_run_finished()
         out.extend(self._drain_inject())
         if self._mirror_lane_owned or self.mirror_enabled:
             self._mirror_out_frames(out)

@@ -1034,6 +1034,18 @@ class StreamMiddleLayer:
                 mirror_channel_run_finished(self.thread_id, error=bool(run_failed))
         except Exception:
             logger.debug("v4 mirror seal on finish failed thread=%s", self.thread_id, exc_info=True)
+        # ZCode 式目标模式：run 结束钩子 → 活跃目标触发完成审计 verifier
+        # （goal_engine 内部按 run_id 去重 + 状态守卫，非目标会话零开销）。
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            get_v4_goal_engine().on_run_finished(
+                self.thread_id,
+                run_id=str(self.run_id or "") or None,
+                run_failed=bool(run_failed),
+            )
+        except Exception:
+            logger.debug("v4 goal on_run_finished failed thread=%s", self.thread_id, exc_info=True)
         # 先 mark idle 再广播：前端收到 panel:run_ended 时 DB 已是 idle
         await self._broadcast_run_ended()
         with _LOCK:

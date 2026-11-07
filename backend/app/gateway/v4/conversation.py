@@ -855,6 +855,26 @@ class V4ConversationHub:
 
     # -- 帧构造 ---------------------------------------------------------------
 
+    def _session_goal_state(self, sess: _SessionState) -> dict[str, Any] | None:
+        """当前会话目标状态（vendored goalStateSchema 形状；无目标为 None）。"""
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            return get_v4_goal_engine().get_goal_state(sess.session_id)
+        except Exception:
+            logger.debug("[v4-conversation] goal state read failed session=%s", sess.session_id, exc_info=True)
+            return None
+
+    def _session_availability(self, sess: _SessionState) -> dict[str, Any]:
+        availability = _minimal_availability()
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            availability.update(get_v4_goal_engine().availability(sess.session_id))
+        except Exception:
+            logger.debug("[v4-conversation] availability read failed session=%s", sess.session_id, exc_info=True)
+        return availability
+
     def _build_snapshot(self, sess: _SessionState) -> dict[str, Any]:
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
         window = self._snapshot_tail_window(rows)
@@ -865,7 +885,7 @@ class V4ConversationHub:
             "seq": sess.seq,
             "revision": sess.revision,
             "control": sess.control(),
-            "availability": _minimal_availability(),
+            "availability": self._session_availability(sess),
             "inputRouting": sess.input_routing(),
             "meta": {
                 "title": sess.title,
@@ -878,7 +898,7 @@ class V4ConversationHub:
             "pendingInteractions": [],
             "pendingCommands": [],
             "backgroundWorks": [],
-            "goal": None,
+            "goal": self._session_goal_state(sess),
             "plan": None,
             "rows": {
                 # 尾部窗口；更早行走 rows/range 游标补拉（rowsWindowSchema 截断语义）。
@@ -1019,6 +1039,12 @@ class V4ConversationHub:
 
         if command_type in ("sendText",):
             return self._handle_send_text(sess, command_id, payload)
+        if command_type == "sendGoalCommand":
+            return self._handle_send_goal_command(sess, command_id, payload)
+        if command_type == "pauseGoal":
+            return self._handle_pause_goal(sess, command_id)
+        if command_type == "resumeGoal":
+            return self._handle_resume_goal(sess, command_id)
         if command_type in ("stop", "abort"):
             return self._handle_stop(sess, command_id)
         if command_type == "sendQueuedNow":
@@ -1096,6 +1122,21 @@ class V4ConversationHub:
         if not text.strip():
             return self._reject(command_id, "emptyInput", "text is empty")
         requested = str(payload.get("requestedDelivery") or "").strip()
+        if payload.get("planEnabled"):
+            # Plan/Goal 互斥（对齐 ZCode guard.planGoalMutuallyExclusive）：
+            # 活跃目标存在时不得以 Plan 意图提交。
+            try:
+                from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+                state = get_v4_goal_engine().get_goal_state(sess.session_id)
+            except Exception:
+                state = None
+            if state is not None and state.get("status") in ("active", "verifying", "paused"):
+                return self._reject(
+                    command_id,
+                    "guard.planGoalMutuallyExclusive",
+                    "Plan and Goal cannot be active at the same time.",
+                )
 
         if sess.turn_running():
             # running：requested 缺省按 followupMode 路由（queue=入队）；startNow 不抢占。
@@ -1157,9 +1198,73 @@ class V4ConversationHub:
     def _emit_queue_patch(self, sess: _SessionState) -> None:
         self.author_state_patch(sess.session_id, {"queue": sess.queue_state()})
 
+    # -- goal 命令组（ZCode 目标模式：sendGoalCommand / pauseGoal / resumeGoal）--
+
+    def _handle_send_goal_command(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import GoalRejectedError, get_v4_goal_engine
+
+        objective = str(payload.get("text") or "").strip()
+        if not objective:
+            return self._reject(command_id, "emptyObjective", "Usage: /goal <objective>")
+        engine = get_v4_goal_engine()
+        try:
+            outcome = engine.set_goal(sess.session_id, objective, intent=dict(payload))
+        except GoalRejectedError as exc:
+            return self._reject(command_id, exc.reason_code, exc.message)
+        sess.revision += 1
+        return self._accept(
+            command_id,
+            sess.revision,
+            result={
+                "type": "sendGoalCommand",
+                "goal": outcome.get("goal"),
+                "started": bool(outcome.get("started")),
+                "input": {
+                    "delivery": "startNow" if outcome.get("started") else "deferred",
+                    "inputId": command_id,
+                },
+            },
+        )
+
+    def _handle_pause_goal(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+        state = get_v4_goal_engine().pause_goal(sess.session_id)
+        if state is None:
+            return self._noop(command_id, "noGoalToPause")
+        sess.revision += 1
+        return self._accept(command_id, sess.revision, result={"type": "pauseGoal", "goal": state})
+
+    def _handle_resume_goal(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import GoalRejectedError, get_v4_goal_engine
+
+        engine = get_v4_goal_engine()
+        try:
+            state = engine.resume_goal(sess.session_id)
+        except GoalRejectedError as exc:
+            return self._reject(command_id, exc.reason_code, exc.message)
+        if state is None:
+            return self._noop(command_id, "noGoalToResume")
+        sess.revision += 1
+        return self._accept(command_id, sess.revision, result={"type": "resumeGoal", "goal": state})
+
     # -- stop / abort ----------------------------------------------------------
 
     def _handle_stop(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        # ZCode stopPausesActiveGoalTarget：stop 作用于前台工作时活跃目标进 paused。
+        # 放在 turn_running 判定之前——镜像 run（前端直发）不走 hub turn_task，
+        # 但 stop 意图同样应暂停目标。
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            get_v4_goal_engine().on_stop(sess.session_id)
+        except Exception:
+            logger.debug("[v4-conversation] goal on_stop failed session=%s", sess.session_id, exc_info=True)
         if not sess.turn_running():
             return self._noop(command_id, "noRunningTurn")
         # 对齐 queueStateSchema 注释：stop 后 autoDrain=False（暂停队列），setAutoDrain 恢复。

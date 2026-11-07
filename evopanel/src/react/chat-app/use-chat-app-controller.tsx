@@ -1360,6 +1360,17 @@ export function useChatAppController() {
     if (visible.length) hydrateSessionRuntimeRowsIfIdle(sk, visible)
   }, [rows, historyLoading, selectedSessionKey, executingListEpoch, historyBoundSessionKey])
 
+  /**
+   * 会话切换：selectedSessionKey → sessionRef.current 的同步。
+   *
+   * ⚠️ 必须早于下方「切换会话」layout effect 执行（React layout effect 按声明顺序跑）。
+   * 否则切换那一帧里 sessionRef.current 仍是旧会话，WS 事件路由（uiSk）会判错，
+   * 把 A 会话的流灌进正在显示的 B 会话 —— 表现为「切会话后对话错乱 / 看不到回复」。
+   */
+  useLayoutEffect(() => {
+    sessionRef.current = selectedSessionKey
+  }, [selectedSessionKey])
+
   /** 切换会话：selectedSessionKey 或用户 force 重选（同 key）时 mount stream */
   useLayoutEffect(() => {
     runSessionSwitchLayoutEffect({
@@ -3516,18 +3527,20 @@ export function useChatAppController() {
 
   const prevSelectLogRef = useRef('__init__')
   // useLayoutEffect：在 paint 前写入 sessionRef，避免 refreshSessions 仍读到旧 key
+  // 注：sessionRef.current 的写入已提前到「切换会话」effect 之前（见上方早期 layout effect），
+  // 此处仅兜底同步 + 记录切换日志。
   useLayoutEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (prevSelectLogRef.current !== sk) {
       ssLog('state.changed', {
         from: skTail(prevSelectLogRef.current === '__init__' ? '' : prevSelectLogRef.current),
         to: skTail(sk),
-        sessionRefBefore: skTail(sessionRef.current),
         newChatButtonActive,
         pendingNew: pendingNewSessionRef.current,
       })
       prevSelectLogRef.current = sk
     }
+    // 兜底：上方早期 layout effect 已写入，这里再写一次无害（保持 newChatButtonActive 变更时也同步）。
     sessionRef.current = selectedSessionKey
     // Persist selected session to localStorage for cross-refresh restore
     if (sk) {

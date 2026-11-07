@@ -1683,6 +1683,24 @@ async def stop_session_execution_route(
         result.phase,
         result.cancelled_run_ids,
     )
+    # ZCode 式目标模式：用户 Stop → 活跃目标进 paused（stopPausesActiveGoalTarget）。
+    try:
+        from app.gateway.v4.goal_engine import get_v4_goal_engine
+        from evoflow.persistence.db import get_db as _get_db
+
+        _row = (
+            _get_db()
+            .execute(
+                "SELECT thread_id FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+                (key,),
+            )
+            .fetchone()
+        )
+        _thread_id = str(_row[0] or "").strip() if _row else ""
+        if _thread_id:
+            get_v4_goal_engine().on_stop(_thread_id)
+    except Exception:
+        logger.debug("v4 goal on_stop failed session=%s", key, exc_info=True)
     return {
         "ok": result.ok,
         "sessionKey": result.session_key,

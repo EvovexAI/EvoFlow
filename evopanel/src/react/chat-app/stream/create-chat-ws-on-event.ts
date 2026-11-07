@@ -32,8 +32,8 @@ import {
   logChatTurnRunStarted,
 } from '../../lib/chat-turn-timing-log.js'
 import {
-  isChatWsEventBackground,
   readXiaomiAssistantSessionKey,
+  resolveChatEventTarget,
 } from '../../lib/chat-ws-foreground.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
@@ -735,7 +735,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       // 主栏已选中且 key 不同 → 后台；小V 会话在主栏未选中时也强制后台
       // （工作台空选中时旧逻辑会把小V 流当前台灌 rows，指挥台被「已工作」顶掉）。
       // 新建会话首轮：uiSk 仍空且 eventSk 不是小V → 仍当前台，避免 final 只写 rt 不 setRows。
-      const isBackground = isChatWsEventBackground({
+      //
+      // ⚠️ 竞态防线：resolveChatEventTarget 保证事件永远只写进它自己归属的会话（eventSk）。
+      // 切会话那一帧 sessionRef 可能还指向旧会话（uiSk 过期），若把 eventSk 的流灌进
+      // uiSk 的 runtime，就会出现「切会话后对话错乱 / 看不到 AI 回复」。
+      const { targetSk, isBackground } = resolveChatEventTarget({
         eventSk,
         uiSk,
         xiaomiSk: readXiaomiAssistantSessionKey(),
@@ -748,10 +752,6 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       } else {
         chatStreamBgApplyRef.current = false
       }
-      // 修复：后台事件始终路由到 eventSk；前台事件只有在 activeSk 非空时才路由到 activeSk
-      // 当 activeSk 为空（新建会话过程中）且 eventSk 非空时，即使 isBackground=false（理论上不会发生），
-      // 也应该丢弃事件而不是写入空会话的临时 runtime
-      const targetSk = isBackground ? eventSk : (uiSk || eventSk || '')
       if (isBackground) {
         bgRuntimeNotifySessionRef.current = targetSk
       } else {
