@@ -362,9 +362,18 @@ def workflow_run_status(args: dict[str, Any]) -> dict[str, Any]:
     status = str(data.get("status") or run.get("status") or "")
     progress = run.get("progress") if "progress" in run else data.get("progress")
     steps = run.get("steps") if isinstance(run.get("steps"), list) else data.get("steps")
+    # ``run`` is the object we already flatten below. Keeping a second copy of the
+    # keys that are hoisted to the top level (and the full step list / plan /
+    # subtasks_sync) is pure duplication, and it triples the longest strings in the
+    # payload — an agent polling a 4-node run burns context on re-reads. Keep one
+    # authoritative ``steps`` here; ``run`` retains only the non-duplicated detail
+    # (parameters / outputs / timestamps) that top level does not carry.
+    _hoisted = {"steps", "plan", "subtasks_sync", "status", "progress", "subtask_status", "result_summary", "task_id", "error"}
+    run_slim = {k: v for k, v in run.items() if k not in _hoisted}
     out = {
         "ok": True,
-        **data,
+        **{k: v for k, v in data.items() if k != "run"},
+        "run": run_slim,
         "runId": run_id,
         "run_id": run_id,
         "progress": progress,
@@ -376,23 +385,26 @@ def workflow_run_status(args: dict[str, Any]) -> dict[str, Any]:
     }
     if status:
         out["status"] = status
-    # Compact trail for agents / verification ledgers
+    # Compact trail = index over the steps above (verification ledgers poll this
+    # every few seconds, so a second copy of each step's text is the fastest way to
+    # blow an agent's context). ``description`` deliberately lives only in
+    # ``steps`` / ``workflow.get``; ``result_summary`` is a glanceable head.
     trail = []
     for st in out["steps"] or []:
         if not isinstance(st, dict):
             continue
-        trail.append(
-            {
-                "ref": st.get("ref"),
-                "name": st.get("name"),
-                "status": st.get("status"),
-                "assigned_agent": st.get("assigned_agent"),
-                "progress": st.get("progress"),
-                "description": (str(st.get("description") or "")[:400]),
-                "result_summary": (str(st.get("result_summary") or "")[:400]),
-                "error_text": (str(st.get("error_text") or "")[:200]),
-            }
-        )
+        entry = {
+            "ref": st.get("ref"),
+            "name": st.get("name"),
+            "status": st.get("status"),
+            "assigned_agent": st.get("assigned_agent"),
+            "progress": st.get("progress"),
+            "result_summary": (str(st.get("result_summary") or "")[:200]),
+        }
+        err = str(st.get("error_text") or "")[:200]
+        if err:
+            entry["error_text"] = err
+        trail.append(entry)
     out["trail"] = trail
     return out
 
@@ -498,6 +510,9 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tags, list):
         tags = []
     canvas = _arg_json_value(args, "canvas")
+    declared_parameters = _arg_json_value(args, "parameters")
+    if not isinstance(declared_parameters, list):
+        declared_parameters = None
     data = apps_admin.generate_app(
         name=name,
         goal=goal,
@@ -511,6 +526,7 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
         max_params=int(args.get("max_params") or args.get("maxParams") or 5),
         tags=tags,
         canvas=canvas if isinstance(canvas, dict) else None,
+        parameters=declared_parameters,
     )
     return _workflow_app_result({**data, "hint": "已从目标+步骤生成草稿应用。"})
 

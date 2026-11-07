@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from evoflow.persistence.db import get_db, run_db_with_retry
+from evoflow.persistence.db import get_db, run_db_read, run_db_with_retry
 from evoflow.timeutil import utc_now_iso_z
 
 
@@ -102,19 +102,21 @@ INSERT OR REPLACE INTO evoflow_app_revisions (
 
 
 def load_revision(app_id: str, version: int) -> dict[str, Any] | None:
-    conn = get_db()
-    cur = conn.execute(
-        "SELECT * FROM evoflow_app_revisions WHERE app_id = ? AND version = ?",
-        (app_id, int(version)),
-    )
-    row = cur.fetchone()
-    if row is None:
-        return None
-    cols = [d[0] for d in cur.description]
-    doc = dict(zip(cols, row, strict=False))
-    snap = _json_load(doc.pop("snapshot_json", "{}"))
-    doc["snapshot"] = snap if isinstance(snap, dict) else {}
-    return doc
+    def _query(conn: Any) -> dict[str, Any] | None:
+        cur = conn.execute(
+            "SELECT * FROM evoflow_app_revisions WHERE app_id = ? AND version = ?",
+            (app_id, int(version)),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in cur.description]
+        doc = dict(zip(cols, row, strict=False))
+        snap = _json_load(doc.pop("snapshot_json", "{}"))
+        doc["snapshot"] = snap if isinstance(snap, dict) else {}
+        return doc
+
+    return run_db_read(_query)
 
 
 _DEFINITION_SNAPSHOT_KEYS = frozenset(_snapshot_from_document({})) - {"status"}
@@ -142,19 +144,21 @@ def definition_changed_since_revision(
 
 
 def list_revisions(app_id: str, limit: int = 50) -> list[dict[str, Any]]:
-    conn = get_db()
-    cur = conn.execute(
-        """
+    def _query(conn: Any) -> list[dict[str, Any]]:
+        cur = conn.execute(
+            """
 SELECT app_id, version, status, note, created_at
 FROM evoflow_app_revisions
 WHERE app_id = ?
 ORDER BY version DESC
 LIMIT ?
 """,
-        (app_id, limit),
-    )
-    cols = [d[0] for d in cur.description]
-    return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+            (app_id, limit),
+        )
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+
+    return run_db_read(_query)
 
 
 _RESTORE_SNAPSHOT_KEYS = (
@@ -375,10 +379,17 @@ _apps_columns_cache: set[str] | None = None
 
 
 def _evoflow_apps_columns() -> set[str]:
-    """Cached PRAGMA table_info(evoflow_apps) — avoid N× pragma on list authz."""
+    """Cached PRAGMA table_info(evoflow_apps) — avoid N× pragma on list authz.
+
+    Read pool: the PRAGMA must not take the process write lock, otherwise the
+    first list/read after startup queues behind a running workflow's writes.
+    """
     global _apps_columns_cache
     if _apps_columns_cache is None:
-        _apps_columns_cache = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_apps)").fetchall()}
+        def _query(conn: Any) -> set[str]:
+            return {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_apps)").fetchall()}
+
+        _apps_columns_cache = run_db_read(_query)
     return _apps_columns_cache
 
 
@@ -394,17 +405,25 @@ def get_app_owner_scope(app_id: str) -> tuple[str | None, str | None]:
     cols = _evoflow_apps_columns()
     if "owner_scope_id" not in cols:
         return None, None
-    row = (
-        get_db()
-        .execute(
-            "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
-            (aid,),
+
+    def _query(conn: Any) -> tuple[str | None, str | None]:
+        row = (
+            conn.execute(
+                "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
+                (aid,),
+            )
+            .fetchone()
         )
-        .fetchone()
-    )
-    if not row:
+        if not row:
+            return None, None
+        return (str(row[0] or "").strip() or None, str(row[1] or "").strip() or None)
+
+    # Read pool — owner-scope lookup is on the workflow editor request path and
+    # must not wait behind the process write lock held by a running workflow.
+    try:
+        return run_db_read(_query)
+    except Exception:
         return None, None
-    return (str(row[0] or "").strip() or None, str(row[1] or "").strip() or None)
 
 
 def app_visible_to_principal(
@@ -433,34 +452,54 @@ def app_visible_to_principal(
 
 
 def app_exists(app_id: str) -> bool:
-    """Cheap existence check — avoid full ``load_app`` (JSON + normalize) in authz guards."""
+    """Cheap existence check — avoid full ``load_app`` (JSON + normalize) in authz guards.
+
+    Read pool: this runs on the workflow editor's request path, so it must not
+    queue behind the process write lock held by a running workflow.
+    """
     aid = str(app_id or "").strip()
     if not aid:
         return False
-    conn = get_db()
-    row = conn.execute("SELECT 1 FROM evoflow_apps WHERE id = ? LIMIT 1", (aid,)).fetchone()
-    return row is not None
+
+    def _query(conn: Any) -> bool:
+        row = conn.execute("SELECT 1 FROM evoflow_apps WHERE id = ? LIMIT 1", (aid,)).fetchone()
+        return row is not None
+
+    return run_db_read(_query)
 
 
 def load_app(app_id: str) -> dict[str, Any] | None:
-    """Load an application definition by ID."""
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM evoflow_apps WHERE id = ?", (app_id,))
-    row = cur.fetchone()
-    if row is None:
+    """Load an application definition by ID.
+
+    Uses the read connection pool (WAL, ``mode=ro``) instead of the shared write
+    connection: a running workflow holds the process-wide write lock while it
+    persists run/step status, and this read is on the workflow editor's first
+    paint path. Going through ``get_db()`` made the editor wait behind that
+    lock — i.e. 「加载工作流…」 stalled whenever anything else was executing.
+    """
+    def _query(conn: Any) -> dict[str, Any] | None:
+        cur = conn.execute("SELECT * FROM evoflow_apps WHERE id = ?", (app_id,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in cur.description]
+        doc = dict(zip(cols, row, strict=False))
+        # Deserialize JSON fields
+        doc["parameters"] = _json_load(doc.pop("parameters_json", "[]"))
+        doc["steps"] = _json_load(doc.pop("steps_json", "[]"))
+        doc["validation_template"] = _json_load(doc.pop("validation_template_json", "[]"))
+        doc["tags"] = _json_load(doc.pop("tags_json", "[]"))
+        canvas_raw = doc.pop("canvas_json", "{}")
+        canvas = _json_load(canvas_raw)
+        doc["canvas"] = canvas if isinstance(canvas, dict) else {}
+        # Boolean conversion
+        doc["auto_run"] = bool(doc.get("auto_run"))
+        return doc
+
+    doc = run_db_read(_query)
+    if doc is None:
         return None
-    cols = [d[0] for d in cur.description]
-    doc = dict(zip(cols, row, strict=False))
-    # Deserialize JSON fields
-    doc["parameters"] = _json_load(doc.pop("parameters_json", "[]"))
-    doc["steps"] = _json_load(doc.pop("steps_json", "[]"))
-    doc["validation_template"] = _json_load(doc.pop("validation_template_json", "[]"))
-    doc["tags"] = _json_load(doc.pop("tags_json", "[]"))
-    canvas_raw = doc.pop("canvas_json", "{}")
-    canvas = _json_load(canvas_raw)
-    doc["canvas"] = canvas if isinstance(canvas, dict) else {}
-    # Boolean conversion
-    doc["auto_run"] = bool(doc.get("auto_run"))
+
     from evoflow.collab.app_schema import normalize_app_document
 
     return normalize_app_document(doc)
@@ -524,7 +563,6 @@ def list_apps(
     LIMIT applies *after* the visibility filter, not before. ``None`` = no
     filtering (admin / local single-user callers).
     """
-    conn = get_db()
     params: list[Any] = []
     where = []
     if status:
@@ -594,11 +632,19 @@ def list_apps(
         col_sql = "*"
     sql = f"SELECT {col_sql} FROM evoflow_apps {where_clause} ORDER BY usage_count DESC, created_at DESC LIMIT ?"
     params.append(limit)
-    cur = conn.execute(sql, params)
-    cols = [d[0] for d in cur.description]
+
+    def _query(conn: Any) -> list[dict[str, Any]]:
+        cur = conn.execute(sql, params)
+        cols = [d[0] for d in cur.description]
+        return [dict(zip(cols, row, strict=False)) for row in cur.fetchall()]
+
+    # Read pool: the apps list is the workflow center's first paint. A running
+    # workflow holds the process write lock while persisting run/step status, so
+    # reading through ``get_db()`` stalled the list behind that lock.
+    rows = run_db_read(_query)
+
     results = []
-    for row in cur.fetchall():
-        doc = dict(zip(cols, row, strict=False))
+    for doc in rows:
         parameters = _json_load(doc.pop("parameters_json", "[]"))
         if not isinstance(parameters, list):
             parameters = []
@@ -737,29 +783,40 @@ INSERT OR REPLACE INTO evoflow_app_runs (
 
 
 def load_run(run_id: str) -> dict[str, Any] | None:
-    """Load a run instance by ID."""
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM evoflow_app_runs WHERE id = ?", (run_id,))
-    row = cur.fetchone()
-    if row is None:
-        return None
-    cols = [d[0] for d in cur.description]
-    doc = dict(zip(cols, row, strict=False))
-    doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
-    return doc
+    """Load a run instance by ID.
+
+    Read pool: this is polled by the run-debug / run-status panels while the run
+    itself is writing status rows — reading through the write connection made
+    the poll queue behind the very writes it was waiting on.
+    """
+
+    def _query(conn: Any) -> dict[str, Any] | None:
+        cur = conn.execute("SELECT * FROM evoflow_app_runs WHERE id = ?", (run_id,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in cur.description]
+        doc = dict(zip(cols, row, strict=False))
+        doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
+        return doc
+
+    return run_db_read(_query)
 
 
 def load_run_by_task_id(task_id: str) -> dict[str, Any] | None:
     """Load a run instance by its bound task center ID."""
-    conn = get_db()
-    cur = conn.execute("SELECT * FROM evoflow_app_runs WHERE task_id = ? LIMIT 1", (task_id,))
-    row = cur.fetchone()
-    if row is None:
-        return None
-    cols = [d[0] for d in cur.description]
-    doc = dict(zip(cols, row, strict=False))
-    doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
-    return doc
+
+    def _query(conn: Any) -> dict[str, Any] | None:
+        cur = conn.execute("SELECT * FROM evoflow_app_runs WHERE task_id = ? LIMIT 1", (task_id,))
+        row = cur.fetchone()
+        if row is None:
+            return None
+        cols = [d[0] for d in cur.description]
+        doc = dict(zip(cols, row, strict=False))
+        doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
+        return doc
+
+    return run_db_read(_query)
 
 
 def update_run_status(run_id: str, status: str, **fields: Any) -> None:
@@ -851,12 +908,15 @@ def update_run_status(run_id: str, status: str, **fields: Any) -> None:
 
 def count_runs(app_id: str) -> int:
     """Total run rows for an application."""
-    conn = get_db()
-    row = conn.execute(
-        "SELECT COUNT(*) FROM evoflow_app_runs WHERE app_id = ?",
-        (app_id,),
-    ).fetchone()
-    return int(row[0] or 0) if row else 0
+
+    def _query(conn: Any) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM evoflow_app_runs WHERE app_id = ?",
+            (app_id,),
+        ).fetchone()
+        return int(row[0] or 0) if row else 0
+
+    return run_db_read(_query)
 
 
 def count_runs_batch(app_ids: list[str]) -> dict[str, int]:
@@ -867,31 +927,40 @@ def count_runs_batch(app_ids: list[str]) -> dict[str, int]:
     ids = [str(x) for x in (app_ids or []) if x]
     if not ids:
         return {}
-    conn = get_db()
     placeholders = ",".join("?" for _ in ids)
-    cur = conn.execute(
-        f"SELECT app_id, COUNT(*) FROM evoflow_app_runs WHERE app_id IN ({placeholders}) GROUP BY app_id",
-        ids,
-    )
-    return {str(row[0]): int(row[1] or 0) for row in cur.fetchall()}
+
+    def _query(conn: Any) -> dict[str, int]:
+        cur = conn.execute(
+            f"SELECT app_id, COUNT(*) FROM evoflow_app_runs WHERE app_id IN ({placeholders}) GROUP BY app_id",
+            ids,
+        )
+        return {str(row[0]): int(row[1] or 0) for row in cur.fetchall()}
+
+    # Read pool: counts rows in ``evoflow_app_runs`` — the table a running
+    # workflow writes to on every step transition. Reading it through the write
+    # connection queued behind those writes.
+    return run_db_read(_query)
 
 
 def list_runs(app_id: str, limit: int = 20, offset: int = 0) -> list[dict[str, Any]]:
     """List run history for an application (most recent first)."""
     lim = max(1, min(int(limit or 20), 100))
     off = max(0, int(offset or 0))
-    conn = get_db()
-    cur = conn.execute(
-        "SELECT * FROM evoflow_app_runs WHERE app_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
-        (app_id, lim, off),
-    )
-    cols = [d[0] for d in cur.description]
-    results = []
-    for row in cur.fetchall():
-        doc = dict(zip(cols, row, strict=False))
-        doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
-        results.append(doc)
-    return results
+
+    def _query(conn: Any) -> list[dict[str, Any]]:
+        cur = conn.execute(
+            "SELECT * FROM evoflow_app_runs WHERE app_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            (app_id, lim, off),
+        )
+        cols = [d[0] for d in cur.description]
+        results = []
+        for row in cur.fetchall():
+            doc = dict(zip(cols, row, strict=False))
+            doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
+            results.append(doc)
+        return results
+
+    return run_db_read(_query)
 
 
 _OPEN_RUN_STATUSES = (
@@ -908,24 +977,27 @@ _OPEN_RUN_STATUSES = (
 def list_open_runs(*, limit: int = 50) -> list[dict[str, Any]]:
     """App runs that may need crash/node recover (most recently updated first)."""
     lim = max(1, min(int(limit or 50), 200))
-    conn = get_db()
     placeholders = ",".join("?" for _ in _OPEN_RUN_STATUSES)
-    cur = conn.execute(
-        f"""
+
+    def _query(conn: Any) -> list[dict[str, Any]]:
+        cur = conn.execute(
+            f"""
         SELECT * FROM evoflow_app_runs
         WHERE lower(coalesce(status, '')) IN ({placeholders})
         ORDER BY coalesce(started_at, created_at) DESC
         LIMIT ?
         """,
-        (*_OPEN_RUN_STATUSES, lim),
-    )
-    cols = [d[0] for d in cur.description]
-    results = []
-    for row in cur.fetchall():
-        doc = dict(zip(cols, row, strict=False))
-        doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
-        results.append(doc)
-    return results
+            (*_OPEN_RUN_STATUSES, lim),
+        )
+        cols = [d[0] for d in cur.description]
+        results = []
+        for row in cur.fetchall():
+            doc = dict(zip(cols, row, strict=False))
+            doc["parameters"] = _json_load(doc.pop("parameters_json", "{}"))
+            results.append(doc)
+        return results
+
+    return run_db_read(_query)
 
 
 def list_runs_page(

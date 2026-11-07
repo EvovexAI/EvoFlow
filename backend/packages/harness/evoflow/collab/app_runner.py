@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from evoflow.collab.app_engine import render_plan, validate_parameters
+from evoflow.collab.app_engine import apply_parameter_defaults, render_plan, validate_parameters
 from evoflow.collab.plan_session_task import bind_plan_to_thread_task, ensure_plan_session_task
 from evoflow.collab.storage import get_project_storage, new_project_bundle_root_task
 from evoflow.collab.thread_collab import advance_collab_phase_to_plan_ready_for_task
@@ -739,6 +739,23 @@ def _project_run_status_readonly(
 # ────────────────────────────────── Lead Supervised Mode ─────────────────────────────────
 
 
+def run_parameters_payload(app: dict[str, Any], parameters: dict[str, str] | None) -> dict[str, Any]:
+    """Fields describing a run's parameters, ready to merge into the run record.
+
+    ``render_plan`` fills blanks from ``AppParameter.default``, so a run started
+    without arguments still rendered real values — but the record kept the raw
+    call (``{}``), leaving no way to tell after the fact what the workers were
+    actually told. Record the effective values, and keep the raw call separately
+    so "typed by the user" stays distinguishable from "filled by default".
+    """
+    raw = {str(k): ("" if v is None else str(v)) for k, v in (parameters or {}).items()}
+    try:
+        effective = apply_parameter_defaults(app, raw)
+    except Exception:
+        effective = dict(raw)
+    return {"parameters": effective, "parameters_input": raw}
+
+
 def run_app_lead_supervised(
     app_id: str,
     parameters: dict[str, str],
@@ -794,7 +811,7 @@ def run_app_lead_supervised(
         {
             "app_id": app_id,
             "app_version": app_version,
-            "parameters": parameters,
+            **run_parameters_payload(app, parameters),
             "execution_mode": "lead_supervised",
             "task_id": task_id,
             "thread_id": thread_id,
@@ -1121,7 +1138,7 @@ def run_app_workflow(
         {
             "app_id": app_id,
             "app_version": app_version,
-            "parameters": parameters,
+            **run_parameters_payload(app, parameters),
             "execution_mode": "workflow",
             "task_id": task_id,
             "thread_id": None,

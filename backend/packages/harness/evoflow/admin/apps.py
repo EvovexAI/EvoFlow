@@ -403,6 +403,7 @@ def generate_app(
     max_params: int = 5,
     tags: list[str] | None = None,
     canvas: dict[str, Any] | None = None,
+    parameters: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     from evoflow.collab.app_generator import generate_app_from_plan
 
@@ -424,6 +425,7 @@ def generate_app(
         auto_extract=auto_extract,
         max_params=max_params,
         tags=tags,
+        parameters=parameters,
     )
     if isinstance(canvas, dict) and canvas:
         app_doc["canvas"] = canvas
