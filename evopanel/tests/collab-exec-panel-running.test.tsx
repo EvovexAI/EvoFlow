@@ -81,6 +81,50 @@ describe('CollabExecutionPanel running state', () => {
     expect(container.querySelector('.collab-wf-node-running-badge')).toBeTruthy()
   })
 
+  it('falls back to API-persisted live text when there is no WS stream', () => {
+    // 回归：刷新后 / 从别的工作流打开时，subagentTasks 为空。
+    // 节点必须显示后端落库的实时正文，否则用户看到空白卡片。
+    const { container } = render(
+      <CollabExecutionPanel
+        {...baseProps}
+        collabTask={{ taskId: 'main-1', name: '任务', status: 'in_progress', progress: 20 }}
+        apiSubtasks={[
+          {
+            subtaskId: 'st-1',
+            name: '搜资料',
+            status: 'in_progress',
+            executionPreview: '正在读取竞品页面内容',
+          },
+        ]}
+      />,
+    )
+
+    const activity = container.querySelector('.collab-wf-node-activity')
+    expect(activity).toBeTruthy()
+    expect(activity?.textContent || '').toContain('正在读取竞品页面内容')
+  })
+
+  it('falls back to API currentStep when there is no live preview', () => {
+    const { container } = render(
+      <CollabExecutionPanel
+        {...baseProps}
+        collabTask={{ taskId: 'main-1', name: '任务', status: 'in_progress', progress: 20 }}
+        apiSubtasks={[
+          {
+            subtaskId: 'st-1',
+            name: '搜资料',
+            status: 'in_progress',
+            currentStep: '正在整理竞品对比表',
+          },
+        ]}
+      />,
+    )
+
+    expect(container.querySelector('.collab-wf-node-activity')?.textContent || '').toContain(
+      '正在整理竞品对比表',
+    )
+  })
+
   it('shows the latest prose when no tool is running', () => {
     const { container } = render(
       <CollabExecutionPanel

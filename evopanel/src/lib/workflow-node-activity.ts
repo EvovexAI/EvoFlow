@@ -163,16 +163,24 @@ export function pickLiveProse(raw: string, maxLen = 68): string {
 /**
  * 综合节点活动：只返回最新的一条。
  * 优先级：正在跑的工具 > 最新正文 > 最后调用的工具。
+ *
+ * 两个数据源：
+ * - `tools` / `liveOutput`：当前会话的 WS 实时流（最准，但只在会话开着时有）
+ * - `apiText`：后端落库的实时正文（刷新 / 从别的工作流打开时兜底）
  */
 export function resolveNodeActivity(input: {
   tools?: unknown[] | null
   liveOutput?: string | null
   progressHint?: string | null
+  /** 兜底正文：后端 API 的实时正文 / currentStep */
+  apiText?: string | null
   running: boolean
 }): SubtaskNodeActivity {
   const { line: toolLine, activeToolLabel } = pickLatestTool(input.tools)
-  const prose = pickLiveProse(String(input.liveOutput || '')) ||
-    pickLiveProse(String(input.progressHint || ''))
+  const prose =
+    pickLiveProse(String(input.liveOutput || '')) ||
+    pickLiveProse(String(input.progressHint || '')) ||
+    pickLiveProse(String(input.apiText || ''))
 
   // 正在跑的工具最优先 —— 它就是「此刻在干什么」
   if (toolLine?.running) {

@@ -5157,11 +5157,13 @@ export function useChatAppController() {
       isActiveExecTaskStatus,
       selectedTurnBusy,
       sharedCollabMainTaskStatus,
+      sharedCollabSubtasks,
       threadPanelState,
     })
   }, [
     collabSubtasksFetchEnabled,
     sharedCollabMainTaskStatus,
+    sharedCollabSubtasks,
     threadPanelState.collabPhase,
     selectedTurnBusy,
     bumpSubtasksApiRefresh,

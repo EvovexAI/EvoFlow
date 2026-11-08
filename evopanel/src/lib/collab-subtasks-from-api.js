@@ -65,6 +65,11 @@ export function mapApiSubtaskRow(row, parentTaskId) {
       : typeof r.current_step === 'string'
         ? { currentStep: r.current_step }
         : {}),
+    ...(typeof r.executionPreview === 'string'
+      ? { executionPreview: r.executionPreview }
+      : typeof r.execution_preview === 'string'
+        ? { executionPreview: r.execution_preview }
+        : {}),
     ...(Array.isArray(r.observedToolCalls)
       ? { observedToolCalls: r.observedToolCalls }
       : Array.isArray(r.observed_tool_calls)

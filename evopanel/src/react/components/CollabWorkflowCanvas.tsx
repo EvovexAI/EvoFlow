@@ -109,6 +109,12 @@ function WorkflowNode({
       (s as { current_step?: string }).current_step ||
       '',
   ).trim()
+  /** 后端落库的实时正文（刷新后 / 从别的工作流打开时兜底） */
+  const apiPreview = String(
+    (s as { executionPreview?: string }).executionPreview ||
+      (s as { execution_preview?: string }).execution_preview ||
+      '',
+  ).trim()
   const terminal = isCompletedStatus(displayStatus) || normalizeStatus(displayStatus) === 'failed'
 
   const livePreview = useMemo(
@@ -140,9 +146,12 @@ function WorkflowNode({
         tools: streamTask?.tools,
         liveOutput: streamTask?.liveOutput,
         progressHint: streamTask?.progressHint,
+        // 兜底：当前会话没有 WS 流时（刷新后 / 从别的工作流打开），
+        // 用后端落库的实时正文 / current_step。
+        apiText: statusHint || apiPreview,
         running,
       }),
-    [streamTask?.tools, streamTask?.liveOutput, streamTask?.progressHint, running],
+    [streamTask?.tools, streamTask?.liveOutput, streamTask?.progressHint, statusHint, apiPreview, running],
   )
 
   /** 只显示最新一条活动（工具或正文）；没有则退回跑马灯（兼容旧数据源） */
