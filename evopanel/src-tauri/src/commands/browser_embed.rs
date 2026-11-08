@@ -391,7 +391,7 @@ fn flush_embed_bounds_now(app: &tauri::AppHandle, reason: &str) {
         if !window.is_visible().unwrap_or(false) {
             continue;
         }
-        let (cx, cy, cw, ch) = clamp_rect(x, y, w, h, iw, ih);
+        let (cx, cy, cw, ch) = clamp_rect(x, y, w, h, iw, ih, window_dpi_scale(&parent));
         browser_cdp_server::log_line(&format!(
             "[browser-embed] {reason} place label={label} raw=({x:.0},{y:.0} {w:.0}x{h:.0}) \
              clamped=({cx:.0},{cy:.0} {cw:.0}x{ch:.0}) main=({iw:.0}x{ih:.0}) resize_grace={}",
@@ -563,7 +563,7 @@ pub fn reposition_embeds_after_main_move(app: &tauri::AppHandle) {
                 continue;
             }
             let Some(window) = app.get_webview_window(label) else { continue };
-            let (cx, cy, cw, ch) = clamp_rect(*x, *y, *w, *h, iw, ih);
+            let (cx, cy, cw, ch) = clamp_rect(*x, *y, *w, *h, iw, ih, window_dpi_scale(&parent));
             let _ = nest_embed_into_main(&window, &parent);
             let _ = place_embed_client(&window, &parent, cx, cy, cw, ch);
             note_writer(
@@ -610,10 +610,9 @@ pub fn reposition_embeds_after_main_move(app: &tauri::AppHandle) {
                 continue;
             }
             let visible = window.is_visible().unwrap_or(false);
-            let w = (iw * 0.45).clamp(480.0, (iw - 16.0).max(120.0));
-            let h = (ih - 96.0).clamp(360.0, (ih - 16.0).max(80.0));
-            let x = (iw - w - 12.0).max(0.0);
-            let y = 64.0f64.min((ih - h).max(0.0));
+            let scale = window_dpi_scale(&parent);
+            let (x, y, w, h) = estimate_right_dock_physical(iw, ih, scale);
+            log_estimate_dock("untracked", iw, ih, scale, x, y, w, h);
             if visible {
                 let _ = nest_embed_into_main(&window, &parent);
                 let _ = place_embed_client(&window, &parent, x, y, w, h);
@@ -635,18 +634,94 @@ pub fn reposition_embeds_after_main_move(app: &tauri::AppHandle) {
     }
 }
 
-/// 主窗标题拖拽区大约占这么高（物理 px）。子 HWND 的 y 不得更小，否则盖住
-/// React `data-tauri-drag-region` 的双击还原。前端也会再测真实 floor。
-const EMBED_CHROME_FLOOR_Y: f64 = 48.0;
+/// 主窗标题拖拽区大约占这么高（**CSS** px）。子 HWND 的 y 不得更小，否则盖住
+/// React `data-tauri-drag-region` 的双击还原。正式包 `inner_size` 是物理像素，
+/// 使用时必须乘窗口 DPI（见 `clamp_rect` / `estimate_right_dock_physical`）。
+const EMBED_CHROME_FLOOR_Y_CSS: f64 = 48.0;
+
+fn window_dpi_scale(win: &WebviewWindow) -> f64 {
+    win.scale_factor().unwrap_or(1.0).max(1.0)
+}
+
+/// 与前端 `estimateEmbedSlot()` 同一套 CSS 右栏占位，再换成客户区物理像素。
+///
+/// `WebviewWindow::inner_size()` 在 DPI-aware 正式包里是物理像素。若把 y=64/96
+/// 直接当物理用，175% 缩放下 HWND 会顶进标题栏（日志：place y=96，真实槽位
+/// 约 145 CSS ≈ 254 物理）。
+fn estimate_right_dock_physical(iw: f64, ih: f64, scale: f64) -> (f64, f64, f64, f64) {
+    let scale = if scale.is_finite() && scale > 0.05 {
+        scale
+    } else {
+        1.0
+    };
+    let lw = (iw / scale).max(8.0);
+    let lh = (ih / scale).max(8.0);
+    let width = (lw * 0.45).max(480.0);
+    let height = (lh - 96.0).max(360.0);
+    let x = (lw - width - 12.0).max(0.0);
+    let y = 64.0;
+    (x * scale, y * scale, width * scale, height * scale)
+}
+
+/// 把估算矩形写成一条可 grep 的诊断：`ESTIMATE` + dpi + css + physical。
+/// 下次「正式包错位」搜 `ESTIMATE` / `unscaled chrome y`。
+fn log_estimate_dock(
+    reason: &str,
+    iw: f64,
+    ih: f64,
+    scale: f64,
+    px: f64,
+    py: f64,
+    pw: f64,
+    ph: f64,
+) {
+    let s = scale.max(0.05);
+    browser_cdp_server::log_line(&format!(
+        "[browser-embed] ESTIMATE {reason} dpi={scale:.3} client=({iw:.0}x{ih:.0}) \
+         css=({:.0},{:.0} {:.0}x{:.0}) physical=({px:.0},{py:.0} {pw:.0}x{ph:.0})",
+        px / s,
+        py / s,
+        pw / s,
+        ph / s
+    ));
+    // 175% DPI 事故：y=96 被当成物理 → 顶进标题栏。scale>1 时物理 y 应≈64×dpi。
+    if estimate_y_looks_unscaled(py, s) {
+        let expect_y = 64.0 * s;
+        browser_cdp_server::log_line(&format!(
+            "[browser-embed] ANOMALY: estimate unscaled chrome y physical={py:.0} dpi={scale:.3} \
+             expect_y≈{expect_y:.0} (CSS y=64 mixed into physical?)"
+        ));
+    }
+}
+
+/// 正式包 DPI>1 时，估算 y 若仍像未乘缩放的 CSS（64 或 96），下次日志能直接打出 ANOMALY。
+fn estimate_y_looks_unscaled(physical_y: f64, scale: f64) -> bool {
+    if !(scale > 1.2) {
+        return false;
+    }
+    let expect = 64.0 * scale;
+    let looks_css = (physical_y - 64.0).abs() < 12.0 || (physical_y - 96.0).abs() < 12.0;
+    looks_css && physical_y + 8.0 < expect
+}
 
 /// 把客户端相对矩形钳制进主窗口内容区，embed 永远不会停在客户区之外。
-fn clamp_rect(x: f64, y: f64, w: f64, h: f64, iw: f64, ih: f64) -> (f64, f64, f64, f64) {
+/// `scale` 为窗口 DPI（`inner_size` / CSS viewport）；标题栏地板按 CSS×DPI。
+fn clamp_rect(
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    iw: f64,
+    ih: f64,
+    scale: f64,
+) -> (f64, f64, f64, f64) {
     // 先钉住左边/顶边（对齐 HTML 槽位），再缩短宽高。
     // 旧逻辑先把 w 撑满再 `x.clamp(0, iw-w)`，会把窗口整块拽到左侧
     // （日志：期望物理 x≈828，clamp 后变成 325，Δ≈-503）。
+    let floor = EMBED_CHROME_FLOOR_Y_CSS * scale.max(1.0);
     let x = x.clamp(0.0, (iw - 120.0).max(0.0));
-    let mut y = y.max(EMBED_CHROME_FLOOR_Y);
-    y = y.clamp(EMBED_CHROME_FLOOR_Y, (ih - 80.0).max(EMBED_CHROME_FLOOR_Y));
+    let mut y = y.max(floor);
+    y = y.clamp(floor, (ih - 80.0).max(floor));
     let max_w = (iw - x - 8.0).max(120.0);
     let max_h = (ih - y - 8.0).max(80.0);
     let w = w.clamp(120.0, max_w.min((iw - 16.0).max(120.0)));
@@ -715,19 +790,56 @@ fn embed_watchdog_tick(app: &tauri::AppHandle) {
                         if main_is_dragging() {
                             continue;
                         }
+                        let dpi = window_dpi_scale(&parent);
+                        let (iw, ih) = parent
+                            .inner_size()
+                            .map(|s| (s.width as f64, s.height as f64))
+                            .unwrap_or((0.0, 0.0));
+                        let estimate_shown =
+                            writer.contains("estimate") || writer.contains("agent-create");
                         browser_cdp_server::log_line(&format!(
-                            "[browser-embed] ANOMALY: visible window off slot — expected=({sx:.0},{sy:.0}) actual=({px:.0},{py:.0}) last_writer={writer} — snapping back"
+                            "[browser-embed] ANOMALY: visible window off slot — \
+                             expected=({sx:.0},{sy:.0}) actual=({px:.0},{py:.0}) \
+                             last_writer={writer} dpi={dpi:.3} client=({iw:.0}x{ih:.0}) \
+                             estimate_shown={estimate_shown} — snapping back"
                         ));
                         let _ = nest_embed_into_main(&window, &parent);
                         let _ = place_embed_client(&window, &parent, ex, ey, ew, eh);
                         log_region_diag("watchdog-snap", &label, &parent, &window, (ex, ey, ew, eh));
+                    } else if writer.contains("estimate") || writer.contains("agent-create") {
+                        // 贴在估算矩形上也会「对齐」登记槽位——本次正式包错位就是这样，
+                        // 看门狗以前不报。面板从未 set_bounds。
+                        use std::sync::atomic::{AtomicU64, Ordering};
+                        static LAST_ESTIMATE_SHOWN_MS: AtomicU64 = AtomicU64::new(0);
+                        let now = now_ms();
+                        let prev = LAST_ESTIMATE_SHOWN_MS.load(Ordering::Relaxed);
+                        if now.saturating_sub(prev) < 4000 {
+                            continue;
+                        }
+                        LAST_ESTIMATE_SHOWN_MS.store(now, Ordering::Relaxed);
+                        let dpi = window_dpi_scale(&parent);
+                        let (iw, ih) = parent
+                            .inner_size()
+                            .map(|s| (s.width as f64, s.height as f64))
+                            .unwrap_or((0.0, 0.0));
+                        browser_cdp_server::log_line(&format!(
+                            "[browser-embed] ANOMALY: visible on estimate slot — \
+                             last_writer={writer} dpi={dpi:.3} client=({iw:.0}x{ih:.0}) \
+                             slot=({ex:.0},{ey:.0} {ew:.0}x{eh:.0}) (panel set_bounds never ran?)"
+                        ));
                     }
                 }
             }
             (true, None) => {
                 // 不变量：可见窗口必须有面板登记的槽位；没有 = 无面板裸奔
+                let dpi = window_dpi_scale(&parent);
+                let (iw, ih) = parent
+                    .inner_size()
+                    .map(|s| (s.width as f64, s.height as f64))
+                    .unwrap_or((0.0, 0.0));
                 browser_cdp_server::log_line(&format!(
-                    "[browser-embed] ANOMALY: visible window without panel-managed bounds —                      last_writer={writer} (panel not open?)"
+                    "[browser-embed] ANOMALY: visible window without panel-managed bounds — \
+                     last_writer={writer} dpi={dpi:.3} client=({iw:.0}x{ih:.0}) (panel not open?)"
                 ));
             }
             _ => {}
@@ -1794,7 +1906,7 @@ fn to_client_px(
         (x, y, w, h)
     };
     if iw > 8.0 && ih > 8.0 {
-        clamp_rect(x, y, w, h, iw, ih)
+        clamp_rect(x, y, w, h, iw, ih, window_dpi_scale(main))
     } else {
         (x, y, w.max(120.0), h.max(80.0))
     }
@@ -1852,7 +1964,7 @@ fn place_embed_client_inner(
         .map(|s| (s.width as f64, s.height as f64))
         .unwrap_or((0.0, 0.0));
     let (x, y, w, h) = if iw > 8.0 && ih > 8.0 {
-        clamp_rect(x, y, w, h, iw, ih)
+        clamp_rect(x, y, w, h, iw, ih, window_dpi_scale(main))
     } else {
         (x, y, w.max(120.0), h.max(80.0))
     };
@@ -2172,6 +2284,7 @@ fn create_embed_window(
     // SWP_SHOWWINDOW and briefly paints boot-blank over the right stage.
     if start_visible {
         place_embed_client(&win, &parent, x, y, width, height)?;
+        note_writer(label, "agent-create-estimate");
         log_region_diag("create", label, &parent, &win, (x, y, width, height));
         log_window_state(&win, "create built off main thread");
         if !win.is_visible().unwrap_or(false) {
@@ -2272,18 +2385,24 @@ pub fn ensure_webview_for_cdp(
     let parent = app
         .get_webview_window("main")
         .ok_or_else(|| "main window not found".to_string())?;
-    let (px, py, pw, ph) = match parent.inner_size() {
+    let dpi = window_dpi_scale(&parent);
+    let (iw, ih, px, py, pw, ph) = match parent.inner_size() {
         Ok(ins) => {
-            let w = ins.width as f64;
-            let h = ins.height as f64;
-            ((w * 0.52).max(0.0), 96.0, (w * 0.45).max(480.0), (h - 160.0).max(360.0))
+            let iw = ins.width as f64;
+            let ih = ins.height as f64;
+            let (px, py, pw, ph) = estimate_right_dock_physical(iw, ih, dpi);
+            (iw, ih, px, py, pw, ph)
         }
-        Err(_) => (480.0, 96.0, 960.0, 720.0),
+        Err(_) => {
+            let (px, py, pw, ph) = estimate_right_dock_physical(1440.0, 810.0, 1.0);
+            (1440.0, 810.0, px, py, pw, ph)
+        }
     };
     browser_cdp_server::log_line(&format!(
         "[browser-embed] ensure_webview agent-create FIRST (no emit yet) label={label} \
          bounds=({px:.0},{py:.0} {pw:.0}x{ph:.0})"
     ));
+    log_estimate_dock("agent-create", iw, ih, dpi, px, py, pw, ph);
     let app_create = app.clone();
     let label_create = label.clone();
     let boot_for_create = boot_url.clone();
@@ -2365,9 +2484,24 @@ pub fn ensure_webview_for_cdp(
                 }
             }
             std::thread::sleep(Duration::from_millis(250));
+            note_writer(&label, "agent-create");
+            // COM 已经能泵了。估算矩形只用来建窗，正式包 DPI 下它会盖住标题栏；
+            // 先停到屏外，等面板量到真实槽位再 set_bounds 贴回。
+            if let Err(e) = hide_embed_hwnd(&win) {
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] agent-create park failed label={label}: {e}"
+                ));
+            } else {
+                mark_parked(&label, true);
+                note_writer(&label, "agent-create");
+                browser_cdp_server::log_line(&format!(
+                    "[browser-embed] agent-create park OFFSCREEN label={label} (wait panel slot)"
+                ));
+            }
             browser_cdp_server::log_line(&format!(
-                "[browser-ready] after_agent_create label={label} visible={} stash={}",
+                "[browser-ready] after_agent_create label={label} visible={} parked={} stash={}",
                 win.is_visible().unwrap_or(false),
+                is_parked(&label),
                 browser_cdp::has_stashed_core_webview2(&label)
             ));
         }
@@ -3581,5 +3715,44 @@ mod tests {
             webview_label_for_thread("71254177-d872-4fcb-96b7-01c43db11231")
         );
         assert_eq!(webview_label_for_thread("anything"), "browser-embed-primary");
+    }
+
+    #[test]
+    fn estimate_right_dock_matches_css_at_1x() {
+        let (x, y, w, h) = estimate_right_dock_physical(1440.0, 810.0, 1.0);
+        assert!((y - 64.0).abs() < 0.5, "y={y}");
+        assert!((w - 648.0).abs() < 1.0, "w={w}");
+        assert!((x - 780.0).abs() < 1.0, "x={x}");
+        assert!((h - 714.0).abs() < 1.0, "h={h}");
+    }
+
+    #[test]
+    fn estimate_right_dock_scales_chrome_at_175() {
+        // 正式包 175% DPI：inner_size = 2520×1418，不能把 y=96 当物理像素。
+        let (x, y, w, h) = estimate_right_dock_physical(2520.0, 1418.0, 1.75);
+        assert!(
+            (y - 64.0 * 1.75).abs() < 1.0,
+            "chrome y must be CSS×DPI, got {y}"
+        );
+        assert!(y > 100.0, "y={y} still looks like unscaled CSS");
+        assert!((w - 648.0 * 1.75).abs() < 2.0, "w={w}");
+        assert!((x - 780.0 * 1.75).abs() < 2.0, "x={x}");
+        let _ = h;
+    }
+
+    #[test]
+    fn clamp_rect_chrome_floor_scales_with_dpi() {
+        let (_x, y, _w, _h) = clamp_rect(10.0, 10.0, 600.0, 700.0, 2520.0, 1418.0, 1.75);
+        assert!(
+            (y - 48.0 * 1.75).abs() < 0.5,
+            "floor must be 48 CSS × 1.75, got {y}"
+        );
+    }
+
+    #[test]
+    fn production_y96_at_175_looks_unscaled() {
+        assert!(estimate_y_looks_unscaled(96.0, 1.75));
+        assert!(!estimate_y_looks_unscaled(64.0 * 1.75, 1.75));
+        assert!(!estimate_y_looks_unscaled(96.0, 1.0));
     }
 }

@@ -18,7 +18,7 @@ import {
   NATIVE_EMBED_THREAD_ID,
   reportEmbedSlot,
 } from '../../lib/browser-embed-surface.js'
-import { blogTimeline } from '../../lib/browser-unified-log.js'
+import { blog, blogTimeline } from '../../lib/browser-unified-log.js'
 import { getUiZoom } from '../../lib/ui-zoom.js'
 import { useGlobalOverlayWhen } from '../hooks/useGlobalOverlayWhen.js'
 import { DropdownSelect } from './DropdownSelect.js'
@@ -688,6 +688,14 @@ async function logEmbedCompare(
           `  槽位上报 css=(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height}) viewport=(${bounds.viewportWidth}x${bounds.viewportHeight})`,
         )
       }
+      blog(
+        'warn',
+        `[embed对比] ${reason} → 无 WebView css=${
+          bounds
+            ? `(${bounds.x},${bounds.y} ${bounds.width}x${bounds.height})`
+            : '(无)'
+        } viewport=(${bounds?.viewportWidth || 0}x${bounds?.viewportHeight || 0}) dpr=${window.devicePixelRatio || 1}`,
+      )
     }
     return false
   }
@@ -747,6 +755,19 @@ async function logEmbedCompare(
   )
   log(`  Δ(②−①) = (${dx},${dy}) sizeΔ=(${dw},${dh})`)
   if (!ok) {
+    blog(
+      'warn',
+      `[embed对比] ${reason} → 错位 Δ=(${dx},${dy}) sizeΔ=(${dw},${dh}) ` +
+        `css=${slotCss} phys=${physStr} wv=(${Math.round(wc.x)},${Math.round(wc.y)} ${Math.round(wc.w)}x${Math.round(wc.h)}) ` +
+        `dpr=${dpr} scale=(${sx.toFixed(3)},${sy.toFixed(3)}) uiZoom=${uiZoom} ` +
+        `mainClient=(${Math.round(mw)}x${Math.round(mh)}) viewport=(${Math.round(vw)}x${Math.round(vh)}) ` +
+        `parked=${probe.parked} visible=${probe.visible} lastSlot=${lastStr}`,
+    )
+    blogTimeline(
+      '窗口贴位',
+      `错位 reason=${reason} Δ=(${dx},${dy}) sizeΔ=(${dw},${dh}) css=${slotCss} phys=${physStr} dpr=${dpr}`,
+      'warn',
+    )
     log(
       `  ③Rust lastSlot=${lastStr}  mainClient=(${Math.round(mw)}x${Math.round(mh)}) viewport=(${Math.round(vw)}x${Math.round(vh)})`,
     )
