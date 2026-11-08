@@ -193,6 +193,63 @@ def test_zombie_heal_clears_previous_outcome_residue():
     assert "outcome_reported_at" not in st
 
 
+def test_terminal_but_unreported_row_is_restamped_and_releases_dependents():
+    """The one deadlock the healer used to miss.
+
+    The dependency gate reads ``outcome_reported_at``, not ``status``, so a row
+    that is completed but never stamped shows as 完成 in the panel while every
+    tick answers ``no_runnable_subtasks`` for its dependents forever (real case:
+    a template node left a 4-step run stuck at 75%). Healing must re-stamp from
+    the row's own completion data and **not** downgrade it to pending, which
+    would re-run finished work and duplicate its artifacts.
+    """
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import (
+        is_subtask_outcome_reported,
+        is_upstream_subtask_dependency_met,
+    )
+
+    st = {
+        "id": "s3",
+        "status": "completed",
+        "progress": 100,
+        "task_report": "模板渲染结果",
+        "result_summary": "模板渲染结果",
+        "completed_at": "2026-11-08T01:39:51+08:00",
+    }
+    assert is_upstream_subtask_dependency_met(st) is False  # stuck: gate closed
+
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["restamp_unreported_terminal"]
+    assert st["status"] == "completed", "must not re-run finished work"
+    assert is_subtask_outcome_reported(st) is True
+    assert is_upstream_subtask_dependency_met(st) is True  # gate open now
+    # Stamp reuses the real completion time rather than inventing "now".
+    assert st["outcome_reported_at"] == "2026-11-08T01:39:51+08:00"
+    assert st["outcome_reported_by"] == "system"
+
+
+def test_reported_completed_row_is_left_alone():
+    """Already-stamped rows must not be touched (no churn, no overwritten provenance)."""
+    from evoflow.collab import workflow_reconciler
+
+    st = {
+        "id": "s3",
+        "status": "completed",
+        "outcome_reported_at": "2026-11-08T01:39:51+08:00",
+        "outcome_reported_by": "worker",
+    }
+    before = dict(st)
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+    assert healed == []
+    assert st == before
+
+
 def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
     """No retry left ⇒ row stays failed and must keep its report for the user."""
     from evoflow.collab import workflow_reconciler

@@ -22,7 +22,17 @@ _IN_FLIGHT = frozenset({"in_progress", "executing", "running", "active", "waitin
 _MAIN_TERMINAL = frozenset({"completed", "failed", "cancelled", "done"})
 _SUB_FAIL = frozenset({"failed", "error", "timed_out", "blocked"})
 _SUB_CANCEL = frozenset({"cancelled", "canceled"})
-_SUB_TERMINAL = _TERMINAL_SUCCESS | _SUB_FAIL | _SUB_CANCEL
+# ``skipped`` is written only by
+# skip_subtasks_blocked_by_exhausted_upstream_failure(): a node parked because an
+# upstream step ran out of retries. Every other reader already treats it as
+# terminal (monitor / task_observability / app_rollup / the cancel path), and
+# nothing ever revives it — requeue only resets ``failed``. Leaving it out of the
+# terminal set meant a run like completed + failed + skipped stayed ``executing``
+# at 33% forever (observed 2026-11-08 on a 3-node workflow). It is terminal but
+# deliberately **not** folded into _SUB_FAIL, so a user-cancelled run is not
+# relabelled as failed; see the precedence in infer_main_status_from_subtasks().
+_SUB_SKIPPED = frozenset({"skipped"})
+_SUB_TERMINAL = _TERMINAL_SUCCESS | _SUB_FAIL | _SUB_CANCEL | _SUB_SKIPPED
 # Auto-sync cap applies to **main task** rollup only; subtasks may reach 100% + completed via worker tools.
 _AUTO_SYNC_MAIN_PROGRESS_CAP = 99
 
@@ -83,6 +93,32 @@ def cap_auto_sync_main_progress(progress: int, *, main_status: str) -> int:
     return min(pct, _AUTO_SYNC_MAIN_PROGRESS_CAP)
 
 
+def rollup_verdict_for_terminal_statuses(statuses: list[str]) -> str | None:
+    """Main-task verdict for a status list that is **already all-terminal**.
+
+    ``None`` = nothing here forces the run closed (all succeeded, or a cancel
+    mixed with successes — the lead / rollup decides). Shared by
+    :func:`infer_main_status_from_subtasks` and the app-sourced branch of
+    :func:`_sync_main_task_from_subtasks_locked` so the two rollup paths cannot
+    drift apart — they drifted once already, which is why ``blocked`` and then
+    ``skipped`` each left a run spinning at ``executing`` forever.
+    """
+    if not statuses:
+        return None
+    if all(s in _SUB_CANCEL for s in statuses):
+        return "cancelled"
+    if any(s in _SUB_FAIL for s in statuses):
+        return "failed"
+    # ``skipped`` is only written by the exhausted-upstream-failure parker, and
+    # nothing revives it (requeue resets ``failed`` only). So a run that is
+    # all-terminal with a skipped node never finished its work — even when the
+    # upstream later retried to success. Report it, unless the user cancelled,
+    # in which case their cancel wins over relabelling it as a failure.
+    if any(s in _SUB_SKIPPED for s in statuses):
+        return "cancelled" if any(s in _SUB_CANCEL for s in statuses) else "failed"
+    return None
+
+
 def infer_main_status_from_subtasks(subtasks: list[dict[str, Any]]) -> str | None:
     """Derive non-terminal main-task status from subtask rows (never ``completed``)."""
     rows = [x for x in subtasks if isinstance(x, dict)]
@@ -91,12 +127,10 @@ def infer_main_status_from_subtasks(subtasks: list[dict[str, Any]]) -> str | Non
     statuses = [str(x.get("status") or "").strip().lower() for x in rows]
     if all(s in _TERMINAL_SUCCESS for s in statuses):
         return None
-    if all(s in _SUB_CANCEL for s in statuses):
-        return "cancelled"
     if all(s in _SUB_TERMINAL for s in statuses):
-        if any(s in _SUB_FAIL for s in statuses):
-            return "failed"
-        return None
+        # One shared verdict for every all-terminal shape (failed / cancelled /
+        # skipped / mixed) — see rollup_verdict_for_terminal_statuses().
+        return rollup_verdict_for_terminal_statuses(statuses)
     if any(s in _IN_FLIGHT for s in statuses):
         return "executing"
     if any(s in _TERMINAL_SUCCESS for s in statuses):
@@ -200,12 +234,15 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str, *, per
         if all(s in _TERMINAL_SUCCESS for s in statuses):
             forced_status = "completed"
             new_progress = 100
-        elif all(s in _SUB_TERMINAL for s in statuses) and any(s in _SUB_FAIL for s in statuses):
-            forced_status = "failed"
-            new_progress = clamp_task_progress(raw_progress)
-        elif all(s in _SUB_CANCEL for s in statuses):
-            forced_status = "cancelled"
-            new_progress = clamp_task_progress(raw_progress)
+        elif all(s in _SUB_TERMINAL for s in statuses):
+            # Same verdict function the read-path projection uses — this branch
+            # used to re-implement it as ``all terminal AND any failed``, which
+            # silently ignored ``skipped`` rows and left the run at executing.
+            forced_status = rollup_verdict_for_terminal_statuses(statuses)
+            if forced_status:
+                new_progress = clamp_task_progress(raw_progress)
+            else:
+                new_progress = cap_auto_sync_main_progress(raw_progress, main_status=cur_status)
         else:
             new_progress = cap_auto_sync_main_progress(raw_progress, main_status=cur_status)
     elif cur_status == "completed":

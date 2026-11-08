@@ -250,11 +250,42 @@ async def delegate_collab_subtasks_for_start_execution(
     if not subtask_ids:
         return []
 
+    want_ids = [str(s).strip() for s in subtask_ids if str(s).strip()]
+
+    # Pause gate — last stop before a worker is actually handed a step.
+    # ``workflow.stop(pause=true)`` only relabels rows; an already-detached
+    # worker keeps running and its completion re-enters here through the
+    # claim → delegate path (``execution_kernel.delegate_claimed_subtasks``),
+    # NOT through scheduler.advance_dag, so the two upstream gates miss it.
+    # Live 2026-11-08 with both upstream gates installed: pause at 3% still
+    # released step 2 at 37% and the run walked to completion.
+    try:
+        _pause_row = find_main_task(storage, str(main_task_id or "").strip())
+        _pause_task = _pause_row[1] if _pause_row else None
+        if isinstance(_pause_task, dict) and str(_pause_task.get("status") or "").strip().lower() in {
+            "paused",
+            "pausing",
+        }:
+            logger.info(
+                "delegate_collab_subtasks_for_start_execution: refused, main task paused main=%s subs=%s",
+                main_task_id,
+                want_ids,
+            )
+            return [
+                {
+                    "subtaskId": sid,
+                    "ok": False,
+                    "error": "paused",
+                    "message": "主任务已暂停，不派发该子任务；workflow.resume 后重新派发。",
+                }
+                for sid in want_ids
+            ]
+    except Exception:
+        logger.debug("delegate pause gate check failed main=%s", main_task_id, exc_info=True)
+
     _register_collab_lead_runtime(main_task_id, runtime)
 
     from evoflow.collab.dag_trace import dag_info, dag_warning
-
-    want_ids = [str(s).strip() for s in subtask_ids if str(s).strip()]
     dag_info(
         "delegate_begin main=%s subs=%s wait_for_completion=%s runtime=%s",
         main_task_id,

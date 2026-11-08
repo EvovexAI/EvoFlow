@@ -161,6 +161,16 @@ def execute_template_subtask(
                 sid,
                 exc,
             )
+        # Terminal outcome stamp — this is the gate, not ``status``.
+        # ``is_upstream_subtask_dependency_met()`` requires a non-empty
+        # ``outcome_reported_at`` before it releases a dependent, so a template
+        # node that only sets status=completed deadlocks the rest of the DAG:
+        # the node reads as done while every tick reports ``no_runnable_subtasks``
+        # for its downstream (observed live: step 3 completed, step 4 never
+        # dispatched). Failed renders stamp too, otherwise the failure would
+        # stall instead of cascading through the normal dependency rules.
+        row["outcome_reported_at"] = now
+        row["outcome_reported_by"] = "system"
         stamp_subtask_row(row)
         task["updated_at"] = now
         storage.save_project(project)

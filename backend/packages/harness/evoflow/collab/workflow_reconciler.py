@@ -132,6 +132,7 @@ def _heal_subtasks(
     now_ts: float,
 ) -> list[dict[str, Any]]:
     """Mutate subtask rows in-place; return heal records."""
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
     from evoflow.collab.subtask_state_machine import advance_subtask_row_status
 
     healed: list[dict[str, Any]] = []
@@ -144,6 +145,26 @@ def _heal_subtasks(
         if not sid:
             continue
         prev = str(st.get("status") or "").strip().lower()
+
+        # Terminal-but-unreported rows are the one deadlock this healer used to
+        # miss: the dependency gate reads ``outcome_reported_at``, not ``status``,
+        # so such a row renders as 完成 in the panel while every tick answers
+        # ``no_runnable_subtasks`` for its dependents forever (2026-11-08: a
+        # template node left a 4-step run stuck at 75% for 40+ minutes).
+        # Re-stamp from the row's own completion data — do NOT downgrade to
+        # pending, that would re-run finished work and duplicate artifacts.
+        if prev in {"completed", "success", "done"} and not is_subtask_outcome_reported(st):
+            st["outcome_reported_at"] = str(st.get("completed_at") or "").strip() or now_iso
+            st["outcome_reported_by"] = "system"
+            st["updated_at"] = now_iso
+            logger.info(
+                "workflow_reconciler: restamped unreported terminal subtask main=%s sub=%s status=%s",
+                st.get("main_task_id") or st.get("parent_task_id") or "",
+                sid,
+                prev,
+            )
+            healed.append({"subtaskId": sid, "from": prev, "to": prev, "why": "restamp_unreported_terminal"})
+            continue
 
         if is_zombie_executing_subtask(st, now_ts=now_ts, reason=reason):
             ok, why = advance_subtask_row_status(st, "pending", allow_terminal_downgrade=False)
