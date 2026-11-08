@@ -4624,6 +4624,7 @@ const enUS: Record<string, string> = {
   "chat.message.retry": "Retry",
   "chat.history.workingFor": "Working for {duration}",
   "chat.history.workedFor": "Worked for {duration}",
+  "chat.userInput.goalContinuation": "Goal push",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",
   "chat.history.duration.day": "d",

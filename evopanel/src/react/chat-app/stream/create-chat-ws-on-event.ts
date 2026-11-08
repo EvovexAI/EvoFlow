@@ -15,6 +15,7 @@ import {
   isV4GatedAgUiEvent,
 } from '../../v4/v4Gate.js'
 import { publishPlatformFromAgUiResult } from './publish-platform-from-agui-result.js'
+import { isV4GoalActive } from '../../v4/goalCommand.js'
 import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
@@ -3374,10 +3375,15 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         }
         const hp = extractGoalProposalFromTools(finalTools)
         const proposeMode = getGoalProposeActionMode()
+        // EvoFlow：v4 目标（goal 引擎）推进中，模型调用 propose_goal 不再触发
+        // hosted 目标面板/确认条——目标已在 v4 链路自动推进。
+        const v4GoalActive = isV4GoalActive(
+          String(wsClient.getSessionThreadId?.(finalSk) || ''),
+        )
         const clarifyFromFinal = effectivePlanHit?.boundPlanReady
           ? null
           : extractLatestClarificationFromRows(rt.rows)
-        if (!isBackground && hp && proposeMode !== 'dock') {
+        if (!isBackground && hp && proposeMode !== 'dock' && !v4GoalActive) {
           queueMicrotask(() => {
             try {
               applyGoalProposalRef.current(hp, { start: proposeMode === 'auto_start' })
@@ -3399,7 +3405,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             clarification: effectivePlanHit?.boundPlanReady
               ? null
               : mergeThreadPanelClarification(prev.clarification, clarifyFromFinal),
-            goalProposal: hp ? (proposeMode === 'dock' ? hp : null) : prev.goalProposal,
+            goalProposal: hp && !v4GoalActive ? (proposeMode === 'dock' ? hp : null) : prev.goalProposal,
             planInputFallback:
               effectivePlanHit?.planInput ||
               prev.planInputFallback ||

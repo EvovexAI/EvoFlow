@@ -4327,6 +4327,7 @@ const zhCN: Record<string, string> = {
   "chat.message.retry": "重试",
   "chat.history.workingFor": "工作中 {duration}",
   "chat.history.workedFor": "已工作 {duration}",
+  "chat.userInput.goalContinuation": "目标推送",
   "chat.history.worked": "已处理",
   "chat.history.stopped": "用户停止",
   "chat.history.duration.day": "天",

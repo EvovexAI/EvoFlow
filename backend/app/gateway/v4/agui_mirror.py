@@ -622,6 +622,12 @@ class _MirrorState:
     user_attachments: list[dict[str, Any]] = field(default_factory=list)
     user_message_id: str = ""
     """Stable transcript message id for the pending userInput row (editUserQuery target)."""
+    user_origin: str = "realUser"
+    """Pending userInput 行的 origin（vendored userInputRowSchema.origin 枚举值）。
+    goal 引擎发起的续跑 run（body context.source=goal-continuation）标 goalContinuation，
+    时间线上以「目标推送」徽标区分真实用户输入。"""
+    user_epilogue_start: int = 0
+    """引擎尾注起始下标（续跑轮把 completion-audit 指令折进披露，气泡正文只显示目标）。"""
     last_turn_id: str = ""
     """最近一个开过的 turnId（RUN_STARTED 时记录，轮尾不清）。task_* 事件晚到时
     subagent 行仍能挂回宿主轮，配对（parentToolCallId + turnId）不因轮已结算而断。"""
@@ -799,6 +805,8 @@ class V4Mirror:
         *,
         attachments: list[dict[str, Any]] | None = None,
         message_id: str | None = None,
+        origin: str = "realUser",
+        epilogue_start: int = 0,
     ) -> None:
         """POST / channel 路径解析到用户输入后先记下（RUN_STARTED 时落 userInput 行）。
 
@@ -821,6 +829,8 @@ class V4Mirror:
         st.user_text = raw
         st.user_attachments = atts[:16]
         st.user_message_id = str(message_id or "").strip()
+        st.user_origin = origin if origin in ("realUser", "goalContinuation") else "realUser"
+        st.user_epilogue_start = max(0, int(epilogue_start or 0))
         # 用户新发一条 → 上一轮 sticky 报错退场（新横幅由本轮 RUN_ERROR 再写）。
         st.sticky_run_error = None
 
@@ -1019,9 +1029,13 @@ class V4Mirror:
             user_text = st.user_text
             user_atts = list(st.user_attachments or [])
             user_mid = str(st.user_message_id or "").strip()
+            user_origin = st.user_origin
+            user_epilogue = int(st.user_epilogue_start or 0)
             st.user_text = ""
             st.user_attachments = []
             st.user_message_id = ""
+            st.user_origin = "realUser"
+            st.user_epilogue_start = 0
             if (user_text or user_atts) and not (
                 user_text
                 and not user_atts
@@ -1055,11 +1069,13 @@ class V4Mirror:
                         "turnId": st.turn_id,
                         "kind": "userInput",
                         "text": user_text or "",
-                        "origin": "realUser",
+                        "origin": user_origin,
                         "createdAt": now_ms,
                         "createdAtSeq": self._seq_now(tid),
                         "actions": {"canEdit": True},
                     }
+                    if user_epilogue and 0 < user_epilogue <= len(user_row["text"]):
+                        user_row["epilogueStart"] = user_epilogue
                     if user_mid:
                         user_row["entityId"] = user_mid
                     if user_atts:
@@ -1566,6 +1582,8 @@ def mirror_note_user_input(
     *,
     attachments: list[dict[str, Any]] | None = None,
     message_id: str | None = None,
+    origin: str = "realUser",
+    epilogue_start: int = 0,
 ) -> None:
     """生产路径入口：记录本轮用户输入文本（及可选附件）。"""
     if _MIRROR_DISABLED:
@@ -1576,6 +1594,8 @@ def mirror_note_user_input(
             text,
             attachments=attachments,
             message_id=message_id,
+            origin=origin,
+            epilogue_start=epilogue_start,
         )
     except Exception:
         logger.exception("[v4-mirror] note_user_input failed thread=%s", thread_id)

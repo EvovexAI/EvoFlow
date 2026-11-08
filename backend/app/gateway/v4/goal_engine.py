@@ -335,6 +335,29 @@ class V4GoalEngine:
                     return str(row["turnId"])
         return f"goal-verify-{int(time.time() * 1000)}"
 
+    def _append_goal_user_row(self, session_id: str, objective: str) -> None:
+        """用户 /goal 输入的可见气泡（origin=goalContinuation → 「目标推送」徽标）。
+
+        v4 sendGoalCommand 不像 sendText 那样产生时间线行；用户"输入后看不到"的
+        主因即此。这里补一条 userInput 行（独立 turnId，无 turnHeader → 纯气泡）。
+        """
+        try:
+            now_ms = int(time.time() * 1000)
+            self._hub().author_append_row(
+                session_id,
+                {
+                    "rowId": self._next_row_id(session_id),
+                    "turnId": f"goal-set-{now_ms}",
+                    "kind": "userInput",
+                    "text": objective,
+                    "origin": "goalContinuation",
+                    "createdAt": now_ms,
+                    "createdAtSeq": self._seq_now(session_id),
+                },
+            )
+        except Exception:
+            logger.debug("[v4-goal] goal user row append failed session=%s", session_id, exc_info=True)
+
     def _append_goal_verify_marker(
         self,
         session_id: str,
@@ -388,6 +411,7 @@ class V4GoalEngine:
             )
         row = upsert_v4_session_goal(session_id, objective=objective, status="active")
         self._emit_goal_patch(session_id)
+        self._append_goal_user_row(session_id, objective)
         if self._session_busy(session_id):
             logger.info(
                 "[v4-goal] goal set while busy, deferring to run-finish hook session=%s",

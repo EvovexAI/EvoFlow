@@ -6132,6 +6132,47 @@ html.evopanel-macos-titlebar .react-chat-header {
   box-shadow: none;
 }
 
+.react-chat-header-goal-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  max-width: 340px;
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary, #f1f5f9) 100%, transparent);
+  border: 1px solid var(--border-primary, #e2e8f0);
+  color: var(--text-secondary, #64748b);
+  cursor: default;
+}
+
+.react-chat-header-goal-badge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-chat-header-goal-badge-meta {
+  flex-shrink: 0;
+  color: var(--text-tertiary, #94a3b8);
+}
+
+.react-chat-header-goal-badge[data-goal-status="active"] {
+  color: #b45309;
+  border-color: color-mix(in srgb, #f59e0b 30%, transparent);
+}
+
+.react-chat-header-goal-badge[data-goal-status="verified"] {
+  color: #15803d;
+}
+
+.react-chat-header-goal-badge[data-goal-status="paused"] {
+  color: var(--text-tertiary, #94a3b8);
+}
+
 .react-chat-header-run-badge.is-idle {
   background: color-mix(in srgb, var(--bg-secondary, #f1f5f9) 100%, transparent);
   color: var(--text-tertiary, #94a3b8);
@@ -30116,6 +30157,47 @@ html.dark .react-chat-workspace-preview-zoom-bar {
   white-space: nowrap;
   text-overflow: ellipsis;
   overflow: hidden;
+}
+
+/* 技能 / 插件：两行布局 —— 第一行名称（完整显示）+ 类型徽标，第二行简介（过长省略） */
+.react-chat-mention-menu-item--stacked {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.react-chat-mention-menu-item--stacked .react-chat-mention-menu-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.react-chat-mention-menu-item--stacked .react-chat-mention-menu-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 名称不截断：完整展示（必要时换行），截断只留给简介 */
+.react-chat-mention-menu-item--stacked .react-chat-mention-menu-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+.react-chat-mention-menu-item--stacked .react-chat-mention-menu-path {
+  flex: 0 0 auto;
+}
+
+.react-chat-mention-menu-item--stacked .react-chat-mention-menu-desc {
+  flex: 0 1 auto;
+  max-width: 100%;
 }
 
 .react-chat-mention-menu-icon {

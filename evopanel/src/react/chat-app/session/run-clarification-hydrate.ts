@@ -24,6 +24,7 @@ export function runClarificationHydrateEffect(ctx: RunClarificationHydrateCtx): 
     shouldSuppressClarificationPanel,
     suppressedGoalProposalKeysRef,
     threadPanelStateRef,
+    isV4GoalActiveForSession,
   } = ctx
   if (historyLoading) {
     return
@@ -45,7 +46,9 @@ export function runClarificationHydrateEffect(ctx: RunClarificationHydrateCtx): 
   const userJustSent =
     selectedTurnBusy && rowsAwaitUserReplyAfterSend(liveRows) && !rowsHaveAwaitingAsk
   const restored = extractLatestClarificationFromRows(liveRows)
-  const hostedProp = extractLatestGoalProposalFromRows(liveRows)
+  // EvoFlow：v4 目标（goal 引擎）推进中，hosted goal 提案不再恢复弹出。
+  const v4GoalActive = ctx.isV4GoalActiveForSession?.(selectedSessionKey) ?? false
+  const hostedProp = v4GoalActive ? null : extractLatestGoalProposalFromRows(liveRows)
   const suppressed = suppressedGoalProposalKeysRef.current
   setThreadPanelState((prev) => {
     const suppressClarify = shouldSuppressClarificationPanel(liveRows, prev)

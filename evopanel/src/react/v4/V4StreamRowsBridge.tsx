@@ -61,6 +61,12 @@ function getSharedLayer(): SessionDataLayer {
   return sharedLayer;
 }
 
+/** EvoFlow 外部模块（goalCommand / 头部 goal 徽标）复用同一条共享数据层，
+ *  禁止自建 SessionDataLayer——那会开出第二条 frames SSE 连接。 */
+export function getSharedV4SessionDataLayer(): SessionDataLayer {
+  return getSharedLayer();
+}
+
 /**
  * 悬停预热限流：每个未命中快照的预热 = 一条完整 V4 快照订阅（单帧 370–854KB，
  * 主线程 JSON.parse）。鼠标扫过会话列表会连续触发，实测一次滑过 8+ 会话可在

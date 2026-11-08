@@ -256,6 +256,46 @@ def _parse_sse_frame(frame: str) -> tuple[str, object | None]:
         return event_name, None
 
 
+def _extract_run_context_source(body: bytes) -> str:
+    """POST body 的 ``context.source``（goal 引擎续跑 run 标 ``goal-continuation``）。"""
+    try:
+        raw = json.loads(body.decode("utf-8")) if body else {}
+    except Exception:
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    ctx = raw.get("context")
+    if isinstance(ctx, dict):
+        return str(ctx.get("source") or "").strip()
+    return ""
+
+
+def _split_goal_continuation_user_text(text: str) -> tuple[str, int]:
+    """续跑轮 user 输入 → (气泡正文, epilogueStart)。
+
+    goal 引擎的续跑 prompt 内嵌 ``<untrusted_objective>`` 目标段：气泡正文只显示
+    「目标推进：<目标>」，完整 prompt（完成审计指令等）折进 epilogue 披露。
+    """
+    raw = str(text or "")
+    import re
+
+    match = re.search(
+        "<untrusted_objective>[\\s\\S]*?</untrusted_objective>",
+        raw,
+    )
+    objective = match.group(0) if match else ""
+    if objective:
+        # 提取标记内部文本（剥标签与首尾空行）
+        inner = objective
+        inner = inner[len("<untrusted_objective>") : -len("</untrusted_objective>")]
+        objective = inner.strip()
+    if not objective:
+        return raw, 0
+    head = "目标推进：" + objective
+    return head + "\n\n" + raw, len(head)
+
+
+
 class PostStreamUiTransform:
     """Incremental LangGraph SSE → UI stream transform for middleware ``send`` wrapping.
 
@@ -313,14 +353,24 @@ class PostStreamUiTransform:
         if self.thread_id and self.stream_format == "agui":
             # v4 镜像：记录本轮用户输入，RUN_STARTED 时随 turnHeader 落 userInput 行。
             # 图片附件（image_url 块）一并提取，用户气泡才能显示已发送的图。
+            # goal 引擎续跑 run（context.source=goal-continuation）→ 行标 goalContinuation，
+            # 气泡正文只显示目标，完整 prompt 折进 epilogue 披露。
+            user_text = str(norm_kwargs.get("user_input") or "")
+            user_origin = "realUser"
+            user_epilogue = 0
+            if _extract_run_context_source(body) == "goal-continuation":
+                user_origin = "goalContinuation"
+                user_text, user_epilogue = _split_goal_continuation_user_text(user_text)
             try:
                 from app.gateway.v4.agui_mirror import mirror_note_user_input
 
                 mirror_note_user_input(
                     self.thread_id,
-                    str(norm_kwargs.get("user_input") or ""),
+                    user_text,
                     attachments=_extract_user_attachments_from_stream_body(body),
                     message_id=_extract_user_message_id_from_stream_body(body) or None,
+                    origin=user_origin,
+                    epilogue_start=user_epilogue,
                 )
             except Exception:
                 pass
