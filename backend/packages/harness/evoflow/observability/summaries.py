@@ -698,6 +698,20 @@ def fetch_analytics_summary(*, since_hours: float | None = 168) -> dict[str, Any
         return {"enabled": False}
     total_tokens = int((overview.get("total_tokens") or {}).get("total") or 0)
     model_calls = int(overview.get("model_invocations") or 0)
+    token_by_kind = overview.get("token_by_kind") or []
+    if not isinstance(token_by_kind, list):
+        token_by_kind = []
+    prompt_overhead = overview.get("prompt_overhead_totals") or {}
+    if not isinstance(prompt_overhead, dict):
+        prompt_overhead = {}
+    # Prefer token ranking for "which module ate quota" (agents items keep request order too).
+    agents_items = agents.get("items") or []
+    if isinstance(agents_items, list):
+        agents_items = sorted(
+            [a for a in agents_items if isinstance(a, dict)],
+            key=lambda a: (int(a.get("tokens") or 0), int(a.get("requests") or 0)),
+            reverse=True,
+        )
     return {
         "enabled": True,
         "total_cost_usd": None,
@@ -705,10 +719,12 @@ def fetch_analytics_summary(*, since_hours: float | None = 168) -> dict[str, Any
         "avg_cost_per_request_usd": None,
         "total_tokens": total_tokens,
         "model_invocations": model_calls,
+        "token_by_kind": token_by_kind,
+        "prompt_overhead_totals": prompt_overhead,
         "trends": trends,
         "models": models.get("items") or [],
         "providers": providers.get("items") or [],
-        "agents": agents.get("items") or [],
+        "agents": agents_items,
         "since_iso": overview.get("since_iso"),
     }
 

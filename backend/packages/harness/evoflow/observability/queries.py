@@ -325,12 +325,22 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
     ]
     total_tokens = {"input": 0, "output": 0, "total": 0}
     model_token_by_name: dict[str, dict[str, Any]] = {}
-    usage_sql = f"SELECT model, usage_json FROM {T.MODEL_INVOCATIONS} WHERE usage_json IS NOT NULL AND usage_json != ''{model_and}"
-    for (
-        model,
-        usage_json,
-    ) in conn.execute(usage_sql, model_p).fetchall():
+    token_by_kind: dict[str, dict[str, Any]] = {}
+    prompt_overhead_totals: dict[str, int] = {
+        "system_tokens": 0,
+        "tools_tokens": 0,
+        "system_skills_tokens": 0,
+        "system_assets_tokens": 0,
+        "system_memory_tokens": 0,
+        "samples": 0,
+    }
+    usage_sql = (
+        f"SELECT model, usage_json, COALESCE(NULLIF(TRIM(invocation_kind), ''), 'main') AS kind "
+        f"FROM {T.MODEL_INVOCATIONS} WHERE usage_json IS NOT NULL AND usage_json != ''{model_and}"
+    )
+    for model, usage_json, kind in conn.execute(usage_sql, model_p).fetchall():
         model_key = str(model or "").strip() or "—"
+        kind_key = str(kind or "main").strip() or "main"
         if model_key not in model_token_by_name:
             model_token_by_name[model_key] = {
                 "model": model_key,
@@ -339,7 +349,16 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
                 "output_tokens": 0,
                 "total_tokens": 0,
             }
+        if kind_key not in token_by_kind:
+            token_by_kind[kind_key] = {
+                "invocation_kind": kind_key,
+                "invocations": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            }
         model_token_by_name[model_key]["invocations"] += 1
+        token_by_kind[kind_key]["invocations"] += 1
         try:
             u = json.loads(usage_json)
             inp, out, tot = token_triplet_from_usage_payload(u)
@@ -349,10 +368,32 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
             model_token_by_name[model_key]["input_tokens"] += inp
             model_token_by_name[model_key]["output_tokens"] += out
             model_token_by_name[model_key]["total_tokens"] += tot
+            token_by_kind[kind_key]["input_tokens"] += inp
+            token_by_kind[kind_key]["output_tokens"] += out
+            token_by_kind[kind_key]["total_tokens"] += tot
+            overhead = u.get("prompt_overhead") if isinstance(u, dict) else None
+            if isinstance(overhead, dict):
+                prompt_overhead_totals["samples"] += 1
+                for ok in (
+                    "system_tokens",
+                    "tools_tokens",
+                    "system_skills_tokens",
+                    "system_assets_tokens",
+                    "system_memory_tokens",
+                ):
+                    try:
+                        prompt_overhead_totals[ok] += max(0, int(overhead.get(ok) or 0))
+                    except (TypeError, ValueError):
+                        pass
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
     model_token_stats = sorted(
         model_token_by_name.values(),
+        key=lambda r: (int(r.get("total_tokens") or 0), int(r.get("invocations") or 0)),
+        reverse=True,
+    )
+    token_by_kind_stats = sorted(
+        token_by_kind.values(),
         key=lambda r: (int(r.get("total_tokens") or 0), int(r.get("invocations") or 0)),
         reverse=True,
     )
@@ -391,6 +432,8 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
         "trace_model_avg_latency_ms": round(float(trace_lat[0] or 0), 2) if trace_lat[0] else None,
         "total_tokens": total_tokens,
         "model_token_stats": model_token_stats,
+        "token_by_kind": token_by_kind_stats,
+        "prompt_overhead_totals": prompt_overhead_totals,
         "top_slow_tools": top_slow_tools,
         "top_slow_threads": top_slow_threads,
     }
@@ -1710,6 +1753,43 @@ def fetch_errors_summary(*, since_hours: float | None = 168) -> dict[str, Any]:
             model_p,
         ).fetchall()
     ]
+    # Attach token totals per kind (usage_json parse; same window as latency group).
+    kind_token_map: dict[str, dict[str, int]] = {}
+    for kind, usage_json in conn.execute(
+        f"""
+        SELECT COALESCE(NULLIF(TRIM(invocation_kind), ''), 'main') AS invocation_kind,
+               usage_json
+        FROM {T.MODEL_INVOCATIONS}{model_w}
+        """,
+        model_p,
+    ).fetchall():
+        k = str(kind or "main")
+        if k not in kind_token_map:
+            kind_token_map[k] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        if not usage_json:
+            continue
+        try:
+            u = json.loads(usage_json) if isinstance(usage_json, str) else usage_json
+            inp, out, tot = token_triplet_from_usage_payload(u)
+            kind_token_map[k]["input_tokens"] += inp
+            kind_token_map[k]["output_tokens"] += out
+            kind_token_map[k]["total_tokens"] += tot
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    for row in model_by_kind:
+        if not isinstance(row, dict):
+            continue
+        toks = kind_token_map.get(str(row.get("invocation_kind") or "main")) or {}
+        row["input_tokens"] = int(toks.get("input_tokens") or 0)
+        row["output_tokens"] = int(toks.get("output_tokens") or 0)
+        row["total_tokens"] = int(toks.get("total_tokens") or 0)
+    model_by_kind.sort(
+        key=lambda r: (
+            int((r or {}).get("total_tokens") or 0) if isinstance(r, dict) else 0,
+            int((r or {}).get("call_count") or 0) if isinstance(r, dict) else 0,
+        ),
+        reverse=True,
+    )
     return {
         "enabled": True,
         "since_hours": since_hours,

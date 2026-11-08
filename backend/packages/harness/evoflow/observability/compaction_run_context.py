@@ -86,12 +86,48 @@ def take_compress_pass_label() -> str | None:
     return label
 
 
+def _attach_prompt_overhead(base: dict[str, Any]) -> None:
+    """Best-effort: copy gate overhead (system / tools / skills / memory) onto usage_json.
+
+    Set by context-compaction middleware right before the model call so we can later
+    answer "which prompt modules ate input tokens" without replaying the request.
+    """
+    try:
+        from evoflow.context.model_request_token_estimate import current_gate_overhead_meta
+
+        meta = current_gate_overhead_meta()
+    except Exception:
+        return
+    if not isinstance(meta, dict) or not meta:
+        return
+    # Keep only finite non-negative ints; avoid nesting huge blobs.
+    clean: dict[str, int] = {}
+    for key in (
+        "system_tokens",
+        "tools_tokens",
+        "tool_count",
+        "system_skills_tokens",
+        "system_assets_tokens",
+        "system_memory_tokens",
+    ):
+        if key not in meta:
+            continue
+        try:
+            val = int(meta[key])
+        except (TypeError, ValueError):
+            continue
+        if val >= 0:
+            clean[key] = val
+    if clean:
+        base["prompt_overhead"] = clean
+
+
 def merge_compaction_into_usage(
     usage_blob: dict[str, Any] | None,
     *,
     invocation_kind: str | None,
 ) -> dict[str, Any] | None:
-    """Attach compaction snapshot / compress pass label to usage_json for SQLite observability."""
+    """Attach compaction snapshot / compress pass label / prompt overhead to usage_json."""
     ik = str(invocation_kind or "main").strip().lower() or "main"
     base: dict[str, Any] = dict(usage_blob) if isinstance(usage_blob, dict) else {}
 
@@ -104,10 +140,13 @@ def merge_compaction_into_usage(
     if ik not in ("main", ""):
         take_compaction_snapshot()
         take_compress_pass_label()
+        # Subagents / title / memory still benefit from overhead when present.
+        _attach_prompt_overhead(base)
         return base or None
 
     snap = take_compaction_snapshot()
     if snap:
         base["compaction"] = snap
     take_compress_pass_label()
+    _attach_prompt_overhead(base)
     return base or None

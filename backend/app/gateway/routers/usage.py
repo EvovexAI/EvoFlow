@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Query, Request
 
+from evoflow.persistence.usage_by_module import fetch_usage_by_module
 from evoflow.persistence.usage_ledger import (
     fetch_usage_by_category,
     fetch_usage_by_principal,
@@ -108,6 +109,24 @@ async def get_usage_by_category(
     return fetch_usage_by_category(
         from_day=from_day,
         to_day=to_day,
+        principal_id=scope["principal_id"],
+        include_orphan=scope["include_orphan"],
+    )
+
+
+@router.get("/by-module")
+async def get_usage_by_module(
+    request: Request,
+    from_day: str | None = Query(None, alias="from"),
+    to_day: str | None = Query(None, alias="to"),
+    top_n: int = Query(12, ge=1, le=50),
+) -> dict[str, Any]:
+    """Settings → 使用统计: chat / employee / workflow / knowledge / media breakdown."""
+    scope = _usage_scope(request)
+    return fetch_usage_by_module(
+        from_day=from_day,
+        to_day=to_day,
+        top_n=top_n,
         principal_id=scope["principal_id"],
         include_orphan=scope["include_orphan"],
     )

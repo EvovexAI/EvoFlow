@@ -10,8 +10,28 @@ import { getCachedMe, refreshMe } from '../../lib/account-session.js'
 let _abort = null
 /** @type {number} */
 let _periodDays = 7
+/** @type {'overview' | 'modules'} */
+let _view = 'overview'
+/** @type {'all' | 'chat' | 'employee' | 'workflow' | 'knowledge' | 'media' | 'other'} */
+let _moduleFilter = 'all'
+/** @type {string} */
+let _moduleQuery = ''
+/** @type {any | null} */
+let _lastData = null
 
 const SERIES_COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#06b6d4', '#ec4899', '#84cc16']
+
+const MODULE_FILTERS = [
+  { id: 'all', label: '全部' },
+  { id: 'chat', label: '对话' },
+  { id: 'employee', label: '员工' },
+  { id: 'workflow', label: '工作流' },
+  { id: 'knowledge', label: '知识库' },
+  { id: 'media', label: '生图/生视频' },
+  { id: 'other', label: '其它' },
+]
+
+const PURPOSE_ZH = { index: '索引写入', query: '检索查询', other: '其它' }
 
 function esc(s) {
   return String(s ?? '')
@@ -34,6 +54,256 @@ function formatAmount(n) {
   if (v <= 0) return '—'
   if (v < 0.01) return `$${v.toFixed(4)}`
   return `$${v.toFixed(2)}`
+}
+
+function formatShare(n) {
+  const v = Number(n) || 0
+  if (v <= 0) return '—'
+  return `${(v * 100).toFixed(1)}%`
+}
+
+/**
+ * @param {string} q
+ * @param {Array<{ label?: string }>} rows
+ */
+function filterRowsByQuery(rows, q) {
+  const needle = String(q || '')
+    .trim()
+    .toLowerCase()
+  if (!needle) return rows
+  return rows.filter((r) => String(r.label || '').toLowerCase().includes(needle))
+}
+
+/**
+ * Ranked detail table for one module surface.
+ * @param {Array<{ label?: string, tokens?: number, share?: number, events?: number, amount?: number }>} rows
+ * @param {string} emptyText
+ * @param {{ showAmount?: boolean }} [opts]
+ */
+function buildModuleDetailTable(rows, emptyText, opts = {}) {
+  const list = Array.isArray(rows) ? rows.filter((r) => (Number(r.tokens) || 0) > 0) : []
+  if (!list.length) {
+    return `<div class="settings-usage-empty">${esc(emptyText)}</div>`
+  }
+  const showAmount = opts.showAmount !== false
+  const max = Math.max(...list.map((r) => Number(r.tokens) || 0), 1)
+  const body = list
+    .map((r, i) => {
+      const tokens = Number(r.tokens) || 0
+      const pct = Math.max(3, (tokens / max) * 100)
+      return `
+      <tr>
+        <td class="su-num su-module-rank">${i + 1}</td>
+        <td>
+          <div class="su-module-item-label" title="${esc(r.label || '')}">${esc(r.label || '—')}</div>
+          <div class="su-module-item-track"><i style="width:${pct}%"></i></div>
+        </td>
+        <td class="su-num">${esc(formatTokens(tokens))}</td>
+        <td class="su-num">${esc(formatShare(r.share))}</td>
+        <td class="su-num">${Number(r.events) || 0}</td>
+        ${showAmount ? `<td class="su-num">${esc(formatAmount(r.amount))}</td>` : ''}
+      </tr>`
+    })
+    .join('')
+  return `
+    <div class="su-user-table-wrap">
+      <table class="su-user-table su-module-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>名称</th>
+            <th>Token</th>
+            <th>占比</th>
+            <th>次数</th>
+            ${showAmount ? '<th>费用</th>' : ''}
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`
+}
+
+/**
+ * Shared chrome: view switcher + period + refresh.
+ * @param {string} title
+ * @param {string} desc
+ */
+function buildUsageChrome(title, desc) {
+  return `
+    <div class="settings-usage-head">
+      <div>
+        <h2 class="settings-usage-title">${esc(title)}</h2>
+        <p class="settings-usage-desc">${esc(desc)}</p>
+      </div>
+      <div class="settings-usage-head-actions">
+        <div class="settings-usage-period" role="tablist" aria-label="视图">
+          <button type="button" class="settings-usage-period-btn${_view === 'overview' ? ' is-active' : ''}" data-usage-view="overview" role="tab" aria-selected="${_view === 'overview' ? 'true' : 'false'}">总览</button>
+          <button type="button" class="settings-usage-period-btn${_view === 'modules' ? ' is-active' : ''}" data-usage-view="modules" role="tab" aria-selected="${_view === 'modules' ? 'true' : 'false'}">按模块</button>
+        </div>
+        <div class="settings-usage-period" role="group" aria-label="时间范围">
+          <button type="button" class="settings-usage-period-btn${_periodDays === 7 ? ' is-active' : ''}" data-usage-days="7">${esc(t('usage.period7d'))}</button>
+          <button type="button" class="settings-usage-period-btn${_periodDays === 30 ? ' is-active' : ''}" data-usage-days="30">${esc(t('usage.period30d'))}</button>
+        </div>
+        <button type="button" class="btn btn-sm btn-secondary" data-usage-refresh>刷新</button>
+      </div>
+    </div>`
+}
+
+/**
+ * Dedicated module panel (not crammed into overview).
+ * @param {any} byModule
+ */
+function buildModulesPanel(byModule) {
+  if (!byModule || typeof byModule !== 'object') {
+    return `
+      <section class="settings-usage-card">
+        <h3 class="settings-usage-card-title">模块用量</h3>
+        <div class="settings-usage-empty">模块明细暂不可用（需 Gateway 支持 /api/usage/by-module，请重启桌面端后刷新）</div>
+      </section>`
+  }
+
+  const modules = Array.isArray(byModule.modules) ? byModule.modules : []
+  const moduleMap = Object.fromEntries(modules.map((m) => [m.module, m]))
+  const totalTokens = Number(byModule.total_tokens) || modules.reduce((s, m) => s + (Number(m.tokens) || 0), 0)
+
+  const chips = MODULE_FILTERS.map((f) => {
+    // Hide empty niche filters; keep primary surfaces always visible.
+    if ((f.id === 'other' || f.id === 'media') && !moduleMap[f.id]) return ''
+    return `
+      <button type="button" class="su-module-chip${_moduleFilter === f.id ? ' is-active' : ''}" data-usage-module-filter="${f.id}">
+        ${esc(f.label)}
+      </button>`
+  }).join('')
+
+  const cards = ['chat', 'employee', 'workflow', 'knowledge']
+    .concat(moduleMap.media ? ['media'] : [])
+    .concat(moduleMap.other ? ['other'] : [])
+    .map((id) => {
+      const meta = MODULE_FILTERS.find((f) => f.id === id)
+      const slot = moduleMap[id]
+      const tokens = Number(slot?.tokens) || 0
+      const share = Number(slot?.share) || 0
+      const events = Number(slot?.events) || 0
+      const active = _moduleFilter === id ? ' is-active' : ''
+      return `
+        <button type="button" class="su-module-card${active}" data-usage-module-filter="${id}">
+          <span class="su-module-card-name">${esc(meta?.label || id)}</span>
+          <strong class="su-module-card-tokens">${esc(formatTokens(tokens))}</strong>
+          <span class="su-module-card-meta">${esc(formatShare(share))} · ${events} 次</span>
+        </button>`
+    })
+    .join('')
+
+  /** @type {{ title: string, hint: string, rows: any[], empty: string }} */
+  let detail = { title: '', hint: '', rows: [], empty: '暂无数据' }
+  const q = _moduleQuery
+
+  if (_moduleFilter === 'all') {
+    detail = {
+      title: '模块合计',
+      hint: '点上方模块卡片或筛选按钮，查看该模块下的具体对话 / 员工 / 工作流 / 知识库。',
+      rows: filterRowsByQuery(
+        modules.map((m) => ({
+          ...m,
+          label: m.label || m.module,
+        })),
+        q,
+      ),
+      empty: '当前区间暂无模块用量',
+    }
+  } else if (_moduleFilter === 'chat') {
+    detail = {
+      title: '对话明细',
+      hint: '普通聊天会话（不含员工值班会话）。',
+      rows: filterRowsByQuery(
+        (byModule.conversations || []).filter((r) => (r.module || 'chat') === 'chat'),
+        q,
+      ),
+      empty: '暂无对话用量',
+    }
+  } else if (_moduleFilter === 'employee') {
+    const empRows = (byModule.employees || []).length
+      ? byModule.employees
+      : (byModule.conversations || []).filter((r) => r.module === 'employee')
+    detail = {
+      title: '员工明细',
+      hint: '按员工汇总；也可在搜索框输入员工名或会话标题。',
+      rows: filterRowsByQuery(empRows, q),
+      empty: '暂无员工用量',
+    }
+  } else if (_moduleFilter === 'workflow') {
+    detail = {
+      title: '工作流明细',
+      hint: '按工作流 / App 汇总。',
+      rows: filterRowsByQuery(byModule.workflows || [], q),
+      empty: '暂无工作流用量',
+    }
+  } else if (_moduleFilter === 'knowledge') {
+    const kbRows = (byModule.knowledge_bases || []).map((r) => {
+      const purposeZh = PURPOSE_ZH[r.top_purpose] || ''
+      return {
+        ...r,
+        label: purposeZh ? `${r.label || r.kb_id} · ${purposeZh}` : r.label || r.kb_id,
+      }
+    })
+    const purposeRows = (byModule.knowledge || []).map((r) => ({
+      ...r,
+      label: `用途 · ${r.label || PURPOSE_ZH[r.purpose] || r.purpose}`,
+    }))
+    detail = {
+      title: '知识库明细',
+      hint: '先按知识库，再按用途（索引 / 检索）。',
+      rows: filterRowsByQuery([...kbRows, ...purposeRows], q),
+      empty: '暂无知识库用量',
+    }
+  } else if (_moduleFilter === 'media') {
+    const slot = moduleMap.media
+    detail = {
+      title: '生图 / 生视频',
+      hint: '媒体类调用合计（按模块汇总，暂无更细条目）。',
+      rows: slot
+        ? filterRowsByQuery([{ ...slot, label: slot.label || '生图/生视频' }], q)
+        : [],
+      empty: '暂无媒体用量',
+    }
+  } else {
+    const slot = moduleMap[_moduleFilter]
+    detail = {
+      title: MODULE_FILTERS.find((f) => f.id === _moduleFilter)?.label || _moduleFilter,
+      hint: '',
+      rows: slot
+        ? filterRowsByQuery([{ ...slot, label: slot.label || _moduleFilter }], q)
+        : [],
+      empty: '暂无数据',
+    }
+  }
+
+  return `
+    <div class="su-module-panel">
+      <div class="su-module-toolbar">
+        <div class="su-module-chips" role="tablist" aria-label="模块筛选">${chips}</div>
+        <label class="su-module-search">
+          <input type="search" placeholder="搜索名称…" value="${esc(_moduleQuery)}" data-usage-module-q aria-label="搜索模块条目" />
+        </label>
+      </div>
+
+      <div class="su-module-summary">
+        <div class="su-module-summary-total">
+          <span>区间合计</span>
+          <strong>${esc(formatTokens(totalTokens))}</strong>
+          <em>tokens · UTC</em>
+        </div>
+        <div class="su-module-cards">${cards || `<div class="settings-usage-empty">暂无模块数据</div>`}</div>
+      </div>
+
+      <section class="settings-usage-card su-module-detail">
+        <div class="su-module-detail-head">
+          <h3 class="settings-usage-card-title">${esc(detail.title)}</h3>
+          ${detail.hint ? `<p class="settings-usage-card-hint">${esc(detail.hint)}</p>` : ''}
+        </div>
+        ${buildModuleDetailTable(detail.rows, detail.empty)}
+      </section>
+    </div>`
 }
 
 function rangeDays(days) {
@@ -300,12 +570,7 @@ function buildDailyBreakdownTable(payload) {
 function renderSkeleton() {
   return `
     <div class="settings-usage settings-usage--dash">
-      <div class="settings-usage-head">
-        <div>
-          <h2 class="settings-usage-title">${esc(t('usage.title'))}</h2>
-          <p class="settings-usage-desc">${esc(t('usage.desc'))}</p>
-        </div>
-      </div>
+      ${buildUsageChrome(t('usage.title'), t('usage.desc'))}
       <div class="settings-usage-empty">${esc(t('usage.loading'))}</div>
     </div>`
 }
@@ -314,7 +579,7 @@ function renderSkeleton() {
  * @param {HTMLElement} container
  * @param {any} data
  */
-function renderBody(container, data) {
+function renderOverview(container, data) {
   const summary = data.summary || {}
   const bySku = data.bySku?.items || []
   const dailyBySku = data.dailyBySku || {}
@@ -370,19 +635,7 @@ function renderBody(container, data) {
 
   container.innerHTML = `
     <div class="settings-usage settings-usage--dash">
-      <div class="settings-usage-head">
-        <div>
-          <h2 class="settings-usage-title">${esc(t('usage.title'))}</h2>
-          <p class="settings-usage-desc">${esc(t('usage.desc'))} · UTC</p>
-        </div>
-        <div class="settings-usage-head-actions">
-          <div class="settings-usage-period" role="group" aria-label="时间范围">
-            <button type="button" class="settings-usage-period-btn${_periodDays === 7 ? ' is-active' : ''}" data-usage-days="7">${esc(t('usage.period7d'))}</button>
-            <button type="button" class="settings-usage-period-btn${_periodDays === 30 ? ' is-active' : ''}" data-usage-days="30">${esc(t('usage.period30d'))}</button>
-          </div>
-          <button type="button" class="btn btn-sm btn-secondary" data-usage-refresh>刷新</button>
-        </div>
-      </div>
+      ${buildUsageChrome(t('usage.title'), `${t('usage.desc')} · UTC`)}
 
       <div class="settings-usage-kpis">
         <div class="settings-usage-kpi">
@@ -427,7 +680,7 @@ function renderBody(container, data) {
       ${byUserSection}
 
       <section class="settings-usage-card">
-        <h3 class="settings-usage-card-title">类型用量</h3>
+        <h3 class="settings-usage-card-title">类型总量</h3>
         <div class="settings-usage-cats">${catChips}</div>
       </section>
 
@@ -438,6 +691,32 @@ function renderBody(container, data) {
       </section>
     </div>
   `
+}
+
+/**
+ * @param {HTMLElement} container
+ * @param {any} data
+ */
+function renderModulesView(container, data) {
+  container.innerHTML = `
+    <div class="settings-usage settings-usage--dash settings-usage--modules">
+      ${buildUsageChrome('按模块', '按对话 / 员工 / 工作流 / 知识库查看消耗，可筛选与搜索 · UTC')}
+      ${buildModulesPanel(data.byModule)}
+    </div>
+  `
+}
+
+/**
+ * @param {HTMLElement} container
+ * @param {any} data
+ */
+function renderBody(container, data) {
+  _lastData = data
+  if (_view === 'modules') {
+    renderModulesView(container, data)
+  } else {
+    renderOverview(container, data)
+  }
 }
 
 async function loadAndRender(container) {
@@ -460,25 +739,47 @@ async function loadAndRender(container) {
       api.usageByCategory({ from, to }),
       api.usageBySku({ from, to, category: 'llm' }),
       api.usageDailyBreakdown({ from, to }),
+      api.usageByModule({ from, to, top_n: 40 }).catch(() => null),
     ]
     if (isAdmin) tasks.push(api.usageByPrincipal({ from, to }))
     const results = await Promise.all(tasks)
-    const [summary, dailyBySku, byCategory, bySku, dailyBreakdown] = results
-    const byPrincipal = isAdmin ? results[5] : null
+    const [summary, dailyBySku, byCategory, bySku, dailyBreakdown, byModule] = results
+    const byPrincipal = isAdmin ? results[6] : null
     if (!container.isConnected) return
-    renderBody(container, { summary, dailyBySku, byCategory, bySku, dailyBreakdown, byPrincipal })
+    renderBody(container, {
+      summary,
+      dailyBySku,
+      byCategory,
+      bySku,
+      dailyBreakdown,
+      byModule,
+      byPrincipal,
+    })
   } catch (e) {
     if (!container.isConnected) return
+    _lastData = null
     const msg = String(e?.message || e || '')
     const hint = /404|Not Found|Failed to fetch|Network/i.test(msg)
       ? t('usage.waitingGateway')
       : t('usage.noData')
     container.innerHTML = `
       <div class="settings-usage settings-usage--dash">
-        <h2 class="settings-usage-title">${esc(t('usage.title'))}</h2>
+        ${buildUsageChrome(t('usage.title'), t('usage.desc'))}
         <div class="settings-usage-empty">${esc(hint)}<br/><span style="font-size:12px;opacity:.7">${esc(msg)}</span></div>
       </div>`
   }
+}
+
+/**
+ * Re-paint from cache when only view / module filter / search changes.
+ * @param {HTMLElement} container
+ */
+function rerenderFromCache(container) {
+  if (_lastData) {
+    renderBody(container, _lastData)
+    return
+  }
+  void loadAndRender(container)
 }
 
 /**
@@ -492,12 +793,44 @@ export async function mountUsageInto(container) {
       void loadAndRender(container)
       return
     }
-    const btn = e.target.closest('[data-usage-days]')
-    if (!btn) return
-    const days = Number(btn.getAttribute('data-usage-days')) || 7
+    const viewBtn = e.target.closest('[data-usage-view]')
+    if (viewBtn) {
+      e.preventDefault()
+      const next = viewBtn.getAttribute('data-usage-view') === 'modules' ? 'modules' : 'overview'
+      if (next === _view) return
+      _view = next
+      rerenderFromCache(container)
+      return
+    }
+    const filterBtn = e.target.closest('[data-usage-module-filter]')
+    if (filterBtn) {
+      e.preventDefault()
+      const next = String(filterBtn.getAttribute('data-usage-module-filter') || 'all')
+      if (next === _moduleFilter) return
+      _moduleFilter = /** @type {typeof _moduleFilter} */ (next)
+      rerenderFromCache(container)
+      return
+    }
+    const daysBtn = e.target.closest('[data-usage-days]')
+    if (!daysBtn) return
+    const days = Number(daysBtn.getAttribute('data-usage-days')) || 7
     if (days === _periodDays) return
     _periodDays = days
     void loadAndRender(container)
+  })
+  container.addEventListener('input', (e) => {
+    const input = e.target.closest('[data-usage-module-q]')
+    if (!input) return
+    _moduleQuery = String(/** @type {HTMLInputElement} */ (input).value || '')
+    // Keep focus: only refresh the detail table region if possible; full re-render is ok for now.
+    const selStart = /** @type {HTMLInputElement} */ (input).selectionStart
+    rerenderFromCache(container)
+    const again = container.querySelector('[data-usage-module-q]')
+    if (again instanceof HTMLInputElement) {
+      again.focus()
+      const pos = typeof selStart === 'number' ? selStart : again.value.length
+      again.setSelectionRange(pos, pos)
+    }
   })
   await loadAndRender(container)
 }
@@ -505,4 +838,8 @@ export async function mountUsageInto(container) {
 export function cleanup() {
   _abort?.abort()
   _abort = null
+  _lastData = null
+  _view = 'overview'
+  _moduleFilter = 'all'
+  _moduleQuery = ''
 }

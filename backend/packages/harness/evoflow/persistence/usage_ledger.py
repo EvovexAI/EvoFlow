@@ -302,6 +302,22 @@ def record_llm_chat_usage_in_txn(
     price = _resolve_llm_price(sku)
     amt = (inp / 1_000_000.0) * price.get("input", 0.0) + (out / 1_000_000.0) * price.get("output", 0.0)
 
+    # Stamp product-module attribution when callers omit agent/app (Settings breakdown).
+    resolved_app = _s(app_id)
+    resolved_agent = _s(agent_code)
+    meta_out: dict[str, Any] = dict(meta) if isinstance(meta, dict) else {}
+    if sk and (not resolved_app or not resolved_agent or "module" not in meta_out):
+        try:
+            from evoflow.persistence.usage_by_module import resolve_usage_attribution
+
+            attr = resolve_usage_attribution(sk, db=db)
+            resolved_app = resolved_app or _s(attr.get("app_id"))
+            resolved_agent = resolved_agent or _s(attr.get("agent_code"))
+            if "module" not in meta_out and attr.get("module"):
+                meta_out["module"] = attr["module"]
+        except Exception:
+            logger.debug("usage attribution resolve failed session=%s", sk, exc_info=True)
+
     return record_usage_event_in_txn(
         db,
         event_id=event_id,
@@ -317,14 +333,14 @@ def record_llm_chat_usage_in_txn(
         thread_id=_s(thread_id) or None,
         run_id=rid or None,
         message_id=mid or None,
-        app_id=_s(app_id) or None,
-        agent_code=_s(agent_code) or None,
+        app_id=resolved_app or None,
+        agent_code=resolved_agent or None,
         workspace_id=_s(workspace_id) or None,
         principal_id=_s(principal_id) or None,
         occurred_at=occurred_at,
         amount=amt,
         pricing_source="config:token_usage.pricing" if amt > 0 else "",
-        meta=meta,
+        meta=meta_out or None,
     )
 
 

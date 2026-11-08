@@ -82,9 +82,6 @@ export function AppUsagePanel() {
   return (
     <div className="space-y-5">
       <AppUsageLifetimeSummaryStrip snapshot={lifetimeSnapshot} />
-      {lifetimeSnapshot?.heatmap.weeks.length ? (
-        <UsageHeatmap locale={locale} intl={intl} weeks={lifetimeSnapshot.heatmap.weeks} />
-      ) : null}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-ui-base font-medium text-foreground">
           {intl.formatMessage({ id: "settings.usage.appUsageRangeTitle" })}
@@ -92,6 +89,10 @@ export function AppUsagePanel() {
         <AppUsageRangeTabs range={range} onRangeChange={setRange} />
       </div>
       {error ? <UsageStatsErrorNotice error={error} /> : null}
+
+      {lifetimeSnapshot?.heatmap.weeks.length ? (
+        <UsageHeatmap locale={locale} intl={intl} weeks={lifetimeSnapshot.heatmap.weeks} />
+      ) : null}
 
       <UsageChartLoadBoundary
         scope="settings.usage.app-daily-model-chart"

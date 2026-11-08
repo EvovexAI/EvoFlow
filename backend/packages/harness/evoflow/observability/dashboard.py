@@ -383,7 +383,11 @@ def _fetch_agents_summary_on_conn(
             entry["models"][model_name] += 1
 
     items: list[dict[str, Any]] = []
-    for kind, entry in sorted(by_kind.items(), key=lambda kv: kv[1]["requests"], reverse=True):
+    for kind, entry in sorted(
+        by_kind.items(),
+        key=lambda kv: (int(kv[1]["tokens"] or 0), int(kv[1]["requests"] or 0)),
+        reverse=True,
+    ):
         reqs = entry["requests"]
         err = entry["errors"]
         success_rate = round(100.0 * (1.0 - err / reqs), 1) if reqs else 100.0

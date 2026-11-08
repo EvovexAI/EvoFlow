@@ -1429,7 +1429,11 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         _refresh_deferred_registry_from_delta(all_tools, tools)
         all_tool_names = [t.name for t in tools]
         return create_agent(
-            model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
+            model=create_chat_model(
+                name=model_name,
+                thinking_enabled=thinking_enabled,
+                invocation_kind="main",
+            ),
             tools=tools,
             middleware=_build_middlewares(effective_config, model_name=model_name),
             context_schema=LeadAgentRuntimeContext,
@@ -1880,6 +1884,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 reasoning_effort=reasoning_effort,
                 thinking_type=thinking_type,
                 temperature=_voice_temp if _voice_temp is not None else None,
+                invocation_kind="main",
             ),
             tools=all_tools,
             middleware=_build_middlewares(effective_config, model_name=model_name, agent_name=agent_name),

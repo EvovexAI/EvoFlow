@@ -1231,12 +1231,13 @@ class ProactiveEngine:
         name = (model_name or self._model_name or "").strip() or None
         try:
             model = create_chat_model(
-                model_name=name,
+                name=name,
                 temperature=self._temperature,
+                invocation_kind="proactive",
             )
         except Exception:
             logger.warning("proactive: create_chat_model failed, using default", exc_info=True)
-            model = create_chat_model(temperature=self._temperature)
+            model = create_chat_model(temperature=self._temperature, invocation_kind="proactive")
 
         messages = [
             {"role": "system", "content": system_prompt},

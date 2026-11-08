@@ -2917,6 +2917,14 @@ export const api = {
     if (query.to) out.to = query.to
     return gatewayProxy('GET', '/usage/by-category', null, out)
   },
+  /** 设置 → 使用统计：对话/员工/工作流/知识库模块拆分 */
+  usageByModule: (query = {}) => {
+    const out = {}
+    if (query.from) out.from = query.from
+    if (query.to) out.to = query.to
+    if (query.top_n != null) out.top_n = String(query.top_n)
+    return gatewayProxy('GET', '/usage/by-module', null, out)
+  },
   /** Per-day chat / image / video / embedding pivot for usage dashboard table. */
   usageDailyBreakdown: (query = {}) => {
     const out = {}

@@ -344,6 +344,8 @@ def fetch_report(*, since_hours: float = 168, limit: int = 10) -> dict[str, Any]
         "tokens": {
             "total_tokens": overview.get("total_tokens"),
             "model_token_stats": overview.get("model_token_stats"),
+            "token_by_kind": overview.get("token_by_kind"),
+            "prompt_overhead_totals": overview.get("prompt_overhead_totals"),
             "highest_token_invocations": insights.get("highest_token_model_invocations"),
         },
         "thread_health": {

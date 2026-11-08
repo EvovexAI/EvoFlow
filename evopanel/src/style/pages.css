@@ -14199,6 +14199,174 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   align-items: stretch;
 }
 
+.su-module-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.su-module-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 16px;
+}
+
+.su-module-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.su-module-chip {
+  border: 1px solid var(--border-primary);
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  border-radius: 999px;
+  padding: 5px 12px;
+  font-size: var(--ef-text-sm);
+  cursor: pointer;
+}
+
+.su-module-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent, #5b8def) 55%, var(--border-primary));
+  background: color-mix(in srgb, var(--accent, #5b8def) 14%, var(--bg-primary));
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.su-module-search input {
+  min-width: 180px;
+  height: 32px;
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 0 10px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--ef-text-sm);
+}
+
+.su-module-summary {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: stretch;
+}
+
+.su-module-summary-total {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  padding: 14px 16px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-primary);
+}
+
+.su-module-summary-total > span {
+  font-size: var(--ef-text-sm);
+  color: var(--text-secondary);
+}
+
+.su-module-summary-total > strong {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.su-module-summary-total > em {
+  font-style: normal;
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.su-module-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.su-module-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: 12px;
+  background: var(--bg-primary);
+  cursor: pointer;
+  color: inherit;
+}
+
+.su-module-card:hover {
+  border-color: color-mix(in srgb, var(--accent, #5b8def) 40%, var(--border-primary));
+}
+
+.su-module-card.is-active {
+  border-color: color-mix(in srgb, var(--accent, #5b8def) 60%, var(--border-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, #5b8def) 35%, transparent);
+}
+
+.su-module-card-name {
+  font-size: var(--ef-text-sm);
+  color: var(--text-secondary);
+}
+
+.su-module-card-tokens {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.su-module-card-meta {
+  font-size: 12px;
+  color: var(--text-tertiary, var(--text-secondary));
+}
+
+.su-module-detail-head .settings-usage-card-title {
+  margin-bottom: 4px;
+}
+
+.su-module-rank {
+  width: 2.5em;
+  color: var(--text-secondary);
+}
+
+.su-module-item-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 42vw;
+}
+
+.su-module-item-track {
+  margin-top: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary) 80%, var(--border-primary));
+  overflow: hidden;
+  max-width: 320px;
+}
+
+.su-module-item-track > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent, #5b8def) 85%, white);
+}
+
+.su-module-table td {
+  vertical-align: middle;
+}
+
 .su-dash-trend,
 .su-dash-donut {
   min-width: 0;
@@ -14738,6 +14906,26 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
 @media (max-width: 1100px) {
   .su-dash-row {
     grid-template-columns: 1fr;
+  }
+
+  .su-module-summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .su-module-item-label {
+    max-width: 70vw;
+  }
+
+  .su-module-search input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .su-module-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 }
 
