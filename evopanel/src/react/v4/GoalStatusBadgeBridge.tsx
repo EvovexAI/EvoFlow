@@ -5,7 +5,7 @@
 // - 渲染：objective 摘要 + 状态 + 累计工时（timeUsedSeconds，对齐 vendored
 //   goalStateSchema）；无目标 / 非 v4 会话渲染 null。点击插入 /goal pause。
 // - threadId：controller 钉住的 selectedThreadId 同步 hint 优先，异步解析收敛。
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { getSharedV4SessionDataLayer } from "./V4StreamRowsBridge.js";
 import { wsClient } from "../../lib/ws-client.js";
 
@@ -83,10 +83,18 @@ export function GoalStatusBadgeBridge(props: { sessionKey: string }): React.JSX.
     };
   }, [threadId]);
 
-  const goal = useSyncExternalStore(
-    lease ? lease.store.subscribe : noopSubscribe,
-    () => (lease ? ((lease.store.getState().snapshot?.goal ?? null) as GoalState | null) : null),
+  // ConversationProjectionStore.subscribe 是 class 方法，直接传函数引用会丢 this
+  // （调用时 this.listeners 变成读 undefined.listeners）；且每次 render 换新引用会反复重订阅。
+  const store = lease?.store ?? null;
+  const subscribe = useMemo(
+    () => (store ? (listener: () => void) => store.subscribe(listener) : noopSubscribe),
+    [store],
   );
+  const getGoal = useMemo(
+    () => () => (store ? ((store.getState().snapshot?.goal ?? null) as GoalState | null) : null),
+    [store],
+  );
+  const goal = useSyncExternalStore(subscribe, getGoal);
 
   if (!goal || !String(goal.objective || "").trim()) return null;
   const status = String(goal.status || "");

@@ -265,6 +265,8 @@ export default defineConfig({
       'tests/main-popup-guard.test.ts',
       // 工作流节点实时正文：LangGraph custom 通道必须转发 subagent_token_delta
       'tests/ws-subagent-token-delta.test.js',
+      // 目标徽标 bridge：class store 的 subscribe 传参必须保持 this 绑定
+      'tests/goal-status-badge-bridge.test.tsx',
     ],
   },
 })
