@@ -263,3 +263,60 @@ def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
     assert healed == []
     assert st["status"] == "failed"
     assert st["task_report"] == "attempt-1 report"
+
+
+# ── user pause must survive the healer ─────────────────────────────────
+# Measured 2026-11-08: ``workflow.stop(pause=true)`` wrote paused/3% and Step 1
+# paused, then within ~3s the row read executing/37% with Step 2 dispatched.
+# Cause: this healer treated every ``paused`` row as a crash to recover from
+# (paused → pending → dispatch) and re-opened the main task. It cannot tell a
+# human's pause from a dead process unless pause_run leaves a marker.
+
+
+def _paused_task(*, by_user: bool) -> dict:
+    task = {
+        "id": "T_MAIN",
+        "status": "paused",
+        "progress": 3,
+        "subtasks": [
+            {"id": "s1", "status": "paused", "progress": 10},
+            {"id": "s2", "status": "planned", "progress": 0},
+        ],
+    }
+    if by_user:
+        task["pause_requested_by"] = "user"
+        task["pause_reason"] = "verified by hand"
+        task["paused_at"] = "2026-11-08T10:42:57Z"
+    return task
+
+
+def test_user_pause_subtasks_are_not_requeued():
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    task = _paused_task(by_user=True)
+    healed = workflow_reconciler._heal_subtasks(task, reason="tick", now_ts=time.time())
+
+    assert healed == [], healed
+    assert task["subtasks"][0]["status"] == "paused", "user pause was requeued"
+    assert is_subtask_outcome_reported(task["subtasks"][0]) is False
+
+
+def test_crash_pause_is_still_recovered():
+    """The healer's original job must keep working: no marker ⇒ recover."""
+    from evoflow.collab import workflow_reconciler
+
+    task = _paused_task(by_user=False)
+    healed = workflow_reconciler._heal_subtasks(task, reason="tick", now_ts=time.time())
+
+    assert [h["why"] for h in healed] == ["paused_resume"], healed
+    assert task["subtasks"][0]["status"] == "pending"
+
+
+def test_is_user_pause_requires_marker_and_paused_status():
+    from evoflow.collab import workflow_reconciler as wr
+
+    assert wr._is_user_pause({"status": "paused", "pause_requested_by": "user"}) is True
+    assert wr._is_user_pause({"status": "paused"}) is False
+    assert wr._is_user_pause({"status": "executing", "pause_requested_by": "user"}) is False
+    assert wr._is_user_pause(None) is False
