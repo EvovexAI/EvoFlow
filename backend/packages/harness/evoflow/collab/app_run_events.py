@@ -115,7 +115,42 @@ def emit_app_run_from_main_task(
             # P0-2: the notification center is not enough — long automation runs
             # must reach the IM channel they were configured to report into.
             _fan_out_terminal_im_push(task, str(status))
+            _complete_origin_session_child_work(task, str(status))
     return status
+
+
+def _complete_origin_session_child_work(task: dict[str, Any], status: str) -> None:
+    """Close the invoking-chat child_works row (icons) without touching thread bind."""
+    origin = str(task.get("origin_session_key") or "").strip()
+    run_id = str(task.get("source_run_id") or "").strip()
+    if not origin or not run_id:
+        return
+    st = str(status or "").strip().lower()
+    if st == "canceled":
+        st = "cancelled"
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_WORKFLOW,
+            safe_complete_child_work,
+        )
+
+        safe_complete_child_work(
+            session_key=origin,
+            kind=KIND_WORKFLOW,
+            ref_id=run_id,
+            status=st or "completed",
+            extra={
+                "task_id": str(task.get("id") or "").strip(),
+                "app_id": str(task.get("source_app_id") or "").strip(),
+                "run_id": run_id,
+            },
+        )
+    except Exception:
+        logger.debug(
+            "app_run_events: workflow child-work complete skipped run=%s",
+            run_id,
+            exc_info=True,
+        )
 
 
 _IM_PUSH_DEDUP_MAX = 512

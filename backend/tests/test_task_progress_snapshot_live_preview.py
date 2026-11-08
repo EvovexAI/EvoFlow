@@ -51,8 +51,8 @@ def test_latest_preview_text_prefers_last_assistant_tool_row(monkeypatch):
 
     out = snap._latest_subtask_preview_text(task, st, st["id"])
     assert out == "正在读取竞品页面"
-    # limit 必须收紧，否则每次轮询都扫 500 行
-    assert calls and calls[0]["limit"] == 1
+    # limit 必须收紧，否则每次轮询都扫 500 行；又必须 >1 才能越过尾部 user/空 tool
+    assert calls and 1 < calls[0]["limit"] <= 64
 
 
 def test_latest_preview_text_skips_non_text_roles(monkeypatch):
@@ -71,6 +71,30 @@ def test_latest_preview_text_skips_non_text_roles(monkeypatch):
     )
 
     assert snap._latest_subtask_preview_text(task, st, st["id"]) == "正文"
+
+
+def test_latest_preview_text_skips_trailing_user_when_window_allows(monkeypatch):
+    """回归：limit=1 时最后一条是 user → 预览空 → 节点卡在「子任务已派发」。"""
+    task = {"id": "Task_1", "subtasks": [_row()]}
+    st = task["subtasks"][0]
+    seen_limits: list[int] = []
+
+    def fake_list(_task, _sid, *, subtask_row=None, limit=500):
+        seen_limits.append(limit)
+        # DB 按 limit 截最近 N 条：模拟尾部是 user，正文在前一条
+        rows = [
+            {"role": "assistant", "content": "正在清洗并行视角结果"},
+            {"role": "user", "content": "继续"},
+        ]
+        return rows[-max(1, int(limit or 1)) :]
+
+    monkeypatch.setattr(
+        "evoflow.collab.conversation_persist.list_subtask_conversation_ui_messages",
+        fake_list,
+    )
+
+    assert snap._latest_subtask_preview_text(task, st, st["id"]) == "正在清洗并行视角结果"
+    assert seen_limits and seen_limits[0] > 1
 
 
 def test_latest_preview_text_returns_empty_without_subtask_id():

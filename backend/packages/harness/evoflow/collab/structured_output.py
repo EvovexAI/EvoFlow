@@ -247,9 +247,22 @@ def process_step_output(
     )
 
     if structured is None:
+        # Declared output_schema with zero extractable JSON is NOT vacuously
+        # valid — otherwise strict enforcement never fires and downstream
+        # ``{{steps.X.output.field}}`` bindings hard-fail at the next node.
+        if output_schema:
+            return {
+                "structured_output": None,
+                "schema_valid": False,
+                "schema_errors": [
+                    "no structured output extracted; step declares output_schema "
+                    "(pass done.structured_output, or end summary with a JSON object)"
+                ],
+                "extraction_source": "none",
+            }
         return {
             "structured_output": None,
-            "schema_valid": True,  # No structured output = vacuously valid
+            "schema_valid": True,  # No schema → nothing to validate
             "schema_errors": [],
             "extraction_source": "none",
         }
@@ -272,6 +285,53 @@ def process_step_output(
     }
 
 
+def _subtask_ref_candidates(subtask: dict[str, Any]) -> set[str]:
+    candidates: set[str] = set()
+    ref = str(subtask.get("ref") or "").strip()
+    if ref:
+        candidates.add(ref)
+    try:
+        from evoflow.collab.app_step_ref_bridge import subtask_semantic_ref
+
+        semantic = subtask_semantic_ref(subtask)
+    except Exception:  # pragma: no cover - bridge must never break outcome
+        semantic = str(subtask.get("semantic_ref") or "").strip()
+    if semantic:
+        candidates.add(semantic)
+    return candidates
+
+
+def find_plan_step_for_subtask(
+    subtask: dict[str, Any],
+    *,
+    plan_steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """Return the matching plan step using numeric + semantic ref aliases."""
+    if not plan_steps:
+        return None
+    candidates = _subtask_ref_candidates(subtask)
+    if not candidates:
+        return None
+    for idx, step in enumerate(plan_steps):
+        if not isinstance(step, dict):
+            continue
+        step_keys: set[str] = set()
+        step_ref = str(step.get("ref") or "").strip()
+        if step_ref:
+            step_keys.add(step_ref)
+        try:
+            from evoflow.collab.app_step_ref_bridge import plan_step_alias_refs
+
+            step_keys |= plan_step_alias_refs(step, idx)
+        except Exception:  # pragma: no cover
+            sem = str(step.get("semantic_ref") or "").strip()
+            if sem:
+                step_keys.add(sem)
+        if candidates & step_keys:
+            return step
+    return None
+
+
 def get_step_output_schema(
     subtask: dict[str, Any],
     *,
@@ -279,21 +339,20 @@ def get_step_output_schema(
 ) -> dict[str, Any] | None:
     """Look up the output_schema for a subtask's step from plan_steps.
 
-    Falls back to None if not found (legacy steps without schema).
+    Matches numeric ``ref`` and semantic aliases (``semantic_ref`` / plan
+    ``ref`` before normalize). Falls back to None if not found.
     """
     # Direct on subtask (if synced during dispatch)
     schema = subtask.get("output_schema")
     if isinstance(schema, dict) and schema:
         return schema
 
-    # Look up from plan_steps by ref
-    ref = str(subtask.get("ref") or "").strip()
-    if ref and plan_steps:
-        for step in plan_steps:
-            if isinstance(step, dict) and str(step.get("ref") or "").strip() == ref:
-                schema = step.get("output_schema")
-                if isinstance(schema, dict) and schema:
-                    return schema
+    step = find_plan_step_for_subtask(subtask, plan_steps=plan_steps)
+    if not step:
+        return None
+    schema = step.get("output_schema")
+    if isinstance(schema, dict) and schema:
+        return schema
     return None
 
 
@@ -302,4 +361,5 @@ __all__ = [
     "validate_against_schema",
     "process_step_output",
     "get_step_output_schema",
+    "find_plan_step_for_subtask",
 ]

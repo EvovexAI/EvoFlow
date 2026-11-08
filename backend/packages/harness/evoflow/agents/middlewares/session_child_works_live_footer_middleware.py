@@ -28,9 +28,10 @@ logger = logging.getLogger(__name__)
 _CHILD_WORKS_LIVE_NAME = "session_child_works_live"
 _KIND_LABEL = {
     "subagent": "subagent",
-    "collab_subtask": "workflow",
+    "collab_subtask": "workflow-node",
+    "workflow": "workflow",
     "duty": "employee",
-    "warm_bash": "shell",
+    "warm_bash": "session-shell",
 }
 
 

@@ -126,13 +126,47 @@ function Write-Utf8NoBomFile {
     [System.IO.File]::WriteAllText($LiteralPath, $Content, [System.Text.UTF8Encoding]::new($false))
 }
 
+function Get-EvopanelPackageVersion {
+    $pkgPath = Join-Path $RepoRoot "evopanel/package.json"
+    return ([string]((Get-Content -LiteralPath $pkgPath -Raw -Encoding UTF8 | ConvertFrom-Json).version)).Trim()
+}
+
 # Keep only NSIS artifacts for evopanel/package.json version; rewrite per-file .sha256 and SHA256SUMS.txt (avoids uploading old installers).
+# IMPORTANT: never delete an installer before we know the target-version installer exists.
+# A version bump that lands WHILE the (long) build is running used to make this function
+# delete the freshly built old-version exe and then fail with "No .exe/.msi for version X".
 function Sync-NsisReleaseArtifactsForEvopanelVersion {
+    param([string] $BuildStartVersion = "")
     $nsis = Join-Path $RepoRoot "evopanel/src-tauri/target/release/bundle/nsis"
     if (-not (Test-Path -LiteralPath $nsis)) { throw "NSIS output missing: $nsis" }
-    $pkgV = ([string]((Get-Content (Join-Path $RepoRoot "evopanel/package.json") -Raw -Encoding UTF8 | ConvertFrom-Json).version)).Trim()
+    $pkgV = Get-EvopanelPackageVersion
     if ($pkgV -notmatch '^\d+\.\d+\.\d+') { throw "Invalid package.json version: $pkgV" }
+    if ($BuildStartVersion -and $BuildStartVersion -ne $pkgV) {
+        throw @"
+[local-publish] Version changed DURING the build: started as $BuildStartVersion, evopanel/package.json is now $pkgV.
+The installer on disk was built as $BuildStartVersion. Nothing was deleted.
+Do not bump evopanel/VERSION / package.json (or switch branches) while a build is running.
+Re-run -BuildDesktopInstaller now that every version file says $pkgV.
+"@
+    }
     $verMark = '_' + [regex]::Escape($pkgV) + '_'
+
+    # Fail fast, before any destructive cleanup.
+    $files = @()
+    $files += Get-ChildItem -LiteralPath $nsis -Filter "*.exe" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $verMark }
+    $files += Get-ChildItem -LiteralPath $nsis -Filter "*.msi" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $verMark }
+    if ($files.Count -eq 0) {
+        $found = @(Get-ChildItem -LiteralPath $nsis -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe', '.msi' } | ForEach-Object { $_.Name })
+        $foundText = if ($found.Count -gt 0) { $found -join ', ' } else { '(none)' }
+        throw @"
+No .exe/.msi for version $pkgV under $nsis
+Installers found: $foundText
+Nothing was deleted. If the installer has an older version, the build started before the version bump
+(or version:sync did not run). Check evopanel/VERSION, run 'cd evopanel; npm run version:sync',
+then re-run -BuildDesktopInstaller.
+"@
+    }
+
     Get-ChildItem -LiteralPath $nsis -File -ErrorAction SilentlyContinue | Where-Object {
         ($_.Extension -in '.exe', '.msi') -and ($_.Name -notmatch $verMark)
     } | ForEach-Object {
@@ -143,10 +177,6 @@ function Sync-NsisReleaseArtifactsForEvopanelVersion {
         (($_.Name -replace '\.sha256$', '') -notmatch $verMark)
     } | ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
 
-    $files = @()
-    $files += Get-ChildItem -LiteralPath $nsis -Filter "*.exe" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $verMark }
-    $files += Get-ChildItem -LiteralPath $nsis -Filter "*.msi" -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match $verMark }
-    if ($files.Count -eq 0) { throw "No .exe/.msi for version $pkgV under $nsis" }
     $lines = @()
     foreach ($f in $files) {
         $h = (Get-FileHash -LiteralPath $f.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -160,6 +190,17 @@ function Sync-NsisReleaseArtifactsForEvopanelVersion {
 
 function Invoke-BuildDesktopInstaller {
     Write-Host "`n=== BuildDesktopInstaller (NSIS bundle, like release-windows-desktop.yml) ===" -ForegroundColor Cyan
+    # Pin the version BEFORE the build: Tauri reads it at build start, so a bump
+    # landing mid-build would otherwise produce an installer with the old number.
+    $buildStartVersion = Get-EvopanelPackageVersion
+    $versionFile = Join-Path $RepoRoot "evopanel/VERSION"
+    if (Test-Path -LiteralPath $versionFile) {
+        $versionFileV = ([string](Get-Content -LiteralPath $versionFile -Raw -Encoding UTF8)).Trim()
+        if ($versionFileV -and $versionFileV -ne $buildStartVersion) {
+            throw "Version mismatch before build: evopanel/VERSION=$versionFileV but package.json=$buildStartVersion. Run: cd evopanel; npm run version:sync"
+        }
+    }
+    Write-Host "[local-publish] Build version: $buildStartVersion (do not bump the version while this runs)" -ForegroundColor Cyan
     if (-not (Test-Cmd "npm")) { throw "npm not found" }
     if (-not (Test-Cmd "uv")) { throw "uv not found (backend PyInstaller needs it)" }
     $be = Join-Path $RepoRoot "backend"
@@ -202,7 +243,7 @@ Install once (e.g. cd evopanel && npm ci), or re-run with -InstallNpmDeps / set 
         if ($LASTEXITCODE -ne 0) { throw "npm run build:desktop:win failed" }
     } finally { Pop-Location }
 
-    Sync-NsisReleaseArtifactsForEvopanelVersion
+    Sync-NsisReleaseArtifactsForEvopanelVersion -BuildStartVersion $buildStartVersion
     $nsis = Join-Path $RepoRoot "evopanel/src-tauri/target/release/bundle/nsis"
     Write-Host "Artifacts:" -ForegroundColor Green
     Get-ChildItem -LiteralPath $nsis -File | ForEach-Object { Write-Host "  $($_.Name)" }

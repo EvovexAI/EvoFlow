@@ -1,16 +1,16 @@
 {
-  "version": "1.3.11",
-  "minAppVersion": "1.3.11",
+  "version": "1.3.12",
+  "minAppVersion": "1.3.12",
   "updateKind": "full",
   "assetKind": "installer",
-  "hash": "sha256:7db1781e160420e7cedbbffe4ca9b2ff4a533198c35b68b98bd0d502534d0296",
-  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.11/EvoFlow_1.3.11_x64-setup.exe",
-  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.11/EvoFlow_1.3.11_x64-setup.exe",
-  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.11/EvoFlow_1.3.11_x64-setup.exe",
-  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.11/EvoFlow_1.3.11_x64-setup.exe",
-  "size": 440077100,
-  "changelog": "**EvoFlow v1.3.11 — 用量按模块看得清，高分屏浏览器面板不再错位**",
-  "notes": "**EvoFlow v1.3.11 — 用量按模块看得清，高分屏浏览器面板不再错位**",
-  "releasedAt": "2026-11-08T13:32:46Z",
-  "pub_date": "2026-11-08T13:32:46Z"
+  "hash": "",
+  "url": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.12/EvoFlow_1.3.12_x64-setup.exe",
+  "urlCnMirror": "https://ghfast.top/https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.12/EvoFlow_1.3.12_x64-setup.exe",
+  "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.12/EvoFlow_1.3.12_x64-setup.exe",
+  "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.12/EvoFlow_1.3.12_x64-setup.exe",
+  "size": 0,
+  "changelog": "**EvoFlow v1.3.12 — 会话子任务看得见，百炼 Token Plan 可绑，工作流输出契约真正生效**\n\n对话里跑着的子任务 / 工作流 / 命令行会挂在会话上可点开看进度；设置套餐新增阿里云百炼 Token Plan；工作流节点的输出结构会真正写进派发提示，下游字段绑定不再空跑；运行图进度软爬升。无数据迁移，覆盖安装即可。",
+  "notes": "**EvoFlow v1.3.12 — 会话子任务看得见，百炼 Token Plan 可绑，工作流输出契约真正生效**\n\n对话里跑着的子任务 / 工作流 / 命令行会挂在会话上可点开看进度；设置套餐新增阿里云百炼 Token Plan；工作流节点的输出结构会真正写进派发提示，下游字段绑定不再空跑；运行图进度软爬升。无数据迁移，覆盖安装即可。",
+  "releasedAt": "",
+  "pub_date": ""
 }

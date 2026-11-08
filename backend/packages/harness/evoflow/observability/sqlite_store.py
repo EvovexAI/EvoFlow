@@ -15,7 +15,7 @@ from evoflow.observability.tables import ObservabilityTable
 logger = logging.getLogger(__name__)
 
 # Single migration script — bump ``PRAGMA user_version`` when changing schema.
-_SCHEMA_VERSION = 11
+_SCHEMA_VERSION = 12
 # Default 0 = store full request/response JSON (ops/debug). Positive byte cap via
 # ``EVOFLOW_OBS_STORED_MODEL_JSON_LIMIT`` only when disk pressure requires it.
 _STORED_MODEL_JSON_LIMIT = 0
@@ -233,6 +233,7 @@ CREATE TABLE IF NOT EXISTS {ObservabilityTable.TOOL_INVOCATIONS} (
     ended_at TEXT NOT NULL,
     duration_ms REAL NOT NULL,
     queue_wait_ms REAL,
+    timing_json TEXT,
     status TEXT NOT NULL,
     input_json TEXT,
     output_text TEXT,
@@ -358,6 +359,11 @@ def _upgrade_obs_schema(conn: sqlite3.Connection) -> None:
         cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.TOOL_INVOCATIONS})")}
         if "queue_wait_ms" not in cols:
             conn.execute(f"ALTER TABLE {ObservabilityTable.TOOL_INVOCATIONS} ADD COLUMN queue_wait_ms REAL")
+    if ver < 12:
+        # Bash (and other tools) path breakdown: warm/cold, dialect, exec_ms.
+        cols = {str(r[1]) for r in conn.execute(f"PRAGMA table_info({ObservabilityTable.TOOL_INVOCATIONS})")}
+        if "timing_json" not in cols:
+            conn.execute(f"ALTER TABLE {ObservabilityTable.TOOL_INVOCATIONS} ADD COLUMN timing_json TEXT")
     conn.execute(f"PRAGMA user_version = {_SCHEMA_VERSION}")
     conn.commit()
 
@@ -577,6 +583,7 @@ class ObservabilitySqliteStore:
         agent_code: str | None = None,
         position_code: str | None = None,
         queue_wait_ms: float | None = None,
+        timing: dict[str, Any] | None = None,
     ) -> None:
         tid = (thread_id or "").strip()
         if not tid:
@@ -592,6 +599,12 @@ class ObservabilitySqliteStore:
                 err_json = json.dumps(error_detail, ensure_ascii=False, default=str)
             except (TypeError, ValueError):
                 err_json = None
+        timing_json = None
+        if timing:
+            try:
+                timing_json = json.dumps(timing, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                timing_json = None
         with self._lock:
             conn = self._connection()
             conn.execute(
@@ -601,8 +614,8 @@ class ObservabilitySqliteStore:
                     started_at, ended_at, duration_ms, status,
                     input_json, output_text, collab_phase, invocation_source,
                     error_type, error_message, error_detail_json,
-                    agent_code, position_code, queue_wait_ms
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    agent_code, position_code, queue_wait_ms, timing_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     row_id,
@@ -624,6 +637,7 @@ class ObservabilitySqliteStore:
                     (agent_code or "").strip() or None,
                     (position_code or "").strip() or None,
                     float(queue_wait_ms) if queue_wait_ms is not None else None,
+                    timing_json,
                 ),
             )
             conn.commit()

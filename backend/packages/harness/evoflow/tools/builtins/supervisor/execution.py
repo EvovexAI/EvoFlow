@@ -906,14 +906,23 @@ def _build_subtask_enriched_prompt(
 
             # P0.5-2 + P0.5-5: Resolve input_bindings via shared build_core_prompt
             # for unified Debug/Production prompt assembly with unresolved binding detection.
+            # CRITICAL: production only cherry-picks the resolved-inputs block from
+            # build_core_prompt — it must ALSO inject format_output_schema_for_prompt
+            # or workers never see the structured-output contract (downstream
+            # {{steps.N.output.field}} then fails at the next hop).
             ref = str(subtask_row.get("ref") or "").strip()
-            if ref:
+            semantic_ref = str(subtask_row.get("semantic_ref") or "").strip()
+            if ref or semantic_ref:
                 params = task.get("run_parameters") or {}
                 if not isinstance(params, dict):
                     params = {}
                 matching_step = None
                 for ps in plan_steps or []:
-                    if str(ps.get("ref") or "").strip() == ref:
+                    if not isinstance(ps, dict):
+                        continue
+                    ps_ref = str(ps.get("ref") or "").strip()
+                    ps_sem = str(ps.get("semantic_ref") or "").strip()
+                    if (ref and ps_ref == ref) or (semantic_ref and (ps_ref == semantic_ref or ps_sem == semantic_ref)):
                         matching_step = ps
                         break
                 if matching_step and matching_step.get("input_bindings"):
@@ -944,6 +953,17 @@ def _build_subtask_enriched_prompt(
                         if not core_result.get("input_schema_valid", True):
                             subtask_row["_has_input_schema_errors"] = True
                             subtask_row["_input_schema_errors"] = [e["message"] for e in core_result.get("binding_errors", []) if e.get("code") == "TYPE_MISMATCH"]
+                if matching_step:
+                    from evoflow.collab.step_prompt_builder import format_output_schema_for_prompt
+
+                    schema_block = format_output_schema_for_prompt(matching_step.get("output_schema"))
+                    if schema_block:
+                        # Prefer early placement so the contract is not buried under
+                        # workspace-scan / self-check noise. Later inserts (peer /
+                        # checklist / mandate) may still push ahead — that is fine;
+                        # the contract must at least be present.
+                        extra_blocks.insert(0, schema_block)
+                        subtask_row["_has_output_schema_contract"] = True
     except Exception:
         logger.debug("extract plan context failed for subtask=%s", subtask_id, exc_info=True)
 

@@ -297,13 +297,21 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     # 责任人 = 运行时注入的 principal_id / proactive_agent_code（platform_tool 已绑 ambient）
     # 不是 session agent_id（agent:main:…）——那是频道标识，不是调用人身份
     invoker = resolve_invoker_stamp()
+    # Chat session that invoked platform — workflow run itself stays
+    # thread-unbound, but child_works icons need this origin for the bar.
+    origin_session_key = _arg_str(args, "session_key", "sessionKey") or ""
+    # Manual platform workflow.run → production (F-4). Explicit run_kind=debug
+    # only when the caller asks for it (debug panel / lab).
+    run_kind = _arg_str(args, "run_kind", "runKind") or None
     data = apps_admin.run_app(
         app_id,
         parameters=parameters,
+        run_kind=run_kind,
         raised_by=invoker.get("raised_by"),
         created_by=invoker.get("created_by"),
         principal_id=invoker.get("principal_id"),
         operator_label=invoker.get("operator_label"),
+        origin_session_key=origin_session_key or None,
     )
     run = data.get("run") if isinstance(data.get("run"), dict) else {}
     run_id = str(run.get("run_id") or data.get("run_id") or data.get("runId") or "")

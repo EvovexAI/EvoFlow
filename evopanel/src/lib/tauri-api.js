@@ -1257,6 +1257,17 @@ export function noteGatewayLiveness(ok) {
 
 /** Process-alive probe failures after ready can re-hold the latch (guardian path). */
 export function noteGatewayProcessDown() {
+  // Brief event-loop stalls make /health/liveness time out while WS chat still
+  // streams. Re-holding the warm latch then parks every new HTTP call for up to
+  // 90s → employee detail / settings show「gateway warming timeout」and feel frozen.
+  if (_backendReady === true && Date.now() < _engineReadyStickyUntil) {
+    try {
+      transportLog('noteGatewayProcessDown ignored (engineReady sticky)')
+    } catch {
+      /* ignore */
+    }
+    return
+  }
   noteLiveness(_warmLatch, false)
 }
 

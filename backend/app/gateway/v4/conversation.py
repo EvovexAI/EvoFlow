@@ -600,6 +600,55 @@ class V4ConversationHub:
             topic=topic,
             profile=_resolve_profile(client_mode),
         )
+
+        # Decide resume vs snapshot *before* heavy hydrate. Resume never needs DB.
+        resume_ok = False
+        if isinstance(base, dict):
+            base_epoch = str(base.get("logEpoch") or "")
+            base_seq = int(base.get("seq") or 0)
+            resume_ok = (
+                base_epoch == sess.log_epoch
+                and sess.delta_log_floor <= base_seq <= sess.seq
+                and (base_seq < sess.seq or not sess.delta_log)
+            )
+
+        # Cold hydrate OFF the event loop and OUTSIDE ``self._lock``.
+        # Sync hydrate under the asyncio lock froze Gateway for multi‑second windows
+        # on large transcripts (2026-11-08 formal package lockup: health/Feishu/UI
+        # all stuck while one subscribe hydrated 700+ rows).
+        hydrate_ms: float | None = None
+        hydrate_rows = 0
+        if not resume_ok and not sess.rows:
+            try:
+                from app.gateway.v4.hydration import hydrate_session_from_transcript
+
+                hydrate_started = time.perf_counter()
+                loaded = await asyncio.to_thread(
+                    hydrate_session_from_transcript, self, sess.session_id
+                )
+                hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
+                hydrate_rows = int(loaded or 0)
+                if loaded:
+                    logger.info(
+                        "[v4.hydration] resubscribe recovered history session=%s rows=%s",
+                        sess.session_id,
+                        loaded,
+                    )
+                else:
+                    logger.info(
+                        "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
+                        sess.session_id,
+                        hydrate_ms,
+                    )
+            except Exception:
+                logger.exception(
+                    "[v4.hydration] subscribe hydration failed session=%s",
+                    sess.session_id,
+                )
+        elif not resume_ok:
+            hydrate_ms = 0.0
+            hydrate_rows = len(sess.rows)
+
         async with self._lock:
             # 重订阅替换（对齐 zcode subscribeParams 注释：按 (connectionId, topic) 判定）。
             # 草稿预热 → pane 接管会对同一 (conn, topic) 二次订阅；旧订阅继续广播
@@ -614,18 +663,6 @@ class V4ConversationHub:
                     del self._subscriptions[existing_id]
             self._subscriptions[subscription_id] = sub
 
-            # hydrate_ms：冷会话服务端拉库耗时（resume 分支为 0——不读库）。
-            hydrate_ms: float | None = None
-            resume_ok = False
-            if isinstance(base, dict):
-                base_epoch = str(base.get("logEpoch") or "")
-                base_seq = int(base.get("seq") or 0)
-                # 水位不变量：base 在保留窗内才可 resume；否则全量 snapshot。
-                resume_ok = (
-                    base_epoch == sess.log_epoch
-                    and sess.delta_log_floor <= base_seq <= sess.seq
-                    and (base_seq < sess.seq or not sess.delta_log)
-                )
             if resume_ok:
                 base_seq = int(base.get("seq") or 0)  # type: ignore[union-attr]
                 replay = [d for (seq, d) in sess.delta_log if seq > base_seq]
@@ -654,44 +691,11 @@ class V4ConversationHub:
                         len(replay),
                     )
             else:
-                # 冷会话先 hydrate 历史（旧 transcript → v4 行），快照才不是空面板。
-                # 失败静默：缺历史只影响显示，不阻断订阅。
-                #
-                # 空会话必须允许「再次订阅时重试」：协作子任务面板常在步骤还在跑时
-                # 就订阅（transcript 尚未落库 → hydrate 拿到 0 行），若此后不再尝试，
-                # 面板会永久空白。hydrate 内部按 rows 判重，这里只需在仍为空时重试。
-                hydrate_rows = 0
-                if not sess.rows:
-                    try:
-                        from app.gateway.v4.hydration import hydrate_session_from_transcript
-
-                        hydrate_started = time.perf_counter()
-                        loaded = hydrate_session_from_transcript(self, sess.session_id)
-                        hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
-                        hydrate_rows = int(loaded or 0)
-                        if loaded:
-                            logger.info(
-                                "[v4.hydration] resubscribe recovered history session=%s rows=%s",
-                                sess.session_id,
-                                loaded,
-                            )
-                        else:
-                            logger.info(
-                                "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
-                                sess.session_id,
-                                hydrate_ms,
-                            )
-                    except Exception:
-                        logger.exception(
-                            "[v4.hydration] subscribe hydration failed session=%s",
-                            sess.session_id,
-                        )
-                else:
-                    hydrate_ms = 0.0
-                    hydrate_rows = len(sess.rows)
                 ack_mode = "snapshot"
+                # Re-read rows after off-thread hydrate (may have filled sess.rows).
+                if hydrate_rows <= 0:
+                    hydrate_rows = len(sess.rows)
                 self._enqueue_snapshot_locked(sub, sess, delivery_kind="initial")
-                # 冷会话 hydrate 是「点开会话慢」的头号嫌疑：把耗时回给前端分段日志。
                 if hydrate_ms is not None and hydrate_ms >= 500:
                     logger.warning(
                         "[v4.perf] subscribe hydration slow session=%s hydrate_ms=%.1f rows=%s",
@@ -699,6 +703,7 @@ class V4ConversationHub:
                         hydrate_ms,
                         hydrate_rows,
                     )
+
         # openTiming：服务端侧分段耗时（前端 openTrace 会据此归因「慢在服务端拉库」）。
         # sessionRuntimeState 只允许 cold/warm（协议枚举）：按是否已有历史行判冷热。
         open_timing: dict[str, Any] = {

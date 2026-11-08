@@ -235,6 +235,13 @@ def _public_task_dict(task: dict[str, Any], *, for_list: bool = False) -> dict[s
 
     # Live running text for workflow nodes (non-terminal subtasks only).
     _enrich_subtask_live_preview(out)
+    # Soft-creep progress while workers only stamp 10%→100% (response-only).
+    try:
+        from evoflow.collab.task_progress import enrich_task_soft_progress
+
+        enrich_task_soft_progress(out)
+    except Exception:
+        logger.debug("soft progress enrichment failed", exc_info=True)
 
     outputs = task_outputs_of(out)
     if outputs:

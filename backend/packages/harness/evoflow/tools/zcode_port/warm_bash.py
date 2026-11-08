@@ -107,26 +107,42 @@ _SESSIONS: dict[str, WarmBashSession] = {}
 _SESSIONS_LOCK = threading.Lock()
 
 
-def _mark_warm_bash_dropped(key: str) -> None:
-    """Best-effort registry complete — must run without ``_SESSIONS_LOCK`` held."""
+def _mark_warm_bash_child(key: str, *, status: str, title: str = "会话终端") -> None:
+    """Best-effort child_works update — must run without ``_SESSIONS_LOCK`` held."""
     try:
         from evoflow.persistence.session_runtime_repository import (
             KIND_WARM_BASH,
             safe_complete_child_work,
+            safe_register_child_work,
         )
 
         k = str(key or "").strip()
         if not k:
             return
+        st = str(status or "").strip().lower() or "completed"
+        if st == "running":
+            safe_register_child_work(
+                kind=KIND_WARM_BASH,
+                ref_id=k,
+                status="running",
+                thread_id=k,
+                parent_thread_id=k,
+                title=title,
+            )
+            return
         safe_complete_child_work(
             kind=KIND_WARM_BASH,
             ref_id=k,
-            status="dropped",
+            status=st,
             thread_id=k,
             parent_thread_id=k,
         )
     except Exception:
         pass
+
+
+def _mark_warm_bash_dropped(key: str) -> None:
+    _mark_warm_bash_child(key, status="dropped")
 
 
 def _drop_session(key: str, session: WarmBashSession | None = None) -> None:
@@ -220,23 +236,8 @@ def _spawn(
         _SESSIONS[key] = session
     if old is not None and old is not session:
         old.close(kill_tree=kill_tree)
-    # Registry write AFTER releasing _SESSIONS_LOCK (Lock is not reentrant).
-    try:
-        from evoflow.persistence.session_runtime_repository import (
-            KIND_WARM_BASH,
-            safe_register_child_work,
-        )
-
-        safe_register_child_work(
-            kind=KIND_WARM_BASH,
-            ref_id=str(key),
-            status="running",
-            thread_id=str(key),
-            parent_thread_id=str(key),
-            title="warm_bash",
-        )
-    except Exception:
-        pass
+    # Pool spawn alone must NOT pin a permanent spinning icon — running is
+    # stamped only while a command drains (see run_in_warm_bash).
     return session
 
 
@@ -339,6 +340,8 @@ def run_in_warm_bash(
         popen_kwargs=popen_kwargs,
         kill_tree=kill_tree,
     )
+    # Icon bar: spin only while this command is draining; pool may stay warm.
+    _mark_warm_bash_child(key, status="running")
     nonce = uuid.uuid4().hex[:12]
     script = _build_script(command, posix_cwd=posix_cwd, nonce=nonce)
     assert session.proc.stdin is not None
@@ -353,6 +356,7 @@ def run_in_warm_bash(
 
     output, code, timed_out = drain_until_marker(session, nonce=nonce, timeout_s=timeout_s)
     if not timed_out and code is not None:
+        _mark_warm_bash_child(key, status="completed")
         return WarmRunResult(
             stdout=output,
             exit_code=code,

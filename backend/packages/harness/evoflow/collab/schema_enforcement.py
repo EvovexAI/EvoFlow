@@ -10,7 +10,7 @@ against its declared ``output_schema``.
   dependents are not dispatched.
 - ``warn``    – Schema validation failure is recorded (``schema_valid=False``,
   ``schema_errors`` populated) but the subtask still completes. Downstream
-  steps proceed. (Default for backward compat.)
+  steps proceed (and often fail later on ``{{steps.N.output.field}}``).
 - ``ignore``  – No schema validation is performed at all.
 
 ## Policy resolution
@@ -19,7 +19,7 @@ The policy is read from (in priority order):
 
 1. The step's own ``schema_enforcement`` field (per-step override).
 2. The App document's ``schema_enforcement`` field (app-level default).
-3. ``"warn"`` (system default).
+3. ``"strict"`` (system default) — fail at the declaring step, not downstream.
 
 ## Integration point
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 SchemaPolicy = Literal["strict", "warn", "ignore"]
 
 _VALID_POLICIES = frozenset({"strict", "warn", "ignore"})
-_DEFAULT_POLICY: SchemaPolicy = "warn"
+_DEFAULT_POLICY: SchemaPolicy = "strict"
 
 
 def resolve_schema_policy(
@@ -50,7 +50,7 @@ def resolve_schema_policy(
 ) -> SchemaPolicy:
     """Resolve the effective schema enforcement policy.
 
-    Priority: step.schema_enforcement > app_def.schema_enforcement > "warn".
+    Priority: step.schema_enforcement > app_def.schema_enforcement > "strict".
 
     Args:
         step: The plan step dict (may carry ``schema_enforcement``).

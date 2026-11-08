@@ -12,9 +12,10 @@ import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 
 const KIND_LABEL: Record<string, string> = {
   subagent: '子代理',
+  workflow: '工作流',
   collab_subtask: '工作流节点',
   duty: '员工任务',
-  warm_bash: '终端',
+  warm_bash: '会话终端',
 }
 
 function statusLabel(status: string): string {
@@ -34,6 +35,17 @@ function openDetail(work: SessionChildWorkItem, sessionKey: string) {
   const kind = String(work.kind || '').trim()
   const ref = String(work.refId || '').trim()
   const title = String(work.title || KIND_LABEL[kind] || kind || '运行').trim()
+
+  if (kind === 'workflow') {
+    const taskId = String(work.extra?.task_id || '').trim()
+    if (taskId) {
+      openCollabWorkflowInRightStage(
+        { mainTaskId: taskId, leadThreadId: '', title: title || '工作流' },
+        { sessionKey, forceExpand: true },
+      )
+      return
+    }
+  }
 
   if (kind === 'collab_subtask' && ref.includes(':')) {
     const [mainTaskId, subtaskId] = ref.split(':', 2)
@@ -91,18 +103,26 @@ function openDetail(work: SessionChildWorkItem, sessionKey: string) {
   }
 
   if (kind === 'warm_bash') {
+    // Registry ref is the warm-pool key (usually lead thread_id), NOT a bash
+    // tool_call_id — opening Terminal with that id yields an empty panel.
+    // Mark warmBash so the renderer binds the latest live Bash stream instead.
     rightStageStore.show({
       kind: 'terminal',
       id: `warm-bash:${ref || work.threadId || 'shell'}`,
-      title: 'Warm Bash',
+      title: '会话终端',
       layout: 'half',
       sessionKey,
       forceExpand: true,
       data: {
         sessionKey,
-        toolCallId: ref,
-        command: 'warm bash session',
+        warmBash: true,
+        warmBashKey: ref || work.threadId || '',
+        command: '',
         running: isChildWorkActive(work.status),
+        outputFallback:
+          '会话终端是保活 shell：命令跑完进程还在，下一条会复用。\n' +
+          '这里跟本会话最新的 Bash 实时输出；若暂时没有，请看对话里的 Bash 工具卡。\n' +
+          `状态：${String(work.status || '—')}`,
       },
     })
   }
@@ -187,7 +207,10 @@ export function V4SessionRuntimePane(props: {
                   />
                   <span className="react-chat-session-runtime-pane__row-body">
                     <span className="react-chat-session-runtime-pane__row-title">
-                      {String(w.title || KIND_LABEL[kind] || kind)}
+                      {kind === 'warm_bash' ||
+                      String(w.title || '').trim().toLowerCase() === 'warm_bash'
+                        ? KIND_LABEL.warm_bash
+                        : String(w.title || KIND_LABEL[kind] || kind)}
                     </span>
                     <span className="react-chat-session-runtime-pane__row-sub">
                       {KIND_LABEL[kind] || kind}

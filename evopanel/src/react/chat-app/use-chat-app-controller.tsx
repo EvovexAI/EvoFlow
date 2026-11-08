@@ -5264,6 +5264,7 @@ export function useChatAppController() {
         setRoleUiNonce,
         sharedCollabSubtasks,
         sidebarActiveView,
+        threadPanelState,
         turnArtifacts,
         turnPlatformEntries,
       },

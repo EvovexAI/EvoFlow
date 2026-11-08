@@ -68,6 +68,7 @@ export type SessionChildWorkItem = {
   startedAt?: string | null
   updatedAt?: string | null
   endedAt?: string | null
+  extra?: Record<string, unknown> | null
 }
 
 export type RuntimeStatusResponse = {

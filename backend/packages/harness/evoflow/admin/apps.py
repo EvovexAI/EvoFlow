@@ -150,11 +150,19 @@ def run_app(
     parameters: dict[str, Any] | None = None,
     execution_mode: str | None = None,
     thread_id: str | None = None,
+    run_kind: str | None = None,
+    trigger_kind: str | None = None,
     raised_by: str | None = None,
     created_by: str | None = None,
     principal_id: str | None = None,
     operator_label: str | None = None,
+    origin_session_key: str | None = None,
 ) -> dict[str, Any]:
+    """Start an app run (platform ``workflow.run`` / CLI ``workflow run``).
+
+    Manual/default runs are **production** (F-4). Pass ``run_kind="debug"`` only
+    for explicit debug-panel / dry-lab launches — do not hardcode debug here.
+    """
     aid = str(app_id or "").strip()
     if not aid:
         raise ValidationError("appId is required")
@@ -168,12 +176,14 @@ def run_app(
             parameters=str_params,
             execution_mode=execution_mode,
             thread_id=thread_id,
-            run_kind="debug",
-            trigger_kind="manual",
+            # Align with HTTP POST /api/apps/{id}/run (manual → production).
+            run_kind=run_kind or "production",
+            trigger_kind=trigger_kind or "manual",
             raised_by=raised_by,
             created_by=created_by,
             principal_id=principal_id,
             operator_label=operator_label,
+            origin_session_key=origin_session_key,
         )
     except ValueError as exc:
         raise ValidationError(str(exc)) from exc

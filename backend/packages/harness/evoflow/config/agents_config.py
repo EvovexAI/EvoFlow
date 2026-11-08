@@ -908,7 +908,7 @@ def sync_skills_then_merge_baseline_for_lead_family() -> None:
     try:
         from evoflow.persistence.bootstrap import sync_skills_from_filesystem
 
-        sync_skills_from_filesystem()
+        sync_skills_from_filesystem(force=True)
     except Exception:
         logger.warning("sync_skills_then_merge_baseline: filesystem sync failed", exc_info=True)
     merge_baseline_skills_for_lead_family()

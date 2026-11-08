@@ -177,6 +177,28 @@ def _coerce_args_json(args_json: Any) -> str:
     return str(args_json)
 
 
+def _note_platform_timing(tool_call_id: str, **fields: object) -> None:
+    """Attach per-action timing for observability (which platform ops are slow)."""
+    if not tool_call_id:
+        return
+    try:
+        from evoflow.observability.tool_timing import note_tool_exec_detail
+
+        note_tool_exec_detail(tool_call_id, {"kind": "platform", **fields})
+        exec_ms = float(fields.get("exec_ms") or 0)
+        if exec_ms >= 1500:
+            logger.info(
+                "platform slow action=%s domain=%s risk=%s exec_ms=%.0f ok=%s",
+                fields.get("action"),
+                fields.get("domain"),
+                fields.get("risk"),
+                exec_ms,
+                fields.get("ok"),
+            )
+    except Exception:
+        return
+
+
 @tool("platform", description=_PLATFORM_TOOL_DESCRIPTION, parse_docstring=False)
 def platform_tool(
     action: str,
@@ -187,13 +209,20 @@ def platform_tool(
     confirm: bool = False,
 ) -> str:
     """Platform admin dispatch (policy in tool description)."""
+    import time
+
     from evoflow.admin.platform_actions import dispatch_platform_action
 
+    act = str(action or "").strip()
+    dom = str(domain or "").strip()
+    if not dom and "." in act:
+        dom = act.split(".", 1)[0]
+    t0 = time.perf_counter()
     try:
         _bind_runtime_identity(runtime)
         sk, tid = _session_from_runtime(runtime)
         data = dispatch_platform_action(
-            action,
+            act,
             args_json=_coerce_args_json(args_json),
             domain=domain or None,
             confirm=bool(confirm),
@@ -201,15 +230,42 @@ def platform_tool(
             session_key=sk,
             thread_id=tid,
         )
+        exec_ms = round((time.perf_counter() - t0) * 1000.0, 2)
+        risk = ""
+        ok = None
+        if isinstance(data, dict):
+            risk = str(data.get("risk") or "")
+            ok = data.get("ok")
+            if not risk and data.get("pending_confirm"):
+                risk = "write"
+        _note_platform_timing(
+            tool_call_id,
+            action=act,
+            domain=dom or None,
+            risk=risk or None,
+            confirm=bool(confirm),
+            exec_ms=exec_ms,
+            ok=ok,
+            pending_confirm=bool(isinstance(data, dict) and data.get("pending_confirm")),
+        )
         payload = _json(data)
         # 生图成片自动进下一轮上下文（viewed_images auto 条目，对齐截图管线）；
         # 无视觉主模型 / text 路由 / 无本地文件时原样返回文本。
-        staged = _stage_media_result_images(action, data, runtime)
+        staged = _stage_media_result_images(act, data, runtime)
         if staged:
             from evoflow.agents.image_staging import command_with_staged_images
 
             return command_with_staged_images(payload, tool_call_id, staged)
         return payload
     except Exception as exc:
+        _note_platform_timing(
+            tool_call_id,
+            action=act,
+            domain=dom or None,
+            confirm=bool(confirm),
+            exec_ms=round((time.perf_counter() - t0) * 1000.0, 2),
+            ok=False,
+            error=type(exc).__name__,
+        )
         logger.exception("platform tool failed action=%s", action)
         return _json({"ok": False, "error": str(exc), "action": action})

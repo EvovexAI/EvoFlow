@@ -161,6 +161,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/maintainer/windows/p
 
 - [ ] `evopanel/VERSION` == 目标版本（不是只改了 package.json）
 - [ ] 跑过 `npm run version:set -- x.y.z`（或确认 sync 后各处一致）
+- [ ] 本地打安装包进行中**不要升版本号 / 切分支**：Tauri 在构建启动时读版本，中途改号会打出旧版安装包，且 `local-publish.ps1` 收尾按当前 `package.json` 校验，编号对不上就会失败
 - [ ] `CHANGELOG.md` 有本版完整条目
 - [ ] 四字段齐备（见 2.1）：开发负责人 / 修复内容 / 发版角色 / 推送执行人
 - [ ] 存在 `PRODUCT-NOTES-x.y.z.md`（否则 Release 正文几乎只有页脚）

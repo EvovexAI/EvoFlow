@@ -12,9 +12,13 @@ import { normalizeSubtaskResultForDisplay } from './subtask-result-display.js'
 const GENERIC_WAIT_RE =
   /^(已派发[，,]?等待|等待.*输出|（已启动[，,]?等待|Subagent executing|Progress \d+%)/i
 
+/** Dispatch-time current_step — not live activity; progress%% can still move. */
+const FROZEN_DISPATCH_STEPS = new Set(['子任务已派发', '已派发'])
+
 export function isGenericSubtaskWaitHint(text: string): boolean {
   const t = String(text || '').trim()
   if (!t) return false
+  if (FROZEN_DISPATCH_STEPS.has(t)) return true
   if (GENERIC_WAIT_RE.test(t)) return true
   if (/await done/i.test(t)) return true
   return false

@@ -71,11 +71,12 @@ function compactCommand(raw: string, max = 72): string {
 
 function subagentState(t: SubagentStreamTask): ProcessState {
   const phase = String(t?.phase || '').trim().toLowerCase()
-  if (phase === 'running') return 'running'
-  if (phase === 'failed' || phase === 'timed_out') return 'failed'
-  if (phase === 'cancelled') return 'cancelled'
-  if (phase === 'completed') return 'completed'
-  return 'running'
+  if (phase === 'running' || phase === 'pending' || phase === 'queued') return 'running'
+  if (phase === 'failed' || phase === 'timed_out' || phase === 'error') return 'failed'
+  if (phase === 'cancelled' || phase === 'canceled' || phase === 'dropped') return 'cancelled'
+  if (phase === 'completed' || phase === 'done' || phase === 'success') return 'completed'
+  // 未知/空 phase：宁可不转圈（终态缺口另查），避免幽灵 running 占满进程 tab
+  return 'completed'
 }
 
 function workflowState(status: string | undefined): ProcessState {
@@ -105,9 +106,19 @@ function mergeById(items: ProcessItem[]): ProcessItem[] {
       byId.set(it.id, it)
       continue
     }
-    // running 优先于终态：流式还没落终态时不要被快照盖成已完成
-    const keepNew = prev.state !== 'running' && it.state === 'running'
-    byId.set(it.id, keepNew ? { ...it, label: it.label || prev.label } : prev)
+    // 终态盖过 running（API/落库已结束时别被旧流式 running 锁死）；
+    // 仅当旧行已是终态、新行才变 running 时才覆盖（流式刚启动）。
+    const prevTerminal = prev.state !== 'running' && prev.state !== 'pending'
+    const nextRunning = it.state === 'running' || it.state === 'pending'
+    if (prevTerminal && nextRunning) {
+      byId.set(it.id, { ...it, label: it.label || prev.label })
+      continue
+    }
+    if (!prevTerminal && (it.state !== 'running' && it.state !== 'pending')) {
+      byId.set(it.id, { ...it, label: it.label || prev.label })
+      continue
+    }
+    byId.set(it.id, prev)
   }
   return [...byId.values()]
 }

@@ -1069,12 +1069,14 @@ function adoptEmployeePage(oldPage, nextPage) {
  * 右栏 shell-page 挂载员工详情（不改 hash，与菜单同款页面模块）。
  * @returns {{ destroy: () => void, title?: string }}
  */
-export async function mountEmployeePageInto(container, { code, onClose } = {}) {
+export async function mountEmployeePageInto(container, { code, onClose, onTitle } = {}) {
   const host = container
   const agentCode = String(code || '').trim()
   if (!host || !agentCode) return { destroy: () => {} }
-  // Right-stage mount is outside router timeout — wait for title/content.
-  const page = await renderEmployeePage(agentCode, { waitForFill: true })
+  // Shell first — same as router path. waitForFill:true used to block the right
+  // stage for up to 90s on gateway warming timeout while chat still streamed,
+  // which felt like a full UI freeze /「死机」.
+  const page = await renderEmployeePage(agentCode, { waitForFill: false })
   page.classList.add('shell-page-embed')
   const back = page.querySelector('[data-act="back"]')
   if (back) {
@@ -1087,10 +1089,20 @@ export async function mountEmployeePageInto(container, { code, onClose } = {}) {
     })
   }
   host.replaceChildren(page)
-  const title = String(page.dataset.shellPageTitle || '').trim()
+  const fill = page._fillPromise
+  if (fill && typeof fill.then === 'function') {
+    void fill
+      .then(() => {
+        if (page._fillAborted) return
+        const nice = String(page.dataset.shellPageTitle || '').trim()
+        if (nice && typeof onTitle === 'function') onTitle(nice)
+      })
+      .catch(() => {})
+  }
   return {
-    title: title || undefined,
+    title: undefined,
     destroy: () => {
+      page._fillAborted = true
       try {
         page.remove()
       } catch {
@@ -1280,11 +1292,17 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     }
   } catch (e) {
     if (page._fillAborted) return
+    const raw = String(e?.message || e || '')
+    const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
+    const tip = warming
+      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开员工详情。'
+      : ''
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
       </div>
-      <div class="pro-error">加载失败: ${esc(String(e?.message || e))}</div>
+      <div class="pro-error">加载失败: ${esc(raw)}</div>
+      ${tip ? `<div class="pro-muted" style="padding:8px 12px">${esc(tip)}</div>` : ''}
     `
     page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
   }

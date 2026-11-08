@@ -904,12 +904,13 @@ def run_app_workflow(
     *,
     app: dict[str, Any] | None = None,
     app_version: int | None = None,
-    run_kind: str = "debug",
+    run_kind: str = "production",
     trigger_kind: str = "manual",
     raised_by: str | None = None,
     created_by: str | None = None,
     principal_id: str | None = None,
     operator_label: str | None = None,
+    origin_session_key: str | None = None,
 ) -> dict[str, Any]:
     """Run an application in pure workflow mode (no lead agent, DAG auto-execution).
 
@@ -924,8 +925,10 @@ def run_app_workflow(
         app: Optional preloaded definition (e.g. pinned revision snapshot).
         app_version: Optional pin; used with :func:`load_app_for_run` when ``app`` omitted.
         run_kind: ``debug`` | ``production`` | ``scheduled`` (Task Center标签).
+            Default ``production`` (F-4: manual/default runs are production).
         trigger_kind: How the run was started (``manual`` | ``api`` | ``schedule`` …).
         raised_by / created_by / principal_id / operator_label: invoker stamp for「责任人」.
+        origin_session_key: Invoking chat session for UI child_works only.
 
     Returns:
         Run metadata + task center bindings
@@ -986,6 +989,12 @@ def run_app_workflow(
     # authorize -> dispatch -> follow-up waves without a lead agent.
     task_data["run_mode"] = "unattended"
 
+    # Invoking chat only — never a LangGraph thread bind. Powers the session
+    # child-works icon bar while the run stays observability-isolated.
+    origin_sk = str(origin_session_key or "").strip()
+    if origin_sk:
+        task_data["origin_session_key"] = origin_sk
+
     # One working directory shared by every step of this run. Without it a
     # subtask has no cwd anchor and each worker picks its own base -- observed:
     # step 1 wrote <repo>/outputs/task1.md while steps 2-4 wrote under
@@ -1024,7 +1033,7 @@ def run_app_workflow(
         "final_rollup_agent": str(app.get("final_rollup_agent") or ""),
         "final_rollup_instruction": str(app.get("final_rollup_instruction") or ""),
         "answer_from_ref": str(app.get("answer_from_ref") or ""),
-        "schema_enforcement": str(app.get("schema_enforcement") or "warn"),
+        "schema_enforcement": str(app.get("schema_enforcement") or "strict"),
     }
 
     # Stamp rollup mode onto the task so downstream rollup logic can read it
@@ -1151,6 +1160,34 @@ def run_app_workflow(
     )
     app_repositories.increment_app_usage(app_id)
 
+    if origin_sk:
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                KIND_WORKFLOW,
+                safe_register_child_work,
+            )
+
+            safe_register_child_work(
+                session_key=origin_sk,
+                kind=KIND_WORKFLOW,
+                ref_id=run_id,
+                status="running",
+                title=app_name or "工作流",
+                extra={
+                    "task_id": task_id,
+                    "app_id": app_id,
+                    "run_id": run_id,
+                    "app_name": app_name,
+                },
+            )
+        except Exception:
+            logger.debug(
+                "workflow child-work register skipped run_id=%s session=%s",
+                run_id,
+                origin_sk,
+                exc_info=True,
+            )
+
     return {
         "run_id": run_id,
         "task_id": task_id,
@@ -1160,6 +1197,7 @@ def run_app_workflow(
         "plan": plan_input,
         "subtasks_sync": sync_result,
         "auto_authorized": auto_authorize,
+        "origin_session_key": origin_sk or None,
     }
 
 
@@ -1181,6 +1219,7 @@ def run_app(
     principal_id: str | None = None,
     operator_label: str | None = None,
     defer_dispatch: bool = False,
+    origin_session_key: str | None = None,
 ) -> dict[str, Any]:
     """Unified entry point for running an application.
 
@@ -1197,6 +1236,8 @@ def run_app(
         defer_dispatch: workflow mode only — skip wave-1 dispatch here and stash
             ``deferred_dispatch_authorized_by`` on the result; the async caller
             then awaits :func:`apply_workflow_dispatch_async` on its own loop (E-5).
+        origin_session_key: Invoking chat session (for child_works icons only;
+            does **not** bind the workflow task to that thread).
 
     Returns:
         Run result dict with run_id, task_id, status, etc.
@@ -1248,6 +1289,7 @@ def run_app(
             created_by=created_by,
             principal_id=principal_id,
             operator_label=operator_label,
+            origin_session_key=origin_session_key,
         )
         auth = str(trigger or "manual").strip().lower() or "api"
         if auth in {"manual", "schedule", "scheduled", "cron"}:

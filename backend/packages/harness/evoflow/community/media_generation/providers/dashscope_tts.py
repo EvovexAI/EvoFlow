@@ -7,7 +7,7 @@ import os
 
 import httpx
 
-from evoflow.community.media_generation.config_helpers import dashscope_api_key
+from evoflow.community.media_generation.config_helpers import dashscope_api_key, dashscope_base_url
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ _LEGACY_VOICE_MAP = {
 
 
 def _base_url() -> str:
-    return os.getenv("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/api/v1").rstrip("/")
+    return dashscope_base_url().rstrip("/")
 
 
 def _resolve_model(model: str | None) -> str:

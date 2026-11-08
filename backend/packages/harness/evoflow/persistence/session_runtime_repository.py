@@ -26,6 +26,7 @@ logger = logging.getLogger(__name__)
 
 KIND_SUBAGENT = "subagent"
 KIND_COLLAB_SUBTASK = "collab_subtask"
+KIND_WORKFLOW = "workflow"
 KIND_DUTY = "duty"
 KIND_WARM_BASH = "warm_bash"
 
@@ -571,6 +572,7 @@ def child_works_for_execution_state(session_key: str) -> list[dict[str, Any]]:
         if not wid or wid in seen:
             continue
         seen.add(wid)
+        extra = item.get("extra") if isinstance(item.get("extra"), dict) else {}
         out.append(
             {
                 "workId": wid,
@@ -583,6 +585,7 @@ def child_works_for_execution_state(session_key: str) -> list[dict[str, Any]]:
                 "startedAt": item.get("started_at"),
                 "updatedAt": item.get("updated_at"),
                 "endedAt": item.get("ended_at"),
+                "extra": extra,
             }
         )
         if len(out) >= 40:

@@ -841,6 +841,20 @@ def sync_subtasks_from_plan_steps(
             if project_path and str(prev.get("project_path") or "").strip() != project_path:
                 prev["project_path"] = project_path
                 changed = True
+            # Keep structured I/O contracts on the row so outcome lookup does not
+            # depend solely on plan_steps_json / semantic-ref bridging.
+            step_os = step.get("output_schema")
+            if isinstance(step_os, dict) and step_os and prev.get("output_schema") != step_os:
+                prev["output_schema"] = step_os
+                changed = True
+            step_is = step.get("input_schema")
+            if isinstance(step_is, dict) and step_is and prev.get("input_schema") != step_is:
+                prev["input_schema"] = step_is
+                changed = True
+            step_ib = step.get("input_bindings")
+            if isinstance(step_ib, dict) and step_ib and prev.get("input_bindings") != step_ib:
+                prev["input_bindings"] = step_ib
+                changed = True
             if changed:
                 prev["updated_at"] = now
                 result["updated"].append(
@@ -882,6 +896,15 @@ def sync_subtasks_from_plan_steps(
             row_data["work_checklist"] = work_checklist
         if project_path:
             row_data["project_path"] = project_path
+        step_os = step.get("output_schema")
+        if isinstance(step_os, dict) and step_os:
+            row_data["output_schema"] = step_os
+        step_is = step.get("input_schema")
+        if isinstance(step_is, dict) and step_is:
+            row_data["input_schema"] = step_is
+        step_ib = step.get("input_bindings")
+        if isinstance(step_ib, dict) and step_ib:
+            row_data["input_bindings"] = step_ib
         # F-1 deterministic nodes: stamp executor/template so the wave runner
         # executes them inline instead of delegating an LLM worker.
         if str(step.get("executor") or "").strip().lower() == "template":

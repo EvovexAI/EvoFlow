@@ -2,6 +2,7 @@ import { memo, useMemo } from 'react'
 import type { AgentInfo, CollabSubtaskSnapshot, CollabTaskSnapshot, SubagentStreamTaskMap, SubtaskTranscriptModalPayload } from '../chat-types.js'
 import { formatPlanTaskStatusLabel } from '../../lib/plan-task-status.js'
 import { taskStatusBadgeClass } from '../../lib/task-status-label.js'
+import { useSoftProgressDisplay } from '../hooks/useSoftProgressDisplay.js'
 import { CollabWorkflowCanvas } from './CollabWorkflowCanvas.js'
 
 export interface CollabExecutionPanelProps {
@@ -150,12 +151,24 @@ function CollabExecutionPanelInner({
     return name || '任务执行'
   }, [persistedMainTask?.name, collabTask?.name])
 
-  const panelProgress = useMemo(() => persistedProgress(persistedMainTask), [persistedMainTask])
+  const storedPanelProgress = useMemo(
+    () => persistedProgress(persistedMainTask),
+    [persistedMainTask],
+  )
 
   const isRunning = useMemo(() => {
     const s = normalizeTaskStatus(persistedMainTask?.status)
     return s === 'in_progress' || s === 'running' || s === 'executing' || s === 'active'
   }, [persistedMainTask?.status])
+
+  const panelProgress = useSoftProgressDisplay(
+    String(persistedMainTask?.taskId || mainTaskId || ''),
+    persistedMainTask?.status,
+    storedPanelProgress,
+    (persistedMainTask as { startedAt?: string; started_at?: string } | null)?.startedAt ||
+      (persistedMainTask as { started_at?: string } | null)?.started_at ||
+      null,
+  )
 
   /** 节点统计：总数 / 运行中 / 已完成 —— 让顶栏一眼看出「跑到哪了」 */
   const stepStats = useMemo(() => {

@@ -134,11 +134,12 @@ def build_core_prompt(
             )
             binding_errors = [e.to_dict() for e in structured_errors]
 
-        # P0.5-3: Validate resolved bindings against input_schema (type contract)
+        # P0.5-3: Coerce then validate resolved bindings against input_schema
         input_schema = step.get("input_schema")
         type_errors: list[str] = []
         input_schema_valid = True
         if isinstance(input_schema, dict) and input_schema:
+            _coerce_resolved_to_input_schema(resolved, input_schema)
             type_errors = _validate_input_types(resolved, input_schema)
             if type_errors:
                 input_schema_valid = False
@@ -207,6 +208,12 @@ def build_core_prompt(
         if val:
             parts.append(f"\n**{label}**: {val}")
 
+    # 5. Structured output contract — without this, workers emit prose only and
+    # downstream ``{{steps.X.output.field}}`` bindings stay unresolved.
+    schema_block = format_output_schema_for_prompt(step.get("output_schema"))
+    if schema_block:
+        parts.append(f"\n{schema_block}")
+
     prompt = "\n".join(parts)
 
     return {
@@ -265,6 +272,115 @@ def _format_upstream_context(
     return "\n".join(lines)
 
 
+def _unwrap_schema_properties(input_schema: dict[str, Any]) -> dict[str, Any]:
+    if isinstance(input_schema.get("properties"), dict):
+        return input_schema["properties"]
+    return input_schema
+
+
+def _coerce_scalar_to_schema_type(value: Any, expected_type: str) -> Any:
+    """Best-effort coerce wire strings (params are always str) into schema types."""
+    if expected_type == "integer":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, int):
+            return value
+        if isinstance(value, float) and value.is_integer():
+            return int(value)
+        if isinstance(value, str) and value.strip():
+            try:
+                return int(value.strip())
+            except ValueError:
+                return value
+    elif expected_type == "number":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, (int, float)):
+            return value
+        if isinstance(value, str) and value.strip():
+            try:
+                num = float(value.strip())
+                return int(num) if num.is_integer() else num
+            except ValueError:
+                return value
+    elif expected_type == "boolean":
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            low = value.strip().lower()
+            if low in {"true", "1", "yes", "y"}:
+                return True
+            if low in {"false", "0", "no", "n"}:
+                return False
+    return value
+
+
+def _coerce_resolved_to_input_schema(
+    resolved: dict[str, Any],
+    input_schema: dict[str, Any],
+) -> None:
+    """Mutate ``resolved`` so string params match declared input_schema types."""
+    props = _unwrap_schema_properties(input_schema)
+    _expr_re = __import__("re").compile(r"\{\{(.+?)\}\}")
+    for key, value in list(resolved.items()):
+        if isinstance(value, str) and _expr_re.search(value):
+            continue
+        schema_entry = props.get(key)
+        if not isinstance(schema_entry, dict):
+            continue
+        expected_type = str(schema_entry.get("type") or "").strip().lower()
+        if expected_type not in {"integer", "number", "boolean"}:
+            continue
+        resolved[key] = _coerce_scalar_to_schema_type(value, expected_type)
+
+
+def format_output_schema_for_prompt(output_schema: Any) -> str:
+    """Tell the worker exactly which JSON to return for downstream bindings.
+
+    Used by both ``build_core_prompt`` (debug) and production
+    ``_build_subtask_enriched_prompt`` — the latter must call this directly
+    because it only cherry-picks resolved inputs from ``build_core_prompt``
+    and would otherwise drop the contract block.
+    """
+    if not isinstance(output_schema, dict) or not output_schema:
+        return ""
+    import json
+
+    props = output_schema.get("properties") if isinstance(output_schema.get("properties"), dict) else {}
+    required = output_schema.get("required") if isinstance(output_schema.get("required"), list) else []
+    lines = [
+        "## 结构化产出契约（output_schema）",
+        "本步骤必须产出符合下列 JSON Schema 的结构化结果，供下游 `{{steps.<ref>.output.<field>}}` 绑定使用。",
+        "完成时请二选一（优先 1）：",
+        "1. 调用 `done` 时传入 `structured_output=<完整 JSON 对象>`（必含全部必填字段）；或",
+        "2. 在 `done.summary` 末尾附加一个 JSON 对象（可放在 ```json 代码块中）。",
+        "仅写散文、不写 JSON → 本步会被判定未交付结构化产出，下游绑定失败。",
+    ]
+    try:
+        schema_text = json.dumps(output_schema, ensure_ascii=False, indent=2)
+    except (TypeError, ValueError):
+        schema_text = str(output_schema)
+    lines.append("```json")
+    lines.append(schema_text)
+    lines.append("```")
+    if props:
+        field_bits = []
+        for name, spec in props.items():
+            typ = ""
+            if isinstance(spec, dict):
+                typ = str(spec.get("type") or "").strip()
+            req = "必填" if name in {str(x) for x in required} else "可选"
+            field_bits.append(f"- `{name}` ({typ or 'any'}, {req})")
+        if field_bits:
+            lines.append("字段一览：")
+            lines.extend(field_bits)
+    return "\n".join(lines)
+
+
+# Back-compat alias for private-name call sites / tests.
+_format_output_schema_for_prompt = format_output_schema_for_prompt
+
+
 def _validate_input_types(
     resolved: dict[str, Any],
     input_schema: dict[str, Any],
@@ -300,9 +416,7 @@ def _validate_input_types(
     errors: list[str] = []
     _expr_re = __import__("re").compile(r"\{\{(.+?)\}\}")
 
-    # Unwrap JSON Schema {type: "object", properties: {...}} to flat dict
-    if isinstance(input_schema.get("properties"), dict):
-        input_schema = input_schema["properties"]
+    input_schema = _unwrap_schema_properties(input_schema)
 
     type_map = {
         "string": str,
@@ -343,4 +457,5 @@ def _validate_input_types(
 
 __all__ = [
     "build_core_prompt",
+    "format_output_schema_for_prompt",
 ]

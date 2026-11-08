@@ -45,8 +45,8 @@ def _task(status: str = "executing", sub_status: str = "executing") -> dict:
 def test_public_task_dict_adds_execution_preview_for_running_subtask(monkeypatch):
     """未终态子任务：补 executionPreview，并同步 current_step（不再是冻结文案）。"""
 
-    def fake_preview(_task, _row, _sid, *, limit=1):
-        assert limit == 1, "预览必须收紧 limit，避免每次轮询扫全量 transcript"
+    def fake_preview(_task, _row, _sid, *, limit=24):
+        assert 1 < limit <= 64, "预览必须收紧 limit，又要越过尾部非正文行"
         return "用 bash 循环来实现慢跑验证"
 
     monkeypatch.setattr(

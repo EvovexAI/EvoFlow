@@ -830,6 +830,29 @@ def get_agent_extra_json(agent_code: str) -> dict[str, Any] | None:
         return None
 
 
+def list_all_agent_extra_json() -> dict[str, dict[str, Any]]:
+    """One-shot map ``agent_code → extra_json`` for list endpoints (avoids N+1)."""
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        rows = get_db().execute("SELECT agent_code, extra_json FROM evoflow_agents").fetchall()
+    except Exception:
+        return out
+    for row in rows:
+        code = str(row[0] or "").strip().lower()
+        if not code:
+            continue
+        raw = row[1]
+        if not raw:
+            out[code] = {}
+            continue
+        try:
+            parsed = _loads(raw) or {}
+        except Exception:
+            parsed = {}
+        out[code] = parsed if isinstance(parsed, dict) else {}
+    return out
+
+
 def upsert_agent_extra_json(agent_code: str, extra: dict[str, Any] | None) -> bool:
     """Merge-write the extra_json blob for an agent (preserves sibling keys).
 

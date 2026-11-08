@@ -125,6 +125,78 @@ def test_pending_inject_skips_when_receipt_exists(runtime_db):
     assert second is None
 
 
+def test_workflow_kind_registers_and_surfaces_extra(runtime_db):
+    from evoflow.persistence.session_runtime_repository import (
+        KIND_WORKFLOW,
+        child_works_for_execution_state,
+        complete_child_work,
+        upsert_child_work,
+    )
+
+    sk = f"sess_{uuid.uuid4().hex[:8]}"
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
+    row = upsert_child_work(
+        session_key=sk,
+        kind=KIND_WORKFLOW,
+        ref_id=run_id,
+        status="running",
+        title="Demo App",
+        extra={"task_id": "task-abc", "app_id": "app-1", "run_id": run_id},
+    )
+    assert row is not None
+    assert row["kind"] == KIND_WORKFLOW
+    assert row["extra"]["task_id"] == "task-abc"
+
+    wire = child_works_for_execution_state(sk)
+    assert len(wire) == 1
+    assert wire[0]["kind"] == KIND_WORKFLOW
+    assert wire[0]["refId"] == run_id
+    assert wire[0]["extra"]["task_id"] == "task-abc"
+
+    complete_child_work(
+        session_key=sk,
+        kind=KIND_WORKFLOW,
+        ref_id=run_id,
+        status="completed",
+    )
+    active = [w for w in child_works_for_execution_state(sk) if w["status"] in {"pending", "running"}]
+    assert active == []
+
+
+def test_emit_completes_origin_session_workflow_child_work(runtime_db):
+    from evoflow.collab.app_run_events import _complete_origin_session_child_work
+    from evoflow.persistence.session_runtime_repository import (
+        KIND_WORKFLOW,
+        list_child_works,
+        upsert_child_work,
+    )
+
+    sk = f"sess_{uuid.uuid4().hex[:8]}"
+    run_id = f"run_{uuid.uuid4().hex[:8]}"
+    upsert_child_work(
+        session_key=sk,
+        kind=KIND_WORKFLOW,
+        ref_id=run_id,
+        status="running",
+        title="App",
+        extra={"task_id": "t1"},
+    )
+    _complete_origin_session_child_work(
+        {
+            "id": "t1",
+            "origin_session_key": sk,
+            "source_run_id": run_id,
+            "source_app_id": "app-1",
+        },
+        "completed",
+    )
+    active = list_child_works(sk, active_only=True)
+    assert active == []
+    all_rows = list_child_works(sk, active_only=False)
+    assert len(all_rows) == 1
+    assert all_rows[0]["status"] == "completed"
+
+
 def test_ensure_on_already_current_db(tmp_path):
     """Post-baseline ensure creates tables on a DB already stamped current."""
     import sqlite3

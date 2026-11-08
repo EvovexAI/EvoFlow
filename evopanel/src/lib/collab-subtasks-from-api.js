@@ -53,6 +53,11 @@ export function mapApiSubtaskRow(row, parentTaskId) {
       : {}),
     ...(typeof r.status === 'string' ? { status: r.status } : {}),
     ...(typeof r.progress === 'number' ? { progress: r.progress } : {}),
+    ...(typeof r.startedAt === 'string' && r.startedAt.trim()
+      ? { startedAt: r.startedAt.trim() }
+      : typeof r.started_at === 'string' && r.started_at.trim()
+        ? { startedAt: r.started_at.trim() }
+        : {}),
     ...(assignedAgent ? { assignedAgent } : {}),
     ...(assignedAgentDisplay ? { assignedAgentDisplay } : {}),
     ...(typeof r.taskReport === 'string'

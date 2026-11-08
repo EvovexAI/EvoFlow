@@ -34687,14 +34687,13 @@ html.dark .collab-wf-node-title-row .react-chat-subtask-status-light.task-status
   font-size: var(--ef-text-xs);
   line-height: 1.35;
   color: var(--text-secondary, #64748b);
-  display: -webkit-box;
-  -webkit-line-clamp: 3;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  word-break: break-word;
   margin-top: 2px;
   padding-top: 4px;
   border-top: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.2));
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .collab-wf-node-result.is-live {
@@ -34823,6 +34822,21 @@ html.dark .collab-wf-node-activity.is-failed {
   font-size: var(--ef-text-xs);
   line-height: 1.35;
   color: var(--text-secondary, #64748b);
+  /* 工作流节点只要一行 + …，不要跑马灯多行 */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.collab-wf-node-ticker.react-chat-subtask-ticker--scroll .react-chat-subtask-ticker__inner,
+.collab-wf-node-ticker .react-chat-subtask-ticker__inner {
+  animation: none !important;
+  transform: none !important;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: block;
+  max-width: 100%;
 }
 
 .collab-wf-node-live.is-live .collab-wf-node-ticker {

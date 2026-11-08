@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.12] - 2026-11-09
+
+相对 **1.3.11**：会话子任务 / 工作流 / 命令行可挂在会话上查看；新增阿里云百炼 Token Plan 套餐绑定；工作流 `output_schema` 真正写入派发提示；运行图进度软爬升。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.12.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **会话子任务轨**：`session_runtime` 登记子智能体 / 工作流 / 值班 / 后台 bash；输入框旁图标 + 右栏「会话运行」面板；普通对话子任务默认 detach，完成回灌
+- **阿里云百炼 Token Plan**：`aliyun.token_plan` catalog + adapter；`sk-sp-` Key 校验与模型 / 媒体 materialize；套餐 Tab 可切换火山 / 百炼
+- **工作流输出契约**：`output_schema` 写入派发提示；缺产出与下游绑定失败按生产门禁失败
+
+### Changed
+
+- **工作流进度软爬升**：服务端离散进度之外，接口与前端用 soft display 填中间态，节点不再长时间停在 10%
+- **输入绑定类型纠偏**：按 `input_schema` 对字符串参数做 number/boolean 等 coercion
+- **套餐 / 模型页**：按 catalog 切换文案与 Base；Plan 模型带标记，避免与按量 Key 混用
+- **可观测耗时**：平台动作与 bash shell 延迟统计入库 / 分析页可见
+
+### Fixed
+
+- **点会话命令图标打开空终端**：热 bash 绑定到实际流，不再把 registry ref 当 tool_call_id
+- **output_schema 运行期哑配置**：补派发契约、堵住 vacuously valid 与默认 warn 静默放行
+
 ## [1.3.11] - 2026-11-08
 
 相对 **1.3.10**：设置「应用用量」新增按模块视图（对话 / 员工 / 工作流 / 知识库 / 媒体）与筛选搜索；可观测分析补上提示词开销统计；修复高分屏下浏览器嵌入面板位置算错，以及右侧栏折叠时「操作正常但浏览器不显示」。

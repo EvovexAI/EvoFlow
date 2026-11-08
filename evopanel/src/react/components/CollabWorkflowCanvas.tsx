@@ -6,16 +6,19 @@ import type {
   SubagentStreamTaskMap,
   SubtaskTranscriptModalPayload,
 } from '../chat-types.js'
+import { useSoftProgressDisplay } from '../hooks/useSoftProgressDisplay.js'
 import { layoutSubtaskDagCanvas, subtaskDagEdgePath, buildSubtaskDagIndex } from '../../lib/collab-subtask-dag.js'
 import { collabDagDebug } from '../../lib/collab-dag-debug.js'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
-import { resolveSubtaskLivePreview } from '../../lib/subtask-preview-text.js'
+import {
+  isGenericSubtaskWaitHint,
+  resolveSubtaskLivePreview,
+} from '../../lib/subtask-preview-text.js'
 import { findSubagentTaskForCollabSubtask } from '../../lib/subtask-stream-bind.js'
 import { resolveNodeActivity } from '../../lib/workflow-node-activity.js'
 import { logWorkflowNodeState } from '../../lib/workflow-node-log.js'
 import { formatTaskStatusZh, taskStatusBadgeClass } from '../../lib/task-status-label.js'
 import { formatSubtaskObsLine } from '../../lib/task-observability-format.js'
-import { SubtaskLiveTicker } from './SubtaskLiveTicker.js'
 import { HoverBubble, HoverBubbleProvider } from './HoverBubble.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 
@@ -52,16 +55,16 @@ function subtaskTitle(s: CollabSubtaskSnapshot): string {
   return raw
 }
 
-function clipText(text: string, max: number): string {
-  const t = String(text || '').trim()
-  if (!t) return ''
-  if (t.length <= max) return t
-  return `${t.slice(0, Math.max(0, max - 1))}…`
+/** 节点只展示一行：压平空白，超出靠 CSS ellipsis。 */
+function oneLineText(text: string): string {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function resolveTaskResult(s: CollabSubtaskSnapshot): string {
   const raw = String(s.taskReport || s.result || s.outputSummary || '').trim()
-  return raw.replace(/^【完成】[\s\n]*/u, '').trim()
+  return oneLineText(raw.replace(/^【完成】[\s\n]*/u, ''))
 }
 
 function toProgressPct(s: CollabSubtaskSnapshot): number | null {
@@ -105,7 +108,17 @@ function WorkflowNode({
     (code ? resolveAssignedAgentDisplayName(code, agents) : '') ||
     '未分配'
   const refLabel = String(s.ref || '').trim()
-  const progressPct = toProgressPct(s)
+  const storedProgress = toProgressPct(s)
+  const startedAt =
+    (s as { startedAt?: string }).startedAt ||
+    (s as { started_at?: string }).started_at ||
+    null
+  const progressPct = useSoftProgressDisplay(
+    String(s.subtaskId || ''),
+    displayStatus,
+    storedProgress,
+    startedAt,
+  )
   const taskResult = useMemo(() => resolveTaskResult(s), [s])
   const statusHint = String(
     (s as { currentStep?: string }).currentStep ||
@@ -143,6 +156,13 @@ function WorkflowNode({
     () => findSubagentTaskForCollabSubtask(subagentTasks, String(s.subtaskId || ''), title),
     [subagentTasks, s.subtaskId, title],
   )
+  // Prefer transcript preview over current_step. Dispatch-time 「子任务已派发」
+  // must not mask real preview or completed taskReport (progress can still update).
+  const apiActivityText = useMemo(() => {
+    const preview = apiPreview && !isGenericSubtaskWaitHint(apiPreview) ? apiPreview : ''
+    const step = statusHint && !isGenericSubtaskWaitHint(statusHint) ? statusHint : ''
+    return preview || step
+  }, [apiPreview, statusHint])
   const activity = useMemo(
     () =>
       resolveNodeActivity({
@@ -151,14 +171,15 @@ function WorkflowNode({
         progressHint: streamTask?.progressHint,
         // 兜底：当前会话没有 WS 流时（刷新后 / 从别的工作流打开），
         // 用后端落库的实时正文 / current_step。
-        apiText: statusHint || apiPreview,
+        apiText: apiActivityText,
         running,
       }),
-    [streamTask?.tools, streamTask?.liveOutput, streamTask?.progressHint, statusHint, apiPreview, running],
+    [streamTask?.tools, streamTask?.liveOutput, streamTask?.progressHint, apiActivityText, running],
   )
 
-  /** 只显示最新一条活动（工具或正文）；没有则退回跑马灯（兼容旧数据源） */
-  const liveText = activity.latest?.text || livePreview.previewText
+  /** 只显示最新一条活动（工具或正文），单行 + … */
+  const liveText = oneLineText(activity.latest?.text || livePreview.previewText || '')
+  const activityText = oneLineText(activity.latest?.text || '')
   const showLiveTicker = running || (livePreview.hasLiveContent && !terminal)
 
   // 任务名在前：节点主标题是步骤/任务，执行者只作次要信息
@@ -282,21 +303,27 @@ function WorkflowNode({
             </span>
           ) : null}
         </div>
-        {activity.latest ? (
+        {activity.latest && activityText ? (
           <div
             className={`collab-wf-node-activity${activity.latest.running ? ' is-running' : ''}${activity.latest.failed ? ' is-failed' : ''}${activity.latest.isTool ? ' is-tool' : ''}`}
           >
             {activity.latest.isTool ? (
               <span className="collab-wf-node-activity-dot" aria-hidden />
             ) : null}
-            <span className="collab-wf-node-activity-text">{activity.latest.text}</span>
+            <span className="collab-wf-node-activity-text" title={activityText}>
+              {activityText}
+            </span>
           </div>
         ) : showLiveTicker && liveText ? (
-          <div className={`collab-wf-node-live${running ? ' is-live' : ''}`}>
-            <SubtaskLiveTicker text={liveText} className="collab-wf-node-ticker" />
+          <div className={`collab-wf-node-activity${running ? ' is-running' : ''}`}>
+            <span className="collab-wf-node-activity-text" title={liveText}>
+              {liveText}
+            </span>
           </div>
         ) : !running && taskResult ? (
-          <div className="collab-wf-node-result">{clipText(taskResult, 88)}</div>
+          <div className="collab-wf-node-result" title={taskResult}>
+            {taskResult}
+          </div>
         ) : null}
       </button>
     </HoverBubble>

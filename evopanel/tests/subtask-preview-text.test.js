@@ -48,6 +48,8 @@ describe('resolveSubtaskLivePreview', () => {
 
   it('detects generic wait hints', () => {
     assert.equal(isGenericSubtaskWaitHint('已派发，等待流式输出…'), true)
+    assert.equal(isGenericSubtaskWaitHint('子任务已派发'), true)
+    assert.equal(isGenericSubtaskWaitHint('已派发'), true)
     assert.equal(isGenericSubtaskWaitHint('正在分析代码结构'), false)
   })
 })

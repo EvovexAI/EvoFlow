@@ -24,7 +24,6 @@ import type {
   CollabSubtaskSnapshot,
   CollabTaskSnapshot,
   SupervisorStepSnapshot,
-  ThreadTodo,
   SubtaskTranscriptModalPayload,
 } from '../chat-types.js'
 import {
@@ -113,32 +112,6 @@ function buildSubtaskMarkdown(s: CollabSubtaskSnapshot, previewText: string): st
 // latestLiveSegment removed (unused)
 
 // SubtaskWorkChecklistTable removed (unused)
-
-function PlanTodosTable({ todos }: { todos: ThreadTodo[] }) {
-  if (!todos.length) return null
-  return (
-    <table className="react-chat-work-checklist-table react-chat-plan-todos-table">
-      <thead>
-        <tr>
-          <th>#</th>
-          <th>状态</th>
-          <th>事项</th>
-          <th>结果</th>
-        </tr>
-      </thead>
-      <tbody>
-        {todos.map((todo, i) => (
-          <tr key={`${todo.status || 'pending'}-${i}`}>
-            <td>{i + 1}</td>
-            <td>{subtaskStatusZh(todo.status)}</td>
-            <td>{String(todo.content ?? '').trim()}</td>
-            <td>{String((todo as ThreadTodo).result ?? '').trim() || '—'}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  )
-}
 
 export function SubtaskCard({
   s,
@@ -341,7 +314,6 @@ function SessionSidebarInner({
   // @ts-ignore
   const phase = String(state.collabPhase || '').trim().toLowerCase()
   // clarification 已迁移到 ClarificationConfirmDock（ChatApp 底部 Dock 区）
-  const hasTodos = Array.isArray(state.todos) && state.todos.length > 0
   const history = (taskHistory || []).filter((t) => !!(t.taskId || '').trim())
   const collabFromHistory =
     history.find((t) => (t.taskId || '').trim() === (selectedTaskId || '').trim()) ||
@@ -371,9 +343,8 @@ function SessionSidebarInner({
   // const collabProgressPct = toProgress(collab?.progress) // 进度展示已下线
   // NOTE: 主任务进度条/百分比已隐藏，仅保留状态徽标。
 
-  const showTaskProgress = !hideCollabSubtaskList
-    ? showSidebarSubtaskList || (!execConfirmPending && hasTodos)
-    : !execConfirmPending && hasTodos
+  // 会话 todos 已迁右上摘要「进程」；侧栏只在有子任务列表时出现。
+  const showTaskProgress = showSidebarSubtaskList
   const sidebarBodyVisible = showTaskProgress
   const hasAnythingToShow = !!subtaskTranscriptModal || sidebarBodyVisible
 
@@ -487,17 +458,7 @@ function SessionSidebarInner({
             </div>
           )}
 
-          {!execConfirmPending && hasTodos ? (
-            <div className="react-chat-task-section">
-              <div className="react-chat-task-section-label">
-                计划待办
-                <span className="react-chat-task-count">
-                  {state.todos.filter((t) => t.status === 'completed').length} / {state.todos.length}
-                </span>
-              </div>
-              <PlanTodosTable todos={state.todos} />
-            </div>
-          ) : null}
+          {/* 会话 todo_write 已迁到右上角 ChatSummaryPanel「进程」tab，底部不再重复「计划待办」。 */}
         </div>
       </aside>
       ) : null}

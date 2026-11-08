@@ -43,19 +43,28 @@ def _subtask_terminal(st: dict[str, Any]) -> bool:
     return _norm(st.get("status")) in {"completed", "failed", "cancelled", "timed_out"}
 
 
+# Poll path: enough recent rows to skip trailing user / empty tool rows, without
+# the generic helper's 500-row scan (N running subtasks × poll interval).
+_PREVIEW_POLL_LIMIT = 24
+
+
 def _latest_subtask_preview_text(
     task: dict[str, Any],
     subtask_row: dict[str, Any],
     subtask_id: str,
     *,
-    limit: int = 1,
+    limit: int = _PREVIEW_POLL_LIMIT,
 ) -> str:
     """Latest assistant/tool text for a subtask, read with a tight row limit.
 
     The generic helper (``get_subtask_execution_preview``) scans up to 500 transcript
-    rows per subtask. The workflow node only needs the **last** line, and this
+    rows per subtask. The workflow node only needs the **latest usable** line, and this
     snapshot is rebuilt on every poll — so keep the query bounded to avoid an
     N-subtasks × 500-rows scan on each tick.
+
+    ``limit`` must be > 1: the last row is often a user turn or empty tool payload
+    after a tool round-trip. With ``limit=1`` those polls return empty and the UI
+    stays stuck on the dispatch-time 「子任务已派发」 while progress still moves.
     """
     from evoflow.collab.conversation_persist import list_subtask_conversation_ui_messages
 
@@ -209,7 +218,7 @@ def build_task_progress_snapshot(paths: Paths, thread_id: str) -> dict[str, Any]
             # 工作流节点用它显示「此刻在做什么」。
             #
             # 性能：读 transcript 是一次 DB 查询 × 每个子任务，只对**未终态**子任务做，
-            # 且 limit 压到 1（只要最后一条）。终态子任务不查 —— 节点显示汇报即可。
+            # 且 limit 收紧（最近若干条）。终态子任务不查 —— 节点显示汇报即可。
             exec_preview = ""
             if not _subtask_terminal(st):
                 try:
@@ -217,13 +226,17 @@ def build_task_progress_snapshot(paths: Paths, thread_id: str) -> dict[str, Any]
                 except Exception:
                     logger.debug("get_subtask_execution_preview failed subtask=%s", sid_s, exc_info=True)
             current_step = str(st.get("current_step") or "").strip()
+            from evoflow.collab.task_progress import soft_display_progress_for_subtask
+
+            soft_prog = soft_display_progress_for_subtask(st)
+            started_raw = str(st.get("started_at") or "").strip() or None
             subtask_row = {
                 "subtaskId": sid_s,
                 "parentTaskId": str(task.get("id") or ""),
                 "name": st.get("name"),
                 "description": st.get("description"),
                 "status": st.get("status"),
-                "progress": _as_int_progress(st.get("progress")),
+                "progress": soft_prog if soft_prog else _as_int_progress(st.get("progress")),
                 "assignedAgent": st.get("assigned_to"),
                 "assignedAgentDisplay": (
                     str(st.get("assigned_agent_name") or st.get("assignedAgentName") or "").strip() or None
@@ -236,6 +249,9 @@ def build_task_progress_snapshot(paths: Paths, thread_id: str) -> dict[str, Any]
                 # For tooltip: backend-observed tool calls (with input/output)
                 "observed_tool_calls": [x for x in otc if isinstance(x, dict)],
             }
+            if started_raw:
+                subtask_row["startedAt"] = started_raw
+
             # 节点实时行：worker 上报的 current_step + transcript 里的最新正文
             if current_step:
                 subtask_row["currentStep"] = current_step

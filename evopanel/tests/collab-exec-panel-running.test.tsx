@@ -145,6 +145,51 @@ describe('CollabExecutionPanel running state', () => {
     )
   })
 
+  it('does not show frozen dispatch currentStep as live activity', () => {
+    const { container } = render(
+      <CollabExecutionPanel
+        {...baseProps}
+        collabTask={{ taskId: 'main-1', name: '任务', status: 'in_progress', progress: 76 }}
+        apiSubtasks={[
+          {
+            subtaskId: 'st-1',
+            name: 'S3 终稿',
+            status: 'in_progress',
+            progress: 10,
+            currentStep: '子任务已派发',
+            taskReport: '终稿摘要不应被冻结文案盖住',
+          },
+        ]}
+      />,
+    )
+
+    const text = container.textContent || ''
+    expect(text).not.toContain('子任务已派发')
+  })
+
+  it('prefers executionPreview over frozen currentStep', () => {
+    const { container } = render(
+      <CollabExecutionPanel
+        {...baseProps}
+        collabTask={{ taskId: 'main-1', name: '任务', status: 'in_progress', progress: 20 }}
+        apiSubtasks={[
+          {
+            subtaskId: 'st-1',
+            name: '搜资料',
+            status: 'in_progress',
+            currentStep: '子任务已派发',
+            executionPreview: '正在合并并行视角',
+          },
+        ]}
+      />,
+    )
+
+    expect(container.querySelector('.collab-wf-node-activity')?.textContent || '').toContain(
+      '正在合并并行视角',
+    )
+    expect(container.textContent || '').not.toContain('子任务已派发')
+  })
+
   it('shows the latest prose when no tool is running', () => {
     const { container } = render(
       <CollabExecutionPanel

@@ -976,6 +976,10 @@ def persist_subtask_runtime_snapshot(
             s = str(status).strip().lower()
             if s:
                 fresh["status"] = s
+                if s in {"in_progress", "running", "executing", "active"}:
+                    # Soft progress / timing need a start stamp; task_tool path
+                    # used to omit this and nodes stayed frozen at 10%.
+                    fresh["started_at"] = fresh.get("started_at") or now
                 if s == "completed":
                     fresh["completed_at"] = fresh.get("completed_at") or now
                     fresh.pop("failed_at", None)

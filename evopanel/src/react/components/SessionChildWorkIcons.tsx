@@ -5,6 +5,7 @@
 import { useMemo } from 'react'
 import { useSessionChildWorks } from '../hooks/useSessionChildWorks.js'
 import { openSessionRuntimeInRightStage } from '../../lib/right-stage/open-session-runtime-stage.js'
+import { logSessionChildWorkIconClick } from '../lib/session-child-work-log.js'
 import type { SessionChildWorkItem } from '../lib/session-reattach.js'
 
 const KIND_META: Array<{
@@ -13,9 +14,10 @@ const KIND_META: Array<{
   icon: 'subagent' | 'collab' | 'duty' | 'bash'
 }> = [
   { kind: 'subagent', label: '子代理', icon: 'subagent' },
-  { kind: 'collab_subtask', label: '工作流', icon: 'collab' },
+  { kind: 'workflow', label: '工作流', icon: 'collab' },
+  { kind: 'collab_subtask', label: '工作流节点', icon: 'collab' },
   { kind: 'duty', label: '员工', icon: 'duty' },
-  { kind: 'warm_bash', label: '终端', icon: 'bash' },
+  { kind: 'warm_bash', label: '会话终端', icon: 'bash' },
 ]
 
 function KindGlyph({ icon }: { icon: (typeof KIND_META)[number]['icon'] }) {
@@ -65,6 +67,11 @@ export function SessionChildWorkIcons(props: { sessionKey?: string | null }) {
   if (!sk || visible.length === 0) return null
 
   const openPane = (focusKind?: string) => {
+    logSessionChildWorkIconClick({
+      sessionKey: sk,
+      focusKind: focusKind || null,
+      works: works as SessionChildWorkItem[],
+    })
     openSessionRuntimeInRightStage({
       sessionKey: sk,
       works: works as SessionChildWorkItem[],

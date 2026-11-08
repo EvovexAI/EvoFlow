@@ -17,8 +17,8 @@ export const API_TYPES = [
 // - codingBaseUrl: Coding/编程场景专用端点
 export const PROVIDER_PRESETS = [
   // 支持 Coding Plan 专属接口的三家排在最前：百炼 → 火山 → 智谱
-  { key: 'aliyun', label: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', codingBaseUrl: 'https://coding.dashscope.aliyuncs.com/v1', api: 'openai-completions', site: 'https://www.aliyun.com/product/bailian', desc: '阿里云 AI 大模型平台，支持通义千问全系列' },
-  { key: 'volcengine', label: '火山引擎', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', codingBaseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3', agentPlanBaseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3', api: 'openai-completions', site: 'https://www.volcengine.com/product/ark', desc: '方舟 Agent Plan：DeepSeek-V4.1-Flash / Kimi-K3.1-Pro / Doubao-Seed-2.1 / GLM-5.3 等，全模态 + Harness。套餐请用 /api/plan/v3，勿用按量 /api/v3' },
+  { key: 'aliyun', label: '阿里云百炼', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', codingBaseUrl: 'https://coding.dashscope.aliyuncs.com/v1', tokenPlanBaseUrl: 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1', planModeLabel: 'Token Plan 专属', api: 'openai-completions', site: 'https://www.aliyun.com/product/bailian', desc: '百炼 Token Plan：auto / Qwen3.8 / DeepSeek-V4.1 / GLM-5.3 / 万相；Credits 统一计量。套餐请用 token-plan…/compatible-mode/v1，勿用按量 DashScope' },
+  { key: 'volcengine', label: '火山引擎', baseUrl: 'https://ark.cn-beijing.volces.com/api/v3', codingBaseUrl: 'https://ark.cn-beijing.volces.com/api/coding/v3', agentPlanBaseUrl: 'https://ark.cn-beijing.volces.com/api/plan/v3', planModeLabel: 'Agent Plan 专属', api: 'openai-completions', site: 'https://www.volcengine.com/product/ark', desc: '方舟 Agent Plan：DeepSeek-V4.1-Flash / Kimi-K3.1-Pro / Doubao-Seed-2.1 / GLM-5.3 等（已下架 MiniMax-M3 / Kimi-K2.7-Code）。套餐请用 /api/plan/v3，勿用按量 /api/v3' },
   { key: 'zhipu', label: '智谱 AI', baseUrl: 'https://open.bigmodel.cn/api/paas/v4', codingBaseUrl: 'https://open.bigmodel.cn/api/coding/paas/v4', api: 'openai-completions', site: 'https://www.bigmodel.cn/', desc: '国产大模型领军企业，支持 GLM-5.3 / GLM-5 全系列' },
   { key: 'shengsuanyun', label: '胜算云', baseUrl: 'https://router.shengsuanyun.com/api/v1', codingBaseUrl: 'https://router.shengsuanyun.com/api/v1', api: 'openai-completions', site: 'https://www.shengsuanyun.com/', desc: '国内知名 AI 模型聚合平台，支持多种主流模型' },
   { key: 'siliconflow', label: '硅基流动', baseUrl: 'https://api.siliconflow.cn/v1', codingBaseUrl: 'https://api.siliconflow.cn/v1', api: 'openai-completions', site: 'https://cloud.siliconflow.cn/', desc: '高性价比推理平台，支持 DeepSeek、Qwen 等开源模型' },
@@ -124,7 +124,7 @@ export const MODEL_PRESETS = {
     { id: 'llama3.2', name: 'Llama 3.2', contextWindow: 8192 },
     { id: 'gemma3', name: 'Gemma 3', contextWindow: 32768 },
   ],
-  // 火山方舟 / Agent Plan 快捷添加（对齐套餐概览 2026-10-24）
+  // 火山方舟 / Agent Plan 快捷添加（对齐套餐概览 2026-11-08）
   volcengine: [
     {
       id: 'ark-code-latest',
@@ -146,6 +146,7 @@ export const MODEL_PRESETS = {
       id: 'kimi-k3.1-pro',
       name: 'Kimi K3.1 Pro',
       contextWindow: 1024000,
+      maxOutput: 1024000,
       reasoning: true,
       vision: true,
       section: 'recommended',
@@ -183,7 +184,7 @@ export const MODEL_PRESETS = {
     {
       id: 'deepseek-v4.1-flash-economy',
       name: 'DeepSeek V4.1 Flash Economy',
-      contextWindow: 1049000,
+      contextWindow: 1024000,
       reasoning: true,
       vision: true,
       section: 'more',
@@ -197,7 +198,7 @@ export const MODEL_PRESETS = {
     },
     {
       id: 'kimi-k3',
-      name: 'Kimi K3（Medium+）',
+      name: 'Kimi K3',
       contextWindow: 1024000,
       reasoning: true,
       vision: true,
@@ -253,44 +254,58 @@ export const MODEL_PRESETS = {
       section: 'recommended',
     },
   ],
-  // 百炼快捷添加：默认 128k 上下文 + 推理；section 用于弹窗内「推荐 / 更多」分组
+  // 百炼 / Token Plan 快捷添加（对齐个人版套餐概览）
   aliyun: [
     {
-      id: 'qwen3.6-plus',
-      name: 'Qwen3.6 Plus（图片理解）',
-      contextWindow: 128000,
+      id: 'auto',
+      name: 'Auto',
+      contextWindow: 256000,
+      reasoning: true,
+      section: 'recommended',
+    },
+    {
+      id: 'qwen3.8-flash',
+      name: 'Qwen 3.8 Flash（图片理解）',
+      contextWindow: 256000,
       reasoning: true,
       vision: true,
       section: 'recommended',
     },
     {
-      id: 'kimi-k2.5',
-      name: 'Kimi K2.5（图片理解）',
-      contextWindow: 128000,
+      id: 'qwen3.8-max',
+      name: 'Qwen 3.8 Max（图片理解）',
+      contextWindow: 256000,
       reasoning: true,
       vision: true,
       section: 'recommended',
     },
     {
-      id: 'glm-5',
-      name: 'GLM-5',
-      contextWindow: 128000,
+      id: 'deepseek-v4.1-flash',
+      name: 'DeepSeek V4.1 Flash（图片理解）',
+      contextWindow: 256000,
       reasoning: true,
-      vision: false,
+      vision: true,
       section: 'recommended',
     },
     {
-      id: 'MiniMax-M2.5',
-      name: 'MiniMax M2.5',
-      contextWindow: 128000,
+      id: 'glm-5.3',
+      name: 'GLM 5.3',
+      contextWindow: 256000,
       reasoning: true,
-      vision: false,
       section: 'recommended',
     },
     {
-      id: 'qwen3.5-plus',
-      name: 'Qwen3.5 Plus（图片理解）',
-      contextWindow: 128000,
+      id: 'qwen3.7-plus',
+      name: 'Qwen 3.7 Plus（图片理解）',
+      contextWindow: 256000,
+      reasoning: true,
+      vision: true,
+      section: 'more',
+    },
+    {
+      id: 'qwen3.6-flash',
+      name: 'Qwen 3.6 Flash（图片理解）',
+      contextWindow: 256000,
       reasoning: true,
       vision: true,
       section: 'more',

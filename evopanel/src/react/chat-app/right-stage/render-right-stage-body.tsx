@@ -193,25 +193,51 @@ export function renderRightStageBody(
   }
   if (kind === 'terminal') {
     const data = surface.data || {}
-    const toolCallId = String(data.toolCallId || surface.id || '').trim()
-    const command = String(data.command || '').trim()
+    const warmBash = !!data.warmBash
     const streams = liveProcessSnapshot.terminalStreams || {}
+    const streamList = Object.values(streams).filter(Boolean) as Array<{
+      toolCallId?: string
+      id?: string
+      command?: string
+      phase?: string
+      startedAt?: number
+      endedAt?: number
+    }>
+    const pickWarmBashStream = () => {
+      if (!streamList.length) return undefined
+      const running = streamList.filter((s) => String(s.phase || '') === 'running')
+      const pool = running.length ? running : streamList
+      return [...pool].sort((a, b) => {
+        const ta = Number(a.endedAt || a.startedAt || 0)
+        const tb = Number(b.endedAt || b.startedAt || 0)
+        return tb - ta
+      })[0]
+    }
+    const explicitId = String(data.toolCallId || '').trim()
+    // Warm-bash tabs must not treat pool key / surface id as toolCallId.
+    const toolCallId = warmBash
+      ? String(pickWarmBashStream()?.toolCallId || '').trim()
+      : explicitId || String(surface.id || '').trim()
     const stream =
-      streams[toolCallId] ||
-      Object.values(streams).find(
+      (toolCallId && streams[toolCallId]) ||
+      streamList.find(
         (s) =>
           String(s?.toolCallId || '') === toolCallId ||
-          String((s as { id?: string })?.id || '') === toolCallId,
+          String(s?.id || '') === toolCallId,
       ) ||
-      undefined
+      (warmBash ? pickWarmBashStream() : undefined)
+    const command =
+      String(data.command || '').trim() ||
+      String(stream?.command || '').trim() ||
+      (warmBash ? '会话终端 · 等待本会话 Bash 输出' : '')
     return (
       <TerminalStagePanel
         title={String(surface.title || data.title || '终端')}
         command={command}
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
-        toolCallId={toolCallId}
+        toolCallId={toolCallId || (warmBash ? '' : String(surface.id || '').trim())}
         outputFallback={String(data.outputFallback || '')}
-        stream={stream}
+        stream={stream as any}
         running={!!data.running || stream?.phase === 'running'}
       />
     )

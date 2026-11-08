@@ -394,6 +394,9 @@ async def apply_subtask_outcome_report(
             structured_result["structured_output"],
             max_str_len=1500,
         )
+    # Persist validity even when extraction returned None but a schema was
+    # declared (missing output is a real failure, not "vacuously valid").
+    if schema_to_use or structured_result["structured_output"] is not None:
         patch["schema_valid"] = structured_result["schema_valid"]
         if structured_result["schema_errors"]:
             patch["schema_errors"] = structured_result["schema_errors"]
@@ -413,12 +416,10 @@ async def apply_subtask_outcome_report(
         if row_pair:
             _enforcement_proj, main_task_row = row_pair
             plan_steps = load_plan_steps(main_task_row)
-            ref = str(st.get("ref") or "").strip()
-            if ref and plan_steps:
-                for ps in plan_steps:
-                    if isinstance(ps, dict) and str(ps.get("ref") or "").strip() == ref:
-                        _enforcement_step = ps
-                        break
+            if plan_steps:
+                from evoflow.collab.structured_output import find_plan_step_for_subtask
+
+                _enforcement_step = find_plan_step_for_subtask(st, plan_steps=plan_steps)
     except Exception:
         logger.debug("schema_enforcement: could not look up plan step", exc_info=True)
 
@@ -483,6 +484,7 @@ async def apply_subtask_outcome_report(
         outcome_meta["schema_enforcement_reason"] = enforcement_result["enforcement_reason"]
     if structured_result["structured_output"] is not None:
         outcome_meta["structured_output"] = structured_result["structured_output"]
+    if schema_to_use or structured_result["structured_output"] is not None:
         outcome_meta["schema_valid"] = structured_result["schema_valid"]
         if structured_result["schema_errors"]:
             outcome_meta["schema_errors"] = structured_result["schema_errors"]

@@ -2219,10 +2219,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           // - RUN_ERROR：立刻 TURN_IDLE
           // - 本轮已是 model_error（额度用尽等）：立刻 idle。这类失败不会再进工具循环，
           //   若因 livePostOpen 拖着 busy，面板会一直「生成中」转圈且停止钮与 busy 不同步。
-          // - RUN_FINISHED：若 live POST /runs/stream 仍开着（streamWireSource==='run'），
-          //   勿 idle。工具循环中间的 RUN_FINISHED 若提前 idle，侧栏/停止/「运行中」会灭，
-          //   但 agui_event 仍豁免写入 → holdStreamResidue 继续流式渲染（切去任务中心再回来尤甚）。
-          //   真正收尾交给 SSE final / 用户停止。
+          // - RUN_FINISHED：一律勿 idle（不再要求 streamWireSource==='run'）。
+          //   工具循环中间的 RUN_FINISHED 若提前 idle，侧栏齿轮/停止/「运行中」会灭，
+          //   但 agui_event 仍豁免写入 → 页面继续流式渲染（正式包/切页回来尤甚）。
+          //   wire 已被误清时旧条件仍会 idle，症状就是「齿轮没了但还在流」。
+          //   真正收尾交给 SSE final / 用户停止 / stale watchdog。
           if (rt && isTurnBusy(rt) && targetSk) {
             const isRunError = String(aguiEvent.type) === 'RUN_ERROR'
             const livePostOpen = rt.streamWireSource === 'run'
@@ -2233,14 +2234,13 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               )
                 .toLowerCase()
                 .includes('model_error')
-            if (!isRunError && livePostOpen && !terminalModelError) {
+            if (!isRunError && !terminalModelError) {
+              // Keep busy; SSE final owns the real idle. SESSION_EVENT refreshes lastEventAt.
               dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
             } else {
               const endTrigger = isRunError
                 ? 'agui_run_error'
-                : terminalModelError
-                  ? 'agui_model_error_finished'
-                  : 'agui_run_finished'
+                : 'agui_model_error_finished'
               logStreamStop({
                 sessionKey: targetSk,
                 runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,

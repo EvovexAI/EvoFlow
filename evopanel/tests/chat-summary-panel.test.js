@@ -7,6 +7,7 @@ import {
   PROCESS_STATE_LABEL,
   resolveEffectiveSummaryPanelTab,
 } from '../src/react/lib/chat-summary-panel-model.ts'
+import { pruneFinishedBackgroundWorks } from '../src/react/lib/background-work-merge.ts'
 import {
   DEFAULT_CHAT_SUMMARY_SECTIONS,
   loadChatSummaryPrefs,
@@ -158,6 +159,29 @@ describe('进程聚合', () => {
     expect(byId['agent:b']).toBe('cancelled')
   })
 
+  it('subagent 空/未知 phase 不默认成 running（避免幽灵转圈）', () => {
+    const items = buildProcessItems({
+      subagentTasks: {
+        a: { taskId: 'a', phase: '' },
+        b: { taskId: 'b' },
+      },
+    })
+    const byId = Object.fromEntries(items.map((i) => [i.id, i.state]))
+    expect(byId['agent:a']).toBe('completed')
+    expect(byId['agent:b']).toBe('completed')
+  })
+
+  it('同一 workflow id：落库终态盖过流式 running', () => {
+    const items = buildProcessItems({
+      workflowSubtasks: [
+        { subtaskId: 's1', name: 'A', status: 'running' },
+        { subtaskId: 's1', name: 'A-done', status: 'completed' },
+      ],
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0].state).toBe('completed')
+  })
+
   it('workflow 子任务复用任务中心状态口径', () => {
     const items = buildProcessItems({
       workflowSubtasks: [
@@ -224,6 +248,18 @@ describe('进程聚合', () => {
     for (const k of ['running', 'completed', 'failed', 'cancelled', 'pending']) {
       expect(PROCESS_STATE_LABEL[k]).toBeTruthy()
     }
+  })
+
+  it('runningOnly 轮询收口：本地幽灵 running 标成 completed', () => {
+    const map = {
+      a: { workId: 'a', kind: 'bash', title: 'sleep', status: 'running', startedAt: 1, cancellable: true },
+      b: { workId: 'b', kind: 'bash', title: 'alive', status: 'running', startedAt: 2, cancellable: true },
+    }
+    expect(pruneFinishedBackgroundWorks(map, ['b'], 99)).toBe(1)
+    expect(map.a.status).toBe('completed')
+    expect(map.a.endedAt).toBe(99)
+    expect(map.b.status).toBe('running')
+    expect(buildProcessItems({ backgroundWorks: map }).map((i) => i.id)).toEqual(['bash:b'])
   })
 })
 

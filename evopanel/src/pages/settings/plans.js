@@ -1,5 +1,5 @@
 /**
- * 模型配置 → 套餐 Tab（方舟 Agent Plan）
+ * 模型配置 → 套餐 Tab（方舟 Agent Plan / 百炼 Token Plan）
  */
 import { showConfirm } from '../../components/modal.js'
 import { toast } from '../../components/toast.js'
@@ -21,10 +21,9 @@ function notifyModelsUpdated() {
   }
 }
 
-const CATALOG_ID = 'volcengine.agent_plan'
-const PLAN_CHAT_BASE = 'https://ark.cn-beijing.volces.com/api/plan/v3'
-const TIER_ORDER = ['small', 'medium', 'large', 'max']
-const TIER_LABEL = { small: 'Small', medium: 'Medium', large: 'Large', max: 'Max' }
+const DEFAULT_CATALOG_ID = 'volcengine.agent_plan'
+/** @type {string} */
+let _preferredCatalogId = ''
 
 /** @type {HTMLElement | null} */
 let _root = null
@@ -39,14 +38,41 @@ let _verifyBusy = false
  */
 let _verifyByCap = {}
 
-/** @type {{ catalog: any | null, binding: any | null, chatModelCount: number, embeddingModelCount: number, connectionBaseUrl: string, primaryModel: string }} */
+/** @type {{ catalogs: any[], selectedCatalogId: string, catalog: any | null, binding: any | null, chatModelCount: number, embeddingModelCount: number, connectionBaseUrl: string, primaryModel: string }} */
 let _state = {
+  catalogs: [],
+  selectedCatalogId: DEFAULT_CATALOG_ID,
   catalog: null,
   binding: null,
   chatModelCount: 0,
   embeddingModelCount: 0,
   connectionBaseUrl: '',
   primaryModel: '',
+}
+
+export function setPreferredPlanCatalog(catalogId) {
+  _preferredCatalogId = String(catalogId || '').trim()
+}
+
+function planChatBase(catalog) {
+  return String(catalog?.endpoints?.chat?.base_url || '').trim()
+}
+
+function tierMeta(catalog) {
+  const tiers = Array.isArray(catalog?.tiers) ? catalog.tiers : []
+  const order = tiers.map((t) => String(t.id || '').toLowerCase()).filter(Boolean)
+  /** @type {Record<string, string>} */
+  const label = {}
+  for (const t of tiers) {
+    const id = String(t.id || '').toLowerCase()
+    if (id) label[id] = String(t.label || t.id)
+  }
+  return { order, label }
+}
+
+/** 百炼 Token Plan 等：各档模型表相同，UI 不展示档位列 / 门禁。 */
+function hideTiers(catalog = _state.catalog) {
+  return !!(catalog?.ui?.hide_tiers || catalog?.ui?.hideTiers)
 }
 
 function esc(s) {
@@ -65,7 +91,9 @@ function normalizeBase(url) {
 }
 
 function isPlanChatUrl(url) {
-  return normalizeBase(url) === normalizeBase(PLAN_CHAT_BASE)
+  const want = planChatBase(_state.catalog)
+  if (!want) return false
+  return normalizeBase(url) === normalizeBase(want)
 }
 
 function capsOf(binding) {
@@ -78,8 +106,15 @@ function currentTierId() {
 }
 
 function tierRank(id) {
-  const i = TIER_ORDER.indexOf(String(id || '').toLowerCase())
+  const { order } = tierMeta(_state.catalog)
+  const i = order.indexOf(String(id || '').toLowerCase())
   return i < 0 ? -1 : i
+}
+
+function tierLabel(id) {
+  const { label } = tierMeta(_state.catalog)
+  const key = String(id || '').toLowerCase()
+  return label[key] || id || ''
 }
 
 function capItems(cap, catalog) {
@@ -90,6 +125,7 @@ function capItems(cap, catalog) {
 }
 
 function itemInTier(item, tierId) {
+  if (hideTiers(_state.catalog)) return true
   const need = tierRank(item?.min_tier || 'small')
   const have = tierRank(tierId)
   if (have < 0) return need <= 0
@@ -115,7 +151,7 @@ function capStatus(cap, binding, catalog) {
     return {
       kind: 'na',
       label: '本档不含',
-      reason: hint || `官方 ${TIER_LABEL[tierId] || tierId || '当前档'} 不含此能力`,
+      reason: hint || `官方 ${tierLabel(tierId) || tierId || '当前档'} 不含此能力`,
       inThis: 0,
       total: items.length,
     }
@@ -186,10 +222,12 @@ function verifyCellHtml(capId, status, canVerify, verifyBtn) {
 }
 
 function tierDotsHtml(item) {
-  const need = tierRank(item?.min_tier || 'small')
-  return TIER_ORDER.map((tid) => {
+  const { order, label } = tierMeta(_state.catalog)
+  const need = tierRank(item?.min_tier || order[0] || 'small')
+  return order.map((tid) => {
     const ok = tierRank(tid) >= need
-    return `<span class="plans-tier-dot ${ok ? 'plans-tier-dot--on' : 'plans-tier-dot--off'}" title="${esc(TIER_LABEL[tid])}${ok ? ' 含' : ' 不含'}">${esc(TIER_LABEL[tid][0])}</span>`
+    const lab = label[tid] || tid
+    return `<span class="plans-tier-dot ${ok ? 'plans-tier-dot--on' : 'plans-tier-dot--off'}" title="${esc(lab)}${ok ? ' 含' : ' 不含'}">${esc((lab || tid)[0] || '?')}</span>`
   }).join('')
 }
 
@@ -216,7 +254,7 @@ function checkResultHtml(capId) {
 
 function capabilityDetailHtml(cap, catalog, status) {
   const items = capItems(cap, catalog)
-  const docs = catalog?.docs_url || 'https://www.volcengine.com/docs/82379/2366394'
+  const docs = catalog?.docs_url || ''
   const reason = status.kind === 'na' && status.reason
     ? `<p class="plans-cap-reason">${esc(status.reason)}</p>`
     : ''
@@ -239,6 +277,8 @@ function capabilityDetailHtml(cap, catalog, status) {
         : cap.id === 'video' && bound && !videoModel
           ? '<p class="plans-cap-active-model form-hint">本档不含生视频。</p>'
           : ''
+  const noTier = hideTiers(catalog)
+  const colSpan = noTier ? 4 : 5
   const rows = items.length
     ? items
         .map((it) => {
@@ -246,16 +286,26 @@ function capabilityDetailHtml(cap, catalog, status) {
           const probeCell = canProbeItem && inThis
             ? `<button type="button" class="btn btn-sm btn-secondary plans-item-probe" data-plans-action="verify-cap" data-cap-id="${esc(cap.id)}" data-model-id="${esc(it.id)}" ${_verifyBusy ? 'disabled' : ''}>测此项</button>`
             : '—'
+          const tierCell = noTier
+            ? ''
+            : `<td class="plans-item-tiers">${tierDotsHtml(it)}</td>`
+          const note = noTier
+            ? esc(it.notes || '可用')
+            : esc(it.notes || (inThis ? '本档可用' : `需 ${tierLabel(it.min_tier) || it.min_tier}+`))
           return `<tr class="${inThis ? '' : 'plans-item-row--locked'}">
             <td>${esc(it.label || it.id)}</td>
             <td><code>${esc(it.id)}</code></td>
-            <td class="plans-item-tiers">${tierDotsHtml(it)}</td>
-            <td>${esc(it.notes || (inThis ? '本档可用' : `需 ${TIER_LABEL[it.min_tier] || it.min_tier}+`))}</td>
+            ${tierCell}
+            <td>${note}</td>
             <td>${probeCell}</td>
           </tr>`
         })
         .join('')
-    : `<tr><td colspan="5" class="form-hint">暂无明细，见官方文档。</td></tr>`
+    : `<tr><td colspan="${colSpan}" class="form-hint">暂无明细，见官方文档。</td></tr>`
+
+  const hint = noTier
+    ? `<p class="form-hint" style="margin:0 0 8px">来源：${docs ? `<a href="${esc(docs)}" target="_blank" rel="noopener noreferrer">套餐概览</a>` : '官方套餐概览'}（各档模型表相同，额度以控制台为准）</p>`
+    : `<p class="form-hint" style="margin:0 0 8px">档位点表示本档是否含该模型。来源：${docs ? `<a href="${esc(docs)}" target="_blank" rel="noopener noreferrer">套餐概览</a>` : '官方套餐概览'}</p>`
 
   return `<div class="plans-cap-detail-inner">
     <p class="plans-cap-summary">${esc(cap.summary || '')}</p>
@@ -263,10 +313,10 @@ function capabilityDetailHtml(cap, catalog, status) {
     ${activeModel}
     ${reason}
     ${checkResultHtml(cap.id)}
-    <p class="form-hint" style="margin:0 0 8px">S/M/L/X 表示 Small / Medium / Large / Max 是否含该模型。来源：<a href="${esc(docs)}" target="_blank" rel="noopener noreferrer">套餐概览</a></p>
+    ${hint}
     <table class="plans-item-table">
       <thead>
-        <tr><th>内容</th><th>模型 ID</th><th>档位</th><th>说明</th><th>探测</th></tr>
+        <tr><th>内容</th><th>模型 ID</th>${noTier ? '' : '<th>档位</th>'}<th>说明</th><th>探测</th></tr>
       </thead>
       <tbody>${rows}</tbody>
     </table>
@@ -286,6 +336,8 @@ function capabilityTableHtml(binding, catalog) {
         { id: 'web_search', label: '联网搜索' },
       ]
   const boundActive = !!(binding && binding.status === 'active')
+  const noTier = hideTiers(catalog)
+  const colSpan = noTier ? 4 : 5
 
   const body = caps
     .map((cap) => {
@@ -299,6 +351,9 @@ function capabilityTableHtml(binding, catalog) {
       const verifyBtn = canVerify
         ? `<button type="button" class="btn btn-sm btn-secondary" data-plans-action="verify-cap" data-cap-id="${esc(cap.id)}" ${_verifyBusy ? 'disabled' : ''}>验证</button>`
         : ''
+      const gateCell = noTier
+        ? ''
+        : `<td class="plans-cap-gate">${esc(tierLabel(cap.min_tier) || cap.min_tier || '—')} 起</td>`
       return `<tr class="plans-cap-row plans-cap-row--${status.kind}${open ? ' is-open' : ''}" data-cap-id="${esc(cap.id)}">
           <td>
             <button type="button" class="plans-cap-toggle" data-plans-action="toggle-cap" data-cap-id="${esc(cap.id)}" aria-expanded="${open ? 'true' : 'false'}">
@@ -309,10 +364,10 @@ function capabilityTableHtml(binding, catalog) {
           <td>${esc(countText)}</td>
           <td><span class="plans-cap-pill plans-cap-pill--${status.kind}">${esc(status.label)}</span></td>
           <td class="plans-cap-probe">${verifyCellHtml(cap.id, status, canVerify, verifyBtn)}</td>
-          <td class="plans-cap-gate">${esc(TIER_LABEL[cap.min_tier] || cap.min_tier || 'Small')} 起</td>
+          ${gateCell}
         </tr>
         <tr class="plans-cap-detail-row" data-cap-detail="${esc(cap.id)}" ${open ? '' : 'hidden'}>
-          <td colspan="5">${open ? capabilityDetailHtml(cap, catalog, status) : ''}</td>
+          <td colspan="${colSpan}">${open ? capabilityDetailHtml(cap, catalog, status) : ''}</td>
         </tr>`
     })
     .join('')
@@ -322,10 +377,10 @@ function capabilityTableHtml(binding, catalog) {
       <thead>
         <tr>
           <th>能力</th>
-          <th>本档模型</th>
+          <th>${noTier ? '模型' : '本档模型'}</th>
           <th>状态</th>
           <th>可用性</th>
-          <th>门禁</th>
+          ${noTier ? '' : '<th>门禁</th>'}
         </tr>
       </thead>
       <tbody>${body}</tbody>
@@ -384,20 +439,35 @@ function verifyOverviewHtml() {
   </div>`
 }
 
+function catalogSwitcherHtml() {
+  const items = Array.isArray(_state.catalogs) ? _state.catalogs : []
+  if (items.length <= 1) return ''
+  const buttons = items
+    .map((c) => {
+      const id = String(c.id || '')
+      const active = id === _state.selectedCatalogId
+      return `<button type="button" class="btn btn-sm ${active ? 'btn-primary' : 'btn-secondary'}" data-plans-action="select-catalog" data-catalog-id="${esc(id)}">${esc(c.name || id)}</button>`
+    })
+    .join('')
+  return `<div class="plans-catalog-switcher" style="display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px">${buttons}</div>`
+}
+
 function unboundHtml(catalog) {
-  const subscribeUrl = catalog?.subscribe_url || 'https://www.volcengine.com/product/ark'
+  const subscribeUrl = catalog?.subscribe_url || '#'
   const invite = String(catalog?.invite_code || '').trim()
   const hint = Array.isArray(catalog?.models_hint) ? catalog.models_hint.join('、') : ''
+  const chatBase = planChatBase(catalog)
   const inviteHint = invite
     ? ` · 邀请码 <code>${esc(invite)}</code>`
     : ''
   return `
+    ${catalogSwitcherHtml()}
     <section class="plans-hero plans-hero--empty">
       <div class="plans-hero-badge">推荐</div>
-      <h3 class="plans-hero-title">接入方舟 Agent Plan</h3>
+      <h3 class="plans-hero-title">接入 ${esc(catalog?.name || '套餐')}</h3>
       <p class="plans-hero-desc">
-        一次绑定接通对话 / 语音 / 生图视频 / 向量。聊天请用
-        <code>${esc(PLAN_CHAT_BASE)}</code>，勿用按量 <code>/api/v3</code>。
+        一次绑定接通对话 / 语音 / 生图视频。聊天请用
+        <code>${esc(chatBase || '套餐专属 Base URL')}</code>。
         ${hint ? `<br>模型含 ${esc(hint)} 等。` : ''}
       </p>
       <p class="form-hint" style="margin:0 0 14px">
@@ -409,7 +479,11 @@ function unboundHtml(catalog) {
     </section>
     <section class="plans-section">
       <h4 class="plans-section-title">套餐里有什么</h4>
-      <p class="form-hint" style="margin:0 0 10px">点开每一行看具体模型；生视频按官方档位门禁，不是漏配。</p>
+      <p class="form-hint" style="margin:0 0 10px">${
+        hideTiers(catalog)
+          ? '点开每一行看具体模型；Credits 额度以控制台为准。'
+          : '点开每一行看具体模型；生视频按官方档位门禁，不是漏配。'
+      }</p>
       ${capabilityTableHtml(null, catalog)}
     </section>`
 }
@@ -417,22 +491,26 @@ function unboundHtml(catalog) {
 function boundHtml(catalog, binding) {
   const tier = binding.tier_id || binding.tierId || '未标注'
   const keyHint = binding.api_key || binding.apiKey || '已配置'
-  const drifted = !isPlanChatUrl(_state.connectionBaseUrl)
+  const chatBase = planChatBase(catalog)
+  const drifted = chatBase ? !isPlanChatUrl(_state.connectionBaseUrl) : false
   const n = _state.chatModelCount
   const primary = _state.primaryModel || '—'
   const source = binding.materialized?.chat_models_source
   const matN = Number(binding.materialized?.chat_model_count || 0)
   const verifyingAll = _verifyBusy === 'all'
+  const embN = Number(binding.materialized?.embedding_model_count ?? _state.embeddingModelCount ?? 0)
+  const embBit = embN > 0 ? ` · 向量模型 <strong>${esc(String(embN))}</strong> 个` : ''
+  const showTier = !hideTiers(catalog) && tier && tier !== '未标注'
 
   return `
+    ${catalogSwitcherHtml()}
     <section class="plans-hero plans-hero--bound">
       <div class="plans-hero-badge plans-hero-badge--ok">已接通</div>
-      <h3 class="plans-hero-title">${esc(catalog?.name || '火山方舟 Agent Plan')}</h3>
+      <h3 class="plans-hero-title">${esc(catalog?.name || '套餐')}</h3>
       <p class="plans-hero-desc">
-        档位 <strong>${esc(tier)}</strong>
-        · Key <code>${esc(keyHint)}</code>
-        · 对话模型 <strong>${esc(String(n))}</strong> 个
-        · 向量模型 <strong>${esc(String(Number(binding.materialized?.embedding_model_count ?? _state.embeddingModelCount ?? 0)))}</strong> 个
+        Key <code>${esc(keyHint)}</code>
+        · 对话模型 <strong>${esc(String(n))}</strong> 个${embBit}
+        ${showTier ? ` · 目录档 ${esc(tier)}` : ''}
         ${source ? `（对话来源 ${esc(source)}${matN ? ` · 上次写入 ${matN}` : ''}）` : ''}
       </p>
       <p class="form-hint" style="margin:0 0 12px">
@@ -442,7 +520,7 @@ function boundHtml(catalog, binding) {
       ${
         drifted
           ? `<div class="plans-warn" role="status">
-              当前火山连接不是 Agent Plan 专属地址（应为 <code>${esc(PLAN_CHAT_BASE)}</code>）。
+              当前连接不是套餐专属地址（应为 <code>${esc(chatBase)}</code>）。
               <button type="button" class="btn btn-sm btn-primary" data-plans-action="rematerialize" style="margin-left:8px">恢复 Plan 地址并补齐模型</button>
             </div>`
           : ''
@@ -460,7 +538,11 @@ function boundHtml(catalog, binding) {
 
     <section class="plans-section">
       <h4 class="plans-section-title">能力明细</h4>
-      <p class="form-hint" style="margin:0 0 10px">点开一行看模型与档位；可单独验证对话 / 识图 / 向量 / 语音 / 生图等。生视频「本档不含」来自官方概览，不是漏配。</p>
+      <p class="form-hint" style="margin:0 0 10px">${
+        hideTiers(catalog)
+          ? '点开一行看模型；可单独验证对话 / 识图 / 语音 / 生图等。Credits 额度以控制台为准。'
+          : '点开一行看模型与档位；可单独验证对话 / 识图 / 向量 / 语音 / 生图等。生视频「本档不含」来自官方概览，不是漏配。'
+      }</p>
       ${verifyOverviewHtml()}
       ${capabilityTableHtml(binding, catalog)}
     </section>`
@@ -544,12 +626,24 @@ async function loadState() {
   ])
 
   const items = Array.isArray(catRes?.items) ? catRes.items : []
-  _state.catalog = items.find((x) => x.id === CATALOG_ID) || items[0] || null
+  _state.catalogs = items
+  const preferred =
+    _preferredCatalogId ||
+    _state.selectedCatalogId ||
+    DEFAULT_CATALOG_ID
+  _state.selectedCatalogId =
+    (items.find((x) => x.id === preferred)?.id) ||
+    items[0]?.id ||
+    DEFAULT_CATALOG_ID
+  _state.catalog = items.find((x) => x.id === _state.selectedCatalogId) || items[0] || null
+  const catalogId = String(_state.catalog?.id || _state.selectedCatalogId)
+  const vendor = String(_state.catalog?.vendor || '')
+  const family = String(_state.catalog?.plan_family || '')
 
   const bindings = Array.isArray(bindRes?.items) ? bindRes.items : []
   _state.binding =
-    bindings.find((b) => b.catalog_id === CATALOG_ID && b.status === 'active') ||
-    bindings.find((b) => b.vendor === 'volcengine' && b.plan_family === 'agent_plan' && b.status === 'active') ||
+    bindings.find((b) => b.catalog_id === catalogId && b.status === 'active') ||
+    bindings.find((b) => b.vendor === vendor && b.plan_family === family && b.status === 'active') ||
     null
 
   const models = Array.isArray(modelsRes?.models) ? modelsRes.models : []
@@ -558,7 +652,7 @@ async function loadState() {
     const name = String(m?.name || '').toLowerCase()
     const model = String(m?.model || '').toLowerCase()
     if (v.includes('embedding') || name.includes('embedding') || model.includes('embedding')) return false
-    return v === 'volcengine' || isPlanChatUrl(m?.base_url)
+    return (vendor && v === vendor.toLowerCase()) || isPlanChatUrl(m?.base_url)
   }).length
 
   const planEmbCount = models.filter((m) => {
@@ -567,7 +661,7 @@ async function loadState() {
     const model = String(m?.model || '').toLowerCase()
     const isEmb = v.includes('embedding') || name.includes('embedding') || model.includes('embedding')
     if (!isEmb) return false
-    return v === 'volcengine' || isPlanChatUrl(m?.base_url)
+    return (vendor && v === vendor.toLowerCase()) || isPlanChatUrl(m?.base_url)
   }).length
   _state.embeddingModelCount = planEmbCount
 
@@ -588,16 +682,28 @@ async function loadState() {
   }
 
   const conns = Array.isArray(connRes?.connections) ? connRes.connections : []
-  const volc = conns.find((c) => c.key === 'volcengine')
-  _state.connectionBaseUrl = String(volc?.base_url || '')
+  const conn = conns.find((c) => c.key === vendor) || conns.find((c) => c.key === 'volcengine')
+  _state.connectionBaseUrl = String(conn?.base_url || '')
   _state.primaryModel = String(primaryRes?.primary_model || '')
 }
 
 function bindActions() {
   if (!_root) return
+  _root.querySelectorAll('[data-plans-action="select-catalog"]').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const id = btn.getAttribute('data-catalog-id') || ''
+      if (!id || id === _state.selectedCatalogId) return
+      _state.selectedCatalogId = id
+      _preferredCatalogId = id
+      _verifyByCap = {}
+      _expandedCap = ''
+      await reload()
+    })
+  })
+
   _root.querySelector('[data-plans-action="bind"]')?.addEventListener('click', () => {
     openPlanBundleWizard({
-      catalogId: CATALOG_ID,
+      catalogId: _state.selectedCatalogId || DEFAULT_CATALOG_ID,
       existingBinding: _state.binding,
       onDone: async (binding) => {
         const n = Number(binding?.materialized?.chat_model_count || 0)
@@ -634,7 +740,7 @@ function bindActions() {
   _root.querySelector('[data-plans-action="unbind"]')?.addEventListener('click', async () => {
     const id = _state.binding?.id
     if (!id) return
-    const yes = await showConfirm('确定解绑 Agent Plan？对话模型与媒体 Key 不会自动删除，可稍后手动清理。')
+    const yes = await showConfirm(`确定解绑 ${_state.catalog?.name || '套餐'}？对话模型与媒体 Key 不会自动删除，可稍后手动清理。`)
     if (!yes) return
     try {
       await api.deletePlanBinding(id)
@@ -706,6 +812,7 @@ export async function mountPlansInto(container, opts = {}) {
   cleanup()
   _root = container
   _onGotoChat = typeof opts.onGotoChat === 'function' ? opts.onGotoChat : () => {}
+  if (opts.catalogId) _preferredCatalogId = String(opts.catalogId).trim()
   container.classList.add('settings-plans-root')
   container.innerHTML = `<div class="plans-page"><p class="form-hint">加载套餐状态…</p></div>`
   await reload()
@@ -718,6 +825,8 @@ export function cleanup() {
   _verifyBusy = false
   _verifyByCap = {}
   _state = {
+    catalogs: [],
+    selectedCatalogId: _preferredCatalogId || DEFAULT_CATALOG_ID,
     catalog: null,
     binding: null,
     chatModelCount: 0,

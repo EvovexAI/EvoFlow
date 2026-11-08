@@ -79,29 +79,26 @@ function escAttr(s) {
     .replace(/>/g, '&gt;')
 }
 
-const PLAN_TIER_SHORT = { small: 'S', medium: 'M', large: 'L', max: 'X' }
-
 function isPlanChatUrl(url) {
-  return String(url || '')
+  const n = String(url || '')
     .replace(/\/+$/, '')
     .toLowerCase()
-    .includes('/api/plan/v3')
+  return n.includes('/api/plan/v3') || n.includes('token-plan')
 }
 
 function planModelBadgeHtml(m) {
-  const planType = m?.planType || m?.plan_type || ''
-  const planCfg = m?.planConfig || m?.plan_config || {}
+  const planType = String(m?.planType || m?.plan_type || '').toLowerCase()
   const isPlan =
     planType === 'volcengine_agent' ||
+    planType === 'aliyun_token' ||
     isPlanChatUrl(m?.baseUrl) ||
     isPlanChatUrl(m?.base_url)
   if (!isPlan) return ''
-  const tier = planCfg?.tier_id || ''
-  const minTier = planCfg?.min_tier || ''
-  const short = PLAN_TIER_SHORT[String(tier).toLowerCase()] || tier
-  const need = minTier ? ` · 模型需 ${PLAN_TIER_SHORT[String(minTier).toLowerCase()] || minTier}+` : ''
-  const title = `火山 Agent Plan${short ? ` · 绑定档 ${short}` : ''}${need}`
-  return `<span class="tag tag--plan" title="${escAttr(title)}">Plan${short ? ` ${escHtml(short)}` : ''}</span>`
+  const title =
+    planType === 'aliyun_token' || String(m?.baseUrl || m?.base_url || '').includes('token-plan')
+      ? '百炼 Token Plan'
+      : '火山 Agent Plan'
+  return `<span class="tag tag--plan" title="${escAttr(title)}">Plan</span>`
 }
 
 /** 创建并挂载 models 弹窗 overlay，避免遗漏 overlay 节点。 */
@@ -640,16 +637,18 @@ async function syncConnectionsToGateway(state) {
 }
 
 /**
- * @param {{ key: string, baseUrl?: string, codingBaseUrl?: string, agentPlanBaseUrl?: string }} preset
+ * @param {{ key: string, baseUrl?: string, codingBaseUrl?: string, agentPlanBaseUrl?: string, tokenPlanBaseUrl?: string }} preset
  * @param {string} [baseUrl]
- * @returns {'generic' | 'coding' | 'agent_plan'}
+ * @returns {'generic' | 'coding' | 'agent_plan' | 'token_plan'}
  */
 function inferProviderBaseUrlMode(preset, baseUrl) {
   if (!preset || !PROVIDER_URL_MODE_KEYS.includes(preset.key)) return 'generic'
   const g = normalizeBaseUrlCompare(preset.baseUrl)
   const c = normalizeBaseUrlCompare(preset.codingBaseUrl || preset.baseUrl)
   const a = normalizeBaseUrlCompare(preset.agentPlanBaseUrl || '')
+  const t = normalizeBaseUrlCompare(preset.tokenPlanBaseUrl || '')
   const cur = normalizeBaseUrlCompare(baseUrl)
+  if (cur && t && cur === t) return 'token_plan'
   if (cur && a && cur === a) return 'agent_plan'
   if (cur && g && cur === g) return 'generic'
   if (cur && c && cur === c) return 'coding'
@@ -657,30 +656,38 @@ function inferProviderBaseUrlMode(preset, baseUrl) {
 }
 
 /**
- * @param {{ key: string, baseUrl?: string, codingBaseUrl?: string, agentPlanBaseUrl?: string }} preset
+ * @param {{ key: string, baseUrl?: string, codingBaseUrl?: string, agentPlanBaseUrl?: string, tokenPlanBaseUrl?: string, planModeLabel?: string }} preset
  * @param {string} radioName
- * @param {'generic' | 'coding' | 'agent_plan'} selectedMode
+ * @param {'generic' | 'coding' | 'agent_plan' | 'token_plan'} selectedMode
  */
 function urlModeRadioBlockHtml(preset, radioName, selectedMode) {
   const gUrl = escHtml(preset.baseUrl || '')
   const cUrl = escHtml(preset.codingBaseUrl || preset.baseUrl || '')
   const aUrl = escHtml(preset.agentPlanBaseUrl || '')
+  const tUrl = escHtml(preset.tokenPlanBaseUrl || '')
+  const planUrl = tUrl || aUrl
+  const planValue = tUrl ? 'token_plan' : 'agent_plan'
+  const planLabel = escHtml(preset.planModeLabel || (tUrl ? 'Token Plan 专属' : 'Agent Plan 专属'))
   const nm = escAttr(radioName)
-  const initMode = selectedMode === 'coding' || selectedMode === 'agent_plan' || selectedMode === 'generic'
-    ? selectedMode
-    : 'generic'
-  const agentRadio = aUrl
+  const initMode =
+    selectedMode === 'coding' ||
+    selectedMode === 'agent_plan' ||
+    selectedMode === 'token_plan' ||
+    selectedMode === 'generic'
+      ? selectedMode
+      : 'generic'
+  const planRadio = planUrl
     ? `<label class="models-url-mode-option">
-          <input type="radio" name="${nm}" value="agent_plan"${initMode === 'agent_plan' ? ' checked' : ''}>
-          <span class="models-url-mode-option-title">Agent Plan 专属</span>
-          <code class="models-url-mode-hint">${aUrl}</code>
+          <input type="radio" name="${nm}" value="${planValue}"${initMode === planValue ? ' checked' : ''}>
+          <span class="models-url-mode-option-title">${planLabel}</span>
+          <code class="models-url-mode-hint">${planUrl}</code>
         </label>`
     : ''
   return `
     <div class="form-group models-url-mode-group" data-url-mode-group>
       <label class="form-label">接口地址</label>
       <div class="models-url-mode-radios" role="radiogroup" aria-label="接口地址类型">
-        ${agentRadio}
+        ${planRadio}
         <label class="models-url-mode-option">
           <input type="radio" name="${nm}" value="generic"${initMode === 'generic' ? ' checked' : ''}>
           <span class="models-url-mode-option-title">通用兼容地址（按量）</span>
@@ -709,7 +716,8 @@ function bindUrlModeRadiosToInput(container, preset, baseInput, radioName) {
   const genericUrl = (preset.baseUrl || '').trim()
   const codingUrl = (preset.codingBaseUrl || preset.baseUrl || '').trim()
   const agentUrl = (preset.agentPlanBaseUrl || '').trim()
-  const presetUrls = new Set([genericUrl, codingUrl, agentUrl].filter(Boolean))
+  const tokenUrl = (preset.tokenPlanBaseUrl || '').trim()
+  const presetUrls = new Set([genericUrl, codingUrl, agentUrl, tokenUrl].filter(Boolean))
   container.querySelectorAll(`input[type="radio"][name="${CSS.escape(radioName)}"]`).forEach((r) => {
     r.onchange = () => {
       const cur = baseInput.value.trim()
@@ -718,6 +726,7 @@ function bindUrlModeRadiosToInput(container, preset, baseInput, radioName) {
       if (r.value === 'generic') baseInput.value = genericUrl
       else if (r.value === 'coding') baseInput.value = codingUrl
       else if (r.value === 'agent_plan') baseInput.value = agentUrl || genericUrl
+      else if (r.value === 'token_plan') baseInput.value = tokenUrl || genericUrl
     }
   })
 }
@@ -1033,19 +1042,23 @@ function buildProviderConnectionDetailHTML(title, presetKey, pks, state, primary
   const addBtn = showAddConnection
     ? `<button type="button" class="btn btn-sm btn-secondary models-vendor-add-conn" data-action="add-connection" data-provider="${escAttr(selectedKey)}">+ 添加连接</button>`
     : ''
-  const planPromo =
+  const planCatalogId =
     presetKey === 'volcengine'
-      ? planBundlePromoHtml({
-          catalogId: 'volcengine.agent_plan',
-          binding: state.planBindings?.['volcengine.agent_plan'] || null,
-        })
-      : ''
+      ? 'volcengine.agent_plan'
+      : presetKey === 'aliyun'
+        ? 'aliyun.token_plan'
+        : ''
+  const planPromo = planCatalogId
+    ? planBundlePromoHtml({
+        catalogId: planCatalogId,
+        binding: state.planBindings?.[planCatalogId] || null,
+      })
+    : ''
   const planManaged =
-    presetKey === 'volcengine' &&
-    state.planBindings?.['volcengine.agent_plan']?.status === 'active'
+    planCatalogId && state.planBindings?.[planCatalogId]?.status === 'active'
       ? `<div class="models-plan-managed-bar" role="status">
-          本页火山对话模型由 <strong>套餐</strong> 写入；改 Key / 补齐模型请到「套餐」Tab。
-          <button type="button" class="btn btn-sm btn-secondary" data-action="open-plans-settings">打开套餐</button>
+          本页对话模型由 <strong>套餐</strong> 写入；改 Key / 补齐模型请到「套餐」Tab。
+          <button type="button" class="btn btn-sm btn-secondary" data-action="open-plans-settings" data-catalog="${escAttr(planCatalogId)}">打开套餐</button>
         </div>`
       : ''
 
@@ -1110,17 +1123,21 @@ function renderVendorInlineSetupForm(preset, state = {}) {
           <input id="models-inline-keyf-${escAttr(preset.key)}" class="form-input" data-inline-field="apiKey" type="password" autocomplete="off" placeholder="${isOpenAICompatPreset ? '官方 sk-…，或兼容端点发放的 Key' : '可留空（无需鉴权的服务）'}">
           ${isOpenAICompatPreset ? '<div class="form-hint">填官方 platform.openai.com 发放的 Key，或你所填兼容端点对应的密钥即可。</div>' : ''}
         </div>`
-  const planPromo =
+  const planCatalogId =
     preset.key === 'volcengine'
-      ? planBundlePromoHtml({
-          catalogId: 'volcengine.agent_plan',
-          binding: state.planBindings?.['volcengine.agent_plan'] || null,
-        })
-      : ''
-  const manualDivider =
-    preset.key === 'volcengine'
-      ? `<div class="models-plan-manual-divider"><span>或不使用套餐，手动填按量/通用 API</span></div>`
-      : ''
+      ? 'volcengine.agent_plan'
+      : preset.key === 'aliyun'
+        ? 'aliyun.token_plan'
+        : ''
+  const planPromo = planCatalogId
+    ? planBundlePromoHtml({
+        catalogId: planCatalogId,
+        binding: state.planBindings?.[planCatalogId] || null,
+      })
+    : ''
+  const manualDivider = planCatalogId
+    ? `<div class="models-plan-manual-divider"><span>或不使用套餐，手动填按量/通用 API</span></div>`
+    : ''
   const codexSlot = isOpenAICompatPreset
     ? `<div data-codex-auth-host style="margin:0 0 14px">${codexAuthCardHtml({ logged_in: false, cli_auth_present: false })}</div>`
     : ''
@@ -2524,11 +2541,6 @@ function renderModelCards(providerKey, models, primary) {
     const meta = []
     if (modelId && displayName !== modelId) meta.push(`ID: ${modelId}`)
     else if (modelId) meta.push(modelId)
-    const minTier = m?.planConfig?.min_tier
-    if (minTier) {
-      const need = PLAN_TIER_SHORT[String(minTier).toLowerCase()] || minTier
-      meta.push(`套餐门禁 ${need}+`)
-    }
     if (m.contextWindow) meta.push((m.contextWindow / 1000) + 'K 上下文')
     // 测试状态标签：成功显示耗时，失败显示不可用
     let latencyTag = ''
@@ -3440,6 +3452,12 @@ function bindTopActions(page, state) {
     const plansSettingsBtn = e.target.closest('[data-action="open-plans-settings"]')
     if (plansSettingsBtn) {
       e.preventDefault()
+      const catalog = plansSettingsBtn.getAttribute('data-catalog') || ''
+      if (catalog) {
+        import('./settings/plans.js')
+          .then((mod) => mod.setPreferredPlanCatalog?.(catalog))
+          .catch(() => {})
+      }
       void switchTab(page, state, 'plan')
       return
     }

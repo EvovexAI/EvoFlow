@@ -62,6 +62,101 @@ def subtask_row_progress_percent(row: dict[str, Any]) -> int:
     return 0
 
 
+# Soft display creep: workers often only stamp 10% at dispatch then 100% at done.
+# Response enrichment (not persisted) fills the gap so DAG nodes don't look frozen.
+_SOFT_PROGRESS_CEILING = 92
+_SOFT_PROGRESS_TAU_SEC = 120.0  # ~2 min to cover most of the remaining span
+
+
+def soft_display_progress_for_subtask(
+    row: dict[str, Any] | None,
+    *,
+    now_ts: float | None = None,
+) -> int:
+    """0–100 display progress for one subtask (response-only; never write back).
+
+    Floor = stored worker/dispatch progress. While in-flight and below the soft
+    ceiling, creep asymptotically toward ``_SOFT_PROGRESS_CEILING`` based on
+    ``started_at`` (fallback ``updated_at`` / ``created_at``). Terminal success
+    stays 100; failure keeps stored.
+    """
+    import math
+    import time
+
+    from evoflow.collab.timing import parse_iso_ts
+
+    if not isinstance(row, dict):
+        return 0
+    st = str(row.get("status") or "").strip().lower()
+    stored = clamp_task_progress(row.get("progress"))
+    if st in _TERMINAL_SUCCESS or st in {"succeeded"}:
+        return 100
+    if st in _TERMINAL_FAIL or st in _SUB_FAIL or st in _SUB_CANCEL or st in _SUB_SKIPPED:
+        return stored
+    # Only creep while actually executing — not queued / waiting_dispatch.
+    if st not in {"in_progress", "executing", "running", "active"}:
+        return stored if stored > 0 else (10 if st in _IN_FLIGHT else 0)
+
+    floor = stored if stored > 0 else 8
+    if floor >= _SOFT_PROGRESS_CEILING:
+        return min(99, floor)
+
+    started = (
+        parse_iso_ts(row.get("started_at"))
+        or parse_iso_ts(row.get("updated_at"))
+        or parse_iso_ts(row.get("created_at"))
+    )
+    if started is None:
+        return floor
+
+    now = float(now_ts) if now_ts is not None else time.time()
+    elapsed = max(0.0, now - started)
+    span = float(_SOFT_PROGRESS_CEILING - floor)
+    crept = floor + span * (1.0 - math.exp(-elapsed / _SOFT_PROGRESS_TAU_SEC))
+    return max(floor, min(_SOFT_PROGRESS_CEILING, int(round(crept))))
+
+
+def enrich_task_soft_progress(out: dict[str, Any]) -> None:
+    """Mutate a public task dict: soft-creep in-flight subtask + main progress.
+
+    Does not persist — only improves GET /tasks / poll payloads for UI.
+    """
+    import time
+
+    if not isinstance(out, dict):
+        return
+    subs = out.get("subtasks")
+    if not isinstance(subs, list) or not subs:
+        return
+    now = time.time()
+    soft_vals: list[int] = []
+    any_inflight = False
+    for st in subs:
+        if not isinstance(st, dict):
+            continue
+        st_lc = str(st.get("status") or "").strip().lower()
+        if st_lc in _IN_FLIGHT:
+            any_inflight = True
+        soft = soft_display_progress_for_subtask(st, now_ts=now)
+        soft_vals.append(soft)
+        stored = clamp_task_progress(st.get("progress"))
+        if soft > stored:
+            st["progress"] = soft
+    if not soft_vals:
+        return
+    main_st = normalize_main_task_status(str(out.get("status") or ""))
+    if main_st in _MAIN_TERMINAL:
+        return
+    main_running = main_st in {"executing", "verifying", "reflecting"}
+    if not any_inflight and not main_running:
+        return
+    avg = int(round(sum(soft_vals) / len(soft_vals)))
+    main_stored = clamp_task_progress(out.get("progress"))
+    soft_main = cap_auto_sync_main_progress(avg, main_status=main_st or "executing")
+    if soft_main > main_stored:
+        out["progress"] = soft_main
+
+
 def aggregate_subtasks_progress_percent(subtasks: list[dict[str, Any]]) -> int:
     """Average subtask progress (0–100) for lead UI hints."""
     rows = [x for x in subtasks if isinstance(x, dict)]
@@ -513,11 +608,13 @@ __all__ = [
     "broadcast_subtask_progress_event",
     "cap_auto_sync_main_progress",
     "clamp_task_progress",
+    "enrich_task_soft_progress",
     "format_lead_main_progress_mandate_block",
     "format_subtask_progress_mandate_block",
     "infer_main_status_from_subtasks",
     "infer_subtask_status_for_progress",
     "normalize_main_task_status",
+    "soft_display_progress_for_subtask",
     "subtask_row_progress_percent",
     "sync_main_task_from_subtasks",
 ]

@@ -62,6 +62,7 @@ export function renderChatSummaryPanel(
     setRoleUiNonce,
     sharedCollabSubtasks,
     sidebarActiveView,
+    threadPanelState,
     turnArtifacts,
     turnPlatformEntries,
   } = ctx
@@ -88,6 +89,7 @@ export function renderChatSummaryPanel(
       subagentTasks={liveProcessSnapshot.subagentTasks}
       workflowSubtasks={sharedCollabSubtasks}
       backgroundWorks={liveProcessSnapshot.backgroundWorks}
+      planTodos={Array.isArray(threadPanelState?.todos) ? threadPanelState.todos : []}
       onOpenProcessItem={handleOpenProcessItem}
       onStopProcessItem={handleStopProcessItem}
       agentLabel={deptChat ? getDisplayLabel(selectedSessionKey, '') : currentRoleLabel}

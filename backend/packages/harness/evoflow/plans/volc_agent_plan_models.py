@@ -32,7 +32,8 @@ _TIER_RANK = {"small": 0, "medium": 1, "large": 2, "max": 3}
 _DATED_ID = re.compile(r"-\d{6}$")
 _SKIP_SUBSTR = ("embedding", "seedream", "seedance", "tts", "asr", "voice")
 
-# Official 套餐概览 chat IDs（对齐 https://www.volcengine.com/docs/82379/2366394 ，2026-10-29）
+# Official 套餐概览 chat IDs（对齐 https://www.volcengine.com/docs/82379/2366394 ，2026-11-08）
+# 2026-11-05 起官方列表已移除 minimax-m3、kimi-k2.7-code。
 AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         # Official Auto / latest alias for Agent & Coding Plan clients (not the literal id "auto").
@@ -108,16 +109,6 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "min_tier": "small",
     },
     {
-        "id": "minimax-m3",
-        "label": "MiniMax M3",
-        "context_window": 1024000,
-        "max_output": 128000,
-        "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
-        "notes": "即将下线",
-    },
-    {
         "id": "glm-5.3",
         "label": "GLM 5.3",
         "context_window": 1024000,
@@ -127,16 +118,6 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "min_tier": "small",
         "thinking_always_on": True,
         "notes": "glm-latest；默认开启思考，不支持关闭",
-    },
-    {
-        "id": "kimi-k2.7-code",
-        "label": "Kimi K2.7 Code",
-        "context_window": 256000,
-        "max_output": 32000,
-        "vision": True,
-        "reasoning": True,
-        "min_tier": "small",
-        "notes": "即将下线",
     },
     {
         "id": "kimi-k2.8-preview",
@@ -172,10 +153,11 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "id": "kimi-k3.1-pro",
         "label": "Kimi K3.1 Pro",
         "context_window": 1024000,
-        "max_output": 128000,
+        "max_output": 1024000,
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
+        "notes": "最大输出 1024k（官方 2026-10-30 起）",
     },
     {
         "id": "deepseek-v4.1-flash",
@@ -185,12 +167,12 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "vision": True,
         "reasoning": True,
         "min_tier": "small",
-        "notes": "原生多模态视觉理解（默认识图模型）",
+        "notes": "原生多模态；权重已升 261101（以控制台为准）",
     },
     {
         "id": "deepseek-v4.1-flash-economy",
         "label": "DeepSeek V4.1 Flash Economy",
-        "context_window": 1049000,
+        "context_window": 1024000,
         "max_output": 384000,
         "vision": True,
         "reasoning": True,
@@ -199,8 +181,7 @@ AGENT_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     },
 ]
 
-# 能力清单（套餐 Tab 表格用）。视频档位对齐官方套餐概览模型表，不是笼统「有/无」。
-# Small 不含任何视频；Medium 仅 Seedance 1.5 Pro；2.0 / 2.0-fast 需 Large+。
+# 能力清单（套餐 Tab 表格用）。视频档位对齐官方套餐概览：Small/Medium 无视频，Seedance 2.x 需 Large+。
 AGENT_PLAN_CAPABILITIES: list[dict[str, Any]] = [
     {
         "id": "chat",

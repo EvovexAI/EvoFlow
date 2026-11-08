@@ -11,31 +11,60 @@ function esc(s) {
     .replace(/"/g, '&quot;')
 }
 
+const CATALOG_COPY = {
+  'volcengine.agent_plan': {
+    boundTitle: '火山 Agent Plan 全家桶',
+    unboundTitle: '一键接入方舟 Agent Plan',
+    unboundDesc:
+      '最新 DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3 等；全模态 + Harness。粘贴 <code>ark-</code> Key 接通对话 / 生图视频 / 语音 ——',
+    wizardTitle: '接入方舟 Agent Plan',
+    wizardReplaceTitle: '更换方舟 Agent Plan Key',
+    chatHintPrefix: '绑定后自动写入套餐对话模型。聊天地址使用 Agent Plan 专属',
+    defaultSubscribe: 'https://www.volcengine.com/product/ark',
+    defaultModels: 'DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3',
+  },
+  'aliyun.token_plan': {
+    boundTitle: '百炼 Token Plan 全家桶',
+    unboundTitle: '一键接入百炼 Token Plan',
+    unboundDesc:
+      '千问 / DeepSeek / GLM / 万相 / HappyHorse；Credits 统一计量。粘贴 <code>sk-sp-</code> Key 接通对话 / 生图视频 / 语音。Essential 约 <strong>¥79</strong>/月 ——',
+    wizardTitle: '接入百炼 Token Plan',
+    wizardReplaceTitle: '更换百炼 Token Plan Key',
+    chatHintPrefix: '绑定后自动写入套餐对话模型。聊天地址使用 Token Plan 专属',
+    defaultSubscribe: 'https://bailian.console.aliyun.com/',
+    defaultModels: 'auto、qwen3.8-max、qwen3.8-flash、deepseek-v4.1-flash、glm-5.3',
+  },
+}
+
+function catalogCopy(catalogId) {
+  return CATALOG_COPY[catalogId] || CATALOG_COPY['volcengine.agent_plan']
+}
+
 /**
- * 醒目的全家桶入口卡片（火山等）
+ * 醒目的全家桶入口卡片（火山 / 百炼等）
  * @param {{ binding?: object | null, catalogId?: string }} [opts]
  */
 export function planBundlePromoHtml(opts = {}) {
   const catalogId = opts.catalogId || 'volcengine.agent_plan'
+  const copy = catalogCopy(catalogId)
   const binding = opts.binding || null
   const bound = !!(binding && binding.status === 'active')
-  const tier = binding?.tier_id || binding?.tierId || ''
   const caps = Array.isArray(binding?.bound_capabilities)
     ? binding.bound_capabilities
     : Array.isArray(binding?.boundCapabilities)
       ? binding.boundCapabilities
       : []
-  const capsText = caps.length ? caps.join(' · ') : '对话 · 生图 · 语音 · 向量'
+  const capsText = caps.length ? caps.join(' · ') : '对话 · 生图 · 语音'
+  const subscribeUrl = opts.subscribeUrl || copy.defaultSubscribe
 
   if (bound) {
     return `
       <section class="models-plan-promo models-plan-promo--bound" aria-label="Plan 全家桶已绑定">
         <div class="models-plan-promo-badge">已接通</div>
         <div class="models-plan-promo-body">
-          <h4 class="models-plan-promo-title">火山 Agent Plan 全家桶</h4>
+          <h4 class="models-plan-promo-title">${esc(copy.boundTitle)}</h4>
           <p class="models-plan-promo-desc">
-            档位 <strong>${esc(tier || '未标注')}</strong>
-            · 能力 ${esc(capsText)}
+            能力 ${esc(capsText)}
             · 完整管理请到设置「套餐」
           </p>
         </div>
@@ -50,27 +79,26 @@ export function planBundlePromoHtml(opts = {}) {
     <section class="models-plan-promo" aria-label="接入 Plan 全家桶">
       <div class="models-plan-promo-badge">推荐</div>
       <div class="models-plan-promo-body">
-        <h4 class="models-plan-promo-title">一键接入方舟 Agent Plan</h4>
+        <h4 class="models-plan-promo-title">${esc(copy.unboundTitle)}</h4>
         <p class="models-plan-promo-desc">
-          最新 DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3 等；全模态 + Harness。
-          粘贴 <code>ark-</code> Key 接通对话 / 生图视频 / 语音。
-          活动价低至约 <strong>¥9.9</strong> ——
-          <a href="https://www.volcengine.com/product/ark" target="_blank" rel="noopener noreferrer">立即订阅</a>
+          ${copy.unboundDesc}
+          <a href="${esc(subscribeUrl)}" target="_blank" rel="noopener noreferrer">立即订阅</a>
         </p>
       </div>
       <div class="models-plan-promo-actions">
-        <button type="button" class="btn btn-secondary btn-sm" data-action="open-plans-settings">去套餐页</button>
-        <a class="btn btn-secondary btn-sm" href="https://www.volcengine.com/product/ark" target="_blank" rel="noopener noreferrer">去订阅</a>
+        <button type="button" class="btn btn-secondary btn-sm" data-action="open-plans-settings" data-catalog="${esc(catalogId)}">去套餐页</button>
+        <a class="btn btn-secondary btn-sm" href="${esc(subscribeUrl)}" target="_blank" rel="noopener noreferrer">去订阅</a>
         <button type="button" class="btn btn-primary" data-action="open-plan-bundle" data-catalog="${esc(catalogId)}">已有 Key，立即接入</button>
       </div>
     </section>`
 }
 
 /**
- * @param {{ catalogId?: string, onDone?: (binding: any) => void }} [opts]
+ * @param {{ catalogId?: string, onDone?: (binding: any) => void, existingBinding?: object | null }} [opts]
  */
 export async function openPlanBundleWizard(opts = {}) {
   const catalogId = opts.catalogId || 'volcengine.agent_plan'
+  const copy = catalogCopy(catalogId)
   let catalog
   let existingBinding = opts.existingBinding || null
   try {
@@ -91,7 +119,12 @@ export async function openPlanBundleWizard(opts = {}) {
       const items = Array.isArray(bindRes?.items) ? bindRes.items : []
       existingBinding =
         items.find((b) => b.catalog_id === catalogId && b.status === 'active') ||
-        items.find((b) => b.vendor === 'volcengine' && b.plan_family === 'agent_plan' && b.status === 'active') ||
+        items.find(
+          (b) =>
+            b.vendor === catalog.vendor &&
+            b.plan_family === catalog.plan_family &&
+            b.status === 'active',
+        ) ||
         null
     } catch {
       existingBinding = null
@@ -99,18 +132,36 @@ export async function openPlanBundleWizard(opts = {}) {
   }
 
   const tiers = Array.isArray(catalog.tiers) ? catalog.tiers : []
-  const defaultTier =
-    existingBinding?.tier_id || existingBinding?.tierId || tiers[0]?.id || ''
-  const subscribeUrl = catalog.subscribe_url || 'https://www.volcengine.com/product/ark'
+  // 不再让用户选手动档位：按目录最高档 materialize 全量模型；真实额度/视频门禁以厂商控制台为准。
+  const tierId =
+    existingBinding?.tier_id ||
+    existingBinding?.tierId ||
+    tiers[tiers.length - 1]?.id ||
+    tiers[0]?.id ||
+    ''
+  const subscribeUrl = catalog.subscribe_url || copy.defaultSubscribe
   const inviteCode = String(catalog.invite_code || '').trim()
   const subscribe = inviteCode
     ? `<a href="${esc(subscribeUrl)}" target="_blank" rel="noopener noreferrer">立即订阅</a>（邀请码 <code>${esc(inviteCode)}</code>）`
     : `<a href="${esc(subscribeUrl)}" target="_blank" rel="noopener noreferrer">立即订阅</a>`
   const modelsHint = Array.isArray(catalog.models_hint) && catalog.models_hint.length
     ? catalog.models_hint.join('、')
-    : 'DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3'
+    : copy.defaultModels
   const promo = catalog.promo_hint
     ? `<p style="margin:0 0 12px;font-size:.85rem;line-height:1.45;color:var(--accent,#2563eb)">${esc(catalog.promo_hint)}</p>`
+    : ''
+  const chatBase =
+    catalog?.endpoints?.chat?.base_url ||
+    (catalogId === 'aliyun.token_plan'
+      ? 'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1'
+      : 'https://ark.cn-beijing.volces.com/api/plan/v3')
+  const showLocalEmb = catalogId !== 'aliyun.token_plan'
+  const ents = catalog.entitlements || tiers[tiers.length - 1]?.entitlements || []
+  const hideTier = !!(catalog?.ui?.hide_tiers || catalog?.ui?.hideTiers)
+  const capsHint = ents.length
+    ? `<p style="margin:0 0 12px;opacity:.75;font-size:.82rem;line-height:1.45">将接通：${esc(ents.join('、'))}。${
+        hideTiers ? 'Credits 额度以控制台为准，无需选手动档位。' : '额度以控制台订阅为准，此处无需再选档位。'
+      }</p>`
     : ''
 
   const overlay = document.createElement('div')
@@ -121,31 +172,18 @@ export async function openPlanBundleWizard(opts = {}) {
   overlay.innerHTML = `
     <div class="modal-card plan-bundle-dialog" role="dialog" aria-labelledby="plan-bundle-title"
       style="background:var(--bg-elevated,#fff);color:var(--text,#111);border-radius:12px;max-width:520px;width:100%;padding:20px 22px;box-shadow:0 12px 40px rgba(0,0,0,.2)">
-      <h3 id="plan-bundle-title" style="margin:0 0 8px;font-size:1.1rem">${existingBinding ? '更换方舟 Agent Plan Key' : '接入方舟 Agent Plan'}</h3>
+      <h3 id="plan-bundle-title" style="margin:0 0 8px;font-size:1.1rem">${existingBinding ? esc(copy.wizardReplaceTitle) : esc(copy.wizardTitle)}</h3>
       <p style="margin:0 0 8px;opacity:.85;font-size:.9rem;line-height:1.5">
-        ${esc(catalog.name)}：胜任 Coding，不止 Coding。最新支持 ${esc(modelsHint)} 等；全模态 + Harness。
+        ${esc(catalog.name)}：${esc(catalog.description || '')}
+        最新支持 ${esc(modelsHint)} 等。
         ${subscribe}
       </p>
       <p style="margin:0 0 12px;opacity:.75;font-size:.82rem;line-height:1.45">
-        绑定后自动写入套餐对话模型。聊天地址使用 Agent Plan 专属
-        <code>https://ark.cn-beijing.volces.com/api/plan/v3</code>
-        （勿用按量 <code>/api/v3</code>）。
+        ${esc(copy.chatHintPrefix)}
+        <code>${esc(chatBase)}</code>。
       </p>
       ${promo}
-      <div class="form-group" style="margin-bottom:12px">
-        <label class="form-label">档位</label>
-        <select id="plan-bundle-tier" class="form-input" style="width:100%">
-          ${tiers
-            .map(
-              (t) =>
-                `<option value="${esc(t.id)}"${t.id === defaultTier ? ' selected' : ''}>${esc(
-                  t.label || t.id,
-                )}${t.price_hint ? `（${esc(t.price_hint)}）` : ''}</option>`,
-            )
-            .join('')}
-        </select>
-        <div class="form-hint" id="plan-bundle-tier-hint" style="margin-top:6px;font-size:.8rem;opacity:.75"></div>
-      </div>
+      ${capsHint}
       <div class="form-group" style="margin-bottom:12px">
         <label class="form-label">订阅 API Key</label>
         <input id="plan-bundle-key" class="form-input" type="password" autocomplete="off"
@@ -154,12 +192,16 @@ export async function openPlanBundleWizard(opts = {}) {
           catalog.key_rules?.description || '',
         )}</div>
       </div>
-      <div class="form-group" style="margin-bottom:16px">
+      ${
+        showLocalEmb
+          ? `<div class="form-group" style="margin-bottom:16px">
         <label style="display:flex;gap:8px;align-items:flex-start;font-size:.85rem;cursor:pointer">
           <input id="plan-bundle-local-emb" type="checkbox" checked style="margin-top:3px">
           <span>向量优先用本地模型（节省套餐积分）</span>
         </label>
-      </div>
+      </div>`
+          : '<div style="margin-bottom:16px"></div>'
+      }
       <div id="plan-bundle-error" style="display:none;color:#c0392b;font-size:.85rem;margin-bottom:10px"></div>
       <div style="display:flex;gap:8px;justify-content:flex-end">
         <button type="button" class="btn btn-secondary" data-plan-action="cancel">取消</button>
@@ -168,21 +210,7 @@ export async function openPlanBundleWizard(opts = {}) {
     </div>
   `
 
-  const tierSelect = overlay.querySelector('#plan-bundle-tier')
-  const tierHint = overlay.querySelector('#plan-bundle-tier-hint')
   const errEl = overlay.querySelector('#plan-bundle-error')
-
-  function refreshTierHint() {
-    const tid = tierSelect.value
-    const tier = tiers.find((t) => t.id === tid)
-    const ents = tier?.entitlements || catalog.entitlements || []
-    const hasVideo = ents.includes('video')
-    tierHint.textContent = hasVideo
-      ? `本档含：${ents.join('、')}`
-      : `本档含：${ents.join('、')}（不含视频生成，生视频将被拦截）`
-  }
-  refreshTierHint()
-  tierSelect.onchange = refreshTierHint
 
   const close = () => overlay.remove()
   overlay.querySelector('[data-plan-action="cancel"]').onclick = close
@@ -192,8 +220,9 @@ export async function openPlanBundleWizard(opts = {}) {
 
   overlay.querySelector('[data-plan-action="submit"]').onclick = async () => {
     const key = overlay.querySelector('#plan-bundle-key').value.trim()
-    const tierId = tierSelect.value
-    const preferLocal = overlay.querySelector('#plan-bundle-local-emb').checked
+    const preferLocal = showLocalEmb
+      ? !!overlay.querySelector('#plan-bundle-local-emb')?.checked
+      : false
     errEl.style.display = 'none'
     if (!key) {
       errEl.textContent = '请填写订阅 API Key'
@@ -207,14 +236,14 @@ export async function openPlanBundleWizard(opts = {}) {
       const binding = existingBinding?.id
         ? await api.patchPlanBinding(existingBinding.id, {
             api_key: key,
-            tier_id: tierId,
+            tier_id: tierId || undefined,
             rematerialize: true,
             overrides: { prefer_local_embedding: preferLocal },
           })
         : await api.createPlanBinding({
             catalog_id: catalog.id,
             api_key: key,
-            tier_id: tierId,
+            tier_id: tierId || undefined,
             overrides: { prefer_local_embedding: preferLocal },
           })
       close()

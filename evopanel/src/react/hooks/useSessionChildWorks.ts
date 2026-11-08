@@ -6,6 +6,10 @@ import {
   fetchSessionExecutionState,
   type SessionChildWorkItem,
 } from '../lib/session-reattach.js'
+import {
+  logSessionChildWorksDiff,
+  resetSessionChildWorkLog,
+} from '../lib/session-child-work-log.js'
 
 const ACTIVE = new Set(['pending', 'running'])
 const POLL_MS = 3000
@@ -34,6 +38,7 @@ export function useSessionChildWorks(sessionKey: string | null | undefined) {
           ? st.openChildWorkCount
           : list.filter((w) => isChildWorkActive(w.status)).length
       setOpenCount(n)
+      logSessionChildWorksDiff(sk, list)
     } catch {
       /* best-effort */
     }
@@ -43,8 +48,10 @@ export function useSessionChildWorks(sessionKey: string | null | undefined) {
     if (!sk) {
       setWorks([])
       setOpenCount(0)
+      resetSessionChildWorkLog()
       return
     }
+    resetSessionChildWorkLog(sk)
     let cancelled = false
     let timer = 0
 

@@ -597,10 +597,12 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
     doc["final_rollup_agent"] = _as_str(doc.get("final_rollup_agent"))
     doc["final_rollup_instruction"] = _as_str(doc.get("final_rollup_instruction"))
 
-    # P0.5-1: App-level schema enforcement policy (strict|warn|ignore)
-    app_policy = _as_str(doc.get("schema_enforcement"), "warn") or "warn"
+    # P0.5-1: App-level schema enforcement policy (strict|warn|ignore).
+    # Default strict: missing structured_output fails at the declaring step
+    # instead of silently completing and breaking downstream bindings.
+    app_policy = _as_str(doc.get("schema_enforcement"), "strict") or "strict"
     if app_policy not in ("strict", "warn", "ignore"):
-        app_policy = "warn"
+        app_policy = "strict"
     doc["schema_enforcement"] = app_policy
 
     return doc

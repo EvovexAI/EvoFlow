@@ -269,13 +269,16 @@ def list_remote_models(data: dict[str, Any]) -> dict[str, Any]:
                     "models": fb,
                     "degraded": True,
                 }
+            from evoflow.plans.aliyun_token_plan_models import (
+                openai_compat_fallback_models as aliyun_plan_fallback_models,
+            )
             from evoflow.plans.volc_agent_plan_models import openai_compat_fallback_models
 
-            plan_fb = openai_compat_fallback_models(base)
+            plan_fb = openai_compat_fallback_models(base) or aliyun_plan_fallback_models(base)
             if plan_fb:
                 return {
                     "success": True,
-                    "message": (f"Agent Plan endpoint has no GET /models; returning {len(plan_fb)} official catalog IDs"),
+                    "message": (f"Plan endpoint has no GET /models; returning {len(plan_fb)} official catalog IDs"),
                     "models": plan_fb,
                     "degraded": True,
                 }

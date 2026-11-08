@@ -64,6 +64,13 @@ const ACCEPTED_INPUT_COMMAND_TYPES = new Set(["sendText"]);
  */
 const INITIAL_FRAME_WATCHDOG_MS = 2_500;
 
+/**
+ * subscribe HTTP 硬超时。冷会话服务端 hydrate 大 transcript 若卡在 Gateway 事件循环
+ * （或上游代理无响应），旧实现会永久 await → connecting_tick 数分钟、UI 看起来卡死
+ * （2026-11-08 正式包）。超时后走瞬态重试；retry() 会 bump generation 丢弃在途 await。
+ */
+const SUBSCRIBE_HTTP_TIMEOUT_MS = 12_000;
+
 /** 退避耗尽时展示给用户的 lastError（无底层 error 对象可引用的换代路径）。 */
 const RUNTIME_RECYCLED_ERROR = "ZCode agent runtime 已被回收，重连未成功";
 
@@ -445,10 +452,22 @@ export class ConversationProjectionStore {
     this.connectInFlight += 1;
     this.setState({ status: "connecting", rendererTiming: this.sessionOpenRendererTiming });
     try {
-      const result = await this.transport.subscribe({
+      const subscribeParams = {
         topic: this.topic,
         base: snapshot ? { logEpoch: snapshot.logEpoch, seq: snapshot.seq } : undefined,
-      });
+      };
+      const result = await Promise.race([
+        this.transport.subscribe(subscribeParams),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error(
+                `v4 subscribe timed out after ${SUBSCRIBE_HTTP_TIMEOUT_MS}ms (topic=${this.topic})`,
+              ),
+            );
+          }, SUBSCRIBE_HTTP_TIMEOUT_MS);
+        }),
+      ]);
       if (generation !== this.generation || this.closed) {
         // 过期代际：这份订阅已无人消费，立即退订。
         logger.lifecycle.warn("v4 conversation store connect ACK became stale", {
@@ -674,6 +693,9 @@ export class ConversationProjectionStore {
     this.runtimeRecycleRetryAttempt = 0;
     this.clearConnectRetryTimer();
     this.connectRetryAttempt = 0;
+    // 丢弃卡住的在途 subscribe（HTTP 永不返回时 connectInFlight 会挡死重连）。
+    // 迟到 ACK 会因 generation 失配被退订，不会污染新投影。
+    this.generation += 1;
     return this.connect();
   }
 

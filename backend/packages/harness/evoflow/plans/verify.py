@@ -11,6 +11,10 @@ import httpx
 from evoflow.plans import bindings as bindings_store
 from evoflow.plans.catalog import get_catalog_entry, tier_entitlements
 from evoflow.plans.errors import PlanError, PlanErrorCode
+from evoflow.plans.aliyun_token_plan_models import (
+    PLAN_CHAT_BASE as ALIYUN_PLAN_CHAT_BASE,
+    PLAN_MEDIA_BASE as ALIYUN_PLAN_MEDIA_BASE,
+)
 from evoflow.plans.volc_agent_plan_models import PLAN_CHAT_BASE, PLAN_MEDIA_BASE
 
 logger = logging.getLogger(__name__)
@@ -71,9 +75,12 @@ def _is_plan_base(url: str) -> bool:
         in {
             _normalize_base(PLAN_CHAT_BASE),
             _normalize_base(PLAN_MEDIA_BASE),
+            _normalize_base(ALIYUN_PLAN_CHAT_BASE),
+            _normalize_base(ALIYUN_PLAN_MEDIA_BASE),
             "https://ark.cn-beijing.volces.com/api/coding/v3",
         }
         or "/api/plan/v3" in n
+        or "token-plan" in n
     )
 
 
@@ -92,9 +99,21 @@ def _is_embedding_row(row: dict[str, Any]) -> bool:
     return "embedding" in blob
 
 
-def _is_plan_vendor_row(row: dict[str, Any]) -> bool:
-    vendor = str(row.get("vendor") or "").lower()
-    if vendor == "volcengine" or vendor.startswith("volcengine"):
+def _is_plan_vendor_row(row: dict[str, Any], *, vendor: str | None = None) -> bool:
+    row_vendor = str(row.get("vendor") or "").lower()
+    plan_type = str(row.get("plan_type") or "").lower()
+    want = str(vendor or "").strip().lower()
+    if want:
+        if row_vendor == want or row_vendor.startswith(want):
+            return True
+        if want == "volcengine" and (plan_type == "volcengine_agent" or _is_plan_base(str(row.get("base_url") or ""))):
+            return "token-plan" not in _normalize_base(str(row.get("base_url") or ""))
+        if want == "aliyun" and (plan_type == "aliyun_token" or "token-plan" in _normalize_base(str(row.get("base_url") or ""))):
+            return True
+        return False
+    if row_vendor in {"volcengine", "aliyun"} or row_vendor.startswith("volcengine") or row_vendor.startswith("aliyun"):
+        return True
+    if plan_type in {"volcengine_agent", "aliyun_token"}:
         return True
     return _is_plan_base(str(row.get("base_url") or ""))
 
@@ -275,7 +294,12 @@ async def _verify_chat(
     model_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     label = _cap_label("chat", catalog)
-    rows = [r for r in _list_plan_models() if _is_plan_vendor_row(r) and not _is_embedding_row(r)]
+    vendor = str(catalog.get("vendor") or "").strip().lower() or None
+    rows = [
+        r
+        for r in _list_plan_models()
+        if _is_plan_vendor_row(r, vendor=vendor) and not _is_embedding_row(r)
+    ]
     if model_ids:
         want = {str(x).strip() for x in model_ids if str(x).strip()}
         rows = [r for r in rows if str(r.get("model") or "") in want or str(r.get("name") or "") in want]
@@ -327,7 +351,12 @@ async def _verify_embedding(
     model_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     label = _cap_label("embedding", catalog)
-    rows = [r for r in _list_plan_models() if _is_plan_vendor_row(r) and _is_embedding_row(r)]
+    vendor = str(catalog.get("vendor") or "").strip().lower() or None
+    rows = [
+        r
+        for r in _list_plan_models()
+        if _is_plan_vendor_row(r, vendor=vendor) and _is_embedding_row(r)
+    ]
     if model_ids:
         want = {str(x).strip() for x in model_ids if str(x).strip()}
         rows = [r for r in rows if str(r.get("model") or "") in want or str(r.get("name") or "") in want]
@@ -362,6 +391,18 @@ async def _verify_embedding(
 
 async def _verify_tts(catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("tts", catalog)
+    vendor = str(catalog.get("vendor") or "").strip().lower()
+    if vendor == "aliyun":
+        try:
+            from evoflow.community.media_generation.config_helpers import dashscope_api_key
+
+            key = dashscope_api_key()
+        except Exception:
+            key = ""
+        ok = bool(key)
+        msg = "通义语音 Key 已写入（Token Plan）" if ok else "未写入 dashscopeApiKey，请重新绑定套餐"
+        check = _check("tts", label="语音合成凭证", ok=ok, message=msg)
+        return _ok("tts", label=label, message=msg, checks=[check]) if ok else _fail("tts", label=label, message=msg, checks=[check])
     ok, msg = await _probe_tts()
     check = _check("tts", label="语音合成试听", ok=ok, message=msg)
     return _ok("tts", label=label, message=msg, checks=[check]) if ok else _fail("tts", label=label, message=msg, checks=[check])
@@ -369,6 +410,18 @@ async def _verify_tts(catalog: dict[str, Any]) -> dict[str, Any]:
 
 async def _verify_asr(catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("asr", catalog)
+    vendor = str(catalog.get("vendor") or "").strip().lower()
+    if vendor == "aliyun":
+        try:
+            from evoflow.community.media_generation.config_helpers import dashscope_api_key
+
+            key = dashscope_api_key()
+        except Exception:
+            key = ""
+        ok = bool(key)
+        msg = "通义 ASR Key 已写入（Token Plan）" if ok else "未写入 dashscopeApiKey，请重新绑定套餐"
+        check = _check("asr", label="语音识别凭证", ok=ok, message=msg)
+        return _ok("asr", label=label, message=msg, checks=[check]) if ok else _fail("asr", label=label, message=msg, checks=[check])
     ok, msg = await _probe_asr()
     check = _check("asr", label="语音识别通道", ok=ok, message=msg)
     return _ok("asr", label=label, message=msg, checks=[check]) if ok else _fail("asr", label=label, message=msg, checks=[check])
@@ -377,6 +430,45 @@ async def _verify_asr(catalog: dict[str, Any]) -> dict[str, Any]:
 async def _verify_image(*, api_key: str, catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("image", catalog)
     endpoints = catalog.get("endpoints") or {}
+    vendor = str(catalog.get("vendor") or "").strip().lower()
+    if vendor == "aliyun":
+        base = str((endpoints.get("image") or {}).get("base_url") or ALIYUN_PLAN_MEDIA_BASE)
+        key = api_key
+        try:
+            from evoflow.community.media_generation.config_helpers import dashscope_api_key
+
+            key = dashscope_api_key() or api_key
+        except Exception:
+            pass
+        model_id = "wan2.7-image"
+        for row in catalog.get("capabilities") or []:
+            if str(row.get("id") or "") == "image":
+                items = list(row.get("items") or [])
+                if items:
+                    model_id = str(items[0].get("id") or model_id)
+                break
+        ok, msg = await _probe_ark_auth_via_invalid_generation(
+            base_url=base,
+            api_key=key,
+            path="/services/aigc/multimodal-generation/generation",
+            body={"model": "__evoflow_plan_probe__", "input": {"messages": []}},
+            label="生图",
+        )
+        if not ok and "鉴权" not in msg:
+            ok2, msg2 = await _probe_ark_auth_via_invalid_generation(
+                base_url=base,
+                api_key=key,
+                path="/services/aigc/multimodal-generation/generation",
+                body={"model": model_id, "input": {"messages": []}},
+                label="生图",
+            )
+            if ok2:
+                ok, msg = ok2, msg2
+        check = _check("image", label="生图凭证", ok=ok, message=msg)
+        if ok:
+            return _ok("image", label=label, message=msg, checks=[check])
+        return _fail("image", label=label, message=msg, checks=[check])
+
     base = str((endpoints.get("image") or {}).get("base_url") or PLAN_MEDIA_BASE)
     key = api_key
     try:
@@ -430,6 +522,28 @@ async def _verify_image(*, api_key: str, catalog: dict[str, Any]) -> dict[str, A
 async def _verify_video(*, api_key: str, catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("video", catalog)
     endpoints = catalog.get("endpoints") or {}
+    vendor = str(catalog.get("vendor") or "").strip().lower()
+    if vendor == "aliyun":
+        base = str((endpoints.get("video") or {}).get("base_url") or ALIYUN_PLAN_MEDIA_BASE)
+        key = api_key
+        try:
+            from evoflow.community.media_generation.config_helpers import dashscope_api_key
+
+            key = dashscope_api_key() or api_key
+        except Exception:
+            pass
+        ok, msg = await _probe_ark_auth_via_invalid_generation(
+            base_url=base,
+            api_key=key,
+            path="/services/aigc/video-generation/video-synthesis",
+            body={"model": "__evoflow_plan_probe__", "input": {"prompt": "probe"}},
+            label="生视频",
+        )
+        check = _check("video", label="生视频凭证", ok=ok, message=msg)
+        if ok:
+            return _ok("video", label=label, message=msg, checks=[check])
+        return _fail("video", label=label, message=msg, checks=[check])
+
     base = str((endpoints.get("video") or {}).get("base_url") or PLAN_MEDIA_BASE)
     key = api_key
     try:
@@ -457,6 +571,29 @@ async def _verify_video(*, api_key: str, catalog: dict[str, Any]) -> dict[str, A
 async def _verify_web_search(*, api_key: str, catalog: dict[str, Any]) -> dict[str, Any]:
     label = _cap_label("web_search", catalog)
     endpoints = catalog.get("endpoints") or {}
+    vendor = str(catalog.get("vendor") or "").strip().lower()
+    if vendor == "aliyun":
+        base = str((endpoints.get("chat") or {}).get("base_url") or ALIYUN_PLAN_CHAT_BASE)
+        model_id = "auto"
+        try:
+            from evoflow.plans.aliyun_token_plan_models import chat_models_for_tier
+
+            tier_models = chat_models_for_tier("lite")
+            if tier_models:
+                model_id = str(tier_models[0].get("id") or model_id)
+        except Exception:
+            pass
+        ok, msg = await _post_chat(base_url=base, api_key=api_key, model_id=model_id)
+        if ok:
+            msg = (
+                "套餐 Key 可用。Token Plan 联网搜索为模型内置工具（Responses API），"
+                "按 Credits 抵扣，无需单独配置豆包/博查 Key。"
+            )
+        check = _check("web_search", label="联网搜索凭证", ok=ok, message=msg)
+        if ok:
+            return _ok("web_search", label=label, message=msg, checks=[check])
+        return _fail("web_search", label=label, message=msg, checks=[check])
+
     base = str((endpoints.get("chat") or {}).get("base_url") or PLAN_CHAT_BASE)
     # Agent Plan has no reliable GET /models; reuse a tiny chat completion as Key probe.
     model_id = "doubao-seed-2.0-mini"

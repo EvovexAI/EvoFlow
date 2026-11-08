@@ -325,6 +325,8 @@ def fetch_report(*, since_hours: float = 168, limit: int = 10) -> dict[str, Any]
             "duration_p95_ms": overview.get("tool_duration_p95_ms"),
             "top_slow_tools": overview.get("top_slow_tools"),
             "slowest_invocations": insights.get("slowest_tool_invocations"),
+            "bash_shell": insights.get("bash_shell_latency"),
+            "platform_actions": insights.get("platform_action_latency"),
         },
         "model_latency": {
             "model_invocations": overview.get("model_invocations"),
