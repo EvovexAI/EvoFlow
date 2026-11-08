@@ -554,6 +554,8 @@ export function ensureBrowserStage(opts?: {
         historyStack: ['about:blank'],
         historyIndex: 0,
       },
+      // 用户点「新标签」必须能看见侧栏；空白签本身不露 HWND（surface 门闩）。
+      forceExpand: true,
     })
     if (!skipHwndNav) applyStageBrowserSurface(id, 'about:blank', '', 'force-new')
     return
@@ -595,6 +597,11 @@ export function ensureBrowserStage(opts?: {
   // as stage-restore and upsert-navigates — undoing soft-decouple (CDP already
   // owns the page; FE then rebuilds HWND → guest-poll / COM death).
   lastActiveBrowserKey = `browser:${id}`
+  // 浏览器必须强制撑开：agent soft-decouple 建窗后会 park HWND 等面板量槽位；
+  // 若尊重 userCollapsed，侧栏一直收着 → 永远没有 set_bounds present=true，
+  // 用户只看到「操作正常但浏览器没打开」（2026-11-08 plugin-control）。
+  // 文件/小V 自动开栏仍不传 forceExpand；这里是浏览器专属。
+  const wasUserCollapsed = rightStageStore.isUserCollapsed
   rightStageStore.show({
     kind: 'browser',
     id,
@@ -602,7 +609,25 @@ export function ensureBrowserStage(opts?: {
     layout: 'wide',
     sessionKey: stageSessionKey,
     data: nextData,
+    forceExpand: true,
   })
+  const after = rightStageStore.getSnapshot()
+  if (after.collapsed) {
+    dbgLog(
+      `[browser-panel-store] ensureBrowserStage still collapsed after forceExpand ` +
+        `id=${id} userCollapsedWas=${wasUserCollapsed} active=${after.activeKey || '(none)'}`,
+    )
+    blogTimeline(
+      '侧栏打开',
+      `未展开 id=${id} 链接=${String(nextData.pageUrl || '').trim() || '(无)'} ` +
+        `此前用户收起=${wasUserCollapsed ? '是' : '否'}`,
+      'warn',
+    )
+  } else {
+    // show() 的 bump 会触发 syncNativeEmbed；再显式推一把，避免 lastPlacementKey
+    // 早退时 HWND 仍停在 agent-create 的 park。
+    syncNativeEmbed('ensure-browser-stage')
+  }
   const navUrl = String(nextData.pageUrl || '').trim()
   if (
     !skipHwndNav &&

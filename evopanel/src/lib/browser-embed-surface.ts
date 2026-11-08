@@ -135,7 +135,10 @@ export function syncNativeEmbed(reason = 'right-stage') {
   const key = foreignOwner
     ? `hide:foreign-owner:${ownerSk}`
     : placementKey(stageId, overlayDepth)
-  if (key === lastPlacementKey) return
+  // agent ensure 后 HWND 可能已 park，但 FE lastPlacementKey 仍是 show:primary
+  // （门闩早退）→ 永远不重发 gate。ensure-browser-stage 强制再推一轮。
+  const forceResync = reason === 'ensure-browser-stage' && Boolean(shownId)
+  if (key === lastPlacementKey && !forceResync) return
   lastPlacementKey = key
   visibleStageId = shownId
   // park / 换页后槽位必须重新上报，不能吃旧的 lastReportedSlotKey。
@@ -145,7 +148,8 @@ export function syncNativeEmbed(reason = 'right-stage') {
   const active = rightStageStore.getSnapshot().activeKey || '(none)'
   const line =
     `[browser-embed-surface] ${key} reason=${reason} active=${active} ` +
-    `overlay=${overlayDepth} ui=${uiSk || '(none)'} owner=${ownerSk || '(none)'}`
+    `overlay=${overlayDepth} ui=${uiSk || '(none)'} owner=${ownerSk || '(none)'}` +
+    (forceResync ? ' forceResync=1' : '')
   console.info(line)
   blog('info', line)
   if (typeof window !== 'undefined') {
