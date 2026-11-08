@@ -195,7 +195,7 @@ export function WorkspaceMentionMenu({
             role="option"
             data-idx={i}
             aria-selected={i === activeIndex}
-            className={`react-chat-mention-menu-item react-chat-mention-menu-item--row${i === activeIndex ? ' is-active' : ''}`}
+            className={`react-chat-mention-menu-item react-chat-mention-menu-item--row react-chat-mention-menu-item--stacked${i === activeIndex ? ' is-active' : ''}`}
             onMouseEnter={() => onActiveIndexChange(i)}
             onMouseDown={(e) => {
               e.preventDefault()
@@ -205,9 +205,13 @@ export function WorkspaceMentionMenu({
             <span className="react-chat-mention-menu-icon" aria-hidden>
               {item.icon || '⚡'}
             </span>
-            <span className="react-chat-mention-menu-name">{item.label || item.name}</span>
-            <span className="react-chat-mention-menu-path">技能</span>
-            {item.description ? <span className="react-chat-mention-menu-desc">{item.description}</span> : null}
+            <span className="react-chat-mention-menu-main">
+              <span className="react-chat-mention-menu-title">
+                <span className="react-chat-mention-menu-name">{item.label || item.name}</span>
+                <span className="react-chat-mention-menu-path">技能</span>
+              </span>
+              {item.description ? <span className="react-chat-mention-menu-desc">{item.description}</span> : null}
+            </span>
           </button>
         </li>
       )
@@ -221,7 +225,7 @@ export function WorkspaceMentionMenu({
             role="option"
             data-idx={i}
             aria-selected={i === activeIndex}
-            className={`react-chat-mention-menu-item react-chat-mention-menu-item--row${i === activeIndex ? ' is-active' : ''}`}
+            className={`react-chat-mention-menu-item react-chat-mention-menu-item--row react-chat-mention-menu-item--stacked${i === activeIndex ? ' is-active' : ''}`}
             onMouseEnter={() => onActiveIndexChange(i)}
             onMouseDown={(e) => {
               e.preventDefault()
@@ -235,9 +239,13 @@ export function WorkspaceMentionMenu({
                 '🧩'
               )}
             </span>
-            <span className="react-chat-mention-menu-name">{item.label}</span>
-            <span className="react-chat-mention-menu-path">插件</span>
-            {item.description ? <span className="react-chat-mention-menu-desc">{item.description}</span> : null}
+            <span className="react-chat-mention-menu-main">
+              <span className="react-chat-mention-menu-title">
+                <span className="react-chat-mention-menu-name">{item.label}</span>
+                <span className="react-chat-mention-menu-path">插件</span>
+              </span>
+              {item.description ? <span className="react-chat-mention-menu-desc">{item.description}</span> : null}
+            </span>
           </button>
         </li>
       )

@@ -7,11 +7,13 @@
  */
 export type MentionType = 'file' | 'employee' | 'skill' | 'plugin'
 
-/** Product chat slash commands. Selecting one inserts `/name ` for the send path. */
+/** Product chat slash commands. Selecting one inserts `/name ` for the send path.
+ *
+ * Note: `/claude` / `/lead` still work when typed manually (see `handle-send.ts`),
+ * they are intentionally not listed in the picker.
+ */
 export const COMPOSER_SLASH_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'goal', description: '用后面的文字启动当前会话目标' },
-  { name: 'claude', description: '切换为代码助手模式' },
-  { name: 'lead', description: '切换回 EvoFlow' },
 ]
 
 export type MentionRange = {
