@@ -592,17 +592,23 @@ def _try_hot_patch_subtask(
     if not task_repo.patch_subtask_hot_fields(mid, sid, applied):
         return False
 
+    # Re-read SQL status after the CAS UPDATE so a refused terminal→active
+    # write does not poison the in-process cache with the stale active label.
+    post_status = task_repo.get_subtask_row_status(mid, sid)
+    new_status = str(post_status or applied.get("status") or old_status).strip().lower()
     with storage._lock:
         cached = storage._project_cache.get(mid)
         if isinstance(cached, dict) and cached.get("tasks"):
             for st in cached["tasks"][0].get("subtasks") or []:
                 if isinstance(st, dict) and str(st.get("id") or "").strip() == sid:
                     for key, value in applied.items():
+                        if key == "status":
+                            continue
                         st[key] = value
+                    if post_status is not None:
+                        st["status"] = post_status
                     st["updated_at"] = applied.get("updated_at") or utc_now_iso_z()
                     break
-
-    new_status = str(applied.get("status") or old_status).strip().lower()
     if old_status != new_status:
         logger.info(
             "[wf-step-transcript] subtask_status_changed source=hot main=%s sub=%s from=%s to=%s started=%s completed=%s",
@@ -975,18 +981,33 @@ def persist_subtask_runtime_snapshot(
         if status is not None:
             s = str(status).strip().lower()
             if s:
-                fresh["status"] = s
-                if s in {"in_progress", "running", "executing", "active"}:
-                    # Soft progress / timing need a start stamp; task_tool path
-                    # used to omit this and nodes stayed frozen at 10%.
-                    fresh["started_at"] = fresh.get("started_at") or now
-                if s == "completed":
-                    fresh["completed_at"] = fresh.get("completed_at") or now
-                    fresh.pop("failed_at", None)
-                    # Success clears stale errors (e.g. watchdog timed_out then real completion overwrites status only).
-                    fresh.pop("error", None)
-                elif s in {"failed", "timed_out", "cancelled"}:
-                    fresh["failed_at"] = fresh.get("failed_at") or now
+                from evoflow.collab.subtask_state_machine import can_advance_subtask_status
+
+                cur_s = str(fresh.get("status") or "").strip().lower()
+                ok_adv, why_adv = can_advance_subtask_status(cur_s, s)
+                if not ok_adv:
+                    # Stale in_progress/executing tick after done() — keep terminal.
+                    logger.debug(
+                        "persist_subtask_runtime_snapshot: refuse status %s→%s (%s) main=%s sub=%s",
+                        cur_s,
+                        s,
+                        why_adv,
+                        main_task_id,
+                        subtask_id,
+                    )
+                else:
+                    fresh["status"] = s
+                    if s in {"in_progress", "running", "executing", "active"}:
+                        # Soft progress / timing need a start stamp; task_tool path
+                        # used to omit this and nodes stayed frozen at 10%.
+                        fresh["started_at"] = fresh.get("started_at") or now
+                    if s == "completed":
+                        fresh["completed_at"] = fresh.get("completed_at") or now
+                        fresh.pop("failed_at", None)
+                        # Success clears stale errors (e.g. watchdog timed_out then real completion overwrites status only).
+                        fresh.pop("error", None)
+                    elif s in {"failed", "timed_out", "cancelled"}:
+                        fresh["failed_at"] = fresh.get("failed_at") or now
         if progress is not None:
             try:
                 fresh["progress"] = max(0, min(100, int(progress)))

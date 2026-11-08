@@ -250,6 +250,34 @@ def test_reported_completed_row_is_left_alone():
     assert st == before
 
 
+def test_reported_but_still_inflight_is_restored_to_completed():
+    """done() stamped outcome, then a late tick left status=executing — flip back."""
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    st = {
+        "id": "s3",
+        "status": "executing",
+        "progress": 90,
+        "outcome_reported_at": "2026-11-09T00:06:02+08:00",
+        "outcome_reported_by": "worker",
+        "task_report": "final.md written",
+        "summary": "final.md written",
+        "lease_until_ts": time.time() + 120,  # live lease — must NOT zombie-requeue
+    }
+    assert is_subtask_outcome_reported(st) is True
+
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["reported_but_still_inflight"]
+    assert st["status"] == "completed"
+    assert st["progress"] == 100
+    assert is_subtask_outcome_reported(st) is True
+    assert st.get("task_report") == "final.md written"
+
+
 def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
     """No retry left ⇒ row stays failed and must keep its report for the user."""
     from evoflow.collab import workflow_reconciler

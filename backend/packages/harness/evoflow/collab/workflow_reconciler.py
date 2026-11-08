@@ -198,6 +198,48 @@ def _heal_subtasks(
             healed.append({"subtaskId": sid, "from": prev, "to": prev, "why": "restamp_unreported_terminal"})
             continue
 
+        # Inverse race: ``done`` already stamped a *success* outcome, but a late
+        # progress/heartbeat hot-patch COALESCE'd status back to executing.
+        # Prefer the reported success over the stale in-flight label — do NOT
+        # treat this as a zombie (that would clear the report and re-run work).
+        #
+        # Failed residue + in-flight is the opposite case (retry / crash mid
+        # re-dispatch): fall through so ``zombie_executing`` can clear the
+        # previous attempt and requeue.
+        if prev in _IN_FLIGHT and is_subtask_outcome_reported(st):
+            err = str(st.get("error") or "").strip()
+            failed_at = str(st.get("failed_at") or "").strip()
+            looks_failed = bool(err or failed_at)
+            if not looks_failed:
+                ok, why = advance_subtask_row_status(st, "completed", allow_terminal_downgrade=False)
+                if not ok:
+                    st["status"] = "completed"
+                st["progress"] = 100
+                st["completed_at"] = (
+                    str(st.get("completed_at") or st.get("outcome_reported_at") or "").strip() or now_iso
+                )
+                st.pop("failed_at", None)
+                if str(st.get("error") or "").startswith("reconcile:"):
+                    st.pop("error", None)
+                    st.pop("error_kind", None)
+                st["updated_at"] = now_iso
+                logger.info(
+                    "workflow_reconciler: restored reported completed over stale in-flight "
+                    "main=%s sub=%s from=%s",
+                    st.get("main_task_id") or st.get("parent_task_id") or "",
+                    sid,
+                    prev,
+                )
+                healed.append(
+                    {
+                        "subtaskId": sid,
+                        "from": prev,
+                        "to": "completed",
+                        "why": "reported_but_still_inflight",
+                    }
+                )
+                continue
+
         if is_zombie_executing_subtask(st, now_ts=now_ts, reason=reason):
             ok, why = advance_subtask_row_status(st, "pending", allow_terminal_downgrade=False)
             if not ok:

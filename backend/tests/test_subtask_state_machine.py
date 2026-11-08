@@ -78,3 +78,32 @@ def test_patch_storage_uses_state_machine():
         st.find_main_task = original  # type: ignore[assignment]
     assert task["subtasks"][0]["status"] == "completed"
     assert task["subtasks"][0]["background_task_id"] == "x"
+
+
+def test_persist_snapshot_refuses_terminal_to_active():
+    """Late in_progress tick after done must not roll the row back."""
+    import evoflow.collab.storage as st
+
+    sub = {"id": "st1", "status": "completed", "progress": 100, "completed_at": "t1"}
+    task = {"id": "mt1", "assigned_to": "agent", "subtasks": [sub]}
+    project = {"id": "p1", "tasks": [task]}
+    store = MagicMock()
+    store.save_project_merge.side_effect = lambda _p, apply_fn: apply_fn(project) is not None
+    mem = MagicMock()
+    original = st.find_main_task
+    st.find_main_task = lambda *_a, **_k: (project, task)  # type: ignore[assignment]
+    try:
+        ok = st.persist_subtask_runtime_snapshot(
+            store,
+            mem,
+            "mt1",
+            "st1",
+            status="in_progress",
+            progress=90,
+            current_step="stale tick",
+        )
+    finally:
+        st.find_main_task = original  # type: ignore[assignment]
+    assert ok is True
+    assert task["subtasks"][0]["status"] == "completed"
+    assert task["subtasks"][0]["progress"] == 90

@@ -28,6 +28,7 @@ GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES
 
 - **点会话命令图标打开空终端**：热 bash 绑定到实际流，不再把 registry ref 当 tool_call_id
 - **output_schema 运行期哑配置**：补派发契约、堵住 vacuously valid 与默认 warn 静默放行
+- **子任务终态被心跳打回执行中**：`patch_subtask_hot_fields` CAS 拒绝 terminal→active；snapshot / project cache 同步守住；reconciler 把「已上报成功仍显示执行中」恢复为 completed
 
 ## [1.3.11] - 2026-11-08
 
