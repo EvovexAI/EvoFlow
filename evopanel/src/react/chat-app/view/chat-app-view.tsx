@@ -670,15 +670,18 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     lastLocal && String(lastLocal.role || '') === 'user'
                       ? String(lastLocal.text || '').trim()
                       : ''
-                  // pending 优先；turn 进行中才回退 lastLocal，避免 echo 清 pending 后
-                  // 闲置/重连再用 host 尾行把乐观气泡叠回权威消息上。
+                  // pending 优先；turn 进行中才回退 lastLocal——但 lastLocal 仅用于
+                  // echo 判定（清 pending），绝不触发注入：①切回瞬间 rows 还是上个
+                  // 会话的，needle 会跨会话泄漏；②超长流式回合把 userInput 行挤出
+                  // 尾部窗口后 echo 永远失败，乐观行会垫在流式回复下面几十秒
+                  // （2026-11-08 正式版实锤：「已重启了」在 2081 行快照上重复挂 20s+）。
+                  // 历史输入本就在权威流里，投影行到即显示。
                   const optimisticNeedle =
                     pendingOpt || (turnLive ? lastLocalUserText : '')
                   const hasV4UserEcho =
                     !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
-                  // pending 仅在「尚未 echo」时续命；echo 后由 ClearPending… 清掉。
-                  const awaitingV4UserEcho =
-                    (turnLive || !!pendingOpt) && !!optimisticNeedle && !hasV4UserEcho
+                  // 乐观注入只服务「本次刚点发送」的 pending；echo 后由 ClearPending… 清掉。
+                  const awaitingV4UserEcho = !!pendingOpt && !hasV4UserEcho
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
@@ -689,7 +692,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const localHasRows =
                     (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  const optimisticUserText = localOptimisticHold ? optimisticNeedle : null
+                  const optimisticUserText = localOptimisticHold ? pendingOpt : null
                   // 切会话诊断：渲染层四源的绑定状态一次看清——
                   // ①V4 投影（phase/sessionMatched/行数）②乐观气泡（needle/echo/hold）
                   // ③本地行（rows/lastLocalUserText）④运行计时（turnLive 绑的是哪个会话）。
