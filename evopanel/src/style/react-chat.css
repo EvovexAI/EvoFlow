@@ -3448,6 +3448,159 @@ html.dark .shell-account-menu {
   background: color-mix(in srgb, var(--warning, #d97706) 10%, transparent);
 }
 
+/* ── 会话打开耗时诊断面板（openTrace）────────────────────────────────────
+   排查「点开会话有时秒开、有时等几秒」：分段耗时 + 超阈值归因直接画在页面上。
+   开关：localStorage.setItem('EVOFLOW_OPEN_TRACE_PANEL','1') */
+.open-trace-panel {
+  margin: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 80%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-secondary, #f9fafb) 88%, transparent);
+  font-size: var(--font-size-xs, 12px);
+  line-height: 1.5;
+  color: var(--text-secondary, #4b5563);
+  overflow: hidden;
+}
+
+.open-trace-panel-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 60%, transparent);
+}
+
+.open-trace-panel-title {
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.open-trace-panel-total {
+  font-variant-numeric: tabular-nums;
+}
+.open-trace-panel-total.is-warn {
+  color: var(--warning, #d97706);
+}
+.open-trace-panel-total.is-error {
+  color: var(--error, #ef4444);
+}
+.open-trace-panel-total.is-ok {
+  color: var(--success, #16a34a);
+}
+
+.open-trace-panel-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+
+.open-trace-panel-btn {
+  border: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: inherit;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+.open-trace-panel-btn:hover {
+  background: color-mix(in srgb, var(--text-primary, #111827) 6%, transparent);
+}
+
+.open-trace-panel-verdict {
+  padding: 6px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 40%, transparent);
+}
+.open-trace-panel-verdict.is-warn {
+  background: color-mix(in srgb, var(--warning, #d97706) 10%, transparent);
+  color: var(--warning, #b45309);
+}
+.open-trace-panel-verdict.is-error {
+  background: color-mix(in srgb, var(--error, #ef4444) 10%, transparent);
+  color: var(--error, #b91c1c);
+}
+.open-trace-panel-slowest {
+  margin-left: 8px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.open-trace-panel-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+.open-trace-panel-table th,
+.open-trace-panel-table td {
+  padding: 4px 12px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 35%, transparent);
+}
+.open-trace-panel-table th {
+  font-weight: 600;
+  opacity: 0.7;
+}
+.open-trace-panel-num {
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.open-trace-panel-row.is-warn {
+  background: color-mix(in srgb, var(--warning, #d97706) 8%, transparent);
+}
+.open-trace-panel-row.is-error {
+  background: color-mix(in srgb, var(--error, #ef4444) 9%, transparent);
+}
+
+.open-trace-panel-stage-name {
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin-right: 6px;
+}
+.open-trace-panel-stage-label {
+  opacity: 0.75;
+}
+.open-trace-panel-reason {
+  margin-top: 2px;
+  color: var(--text-tertiary, #6b7280);
+  font-size: 0.92em;
+}
+
+.open-trace-panel-badge {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.open-trace-panel-badge.is-ok {
+  color: var(--success, #16a34a);
+  background: color-mix(in srgb, var(--success, #16a34a) 12%, transparent);
+}
+.open-trace-panel-badge.is-warn {
+  color: var(--warning, #b45309);
+  background: color-mix(in srgb, var(--warning, #d97706) 14%, transparent);
+}
+.open-trace-panel-badge.is-error {
+  color: var(--error, #b91c1c);
+  background: color-mix(in srgb, var(--error, #ef4444) 14%, transparent);
+}
+.open-trace-panel-badge.is-pending {
+  color: var(--text-tertiary, #6b7280);
+  background: color-mix(in srgb, var(--text-primary, #111827) 8%, transparent);
+}
+
+.open-trace-panel-history {
+  padding: 4px 12px 8px;
+}
+.open-trace-panel-history > summary {
+  cursor: pointer;
+  opacity: 0.8;
+  padding: 4px 0;
+}
+
 .react-chat-session-list {
   list-style: none;
   margin: 0;
@@ -31116,6 +31269,33 @@ html.dark .shell-tasks-row--focus {
   border-bottom: 1px solid #fde68a;
 }
 
+/* 托管扩展冷启动横幅：服务没起来时占住 iframe 位置，别让用户对着空白页干等。 */
+.react-chat-web-embed-service {
+  padding: 10px 12px;
+  font-size: var(--ef-text-sm);
+  color: #92400e;
+  background: #fffbeb;
+  border-bottom: 1px solid #fde68a;
+}
+
+.react-chat-web-embed-service--error {
+  color: #991b1b;
+  background: #fef2f2;
+  border-bottom-color: #fecaca;
+}
+
+.react-chat-web-embed-service-title {
+  margin: 0 0 2px;
+  font-weight: 600;
+}
+
+.react-chat-web-embed-service-detail {
+  margin: 0;
+  font-size: var(--ef-text-xs, 11px);
+  opacity: 0.85;
+  word-break: break-word;
+}
+
 .react-chat-web-embed-hint {
   position: absolute;
   top: 0;
@@ -31320,12 +31500,21 @@ html.dark .react-chat-collab-exec-panel {
   gap: 6px;
 }
 
+/* 顶栏只有一行内容（标题/状态/百分比/计数/任务ID/日志开关都在同一行） */
+.react-chat-collab-exec-panel-header .react-chat-collab-exec-panel-title-wrap {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
 .react-chat-collab-exec-panel-title-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
   width: 100%;
+  /* 顶栏永远一行：标题过长时省略号截断，不换行 */
+  flex-wrap: nowrap;
 }
 
 .react-chat-collab-exec-panel-title-row .react-chat-subtask-status-light {
@@ -31438,13 +31627,15 @@ html.dark .react-chat-collab-exec-panel-running-chip {
 
 /* 顶栏任务 ID：排查时能对上具体是哪个任务 */
 .react-chat-collab-exec-panel-task-id {
-  margin-top: 2px;
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--text-muted, #94a3b8);
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-muted, #94a3b8);
   user-select: text;
 }
 
@@ -39626,6 +39817,69 @@ html.dark .react-chat-stage-popover {
   width: 100%;
   flex-direction: column;
   gap: 0.5rem;
+}
+
+/* ── 右栏「Agent 应用」选择器 ───────────────────────────────── */
+
+.react-chat-stage-app-search {
+  width: 100%;
+  height: 2rem;
+  padding: 0 0.625rem;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+  border-radius: 0.5rem;
+  background: var(--bg-secondary, #f1f5f9);
+  color: var(--text-primary, inherit);
+  font-size: 0.8125rem;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out-soft), box-shadow var(--dur-fast) var(--ease-out-soft);
+}
+.react-chat-stage-app-search:focus {
+  border-color: var(--accent, #3b82f6);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #3b82f6) 22%, transparent);
+}
+.react-chat-stage-app-icon {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.16));
+  border-radius: 0.375rem;
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, transparent);
+  font-size: 0.9375rem;
+  line-height: 1;
+}
+.react-chat-stage-app-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.react-chat-stage-app-icon--violet {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(139, 92, 246, 0.07));
+  border-color: rgba(139, 92, 246, 0.2);
+}
+.react-chat-stage-app-icon--sky {
+  background: linear-gradient(135deg, rgba(14, 165, 233, 0.16), rgba(14, 165, 233, 0.07));
+  border-color: rgba(14, 165, 233, 0.2);
+}
+.react-chat-stage-app-icon--amber {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.17), rgba(245, 158, 11, 0.07));
+  border-color: rgba(245, 158, 11, 0.22);
+}
+.react-chat-stage-app-icon--emerald {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.16), rgba(16, 185, 129, 0.07));
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.react-chat-stage-app-icon--rose {
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.15), rgba(244, 63, 94, 0.07));
+  border-color: rgba(244, 63, 94, 0.2);
+}
+.react-chat-stage-app-icon--cyan {
+  background: linear-gradient(135deg, rgba(6, 182, 212, 0.16), rgba(6, 182, 212, 0.07));
+  border-color: rgba(6, 182, 212, 0.2);
 }
 .react-chat-stage-open-tab-button,
 .react-chat-stage-add-item {

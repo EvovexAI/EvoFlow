@@ -244,6 +244,12 @@ function CollabExecutionPanelInner({
                   {stepStats.done}/{stepStats.total}
                 </span>
               ) : null}
+              {/* 任务 ID：与标题同行（一行放完），日志/排查时能对上具体是哪个任务 */}
+              {tid ? (
+                <span className="react-chat-collab-exec-panel-task-id" title={`任务 ID：${tid}`}>
+                  {tid}
+                </span>
+              ) : null}
               {/* 日志开关：打开后每个节点的状态变化都会打进控制台 */}
               <button
                 type="button"
@@ -259,12 +265,6 @@ function CollabExecutionPanelInner({
                 日志
               </button>
             </div>
-            {/* 任务 ID：日志/排查时能对上具体是哪个任务 */}
-            {tid ? (
-              <div className="react-chat-collab-exec-panel-task-id" title={`任务 ID：${tid}`}>
-                {tid}
-              </div>
-            ) : null}
           </div>
         </header>
       ) : null}

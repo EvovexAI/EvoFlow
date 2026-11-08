@@ -58,7 +58,13 @@ describe('CollabExecutionPanel running state', () => {
     // 节点计数 + 任务名 + 任务 ID
     expect(screen.getByText('1/3')).toBeTruthy()
     expect(screen.getByText('整理竞品资料')).toBeTruthy()
-    expect(container.querySelector('.react-chat-collab-exec-panel-task-id')?.textContent).toBe('main-1')
+    const taskId = container.querySelector('.react-chat-collab-exec-panel-task-id')
+    expect(taskId?.textContent).toBe('main-1')
+
+    // 任务 ID 在标题行内（同一行，不是另起一行）
+    const titleRow = container.querySelector('.react-chat-collab-exec-panel-title-row')
+    expect(titleRow?.contains(taskId)).toBe(true)
+    expect(taskId?.tagName).toBe('SPAN')
 
     // 日志开关
     expect(container.querySelector('.react-chat-collab-exec-panel-log-toggle')).toBeTruthy()
