@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.11] - 2026-11-08
+
+相对 **1.3.10**：设置「应用用量」新增按模块视图（对话 / 员工 / 工作流 / 知识库 / 媒体）与筛选搜索；可观测分析补上提示词开销统计；修复高分屏下浏览器嵌入面板位置算错，以及右侧栏折叠时「操作正常但浏览器不显示」。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.11.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **用量按模块拆分**：新增 `evoflow/persistence/usage_by_module.py` 与 `GET /usage/by-module`，把 ledger 事件按用户认识的产品面归类（chat / employee / workflow / knowledge / media），不再只暴露 raw `invocation_kind`；设置页加「按模块」视图、模块筛选、关键字搜索、区间合计与中英双语文案
+- **提示词开销入可观测**：`compaction_run_context` 的 prompt overhead 挂进 `usage_json`，Analytics 展示主/子智能体的开销条与样本数
+
+### Fixed
+
+- **高分屏浏览器面板**：`browser_embed` 的位置换算乘上 `window_dpi_scale` 并 clamp 到窗口内，修复 125%/150% 缩放下 `inner_size()` 为物理像素导致的错位与跑出屏外；估算坞位时打日志便于复盘
+- **浏览器面板不显示**：`ensure-browser-stage` 在 HWND 已 park 但 `lastPlacementKey` 早退时强制重推一轮 gate，浏览器与「新标签」走 `forceExpand` 撑开右栏，修复用户看到「操作都正常但浏览器没打开」
+- **模块明细接口不可用**：给出「重启桌面端后再打开应用用量」的明确提示与空态，不再静默空白
+
+### 说明口径变更
+
+本版起，对外发版说明（Release 正文 / CHANGELOG 条目 / 升级横幅）**不再列「参与本次发版」名单**，只写变更本身；人员与责任追溯保留在 commit message 四字段里，`git log` 可查。
+
 ## [1.3.10] - 2026-11-08
 
 相对 **1.3.9**：会话目标模式指令与停止语义落地，模型失败（429 配额 / `model_error` / 合成 `RUN_ERROR`）不再被误判为运行成功；工作流新增发布前校验（未知依赖不再被静默清空、条件节点完整性检查）；部门与员工头像支持预设宫格与自定义上传；知识库 `search` 命中的 docId 可直接 `read`。
