@@ -17,8 +17,24 @@ export function useRightStageChatBridge() {
   const flags = useMemo(() => surfaceLegacyFlags(surface, tabs), [surface, tabs])
 
   const showKind = useCallback(
-    (kind: RightStageKind, opts?: { title?: string; data?: Record<string, unknown> }) => {
-      rightStageStore.show({ kind, title: opts?.title, data: opts?.data })
+    (
+      kind: RightStageKind,
+      opts?: {
+        title?: string
+        data?: Record<string, unknown>
+        /** 标签 id：同 kind 多签共存时区分（省略则用 'primary'）。 */
+        id?: string
+        /** 用户显式打开：清收起锁并撑开右栏。 */
+        forceExpand?: boolean
+      },
+    ) => {
+      rightStageStore.show({
+        kind,
+        title: opts?.title,
+        data: opts?.data,
+        ...(opts?.id ? { id: opts.id } : {}),
+        ...(opts?.forceExpand ? { forceExpand: true } : {}),
+      })
     },
     [],
   )

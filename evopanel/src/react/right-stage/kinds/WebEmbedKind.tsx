@@ -58,6 +58,9 @@ export const WebEmbedKind = memo(function WebEmbedKind({
   extensionManifest = null,
   sandbox,
   titleLabel = '',
+  serviceStarting = false,
+  serviceError = '',
+  serviceHint = '',
 }: {
   url: string
   editable?: boolean
@@ -70,6 +73,12 @@ export const WebEmbedKind = memo(function WebEmbedKind({
   sandbox?: string | string[]
   /** Optional chrome label (extension name) instead of hostname. */
   titleLabel?: string
+  /** 托管扩展的本地服务正在冷启动（先开签、后起服务）。 */
+  serviceStarting?: boolean
+  /** 服务启动失败：显示错误 + 提示。 */
+  serviceError?: string
+  /** manifest.service.hint：告诉用户怎么把服务跑起来。 */
+  serviceHint?: string
 }) {
   const pageUrl = String(url || '').trim()
   const extId = String(extensionId || '').trim()
@@ -352,6 +361,37 @@ export const WebEmbedKind = memo(function WebEmbedKind({
           </button>
         ) : null}
       </header>
+
+      {serviceStarting || serviceError ? (
+        <div
+          className={
+            serviceError
+              ? 'react-chat-web-embed-service react-chat-web-embed-service--error'
+              : 'react-chat-web-embed-service'
+          }
+          role="status"
+        >
+          {serviceError ? (
+            <>
+              <p className="react-chat-web-embed-service-title">服务启动失败</p>
+              <p className="react-chat-web-embed-service-detail">{serviceError}</p>
+              {serviceHint ? (
+                <p className="react-chat-web-embed-service-detail">{serviceHint}</p>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <p className="react-chat-web-embed-service-title">服务启动中…</p>
+              <p className="react-chat-web-embed-service-detail">
+                本地服务首次启动需要十几到几十秒，就绪后页面会自动刷新。
+              </p>
+              {serviceHint ? (
+                <p className="react-chat-web-embed-service-detail">{serviceHint}</p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
 
       {!pageUrl ? (
         <div className="react-chat-web-embed-frame-wrap" aria-hidden />

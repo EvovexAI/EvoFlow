@@ -614,6 +614,8 @@ class V4ConversationHub:
                     del self._subscriptions[existing_id]
             self._subscriptions[subscription_id] = sub
 
+            # hydrate_ms：冷会话服务端拉库耗时（resume 分支为 0——不读库）。
+            hydrate_ms: float | None = None
             resume_ok = False
             if isinstance(base, dict):
                 base_epoch = str(base.get("logEpoch") or "")
@@ -658,29 +660,58 @@ class V4ConversationHub:
                 # 空会话必须允许「再次订阅时重试」：协作子任务面板常在步骤还在跑时
                 # 就订阅（transcript 尚未落库 → hydrate 拿到 0 行），若此后不再尝试，
                 # 面板会永久空白。hydrate 内部按 rows 判重，这里只需在仍为空时重试。
+                hydrate_rows = 0
                 if not sess.rows:
                     try:
                         from app.gateway.v4.hydration import hydrate_session_from_transcript
 
+                        hydrate_started = time.perf_counter()
                         loaded = hydrate_session_from_transcript(self, sess.session_id)
+                        hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
+                        hydrate_rows = int(loaded or 0)
                         if loaded:
                             logger.info(
                                 "[v4.hydration] resubscribe recovered history session=%s rows=%s",
                                 sess.session_id,
                                 loaded,
                             )
+                        else:
+                            logger.info(
+                                "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
+                                sess.session_id,
+                                hydrate_ms,
+                            )
                     except Exception:
                         logger.exception(
                             "[v4.hydration] subscribe hydration failed session=%s",
                             sess.session_id,
                         )
+                else:
+                    hydrate_ms = 0.0
+                    hydrate_rows = len(sess.rows)
                 ack_mode = "snapshot"
                 self._enqueue_snapshot_locked(sub, sess, delivery_kind="initial")
+                # 冷会话 hydrate 是「点开会话慢」的头号嫌疑：把耗时回给前端分段日志。
+                if hydrate_ms is not None and hydrate_ms >= 500:
+                    logger.warning(
+                        "[v4.perf] subscribe hydration slow session=%s hydrate_ms=%.1f rows=%s",
+                        sess.session_id,
+                        hydrate_ms,
+                        hydrate_rows,
+                    )
+        # openTiming：服务端侧分段耗时（前端 openTrace 会据此归因「慢在服务端拉库」）。
+        # sessionRuntimeState 只允许 cold/warm（协议枚举）：按是否已有历史行判冷热。
+        open_timing: dict[str, Any] = {
+            "hydrateMs": hydrate_ms,
+            "snapshotRowCount": len(sess.rows),
+            "sessionRuntimeState": "warm" if sess.rows else "cold",
+        }
         return {
             "ack": {
                 "subscriptionId": subscription_id,
                 "mode": ack_mode,
                 "logEpoch": sess.log_epoch,
+                "openTiming": open_timing,
             }
         }
 

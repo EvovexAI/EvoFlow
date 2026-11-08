@@ -117,6 +117,10 @@ export function ensureRightStageKindsRegistered() {
             ? (data.manifest as Record<string, unknown>)
             : null
       const titleLabel = String(data.titleLabel || surface.title || '').trim()
+      // 托管扩展冷启动：服务还没起来时先给提示，别让用户对着空白页干等。
+      const serviceStarting = data.serviceStarting === true
+      const serviceError = String(data.serviceError || '').trim()
+      const serviceHint = String(data.serviceHint || '').trim()
       return (
         <aside
           className="react-chat-right-stage-panel react-chat-web-embed-panel"
@@ -130,6 +134,9 @@ export function ensureRightStageKindsRegistered() {
             extensionManifest={manifest}
             sandbox={sandbox}
             titleLabel={extensionId ? titleLabel : ''}
+            serviceStarting={serviceStarting}
+            serviceError={serviceError}
+            serviceHint={serviceHint}
             onUrlChange={(next) => rightStageStore.updateData({ url: next })}
             onClose={onClose}
           />

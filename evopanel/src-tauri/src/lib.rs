@@ -152,6 +152,33 @@ pub fn run() {
         .setup(|app| {
             // 浏览器 embed 看门狗：可见窗口偏离槽位即记 ANOMALY 并吸回（自愈+取证）。
             commands::browser_embed::start_embed_watchdog(app.handle().clone());
+            // 主窗口弹窗拦截：右栏 Agent 应用（iframe）里的 window.open / target=_blank
+            // 不再弹到系统浏览器。必须在 setup 早期装，且要等主窗口 webview 就绪。
+            #[cfg(target_os = "windows")]
+            {
+                let guard_app = app.handle().clone();
+                std::thread::Builder::new()
+                    .name("main-popup-guard-boot".into())
+                    .spawn(move || {
+                        // 主窗口 webview 要等它真正创建；轮询一小会儿再装。
+                        // 装的过程中自带退避重试（模块内部），这里只负责等窗口出现。
+                        for _ in 0..40 {
+                            if guard_app
+                                .get_webview_window("main")
+                                .map(|w| w.url().ok().is_some())
+                                .unwrap_or(false)
+                            {
+                                commands::main_popup_guard::install_main_window_popup_guard(
+                                    &guard_app,
+                                );
+                                return;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(250));
+                        }
+                        eprintln!("[main-popup-guard] main window not ready, skipping popup guard");
+                    })
+                    .map_err(|e| format!("启动 main-popup-guard 线程失败: {e}"))?;
+            }
             #[cfg(desktop)]
             {
                 app.handle()

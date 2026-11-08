@@ -34,6 +34,7 @@ import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
 import { GoalModePanel } from '../../components/GoalModePanel.js'
+import { GoalStatusBadgeBridge } from '../../v4/GoalStatusBadgeBridge.js'
 import { GoalProposalDock } from '../../components/GoalProposalDock.js'
 import { SkillPickerModal, type SkillSelection } from '../../components/SkillPickerModal.js'
 import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
@@ -46,6 +47,7 @@ import {
   buildDefaultRightStageLauncherItems,
 } from '../../components/RightStagePanel.js'
 import { PanelResizeHandle } from '../../components/PanelResizeHandle.js'
+import { OpenTracePanel } from '../../components/OpenTracePanel.js'
 import { SessionSidebar, type SubtaskTranscriptModalPayload } from '../../components/SessionSidebar.js'
 import { MemoryRecallChip } from '../../components/MemoryRecallChip.js'
 import { ImagePreviewModal, type ImagePreviewItem } from '../../components/ImagePreviewModal.js'
@@ -218,6 +220,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     openKnowledgeMapPanel,
     openMessageFilePreview,
     openSessionArtifact,
+    openUiExtensionInStage,
     patchPanelSettings,
     pendingSendQueue,
     pendingSteers,
@@ -421,6 +424,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             isHomeSurface ? ' react-chat-main-col--home' : ''
           }${isDeptChatSurface ? ' react-chat-main-col--dept' : ''}`}
         >
+          {/* 诊断面板：「点开会话 → 上屏」分段耗时/原因（localStorage EVOFLOW_OPEN_TRACE_PANEL=1 显示） */}
+          <OpenTracePanel />
           <header
             className={`react-chat-header${isDesktopTauriRuntime() ? ' react-chat-header--tauri-chrome' : ''}${
               isMobileChat ? ' react-chat-header--mobile' : ''
@@ -489,6 +494,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         ) : !engineReady ? (
                           <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                         ) : null}
+                        <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
                       </>
                     )}
                   </div>
@@ -550,6 +556,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       ) : !engineReady ? (
                         <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                       ) : null}
+                      <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
                     </>
                   )}
                 </div>
@@ -1679,6 +1686,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       },
                     )
                   })
+                }}
+                onPickAgentApp={(appId) => {
+                  const id = String(appId || '').trim()
+                  if (!id) return
+                  // ctx 是 Record<string, any>，缺 handler 时 TS 不会报错；
+                  // 这里显式兜底，避免点「Agent 应用」时抛 ReferenceError 静默失败。
+                  if (typeof openUiExtensionInStage !== 'function') {
+                    console.error('[chat-app-view] openUiExtensionInStage 未注入')
+                    return
+                  }
+                  openUiExtensionInStage(id)
                 }}
                 renderContent={renderRightStageBody}
               />

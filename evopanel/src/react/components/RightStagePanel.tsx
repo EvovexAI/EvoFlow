@@ -20,6 +20,7 @@ import {
   PanelRightCloseIcon,
   PanelRightIcon,
   PlusIcon,
+  PuzzleIcon,
   UsersIcon,
   WorkflowIcon,
   XIcon,
@@ -59,6 +60,7 @@ import {
   RightStageWorkflowPickList,
   type RightStageWorkflowPickOption,
 } from './RightStageWorkflowPickList.js'
+import { RightStageAgentAppPickList } from './RightStageAgentAppPickList.js'
 import { RightStageTabOverview } from './RightStageTabOverview.js'
 import { agentCodeFromShellPagePath } from '../../lib/right-stage/open-shell-page-stage.js'
 import {
@@ -108,6 +110,8 @@ export type RightStageLauncherItemId =
   | 'workflow'
   | 'mind-map'
   | 'summary'
+  /** Agent 应用（已安装的 UI 应用）：选一个在右侧开 web-embed 标签。 */
+  | 'agent-app'
 
 export type RightStageLauncherItem = {
   id: RightStageLauncherItemId
@@ -351,6 +355,11 @@ export type RightStagePanelProps = {
   sessionWorkflowTaskId?: string
   /** 选中工作流后打开 collab-workflow 标签。 */
   onPickWorkflow?: (opt: RightStageWorkflowPickOption) => void
+  /**
+   * 选中 Agent 应用（已安装的 UI 应用 id）后，在右侧打开该应用。
+   * 缺省时「Agent 应用」入口不出现。
+   */
+  onPickAgentApp?: (appId: string) => void
   renderContent?: (surface: RightStageSurface) => ReactNode
 }
 
@@ -372,6 +381,7 @@ export const RightStagePanel = memo(function RightStagePanel({
   onPickEmployeeChat,
   sessionWorkflowTaskId = '',
   onPickWorkflow,
+  onPickAgentApp,
   renderContent,
 }: RightStagePanelProps) {
   const [draggingKey, setDraggingKey] = useState<string | null>(null)
@@ -379,6 +389,7 @@ export const RightStagePanel = memo(function RightStagePanel({
   const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [pickEmployeeOpen, setPickEmployeeOpen] = useState(false)
   const [pickWorkflowOpen, setPickWorkflowOpen] = useState(false)
+  const [pickAgentAppOpen, setPickAgentAppOpen] = useState(false)
   const [tabCtx, setTabCtx] = useState<StageTabContextMenu | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
@@ -417,6 +428,7 @@ export const RightStagePanel = memo(function RightStagePanel({
     addMenuOpen ||
     pickEmployeeOpen ||
     pickWorkflowOpen ||
+    pickAgentAppOpen ||
     !!tabCtx ||
     !!draggingKey
   // 原生 WebView2 不吃 CSS z-index；下拉/总览打开时先藏 HWND，否则菜单被网页挡住。
@@ -427,23 +439,36 @@ export const RightStagePanel = memo(function RightStagePanel({
       if (item.id === 'employee-chat') {
         setAddMenuOpen(false)
         setPickWorkflowOpen(false)
+        setPickAgentAppOpen(false)
         setPickEmployeeOpen(true)
         return
       }
       if (item.id === 'workflow') {
         setAddMenuOpen(false)
         setPickEmployeeOpen(false)
+        setPickAgentAppOpen(false)
         // 有 onPickWorkflow 时进选择器（可看运行中/最近）；否则回落旧直开。
         if (onPickWorkflow) {
           setPickWorkflowOpen(true)
           return
         }
       }
+      if (item.id === 'agent-app') {
+        setAddMenuOpen(false)
+        setPickEmployeeOpen(false)
+        setPickWorkflowOpen(false)
+        // 有 onPickAgentApp 时进选择器（选应用）；否则回落旧直开回调。
+        if (onPickAgentApp) {
+          setPickAgentAppOpen(true)
+          return
+        }
+      }
       setPickEmployeeOpen(false)
       setPickWorkflowOpen(false)
+      setPickAgentAppOpen(false)
       item.onOpen()
     },
-    [onPickWorkflow],
+    [onPickWorkflow, onPickAgentApp],
   )
 
   const pickEmployeeRole = useCallback(
@@ -462,12 +487,22 @@ export const RightStagePanel = memo(function RightStagePanel({
     [onPickWorkflow],
   )
 
+  const pickAgentApp = useCallback(
+    (appId: string) => {
+      setPickAgentAppOpen(false)
+      onPickAgentApp?.(appId)
+    },
+    [onPickAgentApp],
+  )
+
   const workflowPickList = (
     <RightStageWorkflowPickList
       currentTaskId={sessionWorkflowTaskId}
       onPick={pickWorkflowTask}
     />
   )
+
+  const agentAppPickList = <RightStageAgentAppPickList onPick={pickAgentApp} />
 
   const employeePickList = (
     <div className="react-chat-stage-open-tab-list" role="listbox" aria-label="选择员工">
@@ -693,12 +728,30 @@ export const RightStagePanel = memo(function RightStagePanel({
                   <ChevronLeftIcon className="size-3.5" aria-hidden />
                   返回
                 </button>
-                <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
-                <p className="react-chat-stage-open-tab-desc">
-                  用下拉框选 App，再选一次运行；可输入名称搜索。
-                </p>
+                  <h2 className="react-chat-stage-open-tab-title">选择工作流</h2>
+                  <p className="react-chat-stage-open-tab-desc">
+                    用下拉框选 App，再选一次运行；可输入名称搜索。
+                  </p>
               </div>
               {workflowPickList}
+            </>
+          ) : pickAgentAppOpen ? (
+            <>
+              <div className="react-chat-stage-open-tab-copy">
+                <button
+                  type="button"
+                  className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                  onClick={() => setPickAgentAppOpen(false)}
+                >
+                  <ChevronLeftIcon className="size-3.5" aria-hidden />
+                  返回
+                </button>
+                <h2 className="react-chat-stage-open-tab-title">选择 Agent 应用</h2>
+                <p className="react-chat-stage-open-tab-desc">
+                  选一个已安装的 Agent 应用，在右侧打开。
+                </p>
+              </div>
+              {agentAppPickList}
             </>
           ) : (
             <>
@@ -984,6 +1037,37 @@ export const RightStagePanel = memo(function RightStagePanel({
         </div>
       ) : null}
 
+      {pickAgentAppOpen ? (
+        <div
+          className="absolute inset-0 z-[40] flex flex-col bg-card/95 backdrop-blur-sm"
+          role="dialog"
+          aria-label="选择 Agent 应用"
+          data-tauri-no-drag
+        >
+          <div className="react-chat-stage-open-tab-shell flex min-h-0 flex-1 flex-col">
+            <div className="react-chat-stage-open-tab-body min-h-0 flex-1 overflow-auto">
+              <div className="react-chat-stage-open-tab-content">
+                <div className="react-chat-stage-open-tab-copy">
+                  <button
+                    type="button"
+                    className="mb-2 inline-flex items-center gap-1 text-ui-sm text-foreground-subtle hover:text-foreground"
+                    onClick={() => setPickAgentAppOpen(false)}
+                  >
+                    <ChevronLeftIcon className="size-3.5" aria-hidden />
+                    取消
+                  </button>
+                  <h2 className="react-chat-stage-open-tab-title">选择 Agent 应用</h2>
+                  <p className="react-chat-stage-open-tab-desc">
+                    选一个已安装的 Agent 应用，在右侧打开。
+                  </p>
+                </div>
+                {agentAppPickList}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {tabCtx && typeof document !== 'undefined'
         ? createPortal(
             <div
@@ -1047,6 +1131,11 @@ export function buildDefaultRightStageLauncherItems(handlers: {
   onOpenMindMap?: () => void
   mindMapEnabled?: boolean
   onOpenSummary?: () => void
+  /**
+   * 点「Agent 应用」进选择器；实际开签由 RightStagePanel.onPickAgentApp 完成。
+   * 缺省则该入口不出现。
+   */
+  onOpenAgentApp?: () => void
 }): RightStageLauncherItem[] {
   const items: RightStageLauncherItem[] = []
   if (handlers.onOpenXiaomi) {
@@ -1103,6 +1192,15 @@ export function buildDefaultRightStageLauncherItems(handlers: {
       label: '思维导图',
       icon: NetworkIcon,
       onOpen: handlers.onOpenMindMap,
+    })
+  }
+  if (handlers.onOpenAgentApp) {
+    items.push({
+      id: 'agent-app',
+      label: 'Agent 应用',
+      description: '选已安装的应用',
+      icon: PuzzleIcon,
+      onOpen: handlers.onOpenAgentApp,
     })
   }
   return items

@@ -251,6 +251,20 @@ export default defineConfig({
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',
       'tests/replay-real-run-81320d61e8cc-diag.test.js',
+      // 点开会话 → 上屏 全链路分段耗时诊断（openTrace）
+      'tests/open-trace-stages.test.ts',
+      // 右栏「Agent 应用」启动器（选已安装 UI 扩展 → 右侧开签）
+      'tests/right-stage-agent-app-launcher.test.tsx',
+      // 右栏 Agent 应用：先开签再起服务（冷启动不能卡住 UI）
+      'tests/open-ui-extension-in-stage.test.ts',
+      // chat-app-view 的 ctx 解构完整性（漏解构 → 运行时 ReferenceError）
+      'tests/chat-app-view-ctx-destructure.test.ts',
+      // 输入框 `/` 面板：命令清单（只留 /goal）+ 技能/插件两行布局
+      'tests/composer-slash-menu.test.tsx',
+      // 主窗口弹窗拦截（Agent 应用 iframe 的 window.open 不得弹到系统浏览器）
+      'tests/main-popup-guard.test.ts',
+      // 工作流节点实时正文：LangGraph custom 通道必须转发 subagent_token_delta
+      'tests/ws-subagent-token-delta.test.js',
     ],
   },
 })
