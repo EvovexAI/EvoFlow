@@ -118,12 +118,12 @@ curl -s http://127.0.0.1:8001/api/platform \
 | `employees.get` · `… get <code>` | read | `agent_code`，`recent_limit?` | 岗位详情与近期事项 |
 | `employees.create` | write | `role_name` 必填；`reports_to?`，`workspace_path?`，`responsibilities?`，`capability_pack?`，`knowledge_vault_ids?`… | 新建岗 + 能力；下属务必带 `reports_to` |
 | `employees.hire` · `… hire --file` | write | `agent_code` 必填（智能体须已存在）；`role_name?`，`reports_to?`，`heartbeat_schedule?`… | 把已有智能体雇成值班岗 |
-| `employees.update` · `… update` | write | `agent_code` + 要改的字段 | 更新后的岗位配置 |
+| `employees.update` · `… update` | write | `agent_code` + 要改的字段 | 更新后的岗位配置。`responsibilities` 写入提示词的 `## 岗位职责` 段（可重复改，传 `[]` 表示不动段落）；`tools`/`mcp_servers` 会镜像到智能体，非法名如实报错 |
 | `employees.dispatch` · `… dispatch` | write | `agent_code` 或 `role_name`，`goal`；`description?`，`priority?`，`source?` | 后台值班轮；返回任务 / round 信息（需 Gateway） |
 | `employees.wake` · `… wake` | write | `target`/`agent_code`/`role_name`；`goal?`，`task_id?` | 叫醒在岗员工（需 Gateway） |
-| `employees.pause` / `resume` / `stop` | write | `agent_code` | pause=停巡检；stop=停在途轮次 |
+| `employees.pause` / `resume` / `stop` | write | `agent_code` | pause=停巡检；stop=停在途轮次并挂起；resume **同时解挂起并重排下次心跳**（返回 `patrol_rearmed`，为 false 说明未开排程） |
 | `employees.delete` | destructive | `agent_code`，`delete_agent?` | 删岗位；可选一并删智能体 |
-| `employees.worklog` / `trail` | read | `agent_code`；日志可加 `day`/`days`；轨迹可加 `round_id` | `rounds`/`tasks`；轨迹含 `steps[]`、`tool_counts` |
+| `employees.worklog` / `trail` | read | `agent_code` 或 `role_name`；日志可加 `day`/`days`/`round_id`；轨迹可加 `round_id`/`max_steps` | `rounds`/`tasks`；轨迹含 `steps[]`、`tool_counts`。日志传 `round_id` 时只返回该轮（缺省回溯近 7 日，不必猜日期） |
 | `employees.bind_channel_begin` | write | `agent_code`，`channel?=feishu\|wecom` | 返回扫码引导（`say_to_user`）；勿用 `ui.show` 交二维码 |
 
 **CLI 独有**：`evoflow employees migrate`（旧 initiative → Task）。  

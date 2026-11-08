@@ -1240,9 +1240,10 @@ def employees_delete(args: dict[str, Any]) -> dict[str, Any]:
 def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
-    code = _arg_str(args, "agent_code", "agentCode", "code")
+    code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name")
     if not code:
-        raise ValidationError("agent_code is required")
+        raise ValidationError("agent_code is required（或 role_name）")
+    code = emp.resolve_role_ref(code).agent_code
     day = _arg_str(args, "day", "date") or None
     raw_days = args.get("days")
     # Integer/range ``days`` = look-back window (CORE-EMP-01); YYYY-MM-DD string stays day alias.
@@ -1258,18 +1259,32 @@ def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
             if days_n <= 0:
                 raise ValidationError("days must be >= 1")
             days_n = min(days_n, 30)
+    raw_limit = args.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None and str(raw_limit).strip() != "" else 20
+    except (TypeError, ValueError) as e:
+        raise ValidationError("limit must be a positive integer") from e
+    if limit <= 0:
+        raise ValidationError("limit must be >= 1")
     return {
         "ok": True,
-        **emp.worklog(code, day=day, days=days_n, limit=int(args.get("limit") or 20)),
+        **emp.worklog(
+            code,
+            day=day,
+            days=days_n,
+            limit=limit,
+            round_id=_arg_str(args, "round_id", "roundId"),
+        ),
     }
 
 
 def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
-    code = _arg_str(args, "agent_code", "agentCode", "code", "name")
+    code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name")
     if not code:
-        raise ValidationError("agent_code is required")
+        raise ValidationError("agent_code is required（或 role_name）")
+    code = emp.resolve_role_ref(code).agent_code
     raw_steps = args.get("max_steps", args.get("maxSteps", 60))
     try:
         max_steps = int(raw_steps)

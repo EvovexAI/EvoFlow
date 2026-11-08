@@ -158,7 +158,20 @@ _HIRE_KEYS = frozenset(
     }
 )
 
-_UPDATE_KEYS = frozenset(_HIRE_KEYS - {"agent_code"}) | frozenset({"dnd_enabled", "dnd_start_hour", "dnd_end_hour"})
+_UPDATE_KEYS = frozenset(_HIRE_KEYS - {"agent_code"}) | frozenset({
+    "dnd_enabled",
+    "dnd_start_hour",
+    "dnd_end_hour",
+    # Agent-side capability allowlists. ``update_role`` mirrors them onto the
+    # Agent (see the skills/tools mirror below); they were previously rejected
+    # into ``ignored_keys`` so callers thought a tool change had landed.
+    "tools",
+    "mcp_servers",
+})
+
+# Ambient session context the platform tool injects into every args bag.
+# Never user intent → never report as an ignored/unknown update key.
+_RUNTIME_INJECTED_KEYS = frozenset({"principal_id", "session_key", "thread_id", "proactive_agent_code"})
 
 
 def _proactive_api_base() -> str:
@@ -482,12 +495,17 @@ def _parse_risk(raw: Any) -> InitiativeRiskLevel:
 
 
 def get_role(agent_code: str, *, recent_limit: int = 10) -> dict[str, Any]:
+    """Role detail by ``agent_code`` **or** ``role_name``.
+
+    Lookup goes through ``resolve_role_ref`` so the read surface matches
+    dispatch / wake / brief / chat_send / messages (all of which accept the
+    display name). Ambiguous names raise with the candidate codes.
+    """
     code = str(agent_code or "").strip()
     if not code:
         raise ValidationError("agent_code is required")
-    role = ProactiveRepository.get_role(code)
-    if not role:
-        raise NotFoundError(f"Role '{code}' not found")
+    role = resolve_role_ref(code)
+    code = role.agent_code
     result = _role_detail(role)
     lim = max(0, min(int(recent_limit), 50))
     if lim:
@@ -1101,7 +1119,11 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
     elif nested is not None:
         raise ValidationError("config must be an object when provided")
 
-    unknown = [k for k in data if k not in _UPDATE_KEYS and k != "agent_code"]
+    unknown = [
+        k
+        for k in data
+        if k not in _UPDATE_KEYS and k != "agent_code" and k not in _RUNTIME_INJECTED_KEYS
+    ]
     # Allow unknown keys to be ignored (forward compatible) — only warn via skip
 
     if data.get("role_name") is not None:
@@ -1151,8 +1173,11 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             logger.debug("employees.update: agent description mirror skipped code=%s", code, exc_info=True)
 
-    # Prompt single-source: system_prompt on agent; merge leftover responsibilities then clear.
-    from evoflow.proactive.employee_prompting.job import merge_duty_into_system_prompt
+    # Prompt single-source: system_prompt on agent; duties are the ``## 岗位职责``
+    # section inside it. Use REPLACE (not append-once merge) so a second edit of
+    # responsibilities actually lands — merge_duty_* returns early when the
+    # section already exists, which silently dropped every update after create.
+    from evoflow.proactive.employee_prompting.job import replace_duty_in_system_prompt
 
     incoming_prompt = None
     if data.get("system_prompt") is not None:
@@ -1174,12 +1199,14 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
             except Exception:
                 existing_sp = ""
             base_sp = incoming_prompt if incoming_prompt is not None else existing_sp
-            legacy = incoming_resp if incoming_resp is not None else list(cfg.responsibilities or [])
-            # Only merge legacy when client did not send an explicit new prompt.
-            if incoming_prompt is not None:
+            if incoming_resp is not None:
+                # Duties sent → they own the section (empty list clears it).
+                merged = replace_duty_in_system_prompt(base_sp, incoming_resp)
+            elif incoming_prompt is not None:
+                # Only the prose changed; keep the prompt exactly as written.
                 merged = incoming_prompt
             else:
-                merged = merge_duty_into_system_prompt(base_sp, legacy)
+                merged = existing_sp
             if merged != existing_sp:
                 agents_admin.update_agent(code, {"system_prompt": merged or None})
         except Exception:
@@ -1306,6 +1333,31 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
                 "Failed to mirror employee skills onto agent code=%s",
                 role.agent_code,
             )
+    # Capability bindings (tools / mcp_servers) live on the Agent, not on the role
+    # config. Mirroring them here makes ``employees.update`` the one-stop write for
+    # a post's capabilities — previously they fell into ``ignored_keys`` with no
+    # hint, so callers believed the allowlist had changed when it had not.
+    agent_patch: dict[str, Any] = {}
+    if data.get("tools") is not None:
+        agent_patch["tools"] = list(data.get("tools") or [])
+    if data.get("mcp_servers") is not None:
+        agent_patch["mcp_servers"] = list(data.get("mcp_servers") or [])
+    if agent_patch:
+        from evoflow.admin import agents as agents_admin
+
+        try:
+            agents_admin.update_agent(role.agent_code, dict(agent_patch))
+        except ValidationError:
+            raise  # bad tool / server name → tell the caller, don't swallow it
+        except NotFoundError as exc:
+            raise ValidationError(
+                f"本岗未绑定智能体（{role.agent_code}），无法设置 tools / mcp_servers 白名单；"
+                "请先建智能体或用 employees.create 一次带齐"
+            ) from exc
+        except Exception as exc:
+            raise ValidationError(
+                f"能力白名单写入失败：{exc}（tools / mcp_servers 存于智能体侧，可改用 agents.update）"
+            ) from exc
     try:
         from evoflow.admin.agents import refresh_agent_runtime_after_capability_change
 
@@ -1381,7 +1433,18 @@ def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any
         raise ValidationError("agent_code is required")
     role = ProactiveRepository.get_role(code)
     if not role:
-        raise NotFoundError(f"Role '{code}' not found")
+        # Do NOT fall through to delete the Agent here: an agent row with this
+        # code may never have been an employee, and ``employees.delete`` has no
+        # mandate to remove it. Point at the owning surface instead.
+        raise NotFoundError(
+            f"Role '{code}' not found"
+            + (
+                "；若要删除同名**智能体**（不是岗位）请用 platform `agents.delete`。"
+                if delete_agent
+                else ""
+            )
+        )
+
     try:
         ok = ProactiveRepository.delete_role(code)
     except ValueError as exc:
@@ -1395,13 +1458,35 @@ def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any
             agent_deleted = True
         except Exception as exc:
             logger.warning("employees.delete: role removed but agent delete failed code=%s: %s", code, exc)
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "deleted": bool(ok),
         "agent_code": code,
         "role_name": role.role_name,
         "agent_deleted": agent_deleted,
     }
+    # Tell the caller what a delete intentionally left behind, instead of leaving
+    # it silent: the Agent row survives unless delete_agent=true, and the post's
+    # workspace folder (outputs/uploads — real deliverables) is never auto-rm'd.
+    residue: list[str] = []
+    if not agent_deleted:
+        residue.append(
+            f"智能体 `{code}` 及其工具白名单仍保留（可再雇/复用）；"
+            "要一并删除：本次调用重发并带 delete_agent=true，"
+            "岗位已删后则用 platform `agents.delete`（employees.delete 只管岗位）"
+        )
+    ws = str((role.config.workspace_path if role.config else "") or "").strip()
+    if ws:
+        try:
+            from pathlib import Path
+
+            if Path(ws).exists():
+                residue.append(f"岗位工作区未清理（内含真实产物，不自动删）：`{ws}`")
+        except OSError:
+            pass
+    if residue:
+        out["retained"] = residue
+    return out
 
 
 def resume_role(agent_code: str) -> dict[str, Any]:
@@ -1410,7 +1495,12 @@ def resume_role(agent_code: str) -> dict[str, Any]:
     if not role:
         raise NotFoundError(f"Role '{code}' not found")
     prev = role.status
-    if prev == "active":
+    # ``stop`` keeps status=active and only sets the patrol latch + clears
+    # next_heartbeat_at, so "already active" is NOT a no-op: a stopped role must
+    # still be re-armed here, otherwise it looks on duty but never patrols.
+    suspended = bool(getattr(role.config, "auto_patrol_suspended", False))
+    missing_next = not str(role.next_heartbeat_at or "").strip()
+    if prev == "active" and not suspended and not missing_next:
         return {
             "ok": True,
             "agent_code": code,
@@ -1419,20 +1509,32 @@ def resume_role(agent_code: str) -> dict[str, Any]:
             "noop": True,
             "message": "Role is already active",
         }
+    rearmed = prev == "active" and (suspended or missing_next)
     role.status = "active"
     role.config.auto_patrol_suspended = False
     role.updated_at = utc_now_iso_z()
     if not role.next_heartbeat_at:
         from evoflow.proactive.runner import compute_next_duty_iso
 
-        role.next_heartbeat_at = compute_next_duty_iso(role)
+        role.next_heartbeat_at = compute_next_duty_iso(role) or None
     ProactiveRepository.save_role(role)
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "agent_code": code,
         "status": "active",
         "from_status": prev,
     }
+    if rearmed:
+        # Tell the caller we actually lifted a stop (not a plain 上岗).
+        out["patrol_rearmed"] = True
+        out["next_heartbeat_at"] = role.next_heartbeat_at
+        if not role.next_heartbeat_at:
+            # 巡检计划本来就是 off：解锁了但也排不出班，别让人以为会定时上班。
+            out["hint"] = (
+                "已解除停岗，但该岗巡检计划为「关闭」，不会定时上班；"
+                "需要自动巡检请设 heartbeat_schedule（如 0 9,15 * * *）。"
+            )
+    return out
 
 
 def _role_summary(role: ProactiveRole, *, busy_codes: set[str]) -> dict[str, Any]:
@@ -1552,6 +1654,85 @@ def _group_rounds(inits: list[Initiative]) -> list[dict[str, Any]]:
     return rounds
 
 
+def _duty_journal_to_round(journal: dict[str, Any]) -> dict[str, Any]:
+    """Map a duty/automation round journal → worklog ``rounds[]`` shape.
+
+    ``list_duty_rounds_for_board`` yields initiative-shaped rows for runs that
+    never created initiatives (dispatch / 手动上班 / skipped patrol), so worklog
+    used to report ``round_count=0`` for a day with real duty work.
+    """
+    plan = journal.get("action_plan") if isinstance(journal.get("action_plan"), dict) else {}
+    rid = str(journal.get("round_id") or "").strip()
+    status = str(journal.get("status") or "").strip().lower()
+    verdict = {
+        "executing": "in_progress",
+        "completed": "done",
+        "failed": "incomplete",
+    }.get(status, "in_progress")
+    skip = str(plan.get("skip_reason") or "").strip()
+    if skip:
+        verdict = "skipped"
+    return {
+        "round_id": rid or str(journal.get("id") or ""),
+        "at": str(journal.get("created_at") or ""),
+        "goal": str(journal.get("goal") or journal.get("title") or ""),
+        "outcome": str(journal.get("outcome") or ""),
+        "verdict": verdict,
+        "source": str(plan.get("source") or "duty_run"),
+        "trigger_source": str(plan.get("trigger_source") or ""),
+        "scheduled": bool(plan.get("scheduled")),
+        "skip_reason": skip,
+        "run_id": str(plan.get("run_id") or ""),
+        "session_key": str(plan.get("session_key") or journal.get("session_key") or ""),
+        "msg_count": int(plan.get("msg_count") or 0),
+        "tool_count": int(plan.get("tool_count") or 0),
+        "item_count": 0,
+        "pending_approval": 0,
+        "journal_count": 0,
+        "items": [],
+    }
+
+
+def _merge_duty_rounds(
+    rounds: list[dict[str, Any]],
+    agent_code: str,
+    day_list: list[str],
+    *,
+    limit: int,
+    fetch_limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Append duty-run rounds missing from the initiative-derived list."""
+    try:
+        from evoflow.proactive.duty_runs import list_duty_rounds_for_board
+
+        journals = list_duty_rounds_for_board(
+            agent_code, limit=max(1, min(int(fetch_limit or limit), 200))
+        )
+    except Exception:
+        logger.debug("worklog: duty rounds merge failed agent=%s", agent_code, exc_info=True)
+        return rounds
+    if not journals:
+        return rounds
+
+    seen = {str(r.get("round_id") or "").strip() for r in rounds if r.get("round_id")}
+    extra: list[dict[str, Any]] = []
+    for j in journals:
+        rid = str(j.get("round_id") or "").strip()
+        if rid and rid in seen:
+            continue
+        at = str(j.get("created_at") or j.get("updated_at") or "")
+        if not any(_timestamp_on_beijing_day(at, d) for d in day_list):
+            continue
+        if rid:
+            seen.add(rid)
+        extra.append(_duty_journal_to_round(j))
+    if not extra:
+        return rounds
+    merged = list(rounds) + extra
+    merged.sort(key=lambda r: str(r.get("at") or ""), reverse=True)
+    return merged[: max(1, limit)]
+
+
 def list_roles(*, status: str | None = None) -> dict[str, Any]:
     """Roster + pending approvals + busy (when Gateway is up)."""
     st = (status or "").strip() or None
@@ -1602,6 +1783,7 @@ def worklog(
     day: str | None = None,
     days: int | None = None,
     limit: int = 80,
+    round_id: str = "",
 ) -> dict[str, Any]:
     """Day work log: duty rounds (initiatives) ∪ board Tasks for the employee.
 
@@ -1611,13 +1793,16 @@ def worklog(
 
     ``days`` (when set and ``day`` omitted) aggregates the last N Beijing calendar
     days inclusive of today (CORE-EMP-01).
+
+    ``round_id`` filters to one work round across the whole lookback (initiative
+    *or* duty-run index). Use it after ``dispatch``/``messages`` hands back a
+    round_id and you want the round's outcome without guessing its day.
     """
     code = str(agent_code or "").strip()
     if not code:
         raise ValidationError("agent_code is required")
-    role = ProactiveRepository.get_role(code)
-    if not role:
-        raise NotFoundError(f"Role '{code}' not found")
+    role = resolve_role_ref(code)
+    code = role.agent_code
 
     from datetime import datetime, timedelta
 
@@ -1629,6 +1814,11 @@ def worklog(
         raise ValidationError("days must be >= 1")
     if lookback is not None:
         lookback = min(lookback, 30)
+    rid_filter = str(round_id or "").strip()
+    # A round_id lookup should not depend on the caller guessing the right day:
+    # without an explicit day/days, search the last 7 Beijing days.
+    if rid_filter and lookback is None and not (day or "").strip():
+        lookback = 7
 
     if lookback and not day:
         end = datetime.now(BEIJING_TZ).date()
@@ -1655,14 +1845,32 @@ def worklog(
         if len(tasks) >= lim:
             break
     rounds = _group_rounds(day_inits)
+    rounds = _merge_duty_rounds(
+        rounds,
+        code,
+        day_list,
+        limit=lim,
+        fetch_limit=max(lim * max(1, lookback or 1), 40),
+    )
+    round_filter_miss = False
+    if rid_filter:
+        matched = [r for r in rounds if str(r.get("round_id") or "").strip() == rid_filter]
+        round_filter_miss = not matched
+        rounds = matched
     tasks = tasks[:lim]
 
-    # Two sources by design — do NOT treat round_count==0 as "no work":
-    # rounds  = duty-patrol initiatives (created when a proactive round runs)
+    # Two axes by design — do NOT treat round_count==0 as "no work":
+    # rounds  = 值班轮次（initiatives 聚合 ∪ duty_runs/automation_runs 索引；
+    #           dispatch / 手动上班 / 到点跳过都不建 initiative，靠索引补）
     # tasks   = board Tasks assigned that day (items.dispatch / proactive dispatch)
     activity_count = len(rounds) + len(tasks)
     window = day_list[0] if len(day_list) == 1 else f"{day_list[0]}..{day_list[-1]}"
-    if rounds and tasks:
+    if rid_filter and round_filter_miss:
+        hint = (
+            f"近 {window} 内未找到 round_id={rid_filter} 的值班轮次；"
+            "轮次 id 可由 dispatch/messages 返回，或扩大 days=1..30 再查。tasks[] 未过滤（台账任务无 round 归属）。"
+        )
+    elif rounds and tasks:
         hint = f"{window} 有 {len(rounds)} 个值班轮次、{len(tasks)} 个台账任务；看「干了啥」请同时读 rounds 与 tasks，勿只看 round_count。"
     elif tasks and not rounds:
         hint = f"{window} 无值班巡检轮次（round_count=0 正常），但有 {len(tasks)} 个台账任务；派发/执行工作请看 tasks[]，不要据此判定 worklog 为空。"
@@ -1679,6 +1887,7 @@ def worklog(
         "day_from": day_list[0],
         "day_to": day_list[-1],
         "timezone": "Asia/Shanghai",
+        "round_id_filter": rid_filter or None,
         "round_count": len(rounds),
         "initiative_count": len(day_inits),
         "rounds": rounds,
@@ -1689,10 +1898,11 @@ def worklog(
         "has_board_tasks": bool(tasks),
         "hint": hint,
         "semantics": {
-            "rounds": "值班巡检轮次（initiatives 聚合）；仅当员工跑过 proactive 轮次才有",
+            "rounds": "值班轮次 = initiatives 聚合 ∪ duty_runs/automation_runs 索引（dispatch/手动/到点跳过都算）；round_id 去重",
             "tasks": "当日指派给该员工的台账 Task（含 items.dispatch）",
-            "note": "dispatch 不会写入 initiatives；round_count=0 且 task_count>0 表示有派发工作、无巡检轮次，不是 bug",
+            "note": "round_count=0 且 task_count>0 表示只接了派单、没跑值班轮；两者都为 0 才是当天没动静",
             "days": "传整数 days=N 时汇总近 N 个北京日历日（含今天）；传 day=YYYY-MM-DD 时只查单日",
+            "round_id": "传 round_id 时只返回该轮次（未命中则 rounds 为空并在 hint 说明），缺省回溯近 7 日",
         },
         "watch_path": f"/proactive/{code}",
     }
@@ -1816,13 +2026,16 @@ def round_trail(
     round_id: str | None = None,
     max_steps: int = 40,
 ) -> dict[str, Any]:
-    """Summarize tool trail for one duty round (or latest messages if round omitted)."""
+    """Summarize tool trail for one duty round (or latest messages if round omitted).
+
+    ``agent_code`` accepts an ``agent_code`` **or** ``role_name`` (same lookup as
+    ``brief``/``dispatch``) so the read surface stays consistent.
+    """
     code = str(agent_code or "").strip()
     if not code:
         raise ValidationError("agent_code is required")
-    role = ProactiveRepository.get_role(code)
-    if not role:
-        raise NotFoundError(f"Role '{code}' not found")
+    role = resolve_role_ref(code)
+    code = role.agent_code
 
     rid = str(round_id or "").strip() or None
     try:
@@ -1845,15 +2058,19 @@ def round_trail(
     from evoflow.proactive.chat_session import resolve_work_session_key
     from evoflow.proactive.duty_runs import get_duty_run_by_round, list_duty_runs
 
+    requested_rid = rid
     # Prefer duty_runs index (session_key + round) over legacy proactive:{code}.
     session_key = f"proactive:{code}"
     duty_row = None
     if rid:
         duty_row = get_duty_run_by_round(code, rid)
-    if not duty_row:
+    if not duty_row and not requested_rid:
+        # Only auto-pick the newest run when the caller asked for "latest round";
+        # with an explicit round_id this used to graft another round's scorecard
+        # onto the requested round's messages.
         recent_runs = list_duty_runs(code, limit=1)
         duty_row = recent_runs[0] if recent_runs else None
-        if duty_row and not rid:
+        if duty_row:
             rid = str(duty_row.get("round_id") or "").strip() or None
     if duty_row and str(duty_row.get("session_key") or "").strip():
         session_key = str(duty_row["session_key"]).strip()
@@ -1864,12 +2081,17 @@ def round_trail(
             round_id=rid,
         )
 
-    result = list_messages_for_display_all(session_key, max_rows=200, round_id=rid)
+    # Long rounds exceed the old fixed 200-row window and were truncated without
+    # any signal; scale the read window with max_steps and report whether it filled.
+    row_cap = min(2000, max(200, ms * 4))
+    result = list_messages_for_display_all(session_key, max_rows=row_cap, round_id=rid)
     messages = list(result.get("messages") or [])
+    window_full = len(messages) >= row_cap
     # Legacy contact session fallback when duty key is empty.
     if not messages and session_key != f"proactive:{code}":
-        legacy = list_messages_for_display_all(f"proactive:{code}", max_rows=200, round_id=rid)
+        legacy = list_messages_for_display_all(f"proactive:{code}", max_rows=row_cap, round_id=rid)
         messages = list(legacy.get("messages") or [])
+        window_full = window_full or len(messages) >= row_cap
         if messages:
             session_key = f"proactive:{code}"
     steps = _extract_tool_steps(messages, max_steps=ms)
@@ -1895,17 +2117,31 @@ def round_trail(
                 "item_count": rounds[0].get("item_count"),
             }
 
+    found_round = bool(messages or duty_row or scorecard)
+    hint = None
+    if requested_rid and not found_round:
+        hint = (
+            f"未找到 round_id={requested_rid} 的轮次记录（消息/值班索引/ initiatives 均为空）；"
+            "可用 employees.worklog 的 round_id 参数或留空 round_id 取最近一轮。"
+        )
+    elif window_full:
+        hint = f"该轮消息数已达读取窗口上限 {row_cap}，steps 可能不含全轮；可提高 max_steps 或用 messages 分页看全文。"
+
     return {
         "agent_code": code,
         "role_name": role.role_name,
         "session_key": session_key,
         "round_id": rid,
+        "round_requested": requested_rid or None,
         "duty_run_id": str((duty_row or {}).get("run_id") or "") or None,
         "message_count": len(messages),
+        "message_window": row_cap,
+        "message_window_full": window_full,
         "tool_step_count": len(steps),
         "tool_counts": dict(tool_counts.most_common(20)),
         "steps": steps,
         "scorecard": scorecard,
+        "hint": hint,
         "watch_path": f"/proactive/{code}?live=1" + (f"&round={rid}" if rid else ""),
     }
 

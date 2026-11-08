@@ -8,7 +8,7 @@ from evoflow.admin.proactive_http import resolve_proactive_api_base
 
 
 @pytest.fixture(autouse=True)
-def _clear_url_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def _clear_url_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
     for key in (
         "EVOFLOW_PROACTIVE_URL",
         "EVOFLOW_GATEWAY_URL",
@@ -17,6 +17,14 @@ def _clear_url_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "EVOFLOW_LANGGRAPH_URL",
     ):
         monkeypatch.delenv(key, raising=False)
+    # ``resolve_gateway_base_url`` also reads the runtime-state file the running
+    # Gateway writes (``$EVOFLOW_HOME/backend-runtime.json``). Clearing only env
+    # vars left that file visible, so the two "legacy default" assertions failed
+    # on every machine where EvoFlow is actually running. Point the profile dirs
+    # at an empty tmp dir to keep the resolution chain hermetic.
+    monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("EVOFLOW_CONFIG_DIR", str(tmp_path / "config"))
+    monkeypatch.setenv("EVOFLOW_PROFILE", "pytest-isolated")
 
 
 def test_explicit_proactive_url(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from evoflow.admin.automation_schedule import (
+    cron_csv_from_rrule_part,
     cron_human_summary,
     cron_matches_at,
     cron_to_rrule,
@@ -67,14 +68,11 @@ def legacy_rrule_to_cron(
         interval = max(1, int(parts.get("INTERVAL", "1")))
     except ValueError:
         interval = 1
-    try:
-        hour = int(str(parts.get("BYHOUR", "9")).split(",")[0])
-    except ValueError:
-        hour = 9
-    try:
-        minute = int(str(parts.get("BYMINUTE", "0")).split(",")[0])
-    except ValueError:
-        minute = 0
+    # Keep every BYHOUR / BYMINUTE value: ``BYHOUR=9,15`` must derive to
+    # ``0 9,15 * * *``. Taking split(",")[0] here silently dropped the second
+    # patrol slot, so a role the user set to 09:00+15:00 ran 09:00 only.
+    hour = cron_csv_from_rrule_part(parts.get("BYHOUR", "9"), lo=0, hi=23, default=9)
+    minute = cron_csv_from_rrule_part(parts.get("BYMINUTE", "0"), lo=0, hi=59, default=0)
 
     ws_enabled = config is None or getattr(config, "work_schedule_enabled", True)
     start = int(getattr(config, "work_start_hour", 9) if config else 9)
@@ -145,8 +143,18 @@ def resolve_role_cron(role: ProactiveRole) -> str:
     return DEFAULT_HEARTBEAT_CRON
 
 
-def sync_role_schedule_fields(role: ProactiveRole, cron_expr: str) -> None:
-    """Persist authoritative cron on role and derive legacy RRULE for compat."""
+def sync_role_schedule_fields(
+    role: ProactiveRole,
+    cron_expr: str,
+    *,
+    clear_suspend_latch: bool = True,
+) -> None:
+    """Persist authoritative cron on role and derive legacy RRULE for compat.
+
+    ``clear_suspend_latch``: a real cron means「用户重新开了巡检」→ drop the
+    suspend flag. Must stay True for explicit schedule writes (panel / API) and
+    False for lazy heal paths — see ``ensure_role_schedule_fields``.
+    """
     cron = str(cron_expr or "").strip()
     if is_schedule_off(cron):
         role.heartbeat_schedule = SCHEDULE_OFF
@@ -162,6 +170,8 @@ def sync_role_schedule_fields(role: ProactiveRole, cron_expr: str) -> None:
     role.heartbeat_schedule = cron
     derived = cron_to_rrule(cron)
     role.heartbeat_rrule = str(derived.get("rrule") or cron)
+    if not clear_suspend_latch:
+        return
     try:
         # Re-enabling a real cron clears the "关闭巡检" suspend latch.
         role.config.auto_patrol_suspended = False
@@ -182,13 +192,21 @@ def ensure_role_schedule_fields(role: ProactiveRole) -> bool:
 
     Safe for installed users still on ``FREQ=HOURLY;INTERVAL=N`` — call from
     migration heal, save_role, and lazy load so DB catches up without a manual step.
+
+    Never touches ``auto_patrol_suspended``: this runs on every ``save_role`` and
+    on lazy reads, so clearing the latch here silently un-did ``roles.stop``
+    (stopped employee looked active but patrol latch was gone / or was wiped and
+    the role re-fired). Only an explicit schedule write re-arms patrol — see
+    ``apply_schedule_input``.
     """
     before_s = str(getattr(role, "heartbeat_schedule", "") or "").strip()
     before_r = str(role.heartbeat_rrule or "").strip()
     if is_schedule_off(before_s) or is_schedule_off(before_r):
-        sync_role_schedule_fields(role, SCHEDULE_OFF)
+        sync_role_schedule_fields(role, SCHEDULE_OFF, clear_suspend_latch=False)
     else:
-        sync_role_schedule_fields(role, resolve_role_cron(role))
+        sync_role_schedule_fields(
+            role, resolve_role_cron(role), clear_suspend_latch=False
+        )
     after_s = str(role.heartbeat_schedule or "").strip()
     after_r = str(role.heartbeat_rrule or "").strip()
     return after_s != before_s or after_r != before_r
