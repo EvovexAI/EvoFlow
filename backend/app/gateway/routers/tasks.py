@@ -135,6 +135,54 @@ def _attach_runtime_health(task: dict[str, Any]) -> dict[str, Any]:
     return task
 
 
+def _enrich_subtask_live_preview(out: dict[str, Any]) -> None:
+    """Attach live running text to each non-terminal subtask.
+
+    ``current_step`` is frozen at dispatch ("子任务已派发") unless the worker
+    voluntarily calls the ``progress`` tool — which workflow workers never get
+    (that tool is plan-tier only). The actual running text lives in the worker
+    chat transcript, so read the last assistant/tool line from there.
+
+    Mirrors ``build_task_progress_snapshot`` (same helper, same transcript
+    lookup) so GET /tasks and the collab WS snapshot agree.
+    """
+    subs = out.get("subtasks")
+    if not isinstance(subs, list) or not subs:
+        return
+    try:
+        from evoflow.collab.task_progress_snapshot import (
+            _latest_subtask_preview_text,
+            _subtask_terminal,
+        )
+    except Exception:
+        logger.debug("subtask live preview enrichment unavailable", exc_info=True)
+        return
+
+    task_for_lookup = {"id": out.get("id"), "thread_id": out.get("thread_id"), "subtasks": subs}
+    for st in subs:
+        if not isinstance(st, dict):
+            continue
+        sid = str(st.get("id") or "").strip()
+        if not sid:
+            continue
+        # Terminal rows keep their outcome text; only live rows need the preview.
+        try:
+            if _subtask_terminal(st):
+                continue
+        except Exception:
+            pass
+        try:
+            preview = _latest_subtask_preview_text(task_for_lookup, st, sid)
+        except Exception:
+            logger.debug("subtask live preview failed sub=%s", sid, exc_info=True)
+            continue
+        if preview:
+            st["executionPreview"] = preview
+            # The frontend prefers executionPreview, but keep current_step in
+            # sync so other consumers don't keep showing the stale dispatch text.
+            st["current_step"] = preview[:500]
+
+
 def _public_task_dict(task: dict[str, Any], *, for_list: bool = False) -> dict[str, Any]:
     """Task-centric API: omit legacy project bundle fields from responses.
 
@@ -184,6 +232,9 @@ def _public_task_dict(task: dict[str, Any], *, for_list: bool = False) -> dict[s
         return out
 
     from evoflow.collab.task_outputs import task_input_refs_of, task_outputs_of
+
+    # Live running text for workflow nodes (non-terminal subtasks only).
+    _enrich_subtask_live_preview(out)
 
     outputs = task_outputs_of(out)
     if outputs:

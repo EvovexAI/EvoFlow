@@ -7909,7 +7909,11 @@ export class WsClient {
               t === 'task_running' ||
               t === 'task_completed' ||
               t === 'task_failed' ||
-              t === 'task_timed_out'
+              t === 'task_timed_out' ||
+              // 后端 SubagentExecutor 的 token 级增量：工作流节点的实时正文靠它。
+              // 漏了它，节点就只能显示「子任务已派发」这类冻结文案（LangGraph
+              // custom 通道没有 legacy 路径的兜底分支，见 dispatchLangGraphCustomStreamChunk）。
+              t === 'subagent_token_delta'
             ) {
               const subtaskEvent = normalizeSubagentStreamEvent(chunk)
               subtaskStreamDebug('langgraph_custom_recv', {
