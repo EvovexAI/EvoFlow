@@ -31639,32 +31639,6 @@ html.dark .react-chat-collab-exec-panel-running-chip {
   user-select: text;
 }
 
-/* 节点状态日志开关 */
-.react-chat-collab-exec-panel-log-toggle {
-  flex-shrink: 0;
-  padding: 1px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.3));
-  background: transparent;
-  color: var(--text-muted, #94a3b8);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1.6;
-  cursor: pointer;
-  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
-}
-
-.react-chat-collab-exec-panel-log-toggle:hover {
-  color: var(--text-secondary, #64748b);
-  border-color: rgba(148, 163, 184, 0.5);
-}
-
-.react-chat-collab-exec-panel-log-toggle.is-on {
-  border-color: rgba(59, 130, 246, 0.4);
-  background: rgba(59, 130, 246, 0.12);
-  color: #2563eb;
-}
-
 .react-chat-collab-exec-panel-subtitle {
   font-size: var(--ef-text-sm);
   color: var(--text-secondary, #6b7280);

@@ -66,8 +66,8 @@ describe('CollabExecutionPanel running state', () => {
     expect(titleRow?.contains(taskId)).toBe(true)
     expect(taskId?.tagName).toBe('SPAN')
 
-    // 日志开关
-    expect(container.querySelector('.react-chat-collab-exec-panel-log-toggle')).toBeTruthy()
+    // 顶栏只有一行内容，没有日志开关按钮
+    expect(container.querySelector('.react-chat-collab-exec-panel-log-toggle')).toBeNull()
   })
 
   it('renders the latest tool and live text for a running subtask', () => {

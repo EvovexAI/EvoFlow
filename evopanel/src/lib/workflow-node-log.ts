@@ -9,9 +9,10 @@
  * - 子任务名 + 子任务 ID（哪个节点）
  * - 节点**实际渲染出来的**那一行文本（不是原始数据）
  *
- * 默认关闭。开启方式：
+ * 默认关闭。顶栏没有开关按钮（那不是给用户看的），需要排查时在 DevTools
+ * 控制台执行其一：
  *   localStorage.setItem('EVOFLOW_WORKFLOW_NODE_LOG', '1')
- * 或临时：
+ * 或临时（刷新即失效）：
  *   window.__evoflowWorkflowNodeLog = true
  *
  * 日志前缀 `[wf-node]`，方便在 DevTools 里过滤。

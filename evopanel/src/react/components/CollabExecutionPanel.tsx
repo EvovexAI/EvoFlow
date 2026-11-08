@@ -1,12 +1,7 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useMemo } from 'react'
 import type { AgentInfo, CollabSubtaskSnapshot, CollabTaskSnapshot, SubagentStreamTaskMap, SubtaskTranscriptModalPayload } from '../chat-types.js'
 import { formatPlanTaskStatusLabel } from '../../lib/plan-task-status.js'
 import { taskStatusBadgeClass } from '../../lib/task-status-label.js'
-import {
-  disableWorkflowNodeLog,
-  enableWorkflowNodeLog,
-  isWorkflowNodeLogEnabled,
-} from '../../lib/workflow-node-log.js'
 import { CollabWorkflowCanvas } from './CollabWorkflowCanvas.js'
 
 export interface CollabExecutionPanelProps {
@@ -139,18 +134,6 @@ function CollabExecutionPanelInner({
   hidePanelHeader = false,
 }: CollabExecutionPanelProps) {
   const tid = String(mainTaskId || collabTask?.taskId || '').trim()
-  /** 节点状态日志开关（排查用） */
-  const [nodeLogOn, setNodeLogOn] = useState(() => isWorkflowNodeLogEnabled())
-  const toggleNodeLog = useCallback(() => {
-    setNodeLogOn((prev) => {
-      if (prev) {
-        disableWorkflowNodeLog()
-        return false
-      }
-      enableWorkflowNodeLog()
-      return true
-    })
-  }, [])
   const mergedSubtasks = useMemo(
     () => mergeApiAndLiveSubtasks(apiSubtasks, liveSubtasks),
     [apiSubtasks, liveSubtasks],
@@ -250,20 +233,6 @@ function CollabExecutionPanelInner({
                   {tid}
                 </span>
               ) : null}
-              {/* 日志开关：打开后每个节点的状态变化都会打进控制台 */}
-              <button
-                type="button"
-                className={`react-chat-collab-exec-panel-log-toggle${nodeLogOn ? ' is-on' : ''}`}
-                onClick={toggleNodeLog}
-                title={
-                  nodeLogOn
-                    ? '节点状态日志已开启：控制台会打印每个节点显示的内容（[wf-node] 前缀）。点击关闭'
-                    : '开启节点状态日志：控制台会打印每个节点显示的内容（[wf-node] 前缀）'
-                }
-                aria-label={nodeLogOn ? '关闭节点状态日志' : '开启节点状态日志'}
-              >
-                日志
-              </button>
             </div>
           </div>
         </header>
