@@ -12,6 +12,7 @@ import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
 import { resolveSubtaskLivePreview } from '../../lib/subtask-preview-text.js'
 import { findSubagentTaskForCollabSubtask } from '../../lib/subtask-stream-bind.js'
 import { resolveNodeActivity } from '../../lib/workflow-node-activity.js'
+import { logWorkflowNodeState } from '../../lib/workflow-node-log.js'
 import { formatTaskStatusZh, taskStatusBadgeClass } from '../../lib/task-status-label.js'
 import { formatSubtaskObsLine } from '../../lib/task-observability-format.js'
 import { SubtaskLiveTicker } from './SubtaskLiveTicker.js'
@@ -75,6 +76,7 @@ function WorkflowNode({
   layout,
   subagentTasks,
   mainTaskId,
+  taskName,
   leadThreadId,
   agents,
   onOpen,
@@ -84,6 +86,8 @@ function WorkflowNode({
   layout: { x: number; y: number; w: number; h: number }
   subagentTasks?: SubagentStreamTaskMap
   mainTaskId: string
+  /** 主任务名（日志里标出「是哪个任务」） */
+  taskName?: string
   leadThreadId?: string | null
   agents?: AgentInfo[]
   onOpen: (payload: SubtaskTranscriptModalPayload) => void
@@ -102,7 +106,6 @@ function WorkflowNode({
     '未分配'
   const refLabel = String(s.ref || '').trim()
   const progressPct = toProgressPct(s)
-  const buffering = running && progressPct != null && progressPct < 100
   const taskResult = useMemo(() => resolveTaskResult(s), [s])
   const statusHint = String(
     (s as { currentStep?: string }).currentStep ||
@@ -191,6 +194,44 @@ function WorkflowNode({
     .filter(Boolean)
     .join('\n')
 
+  /**
+   * 节点状态日志：把「节点上显示什么」原样打进控制台。
+   * 依赖里只放真正影响显示的字段 —— 2s 轮询下不会重复刷屏（logger 内部还有去重）。
+   */
+  const nodeDisplayText = activity.latest?.text || (showLiveTicker ? liveText : '') || ''
+  const nodeDisplayKind: 'tool' | 'text' | 'none' = activity.latest
+    ? activity.latest.isTool
+      ? 'tool'
+      : 'text'
+    : nodeDisplayText
+      ? 'text'
+      : 'none'
+  useEffect(() => {
+    logWorkflowNodeState({
+      taskName: String(taskName || '').trim(),
+      taskId: String(mainTaskId || '').trim(),
+      nodeName: title,
+      subtaskId: String(s.subtaskId || '').trim(),
+      status: displayStatus,
+      statusLabel,
+      progress: progressPct,
+      display: nodeDisplayText,
+      kind: nodeDisplayKind,
+      activeTool: activity.activeToolLabel,
+    })
+  }, [
+    taskName,
+    mainTaskId,
+    title,
+    s.subtaskId,
+    displayStatus,
+    statusLabel,
+    progressPct,
+    nodeDisplayText,
+    nodeDisplayKind,
+    activity.activeToolLabel,
+  ])
+
   return (
     <HoverBubble
       variant="rich"
@@ -221,6 +262,16 @@ function WorkflowNode({
               <AssignedAgentAvatar agentCode={code} agents={agents} size={13} busy={running} />
             </span>
           </HoverBubble>
+          {refLabel ? <span className="collab-wf-node-ref">#{refLabel}</span> : null}
+          {/* 百分比提到顶部（不再有底部总体进度条）；运行中用转圈表示 */}
+          {progressPct != null ? (
+            <span
+              className={`collab-wf-node-progress-pct${running ? ' is-running' : ''}`}
+              title={`进度 ${progressPct}%`}
+            >
+              {progressPct}%
+            </span>
+          ) : null}
           {running ? (
             <span
               className="collab-wf-node-running-badge"
@@ -231,17 +282,6 @@ function WorkflowNode({
             </span>
           ) : null}
         </div>
-        {progressPct != null ? (
-          <div className="collab-wf-node-status-row">
-            {refLabel ? <span className="collab-wf-node-ref">#{refLabel}</span> : null}
-            <div className="collab-wf-node-progress-bar" aria-hidden>
-              <span className={`collab-wf-node-progress-fill${buffering ? ' is-buffering' : ''}`} style={{ width: `${progressPct}%` }} />
-            </div>
-            <span className="collab-wf-node-progress-pct">{progressPct}%</span>
-          </div>
-        ) : refLabel ? (
-          <span className="collab-wf-node-ref">#{refLabel}</span>
-        ) : null}
         {activity.latest ? (
           <div
             className={`collab-wf-node-activity${activity.latest.running ? ' is-running' : ''}${activity.latest.failed ? ' is-failed' : ''}${activity.latest.isTool ? ' is-tool' : ''}`}
@@ -266,6 +306,8 @@ function WorkflowNode({
 export interface CollabWorkflowCanvasProps {
   subtasks: CollabSubtaskSnapshot[]
   mainTaskId: string
+  /** 主任务名（日志里标出「是哪个任务」） */
+  taskName?: string
   /** LangGraph lead thread uuid for subtask transcript lookup */
   leadThreadId?: string | null
   subagentTasks?: SubagentStreamTaskMap
@@ -327,6 +369,7 @@ function centerCanvasInBox(
 export function CollabWorkflowCanvas({
   subtasks,
   mainTaskId,
+  taskName,
   leadThreadId,
   subagentTasks,
   agents,
@@ -585,6 +628,7 @@ export function CollabWorkflowCanvas({
             layout={layout}
             subagentTasks={subagentTasks}
             mainTaskId={mainTaskId}
+            taskName={taskName}
             leadThreadId={leadThreadId}
             agents={agents}
             onOpen={onSubtaskTranscriptOpen}

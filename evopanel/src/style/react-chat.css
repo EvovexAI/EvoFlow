@@ -31347,27 +31347,25 @@ html.dark .react-chat-collab-exec-panel {
 }
 
 /* 顶栏：运行中徽标 + 节点计数（原来只有一个百分比，看不出跑到哪） */
+/* 顶栏：运行中徽标 —— 只留转圈（不再写「运行中」文字） */
 .react-chat-collab-exec-panel-running-chip {
   flex-shrink: 0;
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 2px 8px;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
   border-radius: 999px;
   border: 1px solid rgba(59, 130, 246, 0.28);
   background: rgba(59, 130, 246, 0.1);
   color: #2563eb;
-  font-size: 11px;
-  font-weight: 650;
-  line-height: 1.5;
-  white-space: nowrap;
 }
 
 /* 顶栏用小转圈，和节点上的齿轮位一致（不用呼吸点） */
 .react-chat-collab-exec-panel-running-dot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
   border: 1.5px solid currentColor;
   border-top-color: transparent;
@@ -31436,6 +31434,44 @@ html.dark .react-chat-collab-exec-panel-running-chip {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--accent, #2563eb);
+}
+
+/* 顶栏任务 ID：排查时能对上具体是哪个任务 */
+.react-chat-collab-exec-panel-task-id {
+  margin-top: 2px;
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--text-muted, #94a3b8);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+/* 节点状态日志开关 */
+.react-chat-collab-exec-panel-log-toggle {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, rgba(148, 163, 184, 0.3));
+  background: transparent;
+  color: var(--text-muted, #94a3b8);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.react-chat-collab-exec-panel-log-toggle:hover {
+  color: var(--text-secondary, #64748b);
+  border-color: rgba(148, 163, 184, 0.5);
+}
+
+.react-chat-collab-exec-panel-log-toggle.is-on {
+  border-color: rgba(59, 130, 246, 0.4);
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
 }
 
 .react-chat-collab-exec-panel-subtitle {
@@ -33983,30 +34019,7 @@ html.dark .collab-wf-edge--active {
   color: var(--accent, #2563eb);
 }
 
-.collab-wf-node-progress-bar {
-  height: 3px;
-  border-radius: 999px;
-  background: var(--border, #e2e8f0);
-  overflow: hidden;
-}
-
-.collab-wf-node-progress-fill {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
-  background: linear-gradient(90deg, #3b82f6, #2563eb);
-  transition: width var(--dur-base) var(--ease-out-soft);
-}
-
-/* 子任务节点进度缓冲动画：黄色→紫色渐变不断扫描 */
-.collab-wf-node.is-running .collab-wf-node-progress-fill.is-buffering {
-  background: linear-gradient(90deg, #eab308 0%, #a855f7 50%, #eab308 100%);
-  background-size: 200% 100%;
-  animation: progress-buffering 3s ease-in-out infinite;
-  box-shadow:
-    0 0 4px rgba(168, 85, 247, 0.3),
-    0 0 10px rgba(234, 179, 8, 0.15);
-}
+/* 节点底部的总体进度条已移除（百分比提到标题行）。 */
 
 .collab-wf-node:hover {
   border-color: var(--accent, #2563eb);
@@ -34100,13 +34113,34 @@ html.dark .collab-wf-node {
 .collab-wf-node-title-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-width: 0;
   width: 100%;
 }
 
 .collab-wf-node-title-row .react-chat-subtask-status-light {
   flex-shrink: 0;
+}
+
+/* 百分比在标题行内（不再有底部总体进度条） */
+.collab-wf-node-title-row .collab-wf-node-progress-pct {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: var(--ef-text-xs);
+  font-weight: 700;
+  color: var(--text-secondary, #64748b);
+  font-variant-numeric: tabular-nums;
+}
+
+.collab-wf-node-title-row .collab-wf-node-progress-pct.is-running {
+  color: var(--accent, #2563eb);
+}
+
+.collab-wf-node-title-row .collab-wf-node-ref {
+  flex-shrink: 0;
+  font-size: var(--ef-text-xs);
+  color: var(--text-muted, #94a3b8);
+  font-weight: 600;
 }
 
 /* 工作流节点里的「已完成」状态灯：绿点 → 黑点（跟黑色边框一致） */

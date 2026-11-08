@@ -93,6 +93,7 @@ export default defineConfig({
       'tests/collab-thread-ids.test.js',
       'tests/subtask-live-preview.test.js',
       'tests/workflow-node-activity.test.ts',
+      'tests/workflow-node-log.test.tsx',
       'tests/collab-exec-panel-running.test.tsx',
       'tests/proactive-work-process-live.test.js',
       'tests/proactive-session-messages.test.js',

@@ -23,6 +23,7 @@ import { logger } from "@/logger.js";
 import type { ConversationTurnNavigatorHydrationResult } from "@/v4/conversationTurnNavigatorHelpers.js";
 import type { ConversationTransport } from "@/v4/transport.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
+import { markOpenStage } from "@/lib/openTrace.js";
 
 /**
  * runtime 换代打断 subscribe 后的退避节奏。
@@ -776,6 +777,19 @@ export class ConversationProjectionStore {
           snapshotAppliedAt,
         };
         this.setState({ rendererTiming: this.sessionOpenRendererTiming });
+        // 投影 apply 阶段：帧已到，整帧替换进 store 的耗时（含行数/帧大小）。
+        const appliedRows =
+          frame.payload.snapshot?.rows?.totalCount ?? frame.payload.snapshot?.rows?.window?.length ?? 0;
+        markOpenStage(
+          "store_apply",
+          `首帧已投影进 store（行数≈${appliedRows}）`,
+          {
+            applyMs: this.sessionOpenRendererTiming.rendererSnapshotApplyMs ?? null,
+            initialFrameTransportMs:
+              this.sessionOpenRendererTiming.initialFrameTransportMs ?? null,
+            rowCount: appliedRows,
+          },
+        );
       }
       if (context.recovery) this.markRecoveryFrameSeen();
       return;

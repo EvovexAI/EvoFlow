@@ -26,7 +26,7 @@ describe('CollabExecutionPanel running state', () => {
     onSubtaskTranscriptOpen: () => {},
   }
 
-  it('shows running badge and step counts in the header', () => {
+  it('shows running spinner, inline percentage, step counts and task id in the header', () => {
     const { container } = render(
       <CollabExecutionPanel
         {...baseProps}
@@ -44,10 +44,24 @@ describe('CollabExecutionPanel running state', () => {
       />,
     )
 
-    // 顶栏运行中徽标
-    expect(container.querySelector('.react-chat-collab-exec-panel-running-chip')).toBeTruthy()
+    // 顶栏运行中：转圈（不再有「运行中」文字）
+    const runningChip = container.querySelector('.react-chat-collab-exec-panel-running-chip')
+    expect(runningChip).toBeTruthy()
+    expect(runningChip?.textContent || '').toBe('')
+    expect(container.querySelector('.react-chat-collab-exec-panel-running-dot')).toBeTruthy()
+
+    // 百分比在标题行内联，不再有独立的总体进度条
+    const pct = container.querySelector('.react-chat-collab-exec-panel-progress-pct')
+    expect(pct?.textContent).toBe('40%')
+    expect(container.querySelector('.react-chat-collab-exec-panel-progress-row')).toBeNull()
+
+    // 节点计数 + 任务名 + 任务 ID
     expect(screen.getByText('1/3')).toBeTruthy()
     expect(screen.getByText('整理竞品资料')).toBeTruthy()
+    expect(container.querySelector('.react-chat-collab-exec-panel-task-id')?.textContent).toBe('main-1')
+
+    // 日志开关
+    expect(container.querySelector('.react-chat-collab-exec-panel-log-toggle')).toBeTruthy()
   })
 
   it('renders the latest tool and live text for a running subtask', () => {

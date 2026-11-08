@@ -132,10 +132,13 @@ const openTimingCountSchema = z.number().int().nonnegative().optional();
 /**
  * Desktop session 首次打开的低频诊断 timing；只挂在 conversation subscribe ACK，
  * 不进入 snapshot、delta、sessions-index 或 workspace-config。
+ *
+ * `hydrateMs`：服务端冷会话拉库耗时（读 SQLite transcript 把历史转成 v4 行）。
+ * 这是「点开会话有时秒开、有时等几秒」的头号嫌疑——前端 openTrace 据此归因。
  */
 export const conversationOpenTimingSchema = z
   .object({
-    version: z.literal(1),
+    version: z.literal(1).optional(),
     hostPrepareMs: openTimingMsSchema,
     providerRegistrySyncMs: openTimingMsSchema,
     taskMetaReadMs: openTimingMsSchema,
@@ -143,6 +146,8 @@ export const conversationOpenTimingSchema = z
     cliBootstrapMs: openTimingMsSchema,
     cliSessionRestoreMs: openTimingMsSchema,
     initialFrameEncodeMs: openTimingMsSchema,
+    /** 服务端冷会话 hydrate（读库转 v4 行）耗时。 */
+    hydrateMs: openTimingMsSchema,
     cliProcessState: z.enum(["spawned", "reused"]).optional(),
     sessionRuntimeState: z.enum(["cold", "warm"]).optional(),
     snapshotRowCount: openTimingCountSchema,
