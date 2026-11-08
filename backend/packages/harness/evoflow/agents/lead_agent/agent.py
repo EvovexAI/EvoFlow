@@ -37,6 +37,9 @@ from evoflow.agents.middlewares.collab_cycle_trace_middleware import CollabCycle
 from evoflow.agents.middlewares.collab_lifecycle_stage_middleware import CollabLifecycleStageMiddleware
 from evoflow.agents.middlewares.collab_phase_middleware import CollabPhaseMiddleware
 from evoflow.agents.middlewares.collab_thread_live_context_footer_middleware import CollabThreadLiveContextFooterMiddleware
+from evoflow.agents.middlewares.session_child_works_live_footer_middleware import (
+    SessionChildWorksLiveFooterMiddleware,
+)
 from evoflow.agents.middlewares.context_refs_footer_middleware import ContextRefsFooterMiddleware
 from evoflow.agents.middlewares.dynamic_system_prompt_middleware import DynamicSystemPromptOnScenarioMiddleware
 from evoflow.agents.middlewares.exploration_graph_live_footer_middleware import (
@@ -830,6 +833,8 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     middlewares.append(ScenarioRuntimeHintMiddleware())
     # Fresh plan/task snapshot at end of message list every model call (survives prompt fingerprint skip + summarization).
     middlewares.append(CollabThreadLiveContextFooterMiddleware())
+    # Active child works (subagent/workflow/duty/bash): cheap empty-skip live footer.
+    middlewares.append(SessionChildWorksLiveFooterMiddleware())
     # 小V：当前页快照走 ephemeral Human（name=xiaomi_ui_context），不进 system，保前缀缓存。
     middlewares.append(XiaomiUiContextLiveFooterMiddleware())
 

@@ -389,6 +389,12 @@ def force_kill_active_bash(
                 killed += 1
         except Exception:
             pass
+        try:
+            from evoflow.tools.zcode_port.warm_bash import invalidate_warm_for_proc
+
+            invalidate_warm_for_proc(proc, kill_tree=lambda pid: _kill_process_tree(pid))
+        except Exception:
+            pass
         _unregister_active_bash(str(key), proc)
     if sweep_libreoffice is None:
         sweep_libreoffice = lo_sweep
@@ -673,21 +679,36 @@ def _bash_args(shell: list[str], script: str) -> list[str]:
     return [*shell, "--noprofile", "--norc", "-c", script]
 
 
+# find/grep/rg (and wrappers) are the only reason to pay the embedded-search prelude.
+_SEARCH_TOOL_RE = re.compile(
+    r"(?i)(?:^|[\s;|&`$(){}])(?:find|grep|egrep|fgrep|rg|ugrep|bfs)\b"
+)
+
+
+def _needs_search_prelude(command: str) -> bool:
+    return bool(_SEARCH_TOOL_RE.search(str(command or "")))
+
+
+def _embedded_prelude_text() -> str:
+    if not embedded_search_enabled():
+        return ""
+    exports, find_cmd, grep_cmd, rg_cmd, wrap_find = _embedded_runtime_exports()
+    return exports + build_embedded_search_prelude(
+        find_command=find_cmd,
+        grep_command=grep_cmd,
+        rg_command=rg_cmd,
+        wrap_find=wrap_find,
+    )
+
+
 def _script(command: str, *, cwd: str) -> tuple[list[str], str]:
     ps = _powershell_argv(command, cwd)
     if ps is not None:
         return ps, "powershell"
     shell = bash_shell()
     body = _wrap_with_cwd_and_pwd(command, cwd)
-    if shell and embedded_search_enabled():
-        exports, find_cmd, grep_cmd, rg_cmd, wrap_find = _embedded_runtime_exports()
-        prelude = exports + build_embedded_search_prelude(
-            find_command=find_cmd,
-            grep_command=grep_cmd,
-            rg_command=rg_cmd,
-            wrap_find=wrap_find,
-        )
-        return _bash_args(shell, prelude + body), "bash"
+    if shell and embedded_search_enabled() and _needs_search_prelude(command):
+        return _bash_args(shell, _embedded_prelude_text() + body), "bash"
     if shell:
         return _bash_args(shell, body), "bash"
     if sys.platform == "win32":
@@ -702,6 +723,53 @@ def _script(command: str, *, cwd: str) -> tuple[list[str], str]:
             f"Set-Location -LiteralPath '{safe_cwd}'; {command}",
         ], "powershell"
     return ["sh", "-c", body], "sh"
+
+
+def _warm_bash_eligible(
+    command: str,
+    *,
+    run_in_background: bool = False,
+) -> bool:
+    """Warm shell is bash-only; LO / explicit background stay on the cold Popen path."""
+    from evoflow.tools.zcode_port.warm_bash import warm_enabled
+
+    if not warm_enabled():
+        return False
+    if run_in_background:
+        return False
+    if _is_libreoffice_risk_command(command):
+        return False
+    if _POWERSHELL_CMDLET_RE.search(str(command or "").strip()):
+        return False
+    return bash_shell() is not None
+
+
+def _note_bash_timing(tool_call_id: str, **fields: object) -> None:
+    """Attach bash path breakdown for observability (queue vs exec vs warm/cold)."""
+    if not tool_call_id:
+        return
+    try:
+        from evoflow.observability.tool_timing import note_tool_exec_detail
+
+        detail = {"kind": "bash", **fields}
+        note_tool_exec_detail(tool_call_id, detail)
+        exec_ms = float(fields.get("exec_ms") or 0)
+        path = str(fields.get("path") or "")
+        dialect = str(fields.get("dialect") or "")
+        # Surface only outliers in process logs — routine ~30ms warm hits stay quiet.
+        if exec_ms >= 2000 or path == "cold" and exec_ms >= 500 and dialect == "powershell":
+            import logging
+
+            logging.getLogger(__name__).info(
+                "bash timing path=%s dialect=%s warm_reused=%s exec_ms=%.0f cmd=%s",
+                path,
+                dialect,
+                fields.get("warm_reused"),
+                exec_ms,
+                str(fields.get("command_preview") or "")[:80],
+            )
+    except Exception:
+        return
 
 
 def _emit(kind: str, **kwargs: object) -> None:
@@ -893,6 +961,241 @@ def _promote_to_background(
     )
 
 
+def _promote_warm_to_background(
+    session,
+    *,
+    command: str,
+    tool_call_id: str,
+    description: str,
+    thread_id: str,
+    session_key: str,
+    partial: str,
+    blocking_ms: int,
+    remaining_timeout_s: float,
+) -> str:
+    """Keep a soft-budget-timed-out warm command alive via marker drain."""
+    from evoflow.tools.zcode_port.warm_bash import continue_drain, last_cwd
+
+    task_id = new_task_id()
+    output_path = _output_file(task_id)
+    stream_id = (tool_call_id or "").strip() or task_id
+    chunks = [partial or ""]
+    output_path.write_text(chunks[0], encoding="utf-8", errors="replace")
+    task = BackgroundBashTask(
+        task_id=task_id,
+        command=command,
+        description=description or command[:80],
+        output_path=output_path,
+        proc=session.proc,
+        tool_call_id=stream_id,
+        thread_id=thread_id,
+        session_key=session_key,
+    )
+    register_task(task)
+    started_ms = int(task.started_at * 1000)
+    _emit(
+        "background",
+        work_id=task_id,
+        title=description or command[:80],
+        command=command,
+        tool_call_id=stream_id,
+        status="running",
+        started_at_ms=started_ms,
+    )
+
+    def _pump() -> None:
+        rest, code, timed_out = continue_drain(
+            session, timeout_s=max(1.0, remaining_timeout_s)
+        )
+        if rest:
+            _emit("stdout", invocation_id=stream_id, tool_call_id=stream_id, text=rest)
+            chunks.append(rest)
+        output_path.write_text("".join(chunks), encoding="utf-8", errors="replace")
+        remembered = last_cwd(session)
+        if remembered:
+            _remember_cwd(thread_id, remembered)
+        if timed_out or code is None:
+            try:
+                _kill_process_tree(int(session.proc.pid or 0))
+            except Exception:
+                pass
+            session.close(kill_tree=lambda pid: _kill_process_tree(pid))
+            code = 124
+        else:
+            # Detached warm shells are not returned to the pool — close stdin only.
+            try:
+                if session.proc.stdin:
+                    session.proc.stdin.close()
+            except Exception:
+                pass
+            try:
+                _kill_process_tree(int(session.proc.pid or 0))
+            except Exception:
+                pass
+            session._broken = True
+        if task.status == "running":
+            mark(task, status="completed" if code == 0 else "failed", exit_code=code)
+        _emit(
+            "exit",
+            invocation_id=stream_id,
+            tool_call_id=stream_id,
+            exit_code=code,
+            success=code == 0,
+        )
+        _emit(
+            "background",
+            work_id=task_id,
+            title=description or command[:80],
+            command=command,
+            tool_call_id=stream_id,
+            status=task.status if task.status != "stopped" else "cancelled",
+            started_at_ms=started_ms,
+        )
+        _emit_task_notification(task)
+
+    threading.Thread(target=_pump, name=f"bash-warm-bg-{task_id}", daemon=True).start()
+    seconds = max(1, int(blocking_ms) // 1000)
+    return (
+        f"status: backgrounded\ninterrupted: false\nbackgroundTaskId: {task_id}\n"
+        f"persistedOutputPath: {output_path}\n"
+        f"Command exceeded the assistant-mode blocking budget ({seconds}s) and was moved to the "
+        f"background with ID: {task_id}. It is still running — you will be notified when it completes. "
+        f"Output is being written to: {output_path}. To check interim output, use Read on that file path."
+    )
+
+
+def _run_foreground_warm(
+    command: str,
+    timeout_ms: int,
+    cwd: str,
+    tool_call_id: str,
+    *,
+    thread_id: str,
+    explicit: bool,
+    description: str,
+    session_key: str,
+) -> str | None:
+    """Reuse a per-thread bash process. Returns ``None`` to fall back to cold spawn."""
+    from evoflow.tools.zcode_port import warm_bash as _wb
+    from evoflow.tools.zcode_port.warm_bash import run_in_warm_bash
+
+    shell = bash_shell()
+    if not shell:
+        return None
+    warm_key = (thread_id or session_key or tool_call_id or "_default").strip() or "_default"
+    lo_risk = _is_libreoffice_risk_command(command)
+    blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit, promotable=not lo_risk)
+    invocation = tool_call_id or uuid.uuid4().hex
+    # Warm sessions load the search prelude once at spawn so later find/grep work
+    # without re-paying cold start; cold path still skips prelude when unused.
+    prelude = _embedded_prelude_text() if embedded_search_enabled() else ""
+    _emit("start", invocation_id=invocation, tool_call_id=tool_call_id, command=command)
+    exec_t0 = time.perf_counter()
+    probe = _PROBE_COMMAND_RE.search(str(command or "").strip()) is not None
+
+    def _timing(*, path: str, warm_reused: bool) -> None:
+        _note_bash_timing(
+            tool_call_id,
+            path=path,
+            dialect="bash",
+            warm_reused=warm_reused,
+            exec_ms=round((time.perf_counter() - exec_t0) * 1000.0, 2),
+            command_preview=str(command or "")[:120],
+            probe=probe,
+        )
+
+    # Ensure a live session exists so we can register it for force-kill, then run.
+    try:
+        with _wb._SESSIONS_LOCK:
+            existing = _wb._SESSIONS.get(warm_key)
+        warm_reused = existing is not None and existing.alive()
+        if existing is None or not existing.alive():
+            # Prime the pool; run_in_warm_bash will reuse it.
+            _wb._get_or_spawn(
+                key=warm_key,
+                shell_argv=shell,
+                prelude=prelude,
+                popen_kwargs=_popen_kwargs(),
+                kill_tree=lambda pid: _kill_process_tree(pid),
+            )
+            warm_reused = False
+        with _wb._SESSIONS_LOCK:
+            live = _wb._SESSIONS.get(warm_key)
+        if live is not None:
+            _register_active_bash(invocation, live.proc, command)
+        result = run_in_warm_bash(
+            key=warm_key,
+            command=command,
+            posix_cwd=_to_posix(cwd),
+            shell_argv=shell,
+            prelude=prelude,
+            popen_kwargs=_popen_kwargs(),
+            timeout_s=blocking_ms / 1000.0,
+            kill_tree=lambda pid: _kill_process_tree(pid),
+        )
+    except Exception:
+        _unregister_active_bash(invocation)
+        return None
+
+    if result.timed_out and result.detached and result.session is not None:
+        _unregister_active_bash(invocation)
+        if blocking_ms < timeout_ms and not lo_risk:
+            remaining = max(1.0, (timeout_ms - blocking_ms) / 1000.0)
+            _timing(path="warm_bg", warm_reused=warm_reused)
+            return _promote_warm_to_background(
+                result.session,
+                command=command,
+                tool_call_id=tool_call_id,
+                description=description,
+                thread_id=thread_id,
+                session_key=session_key,
+                partial=result.partial,
+                blocking_ms=blocking_ms,
+                remaining_timeout_s=remaining,
+            )
+        try:
+            _kill_process_tree(int(result.session.proc.pid or 0), also_libreoffice=lo_risk)
+        except Exception:
+            pass
+        result.session.close(kill_tree=lambda pid: _kill_process_tree(pid))
+        _timing(path="warm", warm_reused=warm_reused)
+        _emit(
+            "stdout",
+            invocation_id=invocation,
+            tool_call_id=tool_call_id,
+            text=result.partial,
+        )
+        _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=124, success=False)
+        return _format_finished(
+            command=command,
+            stdout=result.partial,
+            stderr="",
+            exit_code=124,
+            timed_out=True,
+        )
+
+    _unregister_active_bash(invocation)
+
+    if result.exit_code == 127 and not result.stdout and not result.timed_out:
+        return None
+
+    if result.cwd:
+        _remember_cwd(thread_id, result.cwd)
+
+    _timing(path="warm", warm_reused=warm_reused)
+    stdout = result.stdout or ""
+    exit_code = result.exit_code
+    _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
+    _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=exit_code, success=exit_code == 0)
+    return _format_finished(
+        command=command,
+        stdout=stdout,
+        stderr="",
+        exit_code=exit_code,
+        timed_out=False,
+    )
+
+
 def _run_foreground(
     command: str,
     timeout_ms: int,
@@ -904,17 +1207,47 @@ def _run_foreground(
     description: str = "",
     session_key: str = "",
 ) -> str:
-    argv, _dialect = _script(command, cwd=cwd)
     invocation = tool_call_id or uuid.uuid4().hex
     # LibreOffice detaches from the process tree — it must not be backgrounded
     # (orphan soffice holds the .xlsx lock), so its explicit timeout stays full.
     lo_risk = _is_libreoffice_risk_command(command)
     blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit, promotable=not lo_risk)
+
+    if _warm_bash_eligible(command):
+        warm_out = _run_foreground_warm(
+            command,
+            timeout_ms,
+            cwd,
+            tool_call_id,
+            thread_id=thread_id,
+            explicit=explicit,
+            description=description,
+            session_key=session_key,
+        )
+        if warm_out is not None:
+            return warm_out
+
+    argv, dialect = _script(command, cwd=cwd)
     # CreateProcess requires a Windows path. Git Bash accepts that cwd and converts it.
     _emit("start", invocation_id=invocation, tool_call_id=tool_call_id, command=command)
+    exec_t0 = time.perf_counter()
+    probe = _PROBE_COMMAND_RE.search(str(command or "").strip()) is not None
+
+    def _timing_cold(*, path: str = "cold") -> None:
+        _note_bash_timing(
+            tool_call_id,
+            path=path,
+            dialect=dialect,
+            warm_reused=False,
+            exec_ms=round((time.perf_counter() - exec_t0) * 1000.0, 2),
+            command_preview=str(command or "")[:120],
+            probe=probe,
+        )
+
     try:
         proc = subprocess.Popen(argv, cwd=cwd, **_popen_kwargs())
     except OSError as exc:
+        _timing_cold()
         _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=127, success=False)
         return f"status: spawn_error\ninterrupted: false\nstderr:\n{exc}"
 
@@ -931,6 +1264,7 @@ def _run_foreground(
             # holding the .xlsx lock and poisons the next turn. Soft-land as timeout.
             if blocking_ms < timeout_ms and not lo_risk:
                 _unregister_active_bash(invocation, proc)
+                _timing_cold(path="cold_bg")
                 return _promote_to_background(
                     proc,
                     command=command,
@@ -963,6 +1297,7 @@ def _run_foreground(
     finally:
         _unregister_active_bash(invocation, proc)
 
+    _timing_cold()
     if timed_out:
         _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
         _emit("stderr", invocation_id=invocation, tool_call_id=tool_call_id, text=stderr)
@@ -993,7 +1328,16 @@ def _run_background(
     thread_id: str = "",
     session_key: str = "",
 ) -> str:
-    argv, _dialect = _script(command, cwd=cwd)
+    argv, dialect = _script(command, cwd=cwd)
+    _note_bash_timing(
+        tool_call_id,
+        path="background",
+        dialect=dialect,
+        warm_reused=False,
+        exec_ms=0,
+        command_preview=str(command or "")[:120],
+        probe=_PROBE_COMMAND_RE.search(str(command or "").strip()) is not None,
+    )
     task_id = new_task_id()
     output_path = _output_file(task_id)
     # Prefer LangChain tool_call_id so chat cards and the status panel share one key;
@@ -1185,6 +1529,15 @@ def bash_tool(
             except Exception:
                 pass
             if _semantic_bool(run_in_background):
+                _note_bash_timing(
+                    tool_call_id,
+                    path="background",
+                    dialect="bash" if bash_shell() else "powershell",
+                    warm_reused=False,
+                    exec_ms=0,
+                    command_preview=str(command or "")[:120],
+                    probe=_PROBE_COMMAND_RE.search(str(command or "").strip()) is not None,
+                )
                 return _run_background(command, cwd, tool_call_id, desc, thread_id=tid, session_key=sk)
             result = _run_foreground(
                 command,

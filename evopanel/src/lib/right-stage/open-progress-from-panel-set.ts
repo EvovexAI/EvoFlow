@@ -168,6 +168,7 @@ export function isProgressStageKind(kind: string | null | undefined): boolean {
     k === 'collab-workflow' ||
     k === 'collabSubtaskTranscript' ||
     k === 'employeeProcess' ||
+    k === 'sessionRuntime' ||
     k === 'shell-page'
   )
 }

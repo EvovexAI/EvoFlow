@@ -859,6 +859,25 @@ class SubagentExecutor:
         with _background_tasks_lock:
             _background_tasks[task_id] = result
 
+        # Registry write AFTER releasing _background_tasks_lock (deadlock-safe).
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                KIND_SUBAGENT,
+                safe_register_child_work,
+            )
+
+            safe_register_child_work(
+                kind=KIND_SUBAGENT,
+                ref_id=task_id,
+                status="pending",
+                thread_id=str(self.thread_id or "").strip() or None,
+                parent_thread_id=parent_tid or None,
+                title=str(getattr(self.config, "name", "") or "subagent"),
+                extra={"trace_id": self.trace_id},
+            )
+        except Exception:
+            logger.debug("session_runtime: subagent register skipped", exc_info=True)
+
         # Submit to scheduler pool
         def run_task():
             # 【新增】开始时检查是否已被取消（含父会话 stop）
@@ -873,6 +892,21 @@ class SubagentExecutor:
 
                 # 【新增】调用清理方法
                 self._cleanup_on_cancel(task_id)
+                try:
+                    from evoflow.persistence.session_runtime_repository import (
+                        KIND_SUBAGENT,
+                        safe_complete_child_work,
+                    )
+
+                    safe_complete_child_work(
+                        kind=KIND_SUBAGENT,
+                        ref_id=task_id,
+                        status="cancelled",
+                        thread_id=str(self.thread_id or "").strip() or None,
+                        parent_thread_id=parent_tid or None,
+                    )
+                except Exception:
+                    pass
                 return
 
             with _background_tasks_lock:
@@ -882,6 +916,40 @@ class SubagentExecutor:
 
                 # 【新增】记录任务开始执行
                 logger.debug(f"[trace={self.trace_id}] Task {task_id} status changed to RUNNING for subagent {self.config.name}")
+
+            try:
+                from evoflow.persistence.session_runtime_repository import (
+                    KIND_SUBAGENT,
+                    safe_register_child_work,
+                )
+
+                safe_register_child_work(
+                    kind=KIND_SUBAGENT,
+                    ref_id=task_id,
+                    status="running",
+                    thread_id=str(self.thread_id or "").strip() or None,
+                    parent_thread_id=parent_tid or None,
+                    title=str(getattr(self.config, "name", "") or "subagent"),
+                )
+            except Exception:
+                pass
+
+            def _mark_registry_terminal(status_name: str) -> None:
+                try:
+                    from evoflow.persistence.session_runtime_repository import (
+                        KIND_SUBAGENT,
+                        safe_complete_child_work,
+                    )
+
+                    safe_complete_child_work(
+                        kind=KIND_SUBAGENT,
+                        ref_id=task_id,
+                        status=status_name,
+                        thread_id=str(self.thread_id or "").strip() or None,
+                        parent_thread_id=parent_tid or None,
+                    )
+                except Exception:
+                    pass
 
             try:
                 # Submit execution to execution pool with timeout
@@ -910,6 +978,7 @@ class SubagentExecutor:
                             ent.completed_at = datetime.now()
                             ent.ai_messages = exec_result.ai_messages
                             ent.stream_messages = exec_result.stream_messages
+                    _mark_registry_terminal(str(exec_result.status.value))
                 except FuturesTimeoutError:
                     logger.error(f"[trace={self.trace_id}] Subagent {self.config.name} execution timed out after {self.config.timeout_seconds}s")
 
@@ -922,6 +991,7 @@ class SubagentExecutor:
                         _background_tasks[task_id].completed_at = datetime.now()
                     # Cancel the future (best effort - may not stop the actual execution)
                     execution_future.cancel()
+                    _mark_registry_terminal("timed_out")
             except Exception as e:
                 logger.exception(f"[trace={self.trace_id}] Subagent {self.config.name} async execution failed")
 
@@ -934,6 +1004,7 @@ class SubagentExecutor:
                         ent.status = SubagentStatus.FAILED
                         ent.error = str(e)
                         ent.completed_at = datetime.now()
+                _mark_registry_terminal("failed")
 
         _scheduler_pool.submit(run_task)
         return task_id

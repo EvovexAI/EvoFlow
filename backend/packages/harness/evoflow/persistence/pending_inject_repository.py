@@ -4,9 +4,10 @@ runtime keeps ``TurnState.pending_input`` **in memory only**. EvoFlow mirrors th
 steers live in a process-local queue keyed by ``session_key`` until the next
 ``before_model`` drain writes them into ``evoflow_chat_messages``.
 
-No SQLite table is used for unconsumed steers — refresh / process restart
-drops them (same as runtime). Interrupt restore pops the in-memory queue back
-to the composer.
+Unconsumed steers are still process-local (refresh / restart drops the queue;
+interrupt restore pops it back to the composer). After drain, a durable
+``evoflow_session_inject_receipts`` row is written so the same ``message_id``
+cannot be re-enqueued across restarts.
 """
 
 from __future__ import annotations
@@ -93,6 +94,23 @@ def enqueue_pending_inject(
     mid = str(message_id or "").strip()
     if not sk or not mid:
         return None
+
+    # Durable receipt check OUTSIDE _LOCK — never nest SQLite under this lock.
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            SOURCE_PENDING_INJECT,
+            has_inject_receipt,
+        )
+
+        if has_inject_receipt(sk, SOURCE_PENDING_INJECT, mid):
+            logger.debug(
+                "pending_inject: skip enqueue, receipt exists session=%s message_id=%s",
+                sk,
+                mid,
+            )
+            return None
+    except Exception:
+        logger.debug("pending_inject: receipt probe failed", exc_info=True)
 
     role_norm = str(role or "user").strip().lower() or "user"
     payload = _normalize_payload(role=role_norm, content=content, content_json=content_json)

@@ -1287,6 +1287,33 @@ CREATE TABLE IF NOT EXISTS evoflow_duty_runs (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS evoflow_session_child_works (
+    work_id TEXT PRIMARY KEY,
+    session_key TEXT NOT NULL,
+    thread_id TEXT NOT NULL DEFAULT '',
+    parent_thread_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    ref_id TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'running',
+    title TEXT NOT NULL DEFAULT '',
+    extra_json TEXT NOT NULL DEFAULT '{}',
+    started_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    ended_at TEXT,
+    UNIQUE(session_key, kind, ref_id)
+);
+
+CREATE TABLE IF NOT EXISTS evoflow_session_inject_receipts (
+    receipt_id TEXT PRIMARY KEY,
+    session_key TEXT NOT NULL,
+    source_kind TEXT NOT NULL,
+    source_ref TEXT NOT NULL,
+    injected_at TEXT NOT NULL,
+    consumed_by_run_id TEXT NOT NULL DEFAULT '',
+    detail_json TEXT NOT NULL DEFAULT '{}',
+    UNIQUE(session_key, source_kind, source_ref)
+);
+
 CREATE TABLE IF NOT EXISTS evoflow_role_push_bindings (
     agent_code TEXT PRIMARY KEY,
     push_enabled INTEGER NOT NULL DEFAULT 1,
@@ -1900,6 +1927,15 @@ CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_agent_started
 
 CREATE INDEX IF NOT EXISTS idx_evo_duty_runs_round
     ON evoflow_duty_runs(agent_code, round_id);
+
+CREATE INDEX IF NOT EXISTS idx_evo_session_child_works_session_status
+    ON evoflow_session_child_works(session_key, status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_evo_session_child_works_parent
+    ON evoflow_session_child_works(parent_thread_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_evo_session_inject_receipts_session
+    ON evoflow_session_inject_receipts(session_key, injected_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_evo_proactive_cost_principal
                 ON evoflow_proactive_cost_log(principal_id);
@@ -2578,6 +2614,57 @@ def _ensure_duty_runs_table(conn: sqlite3.Connection) -> None:
     logger.info("schema: created evoflow_duty_runs (duty trail index)")
 
 
+def _ensure_session_runtime_tables(conn: sqlite3.Connection) -> None:
+    """Idempotent: session child-work registry + one-shot inject receipts."""
+    created: list[str] = []
+    if not _table_exists(conn, "evoflow_session_child_works"):
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS evoflow_session_child_works (
+                work_id TEXT PRIMARY KEY,
+                session_key TEXT NOT NULL,
+                thread_id TEXT NOT NULL DEFAULT '',
+                parent_thread_id TEXT NOT NULL DEFAULT '',
+                kind TEXT NOT NULL,
+                ref_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'running',
+                title TEXT NOT NULL DEFAULT '',
+                extra_json TEXT NOT NULL DEFAULT '{}',
+                started_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                ended_at TEXT,
+                UNIQUE(session_key, kind, ref_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_evo_session_child_works_session_status
+                ON evoflow_session_child_works(session_key, status, updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_evo_session_child_works_parent
+                ON evoflow_session_child_works(parent_thread_id, status);
+            """
+        )
+        created.append("evoflow_session_child_works")
+    if not _table_exists(conn, "evoflow_session_inject_receipts"):
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS evoflow_session_inject_receipts (
+                receipt_id TEXT PRIMARY KEY,
+                session_key TEXT NOT NULL,
+                source_kind TEXT NOT NULL,
+                source_ref TEXT NOT NULL,
+                injected_at TEXT NOT NULL,
+                consumed_by_run_id TEXT NOT NULL DEFAULT '',
+                detail_json TEXT NOT NULL DEFAULT '{}',
+                UNIQUE(session_key, source_kind, source_ref)
+            );
+            CREATE INDEX IF NOT EXISTS idx_evo_session_inject_receipts_session
+                ON evoflow_session_inject_receipts(session_key, injected_at DESC);
+            """
+        )
+        created.append("evoflow_session_inject_receipts")
+    if created:
+        conn.commit()
+        logger.info("schema: created session runtime table(s): %s", ", ".join(created))
+
+
 def _ensure_asset_memory_runs_table(conn: sqlite3.Connection) -> None:
     """Idempotent: Asset Hub Phase1/Phase2 processing run log (post-baseline)."""
     if _table_exists(conn, "evoflow_asset_memory_runs"):
@@ -2662,6 +2749,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     if version == 0:
         _apply_baseline(conn)
         _ensure_asset_memory_runs_table(conn)
+        _ensure_session_runtime_tables(conn)
         _ensure_person_affect_hormones(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
@@ -2673,6 +2761,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         if int(conn.execute("PRAGMA user_version").fetchone()[0] or 0) == APP_SCHEMA_VERSION:
             _ensure_duty_runs_table(conn)
             _ensure_asset_memory_runs_table(conn)
+            _ensure_session_runtime_tables(conn)
             _ensure_person_affect_hormones(conn)
             _ensure_post_baseline_tables(conn)
             _ensure_post_baseline_columns(conn)
@@ -2682,6 +2771,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _apply_baseline(conn)
         _ensure_duty_runs_table(conn)
         _ensure_asset_memory_runs_table(conn)
+        _ensure_session_runtime_tables(conn)
         _ensure_person_affect_hormones(conn)
         _ensure_post_baseline_tables(conn)
         _ensure_post_baseline_columns(conn)
@@ -2691,6 +2781,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     # version == APP_SCHEMA_VERSION: already current — still ensure post-baseline tables.
     _ensure_duty_runs_table(conn)
     _ensure_asset_memory_runs_table(conn)
+    _ensure_session_runtime_tables(conn)
     _ensure_person_affect_hormones(conn)
     _ensure_automation_slot_claims(conn)
     # Columns shipped after the baseline epoch, so a DB already stamped with

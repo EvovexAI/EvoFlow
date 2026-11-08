@@ -18,7 +18,7 @@ from evoflow.persistence.session_run_state import (
 
 logger = logging.getLogger(__name__)
 
-EXECUTION_STATE_SCHEMA_VERSION = 4
+EXECUTION_STATE_SCHEMA_VERSION = 5
 
 _RECENTLY_COMPLETED_WINDOW_S = int(os.getenv("EVOFLOW_RECENTLY_COMPLETED_WINDOW_S", "60") or "60")
 # Cap LangGraph probe so a hung LG cannot stall every execution/state poll.
@@ -214,6 +214,14 @@ async def build_session_execution_state(session_key: str) -> dict[str, Any]:
     except Exception:
         db_path = ""
 
+    child_works: list[dict[str, Any]] = []
+    try:
+        from evoflow.persistence.session_runtime_repository import child_works_for_execution_state
+
+        child_works = child_works_for_execution_state(key)
+    except Exception:
+        logger.debug("execution_state: child_works lookup failed session=%s", key, exc_info=True)
+
     return {
         "ok": True,
         "schemaVersion": EXECUTION_STATE_SCHEMA_VERSION,
@@ -241,4 +249,8 @@ async def build_session_execution_state(session_key: str) -> dict[str, Any]:
         "recently_completed": rc["recently_completed"],
         "recently_completed_run_id": rc["recently_completed_run_id"],
         "recently_completed_status": rc["recently_completed_status"],
+        "childWorks": child_works,
+        "openChildWorkCount": sum(
+            1 for w in child_works if str(w.get("status") or "") in {"pending", "running"}
+        ),
     }

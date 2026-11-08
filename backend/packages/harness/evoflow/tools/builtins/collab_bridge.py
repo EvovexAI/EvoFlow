@@ -90,7 +90,7 @@ async def delegate_via_task_tool(
     max_turns: int | None,
     collab_task_id: str,
     collab_subtask_id: str,
-    detach: bool,
+    detach: bool | None = None,
     workspace_root: str | None = None,
 ) -> str:
     """Invoke ``task_tool.coroutine`` via the bridge (no direct import).

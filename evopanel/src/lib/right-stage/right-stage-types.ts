@@ -50,6 +50,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   collabSubtaskTranscript: '节点进度',
   v4Session: '子会话',
   employeeProcess: '执行过程',
+  sessionRuntime: '运行中',
   summary: '摘要',
   terminal: '终端',
   artifacts: '本轮产物',
@@ -87,6 +88,11 @@ export function normalizeRightStageKind(kind: string | null | undefined): string
     case 'employee':
     case 'employee-progress':
       return 'employeeProcess'
+    case 'session-runtime':
+    case 'session_runtime':
+    case 'child-works':
+    case 'child_works':
+      return 'sessionRuntime'
     case 'shell_page':
     case 'shellPage':
     case 'shellpage':

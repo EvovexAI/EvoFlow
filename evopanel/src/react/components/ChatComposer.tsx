@@ -45,6 +45,7 @@ import {
   type ComposePathEntry,
 } from '../lib/compose-attach.js'
 import { ContextUsageRing } from './ContextUsageRing.js'
+import { SessionChildWorkIcons } from './SessionChildWorkIcons.js'
 import { logChatTurnSendClick } from '../lib/chat-turn-timing-log.js'
 
 export type { MentionEmployeeOption }
@@ -224,6 +225,7 @@ export const ChatComposer = memo(function ChatComposer({
   renderTrailingControls,
   onOpenAttachmentMenu,
   bottomMoreTriggerRef,
+  sessionKey,
   permissionPill,
   onOpenPermissionMenu,
   permissionMenuOpen,
@@ -295,6 +297,8 @@ export const ChatComposer = memo(function ChatComposer({
   onOpenAttachmentMenu?: () => void
   /** 加号按钮 DOM ref（用于 portal 菜单定位） */
   bottomMoreTriggerRef?: React.RefObject<HTMLButtonElement | null>
+  /** 当前会话 key：用于「完全访问」旁的子工作运行图标 */
+  sessionKey?: string | null
   /** 当前权限档位 pill 文本（请求批准 / 帮我批准 / 完全访问） */
   permissionPill?: string
   /** 点击权限 pill 打开三选一上拉 */
@@ -1623,6 +1627,7 @@ export const ChatComposer = memo(function ChatComposer({
                 </svg>
               </button>
             ) : null}
+            <SessionChildWorkIcons sessionKey={sessionKey} />
             {permissionMenuOpen && permissionOptions && onPickPermission && permissionPill ? (
               <div
                 className="react-chat-permission-menu"

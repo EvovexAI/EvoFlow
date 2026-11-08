@@ -1324,6 +1324,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 setBottomPluginPanelOpen(next)
               }}
               bottomMoreTriggerRef={bottomMoreTriggerRef}
+              sessionKey={selectedSessionKey || sessionRef.current || ''}
               permissionPill={currentPermissionPillLabel}
               permissionMenuOpen={bottomPermissionOpen}
               onOpenPermissionMenu={togglePermissionMenu}

@@ -677,7 +677,7 @@ async def task_tool(
     max_turns: int | None = None,
     collab_task_id: str | None = None,
     collab_subtask_id: str | None = None,
-    detach: bool = False,
+    detach: bool | None = None,
     stream: bool = True,
     workspace_root: str | None = None,
 ) -> str:
@@ -687,6 +687,10 @@ async def task_tool(
     run-level ``project_path`` here so every step writes relative paths to the same
     absolute location; without it each worker inherits whatever cwd the host process
     happened to have.
+
+    ``detach``: ``None`` (default) → plain chat detaches, collab waits; ``True`` →
+    always detach when possible; ``False`` → always block until the worker finishes.
+    Detached plain-chat completions re-invoke the lead via ``<task-notification>``.
     """
     available_subagent_names = get_available_subagent_names()
 
@@ -1420,6 +1424,154 @@ async def task_tool(
     # Use tool_call_id as task_id for better traceability
     task_id = executor.execute_async(_trim_subagent_prompt(prompt), task_id=tool_call_id)
 
+    # Enrich session child-work registry with lead session_key (after executor
+    # pending row; no foreign locks held here).
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_COLLAB_SUBTASK,
+            KIND_SUBAGENT,
+            safe_register_child_work,
+        )
+
+        _reg_kind = KIND_COLLAB_SUBTASK if (resolved_collab and resolved_subtask) else KIND_SUBAGENT
+        _reg_ref = (
+            f"{resolved_collab}:{resolved_subtask}"
+            if (resolved_collab and resolved_subtask)
+            else task_id
+        )
+        safe_register_child_work(
+            session_key=parent_session_key or None,
+            kind=_reg_kind,
+            ref_id=_reg_ref,
+            status="running",
+            thread_id=str(execution_thread_id or thread_id or "").strip() or None,
+            parent_thread_id=parent_tid_for_subagent or None,
+            title=str(effective_subagent_type or "subagent"),
+            extra={
+                "background_task_id": task_id,
+                "collab_task_id": resolved_collab or "",
+                "collab_subtask_id": resolved_subtask or "",
+            },
+        )
+    except Exception:
+        logger.debug("task_tool: session child-work register skipped", exc_info=True)
+
+    def _mark_child_work_terminal(terminal_status: str) -> None:
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                KIND_COLLAB_SUBTASK,
+                KIND_SUBAGENT,
+                safe_complete_child_work,
+            )
+
+            kind = KIND_COLLAB_SUBTASK if (resolved_collab and resolved_subtask) else KIND_SUBAGENT
+            ref = (
+                f"{resolved_collab}:{resolved_subtask}"
+                if (resolved_collab and resolved_subtask)
+                else task_id
+            )
+            safe_complete_child_work(
+                session_key=parent_session_key or None,
+                kind=kind,
+                ref_id=ref,
+                status=terminal_status,
+                thread_id=str(execution_thread_id or thread_id or "").strip() or None,
+                parent_thread_id=parent_tid_for_subagent or None,
+                extra={"background_task_id": task_id},
+            )
+            # Also close the plain subagent row when collab used a composite ref.
+            if kind == KIND_COLLAB_SUBTASK:
+                safe_complete_child_work(
+                    session_key=parent_session_key or None,
+                    kind=KIND_SUBAGENT,
+                    ref_id=task_id,
+                    status=terminal_status,
+                    thread_id=str(execution_thread_id or thread_id or "").strip() or None,
+                    parent_thread_id=parent_tid_for_subagent or None,
+                )
+        except Exception:
+            logger.debug("task_tool: session child-work complete skipped", exc_info=True)
+
+    def _notify_plain_detached_completion(*, status: str, body: str) -> None:
+        """Re-invoke lead after a detached plain-chat subagent finishes.
+
+        Claim → schedule → on schedule failure release claim so the next
+        user turn can hydrate the same completion (no silent drop).
+        """
+        if resolved_collab or resolved_subtask:
+            return
+        import html as _html
+
+        lead_tid = str(parent_tid_for_subagent or thread_id or "").strip()
+        if not lead_tid:
+            return
+        sk = str(parent_session_key or "").strip()
+        work_ref = ""
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                KIND_SUBAGENT,
+                SOURCE_CHILD_WORK_COMPLETE,
+                resolve_session_key,
+                safe_try_claim_inject,
+            )
+
+            if not sk:
+                sk = resolve_session_key(thread_id=lead_tid, parent_thread_id=lead_tid)
+            if not sk:
+                return
+            work_ref = f"{KIND_SUBAGENT}:{task_id}"
+            if not safe_try_claim_inject(sk, SOURCE_CHILD_WORK_COMPLETE, work_ref):
+                return
+        except Exception:
+            logger.debug("task_tool: inject claim skipped", exc_info=True)
+            return
+
+        st = str(status or "completed").strip().lower() or "completed"
+        title = _html.escape(str(description or effective_subagent_type or "subagent").strip()[:120], quote=False)
+        summary = _html.escape(str(body or "").strip(), quote=False)
+        if len(summary) > 6000:
+            summary = summary[:6000] + "\n…[truncated]"
+        text = (
+            "<task-notification>\n"
+            f"<task-id>{_html.escape(task_id, quote=False)}</task-id>\n"
+            f"<tool-use-id>{_html.escape(task_id, quote=False)}</tool-use-id>\n"
+            f"<kind>subagent</kind>\n"
+            f"<title>{title}</title>\n"
+            f"<status>{_html.escape(st, quote=False)}</status>\n"
+            f"<summary>{summary}</summary>\n"
+            "</task-notification>"
+        )
+        scheduled = False
+        try:
+            from evoflow.tools.zcode_port.notify_continuation import schedule_task_notification_turn
+
+            scheduled = bool(
+                schedule_task_notification_turn(
+                    thread_id=lead_tid,
+                    session_key=sk,
+                    notification_text=text,
+                    message_id=f"subagent-task-notification:{task_id}",
+                    source="subagent_task_notification",
+                )
+            )
+        except Exception:
+            logger.warning(
+                "task_tool: schedule subagent notification failed task_id=%s",
+                task_id,
+                exc_info=True,
+            )
+            scheduled = False
+        if not scheduled and work_ref:
+            try:
+                from evoflow.persistence.session_runtime_repository import (
+                    SOURCE_CHILD_WORK_COMPLETE,
+                    safe_delete_inject_receipt,
+                )
+
+                safe_delete_inject_receipt(sk, SOURCE_CHILD_WORK_COMPLETE, work_ref)
+            except Exception:
+                logger.debug("task_tool: release inject claim failed", exc_info=True)
+
     collab_lease_seconds = 180.0
     if resolved_collab and resolved_subtask:
         from evoflow.subagents.runtime_guard import collab_subtask_lease_seconds
@@ -1605,9 +1757,16 @@ async def task_tool(
                 resolved_subtask,
             )
 
-    detach_effective = bool(detach) and bool(resolved_collab) and bool(resolved_subtask)
-    if detach and not detach_effective:
-        logger.warning("task_tool: detach=True ignored (requires collab_task_id and collab_subtask_id)")
+    # Plain chat: default detach (lead keeps going; completion via task-notification).
+    # Collab: default wait; set detach=True for fire-and-forget board workers.
+    # Explicit detach=False always waits.
+    if detach is False:
+        detach_effective = False
+    elif resolved_collab and resolved_subtask:
+        detach_effective = bool(detach)
+    else:
+        # No collab pair: None/True → async; False already handled above.
+        detach_effective = True
 
     def _patch_collab_subtask_heartbeat() -> None:
         if not (resolved_collab and resolved_subtask):
@@ -1737,6 +1896,7 @@ async def task_tool(
                             runtime=runtime,
                             executor_subagent_type=effective_subagent_type,
                         )
+                        _mark_child_work_terminal(ex_name if _kind != "superseded" else "superseded")
                         cleanup_background_task(task_id)
                         _pw = locals().get("persistent_writer")
                         if _pw is not None and hasattr(_pw, "close"):
@@ -1754,6 +1914,9 @@ async def task_tool(
                     if result.status == SubagentStatus.COMPLETED:
                         out_text = str(result.result or "")
                         writer(_ws({"type": "task_completed", "task_id": task_id, "result": out_text}))
+                        _mark_child_work_terminal("completed")
+                        if detach_effective:
+                            _notify_plain_detached_completion(status="completed", body=out_text)
                         cleanup_background_task(task_id)
                         _pw = locals().get("persistent_writer")
                         if _pw is not None and hasattr(_pw, "close"):
@@ -1761,6 +1924,11 @@ async def task_tool(
                         return f"Task Succeeded. Result: {out_text}"
                     if result.status == SubagentStatus.FAILED:
                         writer(_ws({"type": "task_failed", "task_id": task_id, "error": result.error}))
+                        _mark_child_work_terminal("failed")
+                        if detach_effective:
+                            _notify_plain_detached_completion(
+                                status="failed", body=str(result.error or ""),
+                            )
                         cleanup_background_task(task_id)
                         _pw = locals().get("persistent_writer")
                         if _pw is not None and hasattr(_pw, "close"):
@@ -1768,6 +1936,11 @@ async def task_tool(
                         return f"Task failed. Error: {result.error}"
                     if result.status == SubagentStatus.TIMED_OUT:
                         writer(_ws({"type": "task_timed_out", "task_id": task_id, "error": result.error}))
+                        _mark_child_work_terminal("timed_out")
+                        if detach_effective:
+                            _notify_plain_detached_completion(
+                                status="timed_out", body=str(result.error or ""),
+                            )
                         cleanup_background_task(task_id)
                         _pw = locals().get("persistent_writer")
                         if _pw is not None and hasattr(_pw, "close"):
@@ -1782,6 +1955,12 @@ async def task_tool(
                             }
                         )
                     )
+                    _mark_child_work_terminal("cancelled")
+                    if detach_effective:
+                        _notify_plain_detached_completion(
+                            status="cancelled",
+                            body=str(result.error or "Task was cancelled"),
+                        )
                     cleanup_background_task(task_id)
                     _pw = locals().get("persistent_writer")
                     if _pw is not None and hasattr(_pw, "close"):
@@ -1879,6 +2058,12 @@ async def task_tool(
                     writer(_ws({"type": "task_failed", "task_id": task_id, "error": f"Detached poll failed: {type(e).__name__}: {str(e)[:500]}"}))
                 except Exception:
                     pass
+                if not (resolved_collab and resolved_subtask):
+                    _mark_child_work_terminal("failed")
+                    _notify_plain_detached_completion(
+                        status="failed",
+                        body=f"Detached poll failed: {type(e).__name__}: {str(e)[:500]}",
+                    )
 
         from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
 
@@ -1886,23 +2071,30 @@ async def task_tool(
             _detached_poll_runner(),
             name=f"task_tool-detached-{str(task_id)[:24]}",
         )
-        try:
-            from evoflow.debug.task_lifecycle_trace import write_task_lifecycle_trace
+        if resolved_collab and resolved_subtask:
+            try:
+                from evoflow.debug.task_lifecycle_trace import write_task_lifecycle_trace
 
-            write_task_lifecycle_trace(
-                thread_id=str(thread_id or "").strip() or None,
-                event="task_tool_collab_detached",
-                main_task_id=str(resolved_collab).strip(),
-                subtask_id=str(resolved_subtask).strip(),
-                status="executing",
-                detail={
-                    "background_task_id": str(task_id),
-                    "subagent_type": effective_subagent_type,
-                },
-            )
-        except Exception:
-            pass
-        return "Task Detached. Background execution started for collab subtask."
+                write_task_lifecycle_trace(
+                    thread_id=str(thread_id or "").strip() or None,
+                    event="task_tool_collab_detached",
+                    main_task_id=str(resolved_collab).strip(),
+                    subtask_id=str(resolved_subtask).strip(),
+                    status="executing",
+                    detail={
+                        "background_task_id": str(task_id),
+                        "subagent_type": effective_subagent_type,
+                    },
+                )
+            except Exception:
+                pass
+            return "Task Detached. Background execution started for collab subtask."
+        return (
+            f"status: detached\nbackgroundTaskId: {task_id}\n"
+            f"Subagent ({effective_subagent_type}) is running in the background. "
+            "Continue other work — you will be notified with a <task-notification> when it finishes. "
+            "Do not busy-poll; the result arrives as a follow-up turn."
+        )
 
     return await _poll_subagent_to_completion()
 

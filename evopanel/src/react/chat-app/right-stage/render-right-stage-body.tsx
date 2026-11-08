@@ -21,7 +21,9 @@ import { V4WorkspaceFileTreePane } from './v4-workspace-file-tree-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
 import { V4EmployeeProcessPane } from './v4-employee-process-pane.js'
+import { V4SessionRuntimePane } from './v4-session-runtime-pane.js'
 import { resolveEmployeeProcessTabTitle } from '../../../lib/right-stage/open-employee-process-stage.js'
+import type { SessionChildWorkItem } from '../../lib/session-reattach.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import {
   openCollabSubtaskInRightStage,
@@ -565,6 +567,23 @@ export function renderRightStageBody(
       />
     ) : (
       <SidePanelBootShell title={empTitle} />
+    )
+  }
+  if (kind === 'sessionRuntime') {
+    const data = surface.data || {}
+    const sk = String(data.sessionKey || surface.sessionKey || selectedSessionKey || '').trim()
+    if (!sk) return null
+    const initialWorks = Array.isArray(data.works) ? (data.works as SessionChildWorkItem[]) : []
+    return sidePanelHeavyMount ? (
+      <RightStageTabErrorBoundary title={String(surface.title || '运行中')}>
+        <V4SessionRuntimePane
+          sessionKey={sk}
+          initialWorks={initialWorks}
+          focusKind={String(data.focusKind || '').trim() || undefined}
+        />
+      </RightStageTabErrorBoundary>
+    ) : (
+      <SidePanelBootShell title={surface.title || '运行中'} />
     )
   }
   return null

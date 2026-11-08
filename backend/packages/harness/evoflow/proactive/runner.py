@@ -190,7 +190,7 @@ def _record_duty_trigger(
     try:
         from evoflow.proactive.duty_runs import start_duty_run
 
-        return start_duty_run(
+        doc = start_duty_run(
             agent_code=str(getattr(role, "agent_code", "") or ""),
             round_id=round_id,
             session_key=session_key,
@@ -207,6 +207,32 @@ def _record_duty_trigger(
             exc_info=True,
         )
         return {}
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_DUTY,
+            safe_register_child_work,
+        )
+
+        rid = str(doc.get("run_id") or "").strip()
+        sk = str(session_key or doc.get("session_key") or "").strip()
+        if rid and sk:
+            st = str(status or "started").strip().lower() or "started"
+            reg_status = "running" if st in {"started", "running"} else st
+            safe_register_child_work(
+                session_key=sk,
+                kind=KIND_DUTY,
+                ref_id=rid,
+                status=reg_status,
+                title=str(getattr(role, "agent_code", "") or "duty"),
+                extra={
+                    "trigger_source": trigger_source,
+                    "round_id": round_id,
+                    "agent_code": str(getattr(role, "agent_code", "") or ""),
+                },
+            )
+    except Exception:
+        logger.debug("proactive.runner: duty child-work register skipped", exc_info=True)
+    return doc
 
 
 def _finish_duty_run(
@@ -242,6 +268,22 @@ def _finish_duty_run(
         )
     except Exception:
         logger.debug("proactive.runner: duty_run finish failed run_id=%s", run_id, exc_info=True)
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_DUTY,
+            safe_complete_child_work,
+        )
+
+        st = str(status or "completed").strip().lower() or "completed"
+        safe_complete_child_work(
+            session_key=str(session_key or "").strip() or None,
+            kind=KIND_DUTY,
+            ref_id=str(run_id).strip(),
+            status=st,
+            extra={"round_id": round_id, "primary_task_id": primary_task_id},
+        )
+    except Exception:
+        logger.debug("proactive.runner: duty child-work complete skipped", exc_info=True)
 
 
 def _should_skip_xiaomi_idle_heartbeat(role: ProactiveRole) -> bool:
