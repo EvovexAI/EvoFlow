@@ -125,6 +125,38 @@ def _clear_terminal_outcome_residue(st: dict[str, Any]) -> None:
         st.pop(_key, None)
 
 
+def _is_user_pause(task: dict[str, Any] | None) -> bool:
+    """True when the current pause was requested by a human, not by a crash.
+
+    ``pause_run`` stamps ``pause_requested_by="user"``. That marker is the only
+    thing separating "the user pressed pause" from "the process died while
+    paused" — both leave rows at ``paused``, and the healer exists for the
+    second case. Without the split it un-paused live user pauses ~3s later.
+    """
+    if not isinstance(task, dict):
+        return False
+    by = str(task.get("pause_requested_by") or "").strip().lower()
+    st = str(task.get("status") or "").strip().lower()
+    verdict = by == "user" and st in _PAUSED
+    # One line per evaluation makes "why did the pause not stick?" answerable
+    # from the log alone: marker present? status still paused? who asked?
+    # ``info`` only when it actually holds the run (that's the line worth
+    # grepping when a pause "doesn't work"); otherwise debug so the per-subtask
+    # loop in _heal_subtasks doesn't spam the log.
+    (
+        logger.info
+        if verdict
+        else logger.debug
+    )(
+        "workflow_reconciler.user_pause_check task=%s status=%s requested_by=%r verdict=%s",
+        task.get("id") or task.get("task_id") or "",
+        st,
+        by,
+        verdict,
+    )
+    return verdict
+
+
 def _heal_subtasks(
     task: dict[str, Any],
     *,
@@ -195,6 +227,13 @@ def _heal_subtasks(
             continue
 
         if prev in _PAUSED:
+            if _is_user_pause(task):
+                # Deliberate pause: hold it. Requeueing here is what made
+                # ``workflow.stop(pause=true)`` a no-op — the pause survived ~3s
+                # and then this branch (plus the main-task re-open below) put the
+                # run back on the tracks. Crash/interrupt rows carry no marker
+                # and keep the original recovery behaviour.
+                continue
             ok, why = advance_subtask_row_status(st, "pending", allow_terminal_downgrade=False)
             if not ok:
                 st["status"] = "pending"
@@ -305,9 +344,10 @@ async def reconcile_task(
             healed_local = _heal_subtasks(task, reason=reason, now_ts=now_ts)
             if healed_local:
                 main_st = str(task.get("status") or "").strip().lower()
+                keep_user_pause = _is_user_pause(task)
                 if main_st in _PAUSED | _FAILED | {"cancelled", "canceled"}:
                     # Re-open for dispatch (state machine on main is looser via direct assign).
-                    if main_st in _PAUSED or main_st in _FAILED:
+                    if (main_st in _PAUSED or main_st in _FAILED) and not keep_user_pause:
                         task["status"] = "executing"
                 task["updated_at"] = utc_now_iso_z()
                 storage.save_project(project)
@@ -334,6 +374,14 @@ async def reconcile_task(
     # Decide Runtime entry（同样同步 DB，勿回 loop）
     row2 = await asyncio.to_thread(lambda: find_main_task(storage, tid, bypass_cache=True))
     task2 = row2[1] if row2 else task_ref
+
+    # Belt and braces: a user-paused run never dispatches out of the healer, no
+    # matter what else got healed in this pass.
+    if _is_user_pause(task2):
+        report["action"] = "hold_user_pause"
+        report["dispatch"] = {"skipped": True, "reason": "user_paused"}
+        return report
+
     need_retry = any(h.get("why") in {"zombie_executing", "failed_retry"} for h in healed)
     need_start = any(h.get("why") == "paused_resume" for h in healed) or (
         not healed and _has_runnable_pending(task2) and not _has_live_executing(task2)

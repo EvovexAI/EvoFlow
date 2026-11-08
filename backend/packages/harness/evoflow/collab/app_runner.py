@@ -1606,6 +1606,16 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
             if bundle and bundle.get("tasks"):
                 main_task = bundle["tasks"][0]
                 main_task["status"] = "paused"
+                # Distinguish a deliberate user pause from a crashed/interrupted
+                # run that also sits at ``paused``. The reconciler heals the
+                # latter (paused → pending → dispatch), and without this marker
+                # it "rescued" user pauses too: measured 2026-11-08, the pause
+                # row was visible for ~3s and then flipped back to
+                # executing/37% on the next reconcile tick, so every dispatch
+                # gate downstream never saw a paused task.
+                main_task["pause_requested_by"] = "user"
+                main_task["pause_reason"] = str(reason or "")[:500]
+                main_task["paused_at"] = utc_now_iso_z()
                 # Only pause truly in-flight subtasks. Leave pending/planned alone so
                 # resume + DAG resolve won't treat waiting Step2 as "was running".
                 _in_flight = frozenset({"executing", "running", "in_progress", "active", "planning"})
@@ -1616,6 +1626,35 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
                         if st_status in _in_flight:
                             st["status"] = "paused"
                 save_task_bundle(task_id, bundle)
+                # Read back: a pause that didn't land is worse than no pause —
+                # the caller gets ``paused: true`` and believes it. This is the
+                # exact failure seen on 2026-11-08 (row flipped back within ~3s
+                # and nothing in the log said so).
+                _check = load_task_bundle(task_id)
+                _row = (_check or {}).get("tasks", [{}])[0] if _check else {}
+                _landed = str(_row.get("status") or "").strip().lower()
+                _marker = str(_row.get("pause_requested_by") or "").strip().lower()
+                if _landed != "paused" or _marker != "user":
+                    logger.warning(
+                        "pause_run: pause did not land task_id=%s run_id=%s readback_status=%r marker=%r",
+                        task_id,
+                        run_id,
+                        _landed,
+                        _marker,
+                    )
+                else:
+                    logger.info(
+                        "pause_run: landed task_id=%s run_id=%s status=%s subtasks_paused=%d",
+                        task_id,
+                        run_id,
+                        _landed,
+                        sum(
+                            1
+                            for _st in (_row.get("subtasks") or [])
+                            if isinstance(_st, dict)
+                            and str(_st.get("status") or "").strip().lower() == "paused"
+                        ),
+                    )
         except Exception:
             logger.warning("pause_run: task bundle update failed task_id=%s", task_id, exc_info=True)
 
@@ -1644,6 +1683,10 @@ def resume_run(run_id: str) -> bool:
             if bundle and bundle.get("tasks"):
                 main_task = bundle["tasks"][0]
                 main_task["status"] = "executing"
+                # Clear the user-pause marker, otherwise the reconciler keeps
+                # holding this run forever (see _is_user_pause).
+                for _k in ("pause_requested_by", "pause_reason", "paused_at"):
+                    main_task.pop(_k, None)
                 # Reset paused → pending only (not terminal). DAG dispatch starts
                 # runnable steps whose depends_on are satisfied.
                 subtasks = main_task.get("subtasks") or []
