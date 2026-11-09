@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import logging
 from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query
@@ -17,6 +19,8 @@ from evoflow.organizations.installer import (
 from evoflow.organizations.registry import get_org_instance, list_org_instances
 
 router = APIRouter(prefix="/api/organizations", tags=["organizations"])
+
+logger = logging.getLogger(__name__)
 
 
 class SourceSpec(BaseModel):

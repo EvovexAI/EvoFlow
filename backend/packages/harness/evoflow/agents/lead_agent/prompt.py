@@ -2343,6 +2343,7 @@ def apply_prompt_template(
         emp_person_memory = person_memory_context
         if mem_on and not str(emp_person_memory or "").strip():
             try:
+                from evoflow.assets.injection_budget import TIER1_PERSON_MEMORY_CHARS
                 from evoflow.person_kernel import format_person_memory_context
 
                 emp_person_memory = format_person_memory_context(

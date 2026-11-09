@@ -34,6 +34,31 @@ jobs:
       - name: Check prompt stack drift (retired tools / dead paths)
         run: python backend/scripts/prompt_drift_guard.py
 
+  # Rule R2: no name used before any binding (ruff F821).
+  #
+  # Distinct from the `lint` job below, which is manual-only and sits on a
+  # 388-finding backlog it can never clear — so nothing ever gated on it.
+  # F821 is always a runtime crash (NameError / UnboundLocalError) on the path
+  # that touches it: b20b2f66 shipped `source_canon` read before its own
+  # assignment and broke every task-create entry point for a day. This lane is
+  # cheap and must stay green, so a new F821 fails the push.
+  fatal-names:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install ruff
+        run: pip install "ruff>=0.14.11"
+
+      - name: Check for use-before-assignment (F821)
+        working-directory: backend
+        run: ruff check --select F821 .
+
   lint:
     if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
