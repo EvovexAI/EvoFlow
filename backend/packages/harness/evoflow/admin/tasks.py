@@ -1753,6 +1753,14 @@ def create_task(
             parent_found = find_main_task(storage, parent_norm, bypass_cache=True)
             if parent_found and task_has_pending_handoff_approval(parent_found[1]):
                 raise ValidationError(f"parent task '{parent_norm}' 交接待审批：批准前禁止手动 create 下游子任务；请等用户同意后再由系统派发，或本岗用 tasks(state=completed, handlers=…) 交工")
+    # Default: role-stamped → role; else chat
+    # Must resolve **before** the quota gate below: it receives ``source_canon``,
+    # and reading it earlier raised UnboundLocalError on every create (the whole
+    # task-create path was down: agents' tasks/create and the UI's 新建 both got
+    # "cannot access local variable 'source_canon'"). Ordering is the fix, not a
+    # default value — a wrong source here would silently skip the role quota.
+    default_src = TASK_SOURCE_ROLE if role_norm else TASK_SOURCE_CHAT
+    source_canon, source_channel = resolve_write_source(source, default=default_src)
     # Per-cycle ceiling (P0): an employee may raise at most
     # ``max_initiatives_per_cycle`` work items per duty round. The agent-loop
     # path used to be unlimited (the prompt-only path truncated the LLM list).
@@ -1765,9 +1773,6 @@ def create_task(
         source_canon=source_canon,
         raised_by=raised_norm,
     )
-    # Default: role-stamped → role; else chat
-    default_src = TASK_SOURCE_ROLE if role_norm else TASK_SOURCE_CHAT
-    source_canon, source_channel = resolve_write_source(source, default=default_src)
 
     def _stamp_meta(row: dict[str, Any]) -> None:
         if raised_norm:
