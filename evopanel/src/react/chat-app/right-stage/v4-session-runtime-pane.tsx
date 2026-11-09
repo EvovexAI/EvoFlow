@@ -1,22 +1,15 @@
 /**
  * 会话子工作实时列表（右栏）。点行可钻到子代理 / 协作节点 / 员工过程。
+ * 图标主路径已直达详情；本面板仅作多实例兜底/总览。
  */
 import { useEffect, useMemo, useState } from 'react'
 import type { SessionChildWorkItem } from '../../lib/session-reattach.js'
 import { fetchSessionExecutionState } from '../../lib/session-reattach.js'
 import { isChildWorkActive } from '../../hooks/useSessionChildWorks.js'
-import { openCollabSubtaskInRightStage } from '../../../lib/right-stage/open-collab-subtask-stage.js'
-import { openCollabWorkflowInRightStage } from '../../../lib/right-stage/open-collab-workflow-stage.js'
-import { openEmployeeProcessInRightStage } from '../../../lib/right-stage/open-employee-process-stage.js'
-import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
-
-const KIND_LABEL: Record<string, string> = {
-  subagent: '子代理',
-  workflow: '工作流',
-  collab_subtask: '工作流节点',
-  duty: '员工任务',
-  warm_bash: '会话终端',
-}
+import {
+  openSessionChildWorkDetail,
+  SESSION_CHILD_WORK_KIND_LABEL,
+} from '../../../lib/right-stage/open-session-child-work-detail.js'
 
 function statusLabel(status: string): string {
   const s = status.toLowerCase()
@@ -31,101 +24,13 @@ function statusLabel(status: string): string {
   return status || '—'
 }
 
-function openDetail(work: SessionChildWorkItem, sessionKey: string) {
+function rowTitle(work: SessionChildWorkItem): string {
   const kind = String(work.kind || '').trim()
-  const ref = String(work.refId || '').trim()
-  const title = String(work.title || KIND_LABEL[kind] || kind || '运行').trim()
-
-  if (kind === 'workflow') {
-    const taskId = String(work.extra?.task_id || '').trim()
-    if (taskId) {
-      openCollabWorkflowInRightStage(
-        { mainTaskId: taskId, leadThreadId: '', title: title || '工作流' },
-        { sessionKey, forceExpand: true },
-      )
-      return
-    }
+  const raw = String(work.title || '').trim()
+  if (kind === 'warm_bash' || raw.toLowerCase() === 'warm_bash') {
+    return SESSION_CHILD_WORK_KIND_LABEL.warm_bash
   }
-
-  if (kind === 'collab_subtask' && ref.includes(':')) {
-    const [mainTaskId, subtaskId] = ref.split(':', 2)
-    if (mainTaskId && subtaskId) {
-      openCollabWorkflowInRightStage(
-        { mainTaskId, leadThreadId: String(work.parentThreadId || ''), title: '工作流' },
-        { sessionKey, forceExpand: true },
-      )
-      openCollabSubtaskInRightStage(
-        {
-          subtaskId,
-          mainTaskId,
-          leadThreadId: String(work.parentThreadId || ''),
-          title,
-          status: String(work.status || ''),
-        },
-        { sessionKey },
-      )
-      return
-    }
-  }
-
-  if (kind === 'subagent' && ref) {
-    rightStageStore.show({
-      kind: 'subagentTranscript',
-      id: `subagentTranscript:${ref}`,
-      title: title || '子代理',
-      layout: 'wide',
-      sessionKey,
-      forceExpand: true,
-      data: {
-        taskId: ref,
-        title,
-        sessionKey,
-        fallbackStatus: String(work.status || ''),
-      },
-    })
-    return
-  }
-
-  if (kind === 'duty') {
-    const agentCode = String(title || '').trim() || 'employee'
-    openEmployeeProcessInRightStage(
-      {
-        taskId: ref || `live:${agentCode}`,
-        agentCode,
-        roleName: title || agentCode,
-        title: title || '执行过程',
-        busy: isChildWorkActive(work.status),
-        employeeSessionKey: sessionKey,
-      },
-      { sessionKey, forceExpand: true },
-    )
-    return
-  }
-
-  if (kind === 'warm_bash') {
-    // Registry ref is the warm-pool key (usually lead thread_id), NOT a bash
-    // tool_call_id — opening Terminal with that id yields an empty panel.
-    // Mark warmBash so the renderer binds the latest live Bash stream instead.
-    rightStageStore.show({
-      kind: 'terminal',
-      id: `warm-bash:${ref || work.threadId || 'shell'}`,
-      title: '会话终端',
-      layout: 'half',
-      sessionKey,
-      forceExpand: true,
-      data: {
-        sessionKey,
-        warmBash: true,
-        warmBashKey: ref || work.threadId || '',
-        command: '',
-        running: isChildWorkActive(work.status),
-        outputFallback:
-          '会话终端是保活 shell：命令跑完进程还在，下一条会复用。\n' +
-          '这里跟本会话最新的 Bash 实时输出；若暂时没有，请看对话里的 Bash 工具卡。\n' +
-          `状态：${String(work.status || '—')}`,
-      },
-    })
-  }
+  return raw || SESSION_CHILD_WORK_KIND_LABEL[kind] || kind || '运行'
 }
 
 export function V4SessionRuntimePane(props: {
@@ -186,7 +91,7 @@ export function V4SessionRuntimePane(props: {
         </div>
       </header>
       {ordered.length === 0 ? (
-        <div className="react-chat-session-runtime-pane__empty">还没有登记的子代理 / 工作流 / 员工任务</div>
+        <div className="react-chat-session-runtime-pane__empty">还没有登记的子代理 / 工作流 / BOT 任务</div>
       ) : (
         <ul className="react-chat-session-runtime-pane__list">
           {ordered.map((w) => {
@@ -198,8 +103,8 @@ export function V4SessionRuntimePane(props: {
                 <button
                   type="button"
                   className={`react-chat-session-runtime-pane__row${active ? ' is-active' : ''}`}
-                  onClick={() => openDetail(w, sk)}
-                  title="查看实时情况"
+                  onClick={() => openSessionChildWorkDetail(w, sk)}
+                  title="查看实时详情"
                 >
                   <span
                     className={`react-chat-session-runtime-pane__kind-dot kind-${kind}${active ? ' is-spinning' : ''}`}
@@ -207,19 +112,11 @@ export function V4SessionRuntimePane(props: {
                   />
                   <span className="react-chat-session-runtime-pane__row-body">
                     <span className="react-chat-session-runtime-pane__row-title">
-                      {kind === 'warm_bash' ||
-                      String(w.title || '').trim().toLowerCase() === 'warm_bash'
-                        ? KIND_LABEL.warm_bash
-                        : String(w.title || KIND_LABEL[kind] || kind)}
+                      {rowTitle(w)}
                     </span>
                     <span className="react-chat-session-runtime-pane__row-sub">
-                      {KIND_LABEL[kind] || kind}
-                      {w.refId ? ` · ${String(w.refId).slice(0, 28)}` : ''}
+                      {SESSION_CHILD_WORK_KIND_LABEL[kind] || kind} · {statusLabel(st)}
                     </span>
-                  </span>
-                  <span className={`react-chat-session-runtime-pane__status status-${st}`}>
-                    {active ? <span className="react-chat-session-runtime-spin" aria-hidden="true" /> : null}
-                    {statusLabel(st)}
                   </span>
                 </button>
               </li>

@@ -128,7 +128,9 @@ def _attachments_from_user_payload(payload: Any) -> list[dict[str, Any]]:
         if bytes_n <= 0:
             try:
                 bytes_n = max(0, int(Path(path).stat().st_size))
-            except OSError:
+            except (OSError, ValueError):
+                # Windows raises ValueError ("path too long") for overlong paths;
+                # treat like a missing file so hydration can still complete.
                 bytes_n = 0
         out.append({"ref": path, "fileName": name, "mime": mt, "bytes": bytes_n})
 

@@ -152,7 +152,7 @@ function memoryKindMeta(kind: MemoryKind) {
 
 const ENTITY_GROUPS: { key: string; label: string; types: string[] }[] = [
   { key: "user", label: "我", types: ["user"] },
-  { key: "employee", label: "员工", types: ["employee"] },
+  { key: "employee", label: "BOT", types: ["employee"] },
 ];
 
 /**
@@ -1559,7 +1559,7 @@ function AssetHeader({
                   </optgroup>
                 ) : null}
                 {employees.length ? (
-                  <optgroup label="员工">
+                  <optgroup label="BOT">
                     {employees.map((e) => (
                       <option key={`${e.entityType}:${e.entityId}`} value={`${e.entityType}:${e.entityId}`}>
                         {entityLabel(e)}

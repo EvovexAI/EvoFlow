@@ -1030,7 +1030,7 @@ export function ShellSessionList({
     return employeeGroups.find((g) => g.agentCode.toLowerCase() === lc) || null
   }, [focusedEmployeeCode, employeeGroups])
 
-  const employeeFilterLabel = focusedEmployeeGroup?.label || '全部员工'
+  const employeeFilterLabel = focusedEmployeeGroup?.label || '全部 BOT'
 
   const activeDeptId = useMemo(
     () => deptIdFromSessionKey(displaySelectedKey),
@@ -1385,7 +1385,7 @@ export function ShellSessionList({
               onClick={() => setViewMode('project')}
             >
               <ShellFolderIcon size={12} />
-              <span>员工</span>
+              <span>BOT</span>
             </button>
             <button
               type="button"
@@ -1658,14 +1658,14 @@ export function ShellSessionList({
               />
             </button>
             {empMenuOpen ? (
-              <div className="react-chat-aside-ws-menu" role="listbox" aria-label="选择员工">
+              <div className="react-chat-aside-ws-menu" role="listbox" aria-label="选择 BOT">
                 <div className="react-chat-aside-ws-menu-search">
                   <input
                     ref={empMenuSearchRef}
                     type="search"
                     className="react-chat-aside-ws-menu-search-input"
-                    placeholder="搜索员工…"
-                    aria-label="搜索员工"
+                    placeholder="搜索 BOT…"
+                    aria-label="搜索 BOT"
                     value={empMenuQuery}
                     onChange={(e) => setEmpMenuQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -1683,7 +1683,7 @@ export function ShellSessionList({
                   className={`react-chat-aside-ws-menu-item${!focusedEmployeeCode ? ' is-active' : ''}`}
                   onClick={() => selectEmployeeFilter(null)}
                 >
-                  <span className="react-chat-aside-ws-menu-item-label">全部员工</span>
+                  <span className="react-chat-aside-ws-menu-item-label">全部 BOT</span>
                 </button>
                 {employeeMenuOptions.map((g) => {
                   const active =
@@ -1713,7 +1713,7 @@ export function ShellSessionList({
                   )
                 })}
                 {String(empMenuQuery || '').trim() && employeeMenuOptions.length === 0 ? (
-                  <div className="react-chat-aside-ws-menu-empty">无匹配员工</div>
+                  <div className="react-chat-aside-ws-menu-empty">无匹配 BOT</div>
                 ) : null}
               </div>
             ) : null}
@@ -1817,10 +1817,10 @@ export function ShellSessionList({
                   ? isSearching
                     ? '无匹配会话'
                     : focusedEmployeeCode
-                      ? '该员工暂无会话'
+                      ? '该 BOT 暂无会话'
                       : (effectiveEmployeeRoles || []).length > 0
-                        ? '暂无员工对话'
-                        : '暂无已雇佣员工'
+                        ? '暂无 BOT 对话'
+                        : '暂无已雇佣 BOT'
                   : focusedWorkspaceKey
                     ? '此工作空间暂无会话'
                     : isSearching
@@ -1872,7 +1872,7 @@ export function ShellSessionList({
             showEmptyWorkspaceSections) ? (
             <li
               className="react-chat-session-recent-block"
-              aria-label={isEmployeesTab ? '员工' : '任务'}
+              aria-label={isEmployeesTab ? 'BOT' : '任务'}
             >
               <ul className="react-chat-session-recent-list">
                 {groupedRecentSections
@@ -1906,7 +1906,7 @@ export function ShellSessionList({
                               <button
                                 type='button'
                                 className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
-                                title={isEmployeesTab ? '新开员工对话' : '新建任务'}
+                                title={isEmployeesTab ? '新开 BOT 对话' : '新建任务'}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()

@@ -1875,6 +1875,8 @@ export const api = {
       api_type: payload.api_type ?? 'openai-completions',
       ...(payload.config_name ? { config_name: String(payload.config_name) } : {}),
     }),
+  /** Codex 订阅：用已登录 OAuth 拉取官方 /models 目录（含 context_window） */
+  listCodexSubscriptionModels: async () => gatewayProxy('GET', '/codex-auth/models'),
   // 模型配置管理接口（Gateway API → SQLite evoflow_models）
   listModels: async () => gatewayProxy('GET', '/models'),
   listModelConnections: async () => gatewayProxy('GET', '/model-connections'),

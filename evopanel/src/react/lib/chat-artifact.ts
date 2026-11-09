@@ -244,7 +244,7 @@ export function chatArtifactTypeLabel(it: ChatArtifact): string {
     const map: Record<string, string> = {
       items: '待办',
       tasks: '协作任务',
-      employees: '员工',
+      employees: 'BOT',
       agents: '智能体',
       skills: '技能',
       mcp: 'MCP',

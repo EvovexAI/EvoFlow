@@ -733,6 +733,7 @@ function ReadonlyAssistantWorkItems({
   artifactNames,
   labels,
   onOpenExternalUrl,
+  layout = "stack",
 }: {
   rows: readonly AssistantWorkRow[];
   stageTailIsRunning: boolean;
@@ -742,6 +743,8 @@ function ReadonlyAssistantWorkItems({
   artifactNames: ReadonlyMap<string, string>;
   labels: ReadonlyLabels;
   onOpenExternalUrl: (url: string) => void;
+  /** 轮尾截图：横排优先，放满再换行。 */
+  layout?: "stack" | "mediaWrap";
 }) {
   const items = useMemo(
     () =>
@@ -759,7 +762,14 @@ function ReadonlyAssistantWorkItems({
     [rows, stageTailIsRunning],
   );
   return (
-    <div className="flex flex-col gap-4" data-conversation-share-work-items>
+    <div
+      className={
+        layout === "mediaWrap"
+          ? "flex flex-wrap items-start gap-2 [&>*]:w-fit [&>*]:max-w-[min(100%,20rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
+          : "flex flex-col gap-4"
+      }
+      data-conversation-share-work-items
+    >
       {items.map((item) => {
         if (item.kind === "row") {
           return renderReadonlyRow(
@@ -1073,6 +1083,7 @@ function ReadonlyTurn({
             artifactNames={artifactNames}
             labels={labels}
             onOpenExternalUrl={onOpenExternalUrl}
+            layout="mediaWrap"
           />
         ) : null}
         {unit.assistantTailRows.length > 0 ? (

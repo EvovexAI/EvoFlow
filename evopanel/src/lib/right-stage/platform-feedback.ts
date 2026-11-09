@@ -133,7 +133,7 @@ const DOMAIN_SHORT_ZH: Record<string, string> = {
   workflow: '工作流',
   settings: '设置',
   agents: '智能体',
-  employees: '员工',
+  employees: 'BOT',
   tasks: '任务',
   items: '待办',
   skills: '技能',
@@ -478,7 +478,7 @@ function shellPageAction(opts: {
   const nice =
     String(opts.entityLabel || opts.title || '').trim() ||
     (opts.mountId.startsWith('employees')
-      ? '员工'
+      ? 'BOT'
       : opts.mountId.startsWith('items')
         ? '待办'
         : opts.mountId.startsWith('tasks')
@@ -744,11 +744,11 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
       Object.assign(
         a,
         shellPageAction({
-          label: a.label || '打开员工',
+          label: a.label || '打开 BOT',
           path: '/proactive',
           mountId: 'employees.board',
-          title: '员工',
-          entityLabel: '员工',
+          title: 'BOT',
+          entityLabel: 'BOT',
           autoOpen:
             autoOk ||
             action === 'employees.list' ||
@@ -765,10 +765,10 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
       Object.assign(
         a,
         shellPageAction({
-          label: a.label || '查看员工',
+          label: a.label || '查看 BOT',
           path,
           mountId: 'employees.detail',
-          title: entityLabel || '员工',
+          title: entityLabel || 'BOT',
           entityLabel: entityLabel || undefined,
           autoOpen: autoOk,
         }),
@@ -860,10 +860,10 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
   ) {
     actions.push(
       shellPageAction({
-        label: '查看员工',
+        label: '查看 BOT',
         path: `/proactive/${entityId}`,
         mountId: 'employees.detail',
-        title: entityLabel || '员工',
+        title: entityLabel || 'BOT',
         entityLabel: entityLabel || undefined,
         autoOpen: true,
       }),
@@ -879,11 +879,11 @@ export function enrichShellPageOpenStages(ui: PlatformUiFeedback): PlatformUiFee
   ) {
     actions.push(
       shellPageAction({
-        label: '打开员工',
+        label: '打开 BOT',
         path: '/proactive',
         mountId: 'employees.board',
-        title: '员工',
-        entityLabel: '员工',
+        title: 'BOT',
+        entityLabel: 'BOT',
         autoOpen: autoOk,
       }),
     )
@@ -1057,11 +1057,11 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
   ) {
     return [
       shellPageAction({
-        label: '打开员工',
+        label: '打开 BOT',
         path: '/proactive',
         mountId: 'employees.board',
-        title: '员工',
-        entityLabel: '员工',
+        title: 'BOT',
+        entityLabel: 'BOT',
         autoOpen: shouldAutoOpenShellPage(action),
       }),
     ]
@@ -1069,7 +1069,7 @@ function buildActions(action: string, domain: string, entityId: string): Platfor
   if (domain === 'employees' && entityId) {
     return [
       shellPageAction({
-        label: '查看员工',
+        label: '查看 BOT',
         path: `/proactive/${entityId}`,
         mountId: 'employees.detail',
         autoOpen: shouldAutoOpenShellPage(action),

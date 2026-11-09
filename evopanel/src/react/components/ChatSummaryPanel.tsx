@@ -748,9 +748,9 @@ function ChatSummaryPanelInner({
     (isDeptChatSession
       ? sessionTitleText || '部门群聊'
       : isEmployeeSession
-        ? '未选择员工'
+        ? '未选择 BOT'
         : '未选择 Agent')
-  const editTitle = isEmployeeSession ? '点击编辑此员工' : '点击编辑此智能体'
+  const editTitle = isEmployeeSession ? '点击编辑此 BOT' : '点击编辑此智能体'
   // 员工 / 群聊会话固定当前上下文，不提供切换入口
   const canSwitchAgent =
     Boolean(onSwitchAgent) && !isEmployeeSession && !isDeptChatSession

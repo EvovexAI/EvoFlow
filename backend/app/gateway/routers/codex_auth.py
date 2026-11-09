@@ -106,6 +106,25 @@ async def codex_logout(http_request: Request) -> dict[str, Any]:
     return status
 
 
+@router.get("/models")
+async def codex_list_models(http_request: Request) -> dict[str, Any]:
+    """List Codex subscription models using the signed-in OAuth session."""
+    require_org_admin(http_request)
+    from evoflow.models.codex_models import list_codex_subscription_models
+
+    result = list_codex_subscription_models(allow_builtin_fallback=True)
+    if not result.get("success") and result.get("relogin_required"):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "message": result.get("message") or "Unauthorized",
+                "code": result.get("code") or "codex_unauthorized",
+                "relogin_required": True,
+            },
+        )
+    return result
+
+
 @router.post("/ensure-model")
 async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) -> dict[str, Any]:
     """Create/update a Panel model row that uses the Codex Responses provider."""
@@ -116,6 +135,7 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
         reload_models_from_db,
         update_model_in_config,
     )
+    from evoflow.models.codex_models import lookup_builtin_codex_model
     from evoflow.models.codex_oauth import DEFAULT_CODEX_BASE_URL, codex_runtime_use_path, get_auth_status
     from evoflow.persistence import config_repositories as cfg_repo
 
@@ -131,8 +151,10 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
 
     model_id = str(body.model or "gpt-5.4").strip() or "gpt-5.4"
     name = f"codex-{model_id}".replace("/", "-").replace(" ", "-")
-    display = (body.display_name or "").strip() or f"Codex {model_id}"
+    meta = lookup_builtin_codex_model(model_id) or {}
+    display = (body.display_name or "").strip() or str(meta.get("display_name") or "").strip() or f"Codex {model_id}"
     use_path = codex_runtime_use_path()
+    context_length = meta.get("resolved_context_window") or meta.get("context_window")
     row = {
         "name": name,
         "vendor": "openai-codex",
@@ -142,12 +164,14 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
         "use": use_path,
         "base_url": DEFAULT_CODEX_BASE_URL,
         "api_key": "",
-        "supports_thinking": True,
-        "supports_reasoning_effort": True,
-        "supports_vision": True,
+        "supports_thinking": bool(meta.get("supports_reasoning", True)),
+        "supports_reasoning_effort": bool(meta.get("supports_reasoning", True)),
+        "supports_vision": bool(meta.get("supports_vision", True)),
         "request_timeout": 300.0,
         "max_retries": 2,
     }
+    if isinstance(context_length, int) and context_length > 0:
+        row["context_length"] = context_length
 
     try:
         config = get_app_config()

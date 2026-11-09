@@ -74,6 +74,8 @@ export function AgentPickerModal({
   const tagEntries = useMemo(() => {
     const all = buildTagPickerEntries(agents)
     const priority = new Map<string, number>([
+      ['BOT', 0],
+      ['BOT', 0],
       ['员工', 0],
       ['通用', 1],
       ...BUILTIN_AGENT_TAGS.map((t, i) => [t.label, i + 2] as const),

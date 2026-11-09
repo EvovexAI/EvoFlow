@@ -532,9 +532,9 @@ export function initShellAside(el) {
         <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('layoutGrid')}</span>
         <span class="react-chat-aside-nav-label">工作流</span>
       </button>
-      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/proactive" data-premium-nav="proactive" title="员工">
+      <button type="button" class="react-chat-aside-nav-item" data-shell-nav="/proactive" data-premium-nav="proactive" title="BOT">
         <span class="react-chat-aside-nav-ic" aria-hidden>${_lucide('users')}</span>
-        <span class="react-chat-aside-nav-label">员工</span>
+        <span class="react-chat-aside-nav-label">BOT</span>
       </button>
       <div class="shell-aside-nav-more" data-shell-nav-more>
         <button type="button" class="shell-aside-nav-more-toggle" data-shell-nav-more-toggle title="更多" aria-expanded="false" aria-controls="shell-nav-more-body">

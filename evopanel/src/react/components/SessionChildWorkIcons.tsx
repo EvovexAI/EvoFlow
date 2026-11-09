@@ -1,9 +1,13 @@
 /**
  * Icons beside the permission pill: spinning when that kind of child work is running.
- * Click opens the sessionRuntime right-stage pane.
+ * Click opens that work's live detail directly (not the summary list).
  */
 import { useMemo } from 'react'
 import { useSessionChildWorks } from '../hooks/useSessionChildWorks.js'
+import {
+  openSessionChildWorkDetail,
+  pickActiveChildWork,
+} from '../../lib/right-stage/open-session-child-work-detail.js'
 import { openSessionRuntimeInRightStage } from '../../lib/right-stage/open-session-runtime-stage.js'
 import { logSessionChildWorkIconClick } from '../lib/session-child-work-log.js'
 import type { SessionChildWorkItem } from '../lib/session-reattach.js'
@@ -16,7 +20,7 @@ const KIND_META: Array<{
   { kind: 'subagent', label: '子代理', icon: 'subagent' },
   { kind: 'workflow', label: '工作流', icon: 'collab' },
   { kind: 'collab_subtask', label: '工作流节点', icon: 'collab' },
-  { kind: 'duty', label: '员工', icon: 'duty' },
+  { kind: 'duty', label: 'BOT', icon: 'duty' },
   { kind: 'warm_bash', label: '会话终端', icon: 'bash' },
 ]
 
@@ -66,16 +70,20 @@ export function SessionChildWorkIcons(props: { sessionKey?: string | null }) {
 
   if (!sk || visible.length === 0) return null
 
-  const openPane = (focusKind?: string) => {
+  const openLiveDetail = (focusKind: string) => {
+    const list = works as SessionChildWorkItem[]
     logSessionChildWorkIconClick({
       sessionKey: sk,
-      focusKind: focusKind || null,
-      works: works as SessionChildWorkItem[],
+      focusKind,
+      works: list,
     })
+    const target = pickActiveChildWork(list, focusKind)
+    if (target && openSessionChildWorkDetail(target, sk)) return
+    // 无法解析详情时才退回汇总（例如缺 task_id 的旧行）
     openSessionRuntimeInRightStage({
       sessionKey: sk,
-      works: works as SessionChildWorkItem[],
-      focusKind: focusKind || null,
+      works: list,
+      focusKind,
       forceExpand: true,
     })
   }
@@ -89,15 +97,19 @@ export function SessionChildWorkIcons(props: { sessionKey?: string | null }) {
       {visible.map((m) => {
         const items = activeByKind.get(m.kind) || []
         const n = items.length
+        const tip =
+          n > 1
+            ? `${m.label}运行中（${n}）· 点击打开最新一条详情`
+            : `${m.label}运行中 · 点击查看详情`
         return (
           <button
             key={m.kind}
             type="button"
             className="react-chat-session-child-work-icon is-running"
             onMouseDown={(e) => e.preventDefault()}
-            onClick={() => openPane(m.kind)}
-            title={`${m.label}运行中（${n}）· 点击查看实时情况`}
-            aria-label={`${m.label}运行中 ${n}，点击查看`}
+            onClick={() => openLiveDetail(m.kind)}
+            title={tip}
+            aria-label={tip}
             data-tauri-no-drag
           >
             <span className="react-chat-session-child-work-icon__glyph" aria-hidden="true">

@@ -104,7 +104,7 @@ function resolveEmployeeName(
   // role_name 在 proactiveRolesDisplay 里可能已被替换为 agent_name；仅当与 code 不同且不像岗位兜底时使用
   // 仍优先 code，避免把「前端架构负责人」这类岗位名当做人名
   if (code) return code
-  return fallbackTitle || '智能体员工'
+  return fallbackTitle || 'BOT'
 }
 
 function eventTargetElement(ev: Event): Element | null {

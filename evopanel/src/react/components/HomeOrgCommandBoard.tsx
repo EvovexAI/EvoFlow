@@ -478,7 +478,7 @@ export function HomeOrgCommandBoard({
 
             {!depts.length ? (
               <div className="evo-home-cmd__empty">
-                {loading ? '正在加载组织…' : '还没有部门或员工。去「员工」页建部门、加人。'}
+                {loading ? '正在加载组织…' : '还没有部门或 BOT。去「BOT」页建部门、加人。'}
               </div>
             ) : (
               <div

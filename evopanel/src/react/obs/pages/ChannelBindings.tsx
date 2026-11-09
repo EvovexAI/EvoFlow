@@ -127,7 +127,7 @@ export function ChannelBindings() {
             { key: 'bindMethodLabel', label: '绑定方式' },
             {
               key: 'employeeName',
-              label: '员工',
+              label: 'BOT',
               render: (row) => {
                 const name = row.employeeName || '—'
                 const tip = row.agentCode && row.agentCode !== name ? `${name}（${row.agentCode}）` : name

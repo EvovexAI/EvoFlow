@@ -1652,7 +1652,7 @@ export function EmployeePane({
       ],
       agentNameHint: agentLabel,
     }) || code
-  const employeeName = String(agentLabel || '').trim() || code || '智能体员工'
+  const employeeName = String(agentLabel || '').trim() || code || 'BOT'
   const department = String(employeeInfo?.department || '').trim()
   const bio = String(agentDescription || '').trim()
   const roleModel = String(employeeInfo?.modelName || '').trim()
@@ -2113,7 +2113,7 @@ function tabTitle(tab: InfoRailTab, isEmployee: boolean): string {
   if (tab === 'debug') return '调试'
   if (tab === 'context') return '上下文'
   if (tab === 'agent') return 'Agent'
-  if (tab === 'employee') return '员工'
+  if (tab === 'employee') return 'BOT'
   if (tab === 'task') return isEmployee ? '任务' : '产物'
   if (tab === 'run') return '运行'
   return '详情'

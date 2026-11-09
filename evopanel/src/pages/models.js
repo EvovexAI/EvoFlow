@@ -376,9 +376,20 @@ function buildProviderEntry({ baseUrl, apiKey, api, models = [], apiKeyConfigure
 
 function gatewayUseToApiType(use) {
   const u = String(use || '').toLowerCase()
+  if (u.includes('openai_codex') || u.includes('codex_provider')) return 'openai-codex'
   if (u.includes('langchain_anthropic')) return 'anthropic-messages'
   if (u.includes('langchain_google_genai')) return 'google-generative-ai'
   return 'openai-completions'
+}
+
+/** ChatGPT / Codex 订阅连接（OAuth，无 API Key） */
+function isCodexSubscriptionProvider(providerKey, provider) {
+  const key = String(providerKey || '').trim().toLowerCase()
+  if (key === 'openai-codex' || key.startsWith('openai-codex')) return true
+  const api = String(provider?.api || '').trim().toLowerCase()
+  if (api === 'openai-codex') return true
+  const base = String(provider?.baseUrl || '').trim().toLowerCase()
+  return base.includes('chatgpt.com/backend-api/codex')
 }
 
 /** DB 行级连接指纹：同 vendor 不同 base_url 须分桶（兼容历史脏数据） */
@@ -2733,6 +2744,7 @@ function normalizeProviderUrls(config) {
 
 function apiTypeToUse(apiType) {
   const t = String(apiType || '').toLowerCase()
+  if (t === 'openai-codex') return 'evoflow.models.openai_codex_provider:runtimeChatModel'
   if (t === 'anthropic-messages') return 'langchain_anthropic:ChatAnthropic'
   if (t === 'google-generative-ai') return 'langchain_google_genai:ChatGoogleGenerativeAI'
   // openai-completions / openai-responses / 默认：OpenAI 兼容
@@ -3963,9 +3975,13 @@ function addModel(page, state, providerKey) {
   const defaultInputCtx = DEFAULT_MODEL_CONTEXT_WINDOW
   const defaultOutputCtx = defaultOutputContextForProvider(providerKey, provider)
 
-  // 远程模型拉取：仅 OpenAI 兼容接口支持（list-remote 后端约束）
+  // 远程模型拉取：OpenAI 兼容 /models，或 Codex 订阅 OAuth 目录
   const providerApiLower = String(provider.api || 'openai-completions').toLowerCase()
-  const remoteSupported = !providerApiLower || providerApiLower === 'openai-completions' || providerApiLower === 'openai-responses'
+  const remoteSupported = !providerApiLower
+    || providerApiLower === 'openai-completions'
+    || providerApiLower === 'openai-responses'
+    || providerApiLower === 'openai-codex'
+    || isCodexSubscriptionProvider(providerKey, provider)
   const remoteSectionHtml = remoteSupported ? `
         <div class="form-group">
           <label class="form-label">从服务商获取</label>
@@ -4144,17 +4160,29 @@ function addModel(page, state, providerKey) {
     }
   })
 
-  // ── 从服务商拉取远程模型列表（OpenAI 兼容端点）────────────────
+  // ── 从服务商拉取远程模型列表（OpenAI 兼容 / Codex OAuth）────────
   const remoteStatus = overlay.querySelector('[data-remote-status]')
   const remotePanel = overlay.querySelector('[data-remote-panel]')
   const remoteListEl = overlay.querySelector('[data-remote-list]')
   const remoteCount = overlay.querySelector('[data-remote-count]')
   const remoteBtn = overlay.querySelector('[data-action="fetch-remote"]')
   const remoteModels = []
+  /** @type {Map<string, any>} */
+  const remoteMetaById = new Map()
   let remoteBase = ''
   let remoteKey = ''
   let remoteConfigName = null
-  const remoteApiType = providerApiLower || 'openai-completions'
+  const isCodexRemote = isCodexSubscriptionProvider(providerKey, provider)
+  const remoteApiType = isCodexRemote ? 'openai-codex' : (providerApiLower || 'openai-completions')
+
+  const formatCtxHint = (meta) => {
+    const cw = Number(meta?.resolved_context_window || meta?.context_window)
+    if (Number.isFinite(cw) && cw > 0) {
+      return cw >= 1000 ? `${Math.round(cw / 1000)}K 上下文` : `${cw} 上下文`
+    }
+    if (meta?.context_window_missing) return '上下文未获取'
+    return ''
+  }
 
   const updateRemoteCount = () => {
     if (remoteCount) remoteCount.textContent = `${remoteListEl.querySelectorAll('[data-remote-id]:checked').length} 个已选`
@@ -4163,19 +4191,33 @@ function addModel(page, state, providerKey) {
   const renderRemoteList = (filter) => {
     if (!remoteListEl) return
     const kw = String(filter || '').trim().toLowerCase()
-    const shown = remoteModels.filter((id) => !kw || id.toLowerCase().includes(kw))
-    remoteListEl.innerHTML = shown.length ? shown.map((id) => `
+    const shown = remoteModels.filter((id) => {
+      if (!kw) return true
+      const meta = remoteMetaById.get(id)
+      const label = `${id} ${meta?.display_name || ''}`.toLowerCase()
+      return label.includes(kw)
+    })
+    remoteListEl.innerHTML = shown.length ? shown.map((id) => {
+      const meta = remoteMetaById.get(id)
+      const ctxHint = formatCtxHint(meta)
+      const title = meta?.display_name && meta.display_name !== id ? `${meta.display_name} (${id})` : id
+      const testLabel = isCodexRemote ? '订阅' : '测试'
+      return `
       <label style="display:flex;align-items:center;gap:8px;padding:4px 6px;border-radius:6px">
         <input type="checkbox" data-remote-id="${escAttr(id)}">
-        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(id)}">${escHtml(id)}</span>
-        <button type="button" class="btn btn-sm btn-secondary" data-remote-test="${escAttr(id)}">测试</button>
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escAttr(title)}">${escHtml(id)}${ctxHint ? ` <span class="form-hint">· ${escHtml(ctxHint)}</span>` : ''}</span>
+        <button type="button" class="btn btn-sm btn-secondary" data-remote-test="${escAttr(id)}">${testLabel}</button>
         <span class="form-hint" data-remote-test-result="${escAttr(id)}" style="min-width:72px;text-align:right"></span>
-      </label>
-    `).join('') : '<div class="form-hint" style="padding:6px">无匹配模型</div>'
+      </label>`
+    }).join('') : '<div class="form-hint" style="padding:6px">无匹配模型</div>'
     remoteListEl.querySelectorAll('[data-remote-test]').forEach((btn) => {
       btn.onclick = async () => {
         const id = btn.dataset.remoteTest
         const out = remoteListEl.querySelector(`[data-remote-test-result="${window.CSS && CSS.escape ? CSS.escape(id) : id}"]`)
+        if (isCodexRemote) {
+          if (out) out.textContent = '✓ OAuth'
+          return
+        }
         if (out) out.textContent = '测试中...'
         btn.disabled = true
         try {
@@ -4205,32 +4247,56 @@ function addModel(page, state, providerKey) {
       remoteConfigName = !remoteKey && firstConfig ? firstConfig.configName : null
 
       const keyOptional = !!VENDOR_PRESETS.find((p) => p.key === providerKey)?.apiKeyOptional
-      if (!remoteBase && !remoteConfigName) { setRemoteHint('请先填写 Base URL'); return }
-      if (!remoteKey && !remoteConfigName && !keyOptional) { setRemoteHint('请先填写并保存 API Key'); return }
+      const codexMode = isCodexRemote || (String(remoteBase || '').toLowerCase().includes('chatgpt.com/backend-api/codex') && !remoteKey)
+      if (!codexMode) {
+        if (!remoteBase && !remoteConfigName) { setRemoteHint('请先填写 Base URL'); return }
+        if (!remoteKey && !remoteConfigName && !keyOptional) { setRemoteHint('请先填写并保存 API Key'); return }
+      }
 
       remoteBtn.disabled = true
       setRemoteHint('拉取中...')
       try {
-        const payload = { base_url: remoteBase, api_key: remoteKey, api_type: remoteApiType }
-        if (remoteConfigName) payload.config_name = remoteConfigName
-        const res = await api.listRemoteOpenAIModels(payload)
+        let res
+        if (codexMode) {
+          res = await api.listCodexSubscriptionModels()
+        } else {
+          const payload = { base_url: remoteBase, api_key: remoteKey, api_type: remoteApiType }
+          if (remoteConfigName) payload.config_name = remoteConfigName
+          res = await api.listRemoteOpenAIModels(payload)
+        }
         if (!res?.success) {
-          setRemoteHint(res?.message || '拉取失败')
+          const msg = res?.message || '拉取失败'
+          setRemoteHint(res?.relogin_required ? `${msg}（请重新登录 Codex）` : msg)
           return
         }
         remoteModels.length = 0
-        const ids = (res.models || []).map((m) => String(m?.id || '').trim()).filter(Boolean)
-        remoteModels.push(...ids.filter((id) => !existingIds.includes(id)))
+        remoteMetaById.clear()
+        for (const m of res.models || []) {
+          const id = String(m?.id || m?.slug || '').trim()
+          if (!id) continue
+          remoteMetaById.set(id, m)
+        }
+        const ids = [...remoteMetaById.keys()].filter((id) => !existingIds.includes(id))
+        remoteModels.push(...ids)
         if (!remoteModels.length) {
           setRemoteHint(res.degraded ? (res.message || '未发现可添加的新模型') : '服务商未返回可添加的模型')
           remotePanel.hidden = true
           return
         }
-        setRemoteHint(`共 ${remoteModels.length} 个可添加`)
+        const missingCtx = remoteModels.filter((id) => {
+          const meta = remoteMetaById.get(id)
+          const cw = Number(meta?.resolved_context_window || meta?.context_window)
+          return !(Number.isFinite(cw) && cw > 0)
+        }).length
+        const hintBits = [`共 ${remoteModels.length} 个可添加`]
+        if (res.degraded) hintBits.push('内置候选')
+        if (missingCtx) hintBits.push(`${missingCtx} 个未获取上下文窗口，可手动填写`)
+        setRemoteHint(hintBits.join(' · '))
         renderRemoteList('')
         remotePanel.hidden = false
       } catch (e) {
-        setRemoteHint(`拉取失败: ${String(e?.message || e).slice(0, 80)}`)
+        const msg = String(e?.message || e).slice(0, 80)
+        setRemoteHint(`拉取失败: ${msg}`)
       } finally {
         remoteBtn.disabled = false
       }
@@ -4263,29 +4329,45 @@ function addModel(page, state, providerKey) {
     }
     pushUndo(state)
     let added = 0
+    let missingCtx = 0
     for (const id of checked) {
+      const meta = remoteMetaById.get(id) || {}
       const usedNames = collectUsedConfigNames(state.config)
-      const configName = deriveConfigName(id, providerKey, id, usedNames)
+      const displayName = String(meta.display_name || '').trim()
+      const configName = deriveConfigName(displayName || id, providerKey, id, usedNames)
+      const cw = Number(meta.resolved_context_window || meta.context_window)
+      const hasCw = Number.isFinite(cw) && cw > 0
+      if (!hasCw) missingCtx++
+      const reasoning = isCodexRemote ? meta.supports_reasoning !== false : false
+      const vision = isCodexRemote ? meta.supports_vision !== false : false
       state.config.models.providers[providerKey].models.push({
         configName,
         id,
-        name: '',
-        reasoning: false,
-        input: ['text'],
+        name: displayName && displayName !== id ? displayName : '',
+        reasoning,
+        input: vision ? ['text', 'image'] : ['text'],
         enableWebSearch: false,
-        contextWindow: DEFAULT_MODEL_CONTEXT_WINDOW,
+        contextWindow: hasCw ? cw : DEFAULT_MODEL_CONTEXT_WINDOW,
         inputContextLength: null,
         outputContextLength: null,
         temperature: null,
       })
       added++
     }
+    // Codex 连接保存时必须保持 openai-codex api，避免被写成 ChatOpenAI
+    if (isCodexRemote) {
+      state.config.models.providers[providerKey].api = 'openai-codex'
+      if (!String(state.config.models.providers[providerKey].baseUrl || '').includes('backend-api/codex')) {
+        state.config.models.providers[providerKey].baseUrl = 'https://chatgpt.com/backend-api/codex'
+      }
+    }
     overlay.remove()
     renderProviders(page, state)
     renderDefaultBar(page, state)
     updateUndoBtn(page, state)
     autoSave(state)
-    toast(added > 1 ? `已添加 ${added} 个模型` : `已添加模型: ${checked[0]}`, 'success')
+    const baseMsg = added > 1 ? `已添加 ${added} 个模型` : `已添加模型: ${checked[0]}`
+    toast(missingCtx ? `${baseMsg}（${missingCtx} 个未获取官方上下文，已用默认值，可手动改）` : baseMsg, 'success')
   })
 
   // 保存（手动添加）

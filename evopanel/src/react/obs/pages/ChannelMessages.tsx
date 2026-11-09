@@ -454,7 +454,7 @@ export function ChannelMessages() {
             { key: 'directionLabel', label: '方向' },
             {
               key: 'employeeName',
-              label: '员工',
+              label: 'BOT',
               render: (row) => {
                 const name = row.employeeName || '—'
                 const tip = row.agentCode && row.agentCode !== name ? `${name}（${row.agentCode}）` : name

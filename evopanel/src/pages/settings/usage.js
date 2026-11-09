@@ -24,7 +24,7 @@ const SERIES_COLORS = ['#3b82f6', '#22c55e', '#a855f7', '#f59e0b', '#ef4444', '#
 const MODULE_FILTERS = [
   { id: 'all', label: '全部' },
   { id: 'chat', label: '对话' },
-  { id: 'employee', label: '员工' },
+  { id: 'employee', label: 'BOT' },
   { id: 'workflow', label: '工作流' },
   { id: 'knowledge', label: '知识库' },
   { id: 'media', label: '生图/生视频' },
@@ -226,7 +226,7 @@ function buildModulesPanel(byModule) {
       ? byModule.employees
       : (byModule.conversations || []).filter((r) => r.module === 'employee')
     detail = {
-      title: '员工明细',
+      title: 'BOT 明细',
       hint: '按员工汇总；也可在搜索框输入员工名或会话标题。',
       rows: filterRowsByQuery(empRows, q),
       empty: '暂无员工用量',

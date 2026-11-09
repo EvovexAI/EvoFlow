@@ -534,7 +534,7 @@ export async function render() {
       <div class="pro-detail-pane">
         <div class="pro-hero">
           <div class="pro-hero-main">
-            <h1 class="page-title">数字员工<span class="pro-hero-bot">（BOT）</span></h1>
+            <h1 class="page-title">BOT</h1>
           </div>
           <div class="page-actions">
             <div class="pro-actions-state">
@@ -572,12 +572,12 @@ export async function render() {
         <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
 
         <div class="pro-tabs-bar">
-          <div class="pro-tabs" role="tablist" aria-label="员工">
+          <div class="pro-tabs" role="tablist" aria-label="BOT">
             <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
               待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
             </button>
             <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
-              员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
+              BOT <span class="pro-tab-count" id="pro-tab-count-roles"></span>
             </button>
             <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
               组织 / 部门
@@ -590,7 +590,7 @@ export async function render() {
             </button>
           </div>
           <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
-            <span class="sr-only">搜索员工</span>
+            <span class="sr-only">搜索 BOT</span>
             <svg class="pro-roles-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
@@ -599,12 +599,12 @@ export async function render() {
               type="search"
               class="pro-roles-search-input"
               id="pro-roles-search"
-              placeholder="搜索员工…"
+              placeholder="搜索 BOT…"
               autocomplete="off"
               value=""
             />
           </label>
-          <label class="pro-roles-dept-filter" id="pro-roles-dept-filter-wrap" title="按部门筛选员工" hidden>
+          <label class="pro-roles-dept-filter" id="pro-roles-dept-filter-wrap" title="按部门筛选 BOT" hidden>
             <span class="sr-only">部门筛选</span>
             <select class="pro-roles-dept-filter-select" id="pro-roles-dept-filter"></select>
           </label>
@@ -614,7 +614,7 @@ export async function render() {
           <div class="pro-loading">加载中…</div>
         </div>
       </div>
-      <aside class="pro-stage-pane" id="pro-right-stage-slot" aria-label="员工侧栏" hidden></aside>
+      <aside class="pro-stage-pane" id="pro-right-stage-slot" aria-label="BOT 侧栏" hidden></aside>
     </div>
   `
 
@@ -1031,7 +1031,7 @@ async function showHireModal(page) {
     <div class="hire-sheet" role="dialog" aria-labelledby="hire-sheet-title">
       <header class="hire-sheet-head">
         <div>
-          <p class="hire-sheet-kicker">员工</p>
+          <p class="hire-sheet-kicker">BOT</p>
           <h2 id="hire-sheet-title" class="hire-sheet-title">加人</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
@@ -3258,7 +3258,7 @@ function renderHealthDashboard(dash, roles) {
     </div>`
 
   if (!rows.length) {
-    return alertBanner + cards + `<div class="pro-empty"><p class="pro-empty-title">还没有员工数据</p></div>`
+    return alertBanner + cards + `<div class="pro-empty"><p class="pro-empty-title">还没有 BOT 数据</p></div>`
   }
 
   return (
@@ -3429,7 +3429,7 @@ function renderRoles(roles) {
           <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
         </svg>
       </div>
-      <p class="pro-empty-title">还没有智能体员工</p>
+      <p class="pro-empty-title">还没有 BOT</p>
       <p class="pro-empty-desc">点「加人」填写名称与系统提示词即可入职；也可到「组织 / 部门」编入编制后再调汇报线</p>
       <button type="button" class="btn btn-primary btn-sm" id="pro-empty-hire" style="margin-top:14px">加人</button>
     </div>`

@@ -179,6 +179,38 @@ def normalize_main_task_status(status: str) -> str:
     return s
 
 
+# Pause states. Deliberately **not** terminal and deliberately never re-derived
+# from subtask rows: ``pause_run`` only touches in-flight subtasks (a step that
+# never started must resume as pending, not re-run), so the remaining rows still
+# look "in flight" and the old rollup happily promoted ``paused`` back to
+# ``executing``. That rewrite — not the dispatch gates — was why
+# ``workflow.stop(pause=true)`` did nothing: measured 2026-11-09, the pause landed
+# at 07:11:10, the status read ``executing`` again before 07:11:21, and all five
+# runs that ever carried a user-pause marker completed anyway. Releasing a pause
+# is ``resume_run``'s job alone.
+_MAIN_PAUSED = frozenset({"paused", "pausing"})
+_PAUSE_REQUESTED_BY_USER = "user"
+
+
+def main_is_user_paused(task: dict[str, Any] | None) -> bool:
+    """True when a human paused this run and it has not been resumed yet.
+
+    ``pause_run`` stamps ``pause_requested_by="user"``; that marker is the only
+    thing separating "the user pressed pause" from "the process died while
+    paused" — both leave rows at ``paused``, and the reconciler exists solely for
+    the second case (without the split it un-paused live user pauses seconds
+    later). Single definition here so the reconciler and the rollup cannot drift
+    apart the way ``blocked`` and ``skipped`` previously did.
+    """
+    if not isinstance(task, dict):
+        return False
+    by = str(task.get("pause_requested_by") or "").strip().lower()
+    if by != _PAUSE_REQUESTED_BY_USER:
+        return False
+    st = normalize_main_task_status(str(task.get("status") or ""))
+    return st in _MAIN_PAUSED
+
+
 def cap_auto_sync_main_progress(progress: int, *, main_status: str) -> int:
     """Clamp auto-synced main progress; 100% only when lead already marked completed/awaiting_close."""
     pct = clamp_task_progress(progress)
@@ -352,6 +384,29 @@ def _sync_main_task_from_subtasks_locked(storage: Any, main_task_id: str, *, per
         new_status = forced_status
     elif cur_status not in _MAIN_TERMINAL:
         new_status = inferred
+
+    # A live user pause outranks the rollup. Without this the pause is cosmetic:
+    # the in-flight worker's ``done`` lands here, ``inferred`` says "executing"
+    # (the sibling rows still look in flight — pause_run deliberately leaves
+    # not-yet-dispatched steps alone so resume doesn't re-run them), the label
+    # flips back, and the dispatch gates then honestly report an un-paused task
+    # and release the next wave. Terminal closures are left alone above: if every
+    # step really finished while paused, closing the run is correct and resume has
+    # nothing left to dispatch.
+    if (
+        not forced_status
+        and new_status
+        and new_status != cur_status
+        and cur_status in _MAIN_PAUSED
+        and main_is_user_paused(task)
+    ):
+        logger.info(
+            "task_progress: holding user pause task_id=%s (rollup wanted %s, kept %s)",
+            main_task_id,
+            new_status,
+            cur_status,
+        )
+        new_status = None
 
     changed = False
     if new_progress != cur_progress:

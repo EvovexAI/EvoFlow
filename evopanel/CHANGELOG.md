@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.14] - 2026-11-09
+
+相对 **1.3.13**：Codex 订阅可拉取远程模型；工作流用户暂停不被子任务进度汇总冲掉；会话旁运行图标一点开详情；轮尾截图横排；多处「员工」文案改为「BOT」。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.14.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **Codex 订阅模型目录**：OAuth 登录后 `listCodexSubscriptionModels` + 模型页远程拉取；内置 gpt-5.x 候选与上下文窗口元数据
+
+### Changed
+
+- **会话旁运行图标**：点击直达子代理 / 工作流 / BOT / 终端详情，解析失败才回退汇总面板
+- **轮尾浏览器截图**：`mediaWrap` 横排优先再换行（主聊与只读分享时间线）
+- **文案**：用量模块、值班轨等「员工」→「BOT」
+
+### Fixed
+
+- **用户暂停被冲掉**：`main_is_user_paused` 优先于子任务 rollup，避免 `workflow.stop(pause=true)` 后数秒内又变回 executing
+- **超长附件路径**：hydration 对 Windows `ValueError`（path too long）按缺文件处理，回放可继续
+
 ## [1.3.13] - 2026-11-09
 
 相对 **1.3.12**：修复建单链路整体报 `UnboundLocalError`（任务中心新建 / 岗位派发 / 任何走 `admin.tasks.create_task` 的路径全部 500）；修复事项通知「查看事项」点击不跳转（右栏不展开、换条目不高亮、主区焦点被抹，三处断链）；同类「变量用在自己绑定之前」再清 7 处，其中技能包安装模块 import 即 `NameError`、知识库评测场景跑即崩；新增常驻 lint 门禁（`ruff --select F821`，push to main 即跑），全仓 F821 现为 0。

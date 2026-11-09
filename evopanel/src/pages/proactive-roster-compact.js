@@ -45,8 +45,8 @@ function statusOf(role, busySet) {
 function renderListHtml(roles, busySet) {
   if (!roles.length) {
     return `<div class="shell-roster-empty">
-      <p class="shell-roster-empty-title">还没有员工</p>
-      <p class="shell-roster-empty-desc">在对话里让我创建，或到左侧「员工」加人</p>
+      <p class="shell-roster-empty-title">还没有 BOT</p>
+      <p class="shell-roster-empty-desc">在对话里让我创建，或到左侧「BOT」加人</p>
     </div>`
   }
   return (
@@ -170,7 +170,7 @@ export async function mountProactiveRosterCompact(container, { onClose } = {}) {
 
   const page = document.createElement('div')
   page.className = 'page shell-roster-page shell-page-embed'
-  page.dataset.shellPageTitle = '员工'
+  page.dataset.shellPageTitle = 'BOT'
   page.innerHTML = `
     <header class="shell-roster-head">
       <div class="shell-roster-head-text">
@@ -274,7 +274,7 @@ export async function mountProactiveRosterCompact(container, { onClose } = {}) {
   }, 20000)
 
   return {
-    title: '员工',
+    title: 'BOT',
     destroy: () => {
       destroyed = true
       if (busyTimer) {
