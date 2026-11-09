@@ -117,37 +117,45 @@ export function SubagentInlineCards({ tasks }: { tasks: Record<string, SubagentS
           )
         })}
       </div>
-      {selectedTask && typeof document !== 'undefined'
-        ? createPortal(
-            <div className="react-chat-run-output-panel">
-              <div className="react-chat-run-output-header">
-                <span className="react-chat-run-output-title">
-                  子任务实时流 · {selectedTask.description || selectedTask.taskId}
-                </span>
-                <button
-                  type="button"
-                  className="react-chat-run-output-close"
-                  onClick={() => setSelectedTaskId(null)}
-                  title="关闭"
-                >
-                  ×
-                </button>
-              </div>
-              <div className="react-chat-run-output-content">
-                <MessageRow
-                  row={{
-                    role: 'assistant',
-                    text: (selectedTask.liveOutput || selectedTask.progressHint || '').trim(),
-                    tools: selectedTask.tools || [],
-                    timestamp: selectedTask.startedAt,
-                  }}
-                />
-              </div>
-            </div>,
-            document.body,
-          )
-        : null}
+      <SubagentTaskDetailPortal
+        task={selectedTask}
+        onClose={() => setSelectedTaskId(null)}
+      />
     </>
+  )
+}
+
+/** 子任务实时流浮层（portal 到 body）：内联卡「查看详情」与状态面板进程行共用。 */
+export function SubagentTaskDetailPortal({
+  task,
+  onClose,
+}: {
+  task: SubagentStreamTask | null
+  onClose: () => void
+}) {
+  if (!task || typeof document === 'undefined') return null
+  return createPortal(
+    <div className="react-chat-run-output-panel">
+      <div className="react-chat-run-output-header">
+        <span className="react-chat-run-output-title">
+          子任务实时流 · {task.description || task.taskId}
+        </span>
+        <button type="button" className="react-chat-run-output-close" onClick={onClose} title="关闭">
+          ×
+        </button>
+      </div>
+      <div className="react-chat-run-output-content">
+        <MessageRow
+          row={{
+            role: 'assistant',
+            text: (task.liveOutput || task.progressHint || '').trim(),
+            tools: task.tools || [],
+            timestamp: task.startedAt,
+          }}
+        />
+      </div>
+    </div>,
+    document.body,
   )
 }
 

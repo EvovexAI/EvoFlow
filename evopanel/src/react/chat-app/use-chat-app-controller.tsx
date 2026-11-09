@@ -102,6 +102,7 @@ import {
 import { useCollabSubtasksFromApi } from '../hooks/useCollabSubtasksFromApi.js'
 import { skTail, ssLog } from '../../lib/session-list-debug.js'
 import { logV4Life } from '../lib/v4-lifecycle-log.js'
+import { bindOpenTraceThread, markOpenStage } from '@zcode/ui/lib/openTrace.js'
 import { ChatMessageStreamPane } from '../components/ChatMessageStreamPane.js'
 import { HistoryFetchSpinner } from '../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../components/ChatComposer.js'
@@ -110,6 +111,7 @@ import { mergeInterruptedComposerDraft } from '../lib/merge-interrupted-composer
 import { ContextUsageRing } from '../components/ContextUsageRing.js'
 import { basenameFromPath } from '../lib/workspace-mention.js'
 import { GoalModePanel } from '../components/GoalModePanel.js'
+import { isV4GoalActive } from '../v4/goalCommand.js'
 import { GoalProposalDock } from '../components/GoalProposalDock.js'
 import { SkillPickerModal, type SkillSelection } from '../components/SkillPickerModal.js'
 import { PluginQuickPanel } from '../components/PluginQuickPanel.js'
@@ -1060,6 +1062,8 @@ export function useChatAppController() {
       zh: `打开会话时尚无 threadId，正在 ensure-thread（否则会一直「加载中」）。session=${sk}`,
       skipDedupe: true,
     })
+    // 诊断：该步属于「点开会话 → 上屏」链路，超 1.2s 视为偏慢、3s 视为异常。
+    markOpenStage('ensure_thread', 'ensure-thread 请求', { sessionKey: sk })
     void wsClient
       .ensureChatThread(sk)
       .then((tid) => {
@@ -1073,6 +1077,9 @@ export function useChatAppController() {
             zh: `ensure-thread 未返回 threadId，历史无法挂 V4，界面会停在加载/空态。session=${sk}`,
             skipDedupe: true,
           })
+          markOpenStage('ensure_thread', 'ensure-thread 未返回 threadId', { sessionKey: sk }, {
+            reason: '服务端没有 mint 出 threadId，会话历史无法挂载 V4，界面会一直停在「加载中」。',
+          })
           return
         }
         logV4Life({
@@ -1082,6 +1089,8 @@ export function useChatAppController() {
           zh: `ensure-thread 成功，已绑定 threadId=${next}，即将订阅首帧。`,
           skipDedupe: true,
         })
+        markOpenStage('ensure_thread', 'ensure-thread 成功', { sessionKey: sk, threadId: next })
+        bindOpenTraceThread(next)
         try {
           wsClient.noteSessionThreadId?.(sk, next)
         } catch {
@@ -1108,6 +1117,9 @@ export function useChatAppController() {
           zh: `ensure-thread 失败：${err instanceof Error ? err.message : String(err || '')}。打开历史会一直加载中。`,
           detail: { err: String(err || '') },
           skipDedupe: true,
+        })
+        markOpenStage('ensure_thread', 'ensure-thread 失败', { sessionKey: sk }, {
+          reason: `ensure-thread 请求报错（${err instanceof Error ? err.message : String(err || '')}），会话历史拿不到 threadId，打开会一直卡在「加载中」。`,
         })
       })
     return () => {
@@ -1359,6 +1371,17 @@ export function useChatAppController() {
     const visible = rowsRef.current.length ? rowsRef.current : rows
     if (visible.length) hydrateSessionRuntimeRowsIfIdle(sk, visible)
   }, [rows, historyLoading, selectedSessionKey, executingListEpoch, historyBoundSessionKey])
+
+  /**
+   * 会话切换：selectedSessionKey → sessionRef.current 的同步。
+   *
+   * ⚠️ 必须早于下方「切换会话」layout effect 执行（React layout effect 按声明顺序跑）。
+   * 否则切换那一帧里 sessionRef.current 仍是旧会话，WS 事件路由（uiSk）会判错，
+   * 把 A 会话的流灌进正在显示的 B 会话 —— 表现为「切会话后对话错乱 / 看不到回复」。
+   */
+  useLayoutEffect(() => {
+    sessionRef.current = selectedSessionKey
+  }, [selectedSessionKey])
 
   /** 切换会话：selectedSessionKey 或用户 force 重选（同 key）时 mount stream */
   useLayoutEffect(() => {
@@ -2119,6 +2142,28 @@ export function useChatAppController() {
     ],
   )
 
+  /**
+   * 「Agent 应用」启动项的兜底直开：没有走选择器时（如无应用可列），
+   * 打开第一个已安装应用；一个都没装则提示去应用中心安装。
+   */
+  const openAgentAppLauncher = useCallback(() => {
+    void (async () => {
+      try {
+        const { listEnabledUiExtensions } = await import('../../lib/ui-extensions.js')
+        const rows = await listEnabledUiExtensions()
+        const first = Array.isArray(rows) ? rows[0] : null
+        const id = String(first?.id || '').trim()
+        if (!id) {
+          toast('还没有 Agent 应用，先到「Agent 应用」页安装一个', 'warning')
+          return
+        }
+        openUiExtensionInStage(id)
+      } catch (e) {
+        toast(toUserFacingError((e as Error)?.message || e), 'error')
+      }
+    })()
+  }, [openUiExtensionInStage])
+
   const closeRightStage = useCallback(() => {
     closeRightStageImpl({
       dismissedRightStageKindsRef,
@@ -2272,6 +2317,7 @@ export function useChatAppController() {
     handleFlushPendingSend,
     handleCancelPendingSteer,
     handleInterruptAndSendSteers,
+    handleInterruptAndFlushQueue,
   } = usePendingSendQueue({
     selectedSessionKey,
     selectedTurnBusy,
@@ -3515,18 +3561,20 @@ export function useChatAppController() {
 
   const prevSelectLogRef = useRef('__init__')
   // useLayoutEffect：在 paint 前写入 sessionRef，避免 refreshSessions 仍读到旧 key
+  // 注：sessionRef.current 的写入已提前到「切换会话」effect 之前（见上方早期 layout effect），
+  // 此处仅兜底同步 + 记录切换日志。
   useLayoutEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (prevSelectLogRef.current !== sk) {
       ssLog('state.changed', {
         from: skTail(prevSelectLogRef.current === '__init__' ? '' : prevSelectLogRef.current),
         to: skTail(sk),
-        sessionRefBefore: skTail(sessionRef.current),
         newChatButtonActive,
         pendingNew: pendingNewSessionRef.current,
       })
       prevSelectLogRef.current = sk
     }
+    // 兜底：上方早期 layout effect 已写入，这里再写一次无害（保持 newChatButtonActive 变更时也同步）。
     sessionRef.current = selectedSessionKey
     // Persist selected session to localStorage for cross-refresh restore
     if (sk) {
@@ -3560,6 +3608,15 @@ export function useChatAppController() {
     suppressedGoalProposalKeysRef.current.clear()
   }, [selectedSessionKey])
 
+  // EvoFlow：v4 目标活跃（active/verifying）时抑制 hosted goal 提案面板。
+  // threadId 从会话映射同步取（映射未命中返回 false，下一轮 effect 再收敛）。
+  const isV4GoalActiveForSession = useCallback((sk: string | null | undefined): boolean => {
+    const key = String(sk || '').trim()
+    if (!key) return false
+    const tid = String(wsClient?.getSessionThreadId?.(key) || '').trim()
+    return tid ? isV4GoalActive(tid) : false
+  }, [])
+
   // Refresh/history hydration: hosted proposal + authoritative pending-clarification API
   useEffect(() => {
     runClarificationHydrateEffect({
@@ -3581,8 +3638,9 @@ export function useChatAppController() {
       shouldSuppressClarificationPanel,
       suppressedGoalProposalKeysRef,
       threadPanelStateRef,
+      isV4GoalActiveForSession,
     })
-  }, [historyLoading, rows, selectedSessionKey, selectedTurnBusy, scheduleClarificationPanelResolve, historyBoundSessionKey, historyInstantPaint])
+  }, [historyLoading, rows, selectedSessionKey, selectedTurnBusy, scheduleClarificationPanelResolve, historyBoundSessionKey, historyInstantPaint, isV4GoalActiveForSession])
 
   // 如果用户在某个会话条目点击"刷新"，先切换会话，再在切换完成后触发 reload。
   useEffect(() => {
@@ -5143,11 +5201,13 @@ export function useChatAppController() {
       isActiveExecTaskStatus,
       selectedTurnBusy,
       sharedCollabMainTaskStatus,
+      sharedCollabSubtasks,
       threadPanelState,
     })
   }, [
     collabSubtasksFetchEnabled,
     sharedCollabMainTaskStatus,
+    sharedCollabSubtasks,
     threadPanelState.collabPhase,
     selectedTurnBusy,
     bumpSubtasksApiRefresh,
@@ -5204,6 +5264,7 @@ export function useChatAppController() {
         setRoleUiNonce,
         sharedCollabSubtasks,
         sidebarActiveView,
+        threadPanelState,
         turnArtifacts,
         turnPlatformEntries,
       },
@@ -5448,6 +5509,7 @@ export function useChatAppController() {
         setChatPanelDisplayMode,
         knowledgeMapEnabled,
         openKnowledgeMapPanel,
+        openAgentAppLauncher,
       }),
     [
       selectedSessionKey,
@@ -5457,6 +5519,7 @@ export function useChatAppController() {
       knowledgeMapEnabled,
       openKnowledgeMapPanel,
       setChatPanelDisplayMode,
+      openAgentAppLauncher,
     ],
   )
 
@@ -6481,6 +6544,7 @@ export function useChatAppController() {
     handleFlushPendingSend,
     handleForkFromMessage,
     handleHistoryViewReady,
+    handleInterruptAndFlushQueue,
     handleInterruptAndSendSteers,
     handleManualContextCompact,
     handleOpenWorkspaceFolder,
@@ -6549,6 +6613,7 @@ export function useChatAppController() {
     openKnowledgeMapPanel,
     openMessageFilePreview,
     openSessionArtifact,
+    openUiExtensionInStage,
     patchPanelSettings,
     pendingSendQueue,
     pendingSteers,

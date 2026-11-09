@@ -125,6 +125,26 @@ async def advance_dag(
             "hint": "Lead collab should use supervisor_tool / auto_delegate_collab_followup_wave",
         }
 
+    # Pause gate — this is the real funnel. An in-flight worker's ``done`` releases
+    # a followup wave here (and the reconcile tick calls it with ``initial``);
+    # neither goes through ``dispatch_authorized_main_task_execution``, so gating
+    # only there still let a "paused" run walk to completion (verified live
+    # 2026-11-08: stop(pause=true) → 37% → 70% → completed/100%).
+    main_status = str(task.get("status") or "").strip().lower()
+    if main_status in {"paused", "pausing"}:
+        logger.info(
+            "workflow_scheduler.advance_dag skipped: task_id=%s paused (reason=%s)",
+            tid,
+            reason,
+        )
+        return {
+            "ok": False,
+            "error": "paused",
+            "taskId": tid,
+            "reason": reason,
+            "message": "主任务已暂停，本次不推进 DAG；workflow.resume 后重新派发。",
+        }
+
     logger.info(
         "workflow_scheduler.advance_dag task_id=%s reason=%s authorized_by=%s",
         tid,

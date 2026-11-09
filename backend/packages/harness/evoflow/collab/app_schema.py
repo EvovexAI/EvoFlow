@@ -410,10 +410,26 @@ def _sync_depends_on_from_canvas(steps: list[dict[str, Any]], canvas: dict[str, 
     if not incoming:
         return list(steps)
 
+    # Edge set per target, used to tell "user deleted the wire" apart from
+    # "depends_on names a ref the canvas can never express".
+    known_refs = {s["ref"] for s in steps}
     synced: list[dict[str, Any]] = []
     for step in steps:
         row = dict(step)
-        row["depends_on"] = list(incoming.get(step["ref"], []))
+        edges_in = list(incoming.get(step["ref"], []))
+        # Unknown deps must survive this rewrite: silently emptying them turns
+        # a broken node into an entry point that fires immediately, and
+        # Check 1 in workflow_validator (which *does* catch this) never sees
+        # it because it runs on the already-cleaned steps.
+        dropped = [
+            _as_str(d)
+            for d in (step.get("depends_on") or [])
+            if _as_str(d) and _as_str(d) not in known_refs
+        ]
+        for d in dropped:
+            if d not in edges_in:
+                edges_in.append(d)
+        row["depends_on"] = edges_in
         synced.append(row)
     return synced
 
@@ -581,10 +597,12 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
     doc["final_rollup_agent"] = _as_str(doc.get("final_rollup_agent"))
     doc["final_rollup_instruction"] = _as_str(doc.get("final_rollup_instruction"))
 
-    # P0.5-1: App-level schema enforcement policy (strict|warn|ignore)
-    app_policy = _as_str(doc.get("schema_enforcement"), "warn") or "warn"
+    # P0.5-1: App-level schema enforcement policy (strict|warn|ignore).
+    # Default strict: missing structured_output fails at the declaring step
+    # instead of silently completing and breaking downstream bindings.
+    app_policy = _as_str(doc.get("schema_enforcement"), "strict") or "strict"
     if app_policy not in ("strict", "warn", "ignore"):
-        app_policy = "warn"
+        app_policy = "strict"
     doc["schema_enforcement"] = app_policy
 
     return doc

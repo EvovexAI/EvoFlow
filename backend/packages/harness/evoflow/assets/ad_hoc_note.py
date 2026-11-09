@@ -70,8 +70,70 @@ def ensure_body_recorded_at(content: str, *, when: datetime | None = None) -> st
     return out
 
 
+def title_from_body(body: str, *, max_len: int = 60) -> str:
+    """Derive a note title, skipping lines that carry no meaning as a name.
+
+    ``ensure_body_recorded_at`` may have stamped ``记录时间：…`` as the first line,
+    and an untagged note has no heading at all. Falling back to "whatever is line 1"
+    then produced filenames like ``记录时间-2026-11-07-22-02.md`` — exactly the
+    time-stamp-as-name the memory rules forbid, because nobody can tell what is
+    inside from such a name.
+    """
+    for raw in str(body or "").splitlines():
+        line = raw.strip()
+        if not line or line == "---":
+            continue
+        line = _TAG_LINE_RE.sub("", line, count=1).strip()
+        line = line.lstrip("# ").strip()
+        if not line or _BODY_HAS_TIME_RE.match(line):
+            continue
+        return line[:max_len]
+    return ""
+
+
+def strip_md_ext(text: str) -> str:
+    """Drop a trailing ``.md`` so ``runbook.md`` never slugs to ``runbook-md.md``.
+
+    Titles reach the slug helpers straight from the model (which often pastes a
+    filename as the title) and every caller appends ``.md`` itself. The dot folds
+    into a ``-`` separator below, which is how employee craft files ended up as
+    ``发版一页纸runbook-md.md``.
+    """
+    raw = str(text or "").strip()
+    return raw[:-3] if raw.lower().endswith(".md") else raw
+
+
+def as_bullet_block(text: str) -> str:
+    """One Markdown block → a single bullet whose extra lines stay subordinate.
+
+    Models write multi-line notes (H1 + body, or a note containing its own
+    ``## 小节``). Splice that verbatim into ``standing.md`` / ``USER.md`` and the
+    embedded headings become real sections of the long-term memory file — which
+    is how a self-test "cleanly restored" standing.md yet still left the
+    document structurally wrong.
+    """
+    raw = str(text or "").strip()
+    if not raw:
+        return ""
+    items: list[tuple[str, bool]] = []
+    for ln in (x.strip() for x in raw.splitlines() if x.strip()):
+        # Heading markers go first: two leading spaces still parse as an ATX
+        # heading, so indenting alone would keep injecting headings into the
+        # host document. Bullet markers are matched with ``\s+`` on purpose —
+        # ``lstrip("-*+ ")`` would eat the opening stars of "**bold**".
+        body = re.sub(r"^#{1,6}\s*", "", ln).strip()
+        is_bullet = bool(re.match(r"^[-*+]\s+", body))
+        body = re.sub(r"^[-*+]\s+", "", body).strip()
+        if body:
+            items.append((body, is_bullet))
+    if not items:
+        return ""
+    tail = [f"  - {text}" if bullet else f"  {text}" for text, bullet in items[1:]]
+    return "\n".join([f"- {items[0][0]}", *tail])
+
+
 def normalize_ad_hoc_slug(text: str, *, fallback: str = "note") -> str:
-    raw = str(text or "").strip().lower()
+    raw = strip_md_ext(str(text or "")).strip().lower()
     slug = _SLUG_RE.sub("-", raw).strip("-")
     if not slug:
         slug = fallback
@@ -249,7 +311,7 @@ def write_ad_hoc_note(
     if not body:
         raise ValueError("empty_content")
 
-    hint = str(slug_hint or "").strip() or body.splitlines()[0].lstrip("#[] ").strip()[:60]
+    hint = str(slug_hint or "").strip() or title_from_body(body)
     upd = str(update_path or "").replace("\\", "/").lstrip("/")
     mode_l = str(mode or "").strip().lower()
 

@@ -25,10 +25,21 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     # 预置 skills 布局，确保 get_skills_root_path 落在 tmp home（否则回退真实 ~/.evoflow）
     (home / "skills" / "custom").mkdir(parents=True)
     from evoflow.config.agents_config import invalidate_agent_config_cache
+    from evoflow.config.app_config import reset_app_config
+    from evoflow.skills.loader import clear_skills_cache
 
+    # This fixture moves EVOFLOW_HOME per test, but the app-config singleton and
+    # the skill loader cache both remember the *previous* test's skills root. The
+    # installer then copies the pack skill into the new home while
+    # ``create_agent`` validates against the stale scan → "unknown skill(s):
+    # my-skill" (only when tests run in sequence; each passes alone).
     invalidate_agent_config_cache()
+    reset_app_config()
+    clear_skills_cache()
     reset_db_for_tests()
     yield home
+    clear_skills_cache()
+    reset_app_config()
     invalidate_agent_config_cache()
     reset_db_for_tests()
 

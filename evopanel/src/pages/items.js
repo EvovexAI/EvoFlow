@@ -233,7 +233,7 @@ function renderProgress(pct) {
     </div>`
 }
 
-function renderItemCard(it, idx, selected) {
+function renderItemCard(it, idx, selected, focusId = '') {
   const st = String(it.status || 'todo')
   const pri = String(it.priority || 'normal')
   const linkedIds = Array.isArray(it.linked_task_ids) ? it.linked_task_ids.filter(Boolean) : []
@@ -246,8 +246,10 @@ function renderItemCard(it, idx, selected) {
   const linkLabel = linked ? `关联：${linked} 个任务` : ''
   const doneCls = st === 'done' ? ' is-done' : ''
   const selCls = selected.has(id) ? ' is-selected' : ''
+  // 平台通知「查看事项」深链落点：命中则常驻高亮（滚动定位在 paintList 里只做一次）
+  const focusCls = focusId && id === focusId ? ' is-focus' : ''
   return `
-    <article class="im-card${doneCls}${selCls}" data-item-id="${esc(id)}" data-act="open-card" tabindex="0">
+    <article class="im-card${doneCls}${selCls}${focusCls}" data-item-id="${esc(id)}" data-act="open-card" tabindex="0">
       <div class="im-card-check" data-stop>
         <input type="checkbox" class="im-check" data-act="toggle-select" data-id="${esc(id)}"${checked} aria-label="选择事项" />
       </div>
@@ -294,7 +296,7 @@ function renderItemCard(it, idx, selected) {
 /**
  * @returns {{ refresh: () => Promise<void>, openCreate: () => void, destroy: () => void }}
  */
-export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = {}) {
+export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks, focusId = '' } = {}) {
   if (!(host instanceof HTMLElement)) {
     throw new Error('mountItemsPanel: host required')
   }
@@ -322,6 +324,9 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
     selected: new Set(),
     filterOpen: false,
     moreOpenId: '',
+    /** 平台通知深链 ?focus=<item_id>：高亮该条（保持），滚动只在首屏做一次 */
+    focusId: String(focusId || '').trim(),
+    focusScrolled: false,
   }
 
   root.innerHTML = `
@@ -536,8 +541,24 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
     }
     const base = (state.page - 1) * state.pageSize
     body.innerHTML = `<div class="im-card-list">${state.items
-      .map((it, i) => renderItemCard(it, base + i + 1, state.selected))
+      .map((it, i) => renderItemCard(it, base + i + 1, state.selected, state.focusId))
       .join('')}</div>`
+    // 深链落点：滚到高亮卡并闪一下。高亮保持（focusId 不清），只消费「滚动」这一次
+    if (state.focusId && !state.focusScrolled) {
+      const row = body.querySelector('.im-card.is-focus')
+      if (row) {
+        row.scrollIntoView({ block: 'nearest' })
+        row.classList.add('is-focus-flash')
+        setTimeout(() => {
+          try {
+            row.classList.remove('is-focus-flash')
+          } catch {
+            /* ignore */
+          }
+        }, 1600)
+        state.focusScrolled = true
+      }
+    }
   }
 
   function paint() {
@@ -1143,6 +1164,12 @@ export function mountItemsPanel(host, { openCreate = false, onSwitchToTasks } = 
   return {
     refresh,
     openCreate: () => showCreateOrEdit(null),
+    /** 再次点「查看事项」：面板已挂着时也要重新高亮并滚到目标条 */
+    focus: (nextFocusId = '') => {
+      state.focusId = String(nextFocusId || '').trim()
+      state.focusScrolled = false
+      paintList()
+    },
     destroy: () => {
       window.clearTimeout(qTimer)
       root.removeEventListener('click', onClick)

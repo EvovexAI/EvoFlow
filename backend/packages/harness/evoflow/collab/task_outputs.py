@@ -337,8 +337,18 @@ def normalize_task_output(item: Any, *, default_key: str = "artifact") -> dict[s
     from evoflow.collab.workflow_handoff_sanitize import sanitize_output_value_field
 
     value = sanitize_output_value_field(value)
+    # Declared text deliverables carry their payload *in* ``value``; the
+    # path/label repair below exists for agent typo blobs (``x.md,label:T}]``)
+    # and is destructive on prose. It ran anyway because
+    # ``is_file_shaped_output_value()`` only needs a ``/`` — which any sentence
+    # can contain — and ``_strip_wrapping_brackets()`` then ate the tail
+    # (observed: a rendered template lost its closing ``}}`` on every read).
+    declared_raw = str(item.get("type") or "").strip().lower()
+    declared_is_text = declared_raw in {"text", "note", "string", "markdown", "md"}
     # Nested JSON-ish blob inside value → extract clean path/label/key.
-    if parse_output_kv_blob(value) or "}, {" in value or '"}, {"' in value:
+    if not declared_is_text and (
+        parse_output_kv_blob(value) or "}, {" in value or '"}, {"' in value
+    ):
         repaired = coerce_outputs_from_messy_text(value)
         if repaired:
             first = dict(repaired[0])
@@ -353,7 +363,10 @@ def normalize_task_output(item: Any, *, default_key: str = "artifact") -> dict[s
             return first
     key = str(item.get("key") or item.get("name") or default_key).strip() or default_key
     label = str(item.get("label") or item.get("title") or "").strip()
-    path, suffix_label, suffix_key = extract_output_path_fields(value)
+    if declared_is_text:
+        path, suffix_label, suffix_key = "", "", ""
+    else:
+        path, suffix_label, suffix_key = extract_output_path_fields(value)
     if path:
         value = path
     if not label and suffix_label:

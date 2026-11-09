@@ -98,6 +98,23 @@ async def list_active_langgraph_run_ids(
     return out
 
 
+async def list_run_statuses_by_ids(
+    client: httpx.AsyncClient,
+    thread_id: str,
+    run_ids: list[str],
+) -> dict[str, str]:
+    """Map run_id -> status (as reported by the runs list) for the given ids."""
+    wanted = {str(r or "").strip() for r in run_ids if str(r or "").strip()}
+    out: dict[str, str] = {}
+    if not wanted:
+        return out
+    for run in await _fetch_thread_runs(client, thread_id):
+        run_id = _run_id_from_item(run)
+        if run_id in wanted:
+            out[run_id] = _run_status_from_item(run)
+    return out
+
+
 async def cancel_langgraph_run_ids(
     client: httpx.AsyncClient,
     thread_id: str,

@@ -54,6 +54,8 @@ export function TerminalToolPanel({
     }
     const fb = outputFallbackNorm
     if (fb) {
+      // Prefer explicit fallback over a lone caret — warm-bash tabs often have
+      // running=true with no stream yet (pool key ≠ tool_call_id).
       return <span className="terminal-panel__line terminal-panel__line--stdout">{fb}</span>
     }
     if (isRunning) {

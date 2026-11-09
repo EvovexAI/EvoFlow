@@ -24,3 +24,30 @@ export function mergeBackgroundWorkEvent(
   }
   map[workId] = row
 }
+
+/**
+ * After a runningOnly poll: local rows still ``running`` but absent from the
+ * server list are finished — mark completed so the process tab stops spinning.
+ */
+export function pruneFinishedBackgroundWorks(
+  map: Record<string, BackgroundWorkStreamItem>,
+  stillRunningIds: Iterable<string>,
+  now = Date.now(),
+): number {
+  const alive = new Set(
+    [...stillRunningIds].map((id) => String(id || '').trim()).filter(Boolean),
+  )
+  let pruned = 0
+  for (const [id, row] of Object.entries(map)) {
+    if (!row || String(row.status || '') !== 'running') continue
+    if (alive.has(id)) continue
+    map[id] = {
+      ...row,
+      status: 'completed',
+      endedAt: row.endedAt || now,
+      cancellable: false,
+    }
+    pruned += 1
+  }
+  return pruned
+}

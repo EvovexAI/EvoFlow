@@ -297,13 +297,21 @@ def workflow_run(args: dict[str, Any]) -> dict[str, Any]:
     # 责任人 = 运行时注入的 principal_id / proactive_agent_code（platform_tool 已绑 ambient）
     # 不是 session agent_id（agent:main:…）——那是频道标识，不是调用人身份
     invoker = resolve_invoker_stamp()
+    # Chat session that invoked platform — workflow run itself stays
+    # thread-unbound, but child_works icons need this origin for the bar.
+    origin_session_key = _arg_str(args, "session_key", "sessionKey") or ""
+    # Manual platform workflow.run → production (F-4). Explicit run_kind=debug
+    # only when the caller asks for it (debug panel / lab).
+    run_kind = _arg_str(args, "run_kind", "runKind") or None
     data = apps_admin.run_app(
         app_id,
         parameters=parameters,
+        run_kind=run_kind,
         raised_by=invoker.get("raised_by"),
         created_by=invoker.get("created_by"),
         principal_id=invoker.get("principal_id"),
         operator_label=invoker.get("operator_label"),
+        origin_session_key=origin_session_key or None,
     )
     run = data.get("run") if isinstance(data.get("run"), dict) else {}
     run_id = str(run.get("run_id") or data.get("run_id") or data.get("runId") or "")
@@ -362,9 +370,18 @@ def workflow_run_status(args: dict[str, Any]) -> dict[str, Any]:
     status = str(data.get("status") or run.get("status") or "")
     progress = run.get("progress") if "progress" in run else data.get("progress")
     steps = run.get("steps") if isinstance(run.get("steps"), list) else data.get("steps")
+    # ``run`` is the object we already flatten below. Keeping a second copy of the
+    # keys that are hoisted to the top level (and the full step list / plan /
+    # subtasks_sync) is pure duplication, and it triples the longest strings in the
+    # payload — an agent polling a 4-node run burns context on re-reads. Keep one
+    # authoritative ``steps`` here; ``run`` retains only the non-duplicated detail
+    # (parameters / outputs / timestamps) that top level does not carry.
+    _hoisted = {"steps", "plan", "subtasks_sync", "status", "progress", "subtask_status", "result_summary", "task_id", "error"}
+    run_slim = {k: v for k, v in run.items() if k not in _hoisted}
     out = {
         "ok": True,
-        **data,
+        **{k: v for k, v in data.items() if k != "run"},
+        "run": run_slim,
         "runId": run_id,
         "run_id": run_id,
         "progress": progress,
@@ -376,23 +393,26 @@ def workflow_run_status(args: dict[str, Any]) -> dict[str, Any]:
     }
     if status:
         out["status"] = status
-    # Compact trail for agents / verification ledgers
+    # Compact trail = index over the steps above (verification ledgers poll this
+    # every few seconds, so a second copy of each step's text is the fastest way to
+    # blow an agent's context). ``description`` deliberately lives only in
+    # ``steps`` / ``workflow.get``; ``result_summary`` is a glanceable head.
     trail = []
     for st in out["steps"] or []:
         if not isinstance(st, dict):
             continue
-        trail.append(
-            {
-                "ref": st.get("ref"),
-                "name": st.get("name"),
-                "status": st.get("status"),
-                "assigned_agent": st.get("assigned_agent"),
-                "progress": st.get("progress"),
-                "description": (str(st.get("description") or "")[:400]),
-                "result_summary": (str(st.get("result_summary") or "")[:400]),
-                "error_text": (str(st.get("error_text") or "")[:200]),
-            }
-        )
+        entry = {
+            "ref": st.get("ref"),
+            "name": st.get("name"),
+            "status": st.get("status"),
+            "assigned_agent": st.get("assigned_agent"),
+            "progress": st.get("progress"),
+            "result_summary": (str(st.get("result_summary") or "")[:200]),
+        }
+        err = str(st.get("error_text") or "")[:200]
+        if err:
+            entry["error_text"] = err
+        trail.append(entry)
     out["trail"] = trail
     return out
 
@@ -498,6 +518,9 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tags, list):
         tags = []
     canvas = _arg_json_value(args, "canvas")
+    declared_parameters = _arg_json_value(args, "parameters")
+    if not isinstance(declared_parameters, list):
+        declared_parameters = None
     data = apps_admin.generate_app(
         name=name,
         goal=goal,
@@ -511,6 +534,7 @@ def workflow_generate(args: dict[str, Any]) -> dict[str, Any]:
         max_params=int(args.get("max_params") or args.get("maxParams") or 5),
         tags=tags,
         canvas=canvas if isinstance(canvas, dict) else None,
+        parameters=declared_parameters,
     )
     return _workflow_app_result({**data, "hint": "已从目标+步骤生成草稿应用。"})
 
@@ -1224,9 +1248,10 @@ def employees_delete(args: dict[str, Any]) -> dict[str, Any]:
 def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
-    code = _arg_str(args, "agent_code", "agentCode", "code")
+    code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name")
     if not code:
-        raise ValidationError("agent_code is required")
+        raise ValidationError("agent_code is required（或 role_name）")
+    code = emp.resolve_role_ref(code).agent_code
     day = _arg_str(args, "day", "date") or None
     raw_days = args.get("days")
     # Integer/range ``days`` = look-back window (CORE-EMP-01); YYYY-MM-DD string stays day alias.
@@ -1242,18 +1267,32 @@ def employees_worklog(args: dict[str, Any]) -> dict[str, Any]:
             if days_n <= 0:
                 raise ValidationError("days must be >= 1")
             days_n = min(days_n, 30)
+    raw_limit = args.get("limit")
+    try:
+        limit = int(raw_limit) if raw_limit is not None and str(raw_limit).strip() != "" else 20
+    except (TypeError, ValueError) as e:
+        raise ValidationError("limit must be a positive integer") from e
+    if limit <= 0:
+        raise ValidationError("limit must be >= 1")
     return {
         "ok": True,
-        **emp.worklog(code, day=day, days=days_n, limit=int(args.get("limit") or 20)),
+        **emp.worklog(
+            code,
+            day=day,
+            days=days_n,
+            limit=limit,
+            round_id=_arg_str(args, "round_id", "roundId"),
+        ),
     }
 
 
 def employees_trail(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import employees as emp
 
-    code = _arg_str(args, "agent_code", "agentCode", "code", "name")
+    code = _arg_str(args, "agent_code", "agentCode", "code", "role", "role_name", "name")
     if not code:
-        raise ValidationError("agent_code is required")
+        raise ValidationError("agent_code is required（或 role_name）")
+    code = emp.resolve_role_ref(code).agent_code
     raw_steps = args.get("max_steps", args.get("maxSteps", 60))
     try:
         max_steps = int(raw_steps)

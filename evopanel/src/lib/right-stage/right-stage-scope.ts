@@ -46,6 +46,7 @@ const SESSION_SCOPED_KINDS = new Set<string>([
   'collab-workflow',
   'collabSubtaskTranscript',
   'employeeProcess',
+  'sessionRuntime',
   'shell-page',
 ])
 

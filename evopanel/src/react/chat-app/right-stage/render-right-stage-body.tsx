@@ -21,7 +21,9 @@ import { V4WorkspaceFileTreePane } from './v4-workspace-file-tree-pane.js'
 import { V4SubagentTranscriptPane } from './v4-subagent-transcript-pane.js'
 import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pane.js'
 import { V4EmployeeProcessPane } from './v4-employee-process-pane.js'
+import { V4SessionRuntimePane } from './v4-session-runtime-pane.js'
 import { resolveEmployeeProcessTabTitle } from '../../../lib/right-stage/open-employee-process-stage.js'
+import type { SessionChildWorkItem } from '../../lib/session-reattach.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import {
   openCollabSubtaskInRightStage,
@@ -191,25 +193,51 @@ export function renderRightStageBody(
   }
   if (kind === 'terminal') {
     const data = surface.data || {}
-    const toolCallId = String(data.toolCallId || surface.id || '').trim()
-    const command = String(data.command || '').trim()
+    const warmBash = !!data.warmBash
     const streams = liveProcessSnapshot.terminalStreams || {}
+    const streamList = Object.values(streams).filter(Boolean) as Array<{
+      toolCallId?: string
+      id?: string
+      command?: string
+      phase?: string
+      startedAt?: number
+      endedAt?: number
+    }>
+    const pickWarmBashStream = () => {
+      if (!streamList.length) return undefined
+      const running = streamList.filter((s) => String(s.phase || '') === 'running')
+      const pool = running.length ? running : streamList
+      return [...pool].sort((a, b) => {
+        const ta = Number(a.endedAt || a.startedAt || 0)
+        const tb = Number(b.endedAt || b.startedAt || 0)
+        return tb - ta
+      })[0]
+    }
+    const explicitId = String(data.toolCallId || '').trim()
+    // Warm-bash tabs must not treat pool key / surface id as toolCallId.
+    const toolCallId = warmBash
+      ? String(pickWarmBashStream()?.toolCallId || '').trim()
+      : explicitId || String(surface.id || '').trim()
     const stream =
-      streams[toolCallId] ||
-      Object.values(streams).find(
+      (toolCallId && streams[toolCallId]) ||
+      streamList.find(
         (s) =>
           String(s?.toolCallId || '') === toolCallId ||
-          String((s as { id?: string })?.id || '') === toolCallId,
+          String(s?.id || '') === toolCallId,
       ) ||
-      undefined
+      (warmBash ? pickWarmBashStream() : undefined)
+    const command =
+      String(data.command || '').trim() ||
+      String(stream?.command || '').trim() ||
+      (warmBash ? '会话终端 · 等待本会话 Bash 输出' : '')
     return (
       <TerminalStagePanel
         title={String(surface.title || data.title || '终端')}
         command={command}
         sessionKey={String(data.sessionKey || selectedSessionKey || '')}
-        toolCallId={toolCallId}
+        toolCallId={toolCallId || (warmBash ? '' : String(surface.id || '').trim())}
         outputFallback={String(data.outputFallback || '')}
-        stream={stream}
+        stream={stream as any}
         running={!!data.running || stream?.phase === 'running'}
       />
     )
@@ -565,6 +593,23 @@ export function renderRightStageBody(
       />
     ) : (
       <SidePanelBootShell title={empTitle} />
+    )
+  }
+  if (kind === 'sessionRuntime') {
+    const data = surface.data || {}
+    const sk = String(data.sessionKey || surface.sessionKey || selectedSessionKey || '').trim()
+    if (!sk) return null
+    const initialWorks = Array.isArray(data.works) ? (data.works as SessionChildWorkItem[]) : []
+    return sidePanelHeavyMount ? (
+      <RightStageTabErrorBoundary title={String(surface.title || '运行中')}>
+        <V4SessionRuntimePane
+          sessionKey={sk}
+          initialWorks={initialWorks}
+          focusKind={String(data.focusKind || '').trim() || undefined}
+        />
+      </RightStageTabErrorBoundary>
+    ) : (
+      <SidePanelBootShell title={surface.title || '运行中'} />
     )
   }
   return null

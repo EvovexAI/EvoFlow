@@ -42,6 +42,9 @@ export function gatewayProxy(
   options?: { silent?: boolean; timeoutMs?: number } | null,
 ): Promise<any>
 
+/** True when a registration /poll error means the session is gone (404 session_not_found). */
+export function isRegistrationSessionGone(err: unknown): boolean
+
 declare const _default: {
   api: typeof api
   getGatewayBaseUrl: typeof getGatewayBaseUrl
@@ -64,5 +67,6 @@ declare const _default: {
   isExtendedReady: typeof isExtendedReady
   checkExtendedReady: typeof checkExtendedReady
   gatewayProxy: typeof gatewayProxy
+  isRegistrationSessionGone: typeof isRegistrationSessionGone
 }
 export default _default

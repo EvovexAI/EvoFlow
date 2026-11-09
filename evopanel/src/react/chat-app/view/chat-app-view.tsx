@@ -12,7 +12,7 @@ import type { DisplayRow } from '../../chat-types.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
-import { V4StreamRowsBridge } from '../../v4/V4StreamRowsBridge.js'
+import { V4StreamRowsBridge, retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
@@ -34,6 +34,7 @@ import { HistoryFetchSpinner } from '../../components/HistoryFetchSpinner.js'
 import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption } from '../../components/ChatComposer.js'
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
 import { GoalModePanel } from '../../components/GoalModePanel.js'
+import { GoalStatusBadgeBridge } from '../../v4/GoalStatusBadgeBridge.js'
 import { GoalProposalDock } from '../../components/GoalProposalDock.js'
 import { SkillPickerModal, type SkillSelection } from '../../components/SkillPickerModal.js'
 import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
@@ -46,6 +47,7 @@ import {
   buildDefaultRightStageLauncherItems,
 } from '../../components/RightStagePanel.js'
 import { PanelResizeHandle } from '../../components/PanelResizeHandle.js'
+import { OpenTracePanel } from '../../components/OpenTracePanel.js'
 import { SessionSidebar, type SubtaskTranscriptModalPayload } from '../../components/SessionSidebar.js'
 import { MemoryRecallChip } from '../../components/MemoryRecallChip.js'
 import { ImagePreviewModal, type ImagePreviewItem } from '../../components/ImagePreviewModal.js'
@@ -69,6 +71,9 @@ function ClearPendingOptimisticOnV4Echo(props: {
   }, [pendingText, windowRows, onClear])
   return null
 }
+
+/** render_state 日志签名去重（renderChatAppView 是普通函数，无 hooks；本视图单例）。 */
+let _v4RenderStateSig = ''
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
@@ -148,6 +153,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     handleFlushPendingSend,
     handleForkFromMessage,
     handleHistoryViewReady,
+    handleInterruptAndFlushQueue,
     handleInterruptAndSendSteers,
     handleManualContextCompact,
     handleOpenWorkspaceFolder,
@@ -214,6 +220,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     openKnowledgeMapPanel,
     openMessageFilePreview,
     openSessionArtifact,
+    openUiExtensionInStage,
     patchPanelSettings,
     pendingSendQueue,
     pendingSteers,
@@ -417,6 +424,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
             isHomeSurface ? ' react-chat-main-col--home' : ''
           }${isDeptChatSurface ? ' react-chat-main-col--dept' : ''}`}
         >
+          {/* 诊断面板：「点开会话 → 上屏」分段耗时/原因（localStorage EVOFLOW_OPEN_TRACE_PANEL=1 显示） */}
+          <OpenTracePanel />
           <header
             className={`react-chat-header${isDesktopTauriRuntime() ? ' react-chat-header--tauri-chrome' : ''}${
               isMobileChat ? ' react-chat-header--mobile' : ''
@@ -485,6 +494,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         ) : !engineReady ? (
                           <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                         ) : null}
+                        <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
                       </>
                     )}
                   </div>
@@ -546,6 +556,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       ) : !engineReady ? (
                         <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                       ) : null}
+                      <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
                     </>
                   )}
                 </div>
@@ -666,15 +677,18 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     lastLocal && String(lastLocal.role || '') === 'user'
                       ? String(lastLocal.text || '').trim()
                       : ''
-                  // pending 优先；turn 进行中才回退 lastLocal，避免 echo 清 pending 后
-                  // 闲置/重连再用 host 尾行把乐观气泡叠回权威消息上。
+                  // pending 优先；turn 进行中才回退 lastLocal——但 lastLocal 仅用于
+                  // echo 判定（清 pending），绝不触发注入：①切回瞬间 rows 还是上个
+                  // 会话的，needle 会跨会话泄漏；②超长流式回合把 userInput 行挤出
+                  // 尾部窗口后 echo 永远失败，乐观行会垫在流式回复下面几十秒
+                  // （2026-11-08 正式版实锤：「已重启了」在 2081 行快照上重复挂 20s+）。
+                  // 历史输入本就在权威流里，投影行到即显示。
                   const optimisticNeedle =
                     pendingOpt || (turnLive ? lastLocalUserText : '')
                   const hasV4UserEcho =
                     !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
-                  // pending 仅在「尚未 echo」时续命；echo 后由 ClearPending… 清掉。
-                  const awaitingV4UserEcho =
-                    (turnLive || !!pendingOpt) && !!optimisticNeedle && !hasV4UserEcho
+                  // 乐观注入只服务「本次刚点发送」的 pending；echo 后由 ClearPending… 清掉。
+                  const awaitingV4UserEcho = !!pendingOpt && !hasV4UserEcho
                   const localOptimisticHold =
                     awaitingV4UserEcho &&
                     (v4Phase === 'ready'
@@ -685,7 +699,49 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const localHasRows =
                     (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
                   const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  const optimisticUserText = localOptimisticHold ? optimisticNeedle : null
+                  const optimisticUserText = localOptimisticHold ? pendingOpt : null
+                  // 切会话诊断：渲染层四源的绑定状态一次看清——
+                  // ①V4 投影（phase/sessionMatched/行数）②乐观气泡（needle/echo/hold）
+                  // ③本地行（rows/lastLocalUserText）④运行计时（turnLive 绑的是哪个会话）。
+                  // 「输入在回复下面」= optimistic 注入且投影无当前轮 userInput（hasV4UserEcho=0）；
+                  // 「打开空白」= phase 停在 connecting 且 v4RowCount=0。签名变化才打一行，流式不刷屏。
+                  const v4RenderSig = [
+                    selectedSessionKey,
+                    selectedThreadId,
+                    v4Phase,
+                    v4SessionMatched ? 1 : 0,
+                    v4RowCount,
+                    selectedTurnBusy ? 1 : 0,
+                    selectedSessionLive ? 1 : 0,
+                    optimisticNeedle ? 1 : 0,
+                    hasV4UserEcho ? 1 : 0,
+                    localOptimisticHold ? 1 : 0,
+                    historyLoading ? 1 : 0,
+                    Array.isArray(rows) ? rows.length : 0,
+                  ].join('|')
+                  if (_v4RenderStateSig !== v4RenderSig) {
+                    _v4RenderStateSig = v4RenderSig
+                    logV4Life({
+                      event: 'render_state',
+                      sessionKey: selectedSessionKey,
+                      threadId: selectedThreadId || undefined,
+                      zh: `渲染层绑定：phase=${v4Phase} matched=${v4SessionMatched ? 1 : 0} v4行=${v4RowCount} turnLive=${turnLive ? 1 : 0}(busy=${selectedTurnBusy ? 1 : 0}/live=${selectedSessionLive ? 1 : 0}) 乐观针=${optimisticNeedle ? `「${optimisticNeedle.slice(0, 16)}」` : '∅'} echo=${hasV4UserEcho ? 1 : 0} 乐观挂=${localOptimisticHold ? 1 : 0} 本地行=${Array.isArray(rows) ? rows.length : 0}`,
+                      detail: {
+                        v4Phase,
+                        v4SessionMatched,
+                        v4RowCount,
+                        turnLive,
+                        selectedTurnBusy,
+                        selectedSessionLive,
+                        optimisticNeedle: optimisticNeedle.slice(0, 40) || null,
+                        hasV4UserEcho,
+                        localOptimisticHold,
+                        historyLoading,
+                        localRows: Array.isArray(rows) ? rows.length : 0,
+                      },
+                      skipDedupe: true,
+                    })
+                  }
                   let knownEmptyDraft = false
                   try {
                     knownEmptyDraft =
@@ -776,6 +832,11 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         v4Phase === 'connecting' || v4Phase === 'failed'
                       }
                       connectionFailed={v4Phase === 'failed'}
+                      onRetryConnection={
+                        v4Phase === 'failed' && selectedThreadId
+                          ? () => retryEvoflowV4Session(String(selectedThreadId))
+                          : undefined
+                      }
                       draftEmpty={draftEmpty}
                       optimisticUserText={optimisticUserText}
                       evoflowSessionKey={selectedSessionKey}
@@ -1204,6 +1265,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               onCancelPendingSend={handleCancelPendingSend}
               onEditPendingSend={handleEditPendingSend}
               onInterruptAndSendSteers={handleInterruptAndSendSteers}
+              onInterruptAndFlushQueue={handleInterruptAndFlushQueue}
               onEnhancePrompt={handleEnhancePrompt}
               speechEnabled={false}
               onVoiceTranscribed={undefined}
@@ -1262,6 +1324,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 setBottomPluginPanelOpen(next)
               }}
               bottomMoreTriggerRef={bottomMoreTriggerRef}
+              sessionKey={selectedSessionKey || sessionRef.current || ''}
               permissionPill={currentPermissionPillLabel}
               permissionMenuOpen={bottomPermissionOpen}
               onOpenPermissionMenu={togglePermissionMenu}
@@ -1601,6 +1664,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       {
                         sessionKey: String(selectedSessionKey || '').trim() || undefined,
                         layout: 'wide',
+                        // 用户从启动器点名：清收起锁，避免折叠态只写签不撑开
+                        forceExpand: true,
                       },
                     )
                   })
@@ -1622,6 +1687,17 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       },
                     )
                   })
+                }}
+                onPickAgentApp={(appId) => {
+                  const id = String(appId || '').trim()
+                  if (!id) return
+                  // ctx 是 Record<string, any>，缺 handler 时 TS 不会报错；
+                  // 这里显式兜底，避免点「Agent 应用」时抛 ReferenceError 静默失败。
+                  if (typeof openUiExtensionInStage !== 'function') {
+                    console.error('[chat-app-view] openUiExtensionInStage 未注入')
+                    return
+                  }
+                  openUiExtensionInStage(id)
                 }}
                 renderContent={renderRightStageBody}
               />

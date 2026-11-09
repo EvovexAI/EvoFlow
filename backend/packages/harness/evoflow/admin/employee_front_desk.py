@@ -173,14 +173,16 @@ def _resolve_employee_code(agent_code_or_name: str) -> tuple[str, str | None]:
         return "", "cannot inspect xiaomi herself; pick an employee"
     try:
         from evoflow.admin import employees as emp
-        from evoflow.admin.errors import NotFoundError
+        from evoflow.admin.errors import NotFoundError, ValidationError
 
         try:
             detail = emp.get_role(raw, recent_limit=0)
             code = str(detail.get("agent_code") or raw).strip()
             if code and not is_xiaomi_agent(code):
                 return code, None
-        except NotFoundError:
+        except (NotFoundError, ValidationError):
+            # get_role 现在也按岗位名解析；同名歧义会抛 ValidationError。
+            # 这里吞掉它，落到下面的显式唯一匹配 —— 歧义时宁可报明确错误也不猜岗。
             pass
         data = emp.list_roles(status="active")
         roles = data.get("roles") if isinstance(data, dict) else []

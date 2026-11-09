@@ -7,6 +7,8 @@
 | [仓库地图](repo-map.md) | 改哪里、测哪里 |
 | [分支与检查](branching-and-checks.md) | 拉分支、本地检查、CI |
 | [添加 Skill](add-skill.md) | 社区最常见的扩展方式 |
+| [更新套餐目录](update-plan-catalog.md) | 火山 Agent Plan / 百炼 Token Plan 模型表怎么同步 |
+| [output_schema 运行期缺口](output-schema-runtime-gap.md) | 交接：结构化产出契约为何在绑定门禁硬失败（实证/推断分开） |
 | [添加 IM 渠道](add-channel.md) | `app/channels` 扩展（通常先 RFC） |
 | [RFC](rfc.md) | 较大改动如何提案 |
 | [Discussions 与 Good First Issue](discussions-and-good-first-issues.md) | 社区分诊与新人任务 |

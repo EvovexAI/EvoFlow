@@ -333,7 +333,7 @@ def build_steps_output_from_subtasks(
 
         from evoflow.collab.workflow_handoff_sanitize import sanitize_steps_output_entry
 
-        out[ref] = sanitize_steps_output_entry(
+        entry = sanitize_steps_output_entry(
             {
                 "output": structured,
                 "summary": summary,
@@ -341,6 +341,20 @@ def build_steps_output_from_subtasks(
                 "artifacts_keyed": artifacts_keyed,
             }
         )
+        out[ref] = entry
+        # Semantic ref alias: plan steps carry ``ref="brief"`` while the runtime
+        # subtask row is numbered ``ref="1"``. Without this mirror,
+        # ``{{steps.brief.summary}}`` never resolves and the expression survives
+        # verbatim into downstream text (seen in a real template-node run).
+        # ``setdefault`` keeps the numeric ref authoritative on collision.
+        try:
+            from evoflow.collab.app_step_ref_bridge import subtask_semantic_ref
+
+            semantic = subtask_semantic_ref(st)
+        except Exception:  # pragma: no cover - bridge import must never break resolve
+            semantic = ""
+        if semantic and semantic != ref:
+            out.setdefault(semantic, entry)
     return out
 
 

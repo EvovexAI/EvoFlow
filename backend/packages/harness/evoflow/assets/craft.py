@@ -16,7 +16,10 @@ _SLUG_RE = re.compile(r"[^a-z0-9_\u4e00-\u9fff-]+")
 
 
 def _slug(name: str, *, max_len: int = 48) -> str:
-    s = _SLUG_RE.sub("-", str(name or "").strip().lower()).strip("-")
+    from evoflow.assets.ad_hoc_note import strip_md_ext
+
+    # Same trap as _slug_cjk: a pasted "runbook.md" title slugged to runbook-md.md.
+    s = _SLUG_RE.sub("-", strip_md_ext(str(name or "")).strip().lower()).strip("-")
     if not s:
         s = "craft"
     return s[:max_len].strip("-") or "craft"

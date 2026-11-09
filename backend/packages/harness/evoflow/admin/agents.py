@@ -218,7 +218,36 @@ def _validate_skills_list(skills: Any) -> list[str]:
     return names
 
 
-def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[str, Any]:
+def _kb_fields_from_extra(extra: dict[str, Any] | None, agent_cfg: AgentConfig) -> tuple[list[str], dict[str, Any]]:
+    """Resolve vault ids + kb_injection from a preloaded extra_json (or AgentConfig fallback)."""
+    from evoflow.config.agents_config import KbInjectionConfig
+
+    vault_ids: list[str] = []
+    seen: set[str] = set()
+    if isinstance(extra, dict) and "knowledge_vault_ids" in extra:
+        for vid in list(extra.get("knowledge_vault_ids") or []):
+            v = str(vid or "").strip()
+            if v and v not in seen:
+                seen.add(v)
+                vault_ids.append(v)
+    else:
+        for vid in list(getattr(agent_cfg, "knowledge_vault_ids", None) or []):
+            v = str(vid or "").strip()
+            if v and v not in seen:
+                seen.add(v)
+                vault_ids.append(v)
+    kb_block = extra.get("kb_injection") if isinstance(extra, dict) else None
+    kb_inj = KbInjectionConfig.from_dict(kb_block) if kb_block is not None else KbInjectionConfig()
+    return vault_ids, kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+
+
+def _agent_row(
+    agent_cfg: AgentConfig,
+    *,
+    include_soul: bool = False,
+    extra_json: dict[str, Any] | None = None,
+    extras_by_code: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     code = agent_cfg.agent_code
     tools = _dedupe_list_inplace(list(agent_cfg.tools) if agent_cfg.tools is not None else None)
     # main / 小V 运行时始终可用 platform（配置白名单可省略）；普通员工默认不带。
@@ -253,14 +282,21 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
         row["tools_note"] = "tools 含配置白名单；lead(main) 运行时始终可用 platform"
     elif is_xiaomi:
         row["tools_note"] = "小V 运行时强制挂载 platform"
-    # Surface KB bindings that live in extra_json / AgentConfig (CORE-AGENT-04).
+    # Surface KB bindings (CORE-AGENT-04). Prefer batched extras_by_code on list.
     try:
-        from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
+        extra = extra_json
+        if extra is None and extras_by_code is not None:
+            extra = extras_by_code.get(code_l)
+        if extra is None and extras_by_code is None:
+            from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
 
-        vault_ids = get_agent_kb_vault_ids(code)
-        kb_inj = get_agent_kb_injection_config(code)
-        row["knowledge_vault_ids"] = vault_ids
-        row["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+            row["knowledge_vault_ids"] = get_agent_kb_vault_ids(code)
+            kb_inj = get_agent_kb_injection_config(code)
+            row["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+        else:
+            vault_ids, kb_inj = _kb_fields_from_extra(extra, agent_cfg)
+            row["knowledge_vault_ids"] = vault_ids
+            row["kb_injection"] = kb_inj
     except Exception:
         row["knowledge_vault_ids"] = list(getattr(agent_cfg, "knowledge_vault_ids", None) or [])
         row["kb_injection"] = {}
@@ -275,7 +311,11 @@ def _agent_row(agent_cfg: AgentConfig, *, include_soul: bool = False) -> dict[st
     return row
 
 
-def _main_agent_row(*, include_soul: bool = False) -> dict[str, Any]:
+def _main_agent_row(
+    *,
+    include_soul: bool = False,
+    extras_by_code: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     try:
         agent_cfg = load_agent_config("main")
     except (FileNotFoundError, ValueError):
@@ -298,15 +338,27 @@ def _main_agent_row(*, include_soul: bool = False) -> dict[str, Any]:
             **({"soul": load_agent_soul("main") or ""} if include_soul else {}),
         }
         try:
-            from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
+            extra = (extras_by_code or {}).get("main")
+            if extra is None and extras_by_code is None:
+                from evoflow.config.agents_config import get_agent_kb_injection_config, get_agent_kb_vault_ids
 
-            row_fallback["knowledge_vault_ids"] = get_agent_kb_vault_ids("main")
-            kb_inj = get_agent_kb_injection_config("main")
-            row_fallback["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+                row_fallback["knowledge_vault_ids"] = get_agent_kb_vault_ids("main")
+                kb_inj = get_agent_kb_injection_config("main")
+                row_fallback["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
+            elif isinstance(extra, dict):
+                from evoflow.config.agents_config import KbInjectionConfig
+
+                if "knowledge_vault_ids" in extra:
+                    row_fallback["knowledge_vault_ids"] = [
+                        str(v).strip() for v in (extra.get("knowledge_vault_ids") or []) if str(v).strip()
+                    ]
+                kb_block = extra.get("kb_injection")
+                kb_inj = KbInjectionConfig.from_dict(kb_block) if kb_block is not None else KbInjectionConfig()
+                row_fallback["kb_injection"] = kb_inj.to_dict() if hasattr(kb_inj, "to_dict") else {}
         except Exception:
             pass
         return row_fallback
-    row = _agent_row(agent_cfg, include_soul=include_soul)
+    row = _agent_row(agent_cfg, include_soul=include_soul, extras_by_code=extras_by_code)
     row["agent_code"] = "main"
     if not row.get("agent_name"):
         row["agent_name"] = "EvoFlow"
@@ -338,8 +390,18 @@ def list_agents(
         offset: Optional skip count (``>= 0``).
         include_soul: When True, include ``soul`` / ``identity`` (heavier).
     """
-    agents = [_main_agent_row(include_soul=include_soul)]
-    agents.extend(_agent_row(a, include_soul=include_soul) for a in list_custom_agents())
+    extras_by_code: dict[str, dict[str, Any]] | None = None
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        extras_by_code = cfg_repo.list_all_agent_extra_json()
+    except Exception:
+        extras_by_code = None
+    agents = [_main_agent_row(include_soul=include_soul, extras_by_code=extras_by_code)]
+    agents.extend(
+        _agent_row(a, include_soul=include_soul, extras_by_code=extras_by_code)
+        for a in list_custom_agents()
+    )
     agents = [a for a in agents if str(a.get("agent_code") or "").strip() and str(a.get("agent_code") or "").strip().lower() not in _UI_HIDDEN_AGENT_CODES]
     if tag is not None:
         wanted = str(tag).strip()

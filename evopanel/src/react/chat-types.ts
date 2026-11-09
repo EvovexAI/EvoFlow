@@ -362,6 +362,10 @@ export interface CollabSubtaskSnapshot {
   taskReport?: string | null
   /** 后端监控落库：子任务最近工具调用（含输入输出） */
   observedToolCalls?: unknown[]
+  /** worker 通过 progress 工具上报的「当前在做什么」 */
+  currentStep?: string
+  /** 后端从 chat transcript 取的实时正文最后一条（仅未终态时有值） */
+  executionPreview?: string
   /** 子任务 worker 通过 checklist 工具维护的执行步骤 */
   workChecklist?: WorkChecklistItem[]
   /** 落库 worker thread_id（查 conversation-history 用） */

@@ -1,7 +1,25 @@
 """User-raised tasks with handlers: system holds wake for human ack."""
 
+import pytest
+
 import evoflow.admin.tasks as tasks_mod
 from evoflow.admin.tasks import handoff_needs_approval
+
+
+@pytest.fixture(autouse=True)
+def _gate_switch_unset(monkeypatch):
+    """Isolate the gate from the live app-settings DB (keep the real logic).
+
+    ``handoff_approval_enabled()`` reads ``evoflow_app_settings`` directly, and
+    this machine has ``runtime.handoff_approval = {"enabled": false}`` set by
+    hand (2026-11-03) — so three semantics tests failed on a dev box while the
+    product behaved exactly as configured. Pretend the key is unset (→ default
+    True) here instead of stubbing the function, so the switch tests below can
+    still drive the real reader by re-patching ``get_app_setting``.
+    """
+    import evoflow.persistence.config_repositories as repo
+
+    monkeypatch.setattr(repo, "get_app_setting", lambda key: None)
 
 
 def test_user_raised_with_handlers_needs_approval() -> None:

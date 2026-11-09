@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol
 
+from evoflow.plans.adapters.aliyun_token_plan import AliyunTokenPlanAdapter
 from evoflow.plans.adapters.volc_agent_plan import VolcAgentPlanAdapter
 from evoflow.plans.errors import PlanError, PlanErrorCode
 
@@ -28,6 +29,7 @@ class VendorPlanAdapter(Protocol):
 
 _ADAPTERS: list[VendorPlanAdapter] = [
     VolcAgentPlanAdapter(),
+    AliyunTokenPlanAdapter(),
 ]
 
 

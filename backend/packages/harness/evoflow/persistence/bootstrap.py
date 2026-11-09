@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import time
 from importlib import import_module
 from pathlib import Path
 from typing import Any
@@ -124,8 +126,25 @@ def seed_config_from_app_yaml(config_data: dict[str, Any]) -> None:
     )
 
 
-def sync_skills_from_filesystem() -> None:
-    """Upsert installed skills (SKILL.md) into ``evoflow_skills``."""
+_SKILLS_FS_SYNC_AT: float | None = None
+_SKILLS_FS_SYNC_TTL_S = float(os.getenv("EVOFLOW_SKILLS_FS_SYNC_TTL_S", "120") or "120")
+
+
+def sync_skills_from_filesystem(*, force: bool = False) -> None:
+    """Upsert installed skills (SKILL.md) into ``evoflow_skills``.
+
+    Throttled (default 120s) because ``load_skills`` calls this on every cold
+    cache miss — a full re-parse of hundreds of SKILL.md files was dominating
+    ``platform skills.list`` (~0.6s+). Install / enable / gateway seed paths
+    pass ``force=True`` (or clear via a prior ``clear_skills_cache`` + force).
+    """
+    global _SKILLS_FS_SYNC_AT
+
+    now = time.monotonic()
+    if not force and _SKILLS_FS_SYNC_AT is not None:
+        if (now - _SKILLS_FS_SYNC_AT) < max(0.0, _SKILLS_FS_SYNC_TTL_S):
+            return
+
     try:
         from evoflow.skills.loader import get_skills_root_path
         from evoflow.skills.parser import parse_skill_file
@@ -135,6 +154,7 @@ def sync_skills_from_filesystem() -> None:
 
     root = get_skills_root_path()
     if not root.is_dir():
+        _SKILLS_FS_SYNC_AT = now
         return
 
     for category in ("public", "custom"):
@@ -166,6 +186,19 @@ def sync_skills_from_filesystem() -> None:
             except OSError:
                 skill_md = reg.get("skill_md")
             rel = str(skill_file_path.parent.relative_to(root)).replace("\\", "/")
+            # Skip unchanged rows — avoids rewriting hundreds of identical blobs.
+            prev_path = str(reg.get("source_path") or "").replace("\\", "/")
+            prev_md = reg.get("skill_md")
+            prev_enabled = reg.get("enabled", True)
+            prev_cat = str(reg.get("category") or "")
+            if (
+                reg
+                and prev_path == rel
+                and prev_md == skill_md
+                and bool(prev_enabled) == bool(enabled)
+                and (not prev_cat or prev_cat == category)
+            ):
+                continue
             cfg_repo.upsert_skill_registry(
                 name,
                 enabled=bool(enabled),
@@ -174,6 +207,7 @@ def sync_skills_from_filesystem() -> None:
                 category=category,
                 meta={"description": getattr(skill, "description", "") or ""},
             )
+    _SKILLS_FS_SYNC_AT = now
 
 
 def _tool_use_path(tool_obj: Any) -> str:

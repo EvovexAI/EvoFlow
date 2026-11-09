@@ -18,6 +18,7 @@ Usage:
 """
 
 import logging
+import os
 import shutil
 import tempfile
 import zipfile
@@ -191,7 +192,7 @@ def refresh_skills_registry() -> None:
 
     clear_skills_cache()
     try:
-        sync_skills_from_filesystem()
+        sync_skills_from_filesystem(force=True)
         logger.info("Skills registry refreshed")
     except Exception as e:
         logger.warning(f"Failed to sync skills from filesystem: {e}")

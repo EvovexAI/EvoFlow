@@ -204,3 +204,49 @@ async def test_emit_followup_prefers_scheduler(monkeypatch: pytest.MonkeyPatch):
         bridge._followup_handler_ref = prev
     handled.assert_awaited_once()
     lead.assert_not_awaited()
+
+
+# ── pause gate ─────────────────────────────────────────────────────────
+# ``workflow.stop(pause=true)`` used to only relabel rows: the in-flight
+# worker's ``done`` released a followup wave right here and the run walked to
+# ``completed`` (live 2026-11-08: 37% → 70% → 100% after pausing). The gate sits
+# in advance_dag because all three reasons funnel through it.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", ["initial", "retry", "followup"])
+async def test_advance_dag_refuses_when_paused(monkeypatch: pytest.MonkeyPatch, reason: str):
+    dispatched: list[str] = []
+
+    monkeypatch.setattr(
+        "evoflow.collab.workflow_scheduler._load_main_task",
+        lambda _tid: {"id": "wf1", "source_app_id": "App_x", "status": "paused"},
+    )
+
+    async def _dispatch(tid, *, thread_id=None, authorized_by="api"):
+        dispatched.append(tid)
+        return {"success": True}
+
+    monkeypatch.setattr(
+        "evoflow.collab.dispatch_authorized_execution.dispatch_authorized_main_task_execution",
+        _dispatch,
+    )
+    monkeypatch.setattr(
+        "evoflow.collab.workflow_scheduler._push_app_run",
+        lambda tid, reason="": dispatched.append(f"push:{tid}"),
+    )
+
+    out = await advance_dag("wf1", reason=reason)
+    assert out["ok"] is False
+    assert out["error"] == "paused"
+    assert dispatched == [], f"wave went out while paused: {dispatched}"
+
+
+@pytest.mark.asyncio
+async def test_advance_dag_pausing_state_also_refuses(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        "evoflow.collab.workflow_scheduler._load_main_task",
+        lambda _tid: {"id": "wf1", "source_app_id": "App_x", "status": "pausing"},
+    )
+    out = await advance_dag("wf1", reason="initial")
+    assert out["error"] == "paused"

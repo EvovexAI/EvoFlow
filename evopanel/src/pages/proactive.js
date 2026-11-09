@@ -168,10 +168,10 @@ async function refreshAgentsAvatarIndex() {
 function _avatarSizeForEl(el, fallback = 44) {
   const raw = parseInt(String(el.getAttribute('data-avatar-size') || ''), 10)
   if (raw > 0) return raw
-  if (el.classList.contains('dd-org-avatar--lg')) return 56
-  if (el.classList.contains('dd-org-avatar--sm')) return 28
-  if (el.closest('.dd-org-mini')) return 40
-  if (el.classList.contains('dd-org-avatar')) return 28
+  if (el.classList.contains('dd-org-avatar--lg')) return 44
+  if (el.classList.contains('dd-org-avatar--sm')) return 22
+  if (el.closest('.dd-org-mini')) return 30
+  if (el.classList.contains('dd-org-avatar')) return 22
   if (el.classList.contains('pro-role-avatar')) return 40
   return fallback
 }
@@ -192,6 +192,166 @@ function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }
     return { action: 'live', label: '工作过程', className: 'pro-role-cta pro-role-cta--primary', code }
   }
   return { action: 'open', label: '打开', className: 'pro-role-cta pro-role-cta--ghost', code }
+}
+
+/**
+ * 部门头像：`data-dept-avatar` 挂预设 id，`data-dept-name` 作兜底首字。
+ * 预设图走 `/api/proactive/departments/avatar-presets/{id}`；
+ * 无 id / 加载失败时回落首字，不留白。
+ */
+const _DEPT_AVATAR_PRESET_RE = /^[a-z0-9][a-z0-9_-]{0,62}$/
+
+/** `"image"` = 用户上传的自定义头像，走 `GET /departments/{id}/avatar`。 */
+function _deptAvatarSrc(baseUrl, presetId, deptId = '', rev = '') {
+  const raw = String(presetId || '').trim()
+  const base = baseUrl ? String(baseUrl).replace(/\/$/, '') : ''
+  if (raw.toLowerCase() === 'image') {
+    const id = String(deptId || '').trim()
+    if (!id) return ''
+    const v = rev ? `?v=${encodeURIComponent(rev)}` : ''
+    return `${base}/api/proactive/departments/${encodeURIComponent(id)}/avatar${v}`
+  }
+  const id = raw.toLowerCase().replace(/^preset:/, '')
+  if (!_DEPT_AVATAR_PRESET_RE.test(id)) return ''
+  const path = `/api/proactive/departments/avatar-presets/${encodeURIComponent(id)}`
+  return base ? `${base}${path}` : path
+}
+
+function _paintDeptAvatar(el, baseUrl) {
+  const presetId = String(el.getAttribute('data-dept-avatar') || '').trim()
+  const name = String(el.getAttribute('data-dept-name') || '').trim()
+  const size = parseInt(String(el.getAttribute('data-dept-size') || ''), 10) || 28
+  const deptId = String(el.getAttribute('data-dept-id') || '').trim()
+  const rev = String(el.getAttribute('data-dept-avatar-rev') || '').trim()
+  const src = _deptAvatarSrc(baseUrl, presetId, deptId, rev)
+  const initial = name.slice(0, 1) || '部'
+  const showInitial = () => {
+    el.innerHTML = ''
+    el.classList.remove('has-image')
+    el.textContent = initial
+  }
+  if (!src) {
+    showInitial()
+    return
+  }
+  const img = new Image()
+  img.alt = ''
+  img.draggable = false
+  img.decoding = 'async'
+  img.style.width = `${size}px`
+  img.style.height = `${size}px`
+  img.style.objectFit = 'cover'
+  img.style.display = 'block'
+  img.onload = () => {
+    el.innerHTML = ''
+    el.appendChild(img)
+    el.classList.add('has-image')
+  }
+  img.onerror = showInitial
+  img.src = src
+}
+
+/** 部门头像预设目录（模块级缓存，部门管理 / 组织架构详情共用） */
+let _deptAvatarPresets = []
+let _deptAvatarPresetsLoading = null
+
+function loadDeptAvatarPresets() {
+  if (_deptAvatarPresets.length) return Promise.resolve(_deptAvatarPresets)
+  if (_deptAvatarPresetsLoading) return _deptAvatarPresetsLoading
+  _deptAvatarPresetsLoading = api
+    .proactiveListDeptAvatarPresets()
+    .then((rows) => {
+      _deptAvatarPresets = Array.isArray(rows) ? rows : []
+      return _deptAvatarPresets
+    })
+    .catch(() => [])
+    .finally(() => {
+      _deptAvatarPresetsLoading = null
+    })
+  return _deptAvatarPresetsLoading
+}
+
+/** 真实部门 id（`__none__` / `name:` 伪节点不可改头像） */
+function _deptRealId(dept) {
+  const id = String(dept?.id || '').trim()
+  const real = id && id !== '__none__' && !id.startsWith('name:') ? id : String(dept?.dept_id || '').trim()
+  if (!real || real === '__none__' || real.startsWith('name:')) return ''
+  return real
+}
+
+/** 头像本体当按钮用：属性串（不可改的部门返回空串） */
+function deptAvatarTriggerAttrs(dept) {
+  const id = _deptRealId(dept)
+  if (!id) return ''
+  return ` data-act="dept-avatar-toggle" data-id="${esc(id)}" role="button" tabindex="0" title="点击更换部门头像"`
+}
+
+/**
+ * 部门头像 `<span>` 的绘制属性。
+ * `"image"` 走上传文件（带 dept id + 版本号），其余走内置预设。
+ */
+function deptAvatarPaintAttrs(dept, size) {
+  const id = _deptRealId(dept) || String(dept?.dept_id || '').trim()
+  const preset = String(dept?.avatar || '').trim()
+  const rev = String(dept?.avatar_rev || '').trim()
+  const isImage = preset.toLowerCase() === 'image'
+  const px = parseInt(String(size ?? ''), 10) || 0
+  return (
+    ` data-dept-avatar="${esc(isImage ? 'image' : preset)}"` +
+    ` data-dept-name="${esc(String(dept?.name || '').trim())}"` +
+    ` data-dept-size="${px}"` +
+    (id ? ` data-dept-id="${esc(id)}"` : '') +
+    (isImage && rev ? ` data-dept-avatar-rev="${esc(rev)}"` : '')
+  )
+}
+
+/**
+ * 部门头像选择宫格（部门管理 / 组织架构部门详情共用）。
+ * 点击头像后原地展开，不再额外占一行按钮。
+ */
+function renderDeptAvatarPicker(dept) {
+  const realId = _deptRealId(dept)
+  if (!realId) return ''
+  if (_orgUi.deptAvatarPickerOpen !== realId) return ''
+  const cur = String(dept?.avatar || '').trim().toLowerCase()
+  const uploadActive = cur === 'image'
+  const uploadCard = `
+        <button type="button" class="dd-dept-avatar-opt dd-dept-avatar-opt--upload${uploadActive ? ' is-active' : ''}" data-act="dept-avatar-upload" data-id="${esc(realId)}" title="${uploadActive ? '重新上传自定义头像' : '上传自定义头像'}">
+          <span class="dd-dept-avatar-opt-img dd-dept-avatar-upload-icon" aria-hidden="true">＋</span>
+          <span class="dd-dept-avatar-opt-label">${uploadActive ? '重新上传' : '上传图片'}</span>
+        </button>`
+  const cards = _deptAvatarPresets
+    .map((p) => {
+      const pid = String(p?.id || '').trim()
+      if (!pid) return ''
+      const active = pid === cur
+      return `
+        <button type="button" class="dd-dept-avatar-opt${active ? ' is-active' : ''}" data-act="dept-avatar-pick" data-id="${esc(realId)}" data-preset="${esc(pid)}" role="option" aria-selected="${active ? 'true' : 'false'}" title="${esc(p.label || pid)}">
+          <span class="dd-org-avatar dd-dept-avatar-opt-img" data-dept-avatar="${esc(pid)}" data-dept-name="${esc(p.label || pid)}" data-dept-size="28" aria-hidden="true"></span>
+          <span class="dd-dept-avatar-opt-label">${esc(p.label || pid)}</span>
+        </button>`
+    })
+    .join('')
+  return `
+    <div class="dd-dept-avatar-editor">
+      ${_orgUi.deptAvatarErr ? `<span class="dd-dept-avatar-err">${esc(_orgUi.deptAvatarErr)}</span>` : ''}
+      <input type="file" class="dd-dept-avatar-file" data-id="${esc(realId)}" accept="image/png,image/jpeg,image/webp" hidden>
+      <div class="dd-dept-avatar-grid" role="listbox" aria-label="选择部门头像">
+        ${uploadCard}${cards}
+      </div>
+    </div>`
+}
+
+function mountProactiveDeptAvatars(root) {
+  if (!root) return
+  const els = root.querySelectorAll('[data-dept-avatar]')
+  if (!els.length) return
+  void gatewayBaseForAvatars().then((baseUrl) => {
+    els.forEach((el) => {
+      el.textContent = ''
+      _paintDeptAvatar(el, baseUrl)
+    })
+  })
 }
 
 function mountProactiveAvatars(root, defaultSize = 44) {
@@ -242,6 +402,10 @@ let _orgUi = {
   departments: [],
   deptSelected: '',
   deptPickerQuery: '',
+  /** 部门头像选择器展开的部门 id（'' = 收起） */
+  deptAvatarPickerOpen: '',
+  /** 部门头像保存失败提示 */
+  deptAvatarErr: '',
   /** @type {Set<string>} */
   expanded: new Set(['__root__']),
 }
@@ -370,9 +534,7 @@ export async function render() {
       <div class="pro-detail-pane">
         <div class="pro-hero">
           <div class="pro-hero-main">
-            <p class="pro-hero-kicker">数字员工</p>
-            <h1 class="page-title">员工</h1>
-            <p class="page-desc">加人、排班、组织编制；有事项等你拍板时优先处理，进度全貌看「工作项」</p>
+            <h1 class="page-title">数字员工<span class="pro-hero-bot">（BOT）</span></h1>
           </div>
           <div class="page-actions">
             <div class="pro-actions-state">
@@ -429,7 +591,7 @@ export async function render() {
           </div>
           <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
             <span class="sr-only">搜索员工</span>
-            <svg class="pro-roles-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <svg class="pro-roles-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
             </svg>
@@ -1525,7 +1687,7 @@ function openRosterLive(page, role) {
         roundId: roundId || undefined,
         busy: liveBusy,
       },
-      { sessionKey: EMPLOYEES_ROSTER_STAGE_SESSION_KEY, layout: 'wide' },
+      { sessionKey: EMPLOYEES_ROSTER_STAGE_SESSION_KEY, layout: 'wide', forceExpand: true },
     )
     if (!tabId) {
       toast('无法打开工作过程面板', 'error')
@@ -1828,6 +1990,8 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
     const selected = _orgUi.selectedKind === 'dept' && _orgUi.selected === key
     const count = Number(node.member_count || kids.length || 0)
     const headLabel = String(node.head_role_name || node.head_agent_code || '').trim()
+    const deptAvatar = String(node.avatar || '').trim()
+    const avatarHtml = `<span class="dd-org-avatar dd-org-dept-avatar"${deptAvatarPaintAttrs({ id: node.dept_id, dept_id: node.dept_id, avatar: deptAvatar, avatar_rev: node.avatar_rev, name }, 28)} aria-hidden="true"></span>`
     const childHtml =
       hasKids && expanded
         ? `<ul class="dd-org-children">${kids
@@ -1840,7 +2004,7 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
           <button type="button" class="dd-org-twist${hasKids ? (expanded ? ' is-open' : '') : ' is-leaf'}" data-act="org-toggle" data-code="${esc(key)}" aria-label="${hasKids ? (expanded ? '收起部门' : '展开部门') : '无成员'}" ${hasKids ? '' : 'tabindex="-1"'}>
             <span class="dd-org-twist-icon" aria-hidden="true"></span>
           </button>
-          <span class="dd-org-dept-icon" aria-hidden="true"></span>
+          ${avatarHtml}
           <div class="dd-org-text">
             <span class="dd-org-name">${esc(name)}</span>
             <span class="dd-org-dept">${headLabel ? `负责人 · ${esc(headLabel)}` : '未设负责人'}</span>
@@ -1878,7 +2042,7 @@ function renderOrgTreeRow(node, flatRoles, depth, isLast) {
         <button type="button" class="dd-org-twist${hasKids ? (expanded ? ' is-open' : '') : ' is-leaf'}" data-act="org-toggle" data-code="${esc(code)}" aria-label="${hasKids ? (expanded ? '收起下级' : '展开下级') : '无下级'}" title="${hasKids ? (expanded ? '收起下级' : '展开下级') : ''}" ${hasKids ? '' : 'tabindex="-1"'}>
           <span class="dd-org-twist-icon" aria-hidden="true"></span>
         </button>
-        <div class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="28" aria-hidden="true"></div>
+        <div class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="22" aria-hidden="true"></div>
         <div class="dd-org-text">
           <span class="dd-org-name">${esc(name)}</span>
           ${statusLabel ? `<span class="dd-org-badge">${esc(statusLabel)}</span>` : ''}
@@ -1910,7 +2074,7 @@ function _orgMiniCard(roleOrNode, { focus = false } = {}) {
   if (!code) return ''
   return `
     <button type="button" class="dd-org-mini${focus ? ' is-focus' : ''}" data-act="org-select" data-code="${esc(code)}">
-      <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="40" aria-hidden="true"></span>
+      <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="30" aria-hidden="true"></span>
       <span class="dd-org-mini-name">${esc(name)}</span>
     </button>`
 }
@@ -1962,6 +2126,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   const name = String(deptNode.dept_name || '').trim()
   const headCode = String(deptNode.head_agent_code || '').trim()
   const headName = String(deptNode.head_role_name || '').trim()
+  const deptAvatar = String(deptNode.avatar || '').trim()
   const members = []
   const walk = (nodes) => {
     for (const n of nodes || []) {
@@ -2000,7 +2165,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
           return `
             <li>
               <button type="button" class="dd-org-dept-person${isHead ? ' is-head' : ''}" data-act="org-select" data-code="${esc(code)}">
-                <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="36" aria-hidden="true"></span>
+                <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="28" aria-hidden="true"></span>
                 <span class="dd-org-dept-person-text">
                   <strong>${esc(rn)}${isHead ? '<span class="dd-dept-head-badge">负责人</span>' : ''}</strong>
                   <span>上级：${esc(mgrLabel)}${st ? ` · ${esc(st)}` : ''}</span>
@@ -2015,7 +2180,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
-        <span class="dd-org-dept-icon dd-org-dept-icon--lg" aria-hidden="true"></span>
+        <span class="dd-org-avatar dd-org-avatar--lg dd-org-dept-avatar"${deptAvatarTriggerAttrs({ id: deptNode.dept_id })}${deptAvatarPaintAttrs({ id: deptNode.dept_id, dept_id: deptNode.dept_id, avatar: deptAvatar, avatar_rev: deptNode.avatar_rev, name }, 44)} aria-hidden="true"></span>
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}</h3>
           <p class="dd-org-detail-meta">${members.length} 名成员 · 负责人：${
@@ -2023,6 +2188,7 @@ function renderOrgDeptDetail(deptNode, flatRoles) {
           }</p>
         </div>
       </div>
+      ${renderDeptAvatarPicker({ id: deptNode.dept_id, avatar: deptNode.avatar, name })}
       <div class="dd-org-section">
         <h4>部门成员</h4>
         ${listHtml}
@@ -2099,7 +2265,7 @@ function renderOrgDetail(flatRoles, forest) {
   return `
     <div class="dd-org-detail">
       <div class="dd-org-detail-head">
-        <div class="dd-org-avatar dd-org-avatar--lg" data-avatar-agent="${esc(code)}" data-avatar-size="56" aria-hidden="true"></div>
+        <div class="dd-org-avatar dd-org-avatar--lg" data-avatar-agent="${esc(code)}" data-avatar-size="44" aria-hidden="true"></div>
         <div>
           <h3 class="dd-org-detail-name">${esc(name)}${selfStatus ? ` <span class="dd-org-badge">${esc(selfStatus)}</span>` : ''}</h3>
           <p class="dd-org-detail-meta"><code>${esc(code)}</code>${dept ? ` · ${esc(dept)}` : ' · 未分部门'} · ${esc(dutyLabel)}</p>
@@ -2228,6 +2394,7 @@ function renderDepartmentsPanel(departments, roles) {
           const n = Number(d.member_count || (d.members || []).length || 0)
           return `
             <button type="button" class="dd-dept-row${on ? ' is-selected' : ''}" data-act="dept-select" data-id="${esc(id)}">
+              <span class="dd-dept-row-avatar dd-org-avatar"${deptAvatarPaintAttrs(d, 28)} aria-hidden="true"></span>
               <span class="dd-dept-row-main">
                 <span class="dd-dept-name">${esc(d.name || '')}</span>
                 ${
@@ -2253,7 +2420,7 @@ function renderDepartmentsPanel(departments, roles) {
             const st = _orgStatusLabel(m.status)
             return `
               <li class="dd-dept-card${String(selected?.head_agent_code || '') === code ? ' is-head' : ''}">
-                <span class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="40" aria-hidden="true"></span>
+                <span class="dd-org-avatar" data-avatar-agent="${esc(code)}" data-avatar-size="30" aria-hidden="true"></span>
                 <span class="dd-dept-card-text">
                   <strong class="dd-dept-card-name">${esc(name)}${
                     String(selected?.head_agent_code || '') === code
@@ -2299,7 +2466,7 @@ function renderDepartmentsPanel(departments, roles) {
                     const st = _orgStatusLabel(r.status)
                     return `
                       <button type="button" class="dd-dept-pick" data-act="dept-add-member" data-code="${esc(code)}" role="option">
-                        <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="32" aria-hidden="true"></span>
+                        <span class="dd-org-avatar dd-org-avatar--sm" data-avatar-agent="${esc(code)}" data-avatar-size="22" aria-hidden="true"></span>
                         <span class="dd-dept-pick-text">
                           <strong>${esc(name)}</strong>
                           <span>${esc(code)}${st ? ` · ${esc(st)}` : ''}${dept ? ` · 现属「${esc(dept)}」` : ' · 未分部门'}</span>
@@ -2335,6 +2502,7 @@ function renderDepartmentsPanel(departments, roles) {
             selected
               ? `
             <div class="dd-dept-main-head">
+              <span class="dd-dept-main-avatar dd-org-avatar dd-org-avatar--lg"${deptAvatarTriggerAttrs(selected)}${deptAvatarPaintAttrs(selected, 44)} aria-hidden="true"></span>
               <div>
                 <h3 class="dd-dept-main-title">${esc(selected.name || '')}</h3>
                 <p class="dd-dept-main-sub">${members.length} 名成员 · 先指定负责人，再理清汇报线</p>
@@ -2344,6 +2512,7 @@ function renderDepartmentsPanel(departments, roles) {
                 <button type="button" class="btn btn-sm btn-outline" data-act="dept-delete" data-id="${esc(selected.id)}">删除</button>
               </div>
             </div>
+            ${renderDeptAvatarPicker(selected)}
             <div class="dd-dept-block">
               <h4 class="dd-dept-block-title">部门负责人</h4>
               <label class="hire-field dd-dept-head-field">
@@ -2421,7 +2590,7 @@ function _buildDeptForest(flatRoles, departments) {
     byDeptName.get(d).push(r)
   }
 
-  const makeDeptNode = (id, name, members, headCode = '', headName = '') => {
+  const makeDeptNode = (id, name, members, headCode = '', headName = '', avatar = '', avatarRev = '') => {
     const children = _buildForestFromFlat(members)
     // Prefer head as first root when they sit at dept root (no in-dept manager).
     if (headCode && children.length > 1) {
@@ -2443,6 +2612,8 @@ function _buildDeptForest(flatRoles, departments) {
       member_count: members.length,
       head_agent_code: headCode,
       head_role_name: headName,
+      avatar: String(avatar || '').trim(),
+      avatar_rev: String(avatarRev || '').trim(),
       children,
     }
   }
@@ -2457,7 +2628,7 @@ function _buildDeptForest(flatRoles, departments) {
     const id = String(d.id || '').trim() || `name:${name}`
     const headCode = String(d.head_agent_code || '').trim()
     const headName = String(d.head_role_name || '').trim()
-    roots.push(makeDeptNode(id, name, members, headCode, headName))
+    roots.push(makeDeptNode(id, name, members, headCode, headName, d.avatar, d.avatar_rev))
   }
   for (const [name, members] of byDeptName.entries()) {
     if (seen.has(name)) continue
@@ -2606,6 +2777,8 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
         : renderOrgTree(trees, flat)
     await refreshAgentsAvatarIndex()
     mountProactiveAvatars(container)
+    mountProactiveDeptAvatars(container)
+    void loadDeptAvatarPresets()
     bindOrgPanel(page, container)
   } catch (e) {
     if (_currentTab === 'org' && container) {
@@ -2622,6 +2795,8 @@ function _rerenderOrg(page) {
       ? renderDepartmentsPanel(_orgUi.departments, _orgUi.flat)
       : renderOrgTree(_orgUi.forest, _orgUi.flat)
   void refreshAgentsAvatarIndex().then(() => mountProactiveAvatars(container))
+  mountProactiveDeptAvatars(container)
+  void loadDeptAvatarPresets()
   bindOrgPanel(page, container)
 }
 
@@ -2751,6 +2926,78 @@ function bindOrgPanel(page, container) {
         toast(String(err?.message || err || '新建失败'), 'error')
       }
     })()
+  })
+  // 点击部门头像本身即展开/收起预设宫格（不再需要单独按钮）
+  container.querySelectorAll('[data-act="dept-avatar-toggle"]').forEach((el) => {
+    const toggle = () => {
+      const id = String(el.getAttribute('data-id') || '').trim()
+      if (!id) return
+      _orgUi.deptAvatarErr = ''
+      _orgUi.deptAvatarPickerOpen = _orgUi.deptAvatarPickerOpen === id ? '' : id
+      if (_orgUi.deptAvatarPickerOpen) {
+        void loadDeptAvatarPresets().then(() => {
+          if (_currentTab === 'org') _rerenderOrg(page)
+        })
+      }
+      _rerenderOrg(page)
+    }
+    el.addEventListener('click', (e) => {
+      e.stopPropagation()
+      toggle()
+    })
+    el.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return
+      e.preventDefault()
+      e.stopPropagation()
+      toggle()
+    })
+  })
+  container.querySelectorAll('[data-act="dept-avatar-pick"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = String(btn.getAttribute('data-id') || '').trim()
+      const preset = String(btn.getAttribute('data-preset') || '').trim()
+      if (!id || !preset) return
+      void (async () => {
+        try {
+          await api.proactiveUpdateDepartment(id, { avatar: preset })
+          _orgUi.deptAvatarErr = ''
+          _orgUi.deptAvatarPickerOpen = ''
+          toast('部门头像已更新', 'success')
+          await loadAndRenderOrg(page)
+        } catch (err) {
+          _orgUi.deptAvatarErr = String(err?.message || err || '换头像失败')
+          _rerenderOrg(page)
+        }
+      })()
+    })
+  })
+  // 自定义上传：点「上传图片」卡 → 选文件 → POST /departments/{id}/avatar
+  container.querySelectorAll('[data-act="dept-avatar-upload"]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = String(btn.getAttribute('data-id') || '').trim()
+      if (!id) return
+      container.querySelector(`input.dd-dept-avatar-file[data-id="${CSS.escape(id)}"]`)?.click()
+    })
+  })
+  container.querySelectorAll('input.dd-dept-avatar-file').forEach((input) => {
+    input.addEventListener('change', () => {
+      const file = input.files?.[0] || null
+      const id = String(input.getAttribute('data-id') || '').trim()
+      if (input) input.value = ''
+      if (!file || !id) return
+      void (async () => {
+        try {
+          await api.uploadDeptAvatar(id, file, file.name || 'avatar.png')
+          _orgUi.deptAvatarErr = ''
+          _orgUi.deptAvatarPickerOpen = ''
+          toast('部门头像已更新', 'success')
+          await loadAndRenderOrg(page)
+        } catch (err) {
+          _orgUi.deptAvatarErr = String(err?.message || err || '上传头像失败')
+          _rerenderOrg(page)
+        }
+      })()
+    })
   })
   container.querySelector('[data-act="dept-rename"]')?.addEventListener('click', () => {
     const id = String(container.querySelector('[data-act="dept-rename"]')?.getAttribute('data-id') || '').trim()

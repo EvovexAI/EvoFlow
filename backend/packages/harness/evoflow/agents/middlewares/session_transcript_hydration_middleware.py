@@ -167,6 +167,102 @@ def _drain_pending_injects_into_transcript(session_key: str, thread_id: str | No
             message_ids=consumed_ids,
             consumed_by_run_id=run_id,
         )
+        # Durable inject receipts (outside pending-inject memory lock) so a
+        # restart cannot re-steer the same message_id into context.
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                SOURCE_PENDING_INJECT,
+                safe_record_inject_receipt,
+            )
+
+            for mid in consumed_ids:
+                safe_record_inject_receipt(
+                    sk,
+                    SOURCE_PENDING_INJECT,
+                    mid,
+                    consumed_by_run_id=run_id,
+                )
+        except Exception:
+            logger.debug("pending_inject: receipt record failed session=%s", sk, exc_info=True)
+    return appended
+
+
+def _drain_completed_child_work_notices(session_key: str, thread_id: str | None) -> int:
+    """Fallback: write unfinished child-work completions into transcript (LIMIT 3).
+
+    Push-wake is preferred; this only runs when no inject receipt exists yet.
+    One indexed SELECT + at most 3 appends — skips entirely when the JOIN is empty.
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return 0
+    try:
+        from evoflow.persistence import chat_session_service as chat_svc
+        from evoflow.persistence.session_runtime_repository import (
+            SOURCE_CHILD_WORK_COMPLETE,
+            list_uninjected_completed_child_works,
+            safe_delete_inject_receipt,
+            safe_try_claim_inject,
+        )
+    except Exception:
+        return 0
+
+    try:
+        pending = list_uninjected_completed_child_works(sk, limit=3)
+    except Exception:
+        logger.debug("child_work_notice: list failed session=%s", sk, exc_info=True)
+        return 0
+    if not pending:
+        return 0
+
+    appended = 0
+    for work in pending:
+        wid = str(work.get("work_id") or "").strip()
+        if not wid:
+            continue
+        if not safe_try_claim_inject(sk, SOURCE_CHILD_WORK_COMPLETE, wid):
+            continue
+        kind = str(work.get("kind") or "child").strip() or "child"
+        status = str(work.get("status") or "completed").strip() or "completed"
+        title = str(work.get("title") or kind).strip()[:120]
+        ref = str(work.get("ref_id") or "").strip()
+        mid = f"child-work-notice:{wid}"
+        text = (
+            "<task-notification>\n"
+            f"<task-id>{ref or wid}</task-id>\n"
+            f"<kind>{kind}</kind>\n"
+            f"<title>{title}</title>\n"
+            f"<status>{status}</status>\n"
+            "<summary>Background work finished (delivered on next turn).</summary>\n"
+            "</task-notification>"
+        )
+        try:
+            result = chat_svc.append_message_and_touch_session(
+                sk,
+                role="user",
+                content=text,
+                thread_id=thread_id or work.get("parent_thread_id") or work.get("thread_id"),
+                message_id=mid,
+                tool_name="task-notification",
+            )
+            if result is None:
+                safe_delete_inject_receipt(sk, SOURCE_CHILD_WORK_COMPLETE, wid)
+                continue
+            appended += 1
+        except Exception:
+            safe_delete_inject_receipt(sk, SOURCE_CHILD_WORK_COMPLETE, wid)
+            logger.debug(
+                "child_work_notice: append failed session=%s work=%s",
+                sk,
+                wid,
+                exc_info=True,
+            )
+    if appended:
+        logger.info(
+            "child_work_notice: hydrated %d completion(s) into transcript session=%s",
+            appended,
+            sk,
+        )
     return appended
 
 
@@ -680,6 +776,9 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
         # Must happen BEFORE the hydration query so the new rows get picked
         # up with correct seq ordering.
         injected = _drain_pending_injects_into_transcript(session_key, thread_id)
+        # Detached subagent completions that missed push-wake (schedule fail /
+        # gateway restart): cheap LIMIT-3 fallback into the same transcript.
+        injected += _drain_completed_child_work_notices(session_key, thread_id)
 
         cache_key = _hydration_cache_key(session_key, None)
         max_seq, compaction_seq = get_session_hydration_watermark(session_key)

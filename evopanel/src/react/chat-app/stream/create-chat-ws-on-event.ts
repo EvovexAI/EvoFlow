@@ -15,6 +15,7 @@ import {
   isV4GatedAgUiEvent,
 } from '../../v4/v4Gate.js'
 import { publishPlatformFromAgUiResult } from './publish-platform-from-agui-result.js'
+import { isV4GoalActive } from '../../v4/goalCommand.js'
 import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
@@ -32,8 +33,8 @@ import {
   logChatTurnRunStarted,
 } from '../../lib/chat-turn-timing-log.js'
 import {
-  isChatWsEventBackground,
   readXiaomiAssistantSessionKey,
+  resolveChatEventTarget,
 } from '../../lib/chat-ws-foreground.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
@@ -735,7 +736,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       // 主栏已选中且 key 不同 → 后台；小V 会话在主栏未选中时也强制后台
       // （工作台空选中时旧逻辑会把小V 流当前台灌 rows，指挥台被「已工作」顶掉）。
       // 新建会话首轮：uiSk 仍空且 eventSk 不是小V → 仍当前台，避免 final 只写 rt 不 setRows。
-      const isBackground = isChatWsEventBackground({
+      //
+      // ⚠️ 竞态防线：resolveChatEventTarget 保证事件永远只写进它自己归属的会话（eventSk）。
+      // 切会话那一帧 sessionRef 可能还指向旧会话（uiSk 过期），若把 eventSk 的流灌进
+      // uiSk 的 runtime，就会出现「切会话后对话错乱 / 看不到 AI 回复」。
+      const { targetSk, isBackground } = resolveChatEventTarget({
         eventSk,
         uiSk,
         xiaomiSk: readXiaomiAssistantSessionKey(),
@@ -748,10 +753,6 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
       } else {
         chatStreamBgApplyRef.current = false
       }
-      // 修复：后台事件始终路由到 eventSk；前台事件只有在 activeSk 非空时才路由到 activeSk
-      // 当 activeSk 为空（新建会话过程中）且 eventSk 非空时，即使 isBackground=false（理论上不会发生），
-      // 也应该丢弃事件而不是写入空会话的临时 runtime
-      const targetSk = isBackground ? eventSk : (uiSk || eventSk || '')
       if (isBackground) {
         bgRuntimeNotifySessionRef.current = targetSk
       } else {
@@ -2218,10 +2219,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           // - RUN_ERROR：立刻 TURN_IDLE
           // - 本轮已是 model_error（额度用尽等）：立刻 idle。这类失败不会再进工具循环，
           //   若因 livePostOpen 拖着 busy，面板会一直「生成中」转圈且停止钮与 busy 不同步。
-          // - RUN_FINISHED：若 live POST /runs/stream 仍开着（streamWireSource==='run'），
-          //   勿 idle。工具循环中间的 RUN_FINISHED 若提前 idle，侧栏/停止/「运行中」会灭，
-          //   但 agui_event 仍豁免写入 → holdStreamResidue 继续流式渲染（切去任务中心再回来尤甚）。
-          //   真正收尾交给 SSE final / 用户停止。
+          // - RUN_FINISHED：一律勿 idle（不再要求 streamWireSource==='run'）。
+          //   工具循环中间的 RUN_FINISHED 若提前 idle，侧栏齿轮/停止/「运行中」会灭，
+          //   但 agui_event 仍豁免写入 → 页面继续流式渲染（正式包/切页回来尤甚）。
+          //   wire 已被误清时旧条件仍会 idle，症状就是「齿轮没了但还在流」。
+          //   真正收尾交给 SSE final / 用户停止 / stale watchdog。
           if (rt && isTurnBusy(rt) && targetSk) {
             const isRunError = String(aguiEvent.type) === 'RUN_ERROR'
             const livePostOpen = rt.streamWireSource === 'run'
@@ -2232,14 +2234,13 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               )
                 .toLowerCase()
                 .includes('model_error')
-            if (!isRunError && livePostOpen && !terminalModelError) {
+            if (!isRunError && !terminalModelError) {
+              // Keep busy; SSE final owns the real idle. SESSION_EVENT refreshes lastEventAt.
               dispatchSessionTurnEvent(targetSk, { type: 'SESSION_EVENT', at: Date.now() })
             } else {
               const endTrigger = isRunError
                 ? 'agui_run_error'
-                : terminalModelError
-                  ? 'agui_model_error_finished'
-                  : 'agui_run_finished'
+                : 'agui_model_error_finished'
               logStreamStop({
                 sessionKey: targetSk,
                 runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
@@ -3374,10 +3375,15 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         }
         const hp = extractGoalProposalFromTools(finalTools)
         const proposeMode = getGoalProposeActionMode()
+        // EvoFlow：v4 目标（goal 引擎）推进中，模型调用 propose_goal 不再触发
+        // hosted 目标面板/确认条——目标已在 v4 链路自动推进。
+        const v4GoalActive = isV4GoalActive(
+          String(wsClient.getSessionThreadId?.(finalSk) || ''),
+        )
         const clarifyFromFinal = effectivePlanHit?.boundPlanReady
           ? null
           : extractLatestClarificationFromRows(rt.rows)
-        if (!isBackground && hp && proposeMode !== 'dock') {
+        if (!isBackground && hp && proposeMode !== 'dock' && !v4GoalActive) {
           queueMicrotask(() => {
             try {
               applyGoalProposalRef.current(hp, { start: proposeMode === 'auto_start' })
@@ -3399,7 +3405,7 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             clarification: effectivePlanHit?.boundPlanReady
               ? null
               : mergeThreadPanelClarification(prev.clarification, clarifyFromFinal),
-            goalProposal: hp ? (proposeMode === 'dock' ? hp : null) : prev.goalProposal,
+            goalProposal: hp && !v4GoalActive ? (proposeMode === 'dock' ? hp : null) : prev.goalProposal,
             planInputFallback:
               effectivePlanHit?.planInput ||
               prev.planInputFallback ||

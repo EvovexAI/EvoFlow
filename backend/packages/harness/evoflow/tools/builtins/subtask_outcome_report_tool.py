@@ -36,7 +36,9 @@ async def done_tool(
         error: Failure reason when failed/blocked.
         evidence_paths: Optional file paths (prefer ``outputs``).
         outputs: Optional ``[{type,key,value,label?}]``.
-        structured_output: Optional JSON for step ``output_schema``.
+        structured_output: JSON object matching the step ``output_schema`` when
+            declared. Prefer this over trailing JSON in ``summary``; omitting it
+            when a schema is required fails the step under strict enforcement.
     """
     ctx_main, ctx_sub = _resolve_collab_ids(runtime)
     mid = str(main_task_id or ctx_main or "").strip()

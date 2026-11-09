@@ -101,6 +101,11 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="Look-back N Beijing calendar days (omit --day); max 30",
     )
     worklog_p.add_argument("--limit", type=int, default=80, help="Max initiatives to scan")
+    worklog_p.add_argument(
+        "--round-id",
+        default="",
+        help="Filter to one duty round (from dispatch/trail); default look-back becomes 7 days",
+    )
     add_output_flags(worklog_p)
     worklog_p.set_defaults(handler=_worklog)
 
@@ -240,6 +245,7 @@ def _worklog(args: argparse.Namespace):
         day=day,
         days=days_n if days_n > 0 else None,
         limit=int(getattr(args, "limit", 80) or 80),
+        round_id=str(getattr(args, "round_id", "") or "").strip(),
     )
 
 

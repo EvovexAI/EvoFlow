@@ -115,7 +115,9 @@ export function buildSubtaskDagIndex(subtasks) {
 }
 
 const DEFAULT_NODE_W = 212
-const DEFAULT_NODE_H = 136
+// 节点保持紧凑：标题(含头像/百分比/齿轮转圈) + 最新一条活动，纵向就两行。
+// 不再有底部总体进度条 —— 百分比已提到标题行。
+const DEFAULT_NODE_H = 72
 const DEFAULT_GAP_X = 40
 const DEFAULT_GAP_Y = 80
 const DEFAULT_PADDING = 28

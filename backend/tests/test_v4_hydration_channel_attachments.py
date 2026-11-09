@@ -97,3 +97,63 @@ def test_context_files_from_inbound_helper():
     atts = _v4_attachments_from_context_files(ctx)
     assert atts[0]["ref"] == "/tmp/a.png"
     assert atts[0]["mime"] == "image/png"
+
+
+def test_attachments_include_desktop_data_urls():
+    """桌面 chatSend 把图片编码成 data: URL 块——回放必须保留（readAttachment 直接当 URL 用）。"""
+    small = "data:image/png;base64," + "A" * 64
+    webp = "data:image/webp;base64," + "B" * 64
+    oversized = "data:image/gif;base64," + "C" * 2_800_001
+    atts = _attachments_from_user_payload(
+        {
+            "content": [
+                {"type": "text", "text": "看图"},
+                {"type": "image_url", "image_url": {"url": small}},
+                {"type": "image_url", "image_url": {"url": webp}},
+                {"type": "image_url", "image_url": {"url": oversized}},
+            ]
+        }
+    )
+    refs = [a["ref"] for a in atts]
+    assert refs == [small, webp]
+    assert atts[0]["mime"] == "image/png"
+    assert atts[1]["mime"] == "image/webp"
+    assert all(a["bytes"] == 0 for a in atts)
+
+
+def test_extractor_user_attachments_from_stream_body():
+    """POST /runs/stream body 的 image_url 块 → live 镜像 AttachmentRef（只看最新 human）。"""
+    import base64
+
+    from app.gateway.routers.langgraph_proxy import _extract_user_attachments_from_stream_body
+
+    png = base64.b64encode(b"\x89PNG" + b"x" * 16).decode()
+    mid1 = f"data:image/png;base64,{png}"
+    mid2 = f"data:image/jpeg;base64,{png}"
+    big = "data:image/gif;base64," + "A" * 2_800_001
+    body = json.dumps(
+        {
+            "input": {
+                "messages": [
+                    {"role": "user", "content": "旧文本", "id": "u0"},
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "看图"},
+                            {"type": "image_url", "image_url": {"url": mid1}},
+                            {"type": "image_url", "image_url": {"url": mid1}},
+                            {"type": "image_url", "image_url": {"url": mid2}},
+                            {"type": "image_url", "image_url": {"url": big}},
+                        ],
+                        "id": "u1",
+                    },
+                ]
+            }
+        }
+    ).encode()
+    atts = _extract_user_attachments_from_stream_body(body)
+    assert [a["ref"] for a in atts] == [mid1, mid2]
+    assert [a["mime"] for a in atts] == ["image/png", "image/jpeg"]
+    # 只看最新一条 human：历史轮次的图不重复挂
+    older = json.dumps({"input": {"messages": [{"role": "user", "content": "纯文本"}]}}).encode()
+    assert _extract_user_attachments_from_stream_body(older) == []

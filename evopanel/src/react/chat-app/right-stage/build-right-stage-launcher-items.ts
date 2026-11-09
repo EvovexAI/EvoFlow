@@ -40,5 +40,11 @@ export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherIte
     onOpenMindMap: () => {
       ctx.openKnowledgeMapPanel()
     },
+    // 「Agent 应用」入口：点它进选择器（RightStagePanel.onPickAgentApp），
+    // 真正开签由 onPickAgentApp → openUiExtensionInStage 完成。
+    // 这里只保证入口存在；onOpen 兜底直开第一个已安装应用。
+    onOpenAgentApp: () => {
+      ctx.openAgentAppLauncher?.()
+    },
   })
 }

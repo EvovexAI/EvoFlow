@@ -6,6 +6,7 @@ import { flushSync } from 'react-dom'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { skTail, ssLog } from '../../../lib/session-list-debug.js'
 import { logV4Life, markV4OpenTrace } from '../../lib/v4-lifecycle-log.js'
+import { beginOpenTrace } from '@zcode/ui/lib/openTrace.js'
 
 export type SelectSessionFromShellCtx = {
   sessionRef: MutableRefObject<string>
@@ -29,6 +30,8 @@ export function selectSessionFromShell(
   const from = String(ctx.sessionRef.current || '').trim()
   ssLog('shell.select', { key: skTail(k), from: skTail(from) })
   markV4OpenTrace({ sessionKey: k })
+  // 全链路分段计时锚点：从这一行起，后续每个阶段都会打「+Nms / 本步耗时」。
+  beginOpenTrace(k)
   logV4Life({
     event: 'session_click',
     sessionKey: k,

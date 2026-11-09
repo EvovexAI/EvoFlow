@@ -53,6 +53,11 @@ export function mapApiSubtaskRow(row, parentTaskId) {
       : {}),
     ...(typeof r.status === 'string' ? { status: r.status } : {}),
     ...(typeof r.progress === 'number' ? { progress: r.progress } : {}),
+    ...(typeof r.startedAt === 'string' && r.startedAt.trim()
+      ? { startedAt: r.startedAt.trim() }
+      : typeof r.started_at === 'string' && r.started_at.trim()
+        ? { startedAt: r.started_at.trim() }
+        : {}),
     ...(assignedAgent ? { assignedAgent } : {}),
     ...(assignedAgentDisplay ? { assignedAgentDisplay } : {}),
     ...(typeof r.taskReport === 'string'
@@ -64,6 +69,11 @@ export function mapApiSubtaskRow(row, parentTaskId) {
       ? { currentStep: r.currentStep }
       : typeof r.current_step === 'string'
         ? { currentStep: r.current_step }
+        : {}),
+    ...(typeof r.executionPreview === 'string'
+      ? { executionPreview: r.executionPreview }
+      : typeof r.execution_preview === 'string'
+        ? { executionPreview: r.execution_preview }
         : {}),
     ...(Array.isArray(r.observedToolCalls)
       ? { observedToolCalls: r.observedToolCalls }

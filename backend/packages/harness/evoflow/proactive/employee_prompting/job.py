@@ -26,6 +26,64 @@ _JOB_LAYER_FOOTER = (
 )
 
 
+def _duty_lines(responsibilities: Any) -> list[str]:
+    if isinstance(responsibilities, str):
+        return [ln.strip() for ln in responsibilities.splitlines() if ln.strip()]
+    lines: list[str] = []
+    if isinstance(responsibilities, (list, tuple)):
+        for item in responsibilities:
+            if isinstance(item, str) and "\n" in item:
+                lines.extend(part.strip() for part in item.splitlines() if part.strip())
+            else:
+                s = str(item or "").strip()
+                if s:
+                    lines.append(s)
+    return lines
+
+
+def _split_duty_section(sp: str) -> tuple[str, str, str]:
+    """Split ``sp`` around the ``## 岗位职责`` section → (head, body, trailing).
+
+    ``head`` = everything before the section; ``body`` = the section's own lines;
+    ``trailing`` = whatever other ``##`` sections came after it (kept verbatim).
+    Returns ``(sp, "", "")`` when the header is absent.
+    """
+    idx = sp.find(DUTY_PROMPT_SECTION)
+    if idx < 0:
+        return sp, "", ""
+    head = sp[:idx].rstrip()
+    tail = sp[idx + len(DUTY_PROMPT_SECTION):]
+    nxt = re.search(r"^##\s", tail, flags=re.MULTILINE)
+    if nxt:
+        body = tail[: nxt.start()].strip()
+        trailing = tail[nxt.start():].strip()
+    else:
+        body = tail.strip()
+        trailing = ""
+    return head, body, trailing
+
+
+def replace_duty_in_system_prompt(
+    system_prompt: str = "",
+    responsibilities: Any = None,
+) -> str:
+    """Authoritative write: the incoming list IS the job-duty section now.
+
+    Unlike :func:`merge_duty_into_system_prompt` (append-once / idempotent, used
+    at inject time), this replaces the existing ``## 岗位职责`` block so a later
+    edit is not silently dropped. Empty list removes the section entirely.
+    """
+    sp = str(system_prompt or "").strip()
+    lines = _duty_lines(responsibilities)
+    head, _body, trailing = _split_duty_section(sp)
+    if not lines:
+        parts = [p for p in (head, trailing) if p]
+        return "\n\n".join(parts)
+    block = DUTY_PROMPT_SECTION + "\n" + "\n".join(f"- {line}" for line in lines)
+    parts = [p for p in (head, block, trailing) if p]
+    return "\n\n".join(parts)
+
+
 def merge_duty_into_system_prompt(
     system_prompt: str = "",
     responsibilities: Any = None,
@@ -34,19 +92,15 @@ def merge_duty_into_system_prompt(
 
     Used by edit UI, create/update employee, assemble (inject-time), and overlap.
     Does not write to disk — callers decide persistence.
+
+    Append-only on purpose: an existing ``## 岗位职责`` section is left untouched.
+    Callers that mean to *edit* duties must use
+    :func:`replace_duty_in_system_prompt` instead, otherwise the write is a
+    silent no-op (that was the bug: ``employees.update`` sent responsibilities
+    through here and got ``ok: true`` with the old text still in place).
     """
     sp = str(system_prompt or "").strip()
-    lines: list[str] = []
-    if isinstance(responsibilities, str):
-        lines = [ln.strip() for ln in responsibilities.splitlines() if ln.strip()]
-    elif isinstance(responsibilities, (list, tuple)):
-        for item in responsibilities:
-            if isinstance(item, str) and "\n" in item:
-                lines.extend(part.strip() for part in item.splitlines() if part.strip())
-            else:
-                s = str(item or "").strip()
-                if s:
-                    lines.append(s)
+    lines = _duty_lines(responsibilities)
     if not lines:
         return sp
     if DUTY_PROMPT_SECTION in sp:

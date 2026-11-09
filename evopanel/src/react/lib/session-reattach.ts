@@ -57,6 +57,20 @@ function sleepAbortable(ms: number, signal?: AbortSignal): Promise<void> {
   })
 }
 
+export type SessionChildWorkItem = {
+  workId?: string
+  kind?: string
+  refId?: string
+  status?: string
+  title?: string
+  threadId?: string
+  parentThreadId?: string
+  startedAt?: string | null
+  updatedAt?: string | null
+  endedAt?: string | null
+  extra?: Record<string, unknown> | null
+}
+
 export type RuntimeStatusResponse = {
   sessionKey?: string
   threadId?: string | null
@@ -82,6 +96,9 @@ export type RuntimeStatusResponse = {
   currentTurnStartedAt?: string | null
   /** ISO8601 — latest turn wall-clock end */
   currentTurnEndedAt?: string | null
+  /** Child work under this session (subagent / collab / duty / warm_bash). */
+  childWorks?: SessionChildWorkItem[]
+  openChildWorkCount?: number
 }
 
 const RUNTIME_STATUS_MIN_INTERVAL_MS = 4500

@@ -123,6 +123,42 @@ def test_render_unresolved_kept_verbatim_and_reported():
     assert len(unresolved) == 2
 
 
+def test_render_resolves_semantic_ref_alias():
+    """``{{steps.<semantic>.summary}}`` must resolve.
+
+    Plan steps carry ``ref="brief"`` while the runtime subtask row is numbered
+    ``ref="1"``; the resolver indexes by the row ref, so without the alias
+    mirror the expression leaks verbatim into the rendered text (seen in a
+    real template-node run where ``{{steps.w1.summary}}`` survived).
+    """
+    upstream = {**_completed_upstream(), "semantic_ref": "w1"}
+    rendered, unresolved = render_template(
+        "上游：{{steps.w1.summary}} / 步号：{{steps.1.summary}}",
+        params={},
+        subtasks=[upstream],
+    )
+    assert rendered == "上游：上游结论文本 / 步号：上游结论文本"
+    assert unresolved == []
+
+
+def test_semantic_alias_does_not_shadow_numeric_ref():
+    """A semantic ref colliding with another step's number must not overwrite it.
+
+    The alias-carrying row (``ref=1`` → semantic ``"2"``) is listed **after**
+    the real step 2, so an unconditional ``out[semantic] = entry`` rewrote
+    ``steps.2`` into 一步 and this assertion fails. Ordering matters on purpose.
+    """
+    subtasks = [
+        {"id": "b", "ref": "2", "status": "completed", "result_summary": "二步"},
+        {"id": "a", "ref": "1", "status": "completed", "result_summary": "一步", "semantic_ref": "2"},
+    ]
+    rendered, unresolved = render_template(
+        "{{steps.1.summary}}|{{steps.2.summary}}", params={}, subtasks=subtasks
+    )
+    assert rendered == "一步|二步"
+    assert unresolved == []
+
+
 def test_is_template_subtask_guard():
     assert is_template_subtask(_template_row()) is True
     assert is_template_subtask(_llm_row()) is False
@@ -145,6 +181,41 @@ def test_execute_template_subtask_completes_with_outputs():
     assert row["outputs"] and row["outputs"][0]["type"] == "text"
     assert row.get("completed_at")
     assert storage.saves >= 1
+
+
+def test_execute_template_subtask_stamps_outcome_gate_for_downstream():
+    """A completed template node must release its dependents.
+
+    ``is_upstream_subtask_dependency_met()`` gates on ``outcome_reported_at``,
+    not on ``status``. Without the stamp the node shows completed while every
+    scheduler tick answers ``no_runnable_subtasks`` for the step below it —
+    a deadlocked DAG (observed live with a 4-node run stuck at 75%).
+    """
+    from evoflow.collab.subtask_outcome import (
+        is_subtask_outcome_reported,
+        is_upstream_subtask_dependency_met,
+    )
+
+    storage = _FakeStorage(_project(_main_task([_completed_upstream(), _template_row()])))
+    out = execute_template_subtask(storage, "main1", _template_row(), params={"topic": "T"})
+    assert out["ok"] is True
+    row = next(st for st in storage.project["tasks"][0]["subtasks"] if st["id"] == "tpl1")
+    assert row["status"] == "completed"
+    assert is_subtask_outcome_reported(row) is True
+    assert is_upstream_subtask_dependency_met(row) is True
+
+
+def test_template_render_failure_also_stamps_outcome():
+    """Failed renders must stamp too, so the failure cascades instead of stalling."""
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    bad = {**_template_row(), "template": "   "}
+    storage = _FakeStorage(_project(_main_task([bad])))
+    out = execute_template_subtask(storage, "main1", bad, params={})
+    assert out["ok"] is False
+    row = storage.project["tasks"][0]["subtasks"][0]
+    assert row["status"] == "failed"
+    assert is_subtask_outcome_reported(row) is True
 
 
 def test_execute_template_subtask_failure_marks_business_error():

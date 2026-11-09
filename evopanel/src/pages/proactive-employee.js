@@ -1069,12 +1069,14 @@ function adoptEmployeePage(oldPage, nextPage) {
  * 右栏 shell-page 挂载员工详情（不改 hash，与菜单同款页面模块）。
  * @returns {{ destroy: () => void, title?: string }}
  */
-export async function mountEmployeePageInto(container, { code, onClose } = {}) {
+export async function mountEmployeePageInto(container, { code, onClose, onTitle } = {}) {
   const host = container
   const agentCode = String(code || '').trim()
   if (!host || !agentCode) return { destroy: () => {} }
-  // Right-stage mount is outside router timeout — wait for title/content.
-  const page = await renderEmployeePage(agentCode, { waitForFill: true })
+  // Shell first — same as router path. waitForFill:true used to block the right
+  // stage for up to 90s on gateway warming timeout while chat still streamed,
+  // which felt like a full UI freeze /「死机」.
+  const page = await renderEmployeePage(agentCode, { waitForFill: false })
   page.classList.add('shell-page-embed')
   const back = page.querySelector('[data-act="back"]')
   if (back) {
@@ -1087,10 +1089,20 @@ export async function mountEmployeePageInto(container, { code, onClose } = {}) {
     })
   }
   host.replaceChildren(page)
-  const title = String(page.dataset.shellPageTitle || '').trim()
+  const fill = page._fillPromise
+  if (fill && typeof fill.then === 'function') {
+    void fill
+      .then(() => {
+        if (page._fillAborted) return
+        const nice = String(page.dataset.shellPageTitle || '').trim()
+        if (nice && typeof onTitle === 'function') onTitle(nice)
+      })
+      .catch(() => {})
+  }
   return {
-    title: title || undefined,
+    title: undefined,
     destroy: () => {
+      page._fillAborted = true
       try {
         page.remove()
       } catch {
@@ -1280,11 +1292,17 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     }
   } catch (e) {
     if (page._fillAborted) return
+    const raw = String(e?.message || e || '')
+    const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
+    const tip = warming
+      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开员工详情。'
+      : ''
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
       </div>
-      <div class="pro-error">加载失败: ${esc(String(e?.message || e))}</div>
+      <div class="pro-error">加载失败: ${esc(raw)}</div>
+      ${tip ? `<div class="pro-muted" style="padding:8px 12px">${esc(tip)}</div>` : ''}
     `
     page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
   }
@@ -1586,7 +1604,9 @@ function renderRoleProfile(
   const autonomyHint =
     AUTONOMY_HINT[cfg.autonomy_level] || AUTONOMY_HINT.approval_for_risky
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.filter(Boolean) : []
-  // 岗位页展示岗位职责，不用智能体 description（那是「智能体」页人设摘要）
+  // 岗位页展示岗位职责，不用智能体 description（那是「智能体」页人设摘要）。
+  // 职责已合并进智能体 system_prompt（## 岗位职责），这里只剩旧数据回显；
+  // 没有旧数据就不渲染占位文案（「暂未配置」是误导——职责其实写在提示词里）。
   const heroDutyHtml = resp.length
     ? `<ul class="pro-resp-list pro-resp-list--hero">${resp
         .slice(0, 4)
@@ -1594,7 +1614,7 @@ function renderRoleProfile(
         .join('')}${
         resp.length > 4 ? `<li class="pro-resp-list-more">另有 ${resp.length - 4} 项…</li>` : ''
       }</ul>`
-    : `<p class="pro-duty-sheet-desc pro-duty-sheet-desc--muted">暂未配置岗位职责</p>`
+    : ''
 
   // Hero 能力标签 + 工作量；频率只在「自动上班时间」折叠里出现一次
   const sheetStats = [
@@ -2177,8 +2197,8 @@ function renderOnboardingCard(role) {
     </div>`
 }
 
-/** 派发任务弹窗（员工页版，简化版） */
-function showDispatchModalEmployee(role) {
+/** 派发任务弹窗（员工页版，简化版）。agent：完整智能体行（含头像字段），缺省时退回首字母占位。 */
+function showDispatchModalEmployee(role, agent) {
   return new Promise((resolve) => {
     const name = role.role_name || role.agent_name || role.agent_code
     const overlay = document.createElement('div')
@@ -2256,15 +2276,23 @@ function showDispatchModalEmployee(role) {
     `
     document.body.appendChild(overlay)
 
-    // Mount avatar
+    // Mount avatar（用完整智能体行，否则 resolveAgentAvatar 拿不到 avatar 字段只会画首字母）
     const avatarHost = overlay.querySelector('[data-avatar-agent]')
     if (avatarHost) {
+      const agentRow = agent || { agent_code: role.agent_code, agent_name: name }
       void import('../lib/mount-agent-ui.js').then((m) => {
-        m.mountAgentAvatar(avatarHost, {
-          agent: { agent_code: role.agent_code, agent_name: name },
-          agentCode: role.agent_code,
-          size: 40,
-        })
+        return getGatewayBaseUrl()
+          .then((baseUrl) => {
+            m.mountAgentAvatar(avatarHost, {
+              agent: agentRow,
+              agentCode: role.agent_code,
+              size: 40,
+              baseUrl: baseUrl || '',
+            })
+          })
+          .catch(() => {
+            m.mountAgentAvatar(avatarHost, { agent: agentRow, agentCode: role.agent_code, size: 40 })
+          })
       }).catch(() => {})
     }
 
@@ -4308,7 +4336,7 @@ function bindEmployeePage(page, role, initiatives) {
   page.querySelector('[data-act="dispatch"]')?.addEventListener('click', () => {
     closeMore()
     void (async () => {
-      const result = await showDispatchModalEmployee(role)
+      const result = await showDispatchModalEmployee(role, page._dutyProfileCtx?.agent)
       if (!result) return
       stopPageWatch(page)
       try {

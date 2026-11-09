@@ -1,4 +1,4 @@
-import { api } from '../lib/tauri-api.js'
+import { api, isRegistrationSessionGone } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { ensureQrImgFallbackHandler, qrImageHtml } from '../lib/qr-image.js'
@@ -1050,13 +1050,7 @@ async function pollFeishuScan(page, configForm) {
     }
   } catch (e) {
     // Gateway restart drops in-memory registration sessions → stop polling.
-    const msg = String(e?.message || e || '')
-    const status = Number(e?.status || 0)
-    const gone =
-      status === 404 ||
-      /session[_\s-]?not[_\s-]?found/i.test(msg) ||
-      /Session .+ not found/i.test(msg)
-    if (!gone) return
+    if (!isRegistrationSessionGone(e)) return
     cancelFeishuScan()
     const statusEl = document.getElementById('feishu-scan-status')
     if (statusEl) {
@@ -1204,7 +1198,15 @@ async function pollWeixinScan(page, configForm) {
       statusEl.className = 'im-scan-status im-scan-status--waiting'
     }
   } catch (e) {
-    // keep polling
+    // Gateway restart drops in-memory registration sessions → stop polling.
+    if (!isRegistrationSessionGone(e)) return
+    cancelWeixinScan()
+    const statusEl = document.getElementById('weixin-scan-status')
+    if (statusEl) {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '扫码会话已失效，请关闭后重新扫码'
+      statusEl.className = 'im-scan-status im-scan-status--error'
+    }
   }
 }
 
@@ -1344,7 +1346,15 @@ async function pollWecomScan(page, configForm) {
       statusEl.className = 'im-scan-status im-scan-status--waiting'
     }
   } catch (e) {
-    // keep polling
+    // Gateway restart drops in-memory registration sessions → stop polling.
+    if (!isRegistrationSessionGone(e)) return
+    cancelWecomScan()
+    const statusEl = document.getElementById('wecom-scan-status')
+    if (statusEl) {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '扫码会话已失效，请关闭后重新扫码'
+      statusEl.className = 'im-scan-status im-scan-status--error'
+    }
   }
 }
 
@@ -1484,7 +1494,15 @@ async function pollDingtalkScan(page, configForm) {
       statusEl.className = 'im-scan-status im-scan-status--waiting'
     }
   } catch (e) {
-    // keep polling
+    // Gateway restart drops in-memory registration sessions → stop polling.
+    if (!isRegistrationSessionGone(e)) return
+    cancelDingtalkScan()
+    const statusEl = document.getElementById('dingtalk-scan-status')
+    if (statusEl) {
+      statusEl.removeAttribute('hidden')
+      statusEl.textContent = '扫码会话已失效，请关闭后重新扫码'
+      statusEl.className = 'im-scan-status im-scan-status--error'
+    }
   }
 }
 

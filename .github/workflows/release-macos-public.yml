@@ -62,13 +62,19 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           toolchain: stable
-          # This action defaults RUSTFLAGS to "-D warnings", which turns every
-          # dead-code / unused warning into a hard error and has been failing
-          # the macOS x64 + aarch64 jobs since v1.3.6 (39 unused items in
-          # browser_embed / browser_cdp / resource_manager / log_files).
-          # Warnings are not release blockers — keep them as warnings so the
-          # macOS DMGs can actually be built.
+          # The action's `rustflags` input defaults to "-D warnings" (v1 tag
+          # SHA 166cdcf), which turns every dead-code / unused warning into a
+          # hard error and has been failing the macOS x64 + aarch64 jobs since
+          # v1.3.7 (39 unused items in browser_embed / browser_embed_bridge /
+          # log_files / resource_manager — all Windows-only code that is dead
+          # on macOS). Warnings are not release blockers → keep them warnings
+          # so the macOS DMGs can actually be built.
           rustflags: ""
+          # Newer revisions of the action add `build-warnings` (default "deny"),
+          # which is the same escalation via cargo's `build.warnings` config.
+          # Pin it to "warn" so a moving `v1` tag cannot silently re-break
+          # the release build.
+          build-warnings: "warn"
 
       - name: Set up Python
         uses: actions/setup-python@v6

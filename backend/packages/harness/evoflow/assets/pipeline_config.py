@@ -1,4 +1,9 @@
-"""runtime-aligned Asset Hub pipeline configuration (single source of truth)."""
+"""Asset Hub memory pipeline tuning + the per-individual memory gate.
+
+There is deliberately **no global on/off** for memory: every individual owns
+their switch (``entity_memory_enabled``). These knobs only tune how much work
+the pipeline does once an individual's memory is on.
+"""
 
 from __future__ import annotations
 
@@ -6,22 +11,17 @@ import os
 
 from pydantic import BaseModel, Field
 
+from evoflow.assets.paths import EntityRef
+
 
 class MemoryAssetsConfig(BaseModel):
-    """Knobs for the *optional* Phase1/2 async pipeline.
+    """Tuning knobs for background memory work (Phase1/2 extract/consolidate).
 
-    Default **off**: dialogue agents write 长期记忆 (standing) + 过程 (episodic)
-    directly via ``assets note``. Phase1/2 remain available only when explicitly
-    re-enabled in config / env.
+    Enable/disable lives per individual — employee roles carry
+    ``config_json.memory_enabled``; the user/main bucket follows the panel 记忆
+    switch (``memoryEnabledDefault``). See ``entity_memory_enabled``.
     """
 
-    generate_memories: bool = Field(
-        default=False,
-        description="Master switch for Phase1/2 async asset memory pipeline (default off).",
-    )
-    phase1_enabled: bool = Field(default=False, description="Session-idle rollout extract.")
-    phase2_enabled: bool = Field(default=False, description="Inbox → standing / MEMORY / craft.")
-    startup_phase2_scan: bool = Field(default=False, description="Gateway startup inbox sweep.")
     legacy_updater_enabled: bool = Field(
         default=False,
         description="SQLite MemoryUpdater (mem_*) on debounce; off by default in asset-hub memory mode.",
@@ -50,30 +50,39 @@ def _env_bool(name: str, default: bool) -> bool:
     return str(raw).strip().lower() not in {"0", "false", "no", "off"}
 
 
-def asset_phase1_enabled() -> bool:
-    cfg = get_assets_config()
-    if not cfg.generate_memories or not cfg.phase1_enabled:
-        return False
-    return _env_bool("EVOFLOW_ASSET_PHASE1", False)
+def entity_memory_enabled(entity: EntityRef) -> bool:
+    """Per-individual memory switch — the only gate for background memory work.
 
+    - employee → role ``config_json.memory_enabled`` (default True; legacy
+      ``inject_memory``/``inject_assets`` false migrated to off)
+    - user/main bucket → panel 记忆 switch ``memoryEnabledDefault`` (default True)
+    - agent/workspace shells → True (data shells)
 
-def asset_phase2_enabled() -> bool:
-    cfg = get_assets_config()
-    if not cfg.generate_memories or not cfg.phase2_enabled:
-        return False
-    return _env_bool("EVOFLOW_ASSET_PHASE2", False)
+    Callers still honor the ``config.memory.enabled`` platform master.
+    """
+    try:
+        e = entity.normalized()
+    except Exception:
+        return True
+    if e.entity_type == "employee":
+        try:
+            from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
+            from evoflow.proactive.repositories import ProactiveRepository
 
+            role = ProactiveRepository.get_role(e.entity_id)
+            if role is None:
+                return True
+            return role_memory_enabled_from_config(getattr(role, "config", None))
+        except Exception:
+            return True
+    if e.entity_type == "user":
+        try:
+            from evoflow.persistence.panel_settings import get_panel_settings
 
-def asset_startup_phase2_enabled() -> bool:
-    cfg = get_assets_config()
-    if not cfg.generate_memories or not cfg.startup_phase2_scan:
-        return False
-    return _env_bool("EVOFLOW_ASSET_STARTUP_PHASE2", False)
-
-
-def asset_async_memory_pipeline_enabled() -> bool:
-    """True only when Phase1 or Phase2 async pipeline is actually on."""
-    return asset_phase1_enabled() or asset_phase2_enabled()
+            return bool(get_panel_settings(e.entity_id).get("memoryEnabledDefault", True))
+        except Exception:
+            return True
+    return True
 
 
 def max_unused_days() -> int:

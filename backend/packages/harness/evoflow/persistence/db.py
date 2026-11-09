@@ -506,8 +506,19 @@ def run_db_read[T](fn: Callable[[sqlite3.Connection], T]) -> T:
 
     WAL 模式下读操作不会被写事务阻塞。如果偶发 busy（WAL checkpoint），
     简单重试一次即可。
+
+    读连接用 ``mode=ro`` 打开：数据库文件尚未创建时（全新安装、首个请求
+    先于建库）会直接失败。此时回退到共享写连接——宁可慢一点，也不能让读
+    路径整体报错。
     """
-    with get_read_connection() as db:
+    try:
+        conn_ctx = get_read_connection()
+        db = conn_ctx.__enter__()
+    except sqlite3.OperationalError:
+        # 读池不可用（DB 文件不存在 / 无法以只读打开）→ 退回写连接。
+        with db_connection_lock():
+            return fn(get_db())
+    try:
         try:
             return fn(db)
         except sqlite3.OperationalError as e:
@@ -515,6 +526,8 @@ def run_db_read[T](fn: Callable[[sqlite3.Connection], T]) -> T:
                 time.sleep(0.05)
                 return fn(db)
             raise
+    finally:
+        conn_ctx.__exit__(None, None, None)
 
 
 def shutdown_read_pool() -> None:
@@ -530,6 +543,16 @@ def shutdown_read_pool() -> None:
             except Exception:
                 pass
         _read_pool = None
+
+
+def reset_read_pool_for_tests() -> None:
+    """Drop the read pool so the next read re-opens against the current db path.
+
+    The pool caches connections opened for a specific file; when the db path
+    changes (tests switch ``EVOFLOW_DB_PATH``) those connections keep pointing
+    at the old file and reads return stale/empty data.
+    """
+    shutdown_read_pool()
 
 
 def get_db(*, storage_sqlite_path: str | None = None) -> _LockedConnection:
@@ -564,6 +587,10 @@ def reset_db_for_tests() -> None:
         _shared_wrapper = None
         _cached_default_path = None
         _set_txn_depth(0)
+    # The read pool caches connections bound to the OLD db path. Without this,
+    # a test that switches EVOFLOW_DB_PATH keeps reading the previous file
+    # (read pool != write connection), so reads see stale/empty data.
+    reset_read_pool_for_tests()
     try:
         from evoflow.persistence.session_repositories import invalidate_session_select_cache
 

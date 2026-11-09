@@ -99,6 +99,7 @@ _assets_root = _harness_evoflow / "assets"
 for _asset_subdir in (
     "builtin_agent_avatars",
     "avatar_presets",
+    "dept_avatars",
     "builtin_agent_souls",
     "prompts",
 ):

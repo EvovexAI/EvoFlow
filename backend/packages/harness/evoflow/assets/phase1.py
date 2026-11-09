@@ -14,7 +14,7 @@ from typing import Any
 from evoflow.assets.guidance import resolve_session_entity
 from evoflow.assets.hub import ensure_entity_tree, write_episode, write_text_file
 from evoflow.assets.paths import EntityRef
-from evoflow.assets.pipeline_config import asset_phase1_enabled, min_rollout_chars
+from evoflow.assets.pipeline_config import min_rollout_chars
 from evoflow.assets.prompt_templates import load_memory_prompt, render_memory_prompt
 
 logger = logging.getLogger(__name__)
@@ -120,9 +120,6 @@ def run_phase1_extract(
 
     Returns a result dict: ``{ok, skipped?, paths?, error?}``.
     """
-    if not asset_phase1_enabled():
-        return {"ok": False, "skipped": "disabled"}
-
     try:
         from evoflow.config.memory_config import get_memory_config
 
@@ -141,6 +138,14 @@ def run_phase1_extract(
     except Exception as exc:
         logger.debug("phase1: entity resolve failed: %s", exc)
         return {"ok": False, "error": f"entity:{exc}"}
+
+    try:
+        from evoflow.assets.pipeline_config import entity_memory_enabled
+
+        if not entity_memory_enabled(ent):
+            return {"ok": False, "skipped": "memory_disabled_by_entity"}
+    except Exception:
+        pass
 
     system = load_memory_prompt("stage_one_system")
     user = render_memory_prompt(

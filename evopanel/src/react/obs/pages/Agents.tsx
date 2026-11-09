@@ -43,7 +43,7 @@ export function Agents() {
 
   return (
     <>
-      <TopFilterBar title="Agent 管理" subtitle="各 Agent 类型的调用量、成功率与主模型" />
+      <TopFilterBar title="Agent 管理" subtitle="按调用类型（invocation_kind）看 Token / 调用量 / 成功率" />
       {loading && <ObsBanner>加载 Agent 数据…</ObsBanner>}
       {error && !loading && <ObsBanner tone="error">{error}</ObsBanner>}
 

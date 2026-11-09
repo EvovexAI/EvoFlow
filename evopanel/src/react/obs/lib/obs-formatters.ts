@@ -9,8 +9,21 @@
   hosted: '目标对话',
   hosted_panel: '目标面板',
   hosted_closure: '目标小结',
+  hosted_planner: '目标规划',
+  hosted_goal_interpreter: '目标回复解析',
   session_intent: '会话意图',
   auxiliary: '辅助',
+  proactive: '主动值班',
+  vision: '视觉分析',
+  webfetch: '网页抓取摘要',
+  kb_ask: '知识库问答',
+  kb_summary: '知识库摘要',
+  kg_extract: '知识图谱抽取',
+  person_wrap_up: '交班反思',
+  meeting_conclude: '会议纪要',
+  a2a_meeting: 'A2A 会议',
+  goal_verifier: '目标验收',
+  internal: '内部索引',
 }
 
 export function agentKindLabel(kind: string | null | undefined): string {

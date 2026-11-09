@@ -27,5 +27,6 @@
 | 修 Gateway API / 飞书微信 | `backend/app/channels/` 或对应 router |
 | 改规划 / 子 Agent / 工具行为 | `backend/packages/harness/evoflow/` |
 | 改面板交互 | `evopanel/src/` |
+| 同步火山 / 百炼套餐模型表 | [更新套餐目录](update-plan-catalog.md)；`plans/*_plan_models.py` + `plans/catalog.py` |
 | 教 Agent 做一件新业务事 | **先写 Skill**，不要先加核心 tool |
 | 澄清产品用法 | `docs/user/` |

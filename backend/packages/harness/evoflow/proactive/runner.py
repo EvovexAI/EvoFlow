@@ -190,7 +190,7 @@ def _record_duty_trigger(
     try:
         from evoflow.proactive.duty_runs import start_duty_run
 
-        return start_duty_run(
+        doc = start_duty_run(
             agent_code=str(getattr(role, "agent_code", "") or ""),
             round_id=round_id,
             session_key=session_key,
@@ -207,6 +207,32 @@ def _record_duty_trigger(
             exc_info=True,
         )
         return {}
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_DUTY,
+            safe_register_child_work,
+        )
+
+        rid = str(doc.get("run_id") or "").strip()
+        sk = str(session_key or doc.get("session_key") or "").strip()
+        if rid and sk:
+            st = str(status or "started").strip().lower() or "started"
+            reg_status = "running" if st in {"started", "running"} else st
+            safe_register_child_work(
+                session_key=sk,
+                kind=KIND_DUTY,
+                ref_id=rid,
+                status=reg_status,
+                title=str(getattr(role, "agent_code", "") or "duty"),
+                extra={
+                    "trigger_source": trigger_source,
+                    "round_id": round_id,
+                    "agent_code": str(getattr(role, "agent_code", "") or ""),
+                },
+            )
+    except Exception:
+        logger.debug("proactive.runner: duty child-work register skipped", exc_info=True)
+    return doc
 
 
 def _finish_duty_run(
@@ -242,6 +268,22 @@ def _finish_duty_run(
         )
     except Exception:
         logger.debug("proactive.runner: duty_run finish failed run_id=%s", run_id, exc_info=True)
+    try:
+        from evoflow.persistence.session_runtime_repository import (
+            KIND_DUTY,
+            safe_complete_child_work,
+        )
+
+        st = str(status or "completed").strip().lower() or "completed"
+        safe_complete_child_work(
+            session_key=str(session_key or "").strip() or None,
+            kind=KIND_DUTY,
+            ref_id=str(run_id).strip(),
+            status=st,
+            extra={"round_id": round_id, "primary_task_id": primary_task_id},
+        )
+    except Exception:
+        logger.debug("proactive.runner: duty child-work complete skipped", exc_info=True)
 
 
 def _should_skip_xiaomi_idle_heartbeat(role: ProactiveRole) -> bool:
@@ -2665,6 +2707,8 @@ class ProactiveRunner:
         fresh_round: bool = False,
         role_lock_held: bool = False,
         skip_done_guard: bool = False,
+        resolved_round_id: str = "",
+        resolved_resumed: bool | None = None,
     ) -> dict[str, Any]:
         """Dispatch a user-specified task to an employee.
 
@@ -2744,12 +2788,21 @@ class ProactiveRunner:
         except Exception:
             related_task_row = None
 
-        dispatch_round_id, resumed_round = resolve_dispatch_round_id(
-            round_id=round_id_s,
-            related_task=related_task_row,
-            resume_round=bool(resume_round),
-            fresh_round=bool(fresh_round),
-        )
+        # Round id is resolved ONCE by the caller (fire-and-forget / triggers) so
+        # the response echo and the actual duty round share one value. Re-calling
+        # resolve_dispatch_round_id here used to take a second clock reading, so
+        # ``dispatch`` returned a round_id ~20ms off the trail's real one and
+        # callers could not look their own round up.
+        if str(resolved_round_id or "").strip():
+            dispatch_round_id = str(resolved_round_id).strip()
+            resumed_round = bool(resolved_resumed)
+        else:
+            dispatch_round_id, resumed_round = resolve_dispatch_round_id(
+                round_id=round_id_s,
+                related_task=related_task_row,
+                resume_round=bool(resume_round),
+                fresh_round=bool(fresh_round),
+            )
         try:
             from evoflow.collab.storage import (
                 get_project_storage,
@@ -3030,6 +3083,8 @@ class ProactiveRunner:
         fresh_round: bool = False,
         role_lock_held: bool = False,
         skip_done_guard: bool = False,
+        resolved_round_id: str = "",
+        resolved_resumed: bool | None = None,
     ) -> None:
         """Background wrapper for :meth:`dispatch_task` -- swallows exceptions so
         the fire-and-forget caller never sees a dangling task error."""
@@ -3051,6 +3106,8 @@ class ProactiveRunner:
                 fresh_round=fresh_round,
                 role_lock_held=role_lock_held,
                 skip_done_guard=skip_done_guard,
+                resolved_round_id=resolved_round_id,
+                resolved_resumed=resolved_resumed,
             )
             if isinstance(report, dict) and report.get("dispatched_at"):
                 need_release = False
@@ -3241,6 +3298,24 @@ class ProactiveRunner:
                     skip_done_guard=bool(skip_done_guard),
                 )
 
+        # Resolve the duty round id ONCE here and hand the same value to the
+        # background dispatch: the response echo and the actual trail must agree
+        # (two resolve calls used to take two clock readings ~20ms apart).
+        related_row = None
+        if related_tid:
+            try:
+                from evoflow.proactive.work_items import load_work_item_task
+
+                related_row = load_work_item_task(related_tid)
+            except Exception:
+                related_row = None
+        preview_round, resumed = resolve_dispatch_round_id(
+            round_id=round_id_s,
+            related_task=related_row,
+            resume_round=bool(resume_round),
+            fresh_round=bool(fresh_round),
+        )
+
         # Spawn the full dispatch (think + guard) in the background.
         task = asyncio.create_task(
             self._dispatch_task_bg(
@@ -3256,25 +3331,12 @@ class ProactiveRunner:
                 fresh_round=bool(fresh_round),
                 role_lock_held=True,
                 skip_done_guard=bool(skip_done_guard),
+                resolved_round_id=preview_round,
+                resolved_resumed=bool(resumed),
             )
         )
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
-
-        related_row = None
-        if related_tid:
-            try:
-                from evoflow.proactive.work_items import load_work_item_task
-
-                related_row = load_work_item_task(related_tid)
-            except Exception:
-                related_row = None
-        preview_round, resumed = resolve_dispatch_round_id(
-            round_id=round_id_s,
-            related_task=related_row,
-            resume_round=bool(resume_round),
-            fresh_round=bool(fresh_round),
-        )
 
         logger.info(
             "proactive.dispatch.fire_and_forget role=%s source=%s from=%s related=%s round=%s resumed=%s goal=%s",

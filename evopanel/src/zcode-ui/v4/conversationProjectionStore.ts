@@ -23,6 +23,7 @@ import { logger } from "@/logger.js";
 import type { ConversationTurnNavigatorHydrationResult } from "@/v4/conversationTurnNavigatorHelpers.js";
 import type { ConversationTransport } from "@/v4/transport.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
+import { markOpenStage } from "@/lib/openTrace.js";
 
 /**
  * runtime 换代打断 subscribe 后的退避节奏。
@@ -34,6 +35,15 @@ import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
  * 所以这里按 sessionsIndexStore 的既定模式做有界退避。
  */
 const RUNTIME_RECYCLE_RETRY_DELAYS_MS = [250, 1_000, 3_000] as const;
+
+/**
+ * 一般瞬态 subscribe 失败（网关重启 / 网络抖动 / 503 等）的有界退避。
+ *
+ * 与 runtime 换代退避分开计数：换代路径 3 次即落 error，而网关重启在 dev 场景
+ * 常见且几十秒内恢复——退避期间保持 connecting（UI 显示加载中，不渲染失败横幅），
+ * 额度耗尽才落 error 暴露「重新连接」。成功 ACK 即复位计数。
+ */
+const CONNECT_RETRY_DELAYS_MS = [500, 1_500, 4_000, 10_000, 15_000, 15_000] as const;
 
 /**
  * accepted ACK 后等待权威输入投影的宽限期。
@@ -53,6 +63,13 @@ const ACCEPTED_INPUT_COMMAND_TYPES = new Set(["sendText"]);
  * recovery snapshot。根因是 initial 帧丢失/迟到，不应依赖用户发消息才自愈。
  */
 const INITIAL_FRAME_WATCHDOG_MS = 2_500;
+
+/**
+ * subscribe HTTP 硬超时。冷会话服务端 hydrate 大 transcript 若卡在 Gateway 事件循环
+ * （或上游代理无响应），旧实现会永久 await → connecting_tick 数分钟、UI 看起来卡死
+ * （2026-11-08 正式包）。超时后走瞬态重试；retry() 会 bump generation 丢弃在途 await。
+ */
+const SUBSCRIBE_HTTP_TIMEOUT_MS = 12_000;
 
 /** 退避耗尽时展示给用户的 lastError（无底层 error 对象可引用的换代路径）。 */
 const RUNTIME_RECYCLED_ERROR = "ZCode agent runtime 已被回收，重连未成功";
@@ -325,6 +342,8 @@ export class ConversationProjectionStore {
   private readonly offRuntimeLifecycle: (() => void) | null = null;
   private runtimeRecycleRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private runtimeRecycleRetryAttempt = 0;
+  private connectRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private connectRetryAttempt = 0;
   private sessionOpenRendererTiming: SessionOpenRendererTiming = {};
   private initialSubscribeAckAt: number | null = null;
   private planQueryInFlight = false;
@@ -433,10 +452,22 @@ export class ConversationProjectionStore {
     this.connectInFlight += 1;
     this.setState({ status: "connecting", rendererTiming: this.sessionOpenRendererTiming });
     try {
-      const result = await this.transport.subscribe({
+      const subscribeParams = {
         topic: this.topic,
         base: snapshot ? { logEpoch: snapshot.logEpoch, seq: snapshot.seq } : undefined,
-      });
+      };
+      const result = await Promise.race([
+        this.transport.subscribe(subscribeParams),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => {
+            reject(
+              new Error(
+                `v4 subscribe timed out after ${SUBSCRIBE_HTTP_TIMEOUT_MS}ms (topic=${this.topic})`,
+              ),
+            );
+          }, SUBSCRIBE_HTTP_TIMEOUT_MS);
+        }),
+      ]);
       if (generation !== this.generation || this.closed) {
         // 过期代际：这份订阅已无人消费，立即退订。
         logger.lifecycle.warn("v4 conversation store connect ACK became stale", {
@@ -458,6 +489,7 @@ export class ConversationProjectionStore {
       // 会原子替换整个投影，旧恢复流已无意义；否则其迟到失败会把 live 的新订阅打成 error。
       this.discardRecovery();
       this.runtimeRecycleRetryAttempt = 0;
+      this.connectRetryAttempt = 0;
       this.initialSubscribeAckAt = monotonicNow();
       this.setState({
         status: "live",
@@ -517,6 +549,19 @@ export class ConversationProjectionStore {
         logger.warn(`[v4-store] subscribe ${this.topic} 被 runtime 换代打断，退避重连: ${message}`);
         return;
       }
+      if (this.scheduleConnectRetry(generation)) {
+        logger.lifecycle.warn("v4 conversation store connect transient retry scheduled", {
+          durationMs: roundedDuration(subscribeStartedAt, monotonicNow()),
+          errorMessage: message,
+          event: "v4.conversation.store.connect.transient_retry_scheduled",
+          generation,
+          module: "ui.v4.conversation_projection_store",
+          status: "retrying",
+          topic: this.topic,
+        });
+        logger.warn(`[v4-store] subscribe ${this.topic} 瞬态失败，退避重连: ${message}`);
+        return;
+      }
       logger.lifecycle.warn("v4 conversation store connect failed", {
         durationMs: roundedDuration(subscribeStartedAt, monotonicNow()),
         errorMessage: message,
@@ -563,6 +608,45 @@ export class ConversationProjectionStore {
     this.setState({ status: "connecting" });
     this.runtimeRecycleRetryTimer = setTimeout(() => {
       this.runtimeRecycleRetryTimer = null;
+      if (this.closed) return;
+      if (generation !== this.generation) {
+        // 代际已被其他路径 bump 且无人接手重连 → 旧 timer 静默 return 会把 store
+        // 永久留在 connecting、无订阅（2026-11-08 正式版现场：空白 47.9s，直到
+        // 旧回合 sse_final 才被间接救活）。补一刀重连；connect 自身幂等（inflight 计数）。
+        if (
+          this.connectInFlight === 0 &&
+          this.state.status === "connecting" &&
+          !this.state.subscriptionId
+        ) {
+          void this.connect();
+        }
+        return;
+      }
+      void this.connect();
+    }, delayMs);
+    return true;
+  }
+
+  private clearConnectRetryTimer(): void {
+    if (this.connectRetryTimer === null) return;
+    clearTimeout(this.connectRetryTimer);
+    this.connectRetryTimer = null;
+  }
+
+  /**
+   * 瞬态 subscribe 失败的有界退避重连：保持 connecting（UI 不渲染失败横幅），
+   * 额度耗尽返回 false 由调用方落 error 暴露「重新连接」入口。
+   * 返回 true 表示已接管本次失败，调用方不应再落 error。
+   */
+  private scheduleConnectRetry(generation: number): boolean {
+    if (this.closed) return false;
+    const delayMs = CONNECT_RETRY_DELAYS_MS[this.connectRetryAttempt];
+    if (delayMs === undefined) return false;
+    this.connectRetryAttempt += 1;
+    this.clearConnectRetryTimer();
+    this.setState({ status: "connecting" });
+    this.connectRetryTimer = setTimeout(() => {
+      this.connectRetryTimer = null;
       if (this.closed || generation !== this.generation) return;
       void this.connect();
     }, delayMs);
@@ -607,6 +691,11 @@ export class ConversationProjectionStore {
   retry(): Promise<void> {
     this.clearRuntimeRecycleRetry();
     this.runtimeRecycleRetryAttempt = 0;
+    this.clearConnectRetryTimer();
+    this.connectRetryAttempt = 0;
+    // 丢弃卡住的在途 subscribe（HTTP 永不返回时 connectInFlight 会挡死重连）。
+    // 迟到 ACK 会因 generation 失配被退订，不会污染新投影。
+    this.generation += 1;
     return this.connect();
   }
 
@@ -710,6 +799,19 @@ export class ConversationProjectionStore {
           snapshotAppliedAt,
         };
         this.setState({ rendererTiming: this.sessionOpenRendererTiming });
+        // 投影 apply 阶段：帧已到，整帧替换进 store 的耗时（含行数/帧大小）。
+        const appliedRows =
+          frame.payload.snapshot?.rows?.totalCount ?? frame.payload.snapshot?.rows?.window?.length ?? 0;
+        markOpenStage(
+          "store_apply",
+          `首帧已投影进 store（行数≈${appliedRows}）`,
+          {
+            applyMs: this.sessionOpenRendererTiming.rendererSnapshotApplyMs ?? null,
+            initialFrameTransportMs:
+              this.sessionOpenRendererTiming.initialFrameTransportMs ?? null,
+            rowCount: appliedRows,
+          },
+        );
       }
       if (context.recovery) this.markRecoveryFrameSeen();
       return;
@@ -1390,6 +1492,7 @@ export class ConversationProjectionStore {
     this.offRuntimeRestart?.();
     this.offRuntimeLifecycle?.();
     this.clearRuntimeRecycleRetry();
+    this.clearConnectRetryTimer();
     this.clearInitialFrameWatchdog();
     for (const timer of this.acceptedInputProjectionTimers.values()) clearTimeout(timer);
     this.acceptedInputProjectionTimers.clear();

@@ -151,6 +151,12 @@ function readTasksQueryFromHash() {
     const tab = String(sp.get('tab') || '').trim().toLowerCase()
     if (tab === 'items' || tab === 'item' || tab === 'todos') out.ledger = 'items'
     if (tab === 'todo') out.todoTab = true
+    // 平台通知 CTA 深链：/tasks?tab=items&focus=<item_id> —— 落到「我的事项」并高亮该条
+    const focusRaw = String(sp.get('focus') || sp.get('item') || '').trim()
+    if (focusRaw) {
+      out.focusItemId = focusRaw
+      if (!out.ledger) out.ledger = 'items'
+    }
     return out
   } catch {
     return {}
@@ -178,6 +184,9 @@ function writeTasksQueryToHash(state) {
     if (state.agentFilter) qs.set('agent', state.agentFilter)
     if (state.ledger === 'items') qs.set('tab', 'items')
     if (state.todoTab) qs.set('tab', 'todo')
+    // 保留深链焦点：启动时 applyLedger 会回写一次 hash，
+    // 若把 focus 抹掉会触发整页重挂 → 刚高亮的事项又被洗掉（点了像没反应）
+    if (state.ledger === 'items' && state.focusItemId) qs.set('focus', state.focusItemId)
     const q = qs.toString()
     const next = q ? `/tasks?${q}` : '/tasks'
     const cur = String(window.location.hash || '').replace(/^#/, '')
@@ -234,6 +243,9 @@ function applyTasksQueryToState(state, query) {
   } else if (hasQuery) {
     state.dateFilter = null
   }
+
+  // 平台通知 CTA：/tasks?tab=items&focus=<item_id> 落在「我的事项」并高亮
+  state.focusItemId = query.focusItemId || null
 }
 
 export async function render() {
@@ -415,6 +427,7 @@ export async function render() {
     _taskForest: null, // { byId, childrenByParent, roots } 当前时间窗内
     ledger: 'tasks', // tasks | items
     todoTab: false, // tab=todo 视图：只展示 pending/executing 未完成任务
+    focusItemId: null, // URL ?focus=<item_id>：进入「我的事项」并高亮该条
     _itemsCtl: null,
     /** @type {{ byThread: Map<string, any>, byTaskId: Map<string, any> } | null} */
     runtimeIndex: null, // 活跃会话索引 → 在跑 / 已中断
@@ -445,6 +458,8 @@ export async function render() {
   async function applyLedger(ledger, { openCreate = false, persistHash = true } = {}) {
     const next = ledger === 'items' ? 'items' : 'tasks'
     state.ledger = next
+    // 切回协作任务即放弃深链焦点，避免下次进「我的事项」还停在旧高亮
+    if (next === 'tasks') state.focusItemId = null
     page.classList.toggle('is-ledger-items', next === 'items')
     page.querySelectorAll('.tasks-ledger-btn').forEach((btn) => {
       const on = btn.getAttribute('data-ledger') === next
@@ -470,10 +485,16 @@ export async function render() {
         const { mountItemsPanel } = await import('./items.js')
         state._itemsCtl = mountItemsPanel(host, {
           openCreate: wantCreate,
+          // 平台通知「查看事项」深链：首次挂载就带上 focus，列表高亮并滚到该条
+          focusId: state.focusItemId || '',
           onSwitchToTasks: () => void applyLedger('tasks'),
         })
       } else if (wantCreate) {
         state._itemsCtl?.openCreate?.()
+      } else if (state.focusItemId) {
+        // 面板已挂着：再次点通知要重新高亮目标条（只 refresh 会停在旧高亮）
+        state._itemsCtl?.focus?.(state.focusItemId)
+        void state._itemsCtl?.refresh?.()
       } else {
         void state._itemsCtl?.refresh?.()
       }

@@ -43,6 +43,7 @@ import type { ConversationTransport } from "@zcode/ui/v4/transport.js";
 import { evoflowFetch, evoflowFetchStream } from "../../lib/ws-client.js";
 import { logStreamCompareV4Recv } from "../lib/stream-compare-file-log.js";
 import { logV4Life } from "../lib/v4-lifecycle-log.js";
+import { markOpenStage } from "@zcode/ui/lib/openTrace.js";
 import { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
 
 export { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
@@ -206,6 +207,29 @@ export class EvoFlowV4Transport implements ConversationTransport {
       v4Log("v4-rx", `subscribe ACK keeps ${earlyStaged} early-staged frames`, { subscriptionId });
     }
     const openTiming = result.ack.openTiming;
+    // subscribe 阶段：这是「服务端在做什么」的窗口——冷会话服务端要先 hydrate 拉库。
+    markOpenStage(
+      "subscribe",
+      `订阅请求已返回 ACK（mode=${result.ack.mode}，HTTP ${subscribeHttpMs}ms）`,
+      {
+        subscribeHttpMs,
+        mode: result.ack.mode,
+        hasBase: Boolean(params.base),
+        // 服务端自报的分段耗时（若有）：hydrateMs 是冷会话拉历史库的耗时。
+        hydrateMs: openTiming?.hydrateMs ?? null,
+        hostPrepareMs: openTiming?.hostPrepareMs ?? null,
+        snapshotRowCount: openTiming?.snapshotRowCount ?? null,
+        sessionRuntimeState: openTiming?.sessionRuntimeState ?? null,
+      },
+      {
+        reason:
+          subscribeHttpMs >= 1200
+            ? `subscribe 往返 ${subscribeHttpMs}ms 偏慢：服务端冷会话要先 hydrate（读 SQLite transcript 把历史转成 v4 行）再回 ACK。` +
+              `${openTiming?.hydrateMs ? `服务端自报 hydrate=${openTiming.hydrateMs}ms。` : ''}` +
+              `若 hydrateMs 占了大部分 → 慢在数据库/大会话；否则是 Gateway 排队或网络。`
+            : undefined,
+      },
+    );
     logV4Life({
       event: "subscribe_ack",
       threadId: params.topic,
@@ -658,6 +682,26 @@ export class EvoFlowV4Transport implements ConversationTransport {
       },
       skipDedupe: isSnapshot,
     });
+    // 首帧 snapshot 到达（无论 early_stage 还是 live）——这是「等首帧」阶段的终点。
+    // early_stage 说明帧比 ACK 还快（时序正常），live 说明 ACK 之后才到。
+    if (isSnapshot) {
+      markOpenStage(
+        "frame_snapshot",
+        via === "early_stage"
+          ? `首帧 snapshot 已到达（ACK 前暂存，行数≈${rowCount ?? "?"}）`
+          : `首帧 snapshot 已到达（delivery=${deliveryKind}，行数≈${rowCount ?? "?"}）`,
+        {
+          rowCount,
+          deliveryKind,
+          via,
+          wireBytes: typeof extra.wireBytes === "number" ? extra.wireBytes : null,
+          wireKiB:
+            typeof extra.wireBytes === "number"
+              ? Math.round(Number(extra.wireBytes) / 1024)
+              : null,
+        },
+      );
+    }
   }
 
   private dispatchFrame(frame: ConversationTopicFrame, deliveryKind: TopicFrameDeliveryKind): void {

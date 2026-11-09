@@ -23,15 +23,29 @@ _scoped_skills_cache: dict[str, tuple[dict[str, tuple[int, int]], list[Skill], f
 # Rendered <skill_system> section cache (avoids rebuild on every turn).
 _skills_prompt_section_cache: dict[tuple, str] = {}
 _skills_prompt_section_lock = threading.Lock()
+# ``describe_skills_root_context`` walks every profile skills root (pathlib-heavy).
+# skills.list calls it every time; short TTL avoids repeated multi-hundred-ms scans.
+_skills_root_ctx_cache: tuple[float, dict[str, Any]] | None = None
+_skills_root_ctx_ttl_s = float(os.getenv("EVOFLOW_SKILLS_ROOT_CTX_TTL_S", "60") or "60")
+_skills_root_ctx_lock = threading.Lock()
 
 
 def clear_skills_cache() -> None:
     """Clear the skills cache to force reload on next load_skills call."""
-    global _skills_cache
+    global _skills_cache, _skills_root_ctx_cache
     _skills_cache = None
     _scoped_skills_cache.clear()
     with _skills_prompt_section_lock:
         _skills_prompt_section_cache.clear()
+    with _skills_root_ctx_lock:
+        _skills_root_ctx_cache = None
+    try:
+        # Next load_skills should re-sync registry after install/enable/delete.
+        import evoflow.persistence.bootstrap as _boot
+
+        _boot._SKILLS_FS_SYNC_AT = None
+    except Exception:
+        pass
     logger.debug("Skills cache cleared")
 
 
@@ -222,7 +236,7 @@ def _candidate_profile_roots() -> list[Path]:
     return out
 
 
-def describe_skills_root_context() -> dict[str, Any]:
+def describe_skills_root_context(*, force: bool = False) -> dict[str, Any]:
     """Describe which skills root is active and which other candidate roots exist.
 
     背景：面板拉起的 gateway 经 ``EVOFLOW_HOME`` → ``bootstrap_user_skills_path``
@@ -230,7 +244,29 @@ def describe_skills_root_context() -> dict[str, Any]:
     裸跑 CLI 在无环境变量时回退 ``~/.evoflow/skills``。两个根不同时，「把技能复制
     到另一个 skills/custom」表现为装了但不生效。此处枚举机器上真实存在的候选根，
     供 ``evoflow doctor`` 与 ``skills list`` 直接给出可行动的告警。
+
+    Result is TTL-cached (default 60s; ``EVOFLOW_SKILLS_ROOT_CTX_TTL_S``) because
+    ``skills.list`` hits this on every call and the multi-root walk is pathlib-heavy
+    on Windows. Install/enable/delete paths call ``clear_skills_cache()``.
     """
+    import time as _time
+
+    global _skills_root_ctx_cache
+    if not force:
+        with _skills_root_ctx_lock:
+            hit = _skills_root_ctx_cache
+        if hit is not None:
+            cached_at, cached = hit
+            if (_time.monotonic() - cached_at) < max(0.0, _skills_root_ctx_ttl_s):
+                return dict(cached)
+
+    ctx = _describe_skills_root_context_uncached()
+    with _skills_root_ctx_lock:
+        _skills_root_ctx_cache = (_time.monotonic(), dict(ctx))
+    return ctx
+
+
+def _describe_skills_root_context_uncached() -> dict[str, Any]:
     active = get_skills_root_path()
     env_skills = os.getenv("EVOFLOW_SKILLS_PATH", "").strip()
     evoflow_home = os.getenv("EVOFLOW_HOME", "").strip()
@@ -573,9 +609,10 @@ def load_skills(
 
     try:
         from evoflow.persistence import config_repositories as cfg_repo
-        from evoflow.persistence.bootstrap import sync_skills_from_filesystem
 
-        sync_skills_from_filesystem()
+        # Do NOT sync_skills_from_filesystem() here — that re-parses every SKILL.md
+        # into SQLite and made ``platform skills.list`` cold path ~0.6–1s. Registry
+        # sync belongs on gateway boot / install / clear_skills_cache+force.
         registry = cfg_repo.list_skill_registry()
         plugin_root_strings: set[str] = set()
         try:

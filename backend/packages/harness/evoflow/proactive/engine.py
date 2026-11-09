@@ -489,6 +489,15 @@ class ProactiveEngine:
                 except Exception:
                     logger.debug("proactive: fallback cost log failed", exc_info=True)
 
+        # Per-individual memory switch: role off → no wrap-up reflection writes.
+        wrap_up_on = True
+        try:
+            from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
+
+            wrap_up_on = role_memory_enabled_from_config(getattr(role, "config", None))
+        except Exception:
+            wrap_up_on = True
+
         # Person Kernel: LLM wrap-up from Task evidence (reference-adapted prompts)
         try:
             from evoflow.person_wrap_up_reflect import (
@@ -527,7 +536,12 @@ class ProactiveEngine:
                 run_error=run_error,
                 tool_msg_count=tool_msg_count,
             )
-            if evidence:
+            if evidence and not wrap_up_on:
+                logger.info(
+                    "proactive.think.agent_loop: person wrap_up skipped role=%s (memory off)",
+                    role.agent_code,
+                )
+            elif evidence:
                 model_name = str(getattr(role.config, "model_name", None) or "").strip() or None
                 pk = await run_person_wrap_up_llm_async(
                     role.agent_code,
@@ -1217,12 +1231,13 @@ class ProactiveEngine:
         name = (model_name or self._model_name or "").strip() or None
         try:
             model = create_chat_model(
-                model_name=name,
+                name=name,
                 temperature=self._temperature,
+                invocation_kind="proactive",
             )
         except Exception:
             logger.warning("proactive: create_chat_model failed, using default", exc_info=True)
-            model = create_chat_model(temperature=self._temperature)
+            model = create_chat_model(temperature=self._temperature, invocation_kind="proactive")
 
         messages = [
             {"role": "system", "content": system_prompt},

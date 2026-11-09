@@ -17,6 +17,7 @@ from app.gateway.routers.langgraph_proxy import (
     UI_SSE_ENABLED,
     _extract_evf_prior_assistant_from_stream_body,
     _extract_use_claude_code_from_stream_body,
+    _extract_user_attachments_from_stream_body,
     _extract_user_message_id_from_stream_body,
     _extract_user_text_from_stream_body,
 )
@@ -255,6 +256,46 @@ def _parse_sse_frame(frame: str) -> tuple[str, object | None]:
         return event_name, None
 
 
+def _extract_run_context_source(body: bytes) -> str:
+    """POST body 的 ``context.source``（goal 引擎续跑 run 标 ``goal-continuation``）。"""
+    try:
+        raw = json.loads(body.decode("utf-8")) if body else {}
+    except Exception:
+        return ""
+    if not isinstance(raw, dict):
+        return ""
+    ctx = raw.get("context")
+    if isinstance(ctx, dict):
+        return str(ctx.get("source") or "").strip()
+    return ""
+
+
+def _split_goal_continuation_user_text(text: str) -> tuple[str, int]:
+    """续跑轮 user 输入 → (气泡正文, epilogueStart)。
+
+    goal 引擎的续跑 prompt 内嵌 ``<untrusted_objective>`` 目标段：气泡正文只显示
+    「目标推进：<目标>」，完整 prompt（完成审计指令等）折进 epilogue 披露。
+    """
+    raw = str(text or "")
+    import re
+
+    match = re.search(
+        "<untrusted_objective>[\\s\\S]*?</untrusted_objective>",
+        raw,
+    )
+    objective = match.group(0) if match else ""
+    if objective:
+        # 提取标记内部文本（剥标签与首尾空行）
+        inner = objective
+        inner = inner[len("<untrusted_objective>") : -len("</untrusted_objective>")]
+        objective = inner.strip()
+    if not objective:
+        return raw, 0
+    head = "目标推进：" + objective
+    return head + "\n\n" + raw, len(head)
+
+
+
 class PostStreamUiTransform:
     """Incremental LangGraph SSE → UI stream transform for middleware ``send`` wrapping.
 
@@ -286,7 +327,9 @@ class PostStreamUiTransform:
         self.stream_format = fmt if fmt in {"openai", "agui"} else "agui"
         self._buffer = ""
         self._upstream_closed = False
-        self._run_end_emitted = False
+        self._run_end_flag = False
+        self._saw_run_error = False
+        self._goal_notified = False
         self._stream_closed = False
         self._bootstrap_sent = False
         # Fast path: use prior fields from POST body only. Defer DB transcript
@@ -309,16 +352,44 @@ class PostStreamUiTransform:
             self.normalizer = AgUiStreamNormalizer(**norm_kwargs, run_id=self.run_id)
         if self.thread_id and self.stream_format == "agui":
             # v4 镜像：记录本轮用户输入，RUN_STARTED 时随 turnHeader 落 userInput 行。
+            # 图片附件（image_url 块）一并提取，用户气泡才能显示已发送的图。
+            # goal 引擎续跑 run（context.source=goal-continuation）→ 行标 goalContinuation，
+            # 气泡正文只显示目标，完整 prompt 折进 epilogue 披露。
+            user_text = str(norm_kwargs.get("user_input") or "")
+            user_origin = "realUser"
+            user_epilogue = 0
+            if _extract_run_context_source(body) == "goal-continuation":
+                user_origin = "goalContinuation"
+                user_text, user_epilogue = _split_goal_continuation_user_text(user_text)
             try:
                 from app.gateway.v4.agui_mirror import mirror_note_user_input
 
                 mirror_note_user_input(
                     self.thread_id,
-                    str(norm_kwargs.get("user_input") or ""),
+                    user_text,
+                    attachments=_extract_user_attachments_from_stream_body(body),
                     message_id=_extract_user_message_id_from_stream_body(body) or None,
+                    origin=user_origin,
+                    epilogue_start=user_epilogue,
                 )
             except Exception:
                 pass
+
+    # ── run_end 置位统一通知（ZCode 式目标模式钩子）──────────────────────────
+    # ``_run_end_emitted`` 在多处被置位（流中 end 帧 / inject drain / finish 收尾），
+    # 用 property setter 兜底：任何一处首个 True 都触发 goal engine 通知一次
+    # （_goal_notified 去重；goal_engine 内部还有 run_id 账本二级去重）。
+
+    @property
+    def _run_end_emitted(self) -> bool:
+        return self._run_end_flag
+
+    @_run_end_emitted.setter
+    def _run_end_emitted(self, value: bool) -> None:
+        previous = self._run_end_flag
+        self._run_end_flag = bool(value)
+        if value and not previous:
+            self._notify_goal_engine_run_finished()
 
     def _ensure_prior_from_db(self) -> None:
         """Lazy DB prior-turn isolation — after bootstrap SSE has already flushed."""
@@ -442,6 +513,7 @@ class PostStreamUiTransform:
                 state=self.normalizer._state,
                 ledger=self.normalizer.inner.block_ledger,
             )
+            self._mark_run_error_if_emitted(out)
             if run_end:
                 self._run_end_emitted = True
             return out
@@ -477,6 +549,19 @@ class PostStreamUiTransform:
                 rid = str(data_json.get("run_id") or data_json.get("runId") or "").strip()
                 if rid:
                     self._apply_upstream_run_id(rid)
+            # run 失败追踪（goal engine 的 run_failed 判定用）：上游 error 事件或
+            # AG-UI RUN_ERROR wire 帧都算。
+            if (
+                event_name.lower() == "error"
+                or (
+                    isinstance(data_json, dict)
+                    and str(data_json.get("type") or "").strip() in ("RUN_ERROR", "model_error")
+                )
+            ):
+                # EvoFlow：模型失败以 custom/model_error 事件出现（429 配额等）；
+                # RUN_ERROR wire 帧由 normalizer 在 finish 合成，另由
+                # _mark_run_error_if_emitted 扫描产出帧兜底。
+                self._saw_run_error = True
             # Per-frame guard: a single malformed/oversized model frame or any
             # bug inside the chosen normalizer (UiStreamNormalizer /
             # OpenAiStreamNormalizer / AgUiStreamNormalizer) must NOT
@@ -512,10 +597,13 @@ class PostStreamUiTransform:
                 out.append(comment)
                 continue
             out.extend(frames)
+            self._mark_run_error_if_emitted(frames)
             if isinstance(self.normalizer, OpenAiStreamNormalizer) and self.normalizer._run_end_emitted:
                 self._run_end_emitted = True
+                self._notify_goal_engine_run_finished()
             elif isinstance(self.normalizer, AgUiStreamNormalizer) and self.normalizer._run_end_emitted:
                 self._run_end_emitted = True
+                self._notify_goal_engine_run_finished()
             if self.thread_id:
                 try:
                     from app.gateway.streaming.live_run_snapshot import schedule_snapshot_from_normalizer
@@ -525,6 +613,36 @@ class PostStreamUiTransform:
                 except Exception:
                     pass
         return out
+
+    def _mark_run_error_if_emitted(self, frames: list[bytes] | None) -> None:
+        """从产出的 AG-UI wire 帧识别 RUN_ERROR（上游 429/异常经 normalizer 合成，
+        不一定以上游 ``event: error`` 形态出现——goal engine 的 run_failed 判定用）。"""
+        if self._saw_run_error or not frames:
+            return
+        for frame in frames:
+            if isinstance(frame, (bytes, bytearray)) and b'"RUN_ERROR"' in frame:
+                self._saw_run_error = True
+                return
+
+    def _notify_goal_engine_run_finished(self) -> None:
+        """ZCode 式目标模式：run 收口钩子（去重交给 goal_engine 的 run_id 账本）。
+
+        调用点可能在流中（RUN_FINISHED 帧先行置位 run_end）或流关闭收尾；
+        也可能运行在 asyncio.to_thread 工作线程——goal_engine 内部会投递回主循环。
+        """
+        if not self.thread_id or not self._run_end_emitted or self._goal_notified:
+            return
+        self._goal_notified = True
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            get_v4_goal_engine().on_run_finished(
+                self.thread_id,
+                run_id=str(self.run_id or "") or None,
+                run_failed=self._saw_run_error,
+            )
+        except Exception:
+            logger.debug("v4 goal on_run_finished (transform) failed thread=%s", self.thread_id, exc_info=True)
 
     def _feed_upstream_chunk(self, chunk: bytes) -> list[bytes]:
         if chunk and self.thread_id and not self._mirror_lane_owned:
@@ -579,6 +697,8 @@ class PostStreamUiTransform:
                 comment = (f": [post-stream-ui][finish error] exc={exc.__class__.__name__}: {str(exc)[:200]}\n\n").encode("utf-8", errors="replace")
                 finish_frames = [comment]
             out.extend(finish_frames)
+            # 先识别失败再置位 run_end：setter 置位即触发 goal 通知，错误标记必须就绪。
+            self._mark_run_error_if_emitted(finish_frames)
             self._run_end_emitted = True
         if self.thread_id:
             try:
@@ -587,6 +707,8 @@ class PostStreamUiTransform:
                 clear_gateway_live_snapshot(self.thread_id)
             except Exception:
                 pass
+        # ZCode 式目标模式：流关闭收尾同样通知（流中已通知则由 _goal_notified 去重）。
+        self._notify_goal_engine_run_finished()
         out.extend(self._drain_inject())
         if self._mirror_lane_owned or self.mirror_enabled:
             self._mirror_out_frames(out)

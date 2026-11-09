@@ -742,14 +742,19 @@ async def ensure_session_thread(
             logger.debug("ensure_session_thread load collab failed sk=%s tid=%s", sk, tid, exc_info=True)
     if tid:
         # LangGraph 已无此 thread（404）时跳过 DELETE，避免无意义的代理风暴。
+        _t_cleanup = _time.perf_counter()
         if thread_state != "missing":
             await delete_langgraph_thread(tid)
         delete_local_thread_data(tid)
         delete_thread_collab_sqlite(tid)
+        _phase_ms["cleanup_old_thread_ms"] = round((_time.perf_counter() - _t_cleanup) * 1000.0, 2)
+    _t_create = _time.perf_counter()
     new_tid = await create_langgraph_thread(sk)
     if not new_tid:
         raise RuntimeError("Failed to create LangGraph thread")
+    _phase_ms["create_langgraph_thread_ms"] = round((_time.perf_counter() - _t_create) * 1000.0, 2)
     # Keep transcript rows pointing at the live lead (truncate + stream-404 remint).
+    _t_remap = _time.perf_counter()
     try:
         if msg_repo.count_messages(sk) > 0:
             msg_repo.remap_session_messages_thread_id(sk, new_tid)
@@ -760,6 +765,8 @@ async def ensure_session_thread(
             new_tid,
             exc_info=True,
         )
+    _phase_ms["remap_messages_ms"] = round((_time.perf_counter() - _t_remap) * 1000.0, 2)
+    _t_persist = _time.perf_counter()
     now = _now_ms()
     merged_ctx = dict(existing.get("context") if isinstance(existing.get("context"), dict) else {})
     # 侧栏「员工新建对话」只造 session_key，首次 ensure-thread 才落库：补默认 Agent 上下文
@@ -789,6 +796,7 @@ async def ensure_session_thread(
             task_repo.save_thread_collab(new_tid, migrated)
         except Exception:
             logger.debug("ensure_session_thread migrate collab failed sk=%s new_tid=%s", sk, new_tid, exc_info=True)
+    _phase_ms["persist_session_row_ms"] = round((_time.perf_counter() - _t_persist) * 1000.0, 2)
     try:
         from evoflow.observability.run_latency_trace import write_run_latency_event
 

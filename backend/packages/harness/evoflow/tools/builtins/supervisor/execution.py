@@ -250,11 +250,42 @@ async def delegate_collab_subtasks_for_start_execution(
     if not subtask_ids:
         return []
 
+    want_ids = [str(s).strip() for s in subtask_ids if str(s).strip()]
+
+    # Pause gate — last stop before a worker is actually handed a step.
+    # ``workflow.stop(pause=true)`` only relabels rows; an already-detached
+    # worker keeps running and its completion re-enters here through the
+    # claim → delegate path (``execution_kernel.delegate_claimed_subtasks``),
+    # NOT through scheduler.advance_dag, so the two upstream gates miss it.
+    # Live 2026-11-08 with both upstream gates installed: pause at 3% still
+    # released step 2 at 37% and the run walked to completion.
+    try:
+        _pause_row = find_main_task(storage, str(main_task_id or "").strip())
+        _pause_task = _pause_row[1] if _pause_row else None
+        if isinstance(_pause_task, dict) and str(_pause_task.get("status") or "").strip().lower() in {
+            "paused",
+            "pausing",
+        }:
+            logger.info(
+                "delegate_collab_subtasks_for_start_execution: refused, main task paused main=%s subs=%s",
+                main_task_id,
+                want_ids,
+            )
+            return [
+                {
+                    "subtaskId": sid,
+                    "ok": False,
+                    "error": "paused",
+                    "message": "主任务已暂停，不派发该子任务；workflow.resume 后重新派发。",
+                }
+                for sid in want_ids
+            ]
+    except Exception:
+        logger.debug("delegate pause gate check failed main=%s", main_task_id, exc_info=True)
+
     _register_collab_lead_runtime(main_task_id, runtime)
 
     from evoflow.collab.dag_trace import dag_info, dag_warning
-
-    want_ids = [str(s).strip() for s in subtask_ids if str(s).strip()]
     dag_info(
         "delegate_begin main=%s subs=%s wait_for_completion=%s runtime=%s",
         main_task_id,
@@ -875,14 +906,23 @@ def _build_subtask_enriched_prompt(
 
             # P0.5-2 + P0.5-5: Resolve input_bindings via shared build_core_prompt
             # for unified Debug/Production prompt assembly with unresolved binding detection.
+            # CRITICAL: production only cherry-picks the resolved-inputs block from
+            # build_core_prompt — it must ALSO inject format_output_schema_for_prompt
+            # or workers never see the structured-output contract (downstream
+            # {{steps.N.output.field}} then fails at the next hop).
             ref = str(subtask_row.get("ref") or "").strip()
-            if ref:
+            semantic_ref = str(subtask_row.get("semantic_ref") or "").strip()
+            if ref or semantic_ref:
                 params = task.get("run_parameters") or {}
                 if not isinstance(params, dict):
                     params = {}
                 matching_step = None
                 for ps in plan_steps or []:
-                    if str(ps.get("ref") or "").strip() == ref:
+                    if not isinstance(ps, dict):
+                        continue
+                    ps_ref = str(ps.get("ref") or "").strip()
+                    ps_sem = str(ps.get("semantic_ref") or "").strip()
+                    if (ref and ps_ref == ref) or (semantic_ref and (ps_ref == semantic_ref or ps_sem == semantic_ref)):
                         matching_step = ps
                         break
                 if matching_step and matching_step.get("input_bindings"):
@@ -913,6 +953,17 @@ def _build_subtask_enriched_prompt(
                         if not core_result.get("input_schema_valid", True):
                             subtask_row["_has_input_schema_errors"] = True
                             subtask_row["_input_schema_errors"] = [e["message"] for e in core_result.get("binding_errors", []) if e.get("code") == "TYPE_MISMATCH"]
+                if matching_step:
+                    from evoflow.collab.step_prompt_builder import format_output_schema_for_prompt
+
+                    schema_block = format_output_schema_for_prompt(matching_step.get("output_schema"))
+                    if schema_block:
+                        # Prefer early placement so the contract is not buried under
+                        # workspace-scan / self-check noise. Later inserts (peer /
+                        # checklist / mandate) may still push ahead — that is fine;
+                        # the contract must at least be present.
+                        extra_blocks.insert(0, schema_block)
+                        subtask_row["_has_output_schema_contract"] = True
     except Exception:
         logger.debug("extract plan context failed for subtask=%s", subtask_id, exc_info=True)
 

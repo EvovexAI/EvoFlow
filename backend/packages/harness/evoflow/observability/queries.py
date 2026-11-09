@@ -325,12 +325,22 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
     ]
     total_tokens = {"input": 0, "output": 0, "total": 0}
     model_token_by_name: dict[str, dict[str, Any]] = {}
-    usage_sql = f"SELECT model, usage_json FROM {T.MODEL_INVOCATIONS} WHERE usage_json IS NOT NULL AND usage_json != ''{model_and}"
-    for (
-        model,
-        usage_json,
-    ) in conn.execute(usage_sql, model_p).fetchall():
+    token_by_kind: dict[str, dict[str, Any]] = {}
+    prompt_overhead_totals: dict[str, int] = {
+        "system_tokens": 0,
+        "tools_tokens": 0,
+        "system_skills_tokens": 0,
+        "system_assets_tokens": 0,
+        "system_memory_tokens": 0,
+        "samples": 0,
+    }
+    usage_sql = (
+        f"SELECT model, usage_json, COALESCE(NULLIF(TRIM(invocation_kind), ''), 'main') AS kind "
+        f"FROM {T.MODEL_INVOCATIONS} WHERE usage_json IS NOT NULL AND usage_json != ''{model_and}"
+    )
+    for model, usage_json, kind in conn.execute(usage_sql, model_p).fetchall():
         model_key = str(model or "").strip() or "—"
+        kind_key = str(kind or "main").strip() or "main"
         if model_key not in model_token_by_name:
             model_token_by_name[model_key] = {
                 "model": model_key,
@@ -339,7 +349,16 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
                 "output_tokens": 0,
                 "total_tokens": 0,
             }
+        if kind_key not in token_by_kind:
+            token_by_kind[kind_key] = {
+                "invocation_kind": kind_key,
+                "invocations": 0,
+                "input_tokens": 0,
+                "output_tokens": 0,
+                "total_tokens": 0,
+            }
         model_token_by_name[model_key]["invocations"] += 1
+        token_by_kind[kind_key]["invocations"] += 1
         try:
             u = json.loads(usage_json)
             inp, out, tot = token_triplet_from_usage_payload(u)
@@ -349,10 +368,32 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
             model_token_by_name[model_key]["input_tokens"] += inp
             model_token_by_name[model_key]["output_tokens"] += out
             model_token_by_name[model_key]["total_tokens"] += tot
+            token_by_kind[kind_key]["input_tokens"] += inp
+            token_by_kind[kind_key]["output_tokens"] += out
+            token_by_kind[kind_key]["total_tokens"] += tot
+            overhead = u.get("prompt_overhead") if isinstance(u, dict) else None
+            if isinstance(overhead, dict):
+                prompt_overhead_totals["samples"] += 1
+                for ok in (
+                    "system_tokens",
+                    "tools_tokens",
+                    "system_skills_tokens",
+                    "system_assets_tokens",
+                    "system_memory_tokens",
+                ):
+                    try:
+                        prompt_overhead_totals[ok] += max(0, int(overhead.get(ok) or 0))
+                    except (TypeError, ValueError):
+                        pass
         except (json.JSONDecodeError, TypeError, ValueError):
             continue
     model_token_stats = sorted(
         model_token_by_name.values(),
+        key=lambda r: (int(r.get("total_tokens") or 0), int(r.get("invocations") or 0)),
+        reverse=True,
+    )
+    token_by_kind_stats = sorted(
+        token_by_kind.values(),
         key=lambda r: (int(r.get("total_tokens") or 0), int(r.get("invocations") or 0)),
         reverse=True,
     )
@@ -391,6 +432,8 @@ def fetch_overview(*, since_hours: float | None = None) -> dict[str, Any]:
         "trace_model_avg_latency_ms": round(float(trace_lat[0] or 0), 2) if trace_lat[0] else None,
         "total_tokens": total_tokens,
         "model_token_stats": model_token_stats,
+        "token_by_kind": token_by_kind_stats,
+        "prompt_overhead_totals": prompt_overhead_totals,
         "top_slow_tools": top_slow_tools,
         "top_slow_threads": top_slow_threads,
     }
@@ -1420,12 +1463,38 @@ def thread_timeline(thread_id: str, *, limit: int = 200) -> dict[str, Any]:
     return {"enabled": True, "thread_id": tid, "items": merged[:limit]}
 
 
+def _parse_timing_json(raw: Any) -> dict[str, Any] | None:
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
 def _slim_tool_row_for_insights(row: dict[str, Any]) -> dict[str, Any]:
     out = str(row.get("output_text") or "")
     em = str(row.get("error_message") or "")
     preview = (em or out)[:500]
     if preview and len(em or out) > 500:
         preview += "…"
+    duration = row.get("duration_ms")
+    queue_wait = row.get("queue_wait_ms")
+    timing = _parse_timing_json(row.get("timing_json"))
+    exec_ms = None
+    try:
+        if timing and timing.get("exec_ms") is not None:
+            exec_ms = float(timing.get("exec_ms"))
+        elif duration is not None:
+            q = float(queue_wait or 0)
+            exec_ms = max(0.0, float(duration) - q)
+    except (TypeError, ValueError):
+        exec_ms = None
     return {
         "id": row.get("id"),
         "thread_id": row.get("thread_id"),
@@ -1433,12 +1502,232 @@ def _slim_tool_row_for_insights(row: dict[str, Any]) -> dict[str, Any]:
         "tool_call_id": row.get("tool_call_id"),
         "started_at": row.get("started_at"),
         "ended_at": row.get("ended_at"),
-        "duration_ms": row.get("duration_ms"),
+        "duration_ms": duration,
+        "queue_wait_ms": queue_wait,
+        "exec_ms": round(exec_ms, 2) if exec_ms is not None else None,
+        "timing": timing,
         "status": row.get("status"),
         "error_type": row.get("error_type"),
         "error_message": row.get("error_message"),
         "output_preview": preview or None,
         "invocation_source": row.get("invocation_source"),
+    }
+
+
+def _platform_action_latency_stats(conn: sqlite3.Connection, *, since: str | None, limit: int = 20) -> dict[str, Any]:
+    """Aggregate platform tool calls by action for triage."""
+    T = ObservabilityTable
+    tool_since = tool_invocation_and_suffix("ended_at >= ?" if since else None)
+    params: tuple[Any, ...] = (since,) if since else ()
+    prev_factory = conn.row_factory
+    conn.row_factory = sqlite3.Row
+    try:
+        raw_rows = conn.execute(
+            f"""
+            SELECT duration_ms, timing_json, input_json, status
+            FROM {T.TOOL_INVOCATIONS}
+            WHERE tool_name = 'platform'{tool_since}
+            ORDER BY ended_at DESC
+            LIMIT 500
+            """,
+            params,
+        ).fetchall()
+        rows = [_row_to_dict(conn, r) for r in raw_rows]
+    finally:
+        conn.row_factory = prev_factory
+
+    if not rows:
+        return {
+            "sample_count": 0,
+            "playbook": [
+                "按 action 看 avg/max exec_ms：catalog/help 应 <50ms；list 类冷启可到数百 ms",
+                "media.generate_* / task_wait / openai.* / settings.invoke_model 慢是外部 API，不是平台壳",
+                "skills.list / agents.list 反复慢 → 查 skills 根目录扫描或 agent 配置加载",
+                "duration 大但 timing.exec_ms 小 → 看模型往返，不是 handler",
+            ],
+        }
+
+    by_action: dict[str, list[float]] = {}
+    slowest: list[dict[str, Any]] = []
+    for row in rows:
+        timing = _parse_timing_json(row.get("timing_json")) or {}
+        action = str(timing.get("action") or "").strip()
+        if not action:
+            raw_in = row.get("input_json")
+            if isinstance(raw_in, str) and raw_in:
+                try:
+                    parsed = json.loads(raw_in)
+                    if isinstance(parsed, dict):
+                        action = str(parsed.get("action") or "").strip()
+                except (json.JSONDecodeError, TypeError):
+                    action = ""
+        action = action or "unknown"
+        try:
+            duration = float(row.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        try:
+            exec_ms = float(timing["exec_ms"]) if timing.get("exec_ms") is not None else duration
+        except (TypeError, ValueError, KeyError):
+            exec_ms = duration
+        by_action.setdefault(action, []).append(exec_ms)
+        slowest.append(
+            {
+                "action": action,
+                "domain": timing.get("domain"),
+                "risk": timing.get("risk"),
+                "duration_ms": round(duration, 2),
+                "exec_ms": round(exec_ms, 2),
+                "ok": timing.get("ok"),
+                "status": row.get("status"),
+                "pending_confirm": timing.get("pending_confirm"),
+            }
+        )
+
+    slowest.sort(key=lambda x: float(x.get("exec_ms") or 0), reverse=True)
+    action_summary = [
+        {
+            "action": action,
+            "count": len(vals),
+            "avg_exec_ms": round(sum(vals) / len(vals), 2),
+            "max_exec_ms": round(max(vals), 2),
+        }
+        for action, vals in sorted(by_action.items(), key=lambda kv: -max(kv[1]))
+    ]
+    return {
+        "sample_count": len(rows),
+        "by_action": action_summary[: max(1, min(50, int(limit or 20)))],
+        "slowest": slowest[: max(1, min(50, int(limit or 20)))],
+        "playbook": [
+            "按 action 看 avg/max exec_ms：catalog/help 应 <50ms；list 类冷启可到数百 ms",
+            "media.generate_* / task_wait / openai.* / settings.invoke_model 慢是外部 API，不是平台壳",
+            "skills.list / agents.list 反复慢 → 查 skills 根目录扫描或 agent 配置加载",
+            "duration 大但 timing.exec_ms 小 → 看模型往返，不是 handler",
+        ],
+        "query_hint": "/api/observability/tools?tool_name=platform&sort_by=duration_ms",
+    }
+
+
+def _bash_shell_latency_stats(conn: sqlite3.Connection, *, since: str | None, limit: int = 20) -> dict[str, Any]:
+    """Aggregate bash warm/cold/queue splits for shell-slowness triage."""
+    T = ObservabilityTable
+    tool_since = tool_invocation_and_suffix("ended_at >= ?" if since else None)
+    params: tuple[Any, ...] = (since,) if since else ()
+    prev_factory = conn.row_factory
+    conn.row_factory = sqlite3.Row
+    try:
+        raw_rows = conn.execute(
+            f"""
+            SELECT duration_ms, queue_wait_ms, timing_json, input_json, status
+            FROM {T.TOOL_INVOCATIONS}
+            WHERE tool_name = 'bash'{tool_since}
+            ORDER BY ended_at DESC
+            LIMIT 500
+            """,
+            params,
+        ).fetchall()
+        rows = [_row_to_dict(conn, r) for r in raw_rows]
+    finally:
+        conn.row_factory = prev_factory
+    if not rows:
+        return {
+            "sample_count": 0,
+            "playbook": [
+                "queue_wait_ms 大 + exec_ms 小 → 执行通道排队（并发帽/同线程串行）",
+                "path=cold dialect=powershell → PowerShell 冷启 (~0.5–1s)",
+                "path=warm + exec_ms 大 → 命令本身慢或子进程挂住",
+                "两者都小但 UI 慢 → 模型/网关往返，不是 shell",
+            ],
+        }
+
+    by_path: dict[str, list[float]] = {}
+    queue_vals: list[float] = []
+    exec_vals: list[float] = []
+    duration_vals: list[float] = []
+    warm_hits = 0
+    cold_hits = 0
+    high_queue = 0
+    slowest: list[dict[str, Any]] = []
+
+    for row in rows:
+        timing = _parse_timing_json(row.get("timing_json")) or {}
+        path = str(timing.get("path") or "unknown")
+        try:
+            duration = float(row.get("duration_ms") or 0)
+        except (TypeError, ValueError):
+            duration = 0.0
+        try:
+            queue = float(row.get("queue_wait_ms") or 0)
+        except (TypeError, ValueError):
+            queue = 0.0
+        try:
+            exec_ms = float(timing["exec_ms"]) if timing.get("exec_ms") is not None else max(0.0, duration - queue)
+        except (TypeError, ValueError, KeyError):
+            exec_ms = max(0.0, duration - queue)
+        duration_vals.append(duration)
+        queue_vals.append(queue)
+        exec_vals.append(exec_ms)
+        by_path.setdefault(path, []).append(exec_ms)
+        if path.startswith("warm"):
+            warm_hits += 1
+        elif path.startswith("cold"):
+            cold_hits += 1
+        if queue >= 500:
+            high_queue += 1
+        cmd = ""
+        raw_in = row.get("input_json")
+        if isinstance(raw_in, str) and raw_in:
+            try:
+                parsed = json.loads(raw_in)
+                if isinstance(parsed, dict):
+                    cmd = str(parsed.get("command") or "")[:120]
+            except (json.JSONDecodeError, TypeError):
+                cmd = ""
+        slowest.append(
+            {
+                "duration_ms": round(duration, 2),
+                "queue_wait_ms": round(queue, 2),
+                "exec_ms": round(exec_ms, 2),
+                "path": path,
+                "dialect": timing.get("dialect"),
+                "warm_reused": timing.get("warm_reused"),
+                "command_preview": timing.get("command_preview") or cmd,
+                "status": row.get("status"),
+            }
+        )
+
+    slowest.sort(key=lambda x: float(x.get("duration_ms") or 0), reverse=True)
+    path_summary = {
+        path: {
+            "count": len(vals),
+            "avg_exec_ms": round(sum(vals) / len(vals), 2) if vals else 0,
+            "max_exec_ms": round(max(vals), 2) if vals else 0,
+        }
+        for path, vals in sorted(by_path.items(), key=lambda kv: -len(kv[1]))
+    }
+
+    def _avg(vals: list[float]) -> float:
+        return round(sum(vals) / len(vals), 2) if vals else 0.0
+
+    return {
+        "sample_count": len(rows),
+        "avg_duration_ms": _avg(duration_vals),
+        "avg_queue_wait_ms": _avg(queue_vals),
+        "avg_exec_ms": _avg(exec_vals),
+        "max_duration_ms": round(max(duration_vals), 2) if duration_vals else 0,
+        "max_queue_wait_ms": round(max(queue_vals), 2) if queue_vals else 0,
+        "warm_count": warm_hits,
+        "cold_count": cold_hits,
+        "high_queue_count": high_queue,
+        "by_path": path_summary,
+        "slowest": slowest[: max(1, min(50, int(limit or 20)))],
+        "playbook": [
+            "queue_wait_ms 大 + exec_ms 小 → 执行通道排队（并发帽/同线程串行）",
+            "path=cold dialect=powershell → PowerShell 冷启 (~0.5–1s)",
+            "path=warm + exec_ms 大 → 命令本身慢或子进程挂住",
+            "两者都小但 UI 慢 → 模型/网关往返，不是 shell",
+        ],
+        "query_hint": "/api/observability/tools?tool_name=bash&sort_by=duration_ms",
     }
 
 
@@ -1584,6 +1873,8 @@ def fetch_insights(*, limit: int = 10, since_hours: float | None = 24) -> dict[s
         im_errors.append(row)
 
     overview = fetch_overview(since_hours=since_hours)
+    bash_shell = _bash_shell_latency_stats(conn, since=since, limit=lim)
+    platform_actions = _platform_action_latency_stats(conn, since=since, limit=lim)
     return {
         "enabled": True,
         "schema": "evoflow.observability.insights.v1",
@@ -1598,11 +1889,16 @@ def fetch_insights(*, limit: int = 10, since_hours: float | None = 24) -> dict[s
         "slowest_ttft_model_invocations": slow_ttft_models,
         "highest_token_model_invocations": top_token_models,
         "recent_im_channel_errors": im_errors,
+        "bash_shell_latency": bash_shell,
+        "platform_action_latency": platform_actions,
         "query_hints": {
             "tools_by_duration": "/api/observability/tools?sort_by=duration_ms&status=error",
+            "bash_by_duration": "/api/observability/tools?tool_name=bash&sort_by=duration_ms",
+            "platform_by_duration": "/api/observability/tools?tool_name=platform&sort_by=duration_ms",
             "models_by_latency": "/api/observability/models?sort_by=latency_ms&min_latency_ms=3000",
             "per_thread_trace": "/api/debug/agent-trace/analysis?thread_id=<uuid>",
             "per_thread_export": "/api/debug/agent-trace/export?thread_id=<uuid>&omit_model_payloads=1",
+            "insights": "/api/observability/insights?since_hours=24",
         },
     }
 
@@ -1710,6 +2006,43 @@ def fetch_errors_summary(*, since_hours: float | None = 168) -> dict[str, Any]:
             model_p,
         ).fetchall()
     ]
+    # Attach token totals per kind (usage_json parse; same window as latency group).
+    kind_token_map: dict[str, dict[str, int]] = {}
+    for kind, usage_json in conn.execute(
+        f"""
+        SELECT COALESCE(NULLIF(TRIM(invocation_kind), ''), 'main') AS invocation_kind,
+               usage_json
+        FROM {T.MODEL_INVOCATIONS}{model_w}
+        """,
+        model_p,
+    ).fetchall():
+        k = str(kind or "main")
+        if k not in kind_token_map:
+            kind_token_map[k] = {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0}
+        if not usage_json:
+            continue
+        try:
+            u = json.loads(usage_json) if isinstance(usage_json, str) else usage_json
+            inp, out, tot = token_triplet_from_usage_payload(u)
+            kind_token_map[k]["input_tokens"] += inp
+            kind_token_map[k]["output_tokens"] += out
+            kind_token_map[k]["total_tokens"] += tot
+        except (json.JSONDecodeError, TypeError, ValueError):
+            continue
+    for row in model_by_kind:
+        if not isinstance(row, dict):
+            continue
+        toks = kind_token_map.get(str(row.get("invocation_kind") or "main")) or {}
+        row["input_tokens"] = int(toks.get("input_tokens") or 0)
+        row["output_tokens"] = int(toks.get("output_tokens") or 0)
+        row["total_tokens"] = int(toks.get("total_tokens") or 0)
+    model_by_kind.sort(
+        key=lambda r: (
+            int((r or {}).get("total_tokens") or 0) if isinstance(r, dict) else 0,
+            int((r or {}).get("call_count") or 0) if isinstance(r, dict) else 0,
+        ),
+        reverse=True,
+    )
     return {
         "enabled": True,
         "since_hours": since_hours,

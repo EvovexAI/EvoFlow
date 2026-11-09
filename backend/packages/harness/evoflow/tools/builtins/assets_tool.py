@@ -98,7 +98,15 @@ def _resolve_entity(
         return EntityRef("user", "user").normalized()
 
     # User profile dimensions always belong to the user entity (asset center).
+    # An explicit employee/agent target used to be dropped here, so "update this
+    # employee's profile" silently edited the **user's** 用户画像 instead — the
+    # scariest failure mode in this tool because the write reports ok. Refuse.
     if act == "profile":
+        if et and et != "user":
+            raise ValueError(
+                f"profile 只写用户画像（USER.md），不支持 entity_type={et}；"
+                "员工/智能体档案请改用 write 到 craft|memory 路径，或 note 归档"
+            )
         return _user_entity()
     if sc in ("workspace", "project", "ws") or et == "workspace":
         raise PermissionError(
@@ -135,12 +143,16 @@ def _resolve_entity(
             return ent
         return ent
     agent = _agent_from_runtime(runtime) or None
-    if act == "read" and rel.startswith("profile/"):
+    if act in ("read", "write", "delete", "rename") and rel.startswith("profile/"):
         return resolve_profile_entity(agent_name=agent, principal_id=pid)
-    # Employee chat memory (note/search/list/read) belongs on the employee tree,
-    # not the caller's user bucket — otherwise note writes succeed then read
-    # returns not_found under assets/users/<pid>/ (authenticated sessions).
-    if agent and act in ("note", "search", "list", "read", ""):
+    # Employee chat memory belongs on the employee tree, not the caller's user
+    # bucket. The whitelist used to cover only note/search/list/read, which split
+    # one identity across two buckets: ``note`` landed in employees/<id>/ while
+    # ``write`` / ``delete`` / ``rename`` resolved to users/<pid>/ — so a write
+    # "succeeded" against the user's tree, the follow-up read said not_found, and
+    # a delete removed the wrong entity's file. Same rule must apply to every
+    # path-taking action or the ledger lies.
+    if agent and act in ("note", "search", "list", "read", "write", "delete", "rename", ""):
         from evoflow.assets.guidance import is_employee_agent_name
 
         if is_employee_agent_name(agent):
@@ -205,8 +217,11 @@ def assets_tool(
 
     Args:
         action: search | read | list | note | write | delete | rename | profile | affect
-        query: Search keywords only (not write mode)
-        path: Basename or relative path; for note = update target when set;
+        query: Search keywords only (not write mode). Terms split on spaces/commas;
+            wrap a phrase in double quotes to keep it literal
+        path: Basename or relative path; for note = update target when set, but only
+            inside that kind's own directory (kind decides the destination — a
+            cross-kind path is ignored and reported as ignoredPath);
             for delete/rename = target file
         kinds: Search filter: standing,episodic,journal,craft,handbook,all
         kind: Note type: preference | process | experience | reflection
@@ -323,11 +338,19 @@ def assets_tool(
 
     if act == "list":
         rel = _normalize_asset_rel(path, entity)
+        defaulted = not rel
         if not rel:
             # Prefer memory/ when listing root — mirrors progressive disclosure
             rel = "memory"
         try:
             data = list_tree(entity, rel)
+            if defaulted:
+                # Root listing shows one directory, which reads like "the hub only
+                # has memory/" — the hub also holds craft/ and profile/.
+                data["hint"] = (
+                    "未传 path，默认只列 memory/。资产库另有 craft/ 与 profile/，"
+                    "需要请分别 list（path=craft / path=profile）。"
+                )
             return json.dumps({"ok": True, "action": "list", **data}, ensure_ascii=False)
         except FileNotFoundError:
             return json.dumps({"ok": False, "error": "not_found", "path": rel}, ensure_ascii=False)
@@ -409,19 +432,34 @@ def assets_tool(
                 "craft": "经验 craft/",
                 "journal": "反思 memory/journal/",
             }.get(kind, data.get("path") or "")
-            verb = "已更新" if data.get("updated") else "已写入"
-            return json.dumps(
-                {
-                    "ok": True,
-                    "action": "note",
-                    "path": data.get("path"),
-                    "kind": kind,
-                    "tag": data.get("tag"),
-                    "updated": bool(data.get("updated")),
-                    "hint": f"{verb}{dest}。",
-                },
-                ensure_ascii=False,
+            # `kind` owns the destination, so an explicit path from another kind's
+            # directory is dropped. That used to be silent — the caller believed
+            # the note landed where they pointed it. Say so instead.
+            actual_rel = str(data.get("path") or "").replace("\\", "/")
+            path_ignored = bool(
+                raw_path
+                and "/" in raw_path
+                and actual_rel
+                and not actual_rel.startswith(raw_path if raw_path.endswith(".md") else raw_path.rstrip("/") + "/")
             )
+            verb = "已更新" if data.get("updated") else "已写入"
+            hint = f"{verb}{dest}。"
+            payload = {
+                "ok": True,
+                "action": "note",
+                "path": data.get("path"),
+                "kind": kind,
+                "tag": data.get("tag"),
+                "updated": bool(data.get("updated")),
+                "hint": hint,
+            }
+            if path_ignored:
+                payload["ignoredPath"] = raw_path
+                payload["hint"] = (
+                    f"{verb}{dest}（落点由 kind 决定，你传的 path={raw_path} 已忽略；"
+                    f"要写进指定文件请改用 action=write）。"
+                )
+            return json.dumps(payload, ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -454,7 +492,13 @@ def assets_tool(
             # wiped the whole file — the model rarely sends the full body.
             write_mode = _resolve_write_mode(mode, query)
             body = text if text.endswith("\n") else text + "\n"
-            if write_mode == "replace":
+            if rel == "profile/affect.md":
+                # Same guard as action=affect: a replace must not drop the
+                # source/mood/updated header the mood mirror depends on.
+                from evoflow.assets.affect_mirror import write_affect_md
+
+                data = write_affect_md(entity, text, mode=write_mode)
+            elif write_mode == "replace":
                 data = write_text_file(entity, rel, body)
             else:
                 try:
@@ -563,6 +607,8 @@ def assets_tool(
                 invalidate_standing_memory(tid or None)
             except Exception:
                 logger.debug("assets rename: standing invalidate skipped", exc_info=True)
+            synced = bool(data.get("frontmatterSynced"))
+            keys = data.get("syncedKeys") or (["name"] if synced else [])
             return json.dumps(
                 {
                     "ok": True,
@@ -570,8 +616,14 @@ def assets_tool(
                     "path": data.get("path") or rel,
                     "newPath": data.get("newPath"),
                     "renamed": bool(data.get("renamed")),
+                    "frontmatterSynced": synced,
+                    "syncedKeys": keys,
                     "hint": (
-                        f"已重命名为 {data.get('newPath')}。"
+                        (
+                            f"已重命名为 {data.get('newPath')}，frontmatter 的 {'/'.join(keys)} 已同步。"
+                            if synced
+                            else f"已重命名为 {data.get('newPath')}。"
+                        )
                         if data.get("renamed")
                         else "文件名未变。"
                     ),

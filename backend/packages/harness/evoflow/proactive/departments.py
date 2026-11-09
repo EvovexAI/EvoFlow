@@ -22,7 +22,7 @@ from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)
 
-_DEPT_COLS = "id, name, sort_order, head_agent_code, created_at, updated_at"
+_DEPT_COLS = "id, name, sort_order, head_agent_code, avatar, created_at, updated_at"
 
 _CREATE_DEPTS_SQL = """
 CREATE TABLE IF NOT EXISTS evoflow_departments (
@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS evoflow_departments (
     name TEXT NOT NULL UNIQUE,
     sort_order INTEGER NOT NULL DEFAULT 0,
     head_agent_code TEXT NOT NULL DEFAULT '',
+    avatar TEXT NOT NULL DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -57,11 +58,51 @@ def _row_dict(row: Any) -> dict[str, Any]:
         d["head_agent_code"] = ""
     else:
         d["head_agent_code"] = str(d.get("head_agent_code") or "").strip()
+    # Legacy rows / pre-migration DBs have no avatar column → empty string (UI falls back).
+    d["avatar"] = str(d.get("avatar") or "").strip()
+    # Cache-bust token so an uploaded picture refreshes without a full reload.
+    try:
+        from evoflow.config.dept_avatars import avatar_revision_for, has_local_avatar_file
+
+        d["has_avatar_file"] = has_local_avatar_file(str(d.get("id") or ""))
+        d["avatar_rev"] = avatar_revision_for(str(d.get("id") or ""))
+    except Exception:
+        d["has_avatar_file"] = False
+        d["avatar_rev"] = None
     return d
 
 
 def _table_columns(conn: Any) -> set[str]:
     return {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_departments)").fetchall()}
+
+
+def _backfill_missing_avatars(db: Any) -> None:
+    """One-shot: give departments created before the avatar column a preset cutout.
+
+    Prefers distinct presets (shuffle, then cycle) so an existing org board does
+    not show the same picture for every department.
+    """
+    try:
+        import random
+
+        from evoflow.config.dept_avatar_presets import list_presets
+
+        rows = db.execute(
+            "SELECT id FROM evoflow_departments WHERE TRIM(COALESCE(avatar, '')) = '' ORDER BY sort_order, name"
+        ).fetchall()
+        if not rows:
+            return
+        ids = [str(r["id"]) for r in list_presets() if str(r["id"] or "").strip()]
+        if not ids:
+            return
+        random.shuffle(ids)
+        for i, row in enumerate(rows):
+            db.execute(
+                "UPDATE evoflow_departments SET avatar = ? WHERE id = ?",
+                (ids[i % len(ids)], row[0]),
+            )
+    except Exception:
+        logger.debug("departments: avatar backfill failed", exc_info=True)
 
 
 def ensure_departments_table(conn: Any | None = None) -> None:
@@ -72,7 +113,15 @@ def ensure_departments_table(conn: Any | None = None) -> None:
     cols = _table_columns(db)
     if "head_agent_code" not in cols:
         db.execute("ALTER TABLE evoflow_departments ADD COLUMN head_agent_code TEXT NOT NULL DEFAULT ''")
-    if conn is None and not db.in_transaction:
+    if "avatar" not in cols:
+        db.execute("ALTER TABLE evoflow_departments ADD COLUMN avatar TEXT NOT NULL DEFAULT ''")
+        # Only on the migration pass: pre-existing departments get a cutout instead of
+        # a bare text card. Later empty values are left alone (UI falls back).
+        _backfill_missing_avatars(db)
+    if conn is None:
+        # We own the shared connection here: commit the migration (ALTER + backfill)
+        # immediately, otherwise the next ``run_db_transaction`` treats the open
+        # implicit transaction as orphaned and rolls the new column back.
         try:
             db.commit()
         except Exception:
@@ -154,6 +203,8 @@ class DepartmentRepository:
             ).fetchall()
             max_sort = conn.execute("SELECT COALESCE(MAX(sort_order), 0) FROM evoflow_departments").fetchone()[0]
             sort = int(max_sort or 0)
+            from evoflow.config.dept_avatar_presets import pick_random_preset_id
+
             for row in rows:
                 name = _sanitize_name(row["name"] if hasattr(row, "keys") else row[0])
                 if not name or name in existing:
@@ -162,9 +213,9 @@ class DepartmentRepository:
                 conn.execute(
                     f"""
                     INSERT INTO evoflow_departments ({_DEPT_COLS})
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (_new_id(), name, sort, "", now, now),
+                    (_new_id(), name, sort, "", pick_random_preset_id() or "", now, now),
                 )
                 existing.add(name)
                 created += 1
@@ -278,12 +329,24 @@ class DepartmentRepository:
         return _row_dict(row) if row else None
 
     @staticmethod
-    def create(*, name: str, sort_order: int | None = None) -> dict[str, Any]:
+    def create(*, name: str, sort_order: int | None = None, avatar: str | None = None) -> dict[str, Any]:
         n = _sanitize_name(name)
         if not n:
             raise ValueError("部门名称不能为空")
         if DepartmentRepository.get_by_name(n):
             raise ValueError(f"部门「{n}」已存在")
+        # Explicit avatar must be a shipped preset; otherwise fall back to a random one.
+        av = ""
+        if avatar is not None and str(avatar).strip():
+            from evoflow.config.dept_avatar_presets import parse_dept_avatar
+
+            av = parse_dept_avatar(avatar) or ""
+            if not av:
+                raise ValueError(f"未知的部门头像预设「{avatar}」")
+        if not av:
+            from evoflow.config.dept_avatar_presets import pick_random_preset_id
+
+            av = pick_random_preset_id() or ""
         now = utc_now_iso_z()
         did = _new_id()
 
@@ -295,12 +358,59 @@ class DepartmentRepository:
             conn.execute(
                 f"""
                 INSERT INTO evoflow_departments ({_DEPT_COLS})
-                VALUES (?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (did, n, int(sort), "", now, now),
+                (did, n, int(sort), "", av, now, now),
             )
 
         run_db_transaction(_work)
+        row = DepartmentRepository.get(did)
+        assert row is not None
+        return row
+
+    @staticmethod
+    def set_avatar(dept_id: str, *, avatar: str) -> dict[str, Any]:
+        """Set/clear a department avatar.
+
+        Accepts a shipped preset id, the ``image`` sentinel (user upload), or an
+        empty string to clear. Switching away from ``image`` deletes the uploaded
+        file so the board cannot show a stale picture.
+        """
+        did = str(dept_id or "").strip()
+        existing = DepartmentRepository.get(did)
+        if not existing:
+            raise ValueError("部门不存在")
+        raw = str(avatar or "").strip()
+        if raw:
+            from evoflow.config.dept_avatars import is_image_avatar
+
+            if is_image_avatar(raw):
+                av = "image"
+            else:
+                from evoflow.config.dept_avatar_presets import parse_dept_avatar
+
+                av = parse_dept_avatar(raw) or ""
+                if not av:
+                    raise ValueError(f"未知的部门头像预设「{avatar}」")
+        else:
+            av = ""
+        now = utc_now_iso_z()
+
+        def _work(conn: Any) -> None:
+            conn.execute(
+                """
+                UPDATE evoflow_departments
+                SET avatar = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (av, now, did),
+            )
+
+        run_db_transaction(_work)
+        if av != "image":
+            from evoflow.config.dept_avatars import delete_avatar_file
+
+            delete_avatar_file(did)
         row = DepartmentRepository.get(did)
         assert row is not None
         return row

@@ -5,11 +5,12 @@
  * 布局：对话 | 右侧占位（同底色）；视觉：内容多高就多高的悬浮卡，非通栏块。
  * 与专用 Right Stage 互斥。
  * 两区：
- * - 进程：terminal + 子智能体 + 协作子任务 聚合成一条有序列表
+ * - 进程：会话 todo_write 待办 + terminal / 子智能体 / 协作子任务
  * - 智能体 / 员工：普通会话为能力卡；员工会话用 EmployeePane（身份 + 提示词/SOUL/职责同框）
  * - 更多：折叠收纳产物 / 平台 / 调试 / 任务（保留旧侧栏能力，不丢功能）
  *
- * 不做「计划」区：计划确认条仍在输入区上方（PlanExecConfirm）。
+ * 会话 checklist（todo_write）归「进程」tab，不在对话底部侧栏重复展示。
+ * 计划确认条仍在输入区上方（PlanExecConfirm）。
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -34,6 +35,7 @@ import {
   type ThinkingPref,
 } from './AgentRolePrefs.js'
 import { AssetQuickActions, partitionArtifacts } from './ChatWorkspaceInfoRail.js'
+import { SubagentTaskDetailPortal } from './SubagentLiveDock.js'
 import { PlatformRunTable } from './PlatformRunTable.js'
 import { SessionDebugPane } from './SessionDebugPane.js'
 import { chatArtifactDisplayLabel, type ChatArtifact } from '../lib/chat-artifact.js'
@@ -62,7 +64,13 @@ import {
   type ChatSummaryDisplayMode,
   type ChatSummaryExpandPolicy,
 } from '../lib/chat-summary-panel-prefs.js'
-import type { CollabSubtaskSnapshot, SubagentStreamTask, TerminalStreamTask } from '../chat-types.js'
+import type {
+  CollabSubtaskSnapshot,
+  SubagentStreamTask,
+  TerminalStreamTask,
+  ThreadTodo,
+} from '../chat-types.js'
+import { formatTaskStatusZh } from '../../lib/task-status-label.js'
 import type { AgentAvatarAgent } from '../lib/agent-avatar.js'
 import { logChatSummaryPanelShown } from '../lib/chat-turn-timing-log.js'
 
@@ -80,6 +88,8 @@ type Props = {
   subagentTasks?: Record<string, SubagentStreamTask> | null
   workflowSubtasks?: CollabSubtaskSnapshot[] | null
   backgroundWorks?: Record<string, import('../chat-types.js').BackgroundWorkStreamItem> | null
+  /** 会话 todo_write checklist（进「进程」tab，对齐 ZCode 摘要里的 Todo/进程） */
+  planTodos?: ThreadTodo[] | null
   onOpenProcessItem?: (item: ProcessItem) => void
   onStopProcessItem?: (item: ProcessItem) => void
 
@@ -322,14 +332,67 @@ function formatElapsed(startedAt: number | undefined, now: number): string {
   return `${hr}h ${min % 60}m`
 }
 
+function isTodoCompleted(status: string | undefined): boolean {
+  const s = String(status || '').trim().toLowerCase()
+  return s === 'completed' || s === 'done' || s === 'cancelled' || s === 'canceled' || s === 'skipped'
+}
+
+function PlanTodosBlock({ todos }: { todos: ThreadTodo[] }) {
+  if (!todos.length) return null
+  const done = todos.filter((t) => isTodoCompleted(String(t.status || ''))).length
+  return (
+    <div className="chat-summary-plan-todos" role="group" aria-label="待办">
+      <div className="chat-summary-subsection-label">
+        待办
+        <span className="chat-summary-plan-todos-count">
+          {done} / {todos.length}
+        </span>
+      </div>
+      <ul className="chat-summary-plan-todos-list">
+        {todos.map((todo, i) => {
+          const status = String(todo.status || '').trim()
+          const content = String(todo.content ?? '').trim() || `事项 ${i + 1}`
+          const result = String(todo.result ?? '').trim()
+          const completed = isTodoCompleted(status)
+          return (
+            <li
+              key={`${status}-${i}-${content.slice(0, 24)}`}
+              className={`chat-summary-plan-todos-row${completed ? ' is-done' : ''}`}
+            >
+              <span className="chat-summary-plan-todos-status" title={formatTaskStatusZh(status)}>
+                {completed ? (
+                  <CircleCheck aria-hidden className="chat-summary-plan-todos-icon" />
+                ) : status.toLowerCase() === 'in_progress' || status.toLowerCase() === 'inprogress' ? (
+                  <CircleDashed aria-hidden className="chat-summary-plan-todos-icon is-active" />
+                ) : (
+                  <CircleSlash aria-hidden className="chat-summary-plan-todos-icon is-pending" />
+                )}
+              </span>
+              <span className="chat-summary-plan-todos-main">
+                <span className="chat-summary-plan-todos-label">{content}</span>
+                <span className="chat-summary-plan-todos-detail">
+                  {result || formatTaskStatusZh(status, { fallback: '待处理' })}
+                </span>
+              </span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 function ProcessList({
   summary,
   onOpenItem,
   onStopItem,
+  onOpenAgentDetail,
 }: {
   summary: ProcessSummary
   onOpenItem?: (item: ProcessItem) => void
   onStopItem?: (item: ProcessItem) => void
+  /** 子智能体行 → 打开实时流浮层（输出已并入主消息区，旧「切智能体 tab」行为无效） */
+  onOpenAgentDetail?: (taskId: string) => void
 }) {
   const [now, setNow] = useState(() => Date.now())
   const hasRunning = summary.items.some((it) => it.state === 'running')
@@ -353,7 +416,16 @@ function ProcessList({
               type="button"
               className={`chat-summary-process-item is-${it.state}`}
               title={`${it.label} · ${PROCESS_STATE_LABEL[it.state]}`}
-              onClick={() => onOpenItem?.(it)}
+              onClick={() => {
+                if (it.kind === 'agent' && onOpenAgentDetail) {
+                  const taskId = String((it.source as { taskId?: string } | null)?.taskId || '')
+                  if (taskId) {
+                    onOpenAgentDetail(taskId)
+                    return
+                  }
+                }
+                onOpenItem?.(it)
+              }}
             >
               <StateIcon className="chat-summary-process-icon" data-state={it.state} aria-hidden />
               <span className="chat-summary-process-main">
@@ -392,6 +464,7 @@ function ChatSummaryPanelInner({
   subagentTasks,
   workflowSubtasks,
   backgroundWorks,
+  planTodos = null,
   onOpenProcessItem,
   onStopProcessItem,
   agentLabel,
@@ -435,6 +508,8 @@ function ChatSummaryPanelInner({
   const [policy, setPolicy] = useState<ChatSummaryExpandPolicy>('auto-expand')
   const [policyOpen, setPolicyOpen] = useState(false)
   const [panelTab, setPanelTab] = useState<PanelTab>('agent')
+  /** 进程行点开的子智能体实时流浮层（taskId） */
+  const [agentDetailTaskId, setAgentDetailTaskId] = useState<string | null>(null)
   const policyRef = useRef<HTMLDivElement | null>(null)
   const hydrated = useRef(false)
   const activityPrevRef = useRef<SummaryActivityPrev>({
@@ -681,7 +756,13 @@ function ChatSummaryPanelInner({
     Boolean(onSwitchAgent) && !isEmployeeSession && !isDeptChatSession
   const bio = String(agentDescription || '').trim()
   const modelText = String(modelLabel || modelName || '').trim()
-  const bubbleTitle = summary.items.length ? summary.capsuleLabel : sessionTitleText || '状态'
+  const planTodoList = Array.isArray(planTodos) ? planTodos : []
+  const planTodoDone = planTodoList.filter((t) => isTodoCompleted(String(t.status || ''))).length
+  const bubbleTitle = summary.items.length
+    ? summary.capsuleLabel
+    : planTodoList.length
+      ? `待办 ${planTodoDone}/${planTodoList.length}`
+      : sessionTitleText || '状态'
 
   // 右上角状态卡展开为 panel 时记中文前端日志（时间 + 展示内容）
   useEffect(() => {
@@ -935,11 +1016,19 @@ function ChatSummaryPanelInner({
 
             {effectivePanelTab === 'process' ? (
               <div className="chat-summary-process-body">
-                <ProcessList
-                  summary={summary}
-                  onOpenItem={onOpenProcessItem}
-                  onStopItem={onStopProcessItem}
-                />
+                {planTodoList.length > 0 ? <PlanTodosBlock todos={planTodoList} /> : null}
+                {summary.items.length > 0 || planTodoList.length === 0 ? (
+                  <ProcessList
+                    summary={summary}
+                    onOpenItem={onOpenProcessItem}
+                    onStopItem={onStopProcessItem}
+                    onOpenAgentDetail={(taskId) => {
+                      setAgentDetailTaskId(taskId)
+                      // 胶囊态也要撑开，否则浮层盖在气泡上看不到入口
+                      goPanel()
+                    }}
+                  />
+                ) : null}
               </div>
             ) : null}
 
@@ -963,6 +1052,14 @@ function ChatSummaryPanelInner({
           </div>
         </div>
       )}
+      {agentDetailTaskId ? (
+        <SubagentTaskDetailPortal
+          task={
+            (agentDetailTaskId && subagentTasks && subagentTasks[agentDetailTaskId]) || null
+          }
+          onClose={() => setAgentDetailTaskId(null)}
+        />
+      ) : null}
     </aside>
   )
 }

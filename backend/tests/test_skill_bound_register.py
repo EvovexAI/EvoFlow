@@ -49,7 +49,8 @@ def test_register_bound_keeps_source_and_resolves_uri(
     monkeypatch.setattr(cfg_repo, "list_skill_registry", lambda: dict(registry))
     monkeypatch.setattr(cfg_repo, "get_skill_registry", lambda name: registry.get(name))
     monkeypatch.setattr(
-        "evoflow.persistence.bootstrap.sync_skills_from_filesystem", lambda: None
+        "evoflow.persistence.bootstrap.sync_skills_from_filesystem",
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(
         "evoflow.skills.security.scan_skill_directory", lambda _p: []
@@ -126,7 +127,8 @@ def test_delete_bound_unregisters_without_deleting_source(
         lambda name: registry.pop(name, None) is not None,
     )
     monkeypatch.setattr(
-        "evoflow.persistence.bootstrap.sync_skills_from_filesystem", lambda: None
+        "evoflow.persistence.bootstrap.sync_skills_from_filesystem",
+        lambda **_kwargs: None,
     )
     monkeypatch.setattr(loader, "_skills_cache", None)
 

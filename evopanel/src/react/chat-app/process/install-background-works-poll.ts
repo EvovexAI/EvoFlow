@@ -2,6 +2,8 @@
 /**
  * Poll running background bash works into the live stream snapshot. Extracted (P98).
  */
+import { pruneFinishedBackgroundWorks } from '../../lib/background-work-merge.js'
+
 export type InstallBackgroundWorksPollCtx = Record<string, any>
 
 export function runBackgroundWorksPollEffect(
@@ -41,10 +43,16 @@ export function runBackgroundWorksPollEffect(
       const S = streamRef.current
       if (!S) return
       if (!S.backgroundWorks) S.backgroundWorks = {}
-      const signature = works
+      // runningOnly 列表只含仍在跑的；本地 map 里消失的 running 必须收口，
+      // 否则进程 tab 会一直转圈（生产日志：运行中 9/18 堆积 sleep/powershell）。
+      const runningIds = works
+        .map((w) => String(w.workId || '').trim())
+        .filter(Boolean)
+      const pruned = pruneFinishedBackgroundWorks(S.backgroundWorks, runningIds)
+      const signature = `${pruned}|${works
         .map((w) => `${w.workId}:${w.status}:${w.endedAt || 0}`)
         .sort()
-        .join('|')
+        .join('|')}`
       const changed = signature !== backgroundWorksPollSigRef.current
       backgroundWorksPollSigRef.current = signature
       if (changed) {

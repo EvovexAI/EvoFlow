@@ -105,6 +105,25 @@ async def dispatch_authorized_main_task_execution(
                 "subtasksPreSync": pre_sync,
             }
 
+    # Pause gate. Every wave (first dispatch, follow-up after a step reports done,
+    # reconcile tick) funnels through here, so this is the one place that can make
+    # ``workflow.stop(pause=true)`` actually mean something. Before it, pausing only
+    # relabelled rows: the in-flight worker kept running, its completion released the
+    # next wave, and the run sailed to ``completed`` — resume then refused with
+    # "not resumable (status=executing)". Verified live on 2026-11-08.
+    main_status = str(task.get("status") or "").strip().lower()
+    if main_status in {"paused", "pausing"}:
+        return {
+            "success": False,
+            "action": "start_execution",
+            "taskId": tid,
+            "error": "paused",
+            "message": (
+                "主任务处于暂停状态，本次波次不派发。用 workflow.resume 恢复"
+                "（resume 会先把主任务置回 executing 再派发）。"
+            ),
+        }
+
     run_tid = str(thread_id or task.get("thread_id") or "").strip() or None
     runtime = gateway_tool_runtime(run_tid, main_task_id=tid)
 

@@ -1,7 +1,8 @@
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useMemo } from 'react'
 import type { AgentInfo, CollabSubtaskSnapshot, CollabTaskSnapshot, SubagentStreamTaskMap, SubtaskTranscriptModalPayload } from '../chat-types.js'
 import { formatPlanTaskStatusLabel } from '../../lib/plan-task-status.js'
 import { taskStatusBadgeClass } from '../../lib/task-status-label.js'
+import { useSoftProgressDisplay } from '../hooks/useSoftProgressDisplay.js'
 import { CollabWorkflowCanvas } from './CollabWorkflowCanvas.js'
 
 export interface CollabExecutionPanelProps {
@@ -150,14 +151,41 @@ function CollabExecutionPanelInner({
     return name || '任务执行'
   }, [persistedMainTask?.name, collabTask?.name])
 
-  const panelProgress = useMemo(() => persistedProgress(persistedMainTask), [persistedMainTask])
+  const storedPanelProgress = useMemo(
+    () => persistedProgress(persistedMainTask),
+    [persistedMainTask],
+  )
 
   const isRunning = useMemo(() => {
     const s = normalizeTaskStatus(persistedMainTask?.status)
     return s === 'in_progress' || s === 'running' || s === 'executing' || s === 'active'
   }, [persistedMainTask?.status])
 
-  const isBuffering = isRunning && panelProgress != null && panelProgress < 100
+  const panelProgress = useSoftProgressDisplay(
+    String(persistedMainTask?.taskId || mainTaskId || ''),
+    persistedMainTask?.status,
+    storedPanelProgress,
+    (persistedMainTask as { startedAt?: string; started_at?: string } | null)?.startedAt ||
+      (persistedMainTask as { started_at?: string } | null)?.started_at ||
+      null,
+  )
+
+  /** 节点统计：总数 / 运行中 / 已完成 —— 让顶栏一眼看出「跑到哪了」 */
+  const stepStats = useMemo(() => {
+    let total = 0
+    let running = 0
+    let done = 0
+    for (const s of subtasks) {
+      total += 1
+      const st = normalizeTaskStatus(s.status)
+      if (st === 'in_progress' || st === 'running' || st === 'executing' || st === 'active') {
+        running += 1
+      } else if (st === 'completed' || st === 'done') {
+        done += 1
+      }
+    }
+    return { total, running, done }
+  }, [subtasks])
 
   if (!isOpen) return null
 
@@ -184,25 +212,41 @@ function CollabExecutionPanelInner({
               <span className="react-chat-collab-exec-panel-title" title={taskTitle}>
                 {taskTitle}
               </span>
-            </div>
-            {panelProgress != null ? (
-              <div className="react-chat-collab-exec-panel-progress-row">
-                <div
-                  className="react-chat-collab-exec-panel-progress-bar"
+              {/* 运行中：转圈（不再写「运行中」文字） */}
+              {isRunning ? (
+                <span className="react-chat-collab-exec-panel-running-chip" title="任务正在运行">
+                  <span className="react-chat-collab-exec-panel-running-dot" aria-hidden />
+                </span>
+              ) : null}
+              {/* 百分比提到顶部同一行 */}
+              {panelProgress != null ? (
+                <span
+                  className="react-chat-collab-exec-panel-progress-pct"
+                  title={`任务进度 ${panelProgress}%`}
                   role="progressbar"
                   aria-valuenow={panelProgress}
                   aria-valuemin={0}
                   aria-valuemax={100}
                   aria-label="任务进度"
                 >
-                  <span
-                    className={`react-chat-collab-exec-panel-progress-fill${isBuffering ? ' is-buffering' : ''}`}
-                    style={{ width: `${panelProgress}%` }}
-                  />
-                </div>
-                <span className="react-chat-collab-exec-panel-progress-pct">{panelProgress}%</span>
-              </div>
-            ) : null}
+                  {panelProgress}%
+                </span>
+              ) : null}
+              {stepStats.total > 0 ? (
+                <span
+                  className="react-chat-collab-exec-panel-step-chip"
+                  title={`共 ${stepStats.total} 个节点：运行中 ${stepStats.running}，已完成 ${stepStats.done}`}
+                >
+                  {stepStats.done}/{stepStats.total}
+                </span>
+              ) : null}
+              {/* 任务 ID：与标题同行（一行放完），日志/排查时能对上具体是哪个任务 */}
+              {tid ? (
+                <span className="react-chat-collab-exec-panel-task-id" title={`任务 ID：${tid}`}>
+                  {tid}
+                </span>
+              ) : null}
+            </div>
           </div>
         </header>
       ) : null}
@@ -215,6 +259,7 @@ function CollabExecutionPanelInner({
           <CollabWorkflowCanvas
             subtasks={subtasks}
             mainTaskId={tid}
+            taskName={taskTitle}
             leadThreadId={chatThreadId}
             subagentTasks={subagentTasks}
             agents={agents}

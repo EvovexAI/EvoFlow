@@ -6,13 +6,19 @@ import type {
   SubagentStreamTaskMap,
   SubtaskTranscriptModalPayload,
 } from '../chat-types.js'
+import { useSoftProgressDisplay } from '../hooks/useSoftProgressDisplay.js'
 import { layoutSubtaskDagCanvas, subtaskDagEdgePath, buildSubtaskDagIndex } from '../../lib/collab-subtask-dag.js'
 import { collabDagDebug } from '../../lib/collab-dag-debug.js'
 import { resolveAssignedAgentDisplayName } from '../../lib/tool-display.js'
-import { resolveSubtaskLivePreview } from '../../lib/subtask-preview-text.js'
+import {
+  isGenericSubtaskWaitHint,
+  resolveSubtaskLivePreview,
+} from '../../lib/subtask-preview-text.js'
+import { findSubagentTaskForCollabSubtask } from '../../lib/subtask-stream-bind.js'
+import { resolveNodeActivity } from '../../lib/workflow-node-activity.js'
+import { logWorkflowNodeState } from '../../lib/workflow-node-log.js'
 import { formatTaskStatusZh, taskStatusBadgeClass } from '../../lib/task-status-label.js'
 import { formatSubtaskObsLine } from '../../lib/task-observability-format.js'
-import { SubtaskLiveTicker } from './SubtaskLiveTicker.js'
 import { HoverBubble, HoverBubbleProvider } from './HoverBubble.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 
@@ -49,16 +55,16 @@ function subtaskTitle(s: CollabSubtaskSnapshot): string {
   return raw
 }
 
-function clipText(text: string, max: number): string {
-  const t = String(text || '').trim()
-  if (!t) return ''
-  if (t.length <= max) return t
-  return `${t.slice(0, Math.max(0, max - 1))}…`
+/** 节点只展示一行：压平空白，超出靠 CSS ellipsis。 */
+function oneLineText(text: string): string {
+  return String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function resolveTaskResult(s: CollabSubtaskSnapshot): string {
   const raw = String(s.taskReport || s.result || s.outputSummary || '').trim()
-  return raw.replace(/^【完成】[\s\n]*/u, '').trim()
+  return oneLineText(raw.replace(/^【完成】[\s\n]*/u, ''))
 }
 
 function toProgressPct(s: CollabSubtaskSnapshot): number | null {
@@ -73,6 +79,7 @@ function WorkflowNode({
   layout,
   subagentTasks,
   mainTaskId,
+  taskName,
   leadThreadId,
   agents,
   onOpen,
@@ -82,6 +89,8 @@ function WorkflowNode({
   layout: { x: number; y: number; w: number; h: number }
   subagentTasks?: SubagentStreamTaskMap
   mainTaskId: string
+  /** 主任务名（日志里标出「是哪个任务」） */
+  taskName?: string
   leadThreadId?: string | null
   agents?: AgentInfo[]
   onOpen: (payload: SubtaskTranscriptModalPayload) => void
@@ -99,12 +108,27 @@ function WorkflowNode({
     (code ? resolveAssignedAgentDisplayName(code, agents) : '') ||
     '未分配'
   const refLabel = String(s.ref || '').trim()
-  const progressPct = toProgressPct(s)
-  const buffering = running && progressPct != null && progressPct < 100
+  const storedProgress = toProgressPct(s)
+  const startedAt =
+    (s as { startedAt?: string }).startedAt ||
+    (s as { started_at?: string }).started_at ||
+    null
+  const progressPct = useSoftProgressDisplay(
+    String(s.subtaskId || ''),
+    displayStatus,
+    storedProgress,
+    startedAt,
+  )
   const taskResult = useMemo(() => resolveTaskResult(s), [s])
   const statusHint = String(
     (s as { currentStep?: string }).currentStep ||
       (s as { current_step?: string }).current_step ||
+      '',
+  ).trim()
+  /** 后端落库的实时正文（刷新后 / 从别的工作流打开时兜底） */
+  const apiPreview = String(
+    (s as { executionPreview?: string }).executionPreview ||
+      (s as { execution_preview?: string }).execution_preview ||
       '',
   ).trim()
   const terminal = isCompletedStatus(displayStatus) || normalizeStatus(displayStatus) === 'failed'
@@ -123,6 +147,39 @@ function WorkflowNode({
     [s.subtaskId, title, running, terminal, subagentTasks, statusHint, taskResult],
   )
 
+  /**
+   * 实时工具轨迹 + 正文：直接从 stream task 取原始 tools[]，
+   * 不走 sanitizeSubtaskLiveTicker（那个函数刻意过滤工具行，
+   * 导致节点永远看不到「此刻在跑什么工具」）。
+   */
+  const streamTask = useMemo(
+    () => findSubagentTaskForCollabSubtask(subagentTasks, String(s.subtaskId || ''), title),
+    [subagentTasks, s.subtaskId, title],
+  )
+  // Prefer transcript preview over current_step. Dispatch-time 「子任务已派发」
+  // must not mask real preview or completed taskReport (progress can still update).
+  const apiActivityText = useMemo(() => {
+    const preview = apiPreview && !isGenericSubtaskWaitHint(apiPreview) ? apiPreview : ''
+    const step = statusHint && !isGenericSubtaskWaitHint(statusHint) ? statusHint : ''
+    return preview || step
+  }, [apiPreview, statusHint])
+  const activity = useMemo(
+    () =>
+      resolveNodeActivity({
+        tools: streamTask?.tools,
+        liveOutput: streamTask?.liveOutput,
+        progressHint: streamTask?.progressHint,
+        // 兜底：当前会话没有 WS 流时（刷新后 / 从别的工作流打开），
+        // 用后端落库的实时正文 / current_step。
+        apiText: apiActivityText,
+        running,
+      }),
+    [streamTask?.tools, streamTask?.liveOutput, streamTask?.progressHint, apiActivityText, running],
+  )
+
+  /** 只显示最新一条活动（工具或正文），单行 + … */
+  const liveText = oneLineText(activity.latest?.text || livePreview.previewText || '')
+  const activityText = oneLineText(activity.latest?.text || '')
   const showLiveTicker = running || (livePreview.hasLiveContent && !terminal)
 
   // 任务名在前：节点主标题是步骤/任务，执行者只作次要信息
@@ -148,11 +205,59 @@ function WorkflowNode({
     })
   }
 
+  const hoverBody = [
+    activity.activeToolLabel ? `正在执行：${activity.activeToolLabel}` : '',
+    liveText,
+    livePreview.previewText && liveText !== livePreview.previewText ? livePreview.previewText : '',
+    obsLine,
+    statusLabel,
+  ]
+    .filter(Boolean)
+    .join('\n')
+
+  /**
+   * 节点状态日志：把「节点上显示什么」原样打进控制台。
+   * 依赖里只放真正影响显示的字段 —— 2s 轮询下不会重复刷屏（logger 内部还有去重）。
+   */
+  const nodeDisplayText = activity.latest?.text || (showLiveTicker ? liveText : '') || ''
+  const nodeDisplayKind: 'tool' | 'text' | 'none' = activity.latest
+    ? activity.latest.isTool
+      ? 'tool'
+      : 'text'
+    : nodeDisplayText
+      ? 'text'
+      : 'none'
+  useEffect(() => {
+    logWorkflowNodeState({
+      taskName: String(taskName || '').trim(),
+      taskId: String(mainTaskId || '').trim(),
+      nodeName: title,
+      subtaskId: String(s.subtaskId || '').trim(),
+      status: displayStatus,
+      statusLabel,
+      progress: progressPct,
+      display: nodeDisplayText,
+      kind: nodeDisplayKind,
+      activeTool: activity.activeToolLabel,
+    })
+  }, [
+    taskName,
+    mainTaskId,
+    title,
+    s.subtaskId,
+    displayStatus,
+    statusLabel,
+    progressPct,
+    nodeDisplayText,
+    nodeDisplayKind,
+    activity.activeToolLabel,
+  ])
+
   return (
     <HoverBubble
       variant="rich"
       title={fullTitle}
-      body={[livePreview.previewText, statusLabel].filter(Boolean).join('\n')}
+      body={hoverBody}
       side="bottom"
       align="start"
       maxWidth={560}
@@ -173,35 +278,52 @@ function WorkflowNode({
             />
           </HoverBubble>
           <span className="collab-wf-node-task-title">{title}</span>
-        </div>
-        {progressPct != null ? (
-          <div className="collab-wf-node-status-row">
-            {refLabel ? <span className="collab-wf-node-ref">#{refLabel}</span> : null}
-            <div className="collab-wf-node-progress-bar" aria-hidden>
-              <span className={`collab-wf-node-progress-fill${buffering ? ' is-buffering' : ''}`} style={{ width: `${progressPct}%` }} />
-            </div>
-            <span className="collab-wf-node-progress-pct">{progressPct}%</span>
-          </div>
-        ) : refLabel ? (
-          <span className="collab-wf-node-ref">#{refLabel}</span>
-        ) : null}
-        <div className="collab-wf-node-agent-row">
-          <span className="collab-wf-node-agent-ico" aria-hidden>
-            <AssignedAgentAvatar agentCode={code} agents={agents} size={14} busy={running} />
-          </span>
-          <span className="collab-wf-node-agent-name">{agentName}</span>
-        </div>
-        {obsLine ? (
-          <HoverBubble text="该子任务线程的模型/工具/Token 统计" side="top" align="start" maxWidth={280}>
-            <div className="collab-wf-node-obs">{obsLine}</div>
+          <HoverBubble text={agentName} side="top" align="center" maxWidth={200} asChild>
+            <span className="collab-wf-node-agent-ico" aria-hidden>
+              <AssignedAgentAvatar agentCode={code} agents={agents} size={13} busy={running} />
+            </span>
           </HoverBubble>
-        ) : null}
-        {showLiveTicker && livePreview.previewText ? (
-          <div className={`collab-wf-node-live${running ? ' is-live' : ''}`}>
-            <SubtaskLiveTicker text={livePreview.previewText} className="collab-wf-node-ticker" />
+          {refLabel ? <span className="collab-wf-node-ref">#{refLabel}</span> : null}
+          {/* 百分比提到顶部（不再有底部总体进度条）；运行中用转圈表示 */}
+          {progressPct != null ? (
+            <span
+              className={`collab-wf-node-progress-pct${running ? ' is-running' : ''}`}
+              title={`进度 ${progressPct}%`}
+            >
+              {progressPct}%
+            </span>
+          ) : null}
+          {running ? (
+            <span
+              className="collab-wf-node-running-badge"
+              title={activity.activeToolLabel ? `运行中 · ${activity.activeToolLabel}` : '运行中'}
+              aria-label="运行中"
+            >
+              <span className="collab-wf-node-spinner" aria-hidden />
+            </span>
+          ) : null}
+        </div>
+        {activity.latest && activityText ? (
+          <div
+            className={`collab-wf-node-activity${activity.latest.running ? ' is-running' : ''}${activity.latest.failed ? ' is-failed' : ''}${activity.latest.isTool ? ' is-tool' : ''}`}
+          >
+            {activity.latest.isTool ? (
+              <span className="collab-wf-node-activity-dot" aria-hidden />
+            ) : null}
+            <span className="collab-wf-node-activity-text" title={activityText}>
+              {activityText}
+            </span>
+          </div>
+        ) : showLiveTicker && liveText ? (
+          <div className={`collab-wf-node-activity${running ? ' is-running' : ''}`}>
+            <span className="collab-wf-node-activity-text" title={liveText}>
+              {liveText}
+            </span>
           </div>
         ) : !running && taskResult ? (
-          <div className="collab-wf-node-result">{clipText(taskResult, 88)}</div>
+          <div className="collab-wf-node-result" title={taskResult}>
+            {taskResult}
+          </div>
         ) : null}
       </button>
     </HoverBubble>
@@ -211,6 +333,8 @@ function WorkflowNode({
 export interface CollabWorkflowCanvasProps {
   subtasks: CollabSubtaskSnapshot[]
   mainTaskId: string
+  /** 主任务名（日志里标出「是哪个任务」） */
+  taskName?: string
   /** LangGraph lead thread uuid for subtask transcript lookup */
   leadThreadId?: string | null
   subagentTasks?: SubagentStreamTaskMap
@@ -272,6 +396,7 @@ function centerCanvasInBox(
 export function CollabWorkflowCanvas({
   subtasks,
   mainTaskId,
+  taskName,
   leadThreadId,
   subagentTasks,
   agents,
@@ -530,6 +655,7 @@ export function CollabWorkflowCanvas({
             layout={layout}
             subagentTasks={subagentTasks}
             mainTaskId={mainTaskId}
+            taskName={taskName}
             leadThreadId={leadThreadId}
             agents={agents}
             onOpen={onSubtaskTranscriptOpen}

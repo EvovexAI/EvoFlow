@@ -118,6 +118,7 @@ const ENTRIES: Entry[] = [
       return mod.mountEmployeePageInto(host, {
         code: params.code,
         onClose: opts.onClose,
+        onTitle: opts.onTitle,
       })
     },
   },

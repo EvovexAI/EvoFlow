@@ -94,8 +94,21 @@ const AGENT_KIND_LABELS: Record<string, { label: string; icon: string }> = {
   hosted: { label: '目标对话', icon: '🏠' },
   hosted_panel: { label: '目标面板', icon: '📋' },
   hosted_closure: { label: '目标小结', icon: '📊' },
+  hosted_planner: { label: '目标规划', icon: '🗺️' },
+  hosted_goal_interpreter: { label: '目标回复解析', icon: '🔎' },
   session_intent: { label: '会话意图', icon: '💡' },
   auxiliary: { label: '辅助', icon: '⚙️' },
+  proactive: { label: '主动值班', icon: '🛰️' },
+  vision: { label: '视觉分析', icon: '👁️' },
+  webfetch: { label: '网页抓取摘要', icon: '🌐' },
+  kb_ask: { label: '知识库问答', icon: '📚' },
+  kb_summary: { label: '知识库摘要', icon: '📑' },
+  kg_extract: { label: '知识图谱抽取', icon: '🕸️' },
+  person_wrap_up: { label: '交班反思', icon: '🔄' },
+  meeting_conclude: { label: '会议纪要', icon: '📝' },
+  a2a_meeting: { label: 'A2A 会议', icon: '🤝' },
+  goal_verifier: { label: '目标验收', icon: '✅' },
+  internal: { label: '内部索引', icon: '🗂️' },
 }
 
 function formatTimeAgo(isoStr: string): string {

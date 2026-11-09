@@ -699,6 +699,15 @@ def subtask_auto_retry_max() -> int:
 
 def _upstream_failure_exhausted(st: dict[str, Any], *, max_auto_retries: int) -> bool:
     status = str(st.get("status") or "").strip().lower()
+    # A skipped node is *already* the end of the line: it was parked because an
+    # upstream step burned its retries, and nothing revives it (requeue only
+    # resets ``failed``), so it carries no ``auto_retry_count`` of its own.
+    # Without this, propagation stopped one node deep — in a chain
+    # A(failed)→B(skipped)→C, C stayed ``planned`` forever waiting on a node
+    # that would never run, which in turn kept the whole run out of the
+    # all-terminal state the rollup needs to close it.
+    if status == "skipped":
+        return True
     if status not in _FAILED_UPSTREAM_STATUSES:
         return False
     return int(st.get("auto_retry_count") or 0) >= max(0, int(max_auto_retries))

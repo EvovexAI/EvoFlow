@@ -86,6 +86,44 @@ def test_lease_survives_row_mapper(health_db):
     assert out.get("lease_until_ts") is not None
 
 
+def test_hot_patch_refuses_terminal_to_active_race(health_db):
+    """Stale heartbeat that still thinks the row is executing must not undo done().
+
+    Regression: COALESCE(?, status) let a late progress/lease tick overwrite
+    ``completed`` back to ``executing`` after the worker already wrote final.md
+    and reported outcome — UI showed the leaf stuck executing while the run
+    had already closed.
+    """
+    from evoflow.persistence import task_repositories as tr
+
+    health_db.execute(
+        """INSERT INTO evoflow_collab_subtasks
+           (main_task_id, parent_task_id, subtask_id, name, description, status,
+            created_at, updated_at, progress, extra_json)
+           VALUES ('M3','M3','S3','节点3','d','completed','t0','t0',100,'{}')"""
+    )
+    health_db.commit()
+
+    assert tr.patch_subtask_hot_fields(
+        "M3",
+        "S3",
+        {
+            "status": "executing",
+            "progress": 95,
+            "lease_until_ts": time.time() + 60,
+            "last_heartbeat_ts": time.time(),
+        },
+    )
+
+    row = health_db.execute(
+        "SELECT status, progress, extra_json FROM evoflow_collab_subtasks WHERE subtask_id='S3'"
+    ).fetchone()
+    assert row[0] == "completed"
+    assert int(row[1]) == 95  # progress/lease may still refresh
+    data = json.loads(row[2])
+    assert "lease_until_ts" in data
+
+
 def test_long_running_step_with_lease_is_live():
     """600s-old step + valid lease must not be reported as interrupted."""
     from evoflow.collab.task_runtime_health import resolve_task_runtime_health

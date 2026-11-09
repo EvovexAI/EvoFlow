@@ -18,7 +18,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from evoflow.collab.app_engine import render_plan, validate_parameters
+from evoflow.collab.app_engine import apply_parameter_defaults, render_plan, validate_parameters
 from evoflow.collab.plan_session_task import bind_plan_to_thread_task, ensure_plan_session_task
 from evoflow.collab.storage import get_project_storage, new_project_bundle_root_task
 from evoflow.collab.thread_collab import advance_collab_phase_to_plan_ready_for_task
@@ -739,6 +739,23 @@ def _project_run_status_readonly(
 # ────────────────────────────────── Lead Supervised Mode ─────────────────────────────────
 
 
+def run_parameters_payload(app: dict[str, Any], parameters: dict[str, str] | None) -> dict[str, Any]:
+    """Fields describing a run's parameters, ready to merge into the run record.
+
+    ``render_plan`` fills blanks from ``AppParameter.default``, so a run started
+    without arguments still rendered real values — but the record kept the raw
+    call (``{}``), leaving no way to tell after the fact what the workers were
+    actually told. Record the effective values, and keep the raw call separately
+    so "typed by the user" stays distinguishable from "filled by default".
+    """
+    raw = {str(k): ("" if v is None else str(v)) for k, v in (parameters or {}).items()}
+    try:
+        effective = apply_parameter_defaults(app, raw)
+    except Exception:
+        effective = dict(raw)
+    return {"parameters": effective, "parameters_input": raw}
+
+
 def run_app_lead_supervised(
     app_id: str,
     parameters: dict[str, str],
@@ -794,7 +811,7 @@ def run_app_lead_supervised(
         {
             "app_id": app_id,
             "app_version": app_version,
-            "parameters": parameters,
+            **run_parameters_payload(app, parameters),
             "execution_mode": "lead_supervised",
             "task_id": task_id,
             "thread_id": thread_id,
@@ -887,12 +904,13 @@ def run_app_workflow(
     *,
     app: dict[str, Any] | None = None,
     app_version: int | None = None,
-    run_kind: str = "debug",
+    run_kind: str = "production",
     trigger_kind: str = "manual",
     raised_by: str | None = None,
     created_by: str | None = None,
     principal_id: str | None = None,
     operator_label: str | None = None,
+    origin_session_key: str | None = None,
 ) -> dict[str, Any]:
     """Run an application in pure workflow mode (no lead agent, DAG auto-execution).
 
@@ -907,8 +925,10 @@ def run_app_workflow(
         app: Optional preloaded definition (e.g. pinned revision snapshot).
         app_version: Optional pin; used with :func:`load_app_for_run` when ``app`` omitted.
         run_kind: ``debug`` | ``production`` | ``scheduled`` (Task Center标签).
+            Default ``production`` (F-4: manual/default runs are production).
         trigger_kind: How the run was started (``manual`` | ``api`` | ``schedule`` …).
         raised_by / created_by / principal_id / operator_label: invoker stamp for「责任人」.
+        origin_session_key: Invoking chat session for UI child_works only.
 
     Returns:
         Run metadata + task center bindings
@@ -969,6 +989,12 @@ def run_app_workflow(
     # authorize -> dispatch -> follow-up waves without a lead agent.
     task_data["run_mode"] = "unattended"
 
+    # Invoking chat only — never a LangGraph thread bind. Powers the session
+    # child-works icon bar while the run stays observability-isolated.
+    origin_sk = str(origin_session_key or "").strip()
+    if origin_sk:
+        task_data["origin_session_key"] = origin_sk
+
     # One working directory shared by every step of this run. Without it a
     # subtask has no cwd anchor and each worker picks its own base -- observed:
     # step 1 wrote <repo>/outputs/task1.md while steps 2-4 wrote under
@@ -1007,7 +1033,7 @@ def run_app_workflow(
         "final_rollup_agent": str(app.get("final_rollup_agent") or ""),
         "final_rollup_instruction": str(app.get("final_rollup_instruction") or ""),
         "answer_from_ref": str(app.get("answer_from_ref") or ""),
-        "schema_enforcement": str(app.get("schema_enforcement") or "warn"),
+        "schema_enforcement": str(app.get("schema_enforcement") or "strict"),
     }
 
     # Stamp rollup mode onto the task so downstream rollup logic can read it
@@ -1121,7 +1147,7 @@ def run_app_workflow(
         {
             "app_id": app_id,
             "app_version": app_version,
-            "parameters": parameters,
+            **run_parameters_payload(app, parameters),
             "execution_mode": "workflow",
             "task_id": task_id,
             "thread_id": None,
@@ -1134,6 +1160,34 @@ def run_app_workflow(
     )
     app_repositories.increment_app_usage(app_id)
 
+    if origin_sk:
+        try:
+            from evoflow.persistence.session_runtime_repository import (
+                KIND_WORKFLOW,
+                safe_register_child_work,
+            )
+
+            safe_register_child_work(
+                session_key=origin_sk,
+                kind=KIND_WORKFLOW,
+                ref_id=run_id,
+                status="running",
+                title=app_name or "工作流",
+                extra={
+                    "task_id": task_id,
+                    "app_id": app_id,
+                    "run_id": run_id,
+                    "app_name": app_name,
+                },
+            )
+        except Exception:
+            logger.debug(
+                "workflow child-work register skipped run_id=%s session=%s",
+                run_id,
+                origin_sk,
+                exc_info=True,
+            )
+
     return {
         "run_id": run_id,
         "task_id": task_id,
@@ -1143,6 +1197,7 @@ def run_app_workflow(
         "plan": plan_input,
         "subtasks_sync": sync_result,
         "auto_authorized": auto_authorize,
+        "origin_session_key": origin_sk or None,
     }
 
 
@@ -1164,6 +1219,7 @@ def run_app(
     principal_id: str | None = None,
     operator_label: str | None = None,
     defer_dispatch: bool = False,
+    origin_session_key: str | None = None,
 ) -> dict[str, Any]:
     """Unified entry point for running an application.
 
@@ -1180,6 +1236,8 @@ def run_app(
         defer_dispatch: workflow mode only — skip wave-1 dispatch here and stash
             ``deferred_dispatch_authorized_by`` on the result; the async caller
             then awaits :func:`apply_workflow_dispatch_async` on its own loop (E-5).
+        origin_session_key: Invoking chat session (for child_works icons only;
+            does **not** bind the workflow task to that thread).
 
     Returns:
         Run result dict with run_id, task_id, status, etc.
@@ -1231,6 +1289,7 @@ def run_app(
             created_by=created_by,
             principal_id=principal_id,
             operator_label=operator_label,
+            origin_session_key=origin_session_key,
         )
         auth = str(trigger or "manual").strip().lower() or "api"
         if auth in {"manual", "schedule", "scheduled", "cron"}:
@@ -1589,6 +1648,16 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
             if bundle and bundle.get("tasks"):
                 main_task = bundle["tasks"][0]
                 main_task["status"] = "paused"
+                # Distinguish a deliberate user pause from a crashed/interrupted
+                # run that also sits at ``paused``. The reconciler heals the
+                # latter (paused → pending → dispatch), and without this marker
+                # it "rescued" user pauses too: measured 2026-11-08, the pause
+                # row was visible for ~3s and then flipped back to
+                # executing/37% on the next reconcile tick, so every dispatch
+                # gate downstream never saw a paused task.
+                main_task["pause_requested_by"] = "user"
+                main_task["pause_reason"] = str(reason or "")[:500]
+                main_task["paused_at"] = utc_now_iso_z()
                 # Only pause truly in-flight subtasks. Leave pending/planned alone so
                 # resume + DAG resolve won't treat waiting Step2 as "was running".
                 _in_flight = frozenset({"executing", "running", "in_progress", "active", "planning"})
@@ -1599,6 +1668,35 @@ def pause_run(run_id: str, reason: str = "User paused") -> bool:
                         if st_status in _in_flight:
                             st["status"] = "paused"
                 save_task_bundle(task_id, bundle)
+                # Read back: a pause that didn't land is worse than no pause —
+                # the caller gets ``paused: true`` and believes it. This is the
+                # exact failure seen on 2026-11-08 (row flipped back within ~3s
+                # and nothing in the log said so).
+                _check = load_task_bundle(task_id)
+                _row = (_check or {}).get("tasks", [{}])[0] if _check else {}
+                _landed = str(_row.get("status") or "").strip().lower()
+                _marker = str(_row.get("pause_requested_by") or "").strip().lower()
+                if _landed != "paused" or _marker != "user":
+                    logger.warning(
+                        "pause_run: pause did not land task_id=%s run_id=%s readback_status=%r marker=%r",
+                        task_id,
+                        run_id,
+                        _landed,
+                        _marker,
+                    )
+                else:
+                    logger.info(
+                        "pause_run: landed task_id=%s run_id=%s status=%s subtasks_paused=%d",
+                        task_id,
+                        run_id,
+                        _landed,
+                        sum(
+                            1
+                            for _st in (_row.get("subtasks") or [])
+                            if isinstance(_st, dict)
+                            and str(_st.get("status") or "").strip().lower() == "paused"
+                        ),
+                    )
         except Exception:
             logger.warning("pause_run: task bundle update failed task_id=%s", task_id, exc_info=True)
 
@@ -1627,6 +1725,10 @@ def resume_run(run_id: str) -> bool:
             if bundle and bundle.get("tasks"):
                 main_task = bundle["tasks"][0]
                 main_task["status"] = "executing"
+                # Clear the user-pause marker, otherwise the reconciler keeps
+                # holding this run forever (see _is_user_pause).
+                for _k in ("pause_requested_by", "pause_reason", "paused_at"):
+                    main_task.pop(_k, None)
                 # Reset paused → pending only (not terminal). DAG dispatch starts
                 # runnable steps whose depends_on are satisfied.
                 subtasks = main_task.get("subtasks") or []

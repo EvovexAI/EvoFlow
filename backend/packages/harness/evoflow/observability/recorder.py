@@ -161,6 +161,7 @@ class ObservabilityRecorder:
         agent_code: str | None = None,
         position_code: str | None = None,
         queue_wait_ms: float | None = None,
+        timing: dict[str, Any] | None = None,
     ) -> None:
         st = _store_for_config()
         if st is None:
@@ -185,6 +186,7 @@ class ObservabilityRecorder:
             agent_code=agent_code,
             position_code=position_code,
             queue_wait_ms=queue_wait_ms,
+            timing=timing,
         )
 
     def record_task_lifecycle(

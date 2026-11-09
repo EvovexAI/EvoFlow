@@ -76,6 +76,10 @@ if [[ "$QUICK" == true ]]; then
   echo "=========================================="
   export RUFF_CACHE_DIR="${TMPDIR:-${TEMP:-/tmp}}/ruff-cache-evoflow"
   mkdir -p "$RUFF_CACHE_DIR" 2>/dev/null || true
+  # Fatal-only gate first: F821 (name used before any binding) is always a crash,
+  # unlike the 388-item style backlog that `make lint` reports. See backend/Makefile.
+  # Runner must never be allowed to seed a build that dies on an UnboundLocalError.
+  (cd backend && make lint-fatal)
   (cd backend && make lint)
   # Prefer direct node+tsc (reliable on Git Bash / Windows); skip if deps missing (avoid blocking commit on broken npm ci).
   _tsc_js="evopanel/node_modules/typescript/bin/tsc"

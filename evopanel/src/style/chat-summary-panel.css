@@ -387,6 +387,77 @@ html.dark .chat-summary-panel-scroll::-webkit-scrollbar-thumb:active {
   min-width: 0;
 }
 
+/* ── 进程 tab · 会话待办（todo_write） ───────────────── */
+.chat-summary-plan-todos {
+  min-width: 0;
+  margin-bottom: 10px;
+}
+
+.chat-summary-plan-todos-count {
+  margin-left: 6px;
+  color: var(--text-tertiary, #9ca3af);
+  font-weight: 500;
+}
+
+.chat-summary-plan-todos-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.chat-summary-plan-todos-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.chat-summary-plan-todos-row.is-done .chat-summary-plan-todos-label {
+  text-decoration: line-through;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.chat-summary-plan-todos-status {
+  flex: 0 0 auto;
+  display: inline-flex;
+  margin-top: 2px;
+}
+
+.chat-summary-plan-todos-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.chat-summary-plan-todos-icon.is-active {
+  color: var(--accent, #2563eb);
+}
+
+.chat-summary-plan-todos-icon.is-pending {
+  opacity: 0.7;
+}
+
+.chat-summary-plan-todos-main {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.chat-summary-plan-todos-label {
+  font-size: 13px;
+  line-height: 1.35;
+  color: var(--text-primary, #111827);
+  word-break: break-word;
+}
+
+.chat-summary-plan-todos-detail {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--text-tertiary, #9ca3af);
+}
+
 /* ── 进程列表 ───────────────────────────────────────── */
 .chat-summary-process-list {
   list-style: none;

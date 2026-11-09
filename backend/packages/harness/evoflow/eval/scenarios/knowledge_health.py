@@ -41,10 +41,10 @@ def _run(home: Path) -> dict:
     assertions = [
         check(
             "vault_created",
-            bool(vault_id) or bool(created),
+            bool(vault_id),
             inputs={"name": "评测知识库"},
             expected="非空 vault_id",
-            actual=vault_id or str(created)[:120],
+            actual=vault_id,
             api="knowledge_admin.create_owned_base",
         ),
         check(

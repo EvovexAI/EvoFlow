@@ -279,6 +279,10 @@ export function useSessionList(opts: UseSessionListOptions) {
   const refreshInflightRef = useRef<Promise<void> | null>(null)
   const refreshDirtyRef = useRef(false)
   const refreshPendingOptRef = useRef<RefreshSessionsOptions | undefined>(undefined)
+  /** 最新员工花名册（agent_code 全量集合，active+paused+draft）：mergeSessionsFromApi
+   *  的孤儿员工会话剪枝用。null = 未拿到 / 拉取失败 → 跳过剪枝（宁漏剪不误剪）。
+   *  必须不带 status 拉取 —— 带 active 会把请假员工的会话误剪掉。 */
+  const liveEmployeeCodesRef = useRef<ReadonlySet<string> | null>(null)
   /** 用户操作触发的整表刷新最短间隔。流式回合不再走这条路径。 */
   const MIN_REFRESH_INTERVAL_MS = 2500
   const lastRefreshRunAtRef = useRef(0)
@@ -422,7 +426,9 @@ export function useSessionList(opts: UseSessionListOptions) {
           }
           let next = base
           for (const { pageRows } of okPages) {
-            next = mergeSessionsFromApi(next, pageRows, curAtMerge)
+            next = mergeSessionsFromApi(next, pageRows, curAtMerge, {
+              liveEmployeeCodes: liveEmployeeCodesRef.current,
+            })
           }
           if (soft && sessionListFingerprint(prev) === sessionListFingerprint(next)) {
             sessionsChanged = false
@@ -530,7 +536,9 @@ export function useSessionList(opts: UseSessionListOptions) {
         setSessions((prev) => {
           // soft：在现有列表上合并；硬 reset：先清本 workspace 再合并首页
           const base = opt?.reset && !soft ? removeSessionsForWorkspace(prev, key) : prev
-          const next = mergeSessionsFromApi(base, pageRows, curAtMerge)
+          const next = mergeSessionsFromApi(base, pageRows, curAtMerge, {
+            liveEmployeeCodes: liveEmployeeCodesRef.current,
+          })
           if (soft && sessionListFingerprint(prev) === sessionListFingerprint(next)) {
             mergedForStorage = prev
             return prev
@@ -628,12 +636,16 @@ export function useSessionList(opts: UseSessionListOptions) {
               }
               return false
             })
-            const merged = mergeSessionsFromApi(pageRows, keep, curAtMerge)
+            const merged = mergeSessionsFromApi(pageRows, keep, curAtMerge, {
+              liveEmployeeCodes: liveEmployeeCodesRef.current,
+            })
             mergedForStorage = merged
             sessionsRef.current = merged
             return merged
           }
-          const next = mergeSessionsFromApi(prev, pageRows, curAtMerge)
+          const next = mergeSessionsFromApi(prev, pageRows, curAtMerge, {
+            liveEmployeeCodes: liveEmployeeCodesRef.current,
+          })
           mergedForStorage = next
           sessionsRef.current = next
           return next
@@ -773,6 +785,23 @@ export function useSessionList(opts: UseSessionListOptions) {
             }
 
             if (!currentOpt?.summariesOnly) {
+              // 花名册先行：删员工后其残留会话行要靠这份集合在 merge 时剪掉
+              // （employee-session-prune）。失败置 null，本轮跳过剪枝。
+              try {
+                const rosterRes = await api.proactiveListRoles()
+                const rosterRaw = Array.isArray(rosterRes)
+                  ? rosterRes
+                  : Array.isArray(rosterRes?.roles)
+                    ? rosterRes.roles
+                    : []
+                liveEmployeeCodesRef.current = new Set(
+                  rosterRaw
+                    .map((r: { agent_code?: string }) => String(r?.agent_code || '').trim())
+                    .filter(Boolean),
+                )
+              } catch {
+                liveEmployeeCodesRef.current = null
+              }
               // 默认主视图：全局最近对话；再补当前会话所在目录
               await loadGlobalRecentSessions({
                 reset: true,
@@ -924,7 +953,9 @@ export function useSessionList(opts: UseSessionListOptions) {
     if (!data || typeof data !== 'object') return
     const cur = String(sessionRef.current || '').trim()
     setSessions((prev) => {
-      const next = mergeSessionsFromApi(prev, [data as ChatSessionRow], cur)
+      const next = mergeSessionsFromApi(prev, [data as ChatSessionRow], cur, {
+        liveEmployeeCodes: liveEmployeeCodesRef.current,
+      })
       if (sessionListFingerprint(prev) === sessionListFingerprint(next)) return prev
       sessionsRef.current = next
       saveSessionSnapshot(next)

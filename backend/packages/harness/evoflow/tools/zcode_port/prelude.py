@@ -16,7 +16,7 @@ UGREP_DEFAULT_ARGS = "-G --ignore-files --hidden -I --exclude-dir=.git --exclude
 
 BASH_DESCRIPTION = """Executes a bash command and returns its output.
 
-- Working directory persists between calls, but prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist; the shell is initialized from the user's profile.
+- Working directory persists between calls, but prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist across calls (each command runs in a fresh subshell; the host may reuse a warm bash process).
 - IMPORTANT: Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.
 - `timeout` is in milliseconds: default 120000, max 600000. Short read-only probes (`git status`/`log`, `ls`, …) soft-cap at 30000 when timeout is omitted.
 - On Windows the shell is Git Bash (POSIX) when available — use `&&`, pipes, and `2>/dev/null`. Prefer `git -C 'path' …` over `cd && …`.

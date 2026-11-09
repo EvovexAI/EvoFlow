@@ -303,10 +303,15 @@ const GATEWAY_RETRY_DELAYS_MS = [300, 500, 800, 1200, 2000]
 /** loading_extended storms previously opened hundreds of sockets and crashed
  *  Windows SelectorEventLoop (select FD_SETSIZE≈512). Back off harder. */
 const GATEWAY_LOADING_EXTENDED_DELAYS_MS = [2000, 3000, 4000, 5000, 8000]
+/** 工作流编辑器（/api/apps）走短轮询：apps 路由在扩展批次里较早挂载，
+ *  冷启动等待通常 <1s；用通用 2~8s 退避会让「加载工作流…」白等好几秒。 */
+const GATEWAY_APPS_FAST_DELAYS_MS = [200, 300, 400, 600, 800]
 const GATEWAY_RETRY_MAX = 60
 const GATEWAY_RETRY_BUDGET_MS = 90_000
 const GATEWAY_LOADING_EXTENDED_RETRY_MAX = 20
 const GATEWAY_LOADING_EXTENDED_BUDGET_MS = 60_000
+const GATEWAY_APPS_FAST_RETRY_MAX = 40
+const GATEWAY_APPS_FAST_BUDGET_MS = 20_000
 /** Soft cap on concurrent gatewayProxy calls (all callers share one pool). */
 const GATEWAY_MAX_CONCURRENT = 24
 const _gatewayInflight = new Map()
@@ -328,6 +333,18 @@ function gatewayLoadingExtendedDelayMs(attempt, serverRetryAfterMs) {
     Math.min(attempt, GATEWAY_LOADING_EXTENDED_DELAYS_MS.length - 1)
   ]
   return Math.max(fromTable, Number.isFinite(fromServer) && fromServer > 0 ? fromServer : 0)
+}
+
+/** 工作流相关接口（列表 / 详情 / 运行状态）——冷启动时用短轮询快速拿到数据。 */
+function _isAppsFastPath(apiPath) {
+  const p = String(apiPath || '')
+  return p === '/api/apps' || p.startsWith('/api/apps/')
+}
+
+function gatewayAppsFastDelayMs(attempt) {
+  return GATEWAY_APPS_FAST_DELAYS_MS[
+    Math.min(attempt, GATEWAY_APPS_FAST_DELAYS_MS.length - 1)
+  ]
 }
 
 function noteLoadingExtendedCooldown(retryAfterMs) {
@@ -391,6 +408,17 @@ function isRetryableGatewayResponse(status, result, method) {
     if (msg === 'not found' && !_backendReady) return true
   }
   return false
+}
+
+/**
+ * 扫码注册会话（channels 下各渠道的 registration poll 路由）在网关侧是内存态：
+ * 网关重启或 TTL 清理后 /poll 返回 404 session_not_found。轮询方据此停止轮询
+ * 并提示重新扫码，而不是当作瞬时错误永远轮询下去（UI 卡死在「等待扫码…」）。
+ */
+export function isRegistrationSessionGone(err) {
+  if (Number(err?.status || 0) === 404) return true
+  const msg = String(err?.message || err || '')
+  return /session[_\s-]?not[_\s-]?found/i.test(msg) || /Session .+ not found/i.test(msg)
 }
 
 /** Kick GET /models (+ primary) early so the composer model label is not empty for ~15–30s. */
@@ -701,13 +729,15 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
     ? String(path)
     : `/api${String(path || '').startsWith('/') ? path : `/${path || ''}`}`
   const needsExtended = _pathNeedsExtendedRouters(apiPath)
+  // 工作流接口用短轮询：apps 路由在扩展批次里较早挂载，等 2~8s 通用退避太慢。
+  const isAppsFastPath = _isAppsFastPath(apiPath)
   // Soft-wait for extended routers before burning the first attempt on 503.
   if (!skipRetry && needsExtended && _extendedReady !== true) {
     await waitForExtendedReady(Math.min(15_000, budgetMs)).catch(() => {})
   }
   for (let attempt = 0; attempt <= maxAttempts; attempt += 1) {
     if (Date.now() - startedAt > budgetMs) break
-    if (needsExtended) {
+    if (needsExtended && !isAppsFastPath) {
       await waitSharedLoadingExtendedCooldown()
     }
     try {
@@ -721,6 +751,11 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
         // Tighten budget once we know the gate is still closed — avoids FD storms.
         maxAttempts = Math.min(maxAttempts, GATEWAY_LOADING_EXTENDED_RETRY_MAX)
         budgetMs = Math.min(budgetMs, GATEWAY_LOADING_EXTENDED_BUDGET_MS)
+        if (isAppsFastPath) {
+          // 工作流面板自己用短间隔重试，不吃通用长退避。
+          maxAttempts = Math.min(maxAttempts, GATEWAY_APPS_FAST_RETRY_MAX)
+          budgetMs = Math.min(budgetMs, GATEWAY_APPS_FAST_BUDGET_MS)
+        }
       }
       const retryable = !skipRetry && (
         err?.retryable
@@ -729,7 +764,9 @@ async function gatewayProxyWithRetry(method, path, body = null, query = null, op
       )
       if (!retryable || attempt >= maxAttempts) break
       const delay = isLoadingExtended
-        ? gatewayLoadingExtendedDelayMs(attempt, err?.gatewayResult?.retry_after_ms)
+        ? (isAppsFastPath
+            ? gatewayAppsFastDelayMs(attempt)
+            : gatewayLoadingExtendedDelayMs(attempt, err?.gatewayResult?.retry_after_ms))
         : (Number(err?.gatewayResult?.retry_after_ms) || gatewayRetryDelayMs(attempt))
       await new Promise((r) => setTimeout(r, delay))
       if (isTauri && attempt % 3 === 2) {
@@ -1220,6 +1257,17 @@ export function noteGatewayLiveness(ok) {
 
 /** Process-alive probe failures after ready can re-hold the latch (guardian path). */
 export function noteGatewayProcessDown() {
+  // Brief event-loop stalls make /health/liveness time out while WS chat still
+  // streams. Re-holding the warm latch then parks every new HTTP call for up to
+  // 90s → employee detail / settings show「gateway warming timeout」and feel frozen.
+  if (_backendReady === true && Date.now() < _engineReadyStickyUntil) {
+    try {
+      transportLog('noteGatewayProcessDown ignored (engineReady sticky)')
+    } catch {
+      /* ignore */
+    }
+    return
+  }
   noteLiveness(_warmLatch, false)
 }
 
@@ -2880,6 +2928,14 @@ export const api = {
     if (query.to) out.to = query.to
     return gatewayProxy('GET', '/usage/by-category', null, out)
   },
+  /** 设置 → 使用统计：对话/员工/工作流/知识库模块拆分 */
+  usageByModule: (query = {}) => {
+    const out = {}
+    if (query.from) out.from = query.from
+    if (query.to) out.to = query.to
+    if (query.top_n != null) out.top_n = String(query.top_n)
+    return gatewayProxy('GET', '/usage/by-module', null, out)
+  },
   /** Per-day chat / image / video / embedding pivot for usage dashboard table. */
   usageDailyBreakdown: (query = {}) => {
     const out = {}
@@ -3073,10 +3129,31 @@ export const api = {
   proactiveOrgTree: async (status = null) =>
     gatewayProxy('GET', '/proactive/org-tree', null, status ? { status } : null),
   proactiveListDepartments: async () => gatewayProxy('GET', '/proactive/departments'),
+  proactiveListDeptAvatarPresets: async () => {
+    const data = await gatewayProxy('GET', '/proactive/departments/avatar-presets')
+    return Array.isArray(data?.presets) ? data.presets : []
+  },
   proactiveCreateDepartment: async (payload) =>
     gatewayProxy('POST', '/proactive/departments', payload || {}),
   proactiveUpdateDepartment: async (id, payload) =>
     gatewayProxy('PUT', `/proactive/departments/${encodeURIComponent(String(id || ''))}`, payload || {}),
+  /** 上传部门自定义头像（WebP/PNG），后端把 avatar 置为 `image` */
+  uploadDeptAvatar: async (id, blob, filename = 'avatar.png') => {
+    const base = await getGatewayBaseUrl()
+    const form = new FormData()
+    form.append('file', blob, filename)
+    const res = await fetch(
+      `${base}/api/proactive/departments/${encodeURIComponent(String(id || ''))}/avatar`,
+      { method: 'POST', body: form },
+    )
+    const text = await res.text()
+    let result
+    try { result = JSON.parse(text) } catch { result = text }
+    if (!res.ok) throw new Error(result?.detail || `Upload failed: ${res.status}`)
+    return result
+  },
+  deleteDeptAvatarFile: async (id) =>
+    gatewayProxy('DELETE', `/proactive/departments/${encodeURIComponent(String(id || ''))}/avatar`),
   proactiveDeleteDepartment: async (id) =>
     gatewayProxy('DELETE', `/proactive/departments/${encodeURIComponent(String(id || ''))}`),
   proactiveSetDepartmentMembers: async (id, agentCodes) =>

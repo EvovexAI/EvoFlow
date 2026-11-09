@@ -2838,41 +2838,50 @@ async def search(
     if mode in ("keyword", "hybrid", "fulltext"):
         keyword_hits = search_keyword(kb_id, query, top_k=fetch_k)
 
-    if mode in ("semantic", "vector", "hybrid"):
-        if base.get("embeddingDim") and base.get("vectorEnabled", True):
-            try:
-                # ``base`` already carries the registry row (central DB) — no re-read.
-                with db() as conn:
-                    row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
-                mc = _model_config_for_base(dict(row or {}))
-                cache_key = (
-                    kb_id,
-                    str(base.get("embeddingModel") or ""),
-                    str(getattr(mc, "base_url", "") or ""),
-                    query.strip().casefold(),
-                )
-                qvec = await _cached_query_embedding(
-                    cache_key,
-                    lambda: get_embedding(
-                        query,
-                        mc,
-                        expected_dim=int(base["embeddingDim"]),
-                        purpose="query",
-                        kb_id=kb_id,
-                    ),
-                )
-                vector_hits = search_vector(
-                    kb_id,
-                    qvec,
-                    top_k=fetch_k,
-                    model=str(base.get("embeddingModel") or ""),
-                )
-            except Exception:
-                degraded = True
-                if mode != "hybrid":
-                    raise
-        else:
+    # Vector is optional *per KB*: a KB created with no embedding model (lean
+    # desktop installs, ``skip_embedding`` publishing) is keyword-only BY DESIGN
+    # and searches fine. Only flag ``degraded`` when vector was configured and
+    # actually failed — reporting a healthy library as "not ready" pushed agents to
+    # log a fabricated gap and re-check files that were already correct.
+    vector_expected = bool(base.get("embeddingDim")) and bool(base.get("vectorEnabled", True))
+
+    if mode in ("semantic", "vector", "hybrid") and vector_expected:
+        try:
+            # ``base`` already carries the registry row (central DB) — no re-read.
+            with db() as conn:
+                row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id)).fetchone()
+            mc = _model_config_for_base(dict(row or {}))
+            cache_key = (
+                kb_id,
+                str(base.get("embeddingModel") or ""),
+                str(getattr(mc, "base_url", "") or ""),
+                query.strip().casefold(),
+            )
+            qvec = await _cached_query_embedding(
+                cache_key,
+                lambda: get_embedding(
+                    query,
+                    mc,
+                    expected_dim=int(base["embeddingDim"]),
+                    purpose="query",
+                    kb_id=kb_id,
+                ),
+            )
+            vector_hits = search_vector(
+                kb_id,
+                qvec,
+                top_k=fetch_k,
+                model=str(base.get("embeddingModel") or ""),
+            )
+        except Exception:
             degraded = True
+            if mode != "hybrid":
+                raise
+
+    # An explicit semantic request against a keyword-only KB genuinely cannot be
+    # served; a hybrid request can (keywords alone), so it stays non-degraded.
+    if mode in ("semantic", "vector") and not vector_expected:
+        degraded = True
 
     if mode in ("keyword", "fulltext") or (mode == "hybrid" and not vector_hits):
         fused = keyword_hits[:fetch_k]
@@ -2881,7 +2890,9 @@ async def search(
             # Prefer real keyword relevance when present; fall back to RRF rank term.
             rel = float(h.get("score") or 0)
             h["rrf_score"] = rel if rel > 0 else 1.0 / (60 + i + 1)
-        if mode == "hybrid" and not vector_hits:
+        # Only a KB that *should* have vectors is degraded when they come back
+        # empty; a keyword-only KB simply has nothing to fall back from.
+        if mode == "hybrid" and vector_expected and not vector_hits:
             degraded = True
     elif mode in ("semantic", "vector"):
         fused = vector_hits[:fetch_k]
@@ -2929,6 +2940,8 @@ async def search(
         "total": len(items),
         "mode": mode,
         "degraded": degraded,
+        # False = keyword-only by design (no embedding model bound), not broken.
+        "vectorConfigured": vector_expected,
         "kgBoosted": kg_boosted,
         "tags": tag_filters,
     }

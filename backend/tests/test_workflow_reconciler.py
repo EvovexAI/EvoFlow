@@ -193,6 +193,91 @@ def test_zombie_heal_clears_previous_outcome_residue():
     assert "outcome_reported_at" not in st
 
 
+def test_terminal_but_unreported_row_is_restamped_and_releases_dependents():
+    """The one deadlock the healer used to miss.
+
+    The dependency gate reads ``outcome_reported_at``, not ``status``, so a row
+    that is completed but never stamped shows as 完成 in the panel while every
+    tick answers ``no_runnable_subtasks`` for its dependents forever (real case:
+    a template node left a 4-step run stuck at 75%). Healing must re-stamp from
+    the row's own completion data and **not** downgrade it to pending, which
+    would re-run finished work and duplicate its artifacts.
+    """
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import (
+        is_subtask_outcome_reported,
+        is_upstream_subtask_dependency_met,
+    )
+
+    st = {
+        "id": "s3",
+        "status": "completed",
+        "progress": 100,
+        "task_report": "模板渲染结果",
+        "result_summary": "模板渲染结果",
+        "completed_at": "2026-11-08T01:39:51+08:00",
+    }
+    assert is_upstream_subtask_dependency_met(st) is False  # stuck: gate closed
+
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["restamp_unreported_terminal"]
+    assert st["status"] == "completed", "must not re-run finished work"
+    assert is_subtask_outcome_reported(st) is True
+    assert is_upstream_subtask_dependency_met(st) is True  # gate open now
+    # Stamp reuses the real completion time rather than inventing "now".
+    assert st["outcome_reported_at"] == "2026-11-08T01:39:51+08:00"
+    assert st["outcome_reported_by"] == "system"
+
+
+def test_reported_completed_row_is_left_alone():
+    """Already-stamped rows must not be touched (no churn, no overwritten provenance)."""
+    from evoflow.collab import workflow_reconciler
+
+    st = {
+        "id": "s3",
+        "status": "completed",
+        "outcome_reported_at": "2026-11-08T01:39:51+08:00",
+        "outcome_reported_by": "worker",
+    }
+    before = dict(st)
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+    assert healed == []
+    assert st == before
+
+
+def test_reported_but_still_inflight_is_restored_to_completed():
+    """done() stamped outcome, then a late tick left status=executing — flip back."""
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    st = {
+        "id": "s3",
+        "status": "executing",
+        "progress": 90,
+        "outcome_reported_at": "2026-11-09T00:06:02+08:00",
+        "outcome_reported_by": "worker",
+        "task_report": "final.md written",
+        "summary": "final.md written",
+        "lease_until_ts": time.time() + 120,  # live lease — must NOT zombie-requeue
+    }
+    assert is_subtask_outcome_reported(st) is True
+
+    healed = workflow_reconciler._heal_subtasks(
+        {"subtasks": [st]}, reason="tick", now_ts=time.time()
+    )
+
+    assert [h["why"] for h in healed] == ["reported_but_still_inflight"]
+    assert st["status"] == "completed"
+    assert st["progress"] == 100
+    assert is_subtask_outcome_reported(st) is True
+    assert st.get("task_report") == "final.md written"
+
+
 def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
     """No retry left ⇒ row stays failed and must keep its report for the user."""
     from evoflow.collab import workflow_reconciler
@@ -206,3 +291,60 @@ def test_retry_budget_exhausted_keeps_failure_text(monkeypatch):
     assert healed == []
     assert st["status"] == "failed"
     assert st["task_report"] == "attempt-1 report"
+
+
+# ── user pause must survive the healer ─────────────────────────────────
+# Measured 2026-11-08: ``workflow.stop(pause=true)`` wrote paused/3% and Step 1
+# paused, then within ~3s the row read executing/37% with Step 2 dispatched.
+# Cause: this healer treated every ``paused`` row as a crash to recover from
+# (paused → pending → dispatch) and re-opened the main task. It cannot tell a
+# human's pause from a dead process unless pause_run leaves a marker.
+
+
+def _paused_task(*, by_user: bool) -> dict:
+    task = {
+        "id": "T_MAIN",
+        "status": "paused",
+        "progress": 3,
+        "subtasks": [
+            {"id": "s1", "status": "paused", "progress": 10},
+            {"id": "s2", "status": "planned", "progress": 0},
+        ],
+    }
+    if by_user:
+        task["pause_requested_by"] = "user"
+        task["pause_reason"] = "verified by hand"
+        task["paused_at"] = "2026-11-08T10:42:57Z"
+    return task
+
+
+def test_user_pause_subtasks_are_not_requeued():
+    from evoflow.collab import workflow_reconciler
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
+
+    task = _paused_task(by_user=True)
+    healed = workflow_reconciler._heal_subtasks(task, reason="tick", now_ts=time.time())
+
+    assert healed == [], healed
+    assert task["subtasks"][0]["status"] == "paused", "user pause was requeued"
+    assert is_subtask_outcome_reported(task["subtasks"][0]) is False
+
+
+def test_crash_pause_is_still_recovered():
+    """The healer's original job must keep working: no marker ⇒ recover."""
+    from evoflow.collab import workflow_reconciler
+
+    task = _paused_task(by_user=False)
+    healed = workflow_reconciler._heal_subtasks(task, reason="tick", now_ts=time.time())
+
+    assert [h["why"] for h in healed] == ["paused_resume"], healed
+    assert task["subtasks"][0]["status"] == "pending"
+
+
+def test_is_user_pause_requires_marker_and_paused_status():
+    from evoflow.collab import workflow_reconciler as wr
+
+    assert wr._is_user_pause({"status": "paused", "pause_requested_by": "user"}) is True
+    assert wr._is_user_pause({"status": "paused"}) is False
+    assert wr._is_user_pause({"status": "executing", "pause_requested_by": "user"}) is False
+    assert wr._is_user_pause(None) is False

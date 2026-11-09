@@ -37,6 +37,9 @@ from evoflow.agents.middlewares.collab_cycle_trace_middleware import CollabCycle
 from evoflow.agents.middlewares.collab_lifecycle_stage_middleware import CollabLifecycleStageMiddleware
 from evoflow.agents.middlewares.collab_phase_middleware import CollabPhaseMiddleware
 from evoflow.agents.middlewares.collab_thread_live_context_footer_middleware import CollabThreadLiveContextFooterMiddleware
+from evoflow.agents.middlewares.session_child_works_live_footer_middleware import (
+    SessionChildWorksLiveFooterMiddleware,
+)
 from evoflow.agents.middlewares.context_refs_footer_middleware import ContextRefsFooterMiddleware
 from evoflow.agents.middlewares.dynamic_system_prompt_middleware import DynamicSystemPromptOnScenarioMiddleware
 from evoflow.agents.middlewares.exploration_graph_live_footer_middleware import (
@@ -830,6 +833,8 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     middlewares.append(ScenarioRuntimeHintMiddleware())
     # Fresh plan/task snapshot at end of message list every model call (survives prompt fingerprint skip + summarization).
     middlewares.append(CollabThreadLiveContextFooterMiddleware())
+    # Active child works (subagent/workflow/duty/bash): cheap empty-skip live footer.
+    middlewares.append(SessionChildWorksLiveFooterMiddleware())
     # 小V：当前页快照走 ephemeral Human（name=xiaomi_ui_context），不进 system，保前缀缓存。
     middlewares.append(XiaomiUiContextLiveFooterMiddleware())
 
@@ -1429,7 +1434,11 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         _refresh_deferred_registry_from_delta(all_tools, tools)
         all_tool_names = [t.name for t in tools]
         return create_agent(
-            model=create_chat_model(name=model_name, thinking_enabled=thinking_enabled),
+            model=create_chat_model(
+                name=model_name,
+                thinking_enabled=thinking_enabled,
+                invocation_kind="main",
+            ),
             tools=tools,
             middleware=_build_middlewares(effective_config, model_name=model_name),
             context_schema=LeadAgentRuntimeContext,
@@ -1880,6 +1889,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 reasoning_effort=reasoning_effort,
                 thinking_type=thinking_type,
                 temperature=_voice_temp if _voice_temp is not None else None,
+                invocation_kind="main",
             ),
             tools=all_tools,
             middleware=_build_middlewares(effective_config, model_name=model_name, agent_name=agent_name),

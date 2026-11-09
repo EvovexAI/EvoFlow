@@ -30,6 +30,7 @@ import {
   v4OpenSinceClickMs,
 } from "../lib/v4-lifecycle-log.js";
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
+import { bindOpenTraceThread, endOpenTrace, markOpenStage } from "@zcode/ui/lib/openTrace.js";
 import { publishV4DisplayAuthority } from "./v4Gate.js";
 import { evoflowFetch } from "../../lib/ws-client.js";
 
@@ -58,6 +59,12 @@ function getSharedLayer(): SessionDataLayer {
     sharedLayer = new SessionDataLayer({ transport: getEvoflowV4Transport() });
   }
   return sharedLayer;
+}
+
+/** EvoFlow 外部模块（goalCommand / 头部 goal 徽标）复用同一条共享数据层，
+ *  禁止自建 SessionDataLayer——那会开出第二条 frames SSE 连接。 */
+export function getSharedV4SessionDataLayer(): SessionDataLayer {
+  return getSharedLayer();
 }
 
 /**
@@ -138,6 +145,31 @@ export type RefreshEvoflowV4Opts = {
    */
   softIntervalMs?: number;
 };
+
+/**
+ * 手动重连入口（v4-failed 终态「重新连接」按钮落点）：重燃该会话 store 的
+ * 订阅退避循环（store.retry() 复位计数并立即重订阅）。store 未建立过时是
+ * no-op——正常打开流程自身会订阅。
+ */
+export function retryEvoflowV4Session(sessionId: string): void {
+  const id = String(sessionId || "").trim();
+  if (!id) return;
+  try {
+    const layer = getSharedLayer();
+    if (!layer.has(id)) return;
+    const lease = layer.acquire(id);
+    queueMicrotask(() => {
+      try {
+        lease.release();
+      } catch {
+        /* ignore */
+      }
+    });
+    void lease.store.retry();
+  } catch {
+    /* best effort */
+  }
+}
 
 /**
  * 员工执行过程等只读面板：主动拉一次最新投影（非流式）。
@@ -367,12 +399,34 @@ export function V4StreamRowsBridge(props: {
       return;
     }
     bindV4OpenThread(sessionId);
+    bindOpenTraceThread(sessionId);
+    const acquireStartedAt = Date.now();
     const acquired = layer.acquire(sessionId);
+    const acquireMs = Date.now() - acquireStartedAt;
     const st = acquired.store.getState();
     const hasSnap = Boolean(st.snapshot);
     const rowCount =
       st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
     const since = v4OpenSinceClickMs({ threadId: sessionId });
+    markOpenStage(
+      "acquire",
+      hasSnap
+        ? `V4 租约已挂上（命中缓存快照，openKind=${acquired.openKind}，行数≈${rowCount}）`
+        : `V4 租约已挂上（无缓存快照，openKind=${acquired.openKind}，store=${st.status}）`,
+      {
+        acquireMs,
+        openKind: acquired.openKind,
+        hasSnapshot: hasSnap,
+        rowCount,
+        storeStatus: st.status,
+      },
+      {
+        reason: hasSnap
+          ? undefined
+          : `openKind=${acquired.openKind}：这是冷开（没有可复用的投影 store），后面还要等服务端 subscribe + 首帧 snapshot 才会上屏。` +
+            `openKind=cold 且会话很久没打开过 → 慢在服务端 hydrate 拉库；openKind=warm 说明刚被预热过。`,
+      },
+    );
     logV4Life({
       event: "open_acquire",
       threadId: sessionId,
@@ -481,6 +535,37 @@ export function V4StreamRowsBridge(props: {
         detail: { path: "v4", rowCount, storeStatus },
         skipDedupe: true,
       });
+      // React 已提交该会话的时间线 DOM（layout effect 里能拿到快照 = 已渲染）。
+      markOpenStage(
+        "render",
+        `React 已提交 V4 时间线 DOM（行数≈${rowCount}）`,
+        {
+          rowCount,
+          storeStatus,
+          connectingWaitedMs: waitedMs,
+          openKind: leaseForSession?.openKind ?? null,
+        },
+      );
+      // 上屏：等一帧 rAF，确保浏览器真的把内容画出来（此时才算「用户看得到」）。
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          markOpenStage("paint", "浏览器已上屏（连续两帧 rAF 后）", { rowCount });
+          endOpenTrace({
+            status:
+              sinceClick != null && sinceClick >= 3000
+                ? "error"
+                : sinceClick != null && sinceClick >= 1200
+                  ? "warn"
+                  : "ok",
+            detail: {
+              rowCount,
+              connectingWaitedMs: waitedMs,
+              openKind: leaseForSession?.openKind ?? null,
+              sinceClickMs: sinceClick,
+            },
+          });
+        });
+      });
       logV4Life({
         event: "path",
         threadId: sessionId,
@@ -511,6 +596,22 @@ export function V4StreamRowsBridge(props: {
         `%c[v4-path] V4 store=error 且无快照（session=${sessionId}）→ 留在 V4 失败态，放行 AG-UI 正文`,
         "color:#dc2626;font-weight:bold",
       );
+      // 打开失败：终结 trace（error），把失败原因写进分段。
+      markOpenStage(
+        "subscribe_ack",
+        "V4 投影失败（store=error、无快照）",
+        { storeStatus, lease: !!leaseForSession },
+        {
+          reason:
+            "订阅过程中投影 store 进入 error 态且没有任何快照：subscribe 被拒绝或连接被打断" +
+            "（runtime 换代 / 网关重启 / 订阅被拒）。查 transport 的 subscribe_ack 段与控制台 [v4-tx] 警告。",
+        },
+      );
+      endOpenTrace({
+        status: "error",
+        reason: "打开失败：V4 投影 store=error 且无快照，历史未能上屏。",
+        detail: { path: "v4-failed", storeStatus },
+      });
       logV4Life({
         event: "ui_render",
         threadId: sessionId,
@@ -633,10 +734,34 @@ export function V4StreamRowsBridge(props: {
         },
         skipDedupe: true,
       });
+      // 卡住 5s：把「卡在哪」明确写进分段计时，并终结这次 trace（error）。
+      markOpenStage(
+        "subscribe_ack",
+        `等首帧已超时（${Math.round(waitedMs / 1000)}s，store=${storeStatus || "?"}，订阅=${hasSubscription ? "有" : "无"}）`,
+        {
+          waitedMs,
+          storeStatus,
+          hasSubscription,
+          hasSnapshot: !!st?.snapshot,
+          openKind: leaseForSession?.openKind ?? null,
+        },
+        {
+          reason:
+            `点击后 ${Math.round(waitedMs / 1000)}s 仍未拿到首帧。` +
+            `${hasSubscription ? "订阅已建立但服务端没推 initial 帧" : "订阅都没建起来（connect 未发出 / 被 runtime 回收静默吞掉）"}。` +
+            `已触发主动 recovery。若恢复后仍不显示，看同一 trace 里 subscribe/frame_snapshot 两段谁超时。`,
+        },
+      );
       try {
         if (!st?.snapshot) {
           if (st?.subscriptionId) {
             store?.recoverFromStaleAuthority();
+          } else if (st && String(st.status) === "connecting") {
+            // connecting 但无 subscription 且已 5s：connect 从未发出或被 recycle
+            // timer 的代际检查静默吞掉（2026-11-08 正式版实锤：空白 47.9s，
+            // subscribe POST 直到旧回合 sse_final 才放行）。retry() 清 recycle
+            // 计数并强制重连——connect() 自身有 connectInFlight 幂等，不怕重复。
+            void store?.retry();
           } else if (sessionId) {
             // store=error 且无 subscription：re-acquire 走 keep-warm 再试一次
             // （用户正在看的会话，绕过预热限流）

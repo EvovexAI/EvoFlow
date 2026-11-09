@@ -72,6 +72,8 @@ export function usePendingSendQueue(opts: {
   pendingSteersRef.current = pendingSteers
   /** Esc/立即发送 owns restore+send; stop handler must not also enqueue to pendingSendQueue. */
   const interruptSendSteersRef = useRef(false)
+  /** interrupt+send 进行中：防快速双触（双 Enter/双 Esc）导致重复 stop+send。 */
+  const interruptFlushInFlightRef = useRef(false)
   const pendingDrainBusyRef = useRef(false)
   const prevTurnBusyForDrainRef = useRef(false)
   /** 忙时 ↑ 已入 pending-inject；本轮结束后若尚未被模型消费则 skipAppend 续跑 */
@@ -299,6 +301,7 @@ export function usePendingSendQueue(opts: {
     const merged = texts.join('\n\n').trim()
     const steerTextSet = new Set(texts.map((t) => String(t || '').trim()).filter(Boolean))
     interruptSendSteersRef.current = true
+    pendingDrainBusyRef.current = true
     try {
       try {
         await stopSessionExecutionRef.current?.(sk, { showToast: false })
@@ -323,8 +326,72 @@ export function usePendingSendQueue(opts: {
       }
     } finally {
       interruptSendSteersRef.current = false
+      pendingDrainBusyRef.current = false
     }
   }, [sessionRef, stopSessionExecutionRef, handleSendRef, setPendingSendQueue])
+
+  /** 空 Enter / 队首插队：打断当前回合，排队消息立即作为新回合发出。
+   * 与 handleInterruptAndSendSteers（Esc）同构，但发送对象是 pendingSendQueue 队首；
+   * 未消费的 steers（本地 + 服务端）随本次发送一并带出，避免内容悬空。
+   * 注意：服务端注入必须在 stop 之前取回——stop 宿主在 interrupt 旗标置位时
+   * 也会 pop（丢弃语义），后 pop 方拿到空列表。 */
+  const handleInterruptAndFlushQueue = useCallback(
+    async (id?: string) => {
+      const sk = String(sessionRef.current || '').trim()
+      if (!sk) return
+      if (interruptFlushInFlightRef.current) return
+      const queueForSk =
+        queuesBySessionRef.current.get(sk) ||
+        (sk === queueOwnerSessionRef.current ? pendingSendQueueRef.current : [])
+      const target = id ? queueForSk.find((x) => x.id === id) : queueForSk[0]
+      if (!target) return
+      const text = String(target.text || '').trim()
+      if (!text) {
+        toast('等待发送内容为空，请先填写或删除', 'warning')
+        return
+      }
+
+      let serverSteerTexts: string[] = []
+      try {
+        const res = await restorePendingInjects(sk)
+        const restored = Array.isArray(res?.restored) ? res.restored : []
+        serverSteerTexts = restored
+          .map((it: { text?: string }) => String(it?.text || '').trim())
+          .filter((t: string) => t && !isTaskNotificationInject({ text: t }))
+      } catch {
+        /* ignore */
+      }
+      const localSteerTexts = pendingSteersRef.current
+        .filter((s) => s.sessionKey === sk)
+        .map((s) => String(s.text || '').trim())
+        .filter(Boolean)
+      const steerTexts = Array.from(new Set([...serverSteerTexts, ...localSteerTexts]))
+      const merged = [...steerTexts, text].join('\n\n').trim()
+
+      interruptFlushInFlightRef.current = true
+      interruptSendSteersRef.current = true
+      pendingDrainBusyRef.current = true
+      try {
+        try {
+          await stopSessionExecutionRef.current?.(sk, { showToast: false })
+        } catch {
+          /* 打断失败仍尝试发送 */
+        }
+        setPendingSteers((prev) => prev.filter((s) => s.sessionKey !== sk))
+        midTurnInjectRef.current = midTurnInjectRef.current.filter((x) => x.sessionKey !== sk)
+        setPendingSendQueue((prev) => prev.filter((x) => x.id !== target.id))
+        if (merged) {
+          toast('已打断，正在立即发送排队消息…', 'info')
+          await handleSendRef.current(merged)
+        }
+      } finally {
+        interruptSendSteersRef.current = false
+        pendingDrainBusyRef.current = false
+        interruptFlushInFlightRef.current = false
+      }
+    },
+    [sessionRef, stopSessionExecutionRef, handleSendRef, setPendingSendQueue],
+  )
 
   const runPendingDrain = useCallback(
     async (skRaw: string) => {
@@ -568,5 +635,6 @@ export function usePendingSendQueue(opts: {
     handleFlushPendingSend,
     handleCancelPendingSteer,
     handleInterruptAndSendSteers,
+    handleInterruptAndFlushQueue,
   }
 }

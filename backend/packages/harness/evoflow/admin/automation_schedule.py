@@ -700,6 +700,34 @@ def resolve_effective_schedule(task: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def cron_csv_from_rrule_part(raw: Any, *, lo: int, hi: int, default: int) -> str:
+    """RRULE ``BYHOUR`` / ``BYMINUTE`` → cron list field, keeping every value.
+
+    Truncating to the first value used to turn ``BYHOUR=9,15`` into ``0 9 * * *``
+    — the role then patrolled once a day while the UI still read「两次」from the
+    rrule the caller sent. Invalid entries are dropped; all-invalid → default.
+    Ranges/steps (``9-17``, ``*/2``) pass through untouched.
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return str(default)
+    out: list[str] = []
+    for chunk in s.split(","):
+        c = chunk.strip()
+        if not c:
+            continue
+        if re.fullmatch(r"\d+-\d+(/\d+)?", c) or re.fullmatch(r"\*/\d+", c):
+            out.append(c)
+            continue
+        try:
+            v = int(c)
+        except ValueError:
+            continue
+        if lo <= v <= hi and str(v) not in out:
+            out.append(str(v))
+    return ",".join(out) if out else str(default)
+
+
 def rrule_to_cron(rrule_str: str) -> str:
     """Best-effort RRULE → 5-field cron (local-time semantics used by Gateway runner)."""
     r = (rrule_str or "").strip()
@@ -722,14 +750,8 @@ def rrule_to_cron(rrule_str: str) -> str:
         interval = max(1, int(parts.get("INTERVAL", "1")))
     except ValueError:
         interval = 1
-    try:
-        hour = int(str(parts.get("BYHOUR", "9")).split(",")[0])
-    except ValueError:
-        hour = 9
-    try:
-        minute = int(str(parts.get("BYMINUTE", "0")).split(",")[0])
-    except ValueError:
-        minute = 0
+    hour = cron_csv_from_rrule_part(parts.get("BYHOUR", "9"), lo=0, hi=23, default=9)
+    minute = cron_csv_from_rrule_part(parts.get("BYMINUTE", "0"), lo=0, hi=59, default=0)
     byday = parts.get("BYDAY", "")
     dow_map = {"SU": "0", "MO": "1", "TU": "2", "WE": "3", "TH": "4", "FR": "5", "SA": "6"}
     if freq == "HOURLY":
@@ -738,7 +760,14 @@ def rrule_to_cron(rrule_str: str) -> str:
         # ``FREQ=MINUTELY;INTERVAL=10`` → ``*/10 * * * *``.
         # This branch was missing, so every MINUTELY rrule derived to "" and
         # the runner silently skipped the automation ("rrule dead config").
-        if minute:
+        # ``minute`` is a cron *field* now (may be ``0`` / ``9,15``); the old
+        # branch keyed off "BYMINUTE given and non-zero", so keep that numeric
+        # reading instead of the field's truthiness (``"0"`` is truthy).
+        try:
+            minute_head = int(minute.split(",")[0].strip())
+        except ValueError:
+            minute_head = 0
+        if minute_head:
             return f"{minute} */{interval} * * *" if interval > 1 else f"{minute} * * * *"
         return f"*/{interval} * * * *" if interval > 1 else "* * * * *"
     if freq == "DAILY":

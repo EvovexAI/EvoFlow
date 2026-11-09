@@ -255,37 +255,7 @@ def try_terminal_code_search_redirect(*, command: str, runtime: Any) -> str | No
     """
     del command, runtime
     return None
-    if not _code_search_redirect_enabled():  # noqa: unreachable — kept with the old redirect body
-        return None
-    cmd = str(command or "").strip()
-    if not cmd or not is_code_search_terminal_command(cmd):
-        return None
-
-    from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
-
-    root, thread_id = resolve_tool_workspace_root(runtime=runtime)
-    parsed = parse_code_search_command(cmd)
-    limit = _match_limit(cmd)
-
-    if parsed:
-        pattern, paths = parsed
-        file_paths = [Path(p) for p in paths if p]
-        if len(file_paths) == 1 and file_paths[0].is_file():
-            body = _fast_search_single_file(file_paths[0], pattern, max_matches=limit)
-            return _REDIRECT_BANNER + body
-        if root:
-            return _redirect_to_code_index(
-                pattern=pattern,
-                workspace_root=root,
-                thread_id=thread_id,
-                limit=max(limit, 15),
-            )
-
-    if root and parsed:
-        return _redirect_to_code_index(
-            pattern=parsed[0],
-            workspace_root=root,
-            thread_id=thread_id,
-            limit=max(limit, 15),
-        )
-    return None
+    # The retired redirect body below is unreachable on purpose; it used to be
+    # kept for reference. Its `command` / `runtime` reads sat after `del`, which
+    # made ruff F821 scream on live code (and would have been a NameError the day
+    # anyone un-retired it). Nothing else calls into it, so it is gone.

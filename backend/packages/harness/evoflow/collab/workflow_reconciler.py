@@ -6,6 +6,7 @@ this module re-reads project storage + app_runs and calls ``workflow_runtime``.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -124,6 +125,38 @@ def _clear_terminal_outcome_residue(st: dict[str, Any]) -> None:
         st.pop(_key, None)
 
 
+def _is_user_pause(task: dict[str, Any] | None) -> bool:
+    """True when the current pause was requested by a human, not by a crash.
+
+    ``pause_run`` stamps ``pause_requested_by="user"``. That marker is the only
+    thing separating "the user pressed pause" from "the process died while
+    paused" — both leave rows at ``paused``, and the healer exists for the
+    second case. Without the split it un-paused live user pauses ~3s later.
+    """
+    if not isinstance(task, dict):
+        return False
+    by = str(task.get("pause_requested_by") or "").strip().lower()
+    st = str(task.get("status") or "").strip().lower()
+    verdict = by == "user" and st in _PAUSED
+    # One line per evaluation makes "why did the pause not stick?" answerable
+    # from the log alone: marker present? status still paused? who asked?
+    # ``info`` only when it actually holds the run (that's the line worth
+    # grepping when a pause "doesn't work"); otherwise debug so the per-subtask
+    # loop in _heal_subtasks doesn't spam the log.
+    (
+        logger.info
+        if verdict
+        else logger.debug
+    )(
+        "workflow_reconciler.user_pause_check task=%s status=%s requested_by=%r verdict=%s",
+        task.get("id") or task.get("task_id") or "",
+        st,
+        by,
+        verdict,
+    )
+    return verdict
+
+
 def _heal_subtasks(
     task: dict[str, Any],
     *,
@@ -131,6 +164,7 @@ def _heal_subtasks(
     now_ts: float,
 ) -> list[dict[str, Any]]:
     """Mutate subtask rows in-place; return heal records."""
+    from evoflow.collab.subtask_outcome import is_subtask_outcome_reported
     from evoflow.collab.subtask_state_machine import advance_subtask_row_status
 
     healed: list[dict[str, Any]] = []
@@ -143,6 +177,68 @@ def _heal_subtasks(
         if not sid:
             continue
         prev = str(st.get("status") or "").strip().lower()
+
+        # Terminal-but-unreported rows are the one deadlock this healer used to
+        # miss: the dependency gate reads ``outcome_reported_at``, not ``status``,
+        # so such a row renders as 完成 in the panel while every tick answers
+        # ``no_runnable_subtasks`` for its dependents forever (2026-11-08: a
+        # template node left a 4-step run stuck at 75% for 40+ minutes).
+        # Re-stamp from the row's own completion data — do NOT downgrade to
+        # pending, that would re-run finished work and duplicate artifacts.
+        if prev in {"completed", "success", "done"} and not is_subtask_outcome_reported(st):
+            st["outcome_reported_at"] = str(st.get("completed_at") or "").strip() or now_iso
+            st["outcome_reported_by"] = "system"
+            st["updated_at"] = now_iso
+            logger.info(
+                "workflow_reconciler: restamped unreported terminal subtask main=%s sub=%s status=%s",
+                st.get("main_task_id") or st.get("parent_task_id") or "",
+                sid,
+                prev,
+            )
+            healed.append({"subtaskId": sid, "from": prev, "to": prev, "why": "restamp_unreported_terminal"})
+            continue
+
+        # Inverse race: ``done`` already stamped a *success* outcome, but a late
+        # progress/heartbeat hot-patch COALESCE'd status back to executing.
+        # Prefer the reported success over the stale in-flight label — do NOT
+        # treat this as a zombie (that would clear the report and re-run work).
+        #
+        # Failed residue + in-flight is the opposite case (retry / crash mid
+        # re-dispatch): fall through so ``zombie_executing`` can clear the
+        # previous attempt and requeue.
+        if prev in _IN_FLIGHT and is_subtask_outcome_reported(st):
+            err = str(st.get("error") or "").strip()
+            failed_at = str(st.get("failed_at") or "").strip()
+            looks_failed = bool(err or failed_at)
+            if not looks_failed:
+                ok, why = advance_subtask_row_status(st, "completed", allow_terminal_downgrade=False)
+                if not ok:
+                    st["status"] = "completed"
+                st["progress"] = 100
+                st["completed_at"] = (
+                    str(st.get("completed_at") or st.get("outcome_reported_at") or "").strip() or now_iso
+                )
+                st.pop("failed_at", None)
+                if str(st.get("error") or "").startswith("reconcile:"):
+                    st.pop("error", None)
+                    st.pop("error_kind", None)
+                st["updated_at"] = now_iso
+                logger.info(
+                    "workflow_reconciler: restored reported completed over stale in-flight "
+                    "main=%s sub=%s from=%s",
+                    st.get("main_task_id") or st.get("parent_task_id") or "",
+                    sid,
+                    prev,
+                )
+                healed.append(
+                    {
+                        "subtaskId": sid,
+                        "from": prev,
+                        "to": "completed",
+                        "why": "reported_but_still_inflight",
+                    }
+                )
+                continue
 
         if is_zombie_executing_subtask(st, now_ts=now_ts, reason=reason):
             ok, why = advance_subtask_row_status(st, "pending", allow_terminal_downgrade=False)
@@ -173,6 +269,13 @@ def _heal_subtasks(
             continue
 
         if prev in _PAUSED:
+            if _is_user_pause(task):
+                # Deliberate pause: hold it. Requeueing here is what made
+                # ``workflow.stop(pause=true)`` a no-op — the pause survived ~3s
+                # and then this branch (plus the main-task re-open below) put the
+                # run back on the tracks. Crash/interrupt rows carry no marker
+                # and keep the original recovery behaviour.
+                continue
             ok, why = advance_subtask_row_status(st, "pending", allow_terminal_downgrade=False)
             if not ok:
                 st["status"] = "pending"
@@ -261,33 +364,47 @@ async def reconcile_task(
 
     storage = get_project_storage()
     now_ts = time.time()
-    healed: list[dict[str, Any]] = []
 
-    with main_task_mutation_lock(tid):
-        row = find_main_task(storage, tid, bypass_cache=True)
-        if not row:
-            report["error"] = "task_not_found"
-            return report
-        project, task = row
-        if not is_workflow_scheduler_task(task):
-            report["error"] = "not_workflow_task"
-            return report
+    def _heal_locked() -> tuple[list[dict[str, Any]], str, dict[str, Any] | None]:
+        """同步 DB 临界区：持 mutation 锁做 heal + save（worker 线程执行）。
 
-        healed = _heal_subtasks(task, reason=reason, now_ts=now_ts)
-        if healed:
-            main_st = str(task.get("status") or "").strip().lower()
-            if main_st in _PAUSED | _FAILED | {"cancelled", "canceled"}:
-                # Re-open for dispatch (state machine on main is looser via direct assign).
-                if main_st in _PAUSED or main_st in _FAILED:
-                    task["status"] = "executing"
-            task["updated_at"] = utc_now_iso_z()
-            storage.save_project(project)
-            try:
-                from evoflow.collab.app_run_events import emit_app_run_from_main_task
+        2026-11-08 hang-diagnostics 现场：本段原样跑在 event loop 上，
+        find_main_task → load_task_bundle 在两把 threading.Lock 下等 agent 回合
+        的 DB 写，每 45s tick 把 loop 卡 5-25s，V4 订阅/HTTP 全部排队。
+        """
+        healed_local: list[dict[str, Any]] = []
+        error = ""
+        task_ref: dict[str, Any] | None = None
+        with main_task_mutation_lock(tid):
+            row = find_main_task(storage, tid, bypass_cache=True)
+            if not row:
+                return healed_local, "task_not_found", None
+            project, task = row
+            task_ref = task
+            if not is_workflow_scheduler_task(task):
+                return healed_local, "not_workflow_task", task_ref
+            healed_local = _heal_subtasks(task, reason=reason, now_ts=now_ts)
+            if healed_local:
+                main_st = str(task.get("status") or "").strip().lower()
+                keep_user_pause = _is_user_pause(task)
+                if main_st in _PAUSED | _FAILED | {"cancelled", "canceled"}:
+                    # Re-open for dispatch (state machine on main is looser via direct assign).
+                    if (main_st in _PAUSED or main_st in _FAILED) and not keep_user_pause:
+                        task["status"] = "executing"
+                task["updated_at"] = utc_now_iso_z()
+                storage.save_project(project)
+                try:
+                    from evoflow.collab.app_run_events import emit_app_run_from_main_task
 
-                emit_app_run_from_main_task(task, reason=f"reconcile_{reason}")
-            except Exception:
-                logger.debug("reconcile emit_app_run failed task=%s", tid, exc_info=True)
+                    emit_app_run_from_main_task(task, reason=f"reconcile_{reason}")
+                except Exception:
+                    logger.debug("reconcile emit_app_run failed task=%s", tid, exc_info=True)
+        return healed_local, error, task_ref
+
+    healed, heal_error, task_ref = await asyncio.to_thread(_heal_locked)
+    if heal_error:
+        report["error"] = heal_error
+        return report
 
     report["healed"] = healed
     report["ok"] = True
@@ -296,9 +413,17 @@ async def reconcile_task(
         report["action"] = "heal_only"
         return report
 
-    # Decide Runtime entry
-    row2 = find_main_task(storage, tid, bypass_cache=True)
-    task2 = row2[1] if row2 else task
+    # Decide Runtime entry（同样同步 DB，勿回 loop）
+    row2 = await asyncio.to_thread(lambda: find_main_task(storage, tid, bypass_cache=True))
+    task2 = row2[1] if row2 else task_ref
+
+    # Belt and braces: a user-paused run never dispatches out of the healer, no
+    # matter what else got healed in this pass.
+    if _is_user_pause(task2):
+        report["action"] = "hold_user_pause"
+        report["dispatch"] = {"skipped": True, "reason": "user_paused"}
+        return report
+
     need_retry = any(h.get("why") in {"zombie_executing", "failed_retry"} for h in healed)
     need_start = any(h.get("why") == "paused_resume" for h in healed) or (
         not healed and _has_runnable_pending(task2) and not _has_live_executing(task2)
@@ -378,7 +503,8 @@ async def reconcile_open_workflows(
     from evoflow.persistence import app_repositories
 
     lim = max(1, min(int(limit or 50), 200))
-    runs = app_repositories.list_open_runs(limit=lim)
+    # 同步 SQLite 扫描，勿在 event loop 上跑（同 reconcile_task 的现场结论）。
+    runs = await asyncio.to_thread(lambda: app_repositories.list_open_runs(limit=lim))
     reports: list[dict[str, Any]] = []
     for run in runs:
         rid = str(run.get("id") or "").strip()

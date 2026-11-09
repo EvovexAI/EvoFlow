@@ -1289,6 +1289,16 @@ const UserInputRowView = memo(function UserInputRowView({
           ) : null}
         </div>
       ) : null}
+      {/* EvoFlow：goal 引擎推送的输入（origin=goalContinuation）在气泡上方加浅色
+          「目标推送」徽标——用户消息位置能证明这条消息是目标自动推进的。 */}
+      {row.origin === "goalContinuation" && hasBubble ? (
+        <div data-v4-user-input-goal-badge="true" className="flex justify-end">
+          <span className="inline-flex items-center gap-1 rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-ui-xs text-foreground-subtle">
+            {MARKER_GOAL_ICON}
+            {intl.formatMessage({ id: "chat.userInput.goalContinuation" })}
+          </span>
+        </div>
+      ) : null}
       {hasBubble ? (
         // 附件和上下文引用只属于消息行，不属于气泡；否则仅附件消息会留下空气泡。
         // 同一 row 会渲染在主会话和 Subagent 侧栏，固定宽度会忽略实际宿主宽度。

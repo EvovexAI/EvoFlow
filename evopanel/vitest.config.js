@@ -48,6 +48,7 @@ export default defineConfig({
       'tests/font-size-tokens.test.js',
       'tests/aside-title-shimmer.test.js',
       'tests/chat-summary-panel.test.js',
+      'tests/chat-summary-process-agent-detail.test.tsx',
       'tests/compose-attach.test.js',
       'tests/tts-speaker-custom-toggle.test.js',
       'tests/web-embed-url.test.js',
@@ -91,6 +92,10 @@ export default defineConfig({
       'tests/collab-subtasks-from-api.test.js',
       'tests/collab-thread-ids.test.js',
       'tests/subtask-live-preview.test.js',
+      'tests/workflow-node-activity.test.ts',
+      'tests/soft-progress-display.test.ts',
+      'tests/workflow-node-log.test.tsx',
+      'tests/collab-exec-panel-running.test.tsx',
       'tests/proactive-work-process-live.test.js',
       'tests/proactive-session-messages.test.js',
       'tests/employee-current-task.test.js',
@@ -129,6 +134,7 @@ export default defineConfig({
       'tests/session-list-pin.test.js',
       'tests/session-list-dept-reselect.test.js',
       'tests/session-list-proactive-group.test.js',
+      'tests/session-list-employee-orphan-prune.test.js',
       'tests/shell-running-preview.test.js',
       'tests/turn-text-isolation.test.js',
       'tests/ws-turn-slice.test.js',
@@ -207,6 +213,7 @@ export default defineConfig({
       'tests/subtask-conversation-history.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
+      'tests/right-stage-force-expand.test.js',
       'tests/right-stage-scope.test.ts',
       'tests/right-stage-artifacts-session-stamp.test.ts',
       'tests/bridge-theme-dark.test.ts',
@@ -245,6 +252,22 @@ export default defineConfig({
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',
       'tests/replay-real-run-81320d61e8cc-diag.test.js',
+      // 点开会话 → 上屏 全链路分段耗时诊断（openTrace）
+      'tests/open-trace-stages.test.ts',
+      // 右栏「Agent 应用」启动器（选已安装 UI 扩展 → 右侧开签）
+      'tests/right-stage-agent-app-launcher.test.tsx',
+      // 右栏 Agent 应用：先开签再起服务（冷启动不能卡住 UI）
+      'tests/open-ui-extension-in-stage.test.ts',
+      // chat-app-view 的 ctx 解构完整性（漏解构 → 运行时 ReferenceError）
+      'tests/chat-app-view-ctx-destructure.test.ts',
+      // 输入框 `/` 面板：命令清单（只留 /goal）+ 技能/插件两行布局
+      'tests/composer-slash-menu.test.tsx',
+      // 主窗口弹窗拦截（Agent 应用 iframe 的 window.open 不得弹到系统浏览器）
+      'tests/main-popup-guard.test.ts',
+      // 工作流节点实时正文：LangGraph custom 通道必须转发 subagent_token_delta
+      'tests/ws-subagent-token-delta.test.js',
+      // 目标徽标 bridge：class store 的 subscribe 传参必须保持 this 绑定
+      'tests/goal-status-badge-bridge.test.tsx',
     ],
   },
 })

@@ -21,7 +21,7 @@ from evoflow.assets.catalog import parse_frontmatter
 from evoflow.assets.guidance import resolve_session_entity
 from evoflow.assets.hub import ensure_entity_tree, write_text_file
 from evoflow.assets.paths import EntityRef, entity_relative_dir, entity_root, resolve_entity_file
-from evoflow.assets.pipeline_config import asset_phase2_enabled, max_inbox_for_consolidation
+from evoflow.assets.pipeline_config import max_inbox_for_consolidation
 from evoflow.assets.prompt_templates import load_memory_prompt, render_memory_prompt
 from evoflow.assets.usage import usage_recency_score
 
@@ -575,9 +575,6 @@ def run_phase2_consolidate(
 
     Returns ``{ok, skipped?, paths?, error?}``.
     """
-    if not asset_phase2_enabled():
-        return {"ok": False, "skipped": "disabled"}
-
     try:
         from evoflow.config.memory_config import get_memory_config
 
@@ -591,6 +588,14 @@ def run_phase2_consolidate(
         ensure_entity_tree(ent)
     except Exception as exc:
         return {"ok": False, "error": f"entity:{exc}"}
+
+    try:
+        from evoflow.assets.pipeline_config import entity_memory_enabled
+
+        if not entity_memory_enabled(ent):
+            return {"ok": False, "skipped": "memory_disabled_by_entity"}
+    except Exception:
+        pass
 
     pending = list_inbox_pending(ent)
     if not pending:

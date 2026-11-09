@@ -6,6 +6,125 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.13] - 2026-11-09
+
+相对 **1.3.12**：修复建单链路整体报 `UnboundLocalError`（任务中心新建 / 岗位派发 / 任何走 `admin.tasks.create_task` 的路径全部 500）；修复事项通知「查看事项」点击不跳转（右栏不展开、换条目不高亮、主区焦点被抹，三处断链）；同类「变量用在自己绑定之前」再清 7 处，其中技能包安装模块 import 即 `NameError`、知识库评测场景跑即崩；新增常驻 lint 门禁（`ruff --select F821`，push to main 即跑），全仓 F821 现为 0。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.13.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **建单链路**：`create_task` 的 P0 配额闸门在 `resolve_write_source(...)` 赋值前就读 `source_canon` → 每次建单 `UnboundLocalError`。修法是把 `resolve_write_source` 挪到闸门之前，不用默认值兜底（源类型错了会让闸门 `if src != "role": return` 静默放行，等于把配额闸门整个关掉）
+- **事项通知 CTA**：`open-progress-from-panel-set` 的 shell-page 分支漏传 `forceExpand`（用户收过右栏后标签建了、`activeKey` 切了但 collapsed 不动）；`ShellPageKind` 挂载 effect deps 只有 `[path, surfaceId]`，待办列表 path 与 tab id 恒定 → 换一条事项不重挂，一直停在旧高亮；`readTasksQueryFromHash` 不解析 `focus` 且 `writeTasksQueryToHash` 回写会抹掉它
+- **技能包安装**：`agents/expert_pack_installer.py` 模块级 `SKILLS_ROOT` 用 `os.getenv` 但没 `import os` → import 即 NameError，`install_expert_pack` 都进不来
+- **知识库评测**：`eval/scenarios/knowledge_health.py` 引用不存在的 `created`（`create_base_id` 只返回 id 字符串）
+- **组织市场缓存**：`app/gateway/routers/organizations.py` 未 import `json` / `logger` → 异常分支二次抛错，磁盘缓存形同没有
+- **其余同类**：`agents/lead_agent/prompt.py` 第二处 `TIER1_PERSON_MEMORY_CHARS`、`persistence/app_repositories.py` 未 import `logging`（部门群回执取不到 logger）、`tools/host_direct/terminal_code_search_redirect.py` 的 `del command, runtime`、`tests/test_stream_thread_state_dedup.py` 缺 `from typing import Any`
+
+### Improved
+
+- **防复发门禁**：`backend/Makefile` 新增 `make lint-fatal`（= `ruff check --select F821 .`）并纳入 `scripts/ci-local.sh --quick`；`.github/workflows/lint-check.yml` 增加常驻 `fatal-names` job（push to main 自动跑）。与既有 `lint` job 区分：后者手动触发、背后是 388 条清不完的 backlog，从没真正拦过东西
+
+## [1.3.12] - 2026-11-09
+
+相对 **1.3.11**：会话子任务 / 工作流 / 命令行可挂在会话上查看；新增阿里云百炼 Token Plan 套餐绑定；工作流 `output_schema` 真正写入派发提示；运行图进度软爬升。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.12.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **会话子任务轨**：`session_runtime` 登记子智能体 / 工作流 / 值班 / 后台 bash；输入框旁图标 + 右栏「会话运行」面板；普通对话子任务默认 detach，完成回灌
+- **阿里云百炼 Token Plan**：`aliyun.token_plan` catalog + adapter；`sk-sp-` Key 校验与模型 / 媒体 materialize；套餐 Tab 可切换火山 / 百炼
+- **工作流输出契约**：`output_schema` 写入派发提示；缺产出与下游绑定失败按生产门禁失败
+
+### Changed
+
+- **工作流进度软爬升**：服务端离散进度之外，接口与前端用 soft display 填中间态，节点不再长时间停在 10%
+- **输入绑定类型纠偏**：按 `input_schema` 对字符串参数做 number/boolean 等 coercion
+- **套餐 / 模型页**：按 catalog 切换文案与 Base；Plan 模型带标记，避免与按量 Key 混用
+- **可观测耗时**：平台动作与 bash shell 延迟统计入库 / 分析页可见
+
+### Fixed
+
+- **点会话命令图标打开空终端**：热 bash 绑定到实际流，不再把 registry ref 当 tool_call_id
+- **output_schema 运行期哑配置**：补派发契约、堵住 vacuously valid 与默认 warn 静默放行
+- **子任务终态被心跳打回执行中**：`patch_subtask_hot_fields` CAS 拒绝 terminal→active；snapshot / project cache 同步守住；reconciler 把「已上报成功仍显示执行中」恢复为 completed
+
+## [1.3.11] - 2026-11-08
+
+相对 **1.3.10**：设置「应用用量」新增按模块视图（对话 / 员工 / 工作流 / 知识库 / 媒体）与筛选搜索；可观测分析补上提示词开销统计；修复高分屏下浏览器嵌入面板位置算错，以及右侧栏折叠时「操作正常但浏览器不显示」。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.11.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **用量按模块拆分**：新增 `evoflow/persistence/usage_by_module.py` 与 `GET /usage/by-module`，把 ledger 事件按用户认识的产品面归类（chat / employee / workflow / knowledge / media），不再只暴露 raw `invocation_kind`；设置页加「按模块」视图、模块筛选、关键字搜索、区间合计与中英双语文案
+- **提示词开销入可观测**：`compaction_run_context` 的 prompt overhead 挂进 `usage_json`，Analytics 展示主/子智能体的开销条与样本数
+
+### Fixed
+
+- **高分屏浏览器面板**：`browser_embed` 的位置换算乘上 `window_dpi_scale` 并 clamp 到窗口内，修复 125%/150% 缩放下 `inner_size()` 为物理像素导致的错位与跑出屏外；估算坞位时打日志便于复盘
+- **浏览器面板不显示**：`ensure-browser-stage` 在 HWND 已 park 但 `lastPlacementKey` 早退时强制重推一轮 gate，浏览器与「新标签」走 `forceExpand` 撑开右栏，修复用户看到「操作都正常但浏览器没打开」
+- **模块明细接口不可用**：给出「重启桌面端后再打开应用用量」的明确提示与空态，不再静默空白
+
+### 说明口径变更
+
+本版起，对外发版说明（Release 正文 / CHANGELOG 条目 / 升级横幅）**不再列「参与本次发版」名单**，只写变更本身；人员与责任追溯保留在 commit message 四字段里，`git log` 可查。
+
+## [1.3.10] - 2026-11-08
+
+相对 **1.3.9**：会话目标模式指令与停止语义落地，模型失败（429 配额 / `model_error` / 合成 `RUN_ERROR`）不再被误判为运行成功；工作流新增发布前校验（未知依赖不再被静默清空、条件节点完整性检查）；部门与员工头像支持预设宫格与自定义上传；知识库 `search` 命中的 docId 可直接 `read`。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.10.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### 参与本次发版
+
+- 全栈开发工程师：目标模式收口与失败判定、工作流发布校验与条件节点检查、部门头像预设宫格、知识库 docId 归一化、员工资产读写一致性、会话切换诊断日志
+- 发版工程师：CI/CD 正式包发布
+
+### Added
+
+- **V4 目标模式**：goal engine 收口 + 前端「目标」指令与停止语义（补充指令、随时终止）
+- **工作流节点实时活动**：节点运行状态实时展示 + 子智能体详情浮层
+- **头像预设宫格**：部门 / 员工头像点击展开预设选择，支持上传自定义头像
+- **图片附件**：实时流提取用户图片附件，hydration 通道附件一致化
+
+### Changed
+
+- **apps 冷启动**：改短轮询，减少白屏等待
+- **记忆开关**：下沉到单个员工，管道调参收敛
+- **会话诊断日志**：切会话遮罩持有时长 / 时间线尾部行序 / 渲染层绑定状态（签名去重，流式不刷屏）
+- **知识检索**：docId 归一化后可直接 read；关键词库不再误报 degraded
+
+### Fixed
+
+- **目标模式失败判定**：`post_stream_ui_normalize` 扫描产出帧识别 `RUN_ERROR` 与 `model_error`，先标记失败再置位 run_end，goal engine 不再把模型失败当成功跳过校验
+- **工作流发布门禁**：`_sync_depends_on_from_canvas` 保留未知 `depends_on`（原被清空 → 节点变即刻可跑入口）；新增 Check 2b 条件节点完整性校验（缺 expression / 缺分支目标 / 分支指向不存在节点一律拒绝发布）
+- **工作流运行**：run 状态返回体去重、参数按声明传值、读路径走只读连接池
+- **员工资产**：消除读写分叉，修多词检索空结果与静默丢元数据；`rename` 同步 memory 笔记 title/summary
+- **右栏折叠**：点名员工 / 打开 shell 时强制展开，不被折叠锁拦住
+- **会话切换**：stale thread 重建提示 + inert 处理
+- **组织导入导出**：`autonomy_level` 枚举值序列化，导入兼容历史 repr 形式
+
+## [1.3.9] - 2026-11-07
+
+相对 **1.3.8**：部门与员工新增头像图库；实体记忆 catalog 按类别分组、减少注入 token；流式首帧超时保护；V4 连接失败可手动重连；修复 macOS 安装包构建（v1.3.6–1.3.8 mac 构建失败）。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.9.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **部门头像预设**：新增 `dept_avatars` 图库（10 个部门）与 19 张员工头像预设；`evoflow_departments.avatar` 持久化，指挥台 / 部门群 / 部门详情统一展示，缺图回落部门名首字
+- **模型渠道探活脚本**：`scripts/maintainer/model_channel_probe.py`（`--list` / `--probe` / `--call`）
+
+### Changed
+
+- **实体记忆 catalog**：按 kind 分组、行内只保留文件名（去掉重复前缀），减少 token；L2 文件 catalog 在两种模式都注入；standing 正文改为按需读取
+- **平台生图注入**：文案按 label 区分「刚生成的图」与「屏幕截图」
+- **待发队列**：支持 ↑ 加塞（下一次工具前纠偏）与空 Enter 打断并立即发送；扫码会话失效时停止轮询并提示重新扫码
+
+### Fixed
+
+- **流式首帧看门狗**：连接建立但零首帧时按短预算（默认 60s）断开重试
+- **V4 连接**：订阅瞬态失败有界退避（保持 connecting）；失败态新增「重新连接」按钮
+- **macOS 发版构建**：关闭 setup-rust-toolchain 默认 `-D warnings` 并锁定 `build-warnings=warn`，修复 v1.3.6–v1.3.8 macOS 构建失败
+- **todo_write**：首轮注入缺 `todos` 键导致的 KeyError
+
 ## [1.3.8] - 2026-11-07
 
 相对 **1.3.7**：长命令不再堵住工具通道。bash 前台执行封顶 60 秒，超出自动转后台；工具并发上限从 8 降到 4。

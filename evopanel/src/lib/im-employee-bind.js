@@ -20,7 +20,7 @@
  *   - The scan modal is single-instance per (channel, agentCode); starting a new
  *     scan cancels any prior poll and resets state so re-binding works cleanly.
  */
-import { api } from './tauri-api.js'
+import { api, isRegistrationSessionGone } from './tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm } from '../components/modal.js'
 import { ensureQrImgFallbackHandler, qrImageHtml } from './qr-image.js'
@@ -466,13 +466,7 @@ async function _pollIMChannelScan({ agentCode, channel, onBound, offerNext, role
     }
   } catch (e) {
     // Gateway restart / expired in-memory session → stop (do not ERROR-spam forever).
-    const msg = String(e?.message || e || '')
-    const status = Number(e?.status || 0)
-    const gone =
-      status === 404 ||
-      /session[_\s-]?not[_\s-]?found/i.test(msg) ||
-      /Session .+ not found/i.test(msg)
-    if (!gone) return
+    if (!isRegistrationSessionGone(e)) return
     cancelPoll()
     const statusEl = document.getElementById('pro-im-scan-status')
     if (statusEl) {

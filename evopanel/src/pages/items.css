@@ -595,6 +595,32 @@ html[data-translucent-ui='1'] .tasks-ledger-btn.is-active {
   background: color-mix(in srgb, var(--im-brand) 3.5%, var(--im-surface));
 }
 
+/* 平台通知「查看事项」深链落点：保持高亮，直到用户切筛选/离开 */
+.im-card.is-focus {
+  border-color: color-mix(in srgb, var(--im-brand) 62%, var(--im-border));
+  background: color-mix(in srgb, var(--im-brand) 7%, var(--im-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--im-brand) 22%, transparent);
+}
+
+.im-card.is-focus-flash {
+  animation: im-card-focus-flash 1.5s ease-out 1;
+}
+
+@keyframes im-card-focus-flash {
+  0% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, var(--im-brand) 34%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--im-brand) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .im-card.is-focus-flash {
+    animation: none;
+  }
+}
+
 .im-card.is-done .im-card-title {
   color: #475569;
   font-weight: 500;

@@ -559,6 +559,11 @@ def patch_subtask_hot_fields(main_task_id: str, subtask_id: str, updates: dict[s
     When the patch touches ONLY hot columns this updates the single subtask row
     instead. Returns True when a row was updated; False means "not a hot patch
     or row missing — caller must fall back to the full bundle save".
+
+    Status writes are CAS-safe against the classic TOCTOU: a progress/heartbeat
+    that read ``executing`` before ``done`` landed must not COALESCE the row
+    back to executing after the terminal write. The SET expression refuses
+    terminal→active even when the caller's pre-check was stale.
     """
     import logging
 
@@ -573,7 +578,7 @@ def patch_subtask_hot_fields(main_task_id: str, subtask_id: str, updates: dict[s
     if not mid or not sid:
         return False
 
-    status = str(updates.get("status") or "").strip()
+    status = str(updates.get("status") or "").strip().lower()
     err_raw = updates.get("error_text", updates.get("error"))
     err = None if err_raw is None else str(err_raw)
     now = str(updates.get("updated_at") or "").strip() or utc_now_iso_z()
@@ -625,17 +630,43 @@ def patch_subtask_hot_fields(main_task_id: str, subtask_id: str, updates: dict[s
                 extra_json = _json.dumps(merged, ensure_ascii=False)
             except Exception:
                 extra_json = None
+        # Atomic terminal→active refusal: if the row is already terminal and the
+        # incoming status is active/empty, keep the terminal value. Progress /
+        # lease / error may still update.
+        status_param = status or None
         cur = conn.execute(
             """
             UPDATE evoflow_collab_subtasks
-            SET status = COALESCE(?, status),
+            SET status = CASE
+                    WHEN ? IS NULL OR ? = '' THEN status
+                    WHEN lower(status) IN (
+                        'completed','failed','cancelled','canceled','timed_out','done','success'
+                    )
+                    AND lower(?) IN (
+                        'pending','planned','executing','running','in_progress','active',
+                        'waiting_dispatch','planning','paused'
+                    )
+                    THEN status
+                    ELSE ?
+                END,
                 progress = COALESCE(?, progress),
                 error_text = COALESCE(?, error_text),
                 extra_json = COALESCE(?, extra_json),
                 updated_at = ?
             WHERE main_task_id = ? AND subtask_id = ?
             """,
-            (status or None, prog_i, err, extra_json, now, mid, sid),
+            (
+                status_param,
+                status_param or "",
+                status_param or "",
+                status_param,
+                prog_i,
+                err,
+                extra_json,
+                now,
+                mid,
+                sid,
+            ),
         )
         conn.commit()
         return int(cur.rowcount or 0)

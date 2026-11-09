@@ -600,6 +600,55 @@ class V4ConversationHub:
             topic=topic,
             profile=_resolve_profile(client_mode),
         )
+
+        # Decide resume vs snapshot *before* heavy hydrate. Resume never needs DB.
+        resume_ok = False
+        if isinstance(base, dict):
+            base_epoch = str(base.get("logEpoch") or "")
+            base_seq = int(base.get("seq") or 0)
+            resume_ok = (
+                base_epoch == sess.log_epoch
+                and sess.delta_log_floor <= base_seq <= sess.seq
+                and (base_seq < sess.seq or not sess.delta_log)
+            )
+
+        # Cold hydrate OFF the event loop and OUTSIDE ``self._lock``.
+        # Sync hydrate under the asyncio lock froze Gateway for multi‑second windows
+        # on large transcripts (2026-11-08 formal package lockup: health/Feishu/UI
+        # all stuck while one subscribe hydrated 700+ rows).
+        hydrate_ms: float | None = None
+        hydrate_rows = 0
+        if not resume_ok and not sess.rows:
+            try:
+                from app.gateway.v4.hydration import hydrate_session_from_transcript
+
+                hydrate_started = time.perf_counter()
+                loaded = await asyncio.to_thread(
+                    hydrate_session_from_transcript, self, sess.session_id
+                )
+                hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
+                hydrate_rows = int(loaded or 0)
+                if loaded:
+                    logger.info(
+                        "[v4.hydration] resubscribe recovered history session=%s rows=%s",
+                        sess.session_id,
+                        loaded,
+                    )
+                else:
+                    logger.info(
+                        "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
+                        sess.session_id,
+                        hydrate_ms,
+                    )
+            except Exception:
+                logger.exception(
+                    "[v4.hydration] subscribe hydration failed session=%s",
+                    sess.session_id,
+                )
+        elif not resume_ok:
+            hydrate_ms = 0.0
+            hydrate_rows = len(sess.rows)
+
         async with self._lock:
             # 重订阅替换（对齐 zcode subscribeParams 注释：按 (connectionId, topic) 判定）。
             # 草稿预热 → pane 接管会对同一 (conn, topic) 二次订阅；旧订阅继续广播
@@ -614,16 +663,6 @@ class V4ConversationHub:
                     del self._subscriptions[existing_id]
             self._subscriptions[subscription_id] = sub
 
-            resume_ok = False
-            if isinstance(base, dict):
-                base_epoch = str(base.get("logEpoch") or "")
-                base_seq = int(base.get("seq") or 0)
-                # 水位不变量：base 在保留窗内才可 resume；否则全量 snapshot。
-                resume_ok = (
-                    base_epoch == sess.log_epoch
-                    and sess.delta_log_floor <= base_seq <= sess.seq
-                    and (base_seq < sess.seq or not sess.delta_log)
-                )
             if resume_ok:
                 base_seq = int(base.get("seq") or 0)  # type: ignore[union-attr]
                 replay = [d for (seq, d) in sess.delta_log if seq > base_seq]
@@ -652,35 +691,32 @@ class V4ConversationHub:
                         len(replay),
                     )
             else:
-                # 冷会话先 hydrate 历史（旧 transcript → v4 行），快照才不是空面板。
-                # 失败静默：缺历史只影响显示，不阻断订阅。
-                #
-                # 空会话必须允许「再次订阅时重试」：协作子任务面板常在步骤还在跑时
-                # 就订阅（transcript 尚未落库 → hydrate 拿到 0 行），若此后不再尝试，
-                # 面板会永久空白。hydrate 内部按 rows 判重，这里只需在仍为空时重试。
-                if not sess.rows:
-                    try:
-                        from app.gateway.v4.hydration import hydrate_session_from_transcript
-
-                        loaded = hydrate_session_from_transcript(self, sess.session_id)
-                        if loaded:
-                            logger.info(
-                                "[v4.hydration] resubscribe recovered history session=%s rows=%s",
-                                sess.session_id,
-                                loaded,
-                            )
-                    except Exception:
-                        logger.exception(
-                            "[v4.hydration] subscribe hydration failed session=%s",
-                            sess.session_id,
-                        )
                 ack_mode = "snapshot"
+                # Re-read rows after off-thread hydrate (may have filled sess.rows).
+                if hydrate_rows <= 0:
+                    hydrate_rows = len(sess.rows)
                 self._enqueue_snapshot_locked(sub, sess, delivery_kind="initial")
+                if hydrate_ms is not None and hydrate_ms >= 500:
+                    logger.warning(
+                        "[v4.perf] subscribe hydration slow session=%s hydrate_ms=%.1f rows=%s",
+                        sess.session_id,
+                        hydrate_ms,
+                        hydrate_rows,
+                    )
+
+        # openTiming：服务端侧分段耗时（前端 openTrace 会据此归因「慢在服务端拉库」）。
+        # sessionRuntimeState 只允许 cold/warm（协议枚举）：按是否已有历史行判冷热。
+        open_timing: dict[str, Any] = {
+            "hydrateMs": hydrate_ms,
+            "snapshotRowCount": len(sess.rows),
+            "sessionRuntimeState": "warm" if sess.rows else "cold",
+        }
         return {
             "ack": {
                 "subscriptionId": subscription_id,
                 "mode": ack_mode,
                 "logEpoch": sess.log_epoch,
+                "openTiming": open_timing,
             }
         }
 
@@ -855,6 +891,26 @@ class V4ConversationHub:
 
     # -- 帧构造 ---------------------------------------------------------------
 
+    def _session_goal_state(self, sess: _SessionState) -> dict[str, Any] | None:
+        """当前会话目标状态（vendored goalStateSchema 形状；无目标为 None）。"""
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            return get_v4_goal_engine().get_goal_state(sess.session_id)
+        except Exception:
+            logger.debug("[v4-conversation] goal state read failed session=%s", sess.session_id, exc_info=True)
+            return None
+
+    def _session_availability(self, sess: _SessionState) -> dict[str, Any]:
+        availability = _minimal_availability()
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            availability.update(get_v4_goal_engine().availability(sess.session_id))
+        except Exception:
+            logger.debug("[v4-conversation] availability read failed session=%s", sess.session_id, exc_info=True)
+        return availability
+
     def _build_snapshot(self, sess: _SessionState) -> dict[str, Any]:
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
         window = self._snapshot_tail_window(rows)
@@ -865,7 +921,7 @@ class V4ConversationHub:
             "seq": sess.seq,
             "revision": sess.revision,
             "control": sess.control(),
-            "availability": _minimal_availability(),
+            "availability": self._session_availability(sess),
             "inputRouting": sess.input_routing(),
             "meta": {
                 "title": sess.title,
@@ -878,7 +934,7 @@ class V4ConversationHub:
             "pendingInteractions": [],
             "pendingCommands": [],
             "backgroundWorks": [],
-            "goal": None,
+            "goal": self._session_goal_state(sess),
             "plan": None,
             "rows": {
                 # 尾部窗口；更早行走 rows/range 游标补拉（rowsWindowSchema 截断语义）。
@@ -1019,6 +1075,12 @@ class V4ConversationHub:
 
         if command_type in ("sendText",):
             return self._handle_send_text(sess, command_id, payload)
+        if command_type == "sendGoalCommand":
+            return self._handle_send_goal_command(sess, command_id, payload)
+        if command_type == "pauseGoal":
+            return self._handle_pause_goal(sess, command_id)
+        if command_type == "resumeGoal":
+            return self._handle_resume_goal(sess, command_id)
         if command_type in ("stop", "abort"):
             return self._handle_stop(sess, command_id)
         if command_type == "sendQueuedNow":
@@ -1096,6 +1158,21 @@ class V4ConversationHub:
         if not text.strip():
             return self._reject(command_id, "emptyInput", "text is empty")
         requested = str(payload.get("requestedDelivery") or "").strip()
+        if payload.get("planEnabled"):
+            # Plan/Goal 互斥（对齐 ZCode guard.planGoalMutuallyExclusive）：
+            # 活跃目标存在时不得以 Plan 意图提交。
+            try:
+                from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+                state = get_v4_goal_engine().get_goal_state(sess.session_id)
+            except Exception:
+                state = None
+            if state is not None and state.get("status") in ("active", "verifying", "paused"):
+                return self._reject(
+                    command_id,
+                    "guard.planGoalMutuallyExclusive",
+                    "Plan and Goal cannot be active at the same time.",
+                )
 
         if sess.turn_running():
             # running：requested 缺省按 followupMode 路由（queue=入队）；startNow 不抢占。
@@ -1157,9 +1234,73 @@ class V4ConversationHub:
     def _emit_queue_patch(self, sess: _SessionState) -> None:
         self.author_state_patch(sess.session_id, {"queue": sess.queue_state()})
 
+    # -- goal 命令组（ZCode 目标模式：sendGoalCommand / pauseGoal / resumeGoal）--
+
+    def _handle_send_goal_command(
+        self,
+        sess: _SessionState,
+        command_id: str,
+        payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import GoalRejectedError, get_v4_goal_engine
+
+        objective = str(payload.get("text") or "").strip()
+        if not objective:
+            return self._reject(command_id, "emptyObjective", "Usage: /goal <objective>")
+        engine = get_v4_goal_engine()
+        try:
+            outcome = engine.set_goal(sess.session_id, objective, intent=dict(payload))
+        except GoalRejectedError as exc:
+            return self._reject(command_id, exc.reason_code, exc.message)
+        sess.revision += 1
+        return self._accept(
+            command_id,
+            sess.revision,
+            result={
+                "type": "sendGoalCommand",
+                "goal": outcome.get("goal"),
+                "started": bool(outcome.get("started")),
+                "input": {
+                    "delivery": "startNow" if outcome.get("started") else "deferred",
+                    "inputId": command_id,
+                },
+            },
+        )
+
+    def _handle_pause_goal(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+        state = get_v4_goal_engine().pause_goal(sess.session_id)
+        if state is None:
+            return self._noop(command_id, "noGoalToPause")
+        sess.revision += 1
+        return self._accept(command_id, sess.revision, result={"type": "pauseGoal", "goal": state})
+
+    def _handle_resume_goal(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        from app.gateway.v4.goal_engine import GoalRejectedError, get_v4_goal_engine
+
+        engine = get_v4_goal_engine()
+        try:
+            state = engine.resume_goal(sess.session_id)
+        except GoalRejectedError as exc:
+            return self._reject(command_id, exc.reason_code, exc.message)
+        if state is None:
+            return self._noop(command_id, "noGoalToResume")
+        sess.revision += 1
+        return self._accept(command_id, sess.revision, result={"type": "resumeGoal", "goal": state})
+
     # -- stop / abort ----------------------------------------------------------
 
     def _handle_stop(self, sess: _SessionState, command_id: str) -> dict[str, Any]:
+        # ZCode stopPausesActiveGoalTarget：stop 作用于前台工作时活跃目标进 paused。
+        # 放在 turn_running 判定之前——镜像 run（前端直发）不走 hub turn_task，
+        # 但 stop 意图同样应暂停目标。
+        try:
+            from app.gateway.v4.goal_engine import get_v4_goal_engine
+
+            get_v4_goal_engine().on_stop(sess.session_id)
+        except Exception:
+            logger.debug("[v4-conversation] goal on_stop failed session=%s", sess.session_id, exc_info=True)
         if not sess.turn_running():
             return self._noop(command_id, "noRunningTurn")
         # 对齐 queueStateSchema 注释：stop 后 autoDrain=False（暂停队列），setAutoDrain 恢复。
