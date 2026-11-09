@@ -72,3 +72,43 @@ describe('right stage user-explicit open vs collapse lock', () => {
     expect(snap.tabs).toHaveLength(0)
   })
 })
+
+describe('platform CTA → shell-page right stage', () => {
+  it('items「查看事项」点开后展开被用户收起的右栏（forceExpand 透传）', async () => {
+    resetStore()
+    rightStageStore.collapse() // 用户收起锁
+    const { activatePlatformFeedbackAction } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const ok = activatePlatformFeedbackAction(
+      {
+        label: '查看事项',
+        route: '/tasks?tab=items&focus=it-1',
+        openStage: {
+          kind: 'shell-page',
+          data: {
+            path: '/tasks/items',
+            route: '/tasks/items',
+            mountId: 'items.board',
+            focusId: 'it-1',
+          },
+        },
+      },
+      {
+        domain: 'items',
+        action: 'items.create',
+        entityId: 'it-1',
+        entityLabel: '周五交报告',
+        title: '待办',
+      },
+    )
+    const snap = rightStageStore.getSnapshot()
+    expect(ok).toBe(true)
+    // 回归点：过去 shell-page 分支漏传 forceExpand，collapse 后点按钮只写签不撑开 = 没反应
+    expect(snap.collapsed).toBe(false)
+    const tab = snap.tabs.find((t) => t.kind === 'shell-page')
+    expect(tab?.data?.path).toBe('/tasks/items')
+    expect(tab?.data?.mountId).toBe('items.board')
+    expect(tab?.data?.focusId).toBe('it-1')
+  })
+})

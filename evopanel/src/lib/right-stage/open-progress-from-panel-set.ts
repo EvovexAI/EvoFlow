@@ -151,11 +151,15 @@ export function openProgressFromPanelSet(
         focusId: firstStr(data.focusId, data.focus, data.itemId, data.item_id),
         layout: (surface.layout as 'wide') || 'wide',
       },
-      { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide' },
+      // forceExpand 必须透传：用户点「查看事项/查看任务」时右栏可能处于收起锁，
+      // 只写签不撑开 = 点了没反应（与 collab-workflow / employeeProcess 分支同口径）
+      { sessionKey: sk, layout: (surface.layout as 'wide') || 'wide', forceExpand },
     )
-    logRightStage('openProgress:shell-page', { tabId, path, title: title || entityLabel }, {
-      store: rightStageStore,
-    })
+    logRightStage(
+      'openProgress:shell-page',
+      { tabId, path, title: title || entityLabel, forceExpand },
+      { store: rightStageStore },
+    )
     return tabId
   }
 

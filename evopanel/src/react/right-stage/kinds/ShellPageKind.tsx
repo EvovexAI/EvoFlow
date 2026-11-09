@@ -23,6 +23,8 @@ export const ShellPageKind = memo(function ShellPageKind({
 
   const path = String(surface.data?.path || surface.data?.route || '').trim()
   const surfaceId = String(surface.id || '').trim()
+  // 同一 path 再点「查看事项」换的是 focusId：必须进 deps 重挂，否则永远停在旧高亮
+  const focusId = String(surface.data?.focusId || surface.data?.focus || '').trim()
   const [status, setStatus] = useState<'loading' | 'ready' | 'unsupported' | 'error'>('loading')
   const [errorText, setErrorText] = useState('')
 
@@ -45,7 +47,7 @@ export const ShellPageKind = memo(function ShellPageKind({
         const result = await matched.mount(host, matched.params, {
           onClose: () => onCloseRef.current?.(),
           title: String(surface.title || '').trim(),
-          focusId: String(surface.data?.focusId || surface.data?.focus || '').trim() || undefined,
+          focusId: focusId || undefined,
           onTitle: (nice) => {
             if (!cancelled && nice) patchShellPageTabTitle(path, nice)
           },
@@ -75,8 +77,8 @@ export const ShellPageKind = memo(function ShellPageKind({
       host.replaceChildren()
     }
     // 故意不依赖 onClose / surface.title：父级 RightStagePanel 每次 render 都会 new 箭头函数
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- path/id 才是挂载身份
-  }, [path, surfaceId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- path/id/focusId 才是挂载身份
+  }, [path, surfaceId, focusId])
 
   return (
     <aside
