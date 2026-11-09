@@ -38,6 +38,25 @@ remove_rel() {
 REMOVED=0
 remove_rel "hyperframes-animation/examples"
 
+# OpenClaw-ecosystem skills (xiaobei port): functional ~/.openclaw paths / relay domain,
+# not redistributable in the public installer. Kept in repo; distribute via resource pack.
+for skill in \
+  douyin-hunter \
+  exp-invite \
+  expert-bd \
+  expert-wx-mp \
+  expert-xhs \
+  platform-runtime \
+  proactive-send \
+  sales-cs-manager \
+  wxwork-moments \
+  xhs-hunter
+do
+  remove_rel "${skill}"
+done
+# Only consumer is expert-douyin douyin-web.ts (relay-signed GET); not usable in packaged installs.
+remove_rel "_shared/relay-sign.ts"
+
 # Not redistributed in public desktop builds (.gitignore scrubbed packs).
 for skill in \
   desktop-control \

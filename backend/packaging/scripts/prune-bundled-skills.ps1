@@ -26,10 +26,27 @@ function Remove-BundledSkillBloat {
     "wechat-mp-writer-skill-mxx"
   )
 
+  # OpenClaw-ecosystem skills (xiaobei port): functional ~/.openclaw paths / relay domain,
+  # not redistributable in the public installer. Kept in repo; distribute via resource pack.
+  $openclawSkills = @(
+    "douyin-hunter",
+    "exp-invite",
+    "expert-bd",
+    "expert-wx-mp",
+    "expert-xhs",
+    "platform-runtime",
+    "proactive-send",
+    "sales-cs-manager",
+    "wxwork-moments",
+    "xhs-hunter"
+  )
+
   $relativeTargets = @(
     # demo media only (~38MB)
-    "hyperframes-animation\examples"
-  ) + ($excludedSkills | ForEach-Object { $_ })
+    "hyperframes-animation\examples",
+    # Only consumer is expert-douyin douyin-web.ts (relay-signed GET); not usable in packaged installs.
+    "_shared\relay-sign.ts"
+  ) + ($excludedSkills | ForEach-Object { $_ }) + ($openclawSkills | ForEach-Object { $_ })
 
   $removed = 0L
   foreach ($rel in $relativeTargets) {
