@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.13] - 2026-11-09
+
+相对 **1.3.12**：修复建单链路整体报 `UnboundLocalError`（任务中心新建 / 岗位派发 / 任何走 `admin.tasks.create_task` 的路径全部 500）；修复事项通知「查看事项」点击不跳转（右栏不展开、换条目不高亮、主区焦点被抹，三处断链）；同类「变量用在自己绑定之前」再清 7 处，其中技能包安装模块 import 即 `NameError`、知识库评测场景跑即崩；新增常驻 lint 门禁（`ruff --select F821`，push to main 即跑），全仓 F821 现为 0。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.13.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **建单链路**：`create_task` 的 P0 配额闸门在 `resolve_write_source(...)` 赋值前就读 `source_canon` → 每次建单 `UnboundLocalError`。修法是把 `resolve_write_source` 挪到闸门之前，不用默认值兜底（源类型错了会让闸门 `if src != "role": return` 静默放行，等于把配额闸门整个关掉）
+- **事项通知 CTA**：`open-progress-from-panel-set` 的 shell-page 分支漏传 `forceExpand`（用户收过右栏后标签建了、`activeKey` 切了但 collapsed 不动）；`ShellPageKind` 挂载 effect deps 只有 `[path, surfaceId]`，待办列表 path 与 tab id 恒定 → 换一条事项不重挂，一直停在旧高亮；`readTasksQueryFromHash` 不解析 `focus` 且 `writeTasksQueryToHash` 回写会抹掉它
+- **技能包安装**：`agents/expert_pack_installer.py` 模块级 `SKILLS_ROOT` 用 `os.getenv` 但没 `import os` → import 即 NameError，`install_expert_pack` 都进不来
+- **知识库评测**：`eval/scenarios/knowledge_health.py` 引用不存在的 `created`（`create_base_id` 只返回 id 字符串）
+- **组织市场缓存**：`app/gateway/routers/organizations.py` 未 import `json` / `logger` → 异常分支二次抛错，磁盘缓存形同没有
+- **其余同类**：`agents/lead_agent/prompt.py` 第二处 `TIER1_PERSON_MEMORY_CHARS`、`persistence/app_repositories.py` 未 import `logging`（部门群回执取不到 logger）、`tools/host_direct/terminal_code_search_redirect.py` 的 `del command, runtime`、`tests/test_stream_thread_state_dedup.py` 缺 `from typing import Any`
+
+### Improved
+
+- **防复发门禁**：`backend/Makefile` 新增 `make lint-fatal`（= `ruff check --select F821 .`）并纳入 `scripts/ci-local.sh --quick`；`.github/workflows/lint-check.yml` 增加常驻 `fatal-names` job（push to main 自动跑）。与既有 `lint` job 区分：后者手动触发、背后是 388 条清不完的 backlog，从没真正拦过东西
+
 ## [1.3.12] - 2026-11-09
 
 相对 **1.3.11**：会话子任务 / 工作流 / 命令行可挂在会话上查看；新增阿里云百炼 Token Plan 套餐绑定；工作流 `output_schema` 真正写入派发提示；运行图进度软爬升。
