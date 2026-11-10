@@ -9,6 +9,7 @@ export type {
   SessionRunEndedOpts,
   SessionRunEndedPatch,
   SessionStopHost,
+  SessionStopSource,
   SessionTerminalRunStatus,
   StopSessionOptions,
 } from './types.js'
@@ -60,4 +61,4 @@ export {
 
 export { sealSessionPartialTurnOnStop } from './seal-partial-turn.js'
 
-export { stopSessionExecution } from './stop-session.js'
+export { sessionStopSourceZh, stopSessionExecution } from './stop-session.js'

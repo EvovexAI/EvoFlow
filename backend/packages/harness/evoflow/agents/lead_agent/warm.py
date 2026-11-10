@@ -26,6 +26,21 @@ def warm_lead_agent_graph(source: str = "boot") -> dict[str, Any]:
     """同步执行一次图工厂（make_lead_agent），触发装配 + MCP 挂载。可重入。"""
     t0 = time.perf_counter()
     try:
+        # Split LangGraph: MCP cache lives in this process. Warm tools first so
+        # make_lead_agent does not compile a 0-mcp graph (Issue #106).
+        try:
+            from evoflow.mcp.cache import get_cached_mcp_tools, mcp_cache_initialized
+
+            if not mcp_cache_initialized():
+                tools = get_cached_mcp_tools()
+                logger.info(
+                    "lead_agent warm MCP ready source=%s tools=%d",
+                    source,
+                    len(tools or []),
+                )
+        except Exception:
+            logger.debug("lead_agent warm MCP preload skipped", exc_info=True)
+
         from evoflow.agents.lead_agent.agent import make_lead_agent
 
         graph = make_lead_agent({"configurable": {}})

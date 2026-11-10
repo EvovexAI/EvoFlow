@@ -43,10 +43,24 @@ function shellPathsForEntity(domain: string, entityId: string): string[] {
 
 function shellPageMatches(tab: RightStageSurface, domain: string, entityId: string): boolean {
   if (normalizeRightStageKind(tab.kind) !== 'shell-page') return false
+  // 员工详情签常带 agentCode；删岗后 path 偶发对不上时仍能收掉孤儿签。
+  if (domain === 'employees') {
+    const code = String(tab.data?.agentCode || tab.data?.agent_code || '').trim()
+    if (code && code === entityId) return true
+  }
   const paths = shellPathsForEntity(domain, entityId)
   if (!paths.length) return false
   const path = normalizePath(String(tab.data?.path || tab.data?.route || ''))
   if (path && paths.includes(path)) return true
+  // encodeURIComponent 打开的签：path 可能是 /proactive/foo%2Fbar
+  if (path) {
+    try {
+      const decoded = normalizePath(decodeURIComponent(path))
+      if (decoded !== path && paths.includes(decoded)) return true
+    } catch {
+      /* ignore */
+    }
+  }
   const id = String(tab.id || '')
   return paths.some((p) => id === shellPageTabId(p) || id === `shell:${p}`)
 }

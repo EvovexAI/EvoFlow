@@ -1080,6 +1080,11 @@ export function V4ZCodeTimeline(props: {
    * 避免飞书旁观时停按钮亮着、左下角齿轮熄灭。
    */
   sessionBusy?: boolean;
+  /**
+   * 对话区顶部提示条（长会话压缩提醒等）。主聊挂 ConversationCompactTipBanner；
+   * 嵌入态（小V/侧栏）一般不传。
+   */
+  topChrome?: ReactNode;
 }): React.JSX.Element {
   const {
     payload,
@@ -1087,6 +1092,7 @@ export function V4ZCodeTimeline(props: {
     connectionFailed = false,
     onRetryConnection,
     bottomDock,
+    topChrome,
     evoflowSessionKey,
     embedded = false,
     draftEmpty = false,
@@ -1788,6 +1794,11 @@ export function V4ZCodeTimeline(props: {
             // 会触发「焦点藏在隐藏子树」告警；inert 同时摘焦点并对辅助技术隐藏。
             inert={sessionSwitchHold || undefined}
           >
+            {!embedded && !draftEmpty && topChrome ? (
+              <div className="relative z-10 shrink-0 pt-2" data-v4-top-chrome="">
+                {topChrome}
+              </div>
+            ) : null}
             <ConversationTimeline
               rows={rows}
               totalCount={displayTotalCount}

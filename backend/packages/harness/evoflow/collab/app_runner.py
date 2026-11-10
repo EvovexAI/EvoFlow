@@ -1359,6 +1359,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
     step_ref_to_subtask_id: dict[str, str] = {}
     steps_detail: list[dict[str, Any]] = []
     main_subtasks: list[Any] = []
+    main_task_for_obs: dict[str, Any] | None = None
     result_summary = run.get("result_summary", "")
     main_outputs: list[Any] = []
     main_evidence: list[str] = []
@@ -1412,6 +1413,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
                 )
 
                 main_task = bundle["tasks"][0]
+                main_task_for_obs = main_task if isinstance(main_task, dict) else None
                 task_status = main_task.get("status", "unknown")
                 progress = main_task.get("progress", progress)
                 if str(task_status).lower() in ("completed", "done", "success"):
@@ -1540,6 +1542,41 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
     # D-3: synthesized summary stays in this response only; persisting it is the
     # write path's job (write-path sync / reconciler), not a GET poll's.
 
+    # Ops metrics (tokens / model calls / duration / model) from observability DB.
+    # Read projection only — source of truth remains evoflow_observability.db.
+    observability: dict[str, Any] | None = None
+    if task_id and main_task_for_obs is not None:
+        try:
+            from evoflow.collab.task_observability import (
+                compact_run_observability,
+                summarize_task_observability,
+            )
+
+            raw_obs = summarize_task_observability(str(task_id), main_task_for_obs)
+            observability = compact_run_observability(raw_obs)
+            by_sub = observability.get("by_subtask") if isinstance(observability, dict) else None
+            if isinstance(by_sub, dict):
+                for step in steps_detail:
+                    if not isinstance(step, dict):
+                        continue
+                    sid = str(step.get("subtask_id") or "").strip()
+                    if not sid:
+                        continue
+                    step_obs = by_sub.get(sid)
+                    if not isinstance(step_obs, dict):
+                        continue
+                    step["observability"] = step_obs
+                    model_name = str(step_obs.get("primary_model") or "").strip()
+                    if model_name and not str(step.get("model_name") or "").strip():
+                        step["model_name"] = model_name
+        except Exception:
+            logger.debug(
+                "get_run_status: observability projection failed task_id=%s",
+                task_id,
+                exc_info=True,
+            )
+            observability = {"enabled": False, "error": "observability_unavailable"}
+
     return {
         "run_id": run_id,
         "app_id": run.get("app_id"),
@@ -1563,6 +1600,7 @@ def get_run_status(run_id: str) -> dict[str, Any] | None:
         "created_at": run.get("created_at"),
         "started_at": run.get("started_at"),
         "completed_at": run.get("completed_at"),
+        "observability": observability,
     }
 
 

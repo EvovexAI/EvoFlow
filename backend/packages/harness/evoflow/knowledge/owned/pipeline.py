@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import logging
+import time
 import traceback
 from typing import Any
 
 from evoflow.config.model_config import ModelConfig
 from evoflow.knowledge.embedding import get_embeddings
+from evoflow.knowledge.embedding.base import EmbeddingError
 from evoflow.knowledge.owned import blob_store, jobs
 from evoflow.knowledge.owned.assets import (
     embed_text_for_chunk,
@@ -28,9 +30,126 @@ from evoflow.knowledge.parser import parse_file
 
 logger = logging.getLogger(__name__)
 
+# Process-local: after cloud embedding quota/rate-limit, skip vectors for a while
+# so a backlog of docs does not hammer a dead quota (keyword path still runs).
+_EMBED_SKIP_UNTIL_MONO = 0.0
+_EMBED_SKIP_REASON: str | None = None
+_EMBED_SKIP_BILLING_S = 12 * 3600.0
+_EMBED_SKIP_RATE_LIMIT_S = 5 * 60.0
+
 
 def _model_config_for_base(base: dict[str, Any]) -> ModelConfig:
     return model_config_for_base_row(base)
+
+
+def embedding_quota_skip_active() -> tuple[bool, str | None]:
+    """Return ``(True, reason)`` while vectors should be skipped after a quota hit."""
+    if time.monotonic() < _EMBED_SKIP_UNTIL_MONO:
+        return True, _EMBED_SKIP_REASON
+    return False, None
+
+
+def clear_embedding_quota_skip_for_tests() -> None:
+    global _EMBED_SKIP_UNTIL_MONO, _EMBED_SKIP_REASON
+    _EMBED_SKIP_UNTIL_MONO = 0.0
+    _EMBED_SKIP_REASON = None
+
+
+def arm_embedding_quota_skip(reason: str, *, seconds: float) -> None:
+    """Extend the process-local embedding skip window (index + hybrid search)."""
+    global _EMBED_SKIP_UNTIL_MONO, _EMBED_SKIP_REASON
+    until = time.monotonic() + max(1.0, float(seconds))
+    if until > _EMBED_SKIP_UNTIL_MONO:
+        _EMBED_SKIP_UNTIL_MONO = until
+        _EMBED_SKIP_REASON = (reason or "embedding unavailable")[:300]
+
+
+# Compat alias used by tests / older call sites.
+_arm_embedding_quota_skip = arm_embedding_quota_skip
+
+
+def embedding_error_is_soft_unavailable(exc: BaseException) -> tuple[bool, float]:
+    """Whether to degrade to keyword-only (and how long to cool down).
+
+    Returns ``(True, cooldown_s)`` for quota / rate-limit / auth that will not
+    recover inside this job. Other embedding errors still fail the job so
+    genuine bugs surface.
+    """
+    try:
+        from evoflow.error_classifier import FailoverReason, classify
+
+        cls = classify(exc if isinstance(exc, Exception) else Exception(str(exc)))
+        if cls.reason == FailoverReason.BILLING:
+            return True, _EMBED_SKIP_BILLING_S
+        if cls.reason == FailoverReason.RATE_LIMIT:
+            return True, _EMBED_SKIP_RATE_LIMIT_S
+        if cls.reason == FailoverReason.AUTH:
+            return True, _EMBED_SKIP_RATE_LIMIT_S
+    except Exception:
+        pass
+    msg = str(exc).lower()
+    if "429" in msg or "rate limit" in msg or "usage quota" in msg or "insufficient_quota" in msg:
+        # Prefer long cool-down when the body looks like monthly/account quota.
+        if "monthly" in msg or "usage quota" in msg or "insufficient_quota" in msg or "额度" in msg:
+            return True, _EMBED_SKIP_BILLING_S
+        return True, _EMBED_SKIP_RATE_LIMIT_S
+    return False, 0.0
+
+
+def note_embedding_unavailable(exc: BaseException) -> bool:
+    """If ``exc`` is quota/rate-limit/auth, arm cooldown and return True."""
+    soft, cool_s = embedding_error_is_soft_unavailable(exc)
+    if soft:
+        arm_embedding_quota_skip(str(exc), seconds=cool_s)
+    return soft
+
+
+def _publish_keyword_only(
+    *,
+    kb_id: str,
+    doc_id: str,
+    chunk_ids: list[str],
+    chunk_rows: list[tuple],
+    old_ids: list,
+    reason: str,
+    job_id: str,
+) -> None:
+    """Enable staged chunks + FTS; mark vectors degraded (searchable without embed)."""
+    note = f"已分块并可关键词检索；向量化已跳过（{reason[:180]}）"
+    now = utc_now()
+    with db_for_kb(kb_id) as conn:
+        if old_ids:
+            vector_index.delete_chunk_ids(conn, [str(cid) for cid in old_ids])
+            placeholders = ",".join("?" * len(old_ids))
+            conn.execute(f"DELETE FROM kb_chunk_embeddings WHERE chunk_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM kb_chunks_fts WHERE chunk_id IN ({placeholders})", old_ids)
+            conn.execute(f"DELETE FROM kb_chunks WHERE id IN ({placeholders})", old_ids)
+        conn.execute("UPDATE kb_chunks SET enabled=1 WHERE doc_id=? AND enabled=0", (doc_id,))
+        for cid, _kb, _doc, _ord, content, header, *_rest in chunk_rows:
+            fts_text = f"{header}\n{content}".strip() if header else content
+            index_fts(conn, chunk_id=cid, kb_id=kb_id, doc_id=doc_id, content=fts_text)
+        conn.execute(
+            """
+            UPDATE kb_documents SET parse_status='completed', index_status='ready',
+              keyword_status='ready', vector_status='degraded', chunk_count=?,
+              index_error=?, error_message=?, updated_at=? WHERE id=?
+            """,
+            (len(chunk_ids), note[:2000], note[:2000], now, doc_id),
+        )
+    jobs.update_progress(
+        job_id,
+        {
+            "phase": "done",
+            "percent": 100,
+            "message": f"已分块 {len(chunk_ids)}（跳过向量）",
+        },
+    )
+    logger.info(
+        "owned parse_index skip embedding doc=%s chunks=%s reason=%s",
+        doc_id,
+        len(chunk_ids),
+        reason,
+    )
 
 
 async def run_parse_index(
@@ -219,40 +338,14 @@ async def run_parse_index(
         # (no embedding model yet) show "indexed" docs that return zero hits —
         # including the builtin user guide used by 小V.
         reason = (skip_embedding_reason or "embedding 未就绪").strip()
-        note = f"已分块并可关键词检索；向量化已跳过（{reason[:180]}）"
-        now = utc_now()
-        with db_for_kb(kb_id) as conn:
-            if old_ids:
-                vector_index.delete_chunk_ids(conn, [str(cid) for cid in old_ids])
-                placeholders = ",".join("?" * len(old_ids))
-                conn.execute(f"DELETE FROM kb_chunk_embeddings WHERE chunk_id IN ({placeholders})", old_ids)
-                conn.execute(f"DELETE FROM kb_chunks_fts WHERE chunk_id IN ({placeholders})", old_ids)
-                conn.execute(f"DELETE FROM kb_chunks WHERE id IN ({placeholders})", old_ids)
-            conn.execute("UPDATE kb_chunks SET enabled=1 WHERE doc_id=? AND enabled=0", (doc_id,))
-            for cid, _kb, _doc, _ord, content, header, *_rest in chunk_rows:
-                fts_text = f"{header}\n{content}".strip() if header else content
-                index_fts(conn, chunk_id=cid, kb_id=kb_id, doc_id=doc_id, content=fts_text)
-            conn.execute(
-                """
-                UPDATE kb_documents SET parse_status='completed', index_status='ready',
-                  keyword_status='ready', vector_status='degraded', chunk_count=?,
-                  index_error=?, error_message=?, updated_at=? WHERE id=?
-                """,
-                (len(chunk_ids), note[:2000], note[:2000], now, doc_id),
-            )
-        jobs.update_progress(
-            job_id,
-            {
-                "phase": "done",
-                "percent": 100,
-                "message": f"已分块 {len(chunk_ids)}（跳过向量）",
-            },
-        )
-        logger.info(
-            "owned parse_index skip embedding doc=%s chunks=%s reason=%s",
-            doc_id,
-            len(chunk_ids),
-            reason,
+        _publish_keyword_only(
+            kb_id=kb_id,
+            doc_id=doc_id,
+            chunk_ids=chunk_ids,
+            chunk_rows=chunk_rows,
+            old_ids=old_ids,
+            reason=reason,
+            job_id=job_id,
         )
         return
 
@@ -265,8 +358,10 @@ async def run_parse_index(
     mc = _model_config_for_base(base_d)
     embed_inputs = []
     with db_for_kb(kb_id) as conn:
+        # Only the staged replacement (enabled=0). Including old enabled=1 rows
+        # would re-embed the previous generation and mismatch chunk_rows / FTS.
         rows = conn.execute(
-            "SELECT id, content, context_header FROM kb_chunks WHERE doc_id=? ORDER BY ordinal",
+            "SELECT id, content, context_header FROM kb_chunks WHERE doc_id=? AND enabled=0 ORDER BY ordinal",
             (doc_id,),
         ).fetchall()
         chunk_ids = []
@@ -285,26 +380,46 @@ async def run_parse_index(
     batch_size = 8 if multimodal else (32 if str(base_d.get("embedding_mode") or "").lower() == "cloud" else MAX_BATCH_SIZE)
     vectors: list[list[float]] = []
     total = len(embed_inputs)
-    for start in range(0, total, batch_size):
-        batch = embed_inputs[start : start + batch_size]
-        done_n = start + len(batch)
-        pct = 55 + int(40 * (done_n / max(total, 1)))
-        jobs.update_progress(
-            job_id,
-            {
-                "phase": "embedding",
-                "percent": min(94, pct),
-                "message": f"嵌入 {done_n}/{total} 块",
-            },
-        )
-        part = await get_embeddings(
-            batch,
-            mc,
-            batch_size=len(batch),
-            purpose="index",
-            kb_id=kb_id,
-        )
-        vectors.extend(part)
+    try:
+        for start in range(0, total, batch_size):
+            batch = embed_inputs[start : start + batch_size]
+            done_n = start + len(batch)
+            pct = 55 + int(40 * (done_n / max(total, 1)))
+            jobs.update_progress(
+                job_id,
+                {
+                    "phase": "embedding",
+                    "percent": min(94, pct),
+                    "message": f"嵌入 {done_n}/{total} 块",
+                },
+            )
+            part = await get_embeddings(
+                batch,
+                mc,
+                batch_size=len(batch),
+                purpose="index",
+                kb_id=kb_id,
+            )
+            vectors.extend(part)
+    except EmbeddingError as exc:
+        if note_embedding_unavailable(exc):
+            reason = str(exc).strip() or "embedding unavailable"
+            logger.warning(
+                "owned parse_index embedding unavailable → keyword-only doc=%s: %s",
+                doc_id,
+                reason[:300],
+            )
+            _publish_keyword_only(
+                kb_id=kb_id,
+                doc_id=doc_id,
+                chunk_ids=chunk_ids,
+                chunk_rows=chunk_rows,
+                old_ids=old_ids,
+                reason=reason,
+                job_id=job_id,
+            )
+            return
+        raise
 
     if not vectors or len(vectors) != len(chunk_ids):
         raise RuntimeError("embedding result size mismatch")

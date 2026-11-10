@@ -19,7 +19,7 @@
     tasks: [],
     empQuery: "",
     empDetail: null, // { code, role, tab, sessionKey, conversations, messages }
-    runView: null, // { runId, appId, taskId, status, progress, startedAt, steps, liveBySubtask, softStarts }
+    runView: null, // { runId, appId, taskId, status, progress, startedAt, steps, liveBySubtask, softStarts, observability }
     runHistory: null, // { appId, items }
   };
 
@@ -116,6 +116,56 @@
     if (isNaN(ms) || ms < 0) return "";
     if (ms < 60000) return Math.max(1, Math.round(ms / 1000)) + "s";
     return Math.floor(ms / 60000) + "m" + Math.round((ms % 60000) / 1000) + "s";
+  }
+  function fmtDurationMs(ms, running) {
+    var n = Number(ms);
+    if (!isFinite(n) || n < 0) return "";
+    var sec = Math.floor(n / 1000);
+    var text;
+    if (sec < 60) text = (n / 1000).toFixed(n >= 10000 ? 0 : 1) + "s";
+    else {
+      var m = Math.floor(sec / 60);
+      var s = sec % 60;
+      text = m < 60 ? m + "m" + (s > 0 ? s + "s" : "") : Math.floor(m / 60) + "h" + ((m % 60) > 0 ? (m % 60) + "m" : "");
+    }
+    return running ? text + "+" : text;
+  }
+  function fmtCompactNum(n) {
+    var v = Number(n) || 0;
+    if (v >= 1000000) return (v / 1000000).toFixed(1) + "M";
+    if (v >= 10000) return Math.round(v / 1000) + "k";
+    if (v >= 1000) return (v / 1000).toFixed(1) + "k";
+    return String(v);
+  }
+  /** 运维观测一行：耗时 · 模型调用 · Token · 主用模型 */
+  function formatObsLine(obs) {
+    if (!obs || obs.enabled === false) return "";
+    var parts = [];
+    var dur = fmtDurationMs(obs.duration_ms, obs.duration_running);
+    if (dur) parts.push("耗时 " + dur);
+    var modelN = Number(obs.model_invocations) || 0;
+    var toolN = Number(obs.tool_invocations) || 0;
+    if (modelN > 0) parts.push("模型交互 " + modelN + " 次");
+    if (toolN > 0) parts.push("工具 " + toolN + " 次");
+    var tok = obs.tokens && typeof obs.tokens === "object" ? obs.tokens : {};
+    var inTok = Number(tok.input) || 0;
+    var outTok = Number(tok.output) || 0;
+    var totalTok = Number(tok.total) || inTok + outTok;
+    if (inTok > 0 || outTok > 0) {
+      parts.push("Token ↓" + fmtCompactNum(inTok) + " ↑" + fmtCompactNum(outTok));
+    } else if (totalTok > 0) {
+      parts.push("Token " + fmtCompactNum(totalTok));
+    }
+    var model = String(obs.primary_model || obs.model_name || "").trim();
+    if (model) parts.push("模型 " + model);
+    return parts.join(" · ");
+  }
+  function stepObsOf(rv, step) {
+    if (step && step.observability && typeof step.observability === "object") return step.observability;
+    var sid = String((step && step.subtask_id) || "").trim();
+    var by = rv && rv.observability && rv.observability.by_subtask;
+    if (sid && by && by[sid]) return by[sid];
+    return null;
   }
   function pct(v) {
     var n = Number(v);
@@ -930,6 +980,7 @@
       steps: [],
       liveBySubtask: {},
       softStarts: {},
+      observability: null,
     };
     state.view = "workflows";
     document.querySelectorAll("#primary-nav .nav-item").forEach(function (b) {
@@ -978,6 +1029,7 @@
         rv.resultSummary = (r && r.result_summary) || "";
         rv.taskId = (r && r.task_id) || rv.taskId || null;
         rv.startedAt = (r && (r.started_at || r.created_at)) || rv.startedAt;
+        rv.observability = (r && r.observability) || rv.observability || null;
         if (isLiveRunning(rv.status)) softStartMs(rv.softStarts, "run:" + rv.runId, rv.startedAt);
         paintRunBanner();
         paintRunSteps();
@@ -989,8 +1041,16 @@
           if (hint) hint.textContent = "运行已结束";
           toast("运行" + (RUN_STATUS[rv.status] ? RUN_STATUS[rv.status][1] : rv.status));
           loadRunHistory(rv.appId);
+          // 终态再拉一次任务观测，兜住 run 响应里尚未附带 / 未刷齐的指标
+          if (!(rv.observability && rv.observability.enabled !== false && (Number(rv.observability.model_invocations) || 0) > 0)) {
+            refreshRunObservability(true);
+          }
         } else {
           pollLiveRecords();
+          // run 状态未挂 observability 时（旧网关）才单独拉任务观测
+          if (!(r && r.observability && r.observability.enabled !== false)) {
+            refreshRunObservability(false);
+          }
         }
       })
       .catch(function () { /* 下个 tick 再试 */ })
@@ -1048,6 +1108,47 @@
     });
   }
 
+  function refreshRunObservability(force) {
+    var rv = state.runView;
+    if (!rv || !rv.taskId) return;
+    if (!force && inflight.obs) return;
+    // run 响应已带 observability 时不必每次强拉；终态 / 缺字段时补齐
+    if (!force && rv.observability && rv.observability.enabled !== false) return;
+    inflight.obs = true;
+    apiGet("/api/tasks/" + encodeURIComponent(rv.taskId) + "/observability", 8000)
+      .then(function (r) {
+        if (!state.runView || state.runView.runId !== rv.runId) return;
+        // 复用后端 compact 形态：直接把任务观测压缩成展示字段
+        var by = {};
+        (r && r.subtasks || []).forEach(function (row) {
+          var sid = String((row && row.subtask_id) || "").trim();
+          if (sid) by[sid] = row;
+        });
+        rv.observability = {
+          enabled: !(r && r.enabled === false),
+          model_invocations: r && r.model_invocations,
+          tool_invocations: r && r.tool_invocations,
+          tokens: r && r.tokens,
+          primary_model: r && r.primary_model,
+          models_used: r && r.models_used,
+          duration_ms: r && r.duration_ms,
+          duration_running: r && r.duration_running,
+          by_subtask: by,
+        };
+        (rv.steps || []).forEach(function (s) {
+          var sid = String(s.subtask_id || "").trim();
+          if (sid && by[sid]) {
+            s.observability = by[sid];
+            if (!s.model_name && by[sid].primary_model) s.model_name = by[sid].primary_model;
+          }
+        });
+        paintRunBanner();
+        paintRunSteps();
+      })
+      .catch(function () { /* 观测库瞬时失败不打断运行视图 */ })
+      .finally(function () { inflight.obs = false; });
+  }
+
   function paintRunBanner() {
     var el = document.getElementById("run-banner");
     var rv = state.runView;
@@ -1055,6 +1156,7 @@
     var p = runDisplayPct(rv);
     var statusLabel = (RUN_STATUS[normStatus(rv.status)] || [0, rv.status])[1];
     var live = isLiveRunning(rv.status) || isActiveRun(rv.status);
+    var obsLine = formatObsLine(rv.observability);
     var html =
       '<div class="run-progress"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">' +
       '<span class="run-status-line">' +
@@ -1065,7 +1167,9 @@
       '<div class="progress-track"><div class="progress-fill' +
       (isLiveRunning(rv.status) ? " is-running" : "") +
       (isLiveRunning(rv.status) && !pct(rv.progress) ? " indeterminate" : "") +
-      '" style="width:' + (p || 4) + '%"></div></div></div>' +
+      '" style="width:' + (p || 4) + '%"></div></div>' +
+      (obsLine ? '<div class="obs-line run-obs" title="运行总体运维指标">' + esc(obsLine) + "</div>" : "") +
+      "</div>" +
       (isActiveRun(rv.status)
         ? '<button class="small-btn danger" id="btn-cancel">取消运行</button>'
         : "");
@@ -1129,19 +1233,31 @@
             if (!label) return "";
             return '<span class="evidence-chip" title="' + esc(label) + '">' + esc(String(label).split(/[\\/]/).pop()) + "</span>";
           }).join("");
-          var dur = isLiveRunning(status)
-            ? fmtDuration(s.started_at, null)
-            : fmtDuration(s.started_at, s.completed_at);
+          var stepObs = stepObsOf(rv, s);
+          var obsLine = formatObsLine(stepObs || {
+            duration_ms: null,
+            duration_running: isLiveRunning(status),
+            model_name: s.model_name,
+          });
+          // 无观测库数据时至少展示墙钟时长
+          if (!obsLine) {
+            var wall = isLiveRunning(status)
+              ? fmtDuration(s.started_at, null)
+              : fmtDuration(s.started_at, s.completed_at);
+            if (wall) obsLine = "耗时 " + wall + (s.model_name ? " · 模型 " + s.model_name : "");
+            else if (s.model_name) obsLine = "模型 " + s.model_name;
+          }
           return (
             '<div class="step-card ' + esc(css) + '" data-sid="' + esc(sid) + '">' +
             '<div class="step-head">' + runChip(s.status) +
             '<span class="step-name">' + esc(name) + "</span>" +
             (s.assigned_agent ? '<span class="step-agent">' + esc(s.assigned_agent) + "</span>" : "") +
-            '<span class="step-agent">' + esc(dur) + "</span></div>" +
+            "</div>" +
             '<div class="step-progress"><div class="progress-track"><div class="progress-fill' +
             (isLiveRunning(status) ? " is-running" : "") +
             '" style="width:' + p + '%"></div></div>' +
             '<span class="pct">' + p + "%</span></div>" +
+            (obsLine ? '<div class="obs-line step-obs" title="节点运维指标">' + esc(obsLine) + "</div>" : "") +
             (isLiveRunning(status) ? liveTrailHtml(sid) : "") +
             (out ? '<div class="step-output">' + esc(out) + "</div>" : "") +
             (s.error_text ? '<div class="step-error">' + esc(s.error_text) + "</div>" : "") +

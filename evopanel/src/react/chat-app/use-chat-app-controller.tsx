@@ -798,6 +798,8 @@ import {
   patchSessionListRunEnded,
   stopSessionExecution as runStopSessionExecution,
   type SessionStopHost,
+  type SessionStopSource,
+  type StopSessionOptions,
 } from '../lib/session-execution/index.js'
 import { useSessionExecutionState } from '../hooks/useSessionExecutionState.js'
 import { useSessionExecutionProbes } from '../hooks/useSessionExecutionProbes.js'
@@ -1686,7 +1688,7 @@ export function useChatAppController() {
   /** Filled by handleSend (function decl hoisted); submit / home-send use .current */
   const handleSendRef = useRef<(...args: any[]) => any>(async () => {})
   const stopSessionExecutionRef = useRef<
-    ((sessionKey: string, opts?: { showToast?: boolean }) => Promise<void>) | null
+    ((sessionKey: string, opts?: StopSessionOptions) => Promise<void>) | null
   >(null)
   const onClarificationSubmittedRef = useRef<
     ((answerText: string) => void | Promise<void>) | undefined | null
@@ -6083,7 +6085,7 @@ export function useChatAppController() {
     deleteLiveRunSnapshotBestEffort,
   })
 
-  async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
+  async function stopSessionExecution(sessionKey: string, opts?: StopSessionOptions) {
     voiceReplyPendingRef.current = false
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
@@ -6357,8 +6359,11 @@ export function useChatAppController() {
     await onShellStopSessionImpl(
       {
         setMoreMenuKey,
-        stopSessionExecution: async (sk) => {
-          await stopSessionExecutionRef.current?.(sk)
+        stopSessionExecution: async (sk, opts) => {
+          await stopSessionExecutionRef.current?.(sk, {
+            ...opts,
+            source: (opts?.source as SessionStopSource | undefined) || 'shell_sidebar_stop',
+          })
         },
       },
       k,

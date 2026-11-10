@@ -106,20 +106,25 @@ def _mcp_tool_allowed_by_server_config(
     Any other failure to reach the registry is *not* silently swallowed: it is
     logged, and the name falls through to the unknown bucket with a reason.
     """
-    from evoflow.mcp.binding import is_mcp_tool_name, mcp_server_from_tool_name
+    from evoflow.mcp.binding import (
+        allowed_mcp_server_ids,
+        is_mcp_tool_name,
+        mcp_server_from_tool_name,
+        mcp_server_tool_id,
+    )
 
     if not is_mcp_tool_name(name):
         return False
     server = mcp_server_from_tool_name(name)
     if not server:
         return False
-    if extra_allowed_servers and server in {str(s).strip() for s in extra_allowed_servers if str(s).strip()}:
+    if extra_allowed_servers and server in allowed_mcp_server_ids(list(extra_allowed_servers)):
         return True
     try:
         from evoflow.config.extensions_config import get_extensions_config
 
         known = set(get_extensions_config().mcp_servers.keys())
-        if server in known:
+        if server in known or server in {mcp_server_tool_id(k) for k in known}:
             return True
         return False
     except Exception as exc:  # noqa: BLE001

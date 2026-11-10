@@ -9,6 +9,7 @@ import { api, getGatewayBaseUrl } from '../lib/tauri-api.js'
 import {
   annotateMcpHealth,
   listBoundMcpServers,
+  resolveMcpBindingChip,
   openMcpWorkbenchInRightStage,
 } from '../lib/mcp-workbench-link.js'
 import { toast } from '../components/toast.js'
@@ -261,6 +262,77 @@ function esc(s) {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
+}
+
+/** 后端 404：`Role 'xxx' not found` / NotFoundError 文案。 */
+function isRoleGoneError(errOrMsg) {
+  const raw = String(errOrMsg?.message || errOrMsg || '')
+  const status = Number(errOrMsg?.status || 0)
+  if (status === 404 && /role/i.test(raw)) return true
+  return /role\s+['"][^'"]+['"]\s+not\s+found/i.test(raw) || /角色不存在|岗位不存在|员工不存在/i.test(raw)
+}
+
+function closeRightStageEmployeeTabs(agentCode) {
+  const code = String(agentCode || '').trim()
+  if (!code) return
+  void import('../lib/right-stage/close-removed-entity-stage.js')
+    .then((m) => {
+      m.closeRightStageTabsForRemovedEntity({
+        domain: 'employees',
+        entityId: code,
+        agentCode: code,
+      })
+    })
+    .catch(() => {})
+}
+
+function wireEmployeePageBack(page, { onClose } = {}) {
+  if (!page) return
+  const back = page.querySelector('[data-act="back"]')
+  if (!back) return
+  const next = back.cloneNode(true)
+  back.replaceWith(next)
+  next.addEventListener('click', (e) => {
+    e.preventDefault()
+    if (typeof onClose === 'function') onClose()
+    else navigate('/proactive')
+  })
+}
+
+/**
+ * 岗已删 / 加载失败：右栏与主区共用空态；已删时标记 roleGone 供 shell 收签。
+ */
+function paintEmployeeLoadFailure(page, code, err) {
+  const raw = String(err?.message || err || '')
+  const gone = isRoleGoneError(err)
+  const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
+  const codeLabel = String(code || '').trim()
+  if (gone) page.dataset.roleGone = '1'
+  else delete page.dataset.roleGone
+
+  const title = gone ? '这个 BOT 已经不在了' : '加载失败'
+  const body = gone
+    ? `岗位「${codeLabel || '未知'}」已删除或不存在。右栏会自动关掉这张签；也可点下方返回名册。`
+    : warming
+      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开。'
+      : raw || '未知错误'
+  const backLabel = page.classList.contains('shell-page-embed')
+    ? gone
+      ? '关闭'
+      : '← 关闭'
+    : '← 返回 BOT 名册'
+
+  page.innerHTML = `
+    <div class="pro-page-nav">
+      <button type="button" class="btn btn-ghost btn-sm" data-act="back">${esc(backLabel)}</button>
+    </div>
+    <div class="pro-error${gone ? ' pro-error--gone' : ''}">
+      <p class="pro-error-title">${esc(title)}</p>
+      <p class="pro-muted" style="margin:8px 0 0;padding:0">${esc(body)}</p>
+    </div>
+  `
+  wireEmployeePageBack(page, { onClose: page._shellOnClose })
+  if (gone) closeRightStageEmployeeTabs(codeLabel)
 }
 
 function fmtClock(d) {
@@ -1078,24 +1150,22 @@ export async function mountEmployeePageInto(container, { code, onClose, onTitle 
   // which felt like a full UI freeze /「死机」.
   const page = await renderEmployeePage(agentCode, { waitForFill: false })
   page.classList.add('shell-page-embed')
-  const back = page.querySelector('[data-act="back"]')
-  if (back) {
-    const next = back.cloneNode(true)
-    back.replaceWith(next)
-    next.addEventListener('click', (e) => {
-      e.preventDefault()
-      if (typeof onClose === 'function') onClose()
-      else navigate('/proactive')
-    })
-  }
+  page._shellOnClose = typeof onClose === 'function' ? onClose : null
+  wireEmployeePageBack(page, { onClose: page._shellOnClose })
   host.replaceChildren(page)
   const fill = page._fillPromise
   if (fill && typeof fill.then === 'function') {
     void fill
       .then(() => {
         if (page._fillAborted) return
+        // 岗已删：友好空态已画好，顺手收掉右栏孤儿签，避免一直挂着英文 404。
+        if (page.dataset.roleGone === '1') {
+          closeRightStageEmployeeTabs(agentCode)
+          return
+        }
         const nice = String(page.dataset.shellPageTitle || '').trim()
         if (nice && typeof onTitle === 'function') onTitle(nice)
+        wireEmployeePageBack(page, { onClose: page._shellOnClose })
       })
       .catch(() => {})
   }
@@ -1153,7 +1223,7 @@ async function renderEmployeePage(
   page.className = 'page proactive-page pro-employee-page'
   page.innerHTML = `
     <div class="pro-page-nav">
-      <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回 BOT 名册</button>
     </div>
     <div class="pro-loading">加载中…</div>
   `
@@ -1292,19 +1362,7 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     }
   } catch (e) {
     if (page._fillAborted) return
-    const raw = String(e?.message || e || '')
-    const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
-    const tip = warming
-      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开员工详情。'
-      : ''
-    page.innerHTML = `
-      <div class="pro-page-nav">
-        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
-      </div>
-      <div class="pro-error">加载失败: ${esc(raw)}</div>
-      ${tip ? `<div class="pro-muted" style="padding:8px 12px">${esc(tip)}</div>` : ''}
-    `
-    page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
+    paintEmployeeLoadFailure(page, code, e)
   }
 }
 
@@ -1493,15 +1551,18 @@ async function loadAgentCapability(code) {
       chips.push({ label: `工具 ${agent.tools.length}`, tip: '内置工具：员工能用的内置能力。' })
     }
 
-    const boundMcps = listBoundMcpServers(agent.mcp_servers)
-    const mcpN = boundMcps.length
-      ? boundMcps.length
-      : (meta?.mcp_servers || []).filter((s) => s.enabled !== false).length
+    // mcp_servers 三态：null=跟随全局；[]=显式不绑；[…] = 白名单。
+    // 以前「绑定数为 0」误落到全局清单长度，空绑岗会显示成「5 MCP」。
+    const globalMcpN = (meta?.mcp_servers || []).filter((s) => s.enabled !== false).length
+    const mcpChip = resolveMcpBindingChip(agent.mcp_servers, globalMcpN)
     chips.push({
-      label: `${mcpN} MCP`,
-      tip: boundMcps.length
-        ? `已绑定：${boundMcps.join('、')}\n点击下方「打开工作台」可在右侧看实时面板与健康状态。`
-        : 'MCP 服务：通过 Model Context Protocol 连接的外部工具。\n未单独绑定则跟随全局启用列表。',
+      label: `${mcpChip.count} MCP`,
+      tip:
+        mcpChip.mode === 'allowlist'
+          ? `已绑定：${mcpChip.names.join('、')}\n点击下方「打开工作台」可在右侧看实时面板与健康状态。`
+          : mcpChip.mode === 'empty'
+            ? '未绑定任何 MCP 连接器（显式空绑）。编辑面板里的连接器列表是可选项，不是本岗绑定。'
+            : `未单独绑定，跟随全局启用列表（当前 ${globalMcpN} 个）。\n要收窄请到编辑 → MCP 勾选具体连接器；要空绑请清空勾选后保存。`,
       kind: 'mcp',
     })
 
@@ -3475,6 +3536,10 @@ async function loadEmployeeGrowthPanel(page, role) {
       })
     }
   } catch (err) {
+    if (isRoleGoneError(err)) {
+      paintEmployeeLoadFailure(page, code, err)
+      return
+    }
     host.innerHTML = `<div class="pro-muted" style="padding:16px;color:var(--danger,#c44)">加载失败：${esc(String(err?.message || err))}</div>`
   }
 }
@@ -4328,7 +4393,9 @@ function bindEmployeePage(page, role, initiatives) {
       } catch {
         /* 右栏收签失败不挡导航 */
       }
-      navigate('/proactive')
+      // 右栏嵌入：直接关签；主区 hash 回名册
+      if (typeof page._shellOnClose === 'function') page._shellOnClose()
+      else navigate('/proactive')
     } catch (err) {
       toast(`删除失败: ${err?.message || err}`, 'error')
     }
@@ -4536,6 +4603,10 @@ async function fillWorkItemPage(page, code, taskId, { from, back }) {
     bindWorkItemDetail(page, role, task, { from, roster })
   } catch (e) {
     if (page._fillAborted) return
+    if (isRoleGoneError(e)) {
+      paintEmployeeLoadFailure(page, code, e)
+      return
+    }
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">${esc(back.label)}</button>
@@ -5401,9 +5472,13 @@ async function fillItemPage(page, code, itemId) {
     bindItemDetail(page, role, initiative)
   } catch (e) {
     if (page._fillAborted) return
+    if (isRoleGoneError(e)) {
+      paintEmployeeLoadFailure(page, code, e)
+      return
+    }
     page.innerHTML = `
       <div class="pro-page-nav">
-        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回 BOT</button>
       </div>
       <div class="pro-error">加载失败: ${esc(String(e?.message || e))}</div>
     `

@@ -56,7 +56,10 @@ export async function onShellRefreshSessionList(
 
 export type OnShellStopSessionCtx = {
   setMoreMenuKey: Dispatch<SetStateAction<string | null>>
-  stopSessionExecution: (k: string) => Promise<void>
+  stopSessionExecution: (
+    k: string,
+    opts?: import('../../lib/session-execution/types.js').StopSessionOptions,
+  ) => Promise<void>
 }
 
 export async function onShellStopSession(
@@ -65,7 +68,7 @@ export async function onShellStopSession(
 ): Promise<void> {
   ctx.setMoreMenuKey(null)
   try {
-    await ctx.stopSessionExecution(k)
+    await ctx.stopSessionExecution(k, { source: 'shell_sidebar_stop' })
   } catch (e) {
     toast(toUserFacingError((e as Error)?.message || e), 'error')
   }

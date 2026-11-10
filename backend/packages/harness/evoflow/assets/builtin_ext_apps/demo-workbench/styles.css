@@ -760,6 +760,27 @@ svg { display: block; }
 .step-progress { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
 .step-progress .progress-track { flex: 1; }
 .step-progress .pct { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; width: 38px; text-align: right; }
+
+.obs-line {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.obs-line.run-obs {
+  margin-top: 10px;
+  padding: 7px 10px;
+  background: #f7f8fd;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: #3b4066;
+  font-variant-numeric: tabular-nums;
+}
+.obs-line.step-obs {
+  font-variant-numeric: tabular-nums;
+  color: #4b516c;
+}
 .step-output {
   margin-top: 10px;
   background: #f8f9fe;

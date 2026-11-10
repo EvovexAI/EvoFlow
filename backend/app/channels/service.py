@@ -299,6 +299,46 @@ class ChannelService:
                 logger.exception("Error stopping channel %s", key)
             self._channels.pop(key, None)
 
+    async def stop_account_instance(self, platform: str, account_id: str) -> bool:
+        """Stop one dedicated ``platform:account_id`` WS (employee bot zombie)."""
+        name = str(platform or "").strip()
+        aid = str(account_id or "").strip()
+        if not name or not aid:
+            return False
+        key = f"{name}:{aid}"
+        ch = self._channels.get(key)
+        if ch is None:
+            return False
+        try:
+            await ch.stop()
+        except Exception:
+            logger.exception("Error stopping channel instance %s", key)
+        self._channels.pop(key, None)
+        # Drop from in-memory accounts so get/bound_accounts cannot re-list it
+        # before the next persist/restart.
+        cfg = self._config.get(name)
+        if isinstance(cfg, dict):
+            accounts = cfg.get("accounts")
+            if isinstance(accounts, dict) and aid in accounts:
+                accounts = dict(accounts)
+                accounts.pop(aid, None)
+                cfg = dict(cfg)
+                cfg["accounts"] = accounts
+                self._config[name] = cfg
+        logger.info("Channel instance stopped: %s", key)
+        return True
+
+    def schedule_stop_account_instance(self, platform: str, account_id: str) -> None:
+        """Fire-and-forget stop from sync delete paths (employees.delete)."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        loop.create_task(
+            self.stop_account_instance(platform, account_id),
+            name=f"stop-channel:{platform}:{account_id}",
+        )
+
     async def restart_channel(self, name: str) -> bool:
         """Restart a specific channel. Returns True if successful."""
         await self._stop_channel_family(name)
@@ -461,38 +501,87 @@ class ChannelService:
                 )
         return list(chosen.values()) + passthrough
 
+    @staticmethod
+    def _employee_role_exists(agent_code: str) -> bool:
+        """True when ``agent_code`` is still a proactive employee role."""
+        code = str(agent_code or "").strip()
+        if not code:
+            return False
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            return ProactiveRepository.get_role(code) is not None
+        except Exception:
+            logger.debug(
+                "[ChannelService] role existence check failed code=%s",
+                code,
+                exc_info=True,
+            )
+            # Fail open only for unexpected infra errors — prefer not to drop
+            # live bots if the proactive DB is momentarily unavailable.
+            return True
+
     def _migrate_legacy_accounts_to_table(self, platform: str, legacy_accounts: dict[str, Any]) -> None:
-        """One-time migration: copy legacy JSON accounts → evoflow_bot_bindings table."""
+        """One-time migration: copy legacy JSON accounts → evoflow_bot_bindings table.
+
+        Never re-upsert bindings for deleted employees. Deduping only by
+        ``bot_id`` used to resurrect zombies after ``employees.delete`` cleared
+        the table but stale ``config.accounts`` (or memory) still held the slot
+        (2026-11-08 / 2026-11-10 product-support).
+        """
         if not legacy_accounts:
             return
         try:
             from evoflow.persistence.config_repositories import upsert_bot_binding, list_bot_bindings
 
-            existing = {r["bot_id"] for r in list_bot_bindings(platform)}
+            existing_rows = list_bot_bindings(platform, enabled_only=False)
+            existing_bot_ids = {r["bot_id"] for r in existing_rows}
+            existing_codes = {
+                str(r.get("agent_code") or "").strip()
+                for r in existing_rows
+                if str(r.get("agent_code") or "").strip()
+            }
             count = 0
+            skipped_orphan = 0
             for agent_code, acc in legacy_accounts.items():
                 if not isinstance(acc, dict):
                     continue
+                code = str(agent_code or "").strip()
                 bid = self._account_bot_id(platform, acc)
                 secret = self._account_bot_secret(platform, acc)
-                if not bid or bid in existing:
+                if not bid or bid in existing_bot_ids:
+                    continue
+                if code and code in existing_codes:
+                    continue
+                if code and not self._employee_role_exists(code):
+                    skipped_orphan += 1
+                    logger.info(
+                        "[ChannelService] skip legacy migrate for deleted role platform=%s agent=%s bot_id=%s",
+                        platform,
+                        code,
+                        bid,
+                    )
                     continue
                 upsert_bot_binding(
                     platform=platform,
                     bot_id=bid,
-                    agent_code=str(agent_code or "").strip(),
+                    agent_code=code,
                     bot_secret=secret,
                     workspace_root="",
                     session_config=acc.get("session") or {},
                     enabled=bool(acc.get("enabled", True)),
                     bound_at="",
                 )
-                existing.add(bid)
+                existing_bot_ids.add(bid)
+                if code:
+                    existing_codes.add(code)
                 count += 1
-            if count:
+            if count or skipped_orphan:
                 logger.info(
-                    "[ChannelService] migrated %d legacy %s account(s) to evoflow_bot_bindings",
-                    count, platform,
+                    "[ChannelService] migrated %d legacy %s account(s) to evoflow_bot_bindings (skipped_orphan=%d)",
+                    count,
+                    platform,
+                    skipped_orphan,
                 )
         except Exception:
             logger.exception("[ChannelService] failed to migrate legacy accounts for %s", platform)
@@ -560,9 +649,17 @@ class ChannelService:
             accounts_cfg = config.get("accounts") if isinstance(config, dict) else None
             if isinstance(accounts_cfg, dict):
                 merged_legacy = 0
-                for aid, entry in accounts_cfg.items():
+                dropped_orphan = 0
+                scrubbed_accounts = dict(accounts_cfg)
+                for aid, entry in list(accounts_cfg.items()):
                     aid_str = str(aid or "").strip()
                     if not aid_str or not isinstance(entry, dict):
+                        continue
+                    # Drop JSON slots for employees that no longer exist so
+                    # restart cannot rehydrate zombies into bot_bindings.
+                    if not self._employee_role_exists(aid_str):
+                        scrubbed_accounts.pop(aid_str, None)
+                        dropped_orphan += 1
                         continue
                     bid = self._account_bot_id(name, entry)
                     if aid_str in seen_codes or (bid and bid in seen_bot_ids):
@@ -572,6 +669,24 @@ class ChannelService:
                     if bid:
                         seen_bot_ids.add(bid)
                     merged_legacy += 1
+                if dropped_orphan:
+                    # Persist scrub so the next restart does not keep re-reading
+                    # deleted employee slots from evoflow_channel_configs JSON.
+                    try:
+                        cfg_mut = dict(config)
+                        cfg_mut["accounts"] = scrubbed_accounts
+                        self._config[name] = cfg_mut
+                        self._persist_channels_db()
+                        logger.info(
+                            "[ChannelService] %s: scrubbed %d orphan config.accounts (deleted roles)",
+                            name,
+                            dropped_orphan,
+                        )
+                    except Exception:
+                        logger.exception(
+                            "[ChannelService] %s: failed to persist orphan accounts scrub",
+                            name,
+                        )
                 if merged_legacy:
                     logger.info(
                         "[ChannelService] %s: merged %d legacy config.accounts not in table",
@@ -579,10 +694,11 @@ class ChannelService:
                         merged_legacy,
                     )
                 # Migrate any legacy accounts still missing from the table.
+                migrate_src = scrubbed_accounts if dropped_orphan else dict(accounts_cfg or {})
                 if not table_bindings and accounts:
-                    self._migrate_legacy_accounts_to_table(name, dict(accounts_cfg or {}))
+                    self._migrate_legacy_accounts_to_table(name, migrate_src)
                 elif merged_legacy:
-                    self._migrate_legacy_accounts_to_table(name, dict(accounts_cfg or {}))
+                    self._migrate_legacy_accounts_to_table(name, migrate_src)
             # One Feishu/WeCom bot_id may only drive one WS. Duplicate slots (wrong
             # QR bind left stale JSON / table rows) would load-balance events across
             # employees and look like 串台 with empty bot_id in ops.

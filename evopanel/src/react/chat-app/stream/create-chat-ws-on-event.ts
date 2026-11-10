@@ -2247,10 +2247,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 trigger: endTrigger,
                 hasEndMarker: true,
                 detail: {
+                  whoZh: isRunError
+                    ? '正常终态·模型/运行错误（AG-UI RUN_ERROR）'
+                    : '正常终态·模型错误收尾',
                   aguiType: String(aguiEvent.type || ''),
                   wasBusy: true,
                   livePostOpen,
                   terminalModelError,
+                  note: '协议终态收尾，不是用户点停',
                 },
               })
               if (terminalModelError) {
@@ -2647,9 +2651,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           trigger: 'sse_final',
           hasEndMarker: true,
           detail: {
+            whoZh: '正常结束（SSE final）',
             turnPhase: rt.turnPhase,
             aguiFinished: !!S.aguiTurn?.finished,
             isBackground,
+            note: '本轮对话正常跑完，非用户停止、非超时掐断',
           },
         })
         // SSE `final` = turn is over for the UI. Idle IMMEDIATELY — do not SEALING.
@@ -3530,11 +3536,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             trigger: 'sse_aborted',
             hasEndMarker: false,
             detail: {
+              whoZh: '异常断流（非用户停止：断网/后端取消/超时等）',
               turnPhase: rt.turnPhase,
               streamHealth: streamHealthRef.current,
               isBackground,
               hasVisibleContent: streamTurnHasVisibleContent(S.turn),
-              note: 'SSE aborted 且非停止按钮路径（断流/后端取消/超时等）',
+              note: 'SSE aborted 且非主动停止路径（断流/后端取消/超时等）',
             },
           })
           if (streamTurnHasVisibleContent(S.turn) && !rowsAlreadyStopSealedForTurn(rt.rows)) {
@@ -3570,7 +3577,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           trigger: 'sse_aborted_after_ui_stop',
           hasEndMarker: false,
           fromUiStopButton: true,
-          detail: { isBackground, suppressToast: suppressNextAbortToastRef.current },
+          detail: {
+            whoZh: '主动停止后的 SSE abort 回声',
+            isBackground,
+            suppressToast: suppressNextAbortToastRef.current,
+            note: '前面已有带 source 的主动停止日志；本条只是 wire 回声，不是第二次点停',
+          },
         })
         if (!turnBusyForSession(targetSk) && !streamTurnHasVisibleContent(S.turn)) {
           return
@@ -3752,12 +3764,14 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
           trigger: 'stream_error',
           hasEndMarker: false,
           detail: {
+            whoZh: '流错误结束',
             errMsg: errMsg.slice(0, 200),
             // Keep enough raw text for feedback; banner 「复制」走 V4 lastError.detail。
             rawErr: rawErr.slice(0, 1200),
             hasVisibleContent: streamTurnHasVisibleContent(S.turn),
             turnPhase: rt.turnPhase,
             isBackground,
+            note: '流报错收尾，不是用户点停',
           },
         })
         toast(errMsg, 'error')

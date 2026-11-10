@@ -29,7 +29,11 @@ def langgraph_api_data_dir(home: Path | None = None) -> Path:
     return d
 
 
-_DEFAULT_N_JOBS_PER_WORKER = 10
+# Desktop default: keep concurrent agent graphs modest. Isolated job loops
+# (BG_JOB_ISOLATED_LOOPS) multiply RSS; 10 slots routinely pushed LangGraph
+# past 4–6GB and froze the UI (2026-11-10). Override via N_JOBS_PER_WORKER or
+# Settings→通用 langgraphMaxConcurrent.
+_DEFAULT_N_JOBS_PER_WORKER = 3
 _MAX_N_JOBS_PER_WORKER = 64
 
 
@@ -78,10 +82,10 @@ def _n_jobs_from_panel_settings() -> int | None:
 
 
 def _resolve_n_jobs_per_worker() -> int:
-    """Match in-process Gateway mount (``lazy_langgraph`` default 10).
+    """Match in-process Gateway mount (``lazy_langgraph`` default 3).
 
     Precedence: process env ``N_JOBS_PER_WORKER`` → panel / ``evopanel.json``
-    ``langgraphMaxConcurrent`` → 10.
+    ``langgraphMaxConcurrent`` → 3.
 
     ``langgraph_api.cli.run_server`` forces ``N_JOBS_PER_WORKER=1`` when the
     ``n_jobs_per_worker`` kwarg is omitted — that serializes *all* agent runs

@@ -14351,6 +14351,9 @@ html.dark .react-chat-icon-stop-btn:hover {
   right: auto;
   top: auto;
   bottom: auto;
+  /* portal 到 body 后不再命中 .vendor-item 子孙加宽规则，这里补回 */
+  min-width: 200px;
+  max-width: min(340px, calc(100vw - 24px));
 }
 .react-chat-bottom-dropdown-item.is-unavailable {
   opacity: 0.85;

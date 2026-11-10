@@ -80,6 +80,7 @@ export function useSelectedStaleTurnWatchdog(ctx: UseStaleTurnWatchdogsCtx): voi
             trigger: 'stale_sending_watchdog',
             hasEndMarker: false,
             detail: {
+              whoZh: '发送超时看门狗强制收尾（非用户点停）',
               result,
               silentMs: Date.now() - last,
               turnPhase: rt.turnPhase,
@@ -135,6 +136,7 @@ export function useGlobalStaleBusyPoll(ctx: UseStaleTurnWatchdogsCtx): void {
               trigger: 'stale_busy_poll_clear',
               hasEndMarker: false,
               detail: {
+                whoZh: '全局 busy 轮询清状态（非用户点停）',
                 silentMs,
                 turnPhase: rt.turnPhase,
                 note: '全局 45s 无事件且后端确认不在跑后清 busy',

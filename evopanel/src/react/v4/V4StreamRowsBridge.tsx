@@ -74,8 +74,9 @@ export function getSharedV4SessionDataLayer(): SessionDataLayer {
  * 命中已有快照的预热零成本，不受限；冷启动订阅按滑动窗口限量 + 总数封顶。
  */
 const WARM_COLD_WINDOW_MS = 3_000;
-const WARM_COLD_MAX_PER_WINDOW = 2;
-const WARM_MAX_LIVE_SESSIONS = 6;
+/** 1 cold hydrate at a time in the window — parallel 1k+ row hydrates stall Gateway. */
+const WARM_COLD_MAX_PER_WINDOW = 1;
+const WARM_MAX_LIVE_SESSIONS = 4;
 let _warmColdTimestamps: number[] = [];
 
 export function warmEvoflowV4Session(

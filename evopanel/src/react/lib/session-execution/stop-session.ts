@@ -11,9 +11,25 @@ import { logStreamStop } from '../stream-stop-log.js'
 import { commitPriorTurnStripFromStreamTurn } from '../turn-text-isolation.js'
 import { beginSessionUserStop, finishSessionRunIdle } from './commands.js'
 import { sealSessionPartialTurnOnStop } from './seal-partial-turn.js'
-import type { SessionStopHost, StopSessionOptions } from './types.js'
+import type { SessionStopHost, SessionStopSource, StopSessionOptions } from './types.js'
 
 const REATTACH_COOLDOWN_AFTER_USER_STOP_MS = 90_000
+
+const STOP_SOURCE_ZH: Record<SessionStopSource, string> = {
+  composer_stop_button: '用户点击 Composer 停止按钮',
+  shell_sidebar_stop: '用户点击侧栏停止',
+  v4_stop_button: '用户点击 V4 停止按钮',
+  v4_escape: '用户按 Esc 停止',
+  interrupt_send_steers: '打断重发·纠偏指令（先停当前回合再发）',
+  interrupt_flush_queue: '打断重发·排队消息（先停当前回合再发）',
+  page_load_stale_stop: '页面加载发现过期 run，自动停止',
+  employee_process_pane: '员工进程面板停止按钮',
+  unknown: '未标注来源的停止（兼容旧调用；请补 source）',
+}
+
+export function sessionStopSourceZh(source: SessionStopSource): string {
+  return STOP_SOURCE_ZH[source] || STOP_SOURCE_ZH.unknown
+}
 
 export async function stopSessionExecution(
   sessionKey: string,
@@ -23,17 +39,23 @@ export async function stopSessionExecution(
   const sk = String(sessionKey || '').trim()
   if (!sk) return
 
+  const source: SessionStopSource = opts.source || 'unknown'
+  const whoZh = sessionStopSourceZh(source)
+
   host.onUserStopStarted?.()
   const { runtime: rtAtStop, stopRunId: stopRunIdAtStop } = beginSessionUserStop(sk)
   logStreamStop({
     sessionKey: sk,
     runId: stopRunIdAtStop,
-    trigger: 'ui_stop_button',
+    trigger: source,
     hasEndMarker: false,
     fromUiStopButton: true,
     detail: {
+      source,
+      whoZh,
       turnPhase: rtAtStop.turnPhase,
-      note: 'Composer/侧栏停止按钮入口；无法区分误触与故意',
+      showToast: opts.showToast !== false,
+      note: `主动停止路径：${whoZh}`,
     },
   })
   commitPriorTurnStripFromStreamTurn(rtAtStop, rtAtStop.stream.turn)

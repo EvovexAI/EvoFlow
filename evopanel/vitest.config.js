@@ -155,6 +155,7 @@ export default defineConfig({
       'tests/stream-reattach-cooldown.test.js',
       'tests/session-reattach.test.js',
       'tests/context-usage.test.js',
+      'tests/conversation-compact-tip.test.ts',
       'tests/agent-trace-compaction.test.js',
       'tests/agent-avatar.test.js',
       'tests/app-icon.test.js',
@@ -249,6 +250,7 @@ export default defineConfig({
       // 未提交即被并行会话的 git clean 清掉，内容未恢复，暂移出 include。
       'tests/proactive-nav-chrome-macos.test.js',
       'tests/proactive-role-card-meta.test.js',
+      'tests/mcp-binding-chip.test.js',
       'tests/user-facing-error.test.js',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',

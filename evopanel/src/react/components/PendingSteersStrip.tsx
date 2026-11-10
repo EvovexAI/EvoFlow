@@ -27,7 +27,7 @@ export const PendingSteersStrip = memo(function PendingSteersStrip({
           下次模型调用时提交
           {items.length > 1 ? `（${items.length}）` : ''}
         </span>
-        <span className="react-chat-steer-strip__hint">Esc 打断并立即发送</span>
+        <span className="react-chat-steer-strip__hint">空 Enter / Esc 打断并立即发送</span>
         {onInterruptAndSendSteers ? (
           <button
             type="button"

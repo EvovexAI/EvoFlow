@@ -179,9 +179,13 @@ class McpWorkerToolingFixesTest(unittest.TestCase):
     # ── P1-2 状态快照作用域 ────────────────────────────────────────────────
 
     def test_mcp_status_snapshot_annotates_scope(self) -> None:
+        from evoflow.mcp import cache as mcp_cache
         from evoflow.mcp.status import build_mcp_status_snapshot
 
-        snap = build_mcp_status_snapshot(raw_servers={"srv-x": {"enabled": True, "command": "x"}})
+        # Never read the developer's real EVOFLOW_HOME snapshot (flaky locally).
+        missing = Path(self.tmp_dir.name) / "no-such-mcp-status-snapshot.json"
+        with patch.object(mcp_cache, "_mcp_snapshot_path", return_value=missing):
+            snap = build_mcp_status_snapshot(raw_servers={"srv-x": {"enabled": True, "command": "x"}})
         self.assertEqual(snap["snapshot_source"], "none")
         self.assertIn("initialized_in_this_process", snap)
         self.assertIn("snapshot_pid", snap)

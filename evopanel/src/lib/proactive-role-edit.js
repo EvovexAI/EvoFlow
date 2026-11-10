@@ -905,7 +905,7 @@ function fillCapabilityPanels(overlay, detail, catalog) {
   if (mcpPanel) {
     mcpPanel.innerHTML = locked
       ? '<p class="hire-chip-hint">此外挂 / 系统前台不在面板配置 MCP。</p>'
-      : `${renderCapabilityChecklist({
+      : `<p class="hire-chip-hint">下方是本机已安装的连接器清单；勾选才算本岗绑定。未勾选 = 不挂 MCP（与「跟随全局」不同：全选保存后才是跟随全局）。</p>${renderCapabilityChecklist({
           name: 'mcp',
           items: catalog?.mcp || [],
           selected: selectedMcp,

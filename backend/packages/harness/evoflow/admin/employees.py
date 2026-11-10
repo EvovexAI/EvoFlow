@@ -1426,6 +1426,45 @@ def stop_role(agent_code: str) -> dict[str, Any]:
     }
 
 
+def _purge_im_bindings_for_role(agent_code: str) -> dict[str, bool]:
+    """Drop Feishu/WeCom bot bindings + channel JSON accounts for a deleted role.
+
+    ``employees.delete`` historically only wiped the proactive role row. Feishu
+    ``channels.accounts`` / ``evoflow_bot_bindings`` survived, and a later
+    channel restart re-migrated the zombie from stale memory (2026-11-08 /
+    2026-11-10 product-support). Proactive HTTP delete already called Feishu
+    cleanup; this mirrors that for the platform ``employees.delete`` path and
+    also covers WeCom.
+    """
+    code = str(agent_code or "").strip()
+    cleared = {"feishu": False, "wecom": False}
+    if not code:
+        return cleared
+    try:
+        from evoflow.proactive.feishu_binding import remove_role_account_from_channel as rm_feishu
+
+        cleared["feishu"] = bool(rm_feishu(code))
+    except Exception:
+        logger.warning("employees.delete: feishu binding cleanup failed code=%s", code, exc_info=True)
+    try:
+        from evoflow.proactive.wecom_binding import remove_role_account_from_channel as rm_wecom
+
+        cleared["wecom"] = bool(rm_wecom(code))
+    except Exception:
+        logger.warning("employees.delete: wecom binding cleanup failed code=%s", code, exc_info=True)
+    # Stop dedicated WS instances so ``bound_accounts`` drops without a full Gateway restart.
+    try:
+        from evoflow.runtime.ports import get_channel_service
+
+        service = get_channel_service()
+        if service is not None and hasattr(service, "schedule_stop_account_instance"):
+            for platform in ("feishu", "wecom"):
+                service.schedule_stop_account_instance(platform, code)
+    except Exception:
+        logger.debug("employees.delete: stop account instance skipped code=%s", code, exc_info=True)
+    return cleared
+
+
 def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any]:
     """Remove a duty role (and optionally its Agent). Destructive (CORE-EMP-06)."""
     code = str(agent_code or "").strip()
@@ -1444,6 +1483,9 @@ def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any
                 else ""
             )
         )
+
+    # IM bindings first (while role still exists for diagnostics); then role row.
+    im_cleared = _purge_im_bindings_for_role(code)
 
     try:
         ok = ProactiveRepository.delete_role(code)
@@ -1464,6 +1506,7 @@ def delete_role(agent_code: str, *, delete_agent: bool = False) -> dict[str, Any
         "agent_code": code,
         "role_name": role.role_name,
         "agent_deleted": agent_deleted,
+        "im_bindings_cleared": im_cleared,
     }
     # Tell the caller what a delete intentionally left behind, instead of leaving
     # it silent: the Agent row survives unless delete_agent=true, and the post's

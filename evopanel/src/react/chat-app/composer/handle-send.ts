@@ -737,6 +737,20 @@ export async function handleSend(
       try {
         suppressNextAbortToastRef.current = true
         // 本地 abort SSE wire；无在途 run 时几乎零开销。勿 await 网络。
+        // 这不是用户点停；落盘便于和真正的 execution/stop 区分。
+        void import('../../lib/stream-stop-log.js')
+          .then(({ logStreamStop }) => {
+            logStreamStop({
+              sessionKey,
+              trigger: 'send_prep_abort_stale_stream',
+              hasEndMarker: false,
+              detail: {
+                whoZh: '新发送前清理旧 SSE wire（非用户点停）',
+                note: 'handleSend 预备：chatAbort 清旧 wire；通常不调 execution/stop',
+              },
+            })
+          })
+          .catch(() => {})
         void api.chatAbort(sessionKey).catch(() => {})
       } catch {
         /* ignore */

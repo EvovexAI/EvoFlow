@@ -90,7 +90,8 @@ SKILL_RULE_2 = (
     "Load resources as needed; follow skill steps and boundaries. "
     "Run skill scripts with ``bash``: put ``skill:<name>/scripts/...`` or relative ``scripts/...`` in the command "
     "(the host rewrites them to the skill install dir). "
-    "Long jobs: ``run_in_background=true``, then ``taskoutput`` / ``taskstop``. "
+    "Long jobs: ``run_in_background=true``, then completion notify / output file, or ``taskoutput`` / ``taskstop``. "
+    "Never poll with ``sleep …; tail/cat``. "
 )
 SKILL_RULE_3 = "Follow skill steps; conversation mode is UI-driven—do not call mode_set/scenario."
 SKILL_RULE_COMPACT = (
@@ -98,7 +99,7 @@ SKILL_RULE_COMPACT = (
     'When a task matches an uninjected skill, read ``skill:<name>`` first and follow it. '
     'Skills are **not** in the user workspace: read files via ``read("skill:<name>/path")``; '
     "run scripts with ``bash`` (command paths like ``skill:<name>/...`` or ``scripts/...``); "
-    "long jobs use ``run_in_background=true`` + ``taskoutput`` / ``taskstop``. "
+    "long jobs use ``run_in_background=true`` + completion notify / ``taskoutput``; never sleep-poll. "
     "Never find/grep ``skills/`` or ``SKILL.md`` under the workspace."
 )
 MCP_RULE_COMPACT = (

@@ -5,9 +5,10 @@
 ; 使用「单勾选」代替默认双 radio，避免接受/拒绝选项被挤到可视区外。
 ;
 ; 安装/卸载进程策略（轻量）：
-;   一轮 taskkill（桌面父进程树 /T → gateway / 旧名）+ 短等 ~1.5s，
-;   再探测关键文件是否可写；仍占用则弹 Retry，由用户退出后重试。
-; 不再全机 Get-CimInstance Win32_Process，也不再多轮最长 ~15s 的写锁轮询。
+;   一轮 taskkill（桌面父进程树 /T → gateway / 旧名）
+;   → 再按安装目录范围清 bash/python/node 孤儿（不 taskkill 全机 python）
+;   → 短等 ~1.5s → 探测关键文件是否可写；仍占用则弹 Retry。
+; 不做全机进程表多轮扫描，也不再最长 ~15s 写锁轮询。
 ;
 ; v0.3.9+: 进程清理改用 nsExec + taskkill 替代隐藏 PowerShell（-WindowStyle Hidden），
 ; 避免触发安全软件「隐藏执行 PowerShell」告警；install-data.ps1 与 PATH 清理
@@ -16,8 +17,29 @@
 !define MUI_LICENSEPAGE_CHECKBOX
 !define MUI_LICENSEPAGE_CHECKBOX_TEXT "我已阅读并同意上述许可条款与免责声明"
 
+; Bash tool (CREATE_NEW_PROCESS_GROUP / run_in_background) and UI-extension
+; runtimes can leave python.exe / bash.exe holding files under $INSTDIR after
+; the desktop + gateway trees are gone. Scope kills to this install only —
+; never blanket taskkill /IM python.exe (would hit Cursor / other apps).
+;
+; Prefer windows\kill-install-orphans.ps1 when already on disk (upgrade/uninstall).
+; Fresh overwrite PREINSTALL may not have the new script yet → inline fallback
+; (same logic; kept short; nsExec hides the console — no -WindowStyle Hidden).
+!macro EvpKillInstallDirOrphans
+  DetailPrint "Stopping install-dir bash/python orphans..."
+  IfFileExists "$INSTDIR\windows\kill-install-orphans.ps1" 0 evp_orphans_inline
+    nsExec::Exec 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\windows\kill-install-orphans.ps1" -InstallDir "$INSTDIR"'
+    Pop $0
+    Goto evp_orphans_done
+  evp_orphans_inline:
+    ; Image-name filter first; then ExecutablePath / CommandLine must touch $INSTDIR.
+    nsExec::Exec `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$inst=[System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd('\\'); if (-not $$inst) { exit 0 }; $$pfx=$$inst+'\'; $$filter='Name=''python.exe'' OR Name=''pythonw.exe'' OR Name=''bash.exe'' OR Name=''sh.exe'' OR Name=''node.exe'''; Get-CimInstance Win32_Process -Filter $$filter -ErrorAction SilentlyContinue | ForEach-Object { $$kill=$$false; if ($$_.ExecutablePath) { try { $$full=[System.IO.Path]::GetFullPath($$_.ExecutablePath); if ($$full.Equals($$inst,[StringComparison]::OrdinalIgnoreCase) -or $$full.StartsWith($$pfx,[StringComparison]::OrdinalIgnoreCase)) { $$kill=$$true } } catch {} }; if (-not $$kill -and $$_.CommandLine -and $$_.CommandLine.IndexOf($$inst,[StringComparison]::OrdinalIgnoreCase) -ge 0) { $$kill=$$true }; if ($$kill) { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
+    Pop $0
+  evp_orphans_done:
+!macroend
+
 ; Desktop owns one gateway child (stdio). Kill parent tree first so the
-; sidecar exits with it; then sweep leftover gateway / legacy names.
+; sidecar exits with it; then sweep leftover gateway / legacy names / orphans.
 !macro EvpKillRunningAppProcesses
   DetailPrint "Stopping EvoFlow (desktop parent tree + gateway sidecar)..."
   ; Parent first (/T): takes stdio Gateway child with the desktop process tree.
@@ -35,6 +57,7 @@
   ; Upgrade from older packages that still used the legacy binary name.
   nsExec::Exec 'taskkill /IM "backend-gateway.exe" /F /T'
   Pop $0
+  !insertmacro EvpKillInstallDirOrphans
 !macroend
 
 ; Brief settle after taskkill so handles can drop before overwrite/delete.
@@ -89,7 +112,7 @@ evp_unlock_retry_${EVP_UNLOCK_UID}:
 
 evp_unlock_fail_${EVP_UNLOCK_UID}:
   MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION \
-    "无法写入安装目录中的文件（仍被占用）。$\r$\n$\r$\n请完全退出 EvoFlow（含托盘），并在任务管理器确认已结束：$\r$\n  · evoflow.exe$\r$\n  · evoflow-gateway.exe（若仍残留）$\r$\n然后点击「重试」。$\r$\n$\r$\n若反复失败，请重启电脑后再安装。$\r$\n$\r$\n安装目录：$INSTDIR" \
+    "无法写入安装目录中的文件（仍被占用）。$\r$\n$\r$\n请完全退出 EvoFlow（托盘右键「退出 EvoFlow」，不要只关窗口），并在任务管理器确认已结束：$\r$\n  · evoflow.exe$\r$\n  · evoflow-gateway.exe$\r$\n  · python.exe / bash.exe（Agent 后台任务残留）$\r$\n然后点击「重试」。$\r$\n$\r$\n若反复失败，请重启电脑后再安装。$\r$\n$\r$\n安装目录：$INSTDIR" \
     IDRETRY evp_unlock_retry_kill_${EVP_UNLOCK_UID}
   Abort
 evp_unlock_retry_kill_${EVP_UNLOCK_UID}:
