@@ -631,7 +631,7 @@ export function tryEagerAutoOpenPlatformFromArgs(
       action,
       domain,
       entityId: entityId || null,
-      agentCode: domain === 'employees' ? entityId || null : undefined,
+      agentCode: domain === 'employees' ? entityId || undefined : undefined,
       entityLabel: entityLabel || undefined,
       title: TITLE_OVERRIDES[action]?.(entityLabel || entityId || domain) || '平台操作',
       actions: [],

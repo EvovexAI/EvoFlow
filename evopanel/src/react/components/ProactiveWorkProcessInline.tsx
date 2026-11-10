@@ -180,7 +180,7 @@ export function ProactiveWorkProcessInline({
         events={filtered as unknown as WorkProcessEventView[]}
         emptyText={
           loading
-            ? '正在加载上班轨迹…'
+            ? '正在加载巡检轨迹…'
             : fetchError
               ? `无法加载：${fetchError}`
               : live

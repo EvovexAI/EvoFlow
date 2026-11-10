@@ -58,7 +58,7 @@ EMPLOYEE_STAGES: list[ArchStage] = [
     {
         "id": "gate",
         "title": "门禁与互斥",
-        "summary": "active/paused、busy 锁、上班时间、预算、autonomy×risk 审批",
+        "summary": "active/paused、busy 锁、巡检时段、预算、autonomy×risk 审批",
     },
     {
         "id": "think_act",
@@ -168,7 +168,7 @@ EMPLOYEE_CAPABILITIES: list[ArchCapability] = [
     },
     {
         "id": "emp.isolation.schedule_budget",
-        "title": "上班时间 / 预算熔断",
+        "title": "巡检时段 / 预算熔断",
         "dimension": "isolation",
         "stage": "gate",
         "description": "off-hours 跳过巡检；日/次预算超限 skip 或 pause",

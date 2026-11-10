@@ -2,7 +2,7 @@
 
 对应缺陷（详见 outputs/员工模块测试报告-2026-11-08.md）：
 
-D1  ``employees.stop`` 之后员工「看似在岗、永不自动上班」
+D1  ``employees.stop`` 之后员工「看似在岗、永不自动巡检」
     - ``save_role`` 每次都会跑 ``ensure_role_schedule_fields``，它内部无条件把
       ``auto_patrol_suspended`` 清成 False → stop 刚设的挂起锁被自己的持久化冲掉；
     - ``resume_role`` 见 ``status == "active"`` 直接 noop 返回，既不解锁也不重算
@@ -401,7 +401,7 @@ def test_worklog_merges_duty_rounds_and_dedupes() -> None:
         {
             "round_id": "dispatch:02:23:10",
             "created_at": "2026-11-08T02:23:10+08:00",
-            "goal": "派发上班",
+            "goal": "派发巡检",
             "outcome": "轨迹 54 条 · 工具 29 次",
             "status": "completed",
             "action_plan": {
@@ -448,8 +448,8 @@ def test_worklog_skips_duty_rounds_for_skipped_patrols_shape() -> None:
         {
             "round_id": "round:03:00",
             "created_at": "2026-11-08T03:00:01+08:00",
-            "goal": "定时上班",
-            "outcome": "到点触发 · 不在上班时间内，本轮未开跑",
+            "goal": "定时巡检",
+            "outcome": "到点触发 · 不在巡检时段内，本轮未开跑",
             "status": "completed",
             "action_plan": {
                 "source": "automation_run",

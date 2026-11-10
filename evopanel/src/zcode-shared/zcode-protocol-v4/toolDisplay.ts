@@ -63,7 +63,9 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     kind: z.literal("respond_to_coordinator"),
     status: z.enum(["success", "failed"]),
   }),
-  // platform ui：绑渠道扫码 和/或 进度侧栏 CTA（workflow.run autoOpen 等）
+  // platform ui：绑渠道扫码 / 进度侧栏 CTA / media.* 生图生视频预览
+  // media 必须入 schema：缺字段时 zod 会静默剥掉，工具卡只能靠正文 JSON 出图，
+  // 回合结束后折进「已工作」就看不见（与 CUA media 同坑）。
   z.object({
     kind: z.literal("platform_ui"),
     schemaVersion: z.literal(1),
@@ -75,6 +77,18 @@ const toolResultDisplaySchema = z.discriminatedUnion("kind", [
     agentCode: z.string().min(1).max(128).optional(),
     entityLabel: z.string().min(1).max(256).optional(),
     bindStatus: z.enum(["pending", "scanning", "bound", "failed", "expired"]).optional(),
+    media: z
+      .array(
+        z.object({
+          kind: z.string().min(1).max(32).optional(),
+          mimeType: z.string().min(1).max(128).optional(),
+          artifactUri: z.string().min(1).max(4_096).optional(),
+          absolutePath: z.string().min(1).max(1_024).optional(),
+          url: z.string().min(1).max(4_096).optional(),
+        }),
+      )
+      .max(4)
+      .optional(),
     actions: z
       .array(
         z.object({

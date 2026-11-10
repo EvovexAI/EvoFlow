@@ -1066,7 +1066,7 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
                     return code && code !== 'main' && !r?.is_bridge
                   }).length
                 }{' '}
-                在岗 · 待你处理 {waitForYou}
+                已启用 · 待你处理 {waitForYou}
               </span>
             </div>
           ) : (

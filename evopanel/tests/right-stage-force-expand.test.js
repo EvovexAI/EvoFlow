@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { rightStageStore } from '../src/lib/right-stage/right-stage-store.js'
-import { openEmployeeProcessInRightStage } from '../src/lib/right-stage/open-employee-process-stage.js'
+import {
+  openDeptGroupWakeProcessInRightStage,
+  openEmployeeProcessInRightStage,
+} from '../src/lib/right-stage/open-employee-process-stage.js'
 import { openShellPageInRightStage } from '../src/lib/right-stage/open-shell-page-stage.js'
 
 function resetStore() {
@@ -70,6 +73,40 @@ describe('right stage user-explicit open vs collapse lock', () => {
     const snap = rightStageStore.getSnapshot()
     expect(snap.collapsed).toBe(true)
     expect(snap.tabs).toHaveLength(0)
+  })
+
+  it('openDeptGroupWakeProcessInRightStage depth 0 expands and pins sticky employee session', () => {
+    rightStageStore.collapse()
+    const id = openDeptGroupWakeProcessInRightStage({
+      deptId: 'rd',
+      agentCode: 'dev-a',
+      roleName: '研发A',
+      shellSessionKey: 'dept:rd:chat',
+      employeeSessionKey: 'proactive:dev-a:chat:dept-rd',
+      depth: 0,
+    })
+    expect(id).toBeTruthy()
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    const tab = snap.tabs.find((t) => t.kind === 'employeeProcess')
+    expect(tab?.data?.agentCode).toBe('dev-a')
+    expect(tab?.data?.employeeSessionKey).toBe('proactive:dev-a:chat:dept-rd')
+    expect(tab?.sessionKey).toBe('dept:rd:chat')
+  })
+
+  it('openDeptGroupWakeProcessInRightStage nested wake respects collapse lock', () => {
+    rightStageStore.collapse()
+    openDeptGroupWakeProcessInRightStage({
+      deptId: 'rd',
+      agentCode: 'dev-b',
+      roleName: '研发B',
+      shellSessionKey: 'dept:rd:chat',
+      employeeSessionKey: 'proactive:dev-b:chat:dept-rd',
+      depth: 1,
+    })
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(true)
+    expect(snap.tabs.some((t) => t.data?.agentCode === 'dev-b')).toBe(true)
   })
 })
 

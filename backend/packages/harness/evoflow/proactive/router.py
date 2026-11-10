@@ -122,16 +122,16 @@ class CreateRoleRequest(BaseModel):
     max_turns: int = Field(10, description="Agent loop max turns")
     timeout_seconds: int = Field(0, description="Single think timeout (s); 0/empty = unlimited")
     skills: list[str] = Field(default_factory=list)
-    # 上班时间 — 默认 09:00~20:00，该时段外不自动上班
-    work_schedule_enabled: bool = Field(True, description="是否启用上班时间限制")
-    work_start_hour: int = Field(9, ge=0, le=23, description="上班开始时（本地小时，含）")
-    work_end_hour: int = Field(20, ge=0, le=23, description="上班结束时（本地小时，不含）")
+    # 巡检时段 — 默认 09:00~20:00，该时段外不自动巡检
+    work_schedule_enabled: bool = Field(True, description="是否启用巡检时段限制")
+    work_start_hour: int = Field(9, ge=0, le=23, description="巡检开始时（本地小时，含）")
+    work_end_hour: int = Field(20, ge=0, le=23, description="巡检结束时（本地小时，不含）")
     approval_timeout_by_type: dict[str, int] = Field(
         default_factory=dict,
         description="按action_type设置审批超时(分钟)，如 {'code_change': 1440}；空=用approval_timeout_minutes",
     )
     daily_budget_usd: float = Field(0.0, description="每日成本预算(USD)，0=不限")
-    per_run_budget_usd: float = Field(0.0, description="单次上班预算(USD)，0=不限")
+    per_run_budget_usd: float = Field(0.0, description="单次巡检预算(USD)，0=不限")
     budget_exceed_policy: str = Field(
         "skip_patrol",
         description="超额策略: skip_patrol|pause_role|notify_only",
@@ -211,7 +211,7 @@ class HeartbeatRequest(BaseModel):
 
     focus: str = Field(
         "",
-        description="本轮事项/关注点（可选）；空则按岗位职责正常上班",
+        description="本轮事项/关注点（可选）；空则按岗位职责正常巡检",
     )
 
 
@@ -1702,7 +1702,7 @@ async def get_role_work_board(
 ) -> dict[str, Any]:
     """Employee page aggregate: duty-run trail index + 岗位工作项 Tasks.
 
-    「上班记录」SSOT is ``evoflow_duty_runs`` (every heartbeat / dispatch fire).
+    「巡检记录」SSOT is ``evoflow_duty_runs`` (every heartbeat / dispatch fire).
     Tasks remain the actionable work items nested under rounds. Initiative
     journals are not returned for the Panel work log.
     """

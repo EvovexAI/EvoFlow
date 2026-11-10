@@ -58,11 +58,11 @@ function pushTargetLabel(task, targets) {
 // ── 状态 ────────────────────────────────
 
 let _tasks = []
-// 员工上班节奏（heartbeat）也是调度的一种：与定时任务同表展示，靠 kind 区分。
+// BOT 巡检节奏（heartbeat）也是调度的一种：与定时任务同表展示，靠 kind 区分。
 let _agents = []
 /** task_id → display name（含 emp: 影子规则，供运行记录列用） */
 let _nameByTaskId = {}
-// 调度项类型筛选：全部 / 定时任务 / 员工上班。与顶层 tab（调度任务/运行记录）是两个维度。
+// 调度项类型筛选：全部 / 定时任务 / BOT 巡检。与顶层 tab（调度任务/运行记录）是两个维度。
 // 默认落在「定时任务」：员工动辄几十个，全量默认会把页面拉得很长；数量在筛选器上可见。
 let _kindFilter = 'task' // all | task | agent
 let _pushTargetsCache = []
@@ -227,14 +227,14 @@ function writeCronQueryToHash({ tab, date, task }) {
   window.location.hash = next
 }
 
-/** 类型筛选：带数量，让人一眼看出「定时任务几条、多少员工在自动上班」。 */
+/** 类型筛选：带数量，让人一眼看出「定时任务几条、多少员工在自动巡检」。 */
 function renderKindBar() {
   const bar = q('#cronKindBar')
   if (!bar) return
   const items = [
     ['all', '全部', _tasks.length + _agents.length],
     ['task', '定时任务', _tasks.length],
-    ['agent', '员工上班', _agents.length],
+    ['agent', 'BOT 巡检', _agents.length],
   ]
   bar.innerHTML = items
     .map(
@@ -888,11 +888,11 @@ function resolveAutomationDisplayName(taskId) {
     (a) => String(a.id || '') === code,
   )
   if (agent?.name) {
-    const label = `员工上班 · ${agent.name}`
+    const label = `BOT 巡检 · ${agent.name}`
     _nameByTaskId[id] = label
     return label
   }
-  return id.startsWith('emp:') && code ? `员工上班 · ${code}` : id
+  return id.startsWith('emp:') && code ? `BOT 巡检 · ${code}` : id
 }
 
 const EMPLOYEE_SKIP_REASON_ZH = {
@@ -1005,7 +1005,7 @@ async function refresh() {
       const code = String(a.id || '').trim()
       if (!code) continue
       const empId = `emp:${code}`
-      if (!_nameByTaskId[empId] && a.name) _nameByTaskId[empId] = `员工上班 · ${a.name}`
+      if (!_nameByTaskId[empId] && a.name) _nameByTaskId[empId] = `BOT 巡检 · ${a.name}`
     }
     applySchedulerStatus(schedStatus)
     renderKindBar()
@@ -1071,7 +1071,7 @@ function updateSchedulerUI() {
 }
 
 function updateStats() {
-  // 统计口径含员工上班节奏：两类都是「到点自己跑」的调度项。
+  // 统计口径含 BOT 巡检节奏：两类都是「到点自己跑」的调度项。
   const taskEnabled = _tasks.filter((t) => ruleStatusOf(t) === 'enabled').length
   const taskPaused = _tasks.filter((t) => ruleStatusOf(t) === 'paused').length
   const agentEnabled = _agents.filter((a) => !a.paused).length
@@ -1083,7 +1083,7 @@ function updateStats() {
 }
 function setEl(id, val) { const el = q(`#${id}`); if (el) el.textContent = val }
 
-/** 员工上班节奏不在本页编辑：跳员工详情页改排班。 */
+/** BOT 巡检节奏不在本页编辑：跳员工详情页改排班。 */
 function navigateToAgent(code) {
   const id = String(code || '').trim()
   if (!id) return
@@ -1250,7 +1250,7 @@ function renderList() {
     if (pagerWrap) pagerWrap.innerHTML = ''
     return
   }
-  // 定时任务 + 员工上班节奏合成一张调度表：同构字段（计划 / 下次 / 上次），靠类型列区分。
+  // 定时任务 + BOT 巡检节奏合成一张调度表：同构字段（计划 / 下次 / 上次），靠类型列区分。
   const merged = _tasks
     .map((t) => ({ ...t, kind: 'task' }))
     .concat(_agents)
@@ -1343,7 +1343,7 @@ function renderIdeas() {
 }
 
 /**
- * 员工上班节奏 → 与定时任务同构的列表行。
+ * BOT 巡检节奏 → 与定时任务同构的列表行。
  * 只收录「有明确下次心跳」或「排班开启」的在岗员工，避免把没排班的员工塞进调度列表。
  */
 function normalizeAgentSchedules(payload) {
@@ -1470,13 +1470,13 @@ function renderRow(t) {
     </article>`
 }
 
-/** 员工上班行：与定时任务同列结构，操作跳转员工页（调度在其详情里配）。 */
+/** BOT 巡检行：与定时任务同列结构，操作跳转员工页（调度在其详情里配）。 */
 function renderAgentRow(a) {
   const id = esc(a.id)
   const nextText = a.nextRunAt ? formatShortClock(a.nextRunAt) : ''
   const lastText = a.lastRunAt ? formatShortClock(a.lastRunAt) : ''
   // 员工没有「成功/失败」的运行结果，这一列表达的是上次心跳 + 当前是否在岗。
-  const lastLabel = a.paused ? '已暂停' : a.live ? '上班中' : '上次心跳'
+  const lastLabel = a.paused ? '已暂停' : a.live ? '巡检中' : '上次心跳'
   // 行内第二行只放调度相关上下文；角色说明属于员工页，不放这里。
   const subLine = [a.department, a.scheduleEnabled ? '' : '未开启排班'].filter(Boolean).join(' · ')
   const statusClass = a.paused ? '--queued' : a.live ? '--running' : '--idle'
@@ -1491,7 +1491,7 @@ function renderAgentRow(a) {
         </div>
         ${subLine ? `<p class="cron-row-desc" title="${esc(subLine)}">${esc(subLine)}</p>` : ''}
       </div>
-      <div class="cron-cell cron-cell--kind"><span class="cron-kind cron-kind--agent">${icon('swords', 11)} 员工上班</span></div>
+      <div class="cron-cell cron-cell--kind"><span class="cron-kind cron-kind--agent">${icon('swords', 11)} BOT 巡检</span></div>
       <div class="cron-cell cron-cell--sched">
         <span class="cron-cell-main">${icon('clock', 13)}<span title="${esc(a.scheduleText)}">${esc(a.scheduleText)}</span></span>
       </div>

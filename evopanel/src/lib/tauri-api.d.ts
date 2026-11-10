@@ -42,6 +42,9 @@ export function gatewayProxy(
   options?: { silent?: boolean; timeoutMs?: number } | null,
 ): Promise<any>
 
+/** 前端日志旁路（invoke append_frontend_log）；非 Tauri / invoke 未就绪时静默丢弃。 */
+export function appendFrontendLog(level: string, message: string): void
+
 /** True when a registration /poll error means the session is gone (404 session_not_found). */
 export function isRegistrationSessionGone(err: unknown): boolean
 

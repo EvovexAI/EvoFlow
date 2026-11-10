@@ -765,8 +765,9 @@ function ChatSummaryPanelInner({
       : sessionTitleText || '状态'
 
   // 右上角状态卡展开为 panel 时记中文前端日志（时间 + 展示内容）
+  // wantExpanded = effectiveMode === 'panel'，本身已排除 hidden，无需重复判断。
   useEffect(() => {
-    if (!wantExpanded || effectiveMode === 'hidden') return
+    if (!wantExpanded) return
     const platformPreview = platformEntries[0]
       ? String(
           (platformEntries[0] as { title?: string; label?: string; action?: string }).title ||

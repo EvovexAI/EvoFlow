@@ -840,6 +840,32 @@ export function HomeDeptGroupChat({
         })
       }
 
+      // chatSend 前钉右栏跟岗会话，否则右侧无实时过程（群气泡在流、摘要只有状态词）
+      const ownerSk =
+        String(shellSessionKey || '').trim() || deptChatSessionKey(dept.id)
+      void import('../../lib/right-stage/open-employee-process-stage.js')
+        .then(async (m) => {
+          try {
+            const { ensureRightStageKindsRegistered } = await import(
+              '../right-stage/register-kinds.js'
+            )
+            ensureRightStageKindsRegistered()
+          } catch {
+            /* optional */
+          }
+          m.openDeptGroupWakeProcessInRightStage({
+            deptId: dept.id,
+            agentCode: person.agent_code,
+            roleName: person.role_name,
+            shellSessionKey: ownerSk,
+            employeeSessionKey: workSessionKey,
+            depth: input.depth,
+          })
+        })
+        .catch(() => {
+          /* 右栏失败不挡群气泡 */
+        })
+
       try {
         let live = false
         const turn = await runDeptMemberWorkTurn({
@@ -1015,7 +1041,7 @@ export function HomeDeptGroupChat({
         return { error: msg }
       }
     },
-    [appendMsg, dept.id, dept.name, patchMsg, streamBodyIntoBubble],
+    [appendMsg, dept.id, dept.name, patchMsg, shellSessionKey, streamBodyIntoBubble],
   )
 
   const runWakeJobRef = useRef(runWakeJob)

@@ -92,8 +92,9 @@ function AttachmentViewerModal({
     const path = String(absPath || '').trim()
     if (!path) return
     try {
-      const { revealPathInFileManager } = await import('../../../lib/tauri-api.js')
-      await revealPathInFileManager(path)
+      // revealPathInFileManager 挂在 api 对象上（tauri-api.js 无模块级导出），与其余调用点保持一致
+      const { api } = await import('../../../lib/tauri-api.js')
+      await api.revealPathInFileManager(path)
       setActionHint(`已请求打开：${path}`)
     } catch (err) {
       setActionHint(`无法打开本地路径：${err instanceof Error ? err.message : String(err)}`)

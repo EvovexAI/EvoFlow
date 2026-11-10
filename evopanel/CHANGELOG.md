@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.15] - 2026-11-10
+
+相对 **1.3.14**：侧栏会话菜单支持归档 / 标未读 / 移工作空间；内置「演示工作台」扩展；部门群 @ 唤醒打开跟岗右栏；媒体预览与目标模式计时改进。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.15.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **侧栏会话菜单**：归档 / 取消归档、标为未读、移到顶部、移动到工作空间、在文件管理器打开 / 复制路径（本机标记，无后端字段）
+- **内置演示工作台**：`builtin_ext_apps/demo-workbench` 随网关启动安装到 `ui-extensions`，Agent 应用页可打开
+
+### Changed
+
+- **部门群 @ 唤醒**：首轮点名 `forceExpand` 打开员工跟岗过程；嵌套接力尊重用户收起锁
+- **平台媒体预览**：媒体结果优先画廊；本机绝对路径可 reveal
+- **目标模式**：pause 结算段工时；验证前补结 `active_run_started_at_ms`
+
+### Fixed
+
+- **冷启动 hydrate**：大批历史行 `author_seed_rows` 批量灌入，避免逐行写锁刷屏
+
 ## [1.3.14] - 2026-11-09
 
 相对 **1.3.13**：Codex 订阅可拉取远程模型；工作流用户暂停不被子任务进度汇总冲掉；会话旁运行图标一点开详情；轮尾截图横排；多处「员工」文案改为「BOT」。

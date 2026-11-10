@@ -782,6 +782,41 @@ class V4ConversationHub:
                 len(subs),
             )
 
+    def author_seed_rows(self, session_id: str, rows: list[dict[str, Any]]) -> int:
+        """Cold-load history without per-row delta_log / ``_write_lock`` thrash.
+
+        Subscribe always delivers an initial snapshot, so N×``row.appended`` is
+        pure contention against live AG-UI authors on the shared write lock
+        (multi-chat freeze: hydrate worker holds the lock while stream handlers
+        on the event loop wait). Existing subscribers are marked overflowed so
+        their next flush resyncs via snapshot.
+        """
+        if not rows:
+            return 0
+        flush_subs: list[_Subscription] = []
+        with self._write_lock:
+            sess = self._get_or_create_session(session_id)
+            if sess.rows:
+                return 0
+            max_rid = 0
+            for row in rows:
+                rid = int(row["rowId"])
+                sess.rows[rid] = row
+                if rid > max_rid:
+                    max_rid = rid
+            if max_rid >= int(sess.next_row_id):
+                sess.next_row_id = max_rid + 1
+            for sub in self._subscriptions.values():
+                if sub.session_id != sess.session_id:
+                    continue
+                sub.pending_ops = []
+                sub.pending_bytes = 0
+                sub.overflowed = True
+                flush_subs.append(sub)
+        for sub in flush_subs:
+            self._schedule_flush_threadsafe(sub)
+        return len(rows)
+
     def author_append_row(self, session_id: str, row: dict[str, Any]) -> None:
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
@@ -816,6 +851,17 @@ class V4ConversationHub:
         self.author_state_patch(session_id, {"control": _minimal_control(phase)})
 
     # -- flush 调度 -------------------------------------------------------------
+
+    def _schedule_flush_threadsafe(self, sub: _Subscription) -> None:
+        """Hydrate / worker threads must not call ``loop.call_later`` directly."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            self._schedule_flush(sub)
+            return
+        try:
+            loop.call_soon_threadsafe(self._schedule_flush, sub)
+        except RuntimeError:
+            self._schedule_flush(sub)
 
     def _schedule_flush(self, sub: _Subscription) -> None:
         """首个 pending op 到达后定时一窗（对齐 ZCode scheduleFlush：单 timer）。"""

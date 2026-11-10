@@ -1,6 +1,6 @@
 /** Right-side extensible stage — shared types (EvoPanel). */
 
-export type RightStageLayout = 'half' | 'wide' | 'narrow' | 'workspace-write'
+export type RightStageLayout = 'half' | 'wide' | 'narrow' | 'workspace-browse' | 'workspace-write'
 
 export type RightStageKind =
   | 'workspace-browse'

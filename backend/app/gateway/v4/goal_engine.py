@@ -422,9 +422,16 @@ class V4GoalEngine:
         return {"goal": self.get_goal_state(session_id), "started": started}
 
     def pause_goal(self, session_id: str) -> dict[str, Any] | None:
-        """active/verifying → paused；进行中的续跑 task/run 尽力取消。"""
+        """active/verifying → paused；进行中的续跑 task/run 尽力取消。
+
+        对齐 ZCode pauseGoal 语义：先把 active run 工时结算进累计，再暂停。
+        """
         from evoflow.persistence.v4_goal_repositories import patch_v4_goal_atomic
 
+        # 先结算（pause 补丁会把 active_run_started_at_ms 置 NULL，必须在前）
+        row = self.get_goal_row(session_id)
+        if row is not None:
+            self._settle_continuation_time(session_id, row, run_id="", run_failed=False)
         affected = patch_v4_goal_atomic(
             session_id,
             fields={"status": "paused", "active_run_started_at_ms": None},
@@ -537,22 +544,29 @@ class V4GoalEngine:
     def _settle_continuation_time(
         self, session_id: str, row: dict[str, Any], *, run_id: str, run_failed: bool
     ) -> None:
+        """把 ``active_run_started_at_ms`` 起的墙钟时间结算进累计工时。
+
+        不再要求 run_id 与引擎登记的续跑 run 精确匹配——目标活跃期间结束的任何
+        run（含用户插入的普通轮）都是目标工作的一部分；漏结算会让状态面板的
+        「已工作」停留在 0~1 秒（2026-11-09 用户报告）。run_id 账本只用于清
+        引擎自己的续跑登记，防重复结算由「置 NULL」天然保证。
+        """
         from evoflow.persistence.v4_goal_repositories import patch_v4_goal_atomic
 
         tracked_run = self._continuation_run_ids.get(session_id)
-        started_at = row.get("active_run_started_at_ms")
-        if tracked_run and run_id == tracked_run:
+        if tracked_run and (not run_id or run_id == tracked_run):
             self._continuation_run_ids.pop(session_id, None)
-            elapsed = 0
-            if started_at:
-                elapsed = max(0, int((time.time() * 1000 - int(started_at)) / 1000))
-            patch_v4_goal_atomic(
-                session_id,
-                fields={
-                    "time_used_seconds": int(row.get("time_used_seconds") or 0) + elapsed,
-                    "active_run_started_at_ms": None,
-                },
-            )
+        started_at = row.get("active_run_started_at_ms")
+        if not started_at:
+            return
+        elapsed = max(0, int((time.time() * 1000 - int(started_at)) / 1000))
+        patch_v4_goal_atomic(
+            session_id,
+            fields={
+                "time_used_seconds": int(row.get("time_used_seconds") or 0) + elapsed,
+                "active_run_started_at_ms": None,
+            },
+        )
 
     # -- verifier + 续跑 ------------------------------------------------------
 
@@ -567,6 +581,11 @@ class V4GoalEngine:
             row = self.get_goal_row(session_id)
             if row is None or row.get("status") not in ("active",):
                 return
+            # 兜底工时结算：钩子路径若漏结算（attach 续流/异常收口），
+            # 验证前把在账的 active_run_started_at_ms 结清，防「已工作 1 秒」。
+            if row.get("active_run_started_at_ms"):
+                self._settle_continuation_time(session_id, row, run_id="", run_failed=False)
+                row = self.get_goal_row(session_id) or row
             iteration = int(row.get("iteration") or 0) + 1
             patch_v4_goal_atomic(session_id, fields={"status": "verifying"})
             self._emit_goal_patch(session_id)

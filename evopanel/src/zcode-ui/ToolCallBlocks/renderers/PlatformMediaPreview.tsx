@@ -31,6 +31,19 @@ function resolveSrc(item: MediaItem): string {
   return resolveChatImageSrc(raw) || raw;
 }
 
+/** 本机落盘绝对路径：给预览对话框「打开位置」；asset URL 无法反推。 */
+function resolveLocalPath(item: MediaItem): string | undefined {
+  for (const candidate of [item.absolutePath, item.artifactUri]) {
+    const raw = String(candidate || "").trim();
+    if (!raw) continue;
+    if (/^(https?:|data:|asset:|blob:)/i.test(raw) || raw.startsWith("/api/")) continue;
+    if (/^[a-zA-Z]:[\\/]/.test(raw) || raw.startsWith("\\\\") || raw.startsWith("/")) {
+      return raw;
+    }
+  }
+  return undefined;
+}
+
 export function PlatformMediaPreview({
   media,
   label = "生成媒体",
@@ -40,7 +53,9 @@ export function PlatformMediaPreview({
 }) {
   const [previewIndex, setPreviewIndex] = useState(0);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [resolved, setResolved] = useState<Array<{ src: string; video: boolean; key: string }>>([]);
+  const [resolved, setResolved] = useState<
+    Array<{ src: string; video: boolean; key: string; localPath?: string }>
+  >([]);
   const triggerRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   useEffect(() => {
@@ -49,13 +64,17 @@ export function PlatformMediaPreview({
       .map((item, index) => {
         const src = resolveSrc(item);
         if (!src) return null;
+        const localPath = resolveLocalPath(item);
         return {
           src,
           video: isVideoItem(item),
           key: `${item.kind || ""}:${src}:${index}`,
+          ...(localPath ? { localPath } : {}),
         };
       })
-      .filter((x): x is { src: string; video: boolean; key: string } => !!x);
+      .filter(
+        (x): x is { src: string; video: boolean; key: string; localPath?: string } => !!x,
+      );
     if (active) setResolved(next);
     return () => {
       active = false;
@@ -69,7 +88,9 @@ export function PlatformMediaPreview({
           ...item,
           index,
           alt: `${label} ${index + 1}`,
-          filename: `platform-media-${index + 1}`,
+          filename: item.localPath
+            ? item.localPath.replace(/^.*[\\/]/, "") || `platform-media-${index + 1}`
+            : `platform-media-${index + 1}`,
         }))
         .filter((item) => !item.video && item.src),
     [resolved, label],

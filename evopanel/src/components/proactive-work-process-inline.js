@@ -1,5 +1,5 @@
 /**
- * 任务详情「执行过程」内嵌员工上班轨迹。
+ * 任务详情「执行过程」内嵌员工巡检轨迹。
  */
 import { createElement } from 'react'
 import { createRoot } from 'react-dom/client'

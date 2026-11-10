@@ -322,8 +322,10 @@ function parseDisplay(value: unknown): ToolResultDisplay | undefined {
       });
       if (actions.length >= 4) break;
     }
-    // 绑渠道：要有码；进度 CTA：要有 openStage。二者至少命中一类。
-    if (!qrUrl && !sessionId && !actions.some((a) => a.openStage)) return undefined;
+    // 绑渠道要有码；进度 CTA 要有 openStage；生图/视频要有 media。至少命中一类。
+    if (!qrUrl && !sessionId && !actions.some((a) => a.openStage) && media.length === 0) {
+      return undefined;
+    }
     return {
       kind: "platform_ui",
       schemaVersion: 1,

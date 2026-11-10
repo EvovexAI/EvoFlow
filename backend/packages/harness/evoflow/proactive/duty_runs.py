@@ -1,6 +1,6 @@
 """Employee duty / heartbeat run index (``evoflow_duty_runs``).
 
-SSOT for「上班记录」list entries: every scheduler / heartbeat / dispatch fire
+SSOT for「巡检记录」list entries: every scheduler / heartbeat / dispatch fire
 inserts a row as soon as the role is selected to start — including skips —
 so operators can see when automation triggered.
 """
@@ -242,11 +242,11 @@ def _trigger_label(row: dict[str, Any]) -> str:
     src = str(row.get("trigger_source") or "").strip()
     scheduled = bool(row.get("scheduled"))
     if src.startswith("dispatch"):
-        return "派发上班"
+        return "派发巡检"
     if src.startswith("api.heartbeat") or src == "manual":
-        return "手动上班"
+        return "手动巡检"
     if scheduled or src.startswith("scheduler"):
-        return "定时上班"
+        return "定时巡检"
     return "值班轮次"
 
 
@@ -255,7 +255,7 @@ def skip_reason_label_zh(skip_reason: str) -> str:
     skip = str(skip_reason or "").strip()
     labels = {
         "xiaomi_idle_board": "到点触发 · 空板未开工",
-        "outside_work_window": "到点触发 · 不在上班时间内，本轮未开跑",
+        "outside_work_window": "到点触发 · 不在巡检时段内，本轮未开跑",
         "daily_budget_exceeded": "到点触发 · 日预算已满，跳过",
         "langgraph_unreachable": "到点触发 · 引擎不可达，已改约",
         "role_busy": "到点触发 · 员工忙碌中，本轮未开跑",
@@ -276,7 +276,7 @@ def _status_outcome(row: dict[str, Any]) -> tuple[str, str | None, str]:
     err = str(row.get("error") or "").strip()
 
     if st in ("started", "running"):
-        return "executing", None, reason or "上班中…"
+        return "executing", None, reason or "巡检中…"
     if st == "busy":
         return "completed", None, "到点触发，但员工忙碌中（本轮未开跑）"
     if st == "skipped":

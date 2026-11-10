@@ -689,7 +689,7 @@ function applyV4McpWorkbenchAutoOpen(rows: readonly AssistantWorkRow[]): void {
 }
 
 /**
- * 【V4 权威】轮尾 CUA / browser_turn_end 截图 → 右栏大图（与对话内缩略图同源）。
+ * 【V4 权威】轮尾 CUA / browser_turn_end / platform 生图 → 右栏大图（与对话内缩略图同源）。
  * 每个 toolCallId 只自动开一次；多图取最后一张。
  */
 const v4CuaScreenshotAutoOpenedIds = new Set<string>();
@@ -705,14 +705,16 @@ function extractLatestScreenshotFromDisplay(
   const d = display as Record<string, unknown>;
   const kind = String(d.kind || "").trim();
 
-  if (kind === "cua" && Array.isArray(d.media)) {
+  if ((kind === "cua" || kind === "platform_ui") && Array.isArray(d.media)) {
     for (let i = d.media.length - 1; i >= 0; i -= 1) {
       const item = d.media[i];
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const m = item as Record<string, unknown>;
       const mimeType = String(m.mimeType || "").trim() || "image/png";
       if (mimeType && !mimeType.startsWith("image/")) continue;
-      const artifactUri = String(m.artifactUri || "").trim();
+      const artifactUri = String(
+        m.artifactUri || m.absolutePath || m.absolute_path || m.url || "",
+      ).trim();
       if (artifactUri) return { uri: artifactUri, mimeType };
       const data = String(m.data || "").trim();
       if (data) return { uri: `data:${mimeType};base64,${data}`, mimeType };

@@ -97,7 +97,7 @@ def build_employee_automation_doc(role: Any) -> dict[str, Any]:
     active = _role_wants_scheduled_patrol(role) and bool(cron)
     now = utc_now_iso_z()
     return {
-        "name": f"员工上班 · {name}",
+        "name": f"BOT 巡检 · {name}",
         "prompt": "",  # not used — runner dispatches ProactiveEngine
         "schedule": cron,
         "schedule_type": "cron",
@@ -139,7 +139,7 @@ def upsert_employee_automation(role: Any) -> str | None:
                     # Never let operators' manual edits to name/prompt stick for managed rows —
                     # schedule + status always come from the role.
                     doc["name"] = (
-                        f"员工上班 · {str(getattr(role, 'role_name', '') or '').strip() or code}"
+                        f"BOT 巡检 · {str(getattr(role, 'role_name', '') or '').strip() or code}"
                     )
                 auto_repo.save_automation(task_id, doc)
                 return task_id
@@ -245,7 +245,7 @@ def automation_run_to_round_journal(run: dict[str, Any], *, agent_code: str) -> 
     tool_n = int(run.get("tool_count") or 0)
 
     if status_raw in ("started", "running", "queued"):
-        status, result, outcome = "executing", None, reason or "上班中…"
+        status, result, outcome = "executing", None, reason or "巡检中…"
     elif status_raw in ("busy",):
         status, result, outcome = "completed", None, "到点触发，但员工忙碌中（本轮未开跑）"
     elif status_raw in ("skipped", "skip"):
@@ -260,12 +260,12 @@ def automation_run_to_round_journal(run: dict[str, Any], *, agent_code: str) -> 
             bits.append(reason)
         status, result, outcome = "completed", "success", "；".join(bits) or "值班结束"
 
-    title = "定时上班"
+    title = "定时巡检"
     trig = str(run.get("trigger_type") or "").strip().lower()
     if "manual" in trig or "api" in trig:
-        title = "手动上班"
+        title = "手动巡检"
     elif "dispatch" in trig:
-        title = "派发上班"
+        title = "派发巡检"
 
     return {
         "id": f"auto-run:{run.get('run_id') or rid}",

@@ -64,7 +64,7 @@ import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { logV4Life } from "../lib/v4-lifecycle-log.js";
-import { evoflowStubPlatform } from "../../pages/settings/evoflow-bridge-services.js";
+import { evoflowLocalRevealPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import { apiUrlAsync } from "../../lib/api-client.js";
 import {
   isAbsoluteHostPath,
@@ -208,7 +208,8 @@ async function readLocalAbsFileBuffer(path: string): Promise<ArrayBuffer | null>
     const { invoke } = await import("@tauri-apps/api/core");
     const text = await invoke<string>("assistant_read_file", { path });
     if (typeof text !== "string") return null;
-    return new TextEncoder().encode(text).buffer;
+    // encode() 总是新建普通 ArrayBuffer（不会是 SharedArrayBuffer），断言安全
+    return new TextEncoder().encode(text).buffer as ArrayBuffer;
   } catch {
     return null;
   }
@@ -1745,9 +1746,9 @@ export function V4ZCodeTimeline(props: {
     <ZCodeIntlProvider initialLocale="zh-CN">
       {/*
         MessageFileLink / useFileContextActions 强依赖 PlatformProvider；
-        EvoFlow 无桌面 window.zcode，挂 stub，避免 markdown 整段降级为纯文本。
+        EvoFlow 无桌面 window.zcode：用本机 reveal 平台（打开位置），避免 markdown 整段降级。
       */}
-      <PlatformProvider platform={evoflowStubPlatform}>
+      <PlatformProvider platform={evoflowLocalRevealPlatform}>
       <MarkdownTableVariantProvider value="evoflow">
       {/*
         ControlHintTooltip（复制等消息动作）默认 standalone=false，依赖祖先 TooltipProvider。

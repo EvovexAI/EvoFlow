@@ -84,6 +84,9 @@ export class SessionDataLayer {
         clearTimeout(entry.keepWarmTimer);
         entry.keepWarmTimer = null;
       }
+      // 切回已流式会话：warm store 可能卡在 connecting/无订阅；冷开才会 connect()，
+      // 这里补一刀，避免干等 Timeline 遮罩 + 5s watchdog（正式包空白开现场）。
+      entry.store.ensureConnected();
     } else {
       const store = new ConversationProjectionStore(topic, this.transport);
       entry = { store, refCount: 1, keepWarmTimer: null };

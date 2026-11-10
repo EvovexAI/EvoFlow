@@ -1,4 +1,4 @@
-﻿/* React 聊天页：与 chat.css 变量、.msg* 气泡对齐 */
+/* React 聊天页：与 chat.css 变量、.msg* 气泡对齐 */
 
 .chat-react-outlet {
   display: flex;
@@ -4806,6 +4806,123 @@ body.react-chat-session-row-dragging .react-chat-history-item {
 
 .react-chat-session-more-item--warning:hover {
   background: rgba(245, 158, 11, 0.08);
+}
+
+/* ── 会话菜单扩展（对齐 zcode task context menu）：分隔线 / 禁用项 / 子菜单 ── */
+.react-chat-session-menu-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: color-mix(in srgb, var(--border, #e5e7eb) 85%, transparent);
+}
+
+.react-chat-session-more-item--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.react-chat-session-menu-sub {
+  position: relative;
+}
+
+.react-chat-session-menu-sub-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.react-chat-session-menu-sub-arrow {
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+.react-chat-session-submenu {
+  position: absolute;
+  top: -5px;
+  left: calc(100% + 4px);
+  min-width: 150px;
+  max-width: 240px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border, #e5e7eb);
+  background: var(--bg-secondary, #fff);
+  border-radius: 9px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  z-index: 1;
+}
+
+.react-chat-session-submenu-item .react-chat-session-submenu-label {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-chat-session-submenu-empty {
+  padding: 6px 9px;
+  font-size: 11px;
+  color: var(--text-tertiary, #9ca3af);
+}
+
+/* 「标为未读」状态点（对齐 zcode 未读 sky 点；点开会话即清除） */
+.react-chat-session-unread-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0ea5e9;
+  margin-right: 4px;
+}
+
+.react-chat-history-item--unread-marked .react-chat-history-item-title {
+  font-weight: 600;
+}
+
+/* ── 已归档区（对齐 zcode ArchiveGroupCard）：折叠计数，展开列出归档会话 ── */
+.react-chat-session-archived-block {
+  list-style: none;
+  margin-top: 2px;
+}
+
+.react-chat-session-archived-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 7px 12px;
+  color: var(--text-tertiary, #9ca3af);
+  font-size: 11px;
+  text-align: left;
+}
+
+.react-chat-session-archived-toggle:hover {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary, #f3f4f6);
+}
+
+.react-chat-session-archived-chevron {
+  flex-shrink: 0;
+  color: var(--text-tertiary, #9ca3af);
+  transition: transform 0.15s ease;
+}
+
+.react-chat-session-archived-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.react-chat-session-archived-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .react-chat-session-key {
@@ -11053,7 +11170,7 @@ html.dark .react-chat-current-task-expand,
   border-color: color-mix(in srgb, var(--accent) 45%, #cbd5e1);
 }
 
-/* —— 员工摘要：自动上班（单行） —— */
+/* —— 员工摘要：自动巡检（单行） —— */
 .react-chat-employee-schedule {
   display: flex;
   flex-direction: column;

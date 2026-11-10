@@ -301,7 +301,7 @@ async function loadRoleSchedulePreview(role, count = 3) {
   return { schedule, summary: '', next_runs: [] }
 }
 
-function renderScheduleNextRunsTable(preview, { title = '即将自动上班', hideSummary = false } = {}) {
+function renderScheduleNextRunsTable(preview, { title = '即将自动巡检', hideSummary = false } = {}) {
   const runs = Array.isArray(preview?.next_runs) ? preview.next_runs.filter(Boolean) : []
   const summaryRaw = String(preview?.summary || '').trim()
   const summary = !hideSummary && summaryRaw ? cronToPlainZh(summaryRaw) : ''
@@ -342,7 +342,7 @@ function renderScheduleNextRunsTable(preview, { title = '即将自动上班', hi
   </div>`
 }
 
-/** Relative label for past or future ISO times (下次自动上班 is future). */
+/** Relative label for past or future ISO times (下次自动巡检 is future). */
 function fmtTime(iso) {
   if (!iso) return '—'
   try {
@@ -437,9 +437,9 @@ const ACTION_TYPE_LABEL = {
 }
 
 const ROLE_STATUS_LABEL = {
-  active: '在岗',
-  paused: '已停',
-  draft: '已停',
+  active: '已启用',
+  paused: '已停用',
+  draft: '草稿',
 }
 
 const _PLAN_META_KEYS = new Set(['source', 'kind', 'backfill'])
@@ -752,7 +752,7 @@ function renderPatrolRunning(role) {
     <section class="pro-patrol-panel pro-patrol-panel--running" aria-live="polite">
       <div class="pro-patrol-pulse" aria-hidden="true"></div>
       <div class="pro-patrol-copy">
-        <p class="pro-patrol-kicker">正在上班</p>
+        <p class="pro-patrol-kicker">正在巡检</p>
         <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_name || role.agent_code)}</h2>
         <p class="pro-patrol-meta">
           <span>${esc(modeLabel)}</span>
@@ -960,7 +960,7 @@ function renderPatrolDone(report) {
           })
           .join('')}${
           actionable.length > 6
-            ? `<li class="pro-patrol-more">还有 ${actionable.length - 6} 项，见下方上班记录</li>`
+            ? `<li class="pro-patrol-more">还有 ${actionable.length - 6} 项，见下方巡检记录</li>`
             : ''
         }</ul>`
       : `<p class="pro-patrol-empty-hint">${
@@ -983,8 +983,8 @@ function renderPatrolDone(report) {
         <h2 class="pro-patrol-title">${esc(patrolHeadline(report))}</h2>
         ${renderRoundSummaryLine(sc)}
         <p class="pro-patrol-meta">
-          <span>上次上班 ${esc(fmtTime(report?.last_heartbeat_at))}</span>
-          <span>下次自动上班 ${esc(fmtTime(report?.next_heartbeat_at))}</span>
+          <span>上次巡检 ${esc(fmtTime(report?.last_heartbeat_at))}</span>
+          <span>下次自动巡检 ${esc(fmtTime(report?.next_heartbeat_at))}</span>
           ${ws ? `<span title="${esc(ws)}">${esc(pathBasename(ws))}</span>` : ''}
           ${c.pending_approval ? `<span class="pro-patrol-warn">${c.pending_approval} 待审批</span>` : ''}
         </p>
@@ -1197,7 +1197,7 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      // 上班记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
+      // 巡检记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
       initiatives = [
         ...roundsAsWorklogItems(boardRes.rounds || []),
         ...tasksAsWorklogItems(tasks),
@@ -1397,13 +1397,13 @@ function heroDesc(role, initiatives) {
   if (stats.failN) parts.push(`${stats.failN} 失败`)
   const ws = workspaceOf(role)
   if (ws) parts.push(pathBasename(ws))
-  if (role.last_heartbeat_at) parts.push(`上次上班 ${fmtTime(role.last_heartbeat_at)}`)
+  if (role.last_heartbeat_at) parts.push(`上次巡检 ${fmtTime(role.last_heartbeat_at)}`)
   return parts.join(' · ')
 }
 
-/** Detail badge — only 3: 工作中 / 在岗 / 已停
- * 在岗 = 可对话/派活（status=active）；关巡检 ≠ 已停。
- * 已停 = 请假 / 草稿。
+/** Detail badge — 工作中 / 已启用 / 已停用 / 草稿
+ * 已启用 = 可对话/派活（status=active）；关巡检 ≠ 已停用。
+ * 已停用 = paused；草稿 = draft。
  */
 function roleStatusBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
@@ -1411,26 +1411,26 @@ function roleStatusBadge(role, busy = false) {
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
 
   if (st === 'draft') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '草稿未确认，确认后才会排班' }
+    return { label: '草稿', cls: 'pro-badge--muted', tip: '草稿未确认，确认启用后才会排班' }
   }
   if (st === 'paused') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '请假中，不会自动巡检' }
+    return { label: '已停用', cls: 'pro-badge--muted', tip: '已停用，不会自动巡检；启用后可对话 / 派活' }
   }
 
   if (st === 'active') {
     if (suspended) {
       return {
-        label: '在岗',
+        label: '已启用',
         cls: 'pro-badge--ok',
-        tip: '可在线对话 / 派活，不定时巡检',
+        tip: '已启用 · 可在线对话 / 派活，不定时巡检',
       }
     }
     const tipNext = role?.next_heartbeat_at
-      ? `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
-      : '按计划自动巡检'
-    return { label: '在岗', cls: 'pro-badge--ok', tip: tipNext }
+      ? `已启用 · 下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
+      : '已启用 · 按计划自动巡检'
+    return { label: '已启用', cls: 'pro-badge--ok', tip: tipNext }
   }
-  return { label: '已停', cls: 'pro-badge--muted', tip: st || '—' }
+  return { label: '已停用', cls: 'pro-badge--muted', tip: st || '—' }
 }
 
 function fmtPeriodDay(iso) {
@@ -1616,7 +1616,7 @@ function renderRoleProfile(
       }</ul>`
     : ''
 
-  // Hero 能力标签 + 工作量；频率只在「自动上班时间」折叠里出现一次
+  // Hero 能力标签 + 工作量；频率只在「自动巡检时间」折叠里出现一次
   const sheetStats = [
     ...capabilityChips.map((c) => ({
       label: c.label,
@@ -1681,7 +1681,7 @@ function renderRoleProfile(
   const scheduleLabel = roleScheduleSummary(role)
   const schedulePreviewHtml = renderScheduleNextRunsTable(
     schedulePreview || { summary: '', next_runs: [] },
-    { title: '即将自动上班', hideSummary: true },
+    { title: '即将自动巡检', hideSummary: true },
   )
 
   // 职责已在 hero；岗位概要只放审批 / 花费 / 概况 / 记忆，避免再抄一遍频率与职责
@@ -1750,14 +1750,14 @@ function renderRoleProfile(
       <div class="pro-duty-sheet-body" data-role="overview-folds">
         <details class="pro-duty-fold" data-fold="schedule" open>
           <summary class="pro-duty-fold-sum">
-            <span class="pro-duty-fold-title">自动上班时间</span>
+            <span class="pro-duty-fold-title">自动巡检时间</span>
             <span class="pro-duty-fold-meta">${esc(nextDutyMeta || '未设周期')}</span>
             <span class="pro-duty-fold-chev" aria-hidden="true"></span>
           </summary>
           <div class="pro-duty-fold-body">
             <div class="detail-grid pro-duty-sheet-grid">
-              ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-              ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+              ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+              ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
             </div>
             ${schedulePreviewHtml}
           </div>
@@ -1839,9 +1839,9 @@ function renderEmployeeConfigPanels(role, {
 
   const runtimeBody = `<div class="detail-grid pro-duty-sheet-grid">
     ${field(AUTONOMY_FIELD_LABEL, `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
-    ${field('自动上班', esc(scheduleLabel))}
-    ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-    ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+    ${field('自动巡检', esc(scheduleLabel))}
+    ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+    ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
     ${field(
       '审批通道',
       esc(
@@ -1879,9 +1879,9 @@ function renderEmployeeConfigPanels(role, {
       '超额策略',
       esc(
         ({
-          skip_patrol: '超额后跳过上班并通知',
+          skip_patrol: '超额后跳过巡检并通知',
           pause_role: '超额后暂停岗位',
-          notify_only: '超额后仅通知仍可上班',
+          notify_only: '超额后仅通知仍可巡检',
         })[String(cfg.budget_exceed_policy || 'skip_patrol')] || String(cfg.budget_exceed_policy || 'skip_patrol'),
       ),
     )}
@@ -1906,16 +1906,16 @@ function renderEmployeeConfigPanels(role, {
         <summary class="pro-config-fold__sum">
           <div>
             <h3>运行设置</h3>
-            <p>上班频率、排班、审批通道 — 想让它自动干活再配</p>
+            <p>巡检频率、排班、审批通道 — 想让它自动干活再配</p>
           </div>
           <span class="pro-duty-fold-chev" aria-hidden="true"></span>
         </summary>
         <div class="pro-config-fold__body">
           <div class="detail-grid pro-duty-sheet-grid">
             ${field(AUTONOMY_FIELD_LABEL, `<span class="pro-chip-tip" data-tip="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
-            ${field('自动上班', esc(scheduleLabel))}
-            ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-            ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+            ${field('自动巡检', esc(scheduleLabel))}
+            ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+            ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
             ${field(
               '审批通道',
               esc(
@@ -1940,7 +1940,7 @@ function renderEmployeeConfigPanels(role, {
           </div>
           ${renderScheduleNextRunsTable(
             schedulePreview || { summary: '', next_runs: [] },
-            { title: '即将自动上班', hideSummary: true },
+            { title: '即将自动巡检', hideSummary: true },
           )}
         </div>
       </details>
@@ -1971,9 +1971,9 @@ function renderEmployeeConfigPanels(role, {
               '超额策略',
               esc(
                 ({
-                  skip_patrol: '超额后跳过上班并通知',
+                  skip_patrol: '超额后跳过巡检并通知',
                   pause_role: '超额后暂停岗位',
-                  notify_only: '超额后仅通知仍可上班',
+                  notify_only: '超额后仅通知仍可巡检',
                 })[String(cfg.budget_exceed_policy || 'skip_patrol')] || String(cfg.budget_exceed_policy || 'skip_patrol'),
               ),
             )}
@@ -2040,7 +2040,7 @@ function renderEmployeeMetricsPanels({ memory = null, cost = null, performance =
               : '<p class="pro-kpi-hint">近 7 日暂无成本采样</p>'
           }
         </div>`
-    : '<span class="pro-item-muted">暂无成本数据（上班跑过后会累计）</span>'
+    : '<span class="pro-item-muted">暂无成本数据（巡检跑过后会累计）</span>'
 
   const memStrategies = Array.isArray(memory?.strategies) ? memory.strategies.filter(Boolean).slice(-5).reverse() : []
   const memObs = Array.isArray(memory?.observations) ? memory.observations.filter(Boolean).slice(-4).reverse() : []
@@ -2394,8 +2394,8 @@ function renderEmployeeShell(
   const primaryWorkLabel = busy
     ? '停止工作'
     : role.status === 'paused'
-      ? '恢复并立即上班'
-      : '立即上班'
+      ? '启用并立即巡检'
+      : '立即巡检'
   const primaryWorkAct = busy ? 'stop-work' : 'heartbeat'
   const moreItems = []
   if (role.status === 'active' || role.status === 'paused' || busy) {
@@ -2423,7 +2423,7 @@ function renderEmployeeShell(
     )
   }
   const tabs = [
-    { key: 'rounds', label: '上班记录' },
+    { key: 'rounds', label: '巡检记录' },
     { key: 'growth', label: '成长' },
     { key: 'metrics', label: '运行数据' },
     { key: 'config', label: '配置' },
@@ -2759,7 +2759,7 @@ function renderRoundSection(code, round, { dayRoundIdx, dayRoundTotal, highlight
   const clock = fmtRoundClock(round.at)
   const nth = Number(dayRoundTotal || 0) - Number(dayRoundIdx || 0)
   const label = round.round_id
-    ? `${clock ? `${clock} · ` : ''}本日第 ${nth} 次上班`
+    ? `${clock ? `${clock} · ` : ''}本日第 ${nth} 次巡检`
     : `${clock ? `${clock} · ` : ''}零散工作项`
   const taskItems = (round.actionable || round.items.filter((i) => !isRoundLog(i))).filter(
     (i) => i._is_task || !i._migrated_to_task,
@@ -2843,7 +2843,7 @@ function renderWorklogDayBar(initiatives, selectedDay = WORKLOG_RECENT2) {
   return `
     <div class="pro-worklog-daybar" data-role="worklog-daybar">
       <div class="pro-worklog-daybar-left">
-        <span class="pro-worklog-daybar-label">上班日期</span>
+        <span class="pro-worklog-daybar-label">巡检日期</span>
         <div class="pro-worklog-daychips" role="tablist" aria-label="快捷日期">
           ${chips
             .map(
@@ -2991,7 +2991,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
   if (!initiatives.length) {
     return `<div class="pro-empty">
       <p class="pro-empty-title">还没有本岗工作项</p>
-      <p class="pro-empty-desc">点右上角「现在开始工作」或派发任务后，这里默认展示近 2 天上班记录。更早记录用「本岗全部任务」在任务中心筛选。</p>
+      <p class="pro-empty-desc">点右上角「现在开始工作」或派发任务后，这里默认展示近 2 天巡检记录。更早记录用「本岗全部任务」在任务中心筛选。</p>
     </div>`
   }
 
@@ -3002,7 +3002,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     days = days.filter((d) => allow.has(d.day_key))
     if (!days.length) {
       return `<div class="pro-empty">
-        <p class="pro-empty-title">近 2 天暂无上班记录</p>
+        <p class="pro-empty-title">近 2 天暂无巡检记录</p>
         <p class="pro-empty-desc">可换「今天 / 昨天 / 其它日期」，或点「本岗全部任务」在任务中心查看历史</p>
       </div>`
     }
@@ -3010,7 +3010,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     days = days.filter((d) => d.day_key === selectedDay)
     if (!days.length) {
       return `<div class="pro-empty">
-        <p class="pro-empty-title">${esc(dayLabelFromKey(selectedDay))}暂无上班记录</p>
+        <p class="pro-empty-title">${esc(dayLabelFromKey(selectedDay))}暂无巡检记录</p>
         <p class="pro-empty-desc">换一天看看，或点「近2天」；更早请用「本岗全部任务」</p>
       </div>`
     }
@@ -3019,7 +3019,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     '<div class="pro-worklog-rounds">' +
     days
       .map((day) => {
-        const metaBits = [`${day.roundN} 次上班`]
+        const metaBits = [`${day.roundN} 次巡检`]
         if (day.actionableN) metaBits.push(`${day.actionableN} 个工作项`)
         return `
         <section class="pro-worklog-day" data-day="${esc(day.day_key)}">
@@ -3997,7 +3997,7 @@ function showStartWorkModal(role) {
         </header>
 
         <div class="hire-sheet-body">
-          <p class="hire-chip-hint">可填写本轮要优先处理的事项；不填则按岗位职责常规上班。</p>
+          <p class="hire-chip-hint">可填写本轮要优先处理的事项；不填则按岗位职责常规巡检。</p>
           <label class="hire-field">
             <span>本轮事项（可选）</span>
             <textarea
@@ -4101,7 +4101,7 @@ function bindEmployeePage(page, role, initiatives) {
       return
     }
     const ok = await showConfirm(
-      `停止「${name}」当前工作？\n\n将取消进行中的上班轮次，并暂停到点自动值班（需手动点「上班」恢复）。`,
+      `停止「${name}」当前工作？\n\n将取消进行中的巡检轮次，并暂停到点自动巡检（需手动「启用」后才会再跑）。`,
     )
     if (!ok) return
     try {
@@ -4115,12 +4115,12 @@ function bindEmployeePage(page, role, initiatives) {
       const btn = page.querySelector('[data-act="stop-work"]')
       if (btn) {
         btn.dataset.act = 'heartbeat'
-        btn.textContent = '立即上班'
+        btn.textContent = '立即巡检'
       }
       const statusEl = page.querySelector('[data-role-status]')
       if (statusEl) {
         statusEl.className = 'pro-badge pro-badge--ok'
-        statusEl.textContent = '在岗'
+        statusEl.textContent = '已启用'
       }
     } catch (e) {
       toast(`停止失败: ${e?.message || e}`, 'error')
@@ -4371,9 +4371,9 @@ function bindEmployeePage(page, role, initiatives) {
         try {
           await api.proactiveResumeRole(role.agent_code)
           role.status = 'active'
-          toast('已恢复自动上班', 'success')
+          toast('已启用', 'success')
         } catch (e) {
-          toast(`恢复失败: ${e?.message || e}`, 'error')
+          toast(`启用失败: ${e?.message || e}`, 'error')
           return
         }
       }

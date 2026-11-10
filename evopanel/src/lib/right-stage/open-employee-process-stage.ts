@@ -193,6 +193,46 @@ export function openEmployeeProcessInRightStage(
   return id
 }
 
+/**
+ * 部门群聊 @ 唤醒：在 chatSend 之前把右栏钉到员工 sticky 会话，
+ * 否则群气泡在流、摘要只有「回复中」，右栏看不到实时过程记录。
+ *
+ * - depth 0（用户/@管家首轮）：forceExpand，立刻看见跟岗时间线
+ * - 嵌套接力：只写/激活签，尊重用户收起锁（与 platform autoOpen 同语义）
+ */
+export function openDeptGroupWakeProcessInRightStage(input: {
+  deptId: string
+  agentCode: string
+  roleName?: string
+  /** 主壳会话（dept:{id}:chat），钉标签归属 */
+  shellSessionKey?: string | null
+  employeeSessionKey?: string | null
+  /** 唤醒深度；0 = 用户本轮点名 */
+  depth?: number
+}): string {
+  const code = String(input.agentCode || '').trim()
+  if (!code) return ''
+  const roleName = String(input.roleName || '').trim() || code
+  const ownerSk = String(input.shellSessionKey || '').trim()
+  const employeeSk = String(input.employeeSessionKey || '').trim()
+  const depth = Math.max(0, Number(input.depth) || 0)
+  return openEmployeeProcessInRightStage(
+    {
+      taskId: `live:${code}`,
+      agentCode: code,
+      roleName,
+      title: roleName,
+      busy: true,
+      employeeSessionKey: employeeSk || undefined,
+    },
+    {
+      sessionKey: ownerSk || undefined,
+      layout: 'wide',
+      forceExpand: depth === 0,
+    },
+  )
+}
+
 /** 面板消费完 pending 首发后清掉，避免切回页签重复发送。 */
 export function clearEmployeeProcessPendingSend(
   taskId: string,

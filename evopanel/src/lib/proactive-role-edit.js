@@ -43,9 +43,9 @@ const THINK_MODE_LABELS = {
 }
 
 const BUDGET_POLICY_LABELS = {
-  skip_patrol: '超额后跳过上班并通知',
+  skip_patrol: '超额后跳过巡检并通知',
   pause_role: '超额后暂停岗位',
-  notify_only: '超额后仅通知仍可上班',
+  notify_only: '超额后仅通知仍可巡检',
 }
 
 function parseLines(text) {
@@ -194,7 +194,7 @@ function renderKnowledgeVaultField(vaults, selectedIds) {
   return `
     <div class="hire-field">
       <span>绑定哪些知识库</span>
-      <p class="hire-chip-hint">勾选后，本岗上班/对话可查阅这些库里的资料。可多选。</p>
+      <p class="hire-chip-hint">勾选后，本岗巡检/对话可查阅这些库里的资料。可多选。</p>
       <div class="hire-vault-list" data-name="knowledge_vault_ids">
         ${vaults
           .map((v) => {
@@ -329,7 +329,7 @@ function renderModelField(models, selected = '') {
         </ul>
         <input type="hidden" data-name="model_name" value="${esc(cur)}">
       </div>
-      <p class="hire-chip-hint">仅作用于该岗位的自动上班与执行；留空则跟随绑定智能体的默认模型</p>
+      <p class="hire-chip-hint">仅作用于该岗位的自动巡检与执行；留空则跟随绑定智能体的默认模型</p>
     </div>`
 }
 
@@ -377,7 +377,7 @@ function renderAgentPickField(available, selectedCode) {
         </ul>
         <input type="hidden" data-name="agent_code" value="${esc(value)}">
       </div>
-      <p class="hire-chip-hint">可换成尚未确认上班的其他智能体；历史事项会跟岗位一起迁移</p>
+      <p class="hire-chip-hint">可换成尚未确认启用的其他智能体；历史事项会跟岗位一起迁移</p>
     </div>`
 }
 
@@ -803,7 +803,7 @@ function renderAgentNativePanel(detail) {
     soul: '',
   }
   return `
-    <p class="hire-chip-hint">名称与系统提示词以智能体为准（聊天与上班共用）。旧「岗位职责」若仍存在，已合并进下方提示词。工具 / MCP / 技能请用左侧对应分区配置。</p>
+    <p class="hire-chip-hint">名称与系统提示词以智能体为准（聊天与巡检共用）。旧「岗位职责」若仍存在，已合并进下方提示词。工具 / MCP / 技能请用左侧对应分区配置。</p>
     <label class="hire-field">
       <span>名称</span>
       <input class="hire-input" data-name="agent_display_name" value="${esc(d.agent_name)}" placeholder="例如：创意广告负责人、AIGC 编剧">
@@ -1222,7 +1222,7 @@ export async function showEditRoleModal(role, {
                 <p class="hire-chip-hint" data-autonomy-hint>${esc(autonomyHint(autonomy))}</p>
               </div>
               <div class="hire-field">
-                <span>自动上班</span>
+                <span>自动巡检</span>
                 ${scheduleCtrl.html}
                 <p class="hire-chip-hint">与「自动化」任务同一套调度；手动「现在开始工作」不受限制。</p>
               </div>
@@ -1246,7 +1246,7 @@ export async function showEditRoleModal(role, {
                   <option value="pause_role"${budgetPolicy === 'pause_role' ? ' selected' : ''}>${esc(BUDGET_POLICY_LABELS.pause_role)}</option>
                   <option value="notify_only"${budgetPolicy === 'notify_only' ? ' selected' : ''}>${esc(BUDGET_POLICY_LABELS.notify_only)}</option>
                 </select>
-                <p class="hire-chip-hint">每日预算在上班开始前检查；单次预算在本轮结束后检查。</p>
+                <p class="hire-chip-hint">每日预算在巡检开始前检查；单次预算在本轮结束后检查。</p>
               </label>
             </div>
           </div>
@@ -1514,7 +1514,7 @@ export async function showEditRoleModal(role, {
     }
     if (heartbeat_schedule !== roleScheduleExpr(role)) {
       roleChanges.push(
-        `自动上班：${roleScheduleSummary(role)} → ${prettyRrule(heartbeat_schedule)}`,
+        `自动巡检：${roleScheduleSummary(role)} → ${prettyRrule(heartbeat_schedule)}`,
       )
     }
     if (nextDaily !== dailyBudget) roleChanges.push(`每日预算：$${dailyBudget} → $${nextDaily}`)
@@ -1566,7 +1566,7 @@ export async function showEditRoleModal(role, {
     try {
       const busyRes = await api.proactiveRoleBusy(role.agent_code).catch(() => ({ busy: false }))
       const impactKeys = [
-        '自动上班',
+        '自动巡检',
         '每日预算',
         '审批策略',
         '工作模型',
@@ -1580,7 +1580,7 @@ export async function showEditRoleModal(role, {
       let summary = `将保存以下变更：\n\n${(changes.length ? changes : ['名称与提示词已与智能体对齐']).map((c) => `· ${c}`).join('\n')}`
       if (busyRes?.busy || (role.status === 'active' && impactsRunning)) {
         summary =
-          '该员工可能正在运行或即将自动上班，配置变更将影响后续轮次。\n\n' + summary
+          '该员工可能正在运行或即将自动巡检，配置变更将影响后续轮次。\n\n' + summary
       }
       const contSave = await showConfirm(`${summary}\n\n确认保存？`)
       if (!contSave) {

@@ -4,8 +4,6 @@
 
 **进化的工作流（Evolutionary Workflow）。**
 
-**本项目后续由 EvoFlow 研发部的 AI 员工持续迭代，自我进化优化。**
-
 由 [EvovexAI](https://www.evovexai.com) 打造：AI 员工把长任务真正做完——规划、拆解、执行、恢复与交付，全程可观测、可干预。
 
 [![Release](https://img.shields.io/github/v/release/EvovexAI/EvoFlow?style=flat-square&color=6366f1)](https://github.com/EvovexAI/EvoFlow/releases)
@@ -24,8 +22,6 @@
 
 ## 简介
 
-**本项目后续由 EvoFlow 研发部的 AI 员工持续迭代，自我进化优化。**
-
 EvoFlow = **Evo**lutionary **Flow**：不是「又一个聊天窗」，而是把工作流本身做成可进化的组织——智能体员工有岗位、值班、审批与汇报；跑完的经验进资产中心，下一轮少从头教。控制平面覆盖对话、Plan、Goal、任务中心、工作流与可观测性。
 
 延伸阅读：[为什么用 EvoFlow](docs/user/explanation/why-evoflow.md) · [生态对照（DF / 爱马仕 / Codex / 小龙虾）](docs/user/explanation/ecosystem-comparison.md) · [Agent 体系](docs/user/explanation/agent-system.md)
@@ -38,7 +34,7 @@ EvoFlow = **Evo**lutionary **Flow**：不是「又一个聊天窗」，而是把
 - **Agent Teams · 智能体员工** — 多 Agent 分工；岗位值班与关键审批、汇报
 - **应用中心 / 自动化** — 多节点固定业务工作流产品化；定时与 IM 派发
 - **工作空间 · 代码索引** — 项目目录边界；符号/引用图谱供 Agent 检索
-- **自我进化** — 资产沉淀（经验 / 反思 / 画像）；本项目由 EvoFlow 研发部 AI 员工持续迭代优化
+- **自我进化** — 资产沉淀（经验 / 反思 / 画像），下一轮少从头教
 - **治理套件** — 多账号/SSO、费用统计、运维观测、安全中心
 - **资源市场** — 资源包与 Agent 应用安装；技能与 MCP 扩展能力
 - **沙箱与可观测** — 隔离执行；任务、工具调用与用量可见

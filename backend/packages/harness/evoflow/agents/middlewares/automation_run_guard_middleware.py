@@ -45,7 +45,7 @@ _PROACTIVE_SOFT_WRAP_HUMAN = (
     "或 terminal：``evoflow tasks progress <task_id> --progress N`` / "
     '``evoflow tasks state <id> --status completed --summary "…"``'
     "（需要协作则 wake / approvals；进度无 ``--note``）。\n"
-    "2. **进度/结案成功后本窗口探测额度会重置**——那不是下班信号，"
+    "2. **进度/结案成功后本窗口探测额度会重置**——那不是巡检结束信号，"
     "重置后应继续取证/改码；勿再说「额度用完」或提前结束本轮。\n"
     "本轮总工具次数仍有硬上限。禁止再 read / rg / find / write / web_* / mind_map"
     "（直到进度成功、额度重置）。"

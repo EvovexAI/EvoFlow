@@ -48,11 +48,15 @@ def config_dir() -> Path:
     home_env = os.getenv("EVOFLOW_HOME", "").strip()
     if home_env:
         profile = Path(home_env).expanduser().resolve()
-        # EVOFLOW_HOME = <evoflow_dir>/profiles/<id> 时上溯两级即共享根。
+        # 形态一：EVOFLOW_HOME = <evoflow_dir>/profiles/<id> 时上溯两级即共享根。
         if profile.parent.name == "profiles":
             root = profile.parent.parent
             if root.name in (".evoflow", ".evoflow-dev") and root.parent == _home():
                 return root
+        # 形态二：EVOFLOW_HOME 直接指向 .evoflow / .evoflow-dev 根
+        # （scripts/set-evoflow-dev-env.ps1 的开发约定：EVOFLOW_HOME=~/.evoflow-dev）。
+        if profile.name in (".evoflow", ".evoflow-dev") and profile.parent == _home():
+            return profile
     return _home() / ".evoflow"
 
 

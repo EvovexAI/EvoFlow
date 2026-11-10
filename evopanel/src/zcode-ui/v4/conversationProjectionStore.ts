@@ -647,7 +647,19 @@ export class ConversationProjectionStore {
     this.setState({ status: "connecting" });
     this.connectRetryTimer = setTimeout(() => {
       this.connectRetryTimer = null;
-      if (this.closed || generation !== this.generation) return;
+      if (this.closed) return;
+      if (generation !== this.generation) {
+        // 与 recycle 同口径：代际被别处 bump 且无人接手时，旧 timer 不能静默吞掉，
+        // 否则会永久 connecting、无订阅（切会话空白开的同族现场）。
+        if (
+          this.connectInFlight === 0 &&
+          this.state.status === "connecting" &&
+          !this.state.subscriptionId
+        ) {
+          void this.connect();
+        }
+        return;
+      }
       void this.connect();
     }, delayMs);
     return true;
@@ -697,6 +709,28 @@ export class ConversationProjectionStore {
     // 迟到 ACK 会因 generation 失配被退订，不会污染新投影。
     this.generation += 1;
     return this.connect();
+  }
+
+  /**
+   * Warm reopen / 切回话：若 store 卡在 connecting 且无在途 subscribe（或已 error），
+   * 立刻重连，不要干等 UI 5s watchdog。健康 live / 在途 connect 不打扰。
+   * 正式包现场：多会话并发流式切回时 blank 到旧回合 sse_final 才间接救活。
+   */
+  ensureConnected(): void {
+    if (this.closed) return;
+    const st = this.state;
+    if (st.status === "live" && st.snapshot) return;
+    if (st.status === "live" && st.subscriptionId && !st.snapshot) {
+      this.recoverFromStaleAuthority();
+      return;
+    }
+    if (st.status === "error") {
+      void this.retry();
+      return;
+    }
+    if (st.status === "connecting" && !st.subscriptionId && this.connectInFlight === 0) {
+      void this.retry();
+    }
   }
 
   /** row command/query 的 epoch/entity authority 失效，复用 same-sub recovery 收敛。 */

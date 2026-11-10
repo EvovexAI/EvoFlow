@@ -1518,15 +1518,20 @@ def log_compaction_pass_result(
     thread_id: str,
     model_name: str | None = None,
     pass_label: str,
+    trigger_source: str = "auto",
 ) -> None:
-    """Log one compaction pass: tokens/messages before → after."""
+    """Log one compaction pass: tokens/messages before → after.
+
+    ``trigger_source``: manual（手动压缩）/ emergency（超窗兜底）/ auto（阈值触发）。
+    """
     b = compaction_token_snapshot(before, context_length=context_length)
     a = compaction_token_snapshot(after, context_length=context_length)
     saved = b["gate_tokens"] - a["gate_tokens"]
     saved_pct = (saved / b["gate_tokens"] * 100.0) if b["gate_tokens"] > 0 else 0.0
     logger.info(
-        "[context-compaction] PASS %s thread=%s model=%s | %s → %s | Δ -%d tok (-%.1f%%)",
+        "[context-compaction] PASS %s [%s] thread=%s model=%s | %s → %s | Δ -%d tok (-%.1f%%)",
         pass_label,
+        trigger_source,
         (thread_id or "")[:16],
         model_name or "?",
         _format_compaction_snapshot_brief(b),
@@ -1542,6 +1547,7 @@ def log_compaction_pass_result(
             thread_id=thread_id,
             model_name=model_name,
             pass_label=pass_label,
+            trigger_source=trigger_source,
             context_length=context_length,
             model_context=f"{context_length // 1000}k",
             before=_format_compaction_snapshot_brief(b),
@@ -1563,6 +1569,7 @@ def log_compaction_model_payload(
     model_name: str | None = None,
     passes: list[str] | None = None,
     note: str = "",
+    trigger_source: str = "auto",
 ) -> None:
     """Log final model-bound context: compression before → after (ephemeral payload)."""
     b = compaction_token_snapshot(before, context_length=context_length)
@@ -1576,7 +1583,7 @@ def log_compaction_model_payload(
     else:
         effect = f"减少 {saved} tok (-{saved_pct:.1f}%)"
     logger.info(
-        "[context-compaction] 模型上下文 thread=%s model=%s | 压缩前: %s | 压缩后: %s | %s | passes=[%s]%s",
+        "[context-compaction] 模型上下文 thread=%s model=%s | 压缩前: %s | 压缩后: %s | %s | passes=[%s]%s | source=%s",
         (thread_id or "")[:16],
         model_name or "?",
         _format_compaction_snapshot_brief(b),
@@ -1584,6 +1591,7 @@ def log_compaction_model_payload(
         effect,
         pass_s,
         note_s,
+        trigger_source,
     )
     try:
         from evoflow.observability.compaction_file_log import count_message_rounds, log_compaction_trace
@@ -1592,6 +1600,7 @@ def log_compaction_model_payload(
             "模型上下文",
             thread_id=thread_id,
             model_name=model_name,
+            trigger_source=trigger_source,
             context_length=context_length,
             model_context=f"{context_length // 1000}k",
             before=_format_compaction_snapshot_brief(b),

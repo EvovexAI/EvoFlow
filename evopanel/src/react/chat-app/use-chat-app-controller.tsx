@@ -1159,6 +1159,23 @@ export function useChatAppController() {
     executingSessionKeysRef.current = executingSessionKeys
   }, [executingSessionKeys])
 
+  // 后台正在跑的会话提前挂 V4 keep-warm：切回去时尽量已有快照，避免空白遮罩干等 subscribe。
+  // 限流在 warmEvoflowV4Session 内（窗口 2 冷开 / 最多 6 live），不 force 以免扫表打爆。
+  useEffect(() => {
+    if (!isEvoflowChatV4Enabled()) return
+    const selected = String(selectedSessionKey || '').trim()
+    for (const sk of executingSessionKeys) {
+      const key = String(sk || '').trim()
+      if (!key || key === selected) continue
+      const threadId = String(
+        sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === key)?.threadId ||
+          wsClient?.getSessionThreadId?.(key) ||
+          '',
+      ).trim()
+      if (threadId) warmEvoflowV4Session(threadId)
+    }
+  }, [executingSessionKeys, selectedSessionKey])
+
   const seenRunIdsRef = useRef(new Set<string>())
   const activeChatRunIdRef = useRef<string | null>(null)
   /** 供「切换会话」清理逻辑读取上一 key；勿用 sessionRef（layout 中已指向新会话） */

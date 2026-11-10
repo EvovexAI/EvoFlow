@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>演示工作台 · EvoFlow</title>
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+    rel="stylesheet"
+  />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 7h14" /><path d="M5 12h9" /><path d="M5 17h6" />
+            <circle cx="16.5" cy="16.5" r="3.2" /><path d="m18.9 18.9 2.1 2.1" />
+          </svg>
+        </span>
+        <span class="brand-text">
+          <b>演示工作台</b>
+          <small>EvoFlow Demo Studio</small>
+        </span>
+      </div>
+
+      <nav class="primary-nav" id="primary-nav">
+        <button class="nav-item active" data-view="overview">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="7.4" height="7.4" rx="2"/><rect x="13.1" y="3.5" width="7.4" height="7.4" rx="2"/><rect x="3.5" y="13.1" width="7.4" height="7.4" rx="2"/><rect x="13.1" y="13.1" width="7.4" height="7.4" rx="2"/></svg>
+          <span>总览</span>
+        </button>
+        <button class="nav-item" data-view="employees">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.4"/><path d="M3.5 19.5c.7-3.2 2.9-4.8 5.5-4.8s4.8 1.6 5.5 4.8"/><circle cx="17" cy="9.5" r="2.4"/><path d="M16 14.6c2.1.2 3.7 1.5 4.4 3.9"/></svg>
+          <span>员工体系</span>
+        </button>
+        <button class="nav-item" data-view="workflows">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.6"/><circle cx="18" cy="12" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.5 7.3 15.5 11"/><path d="M8.4 16.6 15.5 13"/></svg>
+          <span>工作流</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-spacer"></div>
+
+      <div class="system-mini">
+        <div class="sys-row">
+          <span class="sys-dot" id="gw-dot"></span>
+          <span id="gw-label">网关检测中…</span>
+        </div>
+        <div class="sys-row muted" id="gw-port" hidden></div>
+        <div class="sys-row muted sys-src" title="源码位于用户数据目录，可直接编辑后刷新本页">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m8 8-4 4 4 4"/><path d="m16 8 4 4-4 4"/><path d="m13.5 5-3 14"/></svg>
+          <span>源码：ui-extensions/demo-workbench</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main-area">
+      <header class="topbar">
+        <div class="crumb">演示工作台 <span class="crumb-sep">/</span> <b id="crumb-view">总览</b></div>
+        <div class="top-actions">
+          <span class="live-chip" id="live-chip"><span class="live-dot"></span><span id="live-text">连接中…</span></span>
+          <button class="ghost-btn" id="btn-refresh" title="立即刷新当前视图">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 5v6h-6"/></svg>
+            刷新
+          </button>
+        </div>
+      </header>
+      <main class="page" id="page" aria-live="polite"></main>
+    </div>
+  </div>
+
+  <div class="toast-wrap" id="toast-wrap"></div>
+  <script src="./app.js"></script>
+</body>
+</html>

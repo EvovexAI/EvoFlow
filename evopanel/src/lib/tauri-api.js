@@ -3177,7 +3177,7 @@ export const api = {
   proactiveDeleteRole: async (code) => gatewayProxy('DELETE', `/proactive/roles/${encodeURIComponent(String(code || ''))}`),
   proactivePauseRole: async (code) =>
     gatewayProxy('PUT', `/proactive/roles/${encodeURIComponent(String(code || ''))}/pause`),
-  /** 仅停止在途上班，不暂停岗位自动巡检 */
+  /** 仅停止在途巡检，不暂停岗位自动巡检 */
   proactiveStopRole: async (code) =>
     gatewayProxy('POST', `/proactive/roles/${encodeURIComponent(String(code || ''))}/stop`),
   proactiveResumeRole: async (code) =>

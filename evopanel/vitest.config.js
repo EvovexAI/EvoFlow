@@ -40,6 +40,7 @@ export default defineConfig({
     environment: 'happy-dom',
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
+      'tests/shell-session-list-menu.test.tsx',
       'tests/platform-scope-ui.test.js',
       'tests/v4-wire-conformance.test.ts',
       'tests/v4-running-text-interleave.test.ts',
@@ -181,6 +182,7 @@ export default defineConfig({
       'tests/chat-pane-mode.test.ts',
       'tests/chat-ws-foreground.test.js',
       'tests/conversation-turn-session-busy.test.ts',
+      'tests/platform-media-turn-end.test.ts',
       'tests/home-live-activity.test.ts',
       'tests/task-runtime-health.test.js',
       'tests/system-prompt-sections.test.js',

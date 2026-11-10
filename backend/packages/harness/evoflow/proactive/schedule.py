@@ -335,7 +335,7 @@ def cron_matches_role_now(role: ProactiveRole, when: datetime | None = None) -> 
 def resolve_work_window(role: ProactiveRole) -> tuple[int, int] | None:
     """Return the ``(start_hour, end_hour)`` work window, or ``None`` when unlimited.
 
-    ``work_schedule_enabled=False`` means「不受上班时间限制」. A window whose
+    ``work_schedule_enabled=False`` means「不受巡检时段限制」. A window whose
     ``start >= end`` is treated as **overnight** (e.g. 22 → 6 = night shift) and
     is returned as-is so the caller can compare against the wrapped hour.
     """
@@ -376,8 +376,8 @@ def work_window_label_zh(role: ProactiveRole) -> str:
     """Human label for the role's work window (for skip reasons / UI)."""
     window = resolve_work_window(role)
     if window is None:
-        return "不限上班时间"
+        return "不限巡检时段"
     start, end = window
     if start < end:
-        return f"上班时间 {start:02d}:00–{end:02d}:00"
-    return f"上班时间 {start:02d}:00–次日{end:02d}:00"
+        return f"巡检时段 {start:02d}:00–{end:02d}:00"
+    return f"巡检时段 {start:02d}:00–次日{end:02d}:00"

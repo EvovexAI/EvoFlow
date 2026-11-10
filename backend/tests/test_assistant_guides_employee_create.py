@@ -21,7 +21,7 @@ def test_employee_create_guide_has_say_to_user_and_bind_hint():
     assert "对话" in say or "面板" in say
     assert "飞书" in say or "企微" in say
     assert "派发" in say or "派" in say
-    assert "上班" in say or "值班" in say
+    assert "上班" in say or "值班" in say or "巡检" in say
     assert "顶级" in say or "reports_to" in say
     assert "审核由系统管" in say
     assert "handlers" in say

@@ -361,3 +361,44 @@ async def test_hub_goal_command_acks(goal_db: str) -> None:
     env = {"commandId": "cmd-g6", "type": "pauseGoal", "sessionId": "hub-goal-cmd-none", "payload": {}}
     ack = await HUB._execute_command(env, None)  # noqa: SLF001
     assert ack["status"] == "noop"
+
+
+@pytest.mark.asyncio
+async def test_engine_time_accounting_settles(goal_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """续跑 run 结束 → 工时结算进 time_used_seconds（状态面板「已工作」的数据源）。"""
+    import time as _time
+
+    from app.gateway.v4.conversation import HUB
+    from app.gateway.v4.goal_engine import get_v4_goal_engine
+    from evoflow.persistence import v4_goal_repositories as repo
+
+    engine = get_v4_goal_engine()
+    sid = "engine-time-1"
+    HUB._get_or_create_session(sid)  # noqa: SLF001
+
+    async def fake_worker(_sid: str) -> None:
+        return None
+
+    async def fake_verifier(_sid: str, _row: dict[str, Any]) -> dict[str, Any]:
+        return {"passed": True, "reason": "ok"}
+
+    monkeypatch.setattr(engine, "_continuation_worker", fake_worker)
+    monkeypatch.setattr(engine, "_run_verifier", fake_verifier)
+    engine.set_goal(sid, "deliver")
+
+    # 模拟续跑 run：记账起点回拨 90 秒
+    repo.patch_v4_goal_atomic(
+        sid, fields={"active_run_started_at_ms": int(_time.time() * 1000) - 90_000}
+    )
+    engine._continuation_run_ids[sid] = "run-time-1"  # noqa: SLF001
+    engine.on_run_finished(sid, run_id="run-time-1")
+    for _ in range(60):
+        await asyncio.sleep(0.05)
+        row = engine.get_goal_row(sid)
+        if row and row["status"] == "verified":
+            break
+    row = engine.get_goal_row(sid)
+    assert row is not None and row["status"] == "verified", row
+    assert row["time_used_seconds"] >= 85, f"time not settled: {row['time_used_seconds']}"
+    # 结算后 active_run_started_at_ms 清零（验证期不会双计）
+    assert row["active_run_started_at_ms"] is None

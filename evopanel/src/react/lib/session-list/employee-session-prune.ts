@@ -15,7 +15,7 @@
  *   ou_ 前缀（IM 外部身份）不算员工归属（对应过滤 SQL 的豁免分支）。
  * - 在册判定 = agent_code 存在于 `GET /proactive/roles`（不带 status，
  *   active + paused + draft 全量，与后端 `SELECT agent_code FROM
- *   evoflow_proactive_roles` 一致；带 active 会误剪请假员工的会话）。
+ *   evoflow_proactive_roles` 一致；带 active 会误剪已停用 BOT 的会话）。
  *
  * 故意不写删除墓碑：agent_code 可由用户显式指定，删掉重录同名 code 是
  * 合法操作，墓碑会把新员工的会话一并藏掉。快照靠剪枝后 saveSessionSnapshot

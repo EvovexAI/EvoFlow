@@ -271,7 +271,7 @@ def cron_human_summary(expr: str) -> str:
 
     time_label = _format_time_fields(min_f, hour_f)
     if not time_label:
-        return "按计划自动上班"
+        return "按计划自动巡检"
 
     if star(dom_f) and star(mon_f) and not star(dow_f):
         dow_label = _format_dow_field(dow_f)

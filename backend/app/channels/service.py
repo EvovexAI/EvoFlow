@@ -366,13 +366,30 @@ class ChannelService:
         if not self._persist_channels_db():
             return False
 
-        # Restart or start channel when enabled (primary + per-account slots)
-        await self._stop_channel_family(name)
-
-        if config.get("enabled", False):
-            return await self._start_channel(name, config)
-
+        # Persist first, restart off the request path. Awaiting stop+start of
+        # Feishu (multi-account WS rebuild) held the Gateway event loop ~20s
+        # (stream_block_suspect on PUT /api/channels/feishu/config) and froze
+        # the whole UI while chats were open.
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(
+                self._restart_channel_family_bg(name, dict(config)),
+                name=f"channel-restart:{name}",
+            )
+        except RuntimeError:
+            # No running loop (sync/tests): fall back to inline restart.
+            await self._restart_channel_family_bg(name, dict(config))
         return True
+
+    async def _restart_channel_family_bg(self, name: str, config: dict[str, Any]) -> None:
+        try:
+            await self._stop_channel_family(name)
+            if config.get("enabled", False):
+                ok = await self._start_channel(name, config)
+                if not ok:
+                    logger.warning("channel restart start returned False name=%s", name)
+        except Exception:
+            logger.exception("channel restart failed name=%s", name)
 
     @staticmethod
     def _account_bot_id(platform: str, acc: dict[str, Any]) -> str:

@@ -49,12 +49,13 @@ if (
 }
 
 createRoot(rootEl).render(
-  createElement(
-    ZCodeIntlProvider,
-    { initialLocale: "zh-CN" },
-    createElement(ResourceManagerApp, {
+  createElement(ZCodeIntlProvider, {
+    initialLocale: "zh-CN",
+    // ZCodeIntlProvider 的 props 类型把 children 标为必填；createElement 的三参形式
+    // 不会把它并进 props 检查，这里显式写入 children。
+    children: createElement(ResourceManagerApp, {
       getSnapshot,
       setSamplingActive,
     }),
-  ),
+  }),
 );

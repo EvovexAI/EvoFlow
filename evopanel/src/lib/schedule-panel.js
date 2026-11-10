@@ -17,7 +17,7 @@ const esc = (s) =>
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
 
-/** Sentinel: 在岗可聊 / 可派活，但不跑定时巡检 */
+/** Sentinel: 已启用可聊 / 可派活，但不跑定时巡检 */
 export const DUTY_SCHEDULE_OFF = 'off'
 
 export function isDutyScheduleOff(value) {
@@ -112,7 +112,7 @@ export function cronToPlainZh(expr) {
     if (!/FREQ=/i.test(raw) && raw.split(/\s+/).length < 5) return raw
   }
   const parts = raw.split(/\s+/)
-  if (parts.length < 5) return '按计划自动上班'
+  if (parts.length < 5) return '按计划自动巡检'
   const [minF, hourF, domF, monF, dowF] = parts
   const star = (x) => x === '*' || x === '?'
   const min0 = minF === '0' || minF === '00'
@@ -169,16 +169,16 @@ export function cronToPlainZh(expr) {
   if (/^\d+$/.test(minF) && /^\d+$/.test(hourF) && star(domF) && star(monF) && dowF === '1-5') {
     return `工作日 ${hourF.padStart(2, '0')}:${minF.padStart(2, '0')}`
   }
-  return '按计划自动上班'
+  return '按计划自动巡检'
 }
 
 /** 「每天 2 次」预设 cron（09:00、15:00）；过频的「每 2 小时」需用户主动选。 */
 export const DEFAULT_DUTY_CRON = '0 9,15 * * *'
 
-/** 新建员工默认：关闭巡检（先在岗可聊，有活再开频率）。 */
+/** 新建 BOT 默认：关闭巡检（先启用可聊，有活再开频率）。 */
 export const DEFAULT_NEW_DUTY_SCHEDULE = DUTY_SCHEDULE_OFF
 
-/** 员工摘要 / 排班面板共用的常用上班频率预设 */
+/** 员工摘要 / 排班面板共用的常用巡检频率预设 */
 export const DUTY_SCHEDULE_PRESETS = Object.freeze([
   { label: '关闭巡检', cron: DUTY_SCHEDULE_OFF },
   { label: '每天 2 次', cron: DEFAULT_DUTY_CRON },
@@ -191,7 +191,7 @@ export const DUTY_SCHEDULE_PRESETS = Object.freeze([
 
 /**
  * @param {{ schedule?: string, scheduledAt?: string, idPrefix?: string, compact?: boolean, tone?: 'duty'|'task' }} initial
- * tone=duty（默认）：智能体员工「自动上班」文案
+ * tone=duty（默认）：智能体员工「自动巡检」文案
  * tone=task：自动化任务「执行计划」文案
  */
 export function createSchedulePanel(initial = {}) {
@@ -218,14 +218,14 @@ export function createSchedulePanel(initial = {}) {
         offSummary: '不自动执行',
       }
     : {
-        aiLabel: '用自然语言描述何时上班',
+        aiLabel: '用自然语言描述何时巡检',
         aiPlaceholder: '例：关闭巡检 / 每天 2 次 / 每天上午 9 点',
-        aiHint: '说人话即可；也可选「关闭巡检」— 人在岗可聊，但不定时找活',
-        aiEmpty: '请先输入想何时上班的描述',
-        aiOkToast: '已生成上班安排',
-        nextTitle: '即将自动上班',
-        emptyPick: '请先选择或描述上班频率',
-        fallbackSummary: '按计划自动上班',
+        aiHint: '说人话即可；也可选「关闭巡检」— 已启用可聊，但不定时找活',
+        aiEmpty: '请先输入想何时巡检的描述',
+        aiOkToast: '已生成巡检安排',
+        nextTitle: '即将自动巡检',
+        emptyPick: '请先选择或描述巡检频率',
+        fallbackSummary: '按计划自动巡检',
         offSummary: '关闭巡检：可在线对话 / 派活，不定时巡检',
       }
 
@@ -235,7 +235,7 @@ export function createSchedulePanel(initial = {}) {
     const raw = String(text || '').trim()
     if (raw && !looksLikeCron(raw) && !/FREQ=/i.test(raw)) return raw
     const zh = cronToPlainZh(fallbackExpr || raw || initExpr)
-    if (zh === '按计划自动上班' && isTask) return copy.fallbackSummary
+    if (zh === '按计划自动巡检' && isTask) return copy.fallbackSummary
     return zh
   }
 
@@ -392,7 +392,7 @@ export function createSchedulePanel(initial = {}) {
     setAiHint('正在理解时间安排…')
     const localNow = new Date().toLocaleString('zh-CN', { hour12: false })
     const system = [
-      isTask ? '你是定时任务时间助手。根据用户自然语言，输出唯一 JSON，不要 Markdown。' : '你是上班时间助手。根据用户自然语言，输出唯一 JSON，不要 Markdown。',
+      isTask ? '你是定时任务时间助手。根据用户自然语言，输出唯一 JSON，不要 Markdown。' : '你是巡检时间助手。根据用户自然语言，输出唯一 JSON，不要 Markdown。',
       '格式：{"cron":"分 时 日 月 星期","summary":"中文白话简述","scheduled_at":""}',
       '规则：五段 cron；星期 0=周日…6=周六，工作日用 1-5；多时段如 0 18,20 * * 1-5。',
       'summary 必须是普通人能懂的中文（如「每 2 小时」「工作日上午 9 点」），不要写 cron。',

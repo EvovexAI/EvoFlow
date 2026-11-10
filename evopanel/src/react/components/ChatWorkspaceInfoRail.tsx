@@ -786,7 +786,7 @@ function roleStatusLabel(
   return '空闲'
 }
 
-/** 下次上班相对时间（过去/将来）；解析失败返回空串。 */
+/** 下次巡检相对时间（过去/将来）；解析失败返回空串。 */
 function formatRelativeHeartbeat(iso: string | undefined | null): string {
   const raw = String(iso || '').trim()
   if (!raw) return ''
@@ -1453,7 +1453,7 @@ export function TaskPane({
   )
 }
 
-/** 员工摘要：自动上班频率查看 / 预设调整 */
+/** 员工摘要：自动巡检频率查看 / 预设调整 */
 function EmployeeScheduleCard({
   employeeInfo,
   agentCode,
@@ -1490,7 +1490,7 @@ function EmployeeScheduleCard({
   const warnText = paused
     ? status === 'draft'
       ? '草稿未确认，不会自动巡检'
-      : '请假中，不会自动巡检'
+      : '已停用，不会自动巡检'
     : scheduleOff
       ? '可在线对话 / 派活，不定时巡检'
       : ''
@@ -1513,7 +1513,7 @@ function EmployeeScheduleCard({
       try {
         const { api } = await import('../../lib/tauri-api.js')
         await api.proactiveUpdateRole(code, { heartbeat_schedule: next })
-        toast(nextOff ? '已关闭定时巡检' : '自动上班时间已更新', 'success')
+        toast(nextOff ? '已关闭定时巡检' : '自动巡检时间已更新', 'success')
         setAdjustOpen(false)
         onSaved?.()
       } catch (e) {
@@ -1532,11 +1532,11 @@ function EmployeeScheduleCard({
   return (
     <section
       className={`react-chat-employee-schedule${warnText ? ' is-warn' : ''}`}
-      aria-label="自动上班时间"
+      aria-label="自动巡检时间"
     >
       <div className="react-chat-employee-schedule-head">
         <div className="react-chat-employee-schedule-main" title={lineTitle}>
-          <span className="react-chat-employee-schedule-kicker">上班</span>
+          <span className="react-chat-employee-schedule-kicker">巡检</span>
           <span className="react-chat-employee-schedule-freq">{freqLabel}</span>
           {(nextRel || nextAbs) ? (
             <span className="react-chat-employee-schedule-next">
@@ -1783,7 +1783,7 @@ function deptMemberOnDuty(p: { status?: string; busy?: boolean }): boolean {
 
 function deptMemberDutyLabel(p: { status?: string; busy?: boolean }): string {
   if (p.busy) return '执行中'
-  return deptMemberOnDuty(p) ? '在岗' : '不在岗'
+  return deptMemberOnDuty(p) ? '已启用' : '已停用'
 }
 
 /**
@@ -1888,7 +1888,7 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
     if (live) return live
     if (opts.metaBusy) return '忙碌'
     if (opts.isSteward) return '群管家'
-    return opts.onDuty ? '在岗' : '不在岗'
+    return opts.onDuty ? '已启用' : '已停用'
   }
 
   return (

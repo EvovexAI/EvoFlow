@@ -537,9 +537,11 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                         return None
         return None
 
-    # 2) 逐轮构建行（先本地成行、tool 结果回填 tool 行 + file_diff，再按序 author）。
-    #    turnHeader 最后 author（携带真实起止 + fileChanges 聚合），rowId 先分配保排序。
-    row_count = 0
+    # 2) 逐轮构建行（先本地成行、tool 结果回填 tool 行 + file_diff，再一次性 seed）。
+    #    禁止逐行 author_append_row：会对全局 _write_lock + delta_log 打 N 次，
+    #    与 live AG-UI 抢锁把 Gateway 事件循环拖死（多会话卡机）。
+    #    turnHeader 最后写入（携带真实起止 + fileChanges 聚合），rowId 先分配保排序。
+    seeded_rows: list[dict[str, Any]] = []
     for turn in turns:
         turn_id = str(turn["run_id"])
         created_at = now_ms
@@ -779,9 +781,16 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 "files": len(file_agg),
             }
 
-        hub.author_append_row(tid, header_row)
-        row_count += 1
-        for row in rows:
+        seeded_rows.append(header_row)
+        seeded_rows.extend(rows)
+
+    seed = getattr(hub, "author_seed_rows", None)
+    if callable(seed):
+        row_count = int(seed(tid, seeded_rows) or 0)
+    else:
+        # 旧 hub（无 seed API）回退：行为正确但会锁竞争——仅兜底。
+        row_count = 0
+        for row in seeded_rows:
             hub.author_append_row(tid, row)
             row_count += 1
 

@@ -947,7 +947,7 @@ def _hire_existing_agent(
     position_code = str(data.get("position_code") or "").strip()
     from evoflow.proactive.schedule import SCHEDULE_OFF
 
-    # 新建默认关闭巡检：可在岗聊天/派活，有明确节奏再开频率。
+    # 新建默认关闭巡检：可启用后聊天/派活，有明确节奏再开频率。
     heartbeat = str(
         data.get("heartbeat_schedule") or data.get("heartbeat_rrule") or SCHEDULE_OFF
     ).strip()
@@ -1529,9 +1529,9 @@ def resume_role(agent_code: str) -> dict[str, Any]:
         out["patrol_rearmed"] = True
         out["next_heartbeat_at"] = role.next_heartbeat_at
         if not role.next_heartbeat_at:
-            # 巡检计划本来就是 off：解锁了但也排不出班，别让人以为会定时上班。
+            # 巡检计划本来就是 off：解锁了但也排不出班，别让人以为会定时巡检。
             out["hint"] = (
-                "已解除停岗，但该岗巡检计划为「关闭」，不会定时上班；"
+                "已解除停岗，但该岗巡检计划为「关闭」，不会定时巡检；"
                 "需要自动巡检请设 heartbeat_schedule（如 0 9,15 * * *）。"
             )
     return out
@@ -1658,7 +1658,7 @@ def _duty_journal_to_round(journal: dict[str, Any]) -> dict[str, Any]:
     """Map a duty/automation round journal → worklog ``rounds[]`` shape.
 
     ``list_duty_rounds_for_board`` yields initiative-shaped rows for runs that
-    never created initiatives (dispatch / 手动上班 / skipped patrol), so worklog
+    never created initiatives (dispatch / 手动巡检 / skipped patrol), so worklog
     used to report ``round_count=0`` for a day with real duty work.
     """
     plan = journal.get("action_plan") if isinstance(journal.get("action_plan"), dict) else {}
@@ -1861,7 +1861,7 @@ def worklog(
 
     # Two axes by design — do NOT treat round_count==0 as "no work":
     # rounds  = 值班轮次（initiatives 聚合 ∪ duty_runs/automation_runs 索引；
-    #           dispatch / 手动上班 / 到点跳过都不建 initiative，靠索引补）
+    #           dispatch / 手动巡检 / 到点跳过都不建 initiative，靠索引补）
     # tasks   = board Tasks assigned that day (items.dispatch / proactive dispatch)
     activity_count = len(rounds) + len(tasks)
     window = day_list[0] if len(day_list) == 1 else f"{day_list[0]}..{day_list[-1]}"
@@ -2101,7 +2101,7 @@ def round_trail(
     scorecard: dict[str, Any] = {}
     if duty_row:
         scorecard = {
-            "goal": "定时上班" if duty_row.get("scheduled") else "值班轮次",
+            "goal": "定时巡检" if duty_row.get("scheduled") else "值班轮次",
             "outcome": str(duty_row.get("trigger_reason") or duty_row.get("skip_reason") or "").strip() or None,
             "verdict": str(duty_row.get("status") or "").strip() or None,
             "item_count": int(duty_row.get("tool_count") or 0),
