@@ -25,17 +25,22 @@
 ; Prefer windows\kill-install-orphans.ps1 when already on disk (upgrade/uninstall).
 ; Fresh overwrite PREINSTALL may not have the new script yet → inline fallback
 ; (same logic; kept short; nsExec hides the console — no -WindowStyle Hidden).
+; EvpEnsureInstallDirUnlocked expands EvpKillRunningAppProcesses twice (initial
+; + Retry). Capture __COUNTER__ once so labels stay unique per expansion —
+; hardcoded evp_orphans_* failed makensis in 1.3.16 Windows CI.
 !macro EvpKillInstallDirOrphans
+  !define EVP_ORPHANS_UID ${__COUNTER__}
   DetailPrint "Stopping install-dir bash/python orphans..."
-  IfFileExists "$INSTDIR\windows\kill-install-orphans.ps1" 0 evp_orphans_inline
+  IfFileExists "$INSTDIR\windows\kill-install-orphans.ps1" 0 evp_orphans_inline_${EVP_ORPHANS_UID}
     nsExec::Exec 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\windows\kill-install-orphans.ps1" -InstallDir "$INSTDIR"'
     Pop $0
-    Goto evp_orphans_done
-  evp_orphans_inline:
+    Goto evp_orphans_done_${EVP_ORPHANS_UID}
+  evp_orphans_inline_${EVP_ORPHANS_UID}:
     ; Image-name filter first; then ExecutablePath / CommandLine must touch $INSTDIR.
     nsExec::Exec `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$inst=[System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd('\\'); if (-not $$inst) { exit 0 }; $$pfx=$$inst+'\'; $$filter='Name=''python.exe'' OR Name=''pythonw.exe'' OR Name=''bash.exe'' OR Name=''sh.exe'' OR Name=''node.exe'''; Get-CimInstance Win32_Process -Filter $$filter -ErrorAction SilentlyContinue | ForEach-Object { $$kill=$$false; if ($$_.ExecutablePath) { try { $$full=[System.IO.Path]::GetFullPath($$_.ExecutablePath); if ($$full.Equals($$inst,[StringComparison]::OrdinalIgnoreCase) -or $$full.StartsWith($$pfx,[StringComparison]::OrdinalIgnoreCase)) { $$kill=$$true } } catch {} }; if (-not $$kill -and $$_.CommandLine -and $$_.CommandLine.IndexOf($$inst,[StringComparison]::OrdinalIgnoreCase) -ge 0) { $$kill=$$true }; if ($$kill) { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
     Pop $0
-  evp_orphans_done:
+  evp_orphans_done_${EVP_ORPHANS_UID}:
+  !undef EVP_ORPHANS_UID
 !macroend
 
 ; Desktop owns one gateway child (stdio). Kill parent tree first so the
