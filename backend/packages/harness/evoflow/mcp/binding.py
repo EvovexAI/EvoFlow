@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -11,6 +13,9 @@ logger = logging.getLogger(__name__)
 _LEGACY_SKILL_ENV = "EVOFLOW_MCP_TOOL_BINDING"
 MCP_TOOL_PREFIX = "mcp"
 MCP_TOOL_DELIMITER = "__"
+
+# OpenAI / DeepSeek function-name charset (display names may be Chinese).
+_FN_SAFE_SERVER = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 # Host plugin kernels reuse the ``mcp__…`` name for ZCode skill parity
 # (``mcp__node_repl__js`` for browser-use / computer-use). They are **not**
@@ -30,9 +35,32 @@ def warn_if_legacy_mcp_skill_binding_env() -> None:
         )
 
 
+def mcp_server_tool_id(server_name: str) -> str:
+    """ASCII-safe server id for model tool function names.
+
+    mcp.json / role bindings keep the human display name (e.g. ``中文示例``);
+    tool function names must satisfy provider charset rules (DeepSeek / OpenAI).
+    """
+    s = str(server_name or "").strip()
+    if not s:
+        return "server"
+    if _FN_SAFE_SERVER.fullmatch(s) and len(s) <= 64:
+        return s
+    ascii_part = re.sub(r"[^a-zA-Z0-9_-]+", "_", s).strip("_").lower()[:24]
+    digest = hashlib.sha1(s.encode("utf-8")).hexdigest()[:8]
+    base = ascii_part or "srv"
+    return f"{base}_{digest}"[:64]
+
+
+def allowed_mcp_server_ids(mcp_servers: list[str] | None) -> set[str]:
+    """Display names + tool ids accepted when matching mounted ``mcp__*`` tools."""
+    raw = {str(s).strip() for s in (mcp_servers or []) if str(s).strip()}
+    return raw | {mcp_server_tool_id(s) for s in raw}
+
+
 def qualified_mcp_tool_name(server_name: str, tool_name: str) -> str:
-    """native-style qualified name: ``mcp__{server}__{tool}``."""
-    server = str(server_name or "").strip()
+    """native-style qualified name: ``mcp__{server_id}__{tool}`` (ASCII-safe server id)."""
+    server = mcp_server_tool_id(server_name)
     tool = str(tool_name or "").strip()
     return f"{MCP_TOOL_PREFIX}{MCP_TOOL_DELIMITER}{server}{MCP_TOOL_DELIMITER}{tool}"
 
@@ -49,7 +77,7 @@ def is_mcp_tool_name(tool_name: str) -> bool:
 
 
 def mcp_server_from_tool_name(tool_name: str) -> str | None:
-    """Extract MCP server name from ``mcp__server__tool`` or legacy ``server__tool``."""
+    """Extract MCP server id from ``mcp__server__tool`` or legacy ``server__tool``."""
     n = str(tool_name or "").strip()
     prefix = f"{MCP_TOOL_PREFIX}{MCP_TOOL_DELIMITER}"
     if n.startswith(prefix):
@@ -95,7 +123,7 @@ def filter_tools_by_mcp_servers(tools: list, mcp_servers: list[str] | None) -> l
     """
     if mcp_servers is None:
         return list(tools or [])
-    allowed = {str(s).strip() for s in mcp_servers if str(s).strip()}
+    allowed = allowed_mcp_server_ids(list(mcp_servers))
     out: list = []
     for t in tools or []:
         name = str(getattr(t, "name", "") or "").strip()
@@ -112,7 +140,7 @@ def mount_agent_mcp_tools(loaded_tools: list, all_tools: list, mcp_servers: list
     """When a role explicitly lists MCP servers, bind their tools directly (not deferred)."""
     if mcp_servers is None:
         return list(loaded_tools or [])
-    allowed = {str(s).strip() for s in mcp_servers if str(s).strip()}
+    allowed = allowed_mcp_server_ids(list(mcp_servers))
     if not allowed:
         return list(loaded_tools or [])
     loaded_names = {str(getattr(t, "name", "") or "").strip() for t in (loaded_tools or [])}

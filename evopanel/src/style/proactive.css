@@ -128,7 +128,7 @@
   color: var(--text-secondary);
 }
 
-/* ── 自动上班开关（页头扁平行内控件，不占独立一行） ── */
+/* ── 自动巡检开关（页头扁平行内控件，不占独立一行） ── */
 .pro-duty-card {
   display: inline-flex;
   align-items: center;
@@ -389,7 +389,7 @@
   text-decoration: underline;
 }
 
-/* 自动上班开关：34×18 拨动开关，和整条工具条等高对齐 */
+/* 自动巡检开关：34×18 拨动开关，和整条工具条等高对齐 */
 .pro-switch {
   position: relative;
   width: 34px;

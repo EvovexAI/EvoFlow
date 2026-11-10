@@ -48,7 +48,22 @@ async def _dispatch(job: dict[str, Any]) -> None:
             kb_id = str(job.get("kb_id") or job.get("kbId") or "").strip()
             skip_embedding = False
             skip_reason: str | None = None
-            if kb_id:
+            from evoflow.knowledge.owned.pipeline import embedding_quota_skip_active
+
+            cooled, cool_reason = embedding_quota_skip_active()
+            if cooled:
+                # Recent monthly quota / rate-limit — do not re-hit the API for
+                # every queued doc; publish keyword index instead.
+                skip_embedding = True
+                skip_reason = cool_reason or "embedding quota/rate-limit cooldown"
+                logger.warning(
+                    "owned kb job will skip vectors (quota cooldown): %s type=%s kb=%s reason=%s",
+                    job.get("id"),
+                    jtype,
+                    kb_id,
+                    skip_reason,
+                )
+            elif kb_id:
                 with db() as conn:
                     base = conn.execute(
                         "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL",

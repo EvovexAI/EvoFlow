@@ -35,18 +35,18 @@ function statusOf(role, busySet) {
   const code = String(role?.agent_code || '')
   if (busySet.has(code)) return { label: '工作中', tone: 'run' }
   const st = String(role?.status || '')
-  // 关巡检仍可对话/派活 → 在岗；只有请假/草稿才算停岗
+  // 关巡检仍可对话/派活 → 已启用；只有停用/草稿才算不可用
   if (st === 'draft') return { label: '草稿', tone: 'warn' }
-  if (st === 'paused') return { label: '请假', tone: 'muted' }
-  if (st === 'active') return { label: '在岗', tone: 'ok' }
-  return { label: '已停', tone: 'muted' }
+  if (st === 'paused') return { label: '已停用', tone: 'muted' }
+  if (st === 'active') return { label: '已启用', tone: 'ok' }
+  return { label: '已停用', tone: 'muted' }
 }
 
 function renderListHtml(roles, busySet) {
   if (!roles.length) {
     return `<div class="shell-roster-empty">
-      <p class="shell-roster-empty-title">还没有员工</p>
-      <p class="shell-roster-empty-desc">在对话里让我创建，或到左侧「员工」加人</p>
+      <p class="shell-roster-empty-title">还没有 BOT</p>
+      <p class="shell-roster-empty-desc">在对话里让我创建，或到左侧「BOT」加人</p>
     </div>`
   }
   return (
@@ -170,7 +170,7 @@ export async function mountProactiveRosterCompact(container, { onClose } = {}) {
 
   const page = document.createElement('div')
   page.className = 'page shell-roster-page shell-page-embed'
-  page.dataset.shellPageTitle = '员工'
+  page.dataset.shellPageTitle = 'BOT'
   page.innerHTML = `
     <header class="shell-roster-head">
       <div class="shell-roster-head-text">
@@ -274,7 +274,7 @@ export async function mountProactiveRosterCompact(container, { onClose } = {}) {
   }, 20000)
 
   return {
-    title: '员工',
+    title: 'BOT',
     destroy: () => {
       destroyed = true
       if (busyTimer) {

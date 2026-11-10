@@ -31,7 +31,7 @@ const ICONS = {
 }
 
 const KIND_META = {
-  employee: { label: '员工', tone: 'violet' },
+  employee: { label: 'BOT', tone: 'violet' },
   agent: { label: 'Agent', tone: 'sky' },
   app: { label: '工作流', tone: 'amber' },
   skill: { label: '技能', tone: 'emerald' },
@@ -45,7 +45,7 @@ function kindLabel(kind) {
 
 const FILTERS = [
   { id: 'all', label: '全部' },
-  { id: 'employee', label: '员工' },
+  { id: 'employee', label: 'BOT' },
   { id: 'agent', label: 'Agent' },
   { id: 'app', label: '工作流' },
   { id: 'skill', label: '技能' },

@@ -360,6 +360,7 @@ function ConversationAssistantWorkItems({
   stageTailIsRunning = false,
   assistantCodeCommentProjectionEnabled = false,
   historyContainer,
+  layout = "stack",
 }: {
   rows: readonly AssistantWorkRow[];
   context: ConversationRowRenderContext;
@@ -370,6 +371,8 @@ function ConversationAssistantWorkItems({
     chunkKey: string;
     open: boolean;
   };
+  /** 轮尾截图：横排优先，放满再换行；其余工作项仍纵向 stack。 */
+  layout?: "stack" | "mediaWrap";
 }) {
   const showReasoning = context.messageStreamShowReasoning === true;
   const firstReasoningRowId = context.messageStreamFirstReasoningRowId;
@@ -414,8 +417,15 @@ function ConversationAssistantWorkItems({
 
   // 连续工作项（工具/explore/reasoning）统一 gap-4 组容器（对齐旧版 tool-call-group），
   // 取代继承父级 gap-5/gap-2 + 每行 py-2 的双重且不一致的间距。
+  // 轮尾截图另走 mediaWrap：多张缩略图横排，放不下再换行（对齐 ImageThumbnailGallery）。
   const content = (
-    <div className="flex flex-col gap-4">
+    <div
+      className={
+        layout === "mediaWrap"
+          ? "flex flex-wrap items-start gap-2 [&>*]:w-fit [&>*]:max-w-[min(100%,20rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
+          : "flex flex-col gap-4"
+      }
+    >
       {items.map((item) =>
         item.kind === "row" ? (
           <ConversationTurnRow
@@ -679,7 +689,7 @@ function applyV4McpWorkbenchAutoOpen(rows: readonly AssistantWorkRow[]): void {
 }
 
 /**
- * 【V4 权威】轮尾 CUA / browser_turn_end 截图 → 右栏大图（与对话内缩略图同源）。
+ * 【V4 权威】轮尾 CUA / browser_turn_end / platform 生图 → 右栏大图（与对话内缩略图同源）。
  * 每个 toolCallId 只自动开一次；多图取最后一张。
  */
 const v4CuaScreenshotAutoOpenedIds = new Set<string>();
@@ -695,14 +705,16 @@ function extractLatestScreenshotFromDisplay(
   const d = display as Record<string, unknown>;
   const kind = String(d.kind || "").trim();
 
-  if (kind === "cua" && Array.isArray(d.media)) {
+  if ((kind === "cua" || kind === "platform_ui") && Array.isArray(d.media)) {
     for (let i = d.media.length - 1; i >= 0; i -= 1) {
       const item = d.media[i];
       if (!item || typeof item !== "object" || Array.isArray(item)) continue;
       const m = item as Record<string, unknown>;
       const mimeType = String(m.mimeType || "").trim() || "image/png";
       if (mimeType && !mimeType.startsWith("image/")) continue;
-      const artifactUri = String(m.artifactUri || "").trim();
+      const artifactUri = String(
+        m.artifactUri || m.absolutePath || m.absolute_path || m.url || "",
+      ).trim();
       if (artifactUri) return { uri: artifactUri, mimeType };
       const data = String(m.data || "").trim();
       if (data) return { uri: `data:${mimeType};base64,${data}`, mimeType };
@@ -1776,10 +1788,12 @@ function ConversationTurnGroupImpl({
           {unit.browserTurnEndRows.length > 0 ? (
             // 自动截图表达轮次结束时页面最终状态；放在 assistant work 内会
             // 穿插到 Website 预览和 file diff 摘要之间。它应是操作栏之前的最后一个内容块。
+            // 多张截图横排优先，一行放不下再换行（避免每张独占一行竖排）。
             <ConversationAssistantWorkItems
               rows={unit.browserTurnEndRows}
               context={assistantRowContext}
               assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
+              layout="mediaWrap"
             />
           ) : null}
           {canRenderAssistantActions && latestAssistantTextRow ? (

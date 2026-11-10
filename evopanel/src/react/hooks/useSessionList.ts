@@ -281,7 +281,7 @@ export function useSessionList(opts: UseSessionListOptions) {
   const refreshPendingOptRef = useRef<RefreshSessionsOptions | undefined>(undefined)
   /** 最新员工花名册（agent_code 全量集合，active+paused+draft）：mergeSessionsFromApi
    *  的孤儿员工会话剪枝用。null = 未拿到 / 拉取失败 → 跳过剪枝（宁漏剪不误剪）。
-   *  必须不带 status 拉取 —— 带 active 会把请假员工的会话误剪掉。 */
+   *  必须不带 status 拉取 —— 带 active 会把已停用 BOT 的会话误剪掉。 */
   const liveEmployeeCodesRef = useRef<ReadonlySet<string> | null>(null)
   /** 用户操作触发的整表刷新最短间隔。流式回合不再走这条路径。 */
   const MIN_REFRESH_INTERVAL_MS = 2500

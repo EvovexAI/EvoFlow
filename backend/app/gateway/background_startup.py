@@ -273,7 +273,31 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         except Exception:
             logger.warning("Database preflight stage failed at startup", exc_info=True)
 
-    await asyncio.gather(_startup_skills_install(), _startup_db_init())
+    async def _startup_builtin_ext_apps() -> None:
+        # 内置演示应用：源码随包（evoflow/assets/builtin_ext_apps/）安装进用户
+        # 数据目录并注册 registry.json。纯文件复制 + 一次 JSON 写，绝不碰 loop。
+        _t_apps = _st.perf_counter()
+        try:
+
+            def _install_builtin() -> None:
+                from evoflow.admin.builtin_ext_apps import (
+                    ensure_builtin_ext_apps_registered,
+                    resolve_gateway_port,
+                )
+
+                origin = f"http://127.0.0.1:{resolve_gateway_port()}"
+                return ensure_builtin_ext_apps_registered(origin)
+
+            actions = await asyncio.to_thread(_install_builtin)
+            changed = [a for a in actions if a.get("action") not in ("kept",)]
+            if changed:
+                logger.info("builtin ext apps registered: %s", changed)
+        except Exception:
+            logger.warning("builtin ext app registration failed (non-fatal)", exc_info=True)
+        finally:
+            st_log(f"phase1.builtin_ext_apps ({(_st.perf_counter() - _t_apps) * 1000:.0f}ms)")
+
+    await asyncio.gather(_startup_skills_install(), _startup_db_init(), _startup_builtin_ext_apps())
     st_log("phase1 done")
 
     # ---- Background warmup: tiktoken BPE tables (never on the event loop) ----

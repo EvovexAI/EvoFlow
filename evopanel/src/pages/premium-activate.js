@@ -37,7 +37,7 @@ const FEATURE_META = {
   },
   proactive: {
     title: '智能体员工',
-    desc: '雇数字员工按岗位自动上班、写工作汇报。激活后可配置与管理员工。',
+    desc: '雇 BOT 按岗位自动巡检、写工作汇报。激活后可配置与管理。',
     icon: 'proactive',
   },
   premium: {

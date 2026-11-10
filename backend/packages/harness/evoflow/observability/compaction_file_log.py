@@ -62,6 +62,7 @@ _FIELD_LABELS: dict[str, str] = {
     "saved_pct": "节省%",
     "effect": "效果",
     "force": "强制",
+    "trigger_source": "触发源",
     "background_llm": "后台 LLM",
     "job_middle_msgs": "待压缩中间段",
     "error": "错误",

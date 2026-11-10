@@ -96,7 +96,7 @@ function isBusyRes(busyRes: any): boolean {
   return !!(busyRes?.busy || busyRes?.is_busy)
 }
 
-/** 在岗 / 不在岗：暂停、草稿等视为不在岗 */
+/** 已启用 / 已停用：暂停、草稿等视为已停用 */
 export function isPersonOnDuty(p: { status?: string; busy?: boolean }): boolean {
   if (p.busy) return true
   const st = String(p.status || 'active').trim().toLowerCase()
@@ -105,7 +105,7 @@ export function isPersonOnDuty(p: { status?: string; busy?: boolean }): boolean 
 
 export function personDutyLabel(p: { status?: string; busy?: boolean }): string {
   if (p.busy) return '执行中'
-  return isPersonOnDuty(p) ? '在岗' : '不在岗'
+  return isPersonOnDuty(p) ? '已启用' : '已停用'
 }
 
 function deptLastActivityClock(members: HomeCmdPerson[]): string {
@@ -180,7 +180,7 @@ function buildDeptBoard(
       reports_to: roleReportsTo(r),
       status: st,
       busy,
-      summary: busy ? '在岗执行' : st === 'paused' ? '已暂停' : '在岗待命',
+      summary: busy ? '执行中' : st === 'paused' ? '已停用' : st === 'draft' ? '草稿' : '已启用',
       last_heartbeat_at: String(r?.last_heartbeat_at || '').trim() || undefined,
       next_heartbeat_at: String(r?.next_heartbeat_at || '').trim() || undefined,
       schedule_summary: String(r?.schedule_summary || r?.heartbeat_schedule || '').trim() || undefined,
@@ -471,14 +471,14 @@ export function HomeOrgCommandBoard({
                 <div className="evo-home-cmd__steward-foot">
                   {lastBeat ? `上次 ${lastBeat}` : '尚无巡视记录'}
                   {nextBeat ? ` · 下次 ${nextBeat}` : ''}
-                  {` · ${xiaomi.busy ? '巡视中' : '在岗'}`}
+                  {` · ${xiaomi.busy ? '巡视中' : '已启用'}`}
                 </div>
               </button>
             </div>
 
             {!depts.length ? (
               <div className="evo-home-cmd__empty">
-                {loading ? '正在加载组织…' : '还没有部门或员工。去「员工」页建部门、加人。'}
+                {loading ? '正在加载组织…' : '还没有部门或 BOT。去「BOT」页建部门、加人。'}
               </div>
             ) : (
               <div
@@ -805,7 +805,7 @@ function DeptColumn({
           </span>
           <span className="evo-home-cmd__dept-kpi-side">
             {onDutyCount}/{total}
-            <small> 在岗</small>
+            <small> 已启用</small>
           </span>
         </span>
         <span className="evo-home-cmd__dept-head-meta">
@@ -969,8 +969,8 @@ function DeptDetail({
             <h3 className="evo-home-cmd__detail-title">{dept.name}</h3>
             <span
               className={`evo-home-cmd__status${onDutyCount > 0 ? ' is-on' : ' is-off'}`}
-              title={onDutyCount > 0 ? `${onDutyCount} 人在岗` : '暂无人在岗'}
-              aria-label={onDutyCount > 0 ? `${onDutyCount} 人在岗` : '暂无人在岗'}
+              title={onDutyCount > 0 ? `${onDutyCount} 已启用` : '暂无已启用'}
+              aria-label={onDutyCount > 0 ? `${onDutyCount} 已启用` : '暂无已启用'}
             />
           </div>
           <p className="evo-home-cmd__detail-sub">
@@ -1040,14 +1040,14 @@ function DeptDetail({
       <div className="evo-home-cmd__detail-snap">
         <span>今日快照</span>
         <strong>
-          在岗 {onDutyCount} · 执行 {busyCount} · 上次 {lastAt}
+          已启用 {onDutyCount} · 执行 {busyCount} · 上次 {lastAt}
         </strong>
       </div>
 
       <div className="evo-home-cmd__detail-stats">
         <div>
           <strong>{onDutyCount}</strong>
-          <span>人在岗</span>
+          <span>已启用</span>
         </div>
         <div>
           <strong>{busyCount}</strong>
@@ -1055,7 +1055,7 @@ function DeptDetail({
         </div>
         <div>
           <strong>{offDutyCount}</strong>
-          <span>不在岗</span>
+          <span>已停用</span>
         </div>
         <div>
           <strong>{lastAt}</strong>
@@ -1155,7 +1155,7 @@ export function HomeOrgPulseStrip({
         <strong>
           {busyCount}/{totalCount || '—'}
         </strong>
-        <span>人在岗</span>
+        <span>已启用</span>
         <span className="evo-home-cmd__toolbar-sep" aria-hidden>
           ·
         </span>

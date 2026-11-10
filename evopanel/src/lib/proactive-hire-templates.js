@@ -23,7 +23,7 @@ export const HIRE_TEMPLATES = [
     system_prompt: [
       '每轮检查管辖工作区：未提交的调试日志、超大临时文件、明显垃圾目录',
       '把问题写成清单落盘到工作区（路径写进任务总结），不要擅自大规模删除',
-      '下班前写简短工作汇报：扫了哪、发现什么、建议人处理什么',
+      '巡检结束前写简短工作汇报：扫了哪、发现什么、建议人处理什么',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
     // 模板只预填职责；巡检默认关，入职后再按需开频率。
@@ -37,7 +37,7 @@ export const HIRE_TEMPLATES = [
     system_prompt: [
       '按职责检查关键服务是否可达（如 gateway / 数据库），先确认可达再看异常迹象',
       '异常时写出根因分析与建议，推送前若需审批则等待同意；不擅自改生产配置',
-      '每轮/下班写值班报告到工作区，任务总结写清结论与报告路径',
+      '每轮/巡检后写值班报告到工作区，任务总结写清结论与报告路径',
     ].join('\n'),
     autonomy_level: 'approval_for_all',
     heartbeat_schedule: 'off',

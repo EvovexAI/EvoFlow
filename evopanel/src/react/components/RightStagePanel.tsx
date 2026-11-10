@@ -505,7 +505,7 @@ export const RightStagePanel = memo(function RightStagePanel({
   const agentAppPickList = <RightStageAgentAppPickList onPick={pickAgentApp} />
 
   const employeePickList = (
-    <div className="react-chat-stage-open-tab-list" role="listbox" aria-label="选择员工">
+    <div className="react-chat-stage-open-tab-list" role="listbox" aria-label="选择 BOT">
       {employeeChatRoles.length ? (
         employeeChatRoles.map((role) => {
           const code = String(role.agent_code || '').trim()
@@ -538,7 +538,7 @@ export const RightStagePanel = memo(function RightStagePanel({
         })
       ) : (
         <div className="px-3 py-6 text-center text-ui-sm text-foreground-subtlest">
-          暂无可用员工，请先在智能体员工页添加
+          暂无可用 BOT，请先在 BOT 页添加
         </div>
       )}
     </div>
@@ -712,8 +712,8 @@ export const RightStagePanel = memo(function RightStagePanel({
                   <ChevronLeftIcon className="size-3.5" aria-hidden />
                   返回
                 </button>
-                <h2 className="react-chat-stage-open-tab-title">选择员工</h2>
-                <p className="react-chat-stage-open-tab-desc">在右侧打开与该员工的对话标签。</p>
+                <h2 className="react-chat-stage-open-tab-title">选择 BOT</h2>
+                <p className="react-chat-stage-open-tab-desc">在右侧打开与该 BOT 的对话标签。</p>
               </div>
               {employeePickList}
             </>
@@ -981,7 +981,7 @@ export const RightStagePanel = memo(function RightStagePanel({
         <div
           className="absolute inset-0 z-[40] flex flex-col bg-card/95 backdrop-blur-sm"
           role="dialog"
-          aria-label="选择员工"
+          aria-label="选择 BOT"
           data-tauri-no-drag
         >
           <div className="react-chat-stage-open-tab-shell flex min-h-0 flex-1 flex-col">
@@ -996,8 +996,8 @@ export const RightStagePanel = memo(function RightStagePanel({
                     <ChevronLeftIcon className="size-3.5" aria-hidden />
                     取消
                   </button>
-                  <h2 className="react-chat-stage-open-tab-title">选择员工</h2>
-                  <p className="react-chat-stage-open-tab-desc">在右侧打开与该员工的对话标签。</p>
+                  <h2 className="react-chat-stage-open-tab-title">选择 BOT</h2>
+                  <p className="react-chat-stage-open-tab-desc">在右侧打开与该 BOT 的对话标签。</p>
                 </div>
                 {employeePickList}
               </div>
@@ -1151,7 +1151,7 @@ export function buildDefaultRightStageLauncherItems(handlers: {
   if (handlers.onOpenEmployeeChat) {
     items.push({
       id: 'employee-chat',
-      label: '员工对话',
+      label: 'BOT 对话',
       description: '选员工开聊',
       icon: UsersIcon,
       onOpen: handlers.onOpenEmployeeChat,

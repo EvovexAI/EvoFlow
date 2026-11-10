@@ -20,7 +20,10 @@ import {
 import { isTaskNotificationInject } from '../../lib/chat-normalize.js'
 import { toast } from '../../components/toast.js'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
-import { isSessionExecuting } from '../lib/session-execution/index.js'
+import {
+  isSessionExecuting,
+  type StopSessionOptions,
+} from '../lib/session-execution/index.js'
 import { getSessionRuntime } from '../lib/session-runtime-store.js'
 import type { ChatSessionRow, DisplayRow } from '../chat-types.js'
 
@@ -38,7 +41,7 @@ export function usePendingSendQueue(opts: {
   setRows: Dispatch<SetStateAction<DisplayRow[]>>
   handleSendRef: MutableRefObject<(...args: any[]) => any>
   stopSessionExecutionRef: MutableRefObject<
-    ((sessionKey: string, opts?: { showToast?: boolean }) => Promise<void>) | null
+    ((sessionKey: string, opts?: StopSessionOptions) => Promise<void>) | null
   >
   activeChatRunIdRef: MutableRefObject<string | null>
 }) {
@@ -304,7 +307,10 @@ export function usePendingSendQueue(opts: {
     pendingDrainBusyRef.current = true
     try {
       try {
-        await stopSessionExecutionRef.current?.(sk, { showToast: false })
+        await stopSessionExecutionRef.current?.(sk, {
+          showToast: false,
+          source: 'interrupt_send_steers',
+        })
       } catch {
         /* still try to restore/send */
       }
@@ -373,7 +379,10 @@ export function usePendingSendQueue(opts: {
       pendingDrainBusyRef.current = true
       try {
         try {
-          await stopSessionExecutionRef.current?.(sk, { showToast: false })
+          await stopSessionExecutionRef.current?.(sk, {
+            showToast: false,
+            source: 'interrupt_flush_queue',
+          })
         } catch {
           /* 打断失败仍尝试发送 */
         }

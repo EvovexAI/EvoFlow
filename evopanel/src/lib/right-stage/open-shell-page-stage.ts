@@ -81,6 +81,7 @@ export function openShellPageInRightStage(
       prevTitle.startsWith('/') ||
       prevTitle === '页面' ||
       prevTitle === '员工' ||
+      prevTitle === 'BOT' ||
       prevTitle === '任务' ||
       prevTitle === '待办' ||
       prevTitle === '工作流'

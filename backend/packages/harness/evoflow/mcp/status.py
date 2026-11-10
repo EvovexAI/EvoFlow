@@ -103,20 +103,26 @@ def build_mcp_status_snapshot(
         snapshot_at = None
         writer_alive = None
 
-    from evoflow.mcp.binding import mcp_server_from_tool_name
+    from evoflow.mcp.binding import mcp_server_from_tool_name, mcp_server_tool_id
 
     tools_by_server: dict[str, list[dict[str, str]]] = {}
     if cache_initialized:
+        # Map tool-id (ASCII slug) → display name so UI still keys by mcp.json names.
+        id_to_display = {mcp_server_tool_id(n): n for n in raw_servers.keys()}
         for tool in tools:
             full_name = str(getattr(tool, "name", "") or "").strip()
-            server_name = mcp_server_from_tool_name(full_name) or "unknown"
+            server_id = mcp_server_from_tool_name(full_name) or "unknown"
+            server_name = id_to_display.get(server_id, server_id)
             tool_name = full_name
-            mcp_prefix = f"mcp__{server_name}__"
-            legacy_prefix = f"{server_name}__"
+            mcp_prefix = f"mcp__{server_id}__"
+            legacy_prefix = f"{server_id}__"
+            display_legacy = f"{server_name}__"
             if full_name.startswith(mcp_prefix):
                 tool_name = full_name[len(mcp_prefix) :]
             elif full_name.startswith(legacy_prefix):
                 tool_name = full_name[len(legacy_prefix) :]
+            elif full_name.startswith(display_legacy):
+                tool_name = full_name[len(display_legacy) :]
 
             tools_by_server.setdefault(server_name, [])
             description = ""
@@ -131,11 +137,14 @@ def build_mcp_status_snapshot(
                 }
             )
     elif persisted:
-        # 跨进程读：快照只持久化了工具名（描述不入盘），detail 相应降级
+        # 跨进程读：快照只持久化了工具名（描述不入盘），detail 相应降级。
+        # Snapshot keys may be ASCII tool-ids; remap to mcp.json display names.
+        id_to_display = {mcp_server_tool_id(n): n for n in raw_servers.keys()}
         for srv_name, names in (persisted.get("tools_by_server") or {}).items():
             if not isinstance(names, list):
                 continue
-            tools_by_server[str(srv_name)] = [
+            display = id_to_display.get(str(srv_name), str(srv_name))
+            tools_by_server[display] = [
                 {"name": str(n).split("__")[-1], "full_name": str(n), "description": ""}
                 for n in names
                 if str(n or "").strip()
@@ -165,14 +174,15 @@ def build_mcp_status_snapshot(
             else:
                 unknown_reason = "cache not initialized in this process and no persisted snapshot"
 
+        server_tools = tools_by_server.get(name) or tools_by_server.get(mcp_server_tool_id(name), [])
         server_info: dict[str, Any] = {
             "name": name,
             "enabled": enabled,
             "transport": transport,
             "load_status": load_status,
             "error": error,
-            "tool_count": tool_counts.get(name, 0),
-            "tools": tools_by_server.get(name, []),
+            "tool_count": len(server_tools) if server_tools else tool_counts.get(name, 0),
+            "tools": server_tools,
         }
         if unknown_reason:
             server_info["unknown_reason"] = unknown_reason

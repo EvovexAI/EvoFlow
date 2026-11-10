@@ -27,6 +27,11 @@ _mcp_unavailable_reason: str | None = None
 _thread_init_lock = threading.Lock()
 _async_init_lock: asyncio.Lock | None = None
 _registered_init_loop: asyncio.AbstractEventLoop | None = None
+# Split ``--mode langgraph`` never calls Gateway ``register_mcp_init_loop``.
+# Keep a process-local daemon loop so sync/lazy init still works (Issue #106).
+_dedicated_init_loop: asyncio.AbstractEventLoop | None = None
+_dedicated_init_thread: threading.Thread | None = None
+_dedicated_init_lock = threading.Lock()
 
 
 def _set_unavailable_reason(reason: str) -> None:
@@ -36,6 +41,73 @@ def _set_unavailable_reason(reason: str) -> None:
 
 def mcp_unavailable_reason() -> str | None:
     return _mcp_unavailable_reason
+
+
+def ensure_dedicated_mcp_init_loop() -> asyncio.AbstractEventLoop:
+    """Return a running loop for MCP init (Gateway-registered or process-local).
+
+    Desktop split LangGraph has no Gateway lifespan hook in-process; without this,
+    ``get_cached_mcp_tools`` stays cold forever (``mounted_mcp_tools=0``).
+    """
+    global _dedicated_init_loop, _dedicated_init_thread, _registered_init_loop
+
+    if _registered_init_loop is not None and _registered_init_loop.is_running():
+        return _registered_init_loop
+
+    with _dedicated_init_lock:
+        if _registered_init_loop is not None and _registered_init_loop.is_running():
+            return _registered_init_loop
+        if _dedicated_init_loop is not None and _dedicated_init_loop.is_running():
+            return _dedicated_init_loop
+
+        ready = threading.Event()
+        holder: list[asyncio.AbstractEventLoop] = []
+        error_box: list[BaseException] = []
+
+        def _runner() -> None:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                holder.append(loop)
+            except BaseException as exc:  # noqa: BLE001 — surface start failure
+                error_box.append(exc)
+                ready.set()
+                return
+            ready.set()
+            try:
+                loop.run_forever()
+            finally:
+                with contextlib.suppress(Exception):
+                    loop.close()
+
+        thread = threading.Thread(
+            target=_runner,
+            name="evoflow-mcp-init-loop",
+            daemon=True,
+        )
+        _dedicated_init_thread = thread
+        thread.start()
+        if not ready.wait(timeout=15.0):
+            raise RuntimeError("MCP dedicated init loop failed to start within 15s")
+        if error_box:
+            raise RuntimeError(f"MCP dedicated init loop failed: {error_box[0]}") from error_box[0]
+        if not holder:
+            raise RuntimeError("MCP dedicated init loop started without an event loop")
+        _dedicated_init_loop = holder[0]
+        # Expose as the registered loop so later lazy paths reuse it.
+        if _registered_init_loop is None or not _registered_init_loop.is_running():
+            _registered_init_loop = _dedicated_init_loop
+        logger.info("MCP dedicated init loop started (split LangGraph / CLI fallback)")
+        return _dedicated_init_loop
+
+
+def kick_mcp_tools_warmup_background() -> None:
+    """Schedule ``initialize_mcp_tools`` on the dedicated/registered loop (non-blocking)."""
+    try:
+        loop = ensure_dedicated_mcp_init_loop()
+        asyncio.run_coroutine_threadsafe(initialize_mcp_tools(), loop)
+    except Exception:
+        logger.warning("MCP background warmup kick failed", exc_info=True)
 
 
 def _get_async_init_lock() -> asyncio.Lock:
@@ -463,6 +535,9 @@ def get_cached_mcp_tools() -> list[BaseTool]:
     # Async callers must switch to ``await ensure_mcp_tools_ready()`` — that
     # initializes on the *calling* loop (pool-marshaled tools are loop-agnostic).
     if not _cache_initialized and _on_asyncio_loop_thread():
+        # Kick background init (dedicated loop) so the next graph rebuild sees tools.
+        # Do not block this loop — Gateway hang history.
+        kick_mcp_tools_warmup_background()
         _set_unavailable_reason(
             "get_cached_mcp_tools: cache cold inside asyncio task (use await ensure_mcp_tools_ready())"
         )
@@ -479,14 +554,20 @@ def get_cached_mcp_tools() -> list[BaseTool]:
 
         loop = _registered_init_loop
         if loop is None or not loop.is_running():
-            _set_unavailable_reason(
-                "get_cached_mcp_tools: cache cold and no registered init loop (CLI / isolated-loop process)"
-            )
-            logger.warning(
-                "get_cached_mcp_tools: cache cold and no registered init loop. "
-                "Call register_mcp_init_loop() at gateway startup."
-            )
-            return []
+            try:
+                loop = ensure_dedicated_mcp_init_loop()
+            except Exception as e:
+                _set_unavailable_reason(
+                    "get_cached_mcp_tools: cache cold and no init loop "
+                    f"(dedicated start failed: {str(e)[:200]})"
+                )
+                logger.warning(
+                    "get_cached_mcp_tools: cache cold and no registered init loop; "
+                    "dedicated loop start failed: %s",
+                    e,
+                    exc_info=True,
+                )
+                return []
 
         timeout_sec = _init_timeout_sec()
         try:

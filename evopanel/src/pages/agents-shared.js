@@ -123,7 +123,7 @@ export const AGENT_SOURCE_OPTIONS = [
 
 export const AGENT_DEPLOY_OPTIONS = [
   { key: 'none', label: '未部署' },
-  { key: 'employee', label: '员工' },
+  { key: 'employee', label: 'BOT' },
   { key: 'app', label: '工作流' },
   { key: 'automation', label: '自动化' },
 ]

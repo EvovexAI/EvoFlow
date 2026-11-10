@@ -21,6 +21,7 @@ BASH_DESCRIPTION = """Executes a bash command and returns its output.
 - `timeout` is in milliseconds: default 120000, max 600000. Short read-only probes (`git status`/`log`, `ls`, …) soft-cap at 30000 when timeout is omitted.
 - On Windows the shell is Git Bash (POSIX) when available — use `&&`, pipes, and `2>/dev/null`. Prefer `git -C 'path' …` over `cd && …`.
 - `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. No `&` needed.
+- Do **not** wait with `sleep N`, `sleep N; tail …`, or `sleep N && gh run view`. Long jobs: `run_in_background=true`, then rely on the completion notification / output file (or non-blocking `taskoutput`). For CI use `gh run watch`. Single `sleep` over ~20s is rejected.
 
 # Git
 - Interactive flags (`-i`, e.g. `git rebase -i`, `git add -i`) are not supported in this environment.

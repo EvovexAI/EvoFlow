@@ -32,7 +32,7 @@ export type HomeLiveItem = {
 
 export const HOME_LIVE_KIND_ZH: Record<HomeLiveKind, string> = {
   chat: '对话',
-  employee: '员工',
+  employee: 'BOT',
   automation: '自动化',
   workflow: '工作流',
 }

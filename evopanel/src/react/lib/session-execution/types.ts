@@ -25,8 +25,25 @@ export type SessionRunEndedOpts = {
   failed?: boolean
 }
 
+/**
+ * 谁发起了 stopSessionExecution（前端日志主字段）。
+ * 勿再统一标成 ui_stop_button——会把「打断重发」误读成「用户点了停止」。
+ */
+export type SessionStopSource =
+  | 'composer_stop_button'
+  | 'shell_sidebar_stop'
+  | 'v4_stop_button'
+  | 'v4_escape'
+  | 'interrupt_send_steers'
+  | 'interrupt_flush_queue'
+  | 'page_load_stale_stop'
+  | 'employee_process_pane'
+  | 'unknown'
+
 export type StopSessionOptions = {
   showToast?: boolean
+  /** 停止来源；缺省 unknown（日志会标明未标注） */
+  source?: SessionStopSource
 }
 
 /** ChatApp 等宿主注入的 UI / 副作用（网络与 runtime 状态由 session-execution 统一编排） */

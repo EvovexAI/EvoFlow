@@ -128,7 +128,7 @@ def _mcp_tool_names_for_agent(agent_code: str | None, catalog_names: set[str]) -
         return []
     try:
         from evoflow.config.agents_config import load_agent_config
-        from evoflow.mcp.binding import mcp_server_from_tool_name
+        from evoflow.mcp.binding import allowed_mcp_server_ids, mcp_server_from_tool_name
 
         cfg = load_agent_config(code)
     except (FileNotFoundError, ValueError):
@@ -141,7 +141,7 @@ def _mcp_tool_names_for_agent(agent_code: str | None, catalog_names: set[str]) -
     mcp_servers = cfg.mcp_servers
     if mcp_servers is not None and not list(mcp_servers):
         return []
-    allowed_servers = None if mcp_servers is None else {str(s).strip() for s in mcp_servers if str(s).strip()}
+    allowed_servers = None if mcp_servers is None else allowed_mcp_server_ids(list(mcp_servers))
     out: list[str] = []
     for name in catalog_names:
         n = str(name or "").strip()
@@ -180,10 +180,10 @@ def _mcp_tool_names_for_servers(
     if mcp_servers is not None and not list(mcp_servers):
         return []
     try:
-        from evoflow.mcp.binding import mcp_server_from_tool_name
+        from evoflow.mcp.binding import allowed_mcp_server_ids, mcp_server_from_tool_name
     except Exception:
         return []
-    allowed_servers = None if mcp_servers is None else {str(s).strip() for s in mcp_servers if str(s).strip()}
+    allowed_servers = None if mcp_servers is None else allowed_mcp_server_ids(list(mcp_servers))
     out: list[str] = []
     for name in catalog_names:
         n = str(name or "").strip()

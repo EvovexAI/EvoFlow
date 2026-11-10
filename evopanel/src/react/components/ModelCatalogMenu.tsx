@@ -128,43 +128,42 @@ export function ModelCatalogMenu({
       const row = vendorEl.getBoundingClientRect()
       const pad = 10
       const gap = 4
+      // portal 后飞出层不再是 vendor-item 子孙，offsetWidth 可能偏窄；
+      // 向左展开用 right 贴齐厂商左缘，避免估宽 > 实宽时中间空一大截。
       const estimatedW = Math.min(340, Math.max(200, flyout.offsetWidth || 240))
       let side: 'right' | 'left' = 'right'
-      let left = row.right + gap
-      if (left + estimatedW > window.innerWidth - pad) {
+      if (row.right + gap + estimatedW > window.innerWidth - pad) {
         side = 'left'
-        left = Math.max(pad, row.left - gap - estimatedW)
       }
 
       const spaceAbove = Math.max(0, row.bottom - pad)
       const spaceBelow = Math.max(0, window.innerHeight - row.top - pad)
       // 默认底对齐向上；上方实在不够再改为顶对齐向下
       const flipDown = spaceAbove < 140 && spaceBelow > spaceAbove
-      if (flipDown) {
-        const maxH = Math.max(120, Math.min(320, spaceBelow))
-        setFlyoutSide(side)
-        setFlyoutStyle({
-          position: 'fixed',
-          left,
-          top: row.top,
-          bottom: 'auto',
-          right: 'auto',
-          maxHeight: maxH,
-          zIndex: 10061,
-        })
-      } else {
-        const maxH = Math.max(120, Math.min(320, spaceAbove))
-        setFlyoutSide(side)
-        setFlyoutStyle({
-          position: 'fixed',
-          left,
-          top: 'auto',
-          bottom: Math.max(pad, window.innerHeight - row.bottom),
-          right: 'auto',
-          maxHeight: maxH,
-          zIndex: 10061,
-        })
-      }
+      const maxH = Math.max(120, Math.min(320, flipDown ? spaceBelow : spaceAbove))
+      const vertical = flipDown
+        ? { top: row.top, bottom: 'auto' as const }
+        : { top: 'auto' as const, bottom: Math.max(pad, window.innerHeight - row.bottom) }
+      setFlyoutSide(side)
+      setFlyoutStyle(
+        side === 'left'
+          ? {
+              position: 'fixed',
+              left: 'auto',
+              right: window.innerWidth - row.left + gap,
+              ...vertical,
+              maxHeight: maxH,
+              zIndex: 10061,
+            }
+          : {
+              position: 'fixed',
+              left: row.right + gap,
+              right: 'auto',
+              ...vertical,
+              maxHeight: maxH,
+              zIndex: 10061,
+            },
+      )
       return
     }
 

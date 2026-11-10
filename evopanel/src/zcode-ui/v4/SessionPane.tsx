@@ -3545,13 +3545,16 @@ export function SessionPane({
     [dispatchSlashCommand, sessionId],
   );
 
-  // 误停排障需要区分按钮与 Esc；普通 info 在生产禁用，必须走生命周期日志。
+  // 误停排障需要区分按钮与 Esc；普通 info 在生产禁用，必须走生命周期日志 + stream-stop 落盘。
   const handleStop = useCallback(
     (source: "button" | "escape") => {
       const current = snapshotRef.current;
+      const whoZh = source === "escape" ? "用户按 Esc 停止" : "用户点击 V4 停止按钮";
+      const stopTrigger = source === "escape" ? "v4_escape" : "v4_stop_button";
       if (!sessionId || !current?.control.canStop) {
         logger.lifecycle.info("[v4-pane] stop 命令被跳过（无可停执行）", {
           source,
+          whoZh,
           sessionId: sessionId ?? "",
         });
         return;
@@ -3561,9 +3564,28 @@ export function SessionPane({
       )?.foregroundExecutionId;
       logger.lifecycle.info("[v4-pane] stop 命令发出", {
         source,
+        whoZh,
         sessionId,
         foregroundExecutionId: foregroundExecutionId ?? "",
       });
+      // 同步落到 ~/.evoflow/logs/frontend-*.log，与 ChatApp stopSessionExecution 同源可对。
+      void import("../../react/lib/stream-stop-log.js")
+        .then(({ logStreamStop }) => {
+          logStreamStop({
+            sessionKey: sessionId,
+            runId: foregroundExecutionId ?? null,
+            trigger: stopTrigger,
+            hasEndMarker: false,
+            fromUiStopButton: true,
+            detail: {
+              source: stopTrigger,
+              whoZh,
+              note: `V4 SessionPane 主动停止：${whoZh}`,
+              uiSource: source,
+            },
+          });
+        })
+        .catch(() => {});
       void dispatchCommand(
         "stop",
         foregroundExecutionId ? { expectedForegroundExecutionId: foregroundExecutionId } : {},

@@ -798,6 +798,8 @@ import {
   patchSessionListRunEnded,
   stopSessionExecution as runStopSessionExecution,
   type SessionStopHost,
+  type SessionStopSource,
+  type StopSessionOptions,
 } from '../lib/session-execution/index.js'
 import { useSessionExecutionState } from '../hooks/useSessionExecutionState.js'
 import { useSessionExecutionProbes } from '../hooks/useSessionExecutionProbes.js'
@@ -1158,6 +1160,23 @@ export function useChatAppController() {
   useLayoutEffect(() => {
     executingSessionKeysRef.current = executingSessionKeys
   }, [executingSessionKeys])
+
+  // 后台正在跑的会话提前挂 V4 keep-warm：切回去时尽量已有快照，避免空白遮罩干等 subscribe。
+  // 限流在 warmEvoflowV4Session 内（窗口 2 冷开 / 最多 6 live），不 force 以免扫表打爆。
+  useEffect(() => {
+    if (!isEvoflowChatV4Enabled()) return
+    const selected = String(selectedSessionKey || '').trim()
+    for (const sk of executingSessionKeys) {
+      const key = String(sk || '').trim()
+      if (!key || key === selected) continue
+      const threadId = String(
+        sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === key)?.threadId ||
+          wsClient?.getSessionThreadId?.(key) ||
+          '',
+      ).trim()
+      if (threadId) warmEvoflowV4Session(threadId)
+    }
+  }, [executingSessionKeys, selectedSessionKey])
 
   const seenRunIdsRef = useRef(new Set<string>())
   const activeChatRunIdRef = useRef<string | null>(null)
@@ -1669,7 +1688,7 @@ export function useChatAppController() {
   /** Filled by handleSend (function decl hoisted); submit / home-send use .current */
   const handleSendRef = useRef<(...args: any[]) => any>(async () => {})
   const stopSessionExecutionRef = useRef<
-    ((sessionKey: string, opts?: { showToast?: boolean }) => Promise<void>) | null
+    ((sessionKey: string, opts?: StopSessionOptions) => Promise<void>) | null
   >(null)
   const onClarificationSubmittedRef = useRef<
     ((answerText: string) => void | Promise<void>) | undefined | null
@@ -6066,7 +6085,7 @@ export function useChatAppController() {
     deleteLiveRunSnapshotBestEffort,
   })
 
-  async function stopSessionExecution(sessionKey: string, opts?: { showToast?: boolean }) {
+  async function stopSessionExecution(sessionKey: string, opts?: StopSessionOptions) {
     voiceReplyPendingRef.current = false
     voiceSessionKeyRef.current = ''
     voiceStreamingStartedRef.current = false
@@ -6340,8 +6359,11 @@ export function useChatAppController() {
     await onShellStopSessionImpl(
       {
         setMoreMenuKey,
-        stopSessionExecution: async (sk) => {
-          await stopSessionExecutionRef.current?.(sk)
+        stopSessionExecution: async (sk, opts) => {
+          await stopSessionExecutionRef.current?.(sk, {
+            ...opts,
+            source: (opts?.source as SessionStopSource | undefined) || 'shell_sidebar_stop',
+          })
         },
       },
       k,

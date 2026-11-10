@@ -3,7 +3,7 @@
  *
  * 页面结构：
  *  1. 值班台 - 整体值班状态启停
- *  2. 员工名册 - 岗位卡片，支持请假/上班/手动触发上班
+ *  2. 员工名册 - 岗位卡片，支持停用/启用/手动触发巡检
  *  3. 工作事项 - AI 发起的事项时间线
  *  4. 待审批 - 需人决策的事项，一键同意/拒绝
  */
@@ -106,7 +106,7 @@ function fmtClock(d) {
   })
 }
 
-/** Relative label for past or future ISO times (下次自动上班 is future). */
+/** Relative label for past or future ISO times (下次自动巡检 is future). */
 function fmtTime(iso) {
   if (!iso) return '—'
   try {
@@ -176,14 +176,14 @@ function _avatarSizeForEl(el, fallback = 44) {
   return fallback
 }
 
-/** 名册卡面主操作：草稿/请假/待批/忙碌优先，默认打开员工页 */
+/** 名册卡面主操作：草稿/停用/待批/忙碌优先，默认打开员工页 */
 function resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN }) {
   const code = String(r?.agent_code || '').trim()
   if (isDraft) {
-    return { action: 'resume', label: '确认上班', className: 'pro-role-cta pro-role-cta--primary', code }
+    return { action: 'resume', label: '确认启用', className: 'pro-role-cta pro-role-cta--primary', code }
   }
   if (isPaused) {
-    return { action: 'resume', label: '上班', className: 'pro-role-cta pro-role-cta--primary', code }
+    return { action: 'resume', label: '启用', className: 'pro-role-cta pro-role-cta--primary', code }
   }
   if (pendingN > 0) {
     return { action: 'approvals', label: '去审批', className: 'pro-role-cta pro-role-cta--warn', code }
@@ -376,9 +376,9 @@ const RISK_BADGE = {
 }
 
 const ROLE_STATUS_LABEL = {
-  active: '在岗',
-  paused: '已停',
-  draft: '已停',
+  active: '已启用',
+  paused: '已停用',
+  draft: '草稿',
 }
 
 /** @type {boolean | null} global auto-duty engine; null = unknown */
@@ -534,13 +534,13 @@ export async function render() {
       <div class="pro-detail-pane">
         <div class="pro-hero">
           <div class="pro-hero-main">
-            <h1 class="page-title">数字员工<span class="pro-hero-bot">（BOT）</span></h1>
+            <h1 class="page-title">BOT</h1>
           </div>
           <div class="page-actions">
             <div class="pro-actions-state">
               <div class="pro-duty-card" id="pro-switch-card">
                 <span class="pro-switch-dot" id="pro-switch-dot" aria-hidden="true"></span>
-                <span class="pro-switch-text" id="pro-switch-text">自动上班</span>
+                <span class="pro-switch-text" id="pro-switch-text">自动巡检</span>
                 <span class="pro-switch-meta" id="pro-switch-meta"></span>
                 <button
                   type="button"
@@ -548,7 +548,7 @@ export async function render() {
                   id="pro-switch-btn"
                   role="switch"
                   aria-checked="false"
-                  aria-label="全员自动上班"
+                  aria-label="全员自动巡检"
                   disabled
                 >
                   <span class="pro-switch-knob" aria-hidden="true"></span>
@@ -572,12 +572,12 @@ export async function render() {
         <div class="pro-decide-strip" id="pro-decide-strip" hidden></div>
 
         <div class="pro-tabs-bar">
-          <div class="pro-tabs" role="tablist" aria-label="员工">
+          <div class="pro-tabs" role="tablist" aria-label="BOT">
             <button type="button" class="pro-tab ${_currentTab === 'approvals' ? 'pro-tab--active' : ''}" data-tab="approvals" role="tab">
               待审批 <span class="pro-tab-count" id="pro-tab-count-apprs"></span>
             </button>
             <button type="button" class="pro-tab ${_currentTab === 'roles' ? 'pro-tab--active' : ''}" data-tab="roles" role="tab">
-              员工 <span class="pro-tab-count" id="pro-tab-count-roles"></span>
+              BOT <span class="pro-tab-count" id="pro-tab-count-roles"></span>
             </button>
             <button type="button" class="pro-tab ${_currentTab === 'org' ? 'pro-tab--active' : ''}" data-tab="org" role="tab">
               组织 / 部门
@@ -590,7 +590,7 @@ export async function render() {
             </button>
           </div>
           <label class="pro-roles-search" title="按岗位名、智能体名或代号筛选">
-            <span class="sr-only">搜索员工</span>
+            <span class="sr-only">搜索 BOT</span>
             <svg class="pro-roles-search-icon" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle>
               <path d="m21 21-4.3-4.3"></path>
@@ -599,12 +599,12 @@ export async function render() {
               type="search"
               class="pro-roles-search-input"
               id="pro-roles-search"
-              placeholder="搜索员工…"
+              placeholder="搜索 BOT…"
               autocomplete="off"
               value=""
             />
           </label>
-          <label class="pro-roles-dept-filter" id="pro-roles-dept-filter-wrap" title="按部门筛选员工" hidden>
+          <label class="pro-roles-dept-filter" id="pro-roles-dept-filter-wrap" title="按部门筛选 BOT" hidden>
             <span class="sr-only">部门筛选</span>
             <select class="pro-roles-dept-filter-select" id="pro-roles-dept-filter"></select>
           </label>
@@ -614,7 +614,7 @@ export async function render() {
           <div class="pro-loading">加载中…</div>
         </div>
       </div>
-      <aside class="pro-stage-pane" id="pro-right-stage-slot" aria-label="员工侧栏" hidden></aside>
+      <aside class="pro-stage-pane" id="pro-right-stage-slot" aria-label="BOT 侧栏" hidden></aside>
     </div>
   `
 
@@ -913,7 +913,7 @@ function renderModelField(models, selected = '') {
         </ul>
         <input type="hidden" data-name="model_name" value="${esc(cur)}">
       </div>
-      <p class="hire-chip-hint">仅作用于该岗位的自动上班与执行；留空则跟随绑定智能体的默认模型</p>
+      <p class="hire-chip-hint">仅作用于该岗位的自动巡检与执行；留空则跟随绑定智能体的默认模型</p>
     </div>`
 }
 
@@ -1004,7 +1004,7 @@ async function showHireModal(page) {
       navigate('/models')
       return
     }
-    toast('未配置模型时可以先保存草稿，确认上班前请先配好模型', 'warning')
+    toast('未配置模型时可以先保存草稿，确认启用前请先配好模型', 'warning')
   }
 
   const hireScheduleCtrl = createSchedulePanel({
@@ -1031,7 +1031,7 @@ async function showHireModal(page) {
     <div class="hire-sheet" role="dialog" aria-labelledby="hire-sheet-title">
       <header class="hire-sheet-head">
         <div>
-          <p class="hire-sheet-kicker">员工</p>
+          <p class="hire-sheet-kicker">BOT</p>
           <h2 id="hire-sheet-title" class="hire-sheet-title">加人</h2>
         </div>
         <button type="button" class="hire-sheet-close" data-act="close" aria-label="关闭">&times;</button>
@@ -1045,7 +1045,7 @@ async function showHireModal(page) {
             ${templateChips}
             <button type="button" class="hire-chip hire-template-chip" data-template="" title="清空模板预填，自行填写">自定义</button>
           </div>
-          <p class="hire-chip-hint" data-role="template-hint">点模板会预填名称、系统提示词、审批策略与上班频率，仍可再改。</p>
+          <p class="hire-chip-hint" data-role="template-hint">点模板会预填名称、系统提示词、审批策略与巡检频率，仍可再改。</p>
         </div>
 
         <label class="hire-field">
@@ -1106,7 +1106,7 @@ async function showHireModal(page) {
               <p class="hire-chip-hint" data-autonomy-hint>${autonomyHint('approval_for_all')}</p>
             </div>
             <div class="hire-field">
-              <span>自动上班</span>
+              <span>自动巡检</span>
               ${hireScheduleCtrl.html}
               <p class="hire-chip-hint">与「自动化」任务同一套调度；手动「现在开始工作」不受限制。</p>
             </div>
@@ -1188,7 +1188,7 @@ async function showHireModal(page) {
   const submitHire = async (status) => {
     if (status === 'active' && !chatModels.length) {
       const go = await showConfirm(
-        '当前没有可用对话模型，确认上班后员工无法执行。\n\n先去「模型」页配置？',
+        '当前没有可用对话模型，确认启用后 BOT 无法执行。\n\n先去「模型」页配置？',
       )
       if (go) {
         close()
@@ -1500,16 +1500,16 @@ async function loadStatus(page) {
     card?.classList.toggle('pro-duty-card--off', !running)
     card?.classList.remove('pro-duty-card--error')
     dot.className = 'pro-switch-dot' + (running ? ' pro-switch-dot--on' : ' pro-switch-dot--off')
-    text.textContent = '自动上班'
+    text.textContent = '自动巡检'
     card?.setAttribute(
       'title',
       running
-        ? '全员自动上班已开启：员工按各自排班巡检；关闭后到期巡检不再跑'
-        : '全员自动上班已关闭：员工不会自动巡检，可手动「现在开始工作」',
+        ? '全员自动巡检已开启：员工按各自排班巡检；关闭后到期巡检不再跑'
+        : '全员自动巡检已关闭：员工不会自动巡检，可手动「现在开始工作」',
     )
 
     const parts = [running ? '已开启' : '已关闭']
-    if (st.active_roles != null) parts.push(`${st.active_roles} 人在岗`)
+    if (st.active_roles != null) parts.push(`${st.active_roles} 已启用`)
     if (_busyCodes.size) parts.push(`${_busyCodes.size} 人工作中`)
     const pendingN = Number(st.pending_approvals || 0)
     if (pendingN > 0) {
@@ -1528,10 +1528,10 @@ async function loadStatus(page) {
     btn.disabled = false
     btn.setAttribute('aria-checked', running ? 'true' : 'false')
     btn.classList.toggle('is-on', !!running)
-    btn.title = running ? '关闭全员自动上班（在途巡检会停掉）' : '开启全员自动上班'
+    btn.title = running ? '关闭全员自动巡检（在途巡检会停掉）' : '开启全员自动巡检'
     btn.setAttribute(
       'aria-label',
-      running ? '全员自动上班已开启，点此关闭' : '全员自动上班已关闭，点此开启',
+      running ? '全员自动巡检已开启，点此关闭' : '全员自动巡检已关闭，点此开启',
     )
     btn.onclick = () => toggleEngine(page, running)
 
@@ -1541,7 +1541,7 @@ async function loadStatus(page) {
     card?.classList.remove('pro-duty-card--on')
     card?.classList.add('pro-duty-card--off', 'pro-duty-card--error')
     dot.className = 'pro-switch-dot pro-switch-dot--off'
-    text.textContent = '自动上班'
+    text.textContent = '自动巡检'
     meta.textContent = '服务未连接'
     meta.classList.remove('is-empty')
     btn.disabled = true
@@ -1557,10 +1557,10 @@ async function toggleEngine(page, currentlyRunning) {
   try {
     if (currentlyRunning) {
       await api.proactiveDisable()
-      toast('自动上班已关闭：到期巡检不会再跑，进行中的也会停掉', 'info')
+      toast('自动巡检已关闭：到期巡检不会再跑，进行中的也会停掉', 'info')
     } else {
       await api.proactiveEnable()
-      toast('自动上班已开启', 'success')
+      toast('自动巡检已开启', 'success')
     }
   } catch (e) {
     toast('操作失败: ' + (e?.message || e), 'error')
@@ -1810,9 +1810,9 @@ async function loadTabData(page) {
   }
 }
 
-/** Roster badge — only 3: 工作中 / 在岗 / 已停
- * 「在岗」= 可对话/派活（status=active）；关巡检 / 总开关关 ≠ 已停岗。
- * 「已停」仅请假(paused) / 草稿(draft)。
+/** Roster badge — 工作中 / 已启用 / 已停用 / 草稿
+ * 「已启用」= 可对话/派活（status=active）；关巡检 / 总开关关 ≠ 已停用。
+ * 「已停用」= paused；「草稿」= draft 未确认。
  */
 function roleDutyBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
@@ -1820,26 +1820,26 @@ function roleDutyBadge(role, busy = false) {
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
 
   if (st === 'draft') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '草稿未确认，确认后才会排班' }
+    return { label: '草稿', cls: 'pro-badge--muted', tip: '草稿未确认，确认启用后才会排班' }
   }
   if (st === 'paused') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '请假中，不会自动巡检' }
+    return { label: '已停用', cls: 'pro-badge--muted', tip: '已停用，不会自动巡检；启用后可对话 / 派活' }
   }
 
   if (st === 'active') {
-    let tip = '按计划自动巡检'
-    if (suspended) tip = '可在线对话 / 派活，不定时巡检'
-    else if (_engineRunning === false) tip = '可对话/派活；总开关已关，到期不会自动跑'
-    else if (role?.next_heartbeat_at) tip = `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
+    let tip = '已启用 · 按计划自动巡检'
+    if (suspended) tip = '已启用 · 可对话 / 派活，不定时巡检'
+    else if (_engineRunning === false) tip = '已启用 · 可对话/派活；总开关已关，到期不会自动跑'
+    else if (role?.next_heartbeat_at) tip = `已启用 · 下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
     const dash = roleDash(role?.agent_code)
     const noopN = Number(dash?.consecutive_noop_count || 0)
     const idle =
       !!dash?.idle_suspected ||
       noopN >= 3 ||
       Number(dash?.no_op_pct || 0) >= 40
-    return { label: '在岗', cls: 'pro-badge--ok', tip, idle }
+    return { label: '已启用', cls: 'pro-badge--ok', tip, idle }
   }
-  return { label: '已停', cls: 'pro-badge--muted', tip: st || '—' }
+  return { label: '已停用', cls: 'pro-badge--muted', tip: st || '—' }
 }
 
 function patchRoleBusyUi(page) {
@@ -1955,7 +1955,8 @@ function _expandOrgDefaults(trees, flat) {
 
 function _orgStatusLabel(status) {
   const s = String(status || '').trim()
-  if (s === 'paused') return '已请假'
+  if (s === 'paused') return '已停用'
+  if (s === 'draft') return '草稿'
   if (s && s !== 'active') return s
   return ''
 }
@@ -2233,10 +2234,10 @@ function renderOrgDetail(flatRoles, forest) {
   const selfStatus = _orgStatusLabel(flat.status)
   const dutyLabel =
     String(flat.status || '') === 'active'
-      ? '在岗'
+      ? '已启用'
       : selfStatus || String(flat.status || '') || '—'
   const bridgeHint = flat.is_bridge
-    ? `<p class="dd-org-bridge-hint">此岗为桥接节点（按状态过滤时保留汇报线）。日常组织图里在岗/请假都会正常占位。</p>`
+    ? `<p class="dd-org-bridge-hint">此岗为桥接节点（按状态过滤时保留汇报线）。日常组织图里已启用/已停用都会正常占位。</p>`
     : ''
 
   const reportsHtml = kids.length
@@ -2331,7 +2332,7 @@ function renderOrgTree(_forestUnused, flatRoles) {
       ${renderOrgViewHeader({
         title: '组织架构',
         aside: `
-          <span class="pro-org-stat">${deptN} 个部门分组 · ${people} 人 · ${onDuty} 在岗 · ${linked} 条汇报线</span>
+          <span class="pro-org-stat">${deptN} 个部门分组 · ${people} 人 · ${onDuty} 已启用 · ${linked} 条汇报线</span>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-expand-all">全部展开</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-collapse-all">全部收起</button>
           <button type="button" class="btn btn-sm btn-outline" data-act="org-refresh">刷新</button>
@@ -2710,7 +2711,7 @@ async function loadAndRenderOrg(page, { keepSelection = true } = {}) {
   const container = page.querySelector('#pro-tab-content')
   if (!container || _currentTab !== 'org') return
   try {
-    // 固定组织图：不按 active 过滤；请假岗位仍在树上，只带状态标记
+    // 固定组织图：不按 active 过滤；已停用岗位仍在树上，只带状态标记
     const res = await api.proactiveOrgTree().catch(() => null)
     const forest = res?.forest || []
     const flat = Array.isArray(res?.roles) && res.roles.length
@@ -3252,13 +3253,13 @@ function renderHealthDashboard(dash, roles) {
   const cards = `
     <div class="pro-health-kpis">
       <div class="pro-health-kpi"><em>今日成本</em><strong>${esc(fmtUsd(g.total_today_cost_usd))}</strong></div>
-      <div class="pro-health-kpi"><em>在岗员工</em><strong>${esc(String(g.active_roles ?? 0))}</strong></div>
+      <div class="pro-health-kpi"><em>已启用</em><strong>${esc(String(g.active_roles ?? 0))}</strong></div>
       <div class="pro-health-kpi${g.total_zombie_executing ? ' pro-health-kpi--warn' : ''}"><em>卡住执行</em><strong>${esc(String(g.total_zombie_executing ?? 0))}</strong></div>
       <div class="pro-health-kpi${g.alert_count ? ' pro-health-kpi--warn' : ''}"><em>告警</em><strong>${esc(String(g.alert_count ?? alertList.length))}</strong></div>
     </div>`
 
   if (!rows.length) {
-    return alertBanner + cards + `<div class="pro-empty"><p class="pro-empty-title">还没有员工数据</p></div>`
+    return alertBanner + cards + `<div class="pro-empty"><p class="pro-empty-title">还没有 BOT 数据</p></div>`
   }
 
   return (
@@ -3309,7 +3310,7 @@ function renderHealthDashboard(dash, roles) {
         <div class="pro-health-card-head">
           <div>
             <strong>${esc(r.role_name || r.agent_name || r.agent_code)}</strong>
-            <span class="pro-meta-chip">${esc(r.status === 'active' ? '在岗' : r.status === 'paused' ? '请假' : r.status)}</span>
+            <span class="pro-meta-chip">${esc(r.status === 'active' ? '已启用' : r.status === 'paused' ? '已停用' : r.status === 'draft' ? '草稿' : r.status)}</span>
             ${idle ? `<span class="pro-meta-chip pro-meta-chip--warn">疑似空转×${esc(String(r.consecutive_noop_count || 0))}</span>` : ''}
             ${r.budget_warn ? '<span class="pro-meta-chip pro-meta-chip--warn">预算告警</span>' : ''}
           </div>
@@ -3429,7 +3430,7 @@ function renderRoles(roles) {
           <path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/>
         </svg>
       </div>
-      <p class="pro-empty-title">还没有智能体员工</p>
+      <p class="pro-empty-title">还没有 BOT</p>
       <p class="pro-empty-desc">点「加人」填写名称与系统提示词即可入职；也可到「组织 / 部门」编入编制后再调汇报线</p>
       <button type="button" class="btn btn-primary btn-sm" id="pro-empty-hire" style="margin-top:14px">加人</button>
     </div>`
@@ -3440,7 +3441,7 @@ function renderRoles(roles) {
     draftN > 0
       ? `<div class="pro-draft-banner pro-draft-banner--compact">
           <strong>${draftN} 位草稿未确认</strong>
-          <span>编辑后点卡片菜单「确认上班」</span>
+          <span>编辑后点卡片菜单「确认启用」</span>
         </div>`
       : ''
 
@@ -3471,26 +3472,26 @@ function renderRoles(roles) {
     ).length
     const isSuspended = !!(r?.auto_patrol_suspended || r?.config?.auto_patrol_suspended)
     let oneLiner = '暂无近况'
-    if (isDraft) oneLiner = '草稿未确认 · 确认后才开始自动上班'
-    else if (isPaused) oneLiner = '请假中 · 不会自动巡检'
-    else if (isSuspended) oneLiner = '在岗待命 · 不定时巡检（可对话/派活）'
-    else if (_engineRunning === false) oneLiner = '在岗待命 · 总开关已关（到期不自动跑）'
+    if (isDraft) oneLiner = '草稿未确认 · 确认启用后才开始自动巡检'
+    else if (isPaused) oneLiner = '已停用 · 不会自动巡检'
+    else if (isSuspended) oneLiner = '已启用 · 不定时巡检（可对话/派活）'
+    else if (_engineRunning === false) oneLiner = '已启用 · 总开关已关（到期不自动跑）'
     else if (pendingN) oneLiner = `${pendingN} 项待你拍板`
     else if (isBusy) oneLiner = '工作中 · 正在干活…'
     else if (isIdle) {
       const n = Number(dash?.consecutive_noop_count || 0)
       oneLiner = n ? `近期没干活 · 连续 ${n} 轮没什么产出` : '近期没干活 · 没什么实质产出'
     } else if (lastInit?.title) oneLiner = previewLine(lastInit.title, 64)
-    else if (r.last_heartbeat_at) oneLiner = `上次上班 ${fmtTime(r.last_heartbeat_at)}`
+    else if (r.last_heartbeat_at) oneLiner = `上次巡检 ${fmtTime(r.last_heartbeat_at)}`
 
     const isSystemFrontDesk = !!r.system_front_desk || String(r.agent_code || '') === 'xiaomi'
     const primary = resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN })
 
     const dutyMenu = isDraft
-      ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">确认上班</button>`
+      ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">确认启用</button>`
       : isPaused
-        ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">上班</button>`
-        : `<button type="button" class="pro-role-more-item" role="menuitem" data-action="pause" data-code="${esc(r.agent_code)}">请假</button>
+        ? `<button type="button" class="pro-role-more-item" role="menuitem" data-action="resume" data-code="${esc(r.agent_code)}">启用</button>`
+        : `<button type="button" class="pro-role-more-item" role="menuitem" data-action="pause" data-code="${esc(r.agent_code)}">停用</button>
            <button type="button" class="pro-role-more-item" role="menuitem" data-action="dispatch" data-code="${esc(r.agent_code)}">派发任务</button>
            <button type="button" class="pro-role-more-item" role="menuitem" data-action="heartbeat" data-code="${esc(r.agent_code)}">现在开始工作</button>`
 
@@ -3795,7 +3796,7 @@ function bindRoles(container) {
         if (page) {
           renderTabContent(page)
           toast(
-            wasBusy ? `已请假 ${name}，正在中止本轮工作` : `已请假 ${name}`,
+            wasBusy ? `已停用 ${name}，正在中止本轮工作` : `已停用 ${name}`,
             'info',
           )
         }
@@ -3806,7 +3807,7 @@ function bindRoles(container) {
             if (page) void loadStatus(page)
           })
           .catch((err) => {
-            toast(`请假失败: ${err?.message || err}`, 'error')
+            toast(`停用失败: ${err?.message || err}`, 'error')
             if (page) void loadTabData(page)
           })
         return
@@ -3838,7 +3839,7 @@ function bindRoles(container) {
           if (role) role.status = 'active'
           await api.proactiveResumeRole(code)
           notifyEmployeesUpdated({ reason: 'proactive.resume', agentCode: code })
-          toast(wasDraft ? `已确认上班 ${label}` : `已上班 ${label}`, 'success')
+          toast(wasDraft ? `已确认启用 ${label}` : `已启用 ${label}`, 'success')
         }
       } catch (err) {
         toast(`操作失败: ${err?.message || err}`, 'error')

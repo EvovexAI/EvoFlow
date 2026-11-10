@@ -242,3 +242,96 @@ def summarize_task_observability(
         **task_duration,
         **metrics,
     }
+
+
+def _compact_obs_tokens(tokens: Any) -> dict[str, int]:
+    tok = tokens if isinstance(tokens, dict) else {}
+    return {
+        "input": int(tok.get("input") or 0),
+        "output": int(tok.get("output") or 0),
+        "total": int(tok.get("total") or 0),
+    }
+
+
+def compact_subtask_observability(row: dict[str, Any] | None) -> dict[str, Any]:
+    """Wire-friendly per-node ops metrics (tokens / model calls / duration / model)."""
+    if not isinstance(row, dict):
+        return {
+            "model_invocations": 0,
+            "tool_invocations": 0,
+            "tokens": {"input": 0, "output": 0, "total": 0},
+            "primary_model": None,
+            "models_used": [],
+            "duration_ms": None,
+            "duration_running": False,
+        }
+    models = [m for m in (row.get("models_used") or []) if isinstance(m, dict)]
+    return {
+        "model_invocations": int(row.get("model_invocations") or 0),
+        "tool_invocations": int(row.get("tool_invocations") or 0),
+        "tokens": _compact_obs_tokens(row.get("tokens")),
+        "primary_model": (str(row.get("primary_model") or "").strip() or None),
+        "models_used": [
+            {
+                "model": str(m.get("model") or "").strip() or "—",
+                "provider": m.get("provider"),
+                "invocations": int(m.get("invocations") or 0),
+                "input_tokens": int(m.get("input_tokens") or 0),
+                "output_tokens": int(m.get("output_tokens") or 0),
+                "total_tokens": int(m.get("total_tokens") or 0),
+            }
+            for m in models[:8]
+        ],
+        "duration_ms": row.get("duration_ms"),
+        "duration_running": bool(row.get("duration_running")),
+    }
+
+
+def compact_run_observability(obs: dict[str, Any] | None) -> dict[str, Any]:
+    """Compact task observability for ``GET /api/apps/runs/{id}`` consumers.
+
+    Persisted source of truth remains ``evoflow_observability.db``; this is a
+    read projection only (no second write path).
+    """
+    if not isinstance(obs, dict):
+        return {"enabled": False}
+    if obs.get("enabled") is False:
+        return {
+            "enabled": False,
+            "error": obs.get("error"),
+            "schema": "evoflow.run_observability.v1",
+        }
+
+    by_subtask: dict[str, dict[str, Any]] = {}
+    for row in obs.get("subtasks") or []:
+        if not isinstance(row, dict):
+            continue
+        sid = str(row.get("subtask_id") or "").strip()
+        if not sid:
+            continue
+        by_subtask[sid] = compact_subtask_observability(row)
+
+    return {
+        "enabled": True,
+        "schema": "evoflow.run_observability.v1",
+        "model_invocations": int(obs.get("model_invocations") or 0),
+        "tool_invocations": int(obs.get("tool_invocations") or 0),
+        "tool_errors": int(obs.get("tool_errors") or 0),
+        "tokens": _compact_obs_tokens(obs.get("tokens")),
+        "primary_model": (str(obs.get("primary_model") or "").strip() or None),
+        "models_used": [
+            {
+                "model": str(m.get("model") or "").strip() or "—",
+                "provider": m.get("provider"),
+                "invocations": int(m.get("invocations") or 0),
+                "input_tokens": int(m.get("input_tokens") or 0),
+                "output_tokens": int(m.get("output_tokens") or 0),
+                "total_tokens": int(m.get("total_tokens") or 0),
+            }
+            for m in (obs.get("models_used") or [])
+            if isinstance(m, dict)
+        ][:8],
+        "duration_ms": obs.get("duration_ms"),
+        "duration_running": bool(obs.get("duration_running")),
+        "by_subtask": by_subtask,
+    }

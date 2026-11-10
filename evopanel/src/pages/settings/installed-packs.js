@@ -56,7 +56,7 @@ function fmtTime(iso) {
 }
 
 const ARTIFACT_LABELS = [
-  ['employees', '员工'],
+  ['employees', 'BOT'],
   ['agents', '智能体'],
   ['apps', '工作流'],
   ['skills', '技能'],

@@ -12,7 +12,7 @@ function domainLabel(domain?: string): string {
     workflow: '工作流',
     settings: '设置',
     agents: '智能体',
-    employees: '员工',
+    employees: 'BOT',
     tasks: '协作任务',
     items: '待办',
     skills: '技能',

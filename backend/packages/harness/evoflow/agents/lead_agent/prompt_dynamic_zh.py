@@ -95,14 +95,15 @@ SKILL_RULE_1 = (
 SKILL_RULE_2 = (
     "按需读资源；遵守技能内步骤与边界。"
     "执行技能内脚本用 ``bash``：命令里写 ``skill:<名>/scripts/...`` 或相对 ``scripts/...``（宿主会解析到技能安装目录）；"
-    "长任务设 ``run_in_background=true``，再用 ``taskoutput`` / ``taskstop`` 查看或停止。"
+    "长任务设 ``run_in_background=true``，完成靠通知 / output 文件，或 ``taskoutput`` / ``taskstop``；"
+    "禁止 ``sleep …; tail/cat`` 轮询进度。"
 )
 SKILL_RULE_3 = "使用技能按技能步骤调用工具；当前模式由界面决定，勿调用 mode_set/scenario。"
 SKILL_RULE_COMPACT = (
     "若本回合已注入 `<skill_injection>` 或 ``<available_skills>`` 描述已够，勿重复 read SKILL.md。"
     "任务匹配某技能且未注入时，先 ``read(\"skill:<名>\")`` 加载再执行。"
     '技能**不在用户工作区**：读文件用 ``read("skill:<名>/路径")``；'
-    "跑脚本用 ``bash``（命令含 ``skill:<名>/...`` 或 ``scripts/...``）；长任务 ``run_in_background=true`` + ``taskoutput`` / ``taskstop``。"
+    "跑脚本用 ``bash``（命令含 ``skill:<名>/...`` 或 ``scripts/...``）；长任务 ``run_in_background=true`` + 完成通知 / ``taskoutput``；禁止 sleep 轮询。"
     "禁止在工作区 find/grep ``skills/`` 或 ``SKILL.md``。"
 )
 MCP_RULE_COMPACT = (

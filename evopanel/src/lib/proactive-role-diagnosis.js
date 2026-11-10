@@ -48,7 +48,7 @@ export function diagnoseRole(input = {}) {
       code: 'draft',
       level: 'info',
       title: '草稿未确认',
-      detail: '确认上班后才会按频率自动干活',
+      detail: '确认启用后才会按频率自动干活',
       actions: [{ id: 'edit', label: '编辑岗位' }],
     })
     return out
@@ -76,7 +76,7 @@ export function diagnoseRole(input = {}) {
       detail: '执行超过约 45 分钟仍未结束，先看工作过程再决定取消或重开',
       actions: [
         { id: 'live', label: '工作过程' },
-        { id: 'worklog', label: '上班记录' },
+        { id: 'worklog', label: '巡检记录' },
         { id: 'tasks', label: '任务列表' },
       ],
     })
@@ -88,7 +88,7 @@ export function diagnoseRole(input = {}) {
       code: 'wrap_incomplete',
       level: 'warn',
       title: '本轮汇报没写完',
-      detail: '最近一轮下班小结没写完，可点「现在开始工作」续跑，或打开工作过程查看',
+      detail: '最近一轮巡检小结没写完，可点「现在开始工作」续跑，或打开工作过程查看',
       actions: [
         { id: 'patrol', label: '现在开始工作' },
         { id: 'live', label: '工作过程' },

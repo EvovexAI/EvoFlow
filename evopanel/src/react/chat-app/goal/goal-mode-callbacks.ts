@@ -49,6 +49,7 @@ export function createOnRefreshChatHistory(ctx: GoalModeCallbacksCtx) {
           trigger: 'refresh_backend_done',
           hasEndMarker: false,
           detail: {
+            whoZh: '刷新发现后端已结束，前端清 busy（非用户点停）',
             source: 'goal_refresh_chat_history',
             turnPhase: rt.turnPhase,
             probeExecuting: probe?.executing,

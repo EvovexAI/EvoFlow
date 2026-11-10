@@ -23,7 +23,7 @@ def test_run_server_kwargs_passes_n_jobs_per_worker(monkeypatch, tmp_path) -> No
     from evoflow.langgraph_runtime_env import run_server_kwargs
 
     kwargs = run_server_kwargs()
-    assert kwargs.get("n_jobs_per_worker") == 10
+    assert kwargs.get("n_jobs_per_worker") == 3
     assert kwargs["n_jobs_per_worker"] is not None
 
 

@@ -42,21 +42,33 @@ def test_guard_allows_short_sleep():
 
 
 def test_guard_allows_sleep_with_real_work():
-    # 有实质命令的等待（轮询循环带动作）不拦；单次 sleep 须 ≤60s
-    assert _pure_wait_guard("sleep 30; cat a.txt") is None
+    # 有实质命令且单次 sleep ≤20s 不拦；纯读文件的「假有活」见 progress-poll 用例
+    assert _pure_wait_guard("sleep 15 && python build.py") is None
     assert _pure_wait_guard("sleep 20 && python build.py") is None
     assert _pure_wait_guard("for i in 1 2 3; do curl -s http://x; sleep 15; done") is None
 
 
+def test_guard_rejects_progress_poll_sleep_tail_cat():
+    # 2026-11-10 正式包：`sleep 50; tail …evoflow-bash-tasks…output` 假等待
+    msg = _pure_wait_guard(
+        'sleep 50; tail -20 "C:/Users/admin/AppData/Local/Temp/evoflow-bash-tasks/043c435f81bd.output"'
+    )
+    assert msg is not None and "rejected" in msg
+    assert _pure_wait_guard("sleep 30; cat a.txt") is not None
+    assert _pure_wait_guard("sleep 12 && tail -10 /tmp/x.output") is not None
+
+
 def test_guard_rejects_long_sleep_even_with_trailing_work():
-    # 2026-11-06 发版工程师：`sleep 480 && gh run view` 空等 CI
+    # 2026-11-06 发版工程师：`sleep 480 && gh run view` 空等 CI；单次 >20s 一律拒
     msg = _pure_wait_guard(
         "sleep 480 && echo done && timeout 45 gh run view 42161650097 | head -10"
     )
     assert msg is not None and "rejected" in msg
     assert "480" in msg
     assert _pure_wait_guard("sleep 90 && gh run view 1") is not None
-    assert _pure_wait_guard("sleep 60 && gh run view 1") is None
+    assert _pure_wait_guard("sleep 45 && gh run view 1") is not None
+    assert _pure_wait_guard("sleep 21 && gh run view 1") is not None
+    assert _pure_wait_guard("sleep 20 && gh run view 1") is None
 
 
 def test_guard_ignores_commands_without_sleep():

@@ -4,6 +4,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   DownloadIcon,
+  FolderOpenIcon,
   MinusIcon,
   PlusIcon,
   XIcon,
@@ -22,6 +23,11 @@ export interface ImagePreviewDialogItem {
   alt: string;
   error?: boolean;
   filename?: string;
+  /**
+   * 本机绝对路径（生图落盘等）。有值时预览栏可「打开位置」，不必只能下载副本。
+   * src 可能是 asset:// / convertFileSrc，不能反推真实路径。
+   */
+  localPath?: string;
   loading?: boolean;
   mediaType?: string;
   src?: string;
@@ -81,6 +87,15 @@ class ImageDownloadError extends Error {
 
 function isHttpSource(value: string) {
   return value.startsWith("http://") || value.startsWith("https://");
+}
+
+function isLocalAbsolutePath(value: string) {
+  const path = value.trim();
+  if (!path) return false;
+  if (/^(https?:|data:|asset:|blob:)/i.test(path)) return false;
+  if (path.startsWith("/api/")) return false;
+  // Windows D:\… / UNC \\server\… / POSIX /…
+  return /^[a-zA-Z]:[\\/]/.test(path) || path.startsWith("\\\\") || path.startsWith("/");
 }
 
 export function sanitizeImageSourceForLog(source: string) {
@@ -326,6 +341,41 @@ export function ImagePreviewDialog({
       : null;
   };
 
+  const activeLocalPath = (() => {
+    const direct = String(activeItem?.localPath || "").trim();
+    if (direct && isLocalAbsolutePath(direct)) return direct;
+    const src = String(activeItem?.src || "").trim();
+    if (src && isLocalAbsolutePath(src)) return src;
+    return "";
+  })();
+
+  const revealActiveLocalPath = async () => {
+    if (!activeLocalPath) return;
+    try {
+      if (platform?.openInFileManager) {
+        const viaPlatform = await platform.openInFileManager(activeLocalPath);
+        if (viaPlatform.success) {
+          toast(intl.formatMessage({ id: "markdownImage.revealSucceeded" }));
+          return;
+        }
+      }
+      // EvoFlow 聊天壳若仍是 stub platform：本机落盘图回落 Tauri reveal。
+      const { api } = await import("../../../lib/tauri-api.js");
+      await api.revealPathInFileManager(activeLocalPath);
+      toast(intl.formatMessage({ id: "markdownImage.revealSucceeded" }));
+    } catch (error) {
+      logger.warn("[ImagePreviewDialog] 打开位置失败", {
+        path: activeLocalPath.slice(0, 240),
+        error: error instanceof Error ? error.message : String(error),
+      });
+      toast(
+        intl.formatMessage({
+          id: "markdownImage.revealFailed",
+        }),
+      );
+    }
+  };
+
   const downloadActiveImage = async () => {
     if (!activeItem?.src || activeItemIsVideo || isDownloading) return;
     setIsDownloading(true);
@@ -403,6 +453,21 @@ export function ImagePreviewDialog({
           {activeItem?.alt || intl.formatMessage({ id: "chat.attachments.preview.title" })}
         </DialogTitle>
         <div className="pointer-events-auto absolute right-4 top-4 z-20 flex items-center gap-2 [app-region:no-drag] platform-mac-desktop:top-12 platform-linux-desktop:right-6 platform-linux-desktop:top-4 platform-windows-desktop:right-6 platform-windows-desktop:top-[calc(env(titlebar-area-height,48px)_+_0.5rem)]">
+          {activeLocalPath ? (
+            <Button
+              type="button"
+              aria-label={intl.formatMessage({ id: "markdownImage.revealInFileManager" })}
+              className="rounded-full border border-border bg-background text-foreground shadow-md hover:bg-background/80"
+              onClick={() => {
+                void revealActiveLocalPath();
+              }}
+              size="icon-md"
+              title={intl.formatMessage({ id: "markdownImage.revealInFileManager" })}
+              variant="ghost"
+            >
+              <FolderOpenIcon />
+            </Button>
+          ) : null}
           {!activeItemIsVideo ? (
             <Button
               type="button"
@@ -411,6 +476,7 @@ export function ImagePreviewDialog({
               disabled={!activeItem?.src || isDownloading}
               onClick={downloadActiveImage}
               size="icon-md"
+              title={intl.formatMessage({ id: "markdownImage.download" })}
               variant="ghost"
             >
               <DownloadIcon />

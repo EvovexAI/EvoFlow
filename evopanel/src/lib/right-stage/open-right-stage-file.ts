@@ -22,6 +22,7 @@ import { logPanelSet } from './panel-set-debug-log.js'
 import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
 import { isRightStageTabVisibleForSession } from './right-stage-session-visibility.js'
 import { defaultTitleForKind } from './right-stage-types.js'
+import type { RightStageLayout } from './right-stage-types.js'
 
 /**
  * 接受 ZCode CodeViewerSource（联合类型）及任意带 path/title 的预览源。
@@ -43,6 +44,9 @@ export type RightStageCodeViewerSourceInput = {
   type: string
   title?: string
   path?: string
+  /** media 预览子类型（image/video/audio/pdf…），与 mediaType 一起透传给 PreviewPane */
+  kind?: string
+  mediaType?: string
   workspacePath?: string
   workspaceIdentity?: string
   workspaceRemoteSessionId?: string
@@ -145,7 +149,7 @@ export type OpenRightStageCodeViewerOpts = {
   sessionKey?: string | null
   threadId?: string | null
   /** 默认 half：侧栏可读，不把对话挤没。 */
-  layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  layout?: RightStageLayout
 }
 
 /** 音视频：与文件树 createCodeViewerSourceForWorkspaceFile 同构，走流式 serve-file。 */
@@ -316,7 +320,7 @@ export type OpenRightStageFilePreviewOpts = {
   focusLine?: number
   focusEndLine?: number
   focusAnnotation?: { title?: string; body?: string; priority?: number } | null
-  layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  layout?: RightStageLayout
 }
 
 /** 工作区文件路径 → 右栏 file 标签（WorkspaceFilePreviewPanel）。音视频改走 media。 */
@@ -447,7 +451,7 @@ export type OpenRightStageAssetPreviewOpts = {
   entityType?: string | null
   entityId?: string | null
   name?: string | null
-  layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  layout?: RightStageLayout
 }
 
 /**

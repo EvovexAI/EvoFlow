@@ -251,7 +251,7 @@ const WORK_STATUS_LABEL = {
   working: '工作中',
   waiting: '等待中',
   blocked: '受阻',
-  offline: '请假/离线',
+  offline: '已停用/离线',
   error: '异常',
   idle: '空闲',
 }

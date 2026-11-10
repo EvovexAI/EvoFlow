@@ -63,9 +63,9 @@ async function openEmployeeSheet(
   if (!role) return false
 
   await showEditRoleModal(role, {
-    sheetTitle: '编辑员工',
-    sheetKicker: '员工',
-    confirmLabel: '保存员工',
+    sheetTitle: '编辑 BOT',
+    sheetKicker: 'BOT',
+    confirmLabel: '保存 BOT',
     allowAgentRebind: false,
     onSaved: async () => {
       await onSaved?.()

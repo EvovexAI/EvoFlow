@@ -34,7 +34,10 @@ export function runPageLoadResumeEffect(ctx: RunPageLoadResumeCtx): void {
   const _refMs = _updatedMs || _startedMs
   if (_refMs && Date.now() - _refMs > _STALE_RUN_THRESHOLD_MS) {
     toast('上次会话已超时，正在自动停止…', 'info')
-    void stopSessionExecutionRef.current?.(sk, { showToast: false })
+    void stopSessionExecutionRef.current?.(sk, {
+      showToast: false,
+      source: 'page_load_stale_stop',
+    })
     return
   }
   requestManualStreamResumeRef.current(sk, { refreshSessions: false })

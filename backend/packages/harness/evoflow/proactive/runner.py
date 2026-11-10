@@ -47,7 +47,7 @@ _MAX_CONCURRENT_THINK = 2  # max simultaneous think cycles
 
 
 def _engine_pref_enabled_for_log() -> bool:
-    """与 Panel「自动上班」总开关一致；缺省视为开。"""
+    """与 Panel「自动巡检」总开关一致；缺省视为开。"""
     try:
         from evoflow.persistence.config_repositories import get_app_setting
 
@@ -115,15 +115,15 @@ def _log_duty_run_about_to_start(
         schedule = str(getattr(role, "heartbeat_schedule", "") or "") or str(getattr(role, "heartbeat_rrule", "") or "")
     engine_on = _engine_pref_enabled_for_log()
     badge, badge_tip = _role_ui_badge_zh(role, busy=busy_now, engine_on=engine_on)
-    reason = str(trigger_reason or "").strip() or ("定时心跳到期（自动上班）" if scheduled else "未标明来源的值班触发")
+    reason = str(trigger_reason or "").strip() or ("定时心跳到期（自动巡检）" if scheduled else "未标明来源的值班触发")
     source = str(trigger_source or "").strip()
     parts = [
         f"【值班触发】原因={reason}",
         f"谁在跑={name}({code})" if code else f"谁在跑={name}",
         f"界面状态={badge}（{badge_tip}）",
-        f"全局自动上班={'开' if engine_on else '关'}",
+        f"全局自动巡检={'开' if engine_on else '关'}",
         f"排班={schedule or '未设置'}",
-        f"上次上班={getattr(role, 'last_heartbeat_at', None) or '—'}",
+        f"上次巡检={getattr(role, 'last_heartbeat_at', None) or '—'}",
         f"下次排班={getattr(role, 'next_heartbeat_at', None) or '—'}",
     ]
     if source:
@@ -635,7 +635,7 @@ class ProactiveRunner:
         self._persist_engine_enabled(False)
         codes = [row.get("agent_code") or "" for row in self.busy_roles()]
         logger.info(
-            "【关闭自动上班】将取消在途值班 %d 人：%s",
+            "【关闭自动巡检】将取消在途值班 %d 人：%s",
             len([c for c in codes if c]),
             "、".join(str(c) for c in codes if c) or "（当前无登记在途）",
         )
@@ -1075,7 +1075,7 @@ class ProactiveRunner:
 
         if queued:
             logger.info(
-                "【值班调度】本拍派发 %d 人自动上班：%s",
+                "【值班调度】本拍派发 %d 人自动巡检：%s",
                 len(queued),
                 "、".join(f"{(r.role_name or r.agent_code)}({r.agent_code})" for r in queued),
             )
@@ -1629,7 +1629,7 @@ class ProactiveRunner:
         Awaits the full duty cycle (unlike the internal tick's fire-and-forget)
         so the automation run record can capture status / round_id.
         """
-        reason = str(trigger_reason or "").strip() or "自动化准点触发（员工上班）"
+        reason = str(trigger_reason or "").strip() or "自动化准点触发（BOT 巡检）"
         return await self._process_role(
             role,
             scheduled=True,
@@ -1675,7 +1675,7 @@ class ProactiveRunner:
         code = str(role.agent_code or "").strip()
         src = str(trigger_source or "").strip() or ("scheduler.tick" if scheduled else "manual")
         reason = str(trigger_reason or "").strip() or (
-            "定时心跳到期（自动上班）" if scheduled else "手动/派发触发上班"
+            "定时心跳到期（自动巡检）" if scheduled else "手动/派发触发巡检"
         )
         duty_run_id = ""
         duty_round_id = str(round_id or "").strip()
@@ -1814,7 +1814,7 @@ class ProactiveRunner:
                         )
                     label = work_window_label_zh(role)
                     logger.info(
-                        "【值班跳过】原因=不在上班时间内 | 谁=%s(%s) | %s | 改约下次=%s",
+                        "【值班跳过】原因=不在巡检时段内 | 谁=%s(%s) | %s | 改约下次=%s",
                         str(role.role_name or "").strip() or code,
                         code,
                         label,
@@ -2675,12 +2675,12 @@ class ProactiveRunner:
         focus_s = str(focus or "").strip()
         prepend = ""
         if focus_s:
-            prepend = f"## 用户本轮交代（优先关注）\n**事项：** {focus_s}\n→ 优先处理该事项；其余按岗位职责正常上班并写工作汇报。不要忽略工作汇报与 tasks 状态更新。\n"
+            prepend = f"## 用户本轮交代（优先关注）\n**事项：** {focus_s}\n→ 优先处理该事项；其余按岗位职责正常巡检并写工作汇报。不要忽略工作汇报与 tasks 状态更新。\n"
 
         report = await self._process_role(
             role,
             prepend_env_context=prepend,
-            trigger_reason=(f"手动立即上班{'（带本轮事项）' if focus_s else ''}"),
+            trigger_reason=(f"手动立即巡检{'（带本轮事项）' if focus_s else ''}"),
             trigger_source="api.heartbeat",
         )
         if report.get("busy"):
@@ -2980,7 +2980,7 @@ class ProactiveRunner:
             round_id=dispatch_round_id,
             round_id_prefix="dispatch",
             role_lock_held=role_lock_held,
-            trigger_reason=(f"任务派发触发上班：{goal_s[:80]}" + (f"…（共{len(goal_s)}字）" if len(goal_s) > 80 else "")),
+            trigger_reason=(f"任务派发触发巡检：{goal_s[:80]}" + (f"…（共{len(goal_s)}字）" if len(goal_s) > 80 else "")),
             trigger_source=f"dispatch.{source_s}",
         )
         if report.get("busy"):

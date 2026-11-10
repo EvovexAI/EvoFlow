@@ -1,5 +1,5 @@
 /**
- * 对话流停止诊断日志（默认开启）。
+ * 对话流停止 / 结束诊断日志（默认开启）。
  *
  * ## 日志落点（排查用）
  * 1. DevTools Console：过滤 `[stream-stop]`
@@ -10,14 +10,12 @@
  *
  * 关闭：localStorage.setItem('EVOFLOW_STREAM_STOP_LOG', '0')
  *
- * ## kind 诚实边界
- * - `normal`：收到协议结束标识（SSE final / AG-UI RUN_FINISHED|RUN_ERROR）
- * - `ui_stop`：走了 Composer/侧栏「停止」代码路径——只能说明点了停止按钮，
- *   **无法区分误触/故意**；页面刷新、超时、断流不会标成这个
- * - `abnormal`：无结束标识，且不是 UI 停止按钮 → 「莫名其妙停掉」主查对象
+ * ## kind
+ * - `normal`：协议正常结束（SSE final / AG-UI 终态）
+ * - `ui_stop`：走了 stopSessionExecution / 用户侧主动停（看 trigger/whoZh 区分点停 vs 打断重发）
+ * - `abnormal`：无结束标识且非主动停 → 「莫名其妙停掉」主查对象
  *
- * 细粒度看 `trigger`（ui_stop_button / sse_final / sse_aborted /
- * stale_sending_watchdog / page_unload / …）。
+ * 每条必带 `whoZh`（人话：谁停的 / 正常结束 / 异常断流）。
  */
 
 const PREFIX = '[stream-stop]'
@@ -33,7 +31,7 @@ export type StreamStopLogInput = {
   runId?: string | null
   /**
    * 细粒度触发源（排查主字段）。
-   * 例：ui_stop_button / sse_final / sse_aborted / stale_sending_watchdog / page_unload
+   * 例：composer_stop_button / sse_final / sse_aborted / interrupt_flush_queue / page_unload
    */
   trigger?: string
   /** @deprecated 用 trigger；兼容旧调用 */
@@ -41,8 +39,8 @@ export type StreamStopLogInput = {
   /** 是否收到协议结束标识（final / RUN_FINISHED / RUN_ERROR） */
   hasEndMarker: boolean
   /**
-   * 仅当走了 stopSessionExecution / 停止按钮时为 true。
-   * ≠「用户一定故意停」——误触也会是 true；刷新/超时不会。
+   * 走了 stopSessionExecution / 用户侧主动停路径时为 true。
+   * 不等于「用户点了停止」——打断重发也会是 true；看 trigger/whoZh。
    */
   fromUiStopButton?: boolean
   /** @deprecated 同 fromUiStopButton */
@@ -55,6 +53,7 @@ export type StreamStopRecord = {
   atMs: number
   kind: StreamStopKind
   trigger: string
+  whoZh: string
   hasEndMarker: boolean
   fromUiStopButton: boolean
   sessionKey?: string
@@ -68,6 +67,49 @@ type DedupeEntry = { at: number; kind: StreamStopKind; trigger: string }
 
 const recentStops = new Map<string, DedupeEntry>()
 const ring: StreamStopRecord[] = []
+
+/** trigger → 人话「谁停的 / 怎么结束的」 */
+const TRIGGER_WHO_ZH: Record<string, string> = {
+  composer_stop_button: '用户点击 Composer 停止按钮',
+  shell_sidebar_stop: '用户点击侧栏停止',
+  v4_stop_button: '用户点击 V4 停止按钮',
+  v4_escape: '用户按 Esc 停止',
+  interrupt_send_steers: '打断重发·纠偏指令（非单纯点停）',
+  interrupt_flush_queue: '打断重发·排队消息（非单纯点停）',
+  page_load_stale_stop: '页面加载发现过期 run，自动停止',
+  employee_process_pane: '员工进程面板停止按钮',
+  unknown: '未标注来源的主动停止',
+  // 兼容旧 trigger
+  ui_stop_button: '主动停止（旧标签；未区分点停/打断重发）',
+  sse_aborted_after_ui_stop: '主动停止后的 SSE abort 回声',
+  user_interrupt_error: '后端报 user interrupt（通常紧随主动停止）',
+  // 正常结束
+  sse_final: '正常结束（SSE final）',
+  agui_run_error: '正常终态·模型/运行错误（AG-UI RUN_ERROR）',
+  agui_model_error_finished: '正常终态·模型错误收尾',
+  // 异常 / 系统
+  sse_aborted: '异常断流（非用户停止：断网/后端取消/超时等）',
+  stream_error: '流错误结束',
+  page_unload: '页面关闭/刷新时仍 busy',
+  stale_sending_watchdog: '发送超时看门狗强制收尾（非用户点停）',
+  stale_busy_poll_clear: '全局 busy 轮询清状态（非用户点停）',
+  stale_turn_watchdog: '回合超时看门狗强制收尾',
+  send_prep_abort_stale_stream: '新发送前清理旧 SSE wire（非用户点停）',
+  refresh_backend_done: '刷新发现后端已结束，前端清 busy（非用户点停）',
+}
+
+export function resolveStreamStopWhoZh(
+  trigger: string,
+  opts?: { hasEndMarker?: boolean; fromUiStopButton?: boolean; detailWhoZh?: string },
+): string {
+  const fromDetail = String(opts?.detailWhoZh || '').trim()
+  if (fromDetail) return fromDetail
+  const mapped = TRIGGER_WHO_ZH[trigger]
+  if (mapped) return mapped
+  if (opts?.fromUiStopButton) return `主动停止（trigger=${trigger || 'unknown'}）`
+  if (opts?.hasEndMarker) return `正常结束（trigger=${trigger || 'unknown'}）`
+  return `异常结束（trigger=${trigger || 'unknown'}）`
+}
 
 function enabled(): boolean {
   try {
@@ -222,6 +264,13 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
   const hasEndMarker = !!input.hasEndMarker
   const fromUiStopButton = !!(input.fromUiStopButton ?? input.userInitiated)
   const kind = classifyStreamStop({ hasEndMarker, fromUiStopButton })
+  const detailWhoZh =
+    input.detail && typeof input.detail.whoZh === 'string' ? input.detail.whoZh : undefined
+  const whoZh = resolveStreamStopWhoZh(trigger, {
+    hasEndMarker,
+    fromUiStopButton,
+    detailWhoZh,
+  })
 
   if (!enabled()) return kind
 
@@ -235,6 +284,7 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
     atMs: Date.now(),
     kind,
     trigger,
+    whoZh,
     hasEndMarker,
     fromUiStopButton,
     sessionKey: sessionKey || undefined,
@@ -246,13 +296,10 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
 
   const payload = {
     kind: rec.kind,
+    whoZh: rec.whoZh,
     trigger: rec.trigger,
     hasEndMarker: rec.hasEndMarker,
     fromUiStopButton: rec.fromUiStopButton,
-    note:
-      rec.kind === 'ui_stop'
-        ? '仅表示走了停止按钮代码路径；无法区分误触/故意。刷新/超时不会标成 ui_stop'
-        : undefined,
     sessionKey: rec.sessionKey,
     runId: rec.runId,
     href: rec.href,
@@ -260,7 +307,8 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
     ...(rec.detail ? { detail: rec.detail } : {}),
   }
 
-  const line = `${PREFIX} ${kind} trigger=${trigger} hasEndMarker=${hasEndMarker}`
+  // 人话放最前，方便 grep「谁停的」
+  const line = `${PREFIX} ${kind} who=${whoZh} trigger=${trigger} hasEndMarker=${hasEndMarker}`
   if (kind === 'abnormal') {
     console.error(line, payload)
     persistToFrontendLog('error', line, payload)
@@ -294,6 +342,7 @@ export function installStreamStopPageUnloadHook(listBusyKeys: () => string[]): (
         hasEndMarker: false,
         detail: {
           event: 'pagehide_or_beforeunload',
+          whoZh: TRIGGER_WHO_ZH.page_unload,
           note: '页面卸载时会话仍 busy；刷新后看 frontend-*.log 或 localStorage EVOFLOW_STREAM_STOP_RING',
         },
       })

@@ -696,6 +696,18 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     const sk = String(employeeSessionKey || '').trim()
     if (!sk) return
     try {
+      const { logStreamStop } = await import('../../lib/stream-stop-log.js')
+      logStreamStop({
+        sessionKey: sk,
+        trigger: 'employee_process_pane',
+        hasEndMarker: false,
+        fromUiStopButton: true,
+        detail: {
+          source: 'employee_process_pane',
+          whoZh: '员工进程面板停止按钮',
+          note: '主动停止路径：员工进程面板停止按钮',
+        },
+      })
       const { api } = await import('../../../lib/tauri-api.js')
       await api.chatAbort?.(sk, undefined, { userInitiated: true, skipRunIdle: true })
       await api.stopSessionExecution?.(sk, { userInitiated: true })

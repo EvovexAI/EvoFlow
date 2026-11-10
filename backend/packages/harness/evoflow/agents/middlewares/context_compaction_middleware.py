@@ -447,6 +447,7 @@ async def _compress_with_followup_async(
     plan_kw: dict[str, Any],
     force: bool = False,
     model_name: str | None = None,
+    trigger_source: str = "auto",
 ) -> tuple[list[BaseMessage], bool, list[str]]:
     ctx_len = plan_kw["context_length"]
     passes: list[str] = []
@@ -480,6 +481,7 @@ async def _compress_with_followup_async(
                 thread_id=thread_id,
                 model_name=model_name,
                 pass_label="pass1",
+                trigger_source=trigger_source,
             )
             passes.append("pass1")
         if changed and passes:
@@ -769,6 +771,7 @@ def _emit_ephemeral_model_summary(
     plan_kw: dict[str, Any],
     note: str,
     passes: list[str] | None = None,
+    trigger_source: str = "auto",
 ) -> None:
     log_compaction_model_payload(
         original,
@@ -778,6 +781,7 @@ def _emit_ephemeral_model_summary(
         model_name=model_name,
         passes=passes,
         note=note,
+        trigger_source=trigger_source,
     )
     b = compaction_token_snapshot(original, context_length=plan_kw["context_length"])
     a = compaction_token_snapshot(final, context_length=plan_kw["context_length"])
@@ -898,8 +902,13 @@ async def build_ephemeral_model_messages(
     runtime: Runtime | None,
     *,
     force: bool = False,
+    trigger_source: str = "auto",
 ) -> list[BaseMessage] | None:
-    """Fold transcript for the model only; returns None when unchanged."""
+    """Fold transcript for the model only; returns None when unchanged.
+
+    ``trigger_source``: manual / emergency / auto — 标注本次压缩的触发入口，
+    透传到 PASS / 模型上下文日志行（默认 auto）。
+    """
     if consume_skip_compaction_once():
         return None
     prepared = _prepare_compaction(messages, runtime)
@@ -1107,6 +1116,7 @@ async def build_ephemeral_model_messages(
                     model_name=model_name,
                     plan_kw=plan_kw,
                     note="cooldown_refold" if gate.get("should_refold_cached") else "hydrated_transcript_fold",
+                    trigger_source=trigger_source,
                 )
                 return final
             # Refold failed during cooldown — if tokens still over threshold,
@@ -1124,6 +1134,7 @@ async def build_ephemeral_model_messages(
                     plan_kw=plan_kw,
                     force=True,
                     model_name=model_name,
+                    trigger_source=trigger_source,
                 )
                 if changed:
                     log_compaction_gate(
@@ -1144,6 +1155,7 @@ async def build_ephemeral_model_messages(
                         plan_kw=plan_kw,
                         note="cooldown_refold_failed_force",
                         passes=passes,
+                        trigger_source=trigger_source,
                     )
                     return final
         if gate.get("token_over_threshold") and _block_reason_allows_force_relax(gate.get("block_reason")):
@@ -1155,6 +1167,7 @@ async def build_ephemeral_model_messages(
                 plan_kw=plan_kw,
                 force=True,
                 model_name=model_name,
+                trigger_source=trigger_source,
             )
             if changed:
                 log_compaction_gate(
@@ -1175,6 +1188,7 @@ async def build_ephemeral_model_messages(
                     plan_kw=plan_kw,
                     note="relaxed-protect",
                     passes=passes,
+                    trigger_source=trigger_source,
                 )
                 return final
         if not tool_changed:
@@ -1201,6 +1215,7 @@ async def build_ephemeral_model_messages(
             model_name=model_name,
             plan_kw=plan_kw,
             note="tool_merge_only",
+            trigger_source=trigger_source,
         )
         return final
 
@@ -1212,6 +1227,7 @@ async def build_ephemeral_model_messages(
         plan_kw=plan_kw,
         force=force,
         model_name=model_name,
+        trigger_source=trigger_source,
     )
     if changed:
         log_compaction_gate(
@@ -1232,6 +1248,7 @@ async def build_ephemeral_model_messages(
             plan_kw=plan_kw,
             note="conversation_fold",
             passes=passes,
+            trigger_source=trigger_source,
         )
         return final
 
@@ -1256,6 +1273,7 @@ async def build_ephemeral_model_messages(
         model_name=model_name,
         plan_kw=plan_kw,
         note="tool_merge_only",
+        trigger_source=trigger_source,
     )
     return final
 
@@ -1265,8 +1283,9 @@ def build_ephemeral_model_messages_sync(
     runtime: Runtime | None,
     *,
     force: bool = False,
+    trigger_source: str = "auto",
 ) -> list[BaseMessage] | None:
-    coro = build_ephemeral_model_messages(messages, runtime, force=force)
+    coro = build_ephemeral_model_messages(messages, runtime, force=force, trigger_source=trigger_source)
     try:
         asyncio.get_running_loop()
     except RuntimeError:
@@ -1334,7 +1353,7 @@ def emergency_compress_messages(
     typed = [m for m in messages if isinstance(m, BaseMessage)]
     if len(typed) < 2:
         return messages, False
-    folded = build_ephemeral_model_messages_sync(typed, runtime, force=True)
+    folded = build_ephemeral_model_messages_sync(typed, runtime, force=True, trigger_source="emergency")
     if folded is None:
         return messages, False
     return folded, True
@@ -1349,7 +1368,7 @@ async def emergency_compress_messages_async(
     typed = [m for m in messages if isinstance(m, BaseMessage)]
     if len(typed) < 2:
         return messages, False
-    folded = await build_ephemeral_model_messages(typed, runtime, force=True)
+    folded = await build_ephemeral_model_messages(typed, runtime, force=True, trigger_source="emergency")
     if folded is None:
         return messages, False
     return folded, True

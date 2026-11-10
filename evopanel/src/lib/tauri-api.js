@@ -1875,6 +1875,8 @@ export const api = {
       api_type: payload.api_type ?? 'openai-completions',
       ...(payload.config_name ? { config_name: String(payload.config_name) } : {}),
     }),
+  /** Codex 订阅：用已登录 OAuth 拉取官方 /models 目录（含 context_window） */
+  listCodexSubscriptionModels: async () => gatewayProxy('GET', '/codex-auth/models'),
   // 模型配置管理接口（Gateway API → SQLite evoflow_models）
   listModels: async () => gatewayProxy('GET', '/models'),
   listModelConnections: async () => gatewayProxy('GET', '/model-connections'),
@@ -3175,7 +3177,7 @@ export const api = {
   proactiveDeleteRole: async (code) => gatewayProxy('DELETE', `/proactive/roles/${encodeURIComponent(String(code || ''))}`),
   proactivePauseRole: async (code) =>
     gatewayProxy('PUT', `/proactive/roles/${encodeURIComponent(String(code || ''))}/pause`),
-  /** 仅停止在途上班，不暂停岗位自动巡检 */
+  /** 仅停止在途巡检，不暂停岗位自动巡检 */
   proactiveStopRole: async (code) =>
     gatewayProxy('POST', `/proactive/roles/${encodeURIComponent(String(code || ''))}/stop`),
   proactiveResumeRole: async (code) =>

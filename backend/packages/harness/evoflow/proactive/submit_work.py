@@ -221,7 +221,7 @@ def _upsert_round_journal(
         if phase == "progress":
             desc_parts.append("【中途汇报】")
         elif incomplete:
-            desc_parts.append("【工作汇报·未完成】系统补齐：模型未显式完成下班小结。")
+            desc_parts.append("【工作汇报·未完成】系统补齐：模型未显式完成巡检小结。")
         else:
             desc_parts.append("【工作汇报】")
         if outcome_s:

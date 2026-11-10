@@ -67,7 +67,7 @@ export function V4WorkspaceFileTreePane(props: {
   const partialServices = useMemo(() => {
     const base = createEvoflowPartialServices(threadId ?? "", workspacePath);
     if (!acceptFileName && !acceptDirectoryName && !hideEmptyDirectories) return base;
-    const fs = base.fileService as {
+    const fs = base.fileService as unknown as {
       readdir?: (params: { path: string; includeHidden?: boolean }) => Promise<DirEntry[]>;
       [key: string]: unknown;
     };
@@ -152,7 +152,7 @@ export function V4WorkspaceFileTreePane(props: {
           return [...dirs.filter((_, i) => flags[i]), ...files];
         },
       },
-    };
+    } as typeof base;
   }, [threadId, workspacePath, acceptFileName, acceptDirectoryName, hideEmptyDirectories]);
   const revealPlatform = useMemo(
     () => createEvoflowLocalRevealPlatform({ workspaceRoot: workspacePath }),

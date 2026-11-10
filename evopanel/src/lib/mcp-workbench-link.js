@@ -66,6 +66,22 @@ export function listBoundMcpServers(mcpServers) {
 }
 
 /**
+ * 员工页 MCP 芯片计数：区分 null（跟随全局）与 []（显式空绑）。
+ * @param {unknown} mcpServers
+ * @param {number} globalEnabledCount
+ * @returns {{ count: number, mode: 'inherit'|'empty'|'allowlist', names: string[] }}
+ */
+export function resolveMcpBindingChip(mcpServers, globalEnabledCount = 0) {
+  const globalN = Math.max(0, Number(globalEnabledCount) || 0)
+  if (!Array.isArray(mcpServers)) {
+    return { count: globalN, mode: 'inherit', names: [] }
+  }
+  const names = listBoundMcpServers(mcpServers)
+  if (!names.length) return { count: 0, mode: 'empty', names: [] }
+  return { count: names.length, mode: 'allowlist', names }
+}
+
+/**
  * @param {string} mcpName
  * @returns {Promise<{ mcpName: string, extensionId: string, url: string, title: string } | null>}
  */

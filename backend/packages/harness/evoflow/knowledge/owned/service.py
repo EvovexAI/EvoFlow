@@ -2846,37 +2846,52 @@ async def search(
     vector_expected = bool(base.get("embeddingDim")) and bool(base.get("vectorEnabled", True))
 
     if mode in ("semantic", "vector", "hybrid") and vector_expected:
-        try:
-            # ``base`` already carries the registry row (central DB) — no re-read.
-            with db() as conn:
-                row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id)).fetchone()
-            mc = _model_config_for_base(dict(row or {}))
-            cache_key = (
-                kb_id,
-                str(base.get("embeddingModel") or ""),
-                str(getattr(mc, "base_url", "") or ""),
-                query.strip().casefold(),
-            )
-            qvec = await _cached_query_embedding(
-                cache_key,
-                lambda: get_embedding(
-                    query,
-                    mc,
-                    expected_dim=int(base["embeddingDim"]),
-                    purpose="query",
-                    kb_id=kb_id,
-                ),
-            )
-            vector_hits = search_vector(
-                kb_id,
-                qvec,
-                top_k=fetch_k,
-                model=str(base.get("embeddingModel") or ""),
-            )
-        except Exception:
+        from evoflow.knowledge.owned.pipeline import embedding_quota_skip_active
+
+        cooled, _cool_reason = embedding_quota_skip_active()
+        if cooled and mode == "hybrid":
+            # Index-time already learned the cloud quota is dead — do not burn
+            # another query embedding on every hybrid search; keywords still work.
             degraded = True
-            if mode != "hybrid":
-                raise
+            vector_hits = []
+        else:
+            try:
+                # ``base`` already carries the registry row (central DB) — no re-read.
+                with db() as conn:
+                    row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id)).fetchone()
+                mc = _model_config_for_base(dict(row or {}))
+                cache_key = (
+                    kb_id,
+                    str(base.get("embeddingModel") or ""),
+                    str(getattr(mc, "base_url", "") or ""),
+                    query.strip().casefold(),
+                )
+                qvec = await _cached_query_embedding(
+                    cache_key,
+                    lambda: get_embedding(
+                        query,
+                        mc,
+                        expected_dim=int(base["embeddingDim"]),
+                        purpose="query",
+                        kb_id=kb_id,
+                    ),
+                )
+                vector_hits = search_vector(
+                    kb_id,
+                    qvec,
+                    top_k=fetch_k,
+                    model=str(base.get("embeddingModel") or ""),
+                )
+            except Exception as exc:
+                degraded = True
+                try:
+                    from evoflow.knowledge.owned.pipeline import note_embedding_unavailable
+
+                    note_embedding_unavailable(exc)
+                except Exception:
+                    pass
+                if mode != "hybrid":
+                    raise
 
     # An explicit semantic request against a keyword-only KB genuinely cannot be
     # served; a hybrid request can (keywords alone), so it stays non-degraded.

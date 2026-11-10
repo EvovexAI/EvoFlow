@@ -316,6 +316,15 @@ def _run_langgraph(port: int) -> None:
     kwargs = run_server_kwargs()
     kwargs["port"] = port
     logging.info("Starting EvoFlow LangGraph server on port %s", port)
+    # Issue #106: Gateway MCP warmup is another process — kick this process's
+    # dedicated MCP init loop immediately so sessions don't mount 0 tools.
+    try:
+        from evoflow.mcp.cache import kick_mcp_tools_warmup_background
+
+        kick_mcp_tools_warmup_background()
+        logging.info("MCP tools warmup kicked for split LangGraph process")
+    except Exception:
+        logging.warning("MCP tools warmup kick failed (split LangGraph)", exc_info=True)
     # 启动预热：后台等 /ok 就绪后触发图工厂（挂 MCP 工具/插件扫描/提示词装配），
     # 不调模型零 token 成本。消灭「应用启动后首轮语音 10-20s 装配」。
     try:

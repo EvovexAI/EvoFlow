@@ -38,7 +38,7 @@ export function openCurrentAgentEditor(ctx: OpenCurrentAgentEditorCtx): void {
         }
         await showEditRoleModal(role, {
           sheetTitle: '编辑员工',
-          sheetKicker: '员工',
+          sheetKicker: 'BOT',
           confirmLabel: '保存员工',
           allowAgentRebind: false,
           onSaved: async () => {

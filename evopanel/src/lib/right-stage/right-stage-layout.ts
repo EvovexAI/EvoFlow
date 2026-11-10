@@ -26,6 +26,8 @@ export function rightStageLayoutToPanelKind(layout: RightStageLayout | undefined
   switch (layout) {
     case 'narrow':
       return 'workspace-browse'
+    case 'workspace-browse':
+      return 'workspace-browse'
     case 'workspace-write':
       return 'workspace-write'
     case 'wide':

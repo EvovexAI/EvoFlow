@@ -6,6 +6,69 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.16] - 2026-11-10
+
+相对 **1.3.15**：长会话压缩提示、演示工作台运行态可视化、删员工同步停 IM 僵尸连接；MCP 中文名可挂、知识库配额耗尽回落关键词；安装占用清孤儿进程；对话冷加载限流防卡死。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.16.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **长会话压缩提示**：消息约 200 条或上下文占用偏高时，对话顶栏提示可手动压缩（可关闭）
+- **演示工作台运行态**：执行中转圈、soft-creep 进度、节点实时调用记录与头像展示
+
+### Changed
+
+- **员工 MCP 绑定展示**：区分跟随全局 / 白名单 / 显式空绑，不再把「绑定数 0」误显示成「N MCP」
+- **知识库向量配额**：嵌入额度/限流耗尽后冷却并关键词可搜，避免整队列空撞配额
+- **MCP 工具命名**：服务端显示名含中文时改用 ASCII-safe id 挂到模型，避免函数名非法
+
+### Fixed
+
+- **删员工后 IM 仍在线**：删除时停掉专属 channel WS，并清理孤儿 bot 绑定，避免僵尸账号
+- **Windows 安装占用**：升级/重装清安装目录下 bash/python/node 孤儿（不杀全机 python）；提示托盘退出
+- **对话冷加载卡死**：hydrate 并发限流 + 离环构建快照，避免多会话同时暖起把界面拖死
+- **停止来源更清楚**：停止会话日志区分谁停的 / 怎么结束的，便于排查「点了停但还在跑」
+
+## [1.3.15] - 2026-11-10
+
+相对 **1.3.14**：侧栏会话菜单支持归档 / 标未读 / 移工作空间；内置「演示工作台」扩展；部门群 @ 唤醒打开跟岗右栏；媒体预览与目标模式计时改进。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.15.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **侧栏会话菜单**：归档 / 取消归档、标为未读、移到顶部、移动到工作空间、在文件管理器打开 / 复制路径（本机标记，无后端字段）
+- **内置演示工作台**：`builtin_ext_apps/demo-workbench` 随网关启动安装到 `ui-extensions`，Agent 应用页可打开
+
+### Changed
+
+- **部门群 @ 唤醒**：首轮点名 `forceExpand` 打开员工跟岗过程；嵌套接力尊重用户收起锁
+- **平台媒体预览**：媒体结果优先画廊；本机绝对路径可 reveal
+- **目标模式**：pause 结算段工时；验证前补结 `active_run_started_at_ms`
+
+### Fixed
+
+- **冷启动 hydrate**：大批历史行 `author_seed_rows` 批量灌入，避免逐行写锁刷屏
+
+## [1.3.14] - 2026-11-09
+
+相对 **1.3.13**：Codex 订阅可拉取远程模型；工作流用户暂停不被子任务进度汇总冲掉；会话旁运行图标一点开详情；轮尾截图横排；多处「员工」文案改为「BOT」。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.14.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **Codex 订阅模型目录**：OAuth 登录后 `listCodexSubscriptionModels` + 模型页远程拉取；内置 gpt-5.x 候选与上下文窗口元数据
+
+### Changed
+
+- **会话旁运行图标**：点击直达子代理 / 工作流 / BOT / 终端详情，解析失败才回退汇总面板
+- **轮尾浏览器截图**：`mediaWrap` 横排优先再换行（主聊与只读分享时间线）
+- **文案**：用量模块、值班轨等「员工」→「BOT」
+
+### Fixed
+
+- **用户暂停被冲掉**：`main_is_user_paused` 优先于子任务 rollup，避免 `workflow.stop(pause=true)` 后数秒内又变回 executing
+- **超长附件路径**：hydration 对 Windows `ValueError`（path too long）按缺文件处理，回放可继续
+
 ## [1.3.13] - 2026-11-09
 
 相对 **1.3.12**：修复建单链路整体报 `UnboundLocalError`（任务中心新建 / 岗位派发 / 任何走 `admin.tasks.create_task` 的路径全部 500）；修复事项通知「查看事项」点击不跳转（右栏不展开、换条目不高亮、主区焦点被抹，三处断链）；同类「变量用在自己绑定之前」再清 7 处，其中技能包安装模块 import 即 `NameError`、知识库评测场景跑即崩；新增常驻 lint 门禁（`ruff --select F821`，push to main 即跑），全仓 F821 现为 0。

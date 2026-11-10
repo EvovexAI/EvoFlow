@@ -27,6 +27,7 @@ export const ShellPageKind = memo(function ShellPageKind({
   const focusId = String(surface.data?.focusId || surface.data?.focus || '').trim()
   const [status, setStatus] = useState<'loading' | 'ready' | 'unsupported' | 'error'>('loading')
   const [errorText, setErrorText] = useState('')
+  const roleGone = /role\s+['"][^'"]+['"]\s+not\s+found/i.test(errorText)
 
   useEffect(() => {
     const host = hostRef.current
@@ -107,8 +108,16 @@ export const ShellPageKind = memo(function ShellPageKind({
       ) : null}
       {status === 'error' ? (
         <div className="react-chat-shell-page-status react-chat-shell-page-status--error">
-          <p>挂载失败：{errorText || '未知错误'}</p>
-          {path ? (
+          <p>
+            {roleGone
+              ? '这个 BOT 已经不在了（岗位已删除或不存在）。'
+              : `挂载失败：${errorText || '未知错误'}`}
+          </p>
+          {roleGone ? (
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => onClose?.()}>
+              关闭
+            </button>
+          ) : path ? (
             <button
               type="button"
               className="btn btn-ghost btn-sm"

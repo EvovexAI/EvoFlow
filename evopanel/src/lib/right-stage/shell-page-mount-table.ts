@@ -38,7 +38,7 @@ export function resolveShellPageTabTitle(opts: {
     return s.slice(0, 48)
   }
   const mountId = String(opts.mountId || '').trim()
-  if (mountId.startsWith('employees')) return '员工'
+  if (mountId.startsWith('employees')) return 'BOT'
   if (mountId.startsWith('items')) return '待办'
   if (mountId.startsWith('tasks')) return '任务'
   if (mountId.startsWith('apps') || mountId.startsWith('workflow')) return '工作流'
@@ -52,7 +52,7 @@ export function resolveShellPageTabTitle(opts: {
     path === '/employees' ||
     path.startsWith('/employees/')
   ) {
-    return '员工'
+    return 'BOT'
   }
   if (path === '/tasks/items' || path.startsWith('/tasks/items/')) return '待办'
   if (path === '/tasks' || path.startsWith('/task/')) return '任务'

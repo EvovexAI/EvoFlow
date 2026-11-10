@@ -140,7 +140,7 @@ export function WorkspaceMentionMenu({
 
   const isSkill = type === 'skill'
   const isEmployee = type === 'employee'
-  const headLabel = isSkill ? '斜杠命令' : isEmployee ? '智能体员工' : '工作区文件'
+  const headLabel = isSkill ? '斜杠命令' : isEmployee ? 'BOT' : '工作区文件'
 
   const renderOption = (item: MentionOption, i: number) => {
     if (isEmployeeOption(item)) {
@@ -314,10 +314,10 @@ export function WorkspaceMentionMenu({
             ? isSkill
               ? '无匹配'
               : isEmployee
-                ? '无匹配员工'
+                ? '无匹配 BOT'
                 : '无匹配文件'
             : isEmployee
-              ? '继续输入以搜索员工'
+              ? '继续输入以搜索 BOT'
               : '继续输入以搜索工作区文件'}
         </div>
       ) : isSkill ? (

@@ -111,7 +111,7 @@ async def run_manual_context_compaction(
     )
 
     before = compaction_token_snapshot(messages, context_length=context_length)
-    folded = await build_ephemeral_model_messages(messages, runtime, force=True)
+    folded = await build_ephemeral_model_messages(messages, runtime, force=True, trigger_source="manual")
     after_msgs = folded if folded is not None else messages
     after = compaction_token_snapshot(after_msgs, context_length=context_length)
     changed = folded is not None and (after["gate_tokens"] < before["gate_tokens"] or after["message_count"] < before["message_count"])

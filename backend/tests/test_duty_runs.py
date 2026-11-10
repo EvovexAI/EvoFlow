@@ -60,7 +60,7 @@ def test_start_and_list_duty_run(duty_db):
     assert len(rounds) == 1
     assert rounds[0]["action_plan"]["kind"] == "round_log"
     assert rounds[0]["action_plan"]["source"] == "duty_run"
-    assert rounds[0]["title"] == "定时上班"
+    assert rounds[0]["title"] == "定时巡检"
     assert "轨迹 3 条" in (rounds[0].get("outcome") or "")
 
 

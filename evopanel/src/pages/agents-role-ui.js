@@ -1469,7 +1469,7 @@ async function showHireAsEmployeeDialog(page, state, agentCode) {
         </div>
 
         <div class="hire-field">
-          <span>自动上班</span>
+          <span>自动巡检</span>
           ${hireScheduleCtrl.html}
         </div>
 

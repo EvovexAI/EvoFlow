@@ -245,7 +245,7 @@ export function buildVisibleSummaryPanelTabs(input: {
   const agentLabel = input.isDeptChatSession
     ? '群聊'
     : input.isEmployeeSession
-      ? '员工'
+      ? 'BOT'
       : '智能体'
   const list: Array<{ id: string; label: string }> = [
     { id: 'agent', label: agentLabel },

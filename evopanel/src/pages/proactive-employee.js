@@ -9,6 +9,7 @@ import { api, getGatewayBaseUrl } from '../lib/tauri-api.js'
 import {
   annotateMcpHealth,
   listBoundMcpServers,
+  resolveMcpBindingChip,
   openMcpWorkbenchInRightStage,
 } from '../lib/mcp-workbench-link.js'
 import { toast } from '../components/toast.js'
@@ -263,6 +264,77 @@ function esc(s) {
     .replace(/"/g, '&quot;')
 }
 
+/** 后端 404：`Role 'xxx' not found` / NotFoundError 文案。 */
+function isRoleGoneError(errOrMsg) {
+  const raw = String(errOrMsg?.message || errOrMsg || '')
+  const status = Number(errOrMsg?.status || 0)
+  if (status === 404 && /role/i.test(raw)) return true
+  return /role\s+['"][^'"]+['"]\s+not\s+found/i.test(raw) || /角色不存在|岗位不存在|员工不存在/i.test(raw)
+}
+
+function closeRightStageEmployeeTabs(agentCode) {
+  const code = String(agentCode || '').trim()
+  if (!code) return
+  void import('../lib/right-stage/close-removed-entity-stage.js')
+    .then((m) => {
+      m.closeRightStageTabsForRemovedEntity({
+        domain: 'employees',
+        entityId: code,
+        agentCode: code,
+      })
+    })
+    .catch(() => {})
+}
+
+function wireEmployeePageBack(page, { onClose } = {}) {
+  if (!page) return
+  const back = page.querySelector('[data-act="back"]')
+  if (!back) return
+  const next = back.cloneNode(true)
+  back.replaceWith(next)
+  next.addEventListener('click', (e) => {
+    e.preventDefault()
+    if (typeof onClose === 'function') onClose()
+    else navigate('/proactive')
+  })
+}
+
+/**
+ * 岗已删 / 加载失败：右栏与主区共用空态；已删时标记 roleGone 供 shell 收签。
+ */
+function paintEmployeeLoadFailure(page, code, err) {
+  const raw = String(err?.message || err || '')
+  const gone = isRoleGoneError(err)
+  const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
+  const codeLabel = String(code || '').trim()
+  if (gone) page.dataset.roleGone = '1'
+  else delete page.dataset.roleGone
+
+  const title = gone ? '这个 BOT 已经不在了' : '加载失败'
+  const body = gone
+    ? `岗位「${codeLabel || '未知'}」已删除或不存在。右栏会自动关掉这张签；也可点下方返回名册。`
+    : warming
+      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开。'
+      : raw || '未知错误'
+  const backLabel = page.classList.contains('shell-page-embed')
+    ? gone
+      ? '关闭'
+      : '← 关闭'
+    : '← 返回 BOT 名册'
+
+  page.innerHTML = `
+    <div class="pro-page-nav">
+      <button type="button" class="btn btn-ghost btn-sm" data-act="back">${esc(backLabel)}</button>
+    </div>
+    <div class="pro-error${gone ? ' pro-error--gone' : ''}">
+      <p class="pro-error-title">${esc(title)}</p>
+      <p class="pro-muted" style="margin:8px 0 0;padding:0">${esc(body)}</p>
+    </div>
+  `
+  wireEmployeePageBack(page, { onClose: page._shellOnClose })
+  if (gone) closeRightStageEmployeeTabs(codeLabel)
+}
+
 function fmtClock(d) {
   return d.toLocaleString('zh-CN', {
     month: '2-digit',
@@ -301,7 +373,7 @@ async function loadRoleSchedulePreview(role, count = 3) {
   return { schedule, summary: '', next_runs: [] }
 }
 
-function renderScheduleNextRunsTable(preview, { title = '即将自动上班', hideSummary = false } = {}) {
+function renderScheduleNextRunsTable(preview, { title = '即将自动巡检', hideSummary = false } = {}) {
   const runs = Array.isArray(preview?.next_runs) ? preview.next_runs.filter(Boolean) : []
   const summaryRaw = String(preview?.summary || '').trim()
   const summary = !hideSummary && summaryRaw ? cronToPlainZh(summaryRaw) : ''
@@ -342,7 +414,7 @@ function renderScheduleNextRunsTable(preview, { title = '即将自动上班', hi
   </div>`
 }
 
-/** Relative label for past or future ISO times (下次自动上班 is future). */
+/** Relative label for past or future ISO times (下次自动巡检 is future). */
 function fmtTime(iso) {
   if (!iso) return '—'
   try {
@@ -437,9 +509,9 @@ const ACTION_TYPE_LABEL = {
 }
 
 const ROLE_STATUS_LABEL = {
-  active: '在岗',
-  paused: '已停',
-  draft: '已停',
+  active: '已启用',
+  paused: '已停用',
+  draft: '草稿',
 }
 
 const _PLAN_META_KEYS = new Set(['source', 'kind', 'backfill'])
@@ -752,7 +824,7 @@ function renderPatrolRunning(role) {
     <section class="pro-patrol-panel pro-patrol-panel--running" aria-live="polite">
       <div class="pro-patrol-pulse" aria-hidden="true"></div>
       <div class="pro-patrol-copy">
-        <p class="pro-patrol-kicker">正在上班</p>
+        <p class="pro-patrol-kicker">正在巡检</p>
         <h2 class="pro-patrol-title">${esc(role.role_name || role.agent_name || role.agent_code)}</h2>
         <p class="pro-patrol-meta">
           <span>${esc(modeLabel)}</span>
@@ -960,7 +1032,7 @@ function renderPatrolDone(report) {
           })
           .join('')}${
           actionable.length > 6
-            ? `<li class="pro-patrol-more">还有 ${actionable.length - 6} 项，见下方上班记录</li>`
+            ? `<li class="pro-patrol-more">还有 ${actionable.length - 6} 项，见下方巡检记录</li>`
             : ''
         }</ul>`
       : `<p class="pro-patrol-empty-hint">${
@@ -983,8 +1055,8 @@ function renderPatrolDone(report) {
         <h2 class="pro-patrol-title">${esc(patrolHeadline(report))}</h2>
         ${renderRoundSummaryLine(sc)}
         <p class="pro-patrol-meta">
-          <span>上次上班 ${esc(fmtTime(report?.last_heartbeat_at))}</span>
-          <span>下次自动上班 ${esc(fmtTime(report?.next_heartbeat_at))}</span>
+          <span>上次巡检 ${esc(fmtTime(report?.last_heartbeat_at))}</span>
+          <span>下次自动巡检 ${esc(fmtTime(report?.next_heartbeat_at))}</span>
           ${ws ? `<span title="${esc(ws)}">${esc(pathBasename(ws))}</span>` : ''}
           ${c.pending_approval ? `<span class="pro-patrol-warn">${c.pending_approval} 待审批</span>` : ''}
         </p>
@@ -1078,24 +1150,22 @@ export async function mountEmployeePageInto(container, { code, onClose, onTitle 
   // which felt like a full UI freeze /「死机」.
   const page = await renderEmployeePage(agentCode, { waitForFill: false })
   page.classList.add('shell-page-embed')
-  const back = page.querySelector('[data-act="back"]')
-  if (back) {
-    const next = back.cloneNode(true)
-    back.replaceWith(next)
-    next.addEventListener('click', (e) => {
-      e.preventDefault()
-      if (typeof onClose === 'function') onClose()
-      else navigate('/proactive')
-    })
-  }
+  page._shellOnClose = typeof onClose === 'function' ? onClose : null
+  wireEmployeePageBack(page, { onClose: page._shellOnClose })
   host.replaceChildren(page)
   const fill = page._fillPromise
   if (fill && typeof fill.then === 'function') {
     void fill
       .then(() => {
         if (page._fillAborted) return
+        // 岗已删：友好空态已画好，顺手收掉右栏孤儿签，避免一直挂着英文 404。
+        if (page.dataset.roleGone === '1') {
+          closeRightStageEmployeeTabs(agentCode)
+          return
+        }
         const nice = String(page.dataset.shellPageTitle || '').trim()
         if (nice && typeof onTitle === 'function') onTitle(nice)
+        wireEmployeePageBack(page, { onClose: page._shellOnClose })
       })
       .catch(() => {})
   }
@@ -1153,7 +1223,7 @@ async function renderEmployeePage(
   page.className = 'page proactive-page pro-employee-page'
   page.innerHTML = `
     <div class="pro-page-nav">
-      <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
+      <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回 BOT 名册</button>
     </div>
     <div class="pro-loading">加载中…</div>
   `
@@ -1197,7 +1267,7 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     let initiatives = []
     if (boardRes && (boardRes.rounds || boardRes.tasks || boardRes.initiatives)) {
       tasks = normalizeWorkBoardTasks(boardRes.tasks || [], role.role_name)
-      // 上班记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
+      // 巡检记录 = duty_runs（定时/心跳触发）+ 板任务；缺 rounds 时至少仍有 tasks
       initiatives = [
         ...roundsAsWorklogItems(boardRes.rounds || []),
         ...tasksAsWorklogItems(tasks),
@@ -1292,19 +1362,7 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     }
   } catch (e) {
     if (page._fillAborted) return
-    const raw = String(e?.message || e || '')
-    const warming = /gateway warming|warming timeout|warm latch/i.test(raw)
-    const tip = warming
-      ? '网关正忙或短暂卡住（对话可能仍在流式输出）。可先关掉本页，等当前回合结束后再打开员工详情。'
-      : ''
-    page.innerHTML = `
-      <div class="pro-page-nav">
-        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工名册</button>
-      </div>
-      <div class="pro-error">加载失败: ${esc(raw)}</div>
-      ${tip ? `<div class="pro-muted" style="padding:8px 12px">${esc(tip)}</div>` : ''}
-    `
-    page.querySelector('[data-act="back"]')?.addEventListener('click', () => navigate('/proactive'))
+    paintEmployeeLoadFailure(page, code, e)
   }
 }
 
@@ -1397,13 +1455,13 @@ function heroDesc(role, initiatives) {
   if (stats.failN) parts.push(`${stats.failN} 失败`)
   const ws = workspaceOf(role)
   if (ws) parts.push(pathBasename(ws))
-  if (role.last_heartbeat_at) parts.push(`上次上班 ${fmtTime(role.last_heartbeat_at)}`)
+  if (role.last_heartbeat_at) parts.push(`上次巡检 ${fmtTime(role.last_heartbeat_at)}`)
   return parts.join(' · ')
 }
 
-/** Detail badge — only 3: 工作中 / 在岗 / 已停
- * 在岗 = 可对话/派活（status=active）；关巡检 ≠ 已停。
- * 已停 = 请假 / 草稿。
+/** Detail badge — 工作中 / 已启用 / 已停用 / 草稿
+ * 已启用 = 可对话/派活（status=active）；关巡检 ≠ 已停用。
+ * 已停用 = paused；草稿 = draft。
  */
 function roleStatusBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
@@ -1411,26 +1469,26 @@ function roleStatusBadge(role, busy = false) {
   const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
 
   if (st === 'draft') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '草稿未确认，确认后才会排班' }
+    return { label: '草稿', cls: 'pro-badge--muted', tip: '草稿未确认，确认启用后才会排班' }
   }
   if (st === 'paused') {
-    return { label: '已停', cls: 'pro-badge--muted', tip: '请假中，不会自动巡检' }
+    return { label: '已停用', cls: 'pro-badge--muted', tip: '已停用，不会自动巡检；启用后可对话 / 派活' }
   }
 
   if (st === 'active') {
     if (suspended) {
       return {
-        label: '在岗',
+        label: '已启用',
         cls: 'pro-badge--ok',
-        tip: '可在线对话 / 派活，不定时巡检',
+        tip: '已启用 · 可在线对话 / 派活，不定时巡检',
       }
     }
     const tipNext = role?.next_heartbeat_at
-      ? `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
-      : '按计划自动巡检'
-    return { label: '在岗', cls: 'pro-badge--ok', tip: tipNext }
+      ? `已启用 · 下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
+      : '已启用 · 按计划自动巡检'
+    return { label: '已启用', cls: 'pro-badge--ok', tip: tipNext }
   }
-  return { label: '已停', cls: 'pro-badge--muted', tip: st || '—' }
+  return { label: '已停用', cls: 'pro-badge--muted', tip: st || '—' }
 }
 
 function fmtPeriodDay(iso) {
@@ -1493,15 +1551,18 @@ async function loadAgentCapability(code) {
       chips.push({ label: `工具 ${agent.tools.length}`, tip: '内置工具：员工能用的内置能力。' })
     }
 
-    const boundMcps = listBoundMcpServers(agent.mcp_servers)
-    const mcpN = boundMcps.length
-      ? boundMcps.length
-      : (meta?.mcp_servers || []).filter((s) => s.enabled !== false).length
+    // mcp_servers 三态：null=跟随全局；[]=显式不绑；[…] = 白名单。
+    // 以前「绑定数为 0」误落到全局清单长度，空绑岗会显示成「5 MCP」。
+    const globalMcpN = (meta?.mcp_servers || []).filter((s) => s.enabled !== false).length
+    const mcpChip = resolveMcpBindingChip(agent.mcp_servers, globalMcpN)
     chips.push({
-      label: `${mcpN} MCP`,
-      tip: boundMcps.length
-        ? `已绑定：${boundMcps.join('、')}\n点击下方「打开工作台」可在右侧看实时面板与健康状态。`
-        : 'MCP 服务：通过 Model Context Protocol 连接的外部工具。\n未单独绑定则跟随全局启用列表。',
+      label: `${mcpChip.count} MCP`,
+      tip:
+        mcpChip.mode === 'allowlist'
+          ? `已绑定：${mcpChip.names.join('、')}\n点击下方「打开工作台」可在右侧看实时面板与健康状态。`
+          : mcpChip.mode === 'empty'
+            ? '未绑定任何 MCP 连接器（显式空绑）。编辑面板里的连接器列表是可选项，不是本岗绑定。'
+            : `未单独绑定，跟随全局启用列表（当前 ${globalMcpN} 个）。\n要收窄请到编辑 → MCP 勾选具体连接器；要空绑请清空勾选后保存。`,
       kind: 'mcp',
     })
 
@@ -1616,7 +1677,7 @@ function renderRoleProfile(
       }</ul>`
     : ''
 
-  // Hero 能力标签 + 工作量；频率只在「自动上班时间」折叠里出现一次
+  // Hero 能力标签 + 工作量；频率只在「自动巡检时间」折叠里出现一次
   const sheetStats = [
     ...capabilityChips.map((c) => ({
       label: c.label,
@@ -1681,7 +1742,7 @@ function renderRoleProfile(
   const scheduleLabel = roleScheduleSummary(role)
   const schedulePreviewHtml = renderScheduleNextRunsTable(
     schedulePreview || { summary: '', next_runs: [] },
-    { title: '即将自动上班', hideSummary: true },
+    { title: '即将自动巡检', hideSummary: true },
   )
 
   // 职责已在 hero；岗位概要只放审批 / 花费 / 概况 / 记忆，避免再抄一遍频率与职责
@@ -1750,14 +1811,14 @@ function renderRoleProfile(
       <div class="pro-duty-sheet-body" data-role="overview-folds">
         <details class="pro-duty-fold" data-fold="schedule" open>
           <summary class="pro-duty-fold-sum">
-            <span class="pro-duty-fold-title">自动上班时间</span>
+            <span class="pro-duty-fold-title">自动巡检时间</span>
             <span class="pro-duty-fold-meta">${esc(nextDutyMeta || '未设周期')}</span>
             <span class="pro-duty-fold-chev" aria-hidden="true"></span>
           </summary>
           <div class="pro-duty-fold-body">
             <div class="detail-grid pro-duty-sheet-grid">
-              ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-              ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+              ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+              ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
             </div>
             ${schedulePreviewHtml}
           </div>
@@ -1839,9 +1900,9 @@ function renderEmployeeConfigPanels(role, {
 
   const runtimeBody = `<div class="detail-grid pro-duty-sheet-grid">
     ${field(AUTONOMY_FIELD_LABEL, `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
-    ${field('自动上班', esc(scheduleLabel))}
-    ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-    ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+    ${field('自动巡检', esc(scheduleLabel))}
+    ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+    ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
     ${field(
       '审批通道',
       esc(
@@ -1879,9 +1940,9 @@ function renderEmployeeConfigPanels(role, {
       '超额策略',
       esc(
         ({
-          skip_patrol: '超额后跳过上班并通知',
+          skip_patrol: '超额后跳过巡检并通知',
           pause_role: '超额后暂停岗位',
-          notify_only: '超额后仅通知仍可上班',
+          notify_only: '超额后仅通知仍可巡检',
         })[String(cfg.budget_exceed_policy || 'skip_patrol')] || String(cfg.budget_exceed_policy || 'skip_patrol'),
       ),
     )}
@@ -1906,16 +1967,16 @@ function renderEmployeeConfigPanels(role, {
         <summary class="pro-config-fold__sum">
           <div>
             <h3>运行设置</h3>
-            <p>上班频率、排班、审批通道 — 想让它自动干活再配</p>
+            <p>巡检频率、排班、审批通道 — 想让它自动干活再配</p>
           </div>
           <span class="pro-duty-fold-chev" aria-hidden="true"></span>
         </summary>
         <div class="pro-config-fold__body">
           <div class="detail-grid pro-duty-sheet-grid">
             ${field(AUTONOMY_FIELD_LABEL, `<span class="pro-chip-tip" data-tip="${esc(autonomyHint)}">${esc(autonomy)}</span>`)}
-            ${field('自动上班', esc(scheduleLabel))}
-            ${field('上次上班', esc(fmtTime(role.last_heartbeat_at)))}
-            ${field('下次自动上班', esc(fmtTime(role.next_heartbeat_at)))}
+            ${field('自动巡检', esc(scheduleLabel))}
+            ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+            ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
             ${field(
               '审批通道',
               esc(
@@ -1940,7 +2001,7 @@ function renderEmployeeConfigPanels(role, {
           </div>
           ${renderScheduleNextRunsTable(
             schedulePreview || { summary: '', next_runs: [] },
-            { title: '即将自动上班', hideSummary: true },
+            { title: '即将自动巡检', hideSummary: true },
           )}
         </div>
       </details>
@@ -1971,9 +2032,9 @@ function renderEmployeeConfigPanels(role, {
               '超额策略',
               esc(
                 ({
-                  skip_patrol: '超额后跳过上班并通知',
+                  skip_patrol: '超额后跳过巡检并通知',
                   pause_role: '超额后暂停岗位',
-                  notify_only: '超额后仅通知仍可上班',
+                  notify_only: '超额后仅通知仍可巡检',
                 })[String(cfg.budget_exceed_policy || 'skip_patrol')] || String(cfg.budget_exceed_policy || 'skip_patrol'),
               ),
             )}
@@ -2040,7 +2101,7 @@ function renderEmployeeMetricsPanels({ memory = null, cost = null, performance =
               : '<p class="pro-kpi-hint">近 7 日暂无成本采样</p>'
           }
         </div>`
-    : '<span class="pro-item-muted">暂无成本数据（上班跑过后会累计）</span>'
+    : '<span class="pro-item-muted">暂无成本数据（巡检跑过后会累计）</span>'
 
   const memStrategies = Array.isArray(memory?.strategies) ? memory.strategies.filter(Boolean).slice(-5).reverse() : []
   const memObs = Array.isArray(memory?.observations) ? memory.observations.filter(Boolean).slice(-4).reverse() : []
@@ -2394,8 +2455,8 @@ function renderEmployeeShell(
   const primaryWorkLabel = busy
     ? '停止工作'
     : role.status === 'paused'
-      ? '恢复并立即上班'
-      : '立即上班'
+      ? '启用并立即巡检'
+      : '立即巡检'
   const primaryWorkAct = busy ? 'stop-work' : 'heartbeat'
   const moreItems = []
   if (role.status === 'active' || role.status === 'paused' || busy) {
@@ -2423,7 +2484,7 @@ function renderEmployeeShell(
     )
   }
   const tabs = [
-    { key: 'rounds', label: '上班记录' },
+    { key: 'rounds', label: '巡检记录' },
     { key: 'growth', label: '成长' },
     { key: 'metrics', label: '运行数据' },
     { key: 'config', label: '配置' },
@@ -2759,7 +2820,7 @@ function renderRoundSection(code, round, { dayRoundIdx, dayRoundTotal, highlight
   const clock = fmtRoundClock(round.at)
   const nth = Number(dayRoundTotal || 0) - Number(dayRoundIdx || 0)
   const label = round.round_id
-    ? `${clock ? `${clock} · ` : ''}本日第 ${nth} 次上班`
+    ? `${clock ? `${clock} · ` : ''}本日第 ${nth} 次巡检`
     : `${clock ? `${clock} · ` : ''}零散工作项`
   const taskItems = (round.actionable || round.items.filter((i) => !isRoundLog(i))).filter(
     (i) => i._is_task || !i._migrated_to_task,
@@ -2843,7 +2904,7 @@ function renderWorklogDayBar(initiatives, selectedDay = WORKLOG_RECENT2) {
   return `
     <div class="pro-worklog-daybar" data-role="worklog-daybar">
       <div class="pro-worklog-daybar-left">
-        <span class="pro-worklog-daybar-label">上班日期</span>
+        <span class="pro-worklog-daybar-label">巡检日期</span>
         <div class="pro-worklog-daychips" role="tablist" aria-label="快捷日期">
           ${chips
             .map(
@@ -2991,7 +3052,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
   if (!initiatives.length) {
     return `<div class="pro-empty">
       <p class="pro-empty-title">还没有本岗工作项</p>
-      <p class="pro-empty-desc">点右上角「现在开始工作」或派发任务后，这里默认展示近 2 天上班记录。更早记录用「本岗全部任务」在任务中心筛选。</p>
+      <p class="pro-empty-desc">点右上角「现在开始工作」或派发任务后，这里默认展示近 2 天巡检记录。更早记录用「本岗全部任务」在任务中心筛选。</p>
     </div>`
   }
 
@@ -3002,7 +3063,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     days = days.filter((d) => allow.has(d.day_key))
     if (!days.length) {
       return `<div class="pro-empty">
-        <p class="pro-empty-title">近 2 天暂无上班记录</p>
+        <p class="pro-empty-title">近 2 天暂无巡检记录</p>
         <p class="pro-empty-desc">可换「今天 / 昨天 / 其它日期」，或点「本岗全部任务」在任务中心查看历史</p>
       </div>`
     }
@@ -3010,7 +3071,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     days = days.filter((d) => d.day_key === selectedDay)
     if (!days.length) {
       return `<div class="pro-empty">
-        <p class="pro-empty-title">${esc(dayLabelFromKey(selectedDay))}暂无上班记录</p>
+        <p class="pro-empty-title">${esc(dayLabelFromKey(selectedDay))}暂无巡检记录</p>
         <p class="pro-empty-desc">换一天看看，或点「近2天」；更早请用「本岗全部任务」</p>
       </div>`
     }
@@ -3019,7 +3080,7 @@ function renderWorkRounds(code, initiatives, opts = {}) {
     '<div class="pro-worklog-rounds">' +
     days
       .map((day) => {
-        const metaBits = [`${day.roundN} 次上班`]
+        const metaBits = [`${day.roundN} 次巡检`]
         if (day.actionableN) metaBits.push(`${day.actionableN} 个工作项`)
         return `
         <section class="pro-worklog-day" data-day="${esc(day.day_key)}">
@@ -3475,6 +3536,10 @@ async function loadEmployeeGrowthPanel(page, role) {
       })
     }
   } catch (err) {
+    if (isRoleGoneError(err)) {
+      paintEmployeeLoadFailure(page, code, err)
+      return
+    }
     host.innerHTML = `<div class="pro-muted" style="padding:16px;color:var(--danger,#c44)">加载失败：${esc(String(err?.message || err))}</div>`
   }
 }
@@ -3997,7 +4062,7 @@ function showStartWorkModal(role) {
         </header>
 
         <div class="hire-sheet-body">
-          <p class="hire-chip-hint">可填写本轮要优先处理的事项；不填则按岗位职责常规上班。</p>
+          <p class="hire-chip-hint">可填写本轮要优先处理的事项；不填则按岗位职责常规巡检。</p>
           <label class="hire-field">
             <span>本轮事项（可选）</span>
             <textarea
@@ -4101,7 +4166,7 @@ function bindEmployeePage(page, role, initiatives) {
       return
     }
     const ok = await showConfirm(
-      `停止「${name}」当前工作？\n\n将取消进行中的上班轮次，并暂停到点自动值班（需手动点「上班」恢复）。`,
+      `停止「${name}」当前工作？\n\n将取消进行中的巡检轮次，并暂停到点自动巡检（需手动「启用」后才会再跑）。`,
     )
     if (!ok) return
     try {
@@ -4115,12 +4180,12 @@ function bindEmployeePage(page, role, initiatives) {
       const btn = page.querySelector('[data-act="stop-work"]')
       if (btn) {
         btn.dataset.act = 'heartbeat'
-        btn.textContent = '立即上班'
+        btn.textContent = '立即巡检'
       }
       const statusEl = page.querySelector('[data-role-status]')
       if (statusEl) {
         statusEl.className = 'pro-badge pro-badge--ok'
-        statusEl.textContent = '在岗'
+        statusEl.textContent = '已启用'
       }
     } catch (e) {
       toast(`停止失败: ${e?.message || e}`, 'error')
@@ -4328,7 +4393,9 @@ function bindEmployeePage(page, role, initiatives) {
       } catch {
         /* 右栏收签失败不挡导航 */
       }
-      navigate('/proactive')
+      // 右栏嵌入：直接关签；主区 hash 回名册
+      if (typeof page._shellOnClose === 'function') page._shellOnClose()
+      else navigate('/proactive')
     } catch (err) {
       toast(`删除失败: ${err?.message || err}`, 'error')
     }
@@ -4371,9 +4438,9 @@ function bindEmployeePage(page, role, initiatives) {
         try {
           await api.proactiveResumeRole(role.agent_code)
           role.status = 'active'
-          toast('已恢复自动上班', 'success')
+          toast('已启用', 'success')
         } catch (e) {
-          toast(`恢复失败: ${e?.message || e}`, 'error')
+          toast(`启用失败: ${e?.message || e}`, 'error')
           return
         }
       }
@@ -4536,6 +4603,10 @@ async function fillWorkItemPage(page, code, taskId, { from, back }) {
     bindWorkItemDetail(page, role, task, { from, roster })
   } catch (e) {
     if (page._fillAborted) return
+    if (isRoleGoneError(e)) {
+      paintEmployeeLoadFailure(page, code, e)
+      return
+    }
     page.innerHTML = `
       <div class="pro-page-nav">
         <button type="button" class="btn btn-ghost btn-sm" data-act="back">${esc(back.label)}</button>
@@ -5401,9 +5472,13 @@ async function fillItemPage(page, code, itemId) {
     bindItemDetail(page, role, initiative)
   } catch (e) {
     if (page._fillAborted) return
+    if (isRoleGoneError(e)) {
+      paintEmployeeLoadFailure(page, code, e)
+      return
+    }
     page.innerHTML = `
       <div class="pro-page-nav">
-        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回员工</button>
+        <button type="button" class="btn btn-ghost btn-sm" data-act="back">← 返回 BOT</button>
       </div>
       <div class="pro-error">加载失败: ${esc(String(e?.message || e))}</div>
     `

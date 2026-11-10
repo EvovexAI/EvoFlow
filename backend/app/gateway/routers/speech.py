@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import Response, StreamingResponse
@@ -18,6 +19,7 @@ from app.gateway.speech.volcengine_speech import (
 )
 from app.gateway.speech.whisper_manager import is_available as whisper_available
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/speech", tags=["speech"])
 
 
@@ -227,23 +229,33 @@ async def speech_playback_note(body: PlaybackNoteRequest) -> dict:
 async def speech_log_append(batch: SpeechLogBatch) -> dict:
     """Frontend appends lines into 语音播报/前端-*.log.
 
-    Best-effort debug sink: sync disk IO off the event loop so a log storm
-    cannot stall chat / tasks (see gateway-slow speech/log 60s hang).
+    Best-effort debug sink: queue disk IO and return immediately. Awaiting
+    ``to_thread`` still occupied DATA-lane slots for ~3s under load
+    (2026-11-10 12:55 gateway-slow speech/log), delaying subscribe/messages.
     """
     from app.gateway.speech.voice_file_log import voice_log_batch
 
     entries = [e.model_dump() for e in (batch.entries or [])]
     source = str(batch.source or "前端")
+    n = len(entries)
+    if n <= 0:
+        return {"ok": True, "count": 0, "queued": False}
+
+    async def _write() -> None:
+        try:
+            await asyncio.to_thread(voice_log_batch, entries, default_source=source)
+        except Exception:
+            logger.debug("speech_log_append background write failed", exc_info=True)
+
     try:
-        count = await asyncio.wait_for(
-            asyncio.to_thread(voice_log_batch, entries, default_source=source),
-            timeout=3.0,
-        )
-    except TimeoutError:
-        return {"ok": False, "count": 0, "error": "log_write_timeout"}
-    except Exception:
-        return {"ok": False, "count": 0, "error": "log_write_failed"}
-    return {"ok": True, "count": count}
+        asyncio.get_running_loop().create_task(_write(), name="speech-log-write")
+    except RuntimeError:
+        try:
+            voice_log_batch(entries, default_source=source)
+        except Exception:
+            return {"ok": False, "count": 0, "error": "log_write_failed"}
+        return {"ok": True, "count": n, "queued": False}
+    return {"ok": True, "count": n, "queued": True}
 
 
 @router.websocket("/asr/stream")

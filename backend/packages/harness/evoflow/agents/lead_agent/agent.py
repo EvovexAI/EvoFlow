@@ -1579,7 +1579,9 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         if _cfg_mcp is None:
             _mcp_allowed_servers = None  # all MCP
         else:
-            _mcp_allowed_servers = {str(s).strip() for s in _cfg_mcp if str(s).strip()}
+            from evoflow.mcp.binding import allowed_mcp_server_ids
+
+            _mcp_allowed_servers = allowed_mcp_server_ids(list(_cfg_mcp))
 
         def _whitelist_keep(t) -> bool:
             raw = str(getattr(t, "name", "") or "")

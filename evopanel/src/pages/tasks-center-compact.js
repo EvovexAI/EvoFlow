@@ -99,7 +99,8 @@ function asList(payload, keys) {
 }
 
 /**
- * @param {'tasks' | 'items'} mode
+ * @param {unknown} container
+ * @param {{ mode?: 'tasks' | 'items', focusId?: string, onClose?: () => void }} [opts]
  * @returns {{ destroy: () => void, title?: string }}
  */
 export async function mountTasksCenterCompact(container, { mode = 'tasks', focusId, onClose } = {}) {

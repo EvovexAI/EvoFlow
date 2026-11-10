@@ -58,6 +58,10 @@ _CONTROL_SUFFIXES = (
     "/live-run",
     "/cancel",
     "/interrupt",
+    # 切会话首帧：用户盯着空白遮罩等 ACK；勿进 DATA 与并发流式抢槽
+    # （正式包：subscribe 卡到旧回合 sse_final → 空白数十秒）。
+    "/conversation/subscribe",
+    "/conversation/unsubscribe",
 )
 
 _CONTROL_CONTAINS = (

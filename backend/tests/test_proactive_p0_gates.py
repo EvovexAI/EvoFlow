@@ -91,7 +91,7 @@ def test_work_window_disabled_is_unlimited():
     role = _Role(_Cfg(enabled=False))
     assert resolve_work_window(role) is None
     assert within_work_window(role) is True
-    assert work_window_label_zh(role) == "不限上班时间"
+    assert work_window_label_zh(role) == "不限巡检时段"
 
 
 def test_work_window_normal_range():

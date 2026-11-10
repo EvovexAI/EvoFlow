@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Plus } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
+import { toast } from '../../components/toast.js'
 import {
   mutateSessionPinned,
   persistPinnedOrderFromRows,
@@ -13,6 +14,18 @@ import {
   loadExpandedWorkspaceKeys,
   saveExpandedWorkspaceKeys,
 } from '../lib/session-list/expanded-workspaces-storage.js'
+import {
+  loadArchivedSessionKeys,
+  setSessionArchived,
+  topSessionInWorkspace,
+  removeToppedSession,
+  loadToppedSessionOrder,
+  type ToppedSessionOrder,
+} from '../lib/session-list/archived-sessions-storage.js'
+import {
+  loadUnreadMarkedKeys,
+  markSessionUnread,
+} from '../lib/session-list/unread-marked-storage.js'
 import {
   loadPinnedWorkspaceKeys,
   savePinnedWorkspaceKeys,
@@ -30,6 +43,8 @@ import {
   ShellSessionListRow,
   SessionContextMenuPortal,
   clipSidebarSessionTitle,
+  type SessionMenuAction,
+  type SessionMoveTarget,
 } from './ShellSessionListRow.js'
 import {
   WORKSPACE_GROUP_PROACTIVE,
@@ -363,6 +378,15 @@ export function ShellSessionList({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(() =>
     loadExpandedWorkspaceKeys(),
   )
+  /** 会话归档标记（对齐 zcode taskList.archive；localStorage 本机持久） */
+  const [archivedKeys, setArchivedKeys] = useState<Set<string>>(() => loadArchivedSessionKeys())
+  const [archivedExpanded, setArchivedExpanded] = useState(false)
+  /** 手动「标为未读」标记（点开会话即清除，对齐 zcode taskList.markAsUnread） */
+  const [unreadKeys, setUnreadKeys] = useState<Set<string>>(() => loadUnreadMarkedKeys())
+  /** 「移到顶部」顺序标记（workspaceKey → 有序 sessionKey，对齐 zcode taskGroup.moveToTop） */
+  const [toppedOrder, setToppedOrder] = useState<ToppedSessionOrder>(() =>
+    loadToppedSessionOrder(),
+  )
   const listRef = useRef<HTMLUListElement>(null)
   const wsMenuRef = useRef<HTMLDivElement>(null)
   const empMenuRef = useRef<HTMLDivElement>(null)
@@ -376,6 +400,8 @@ export function ShellSessionList({
   focusedEmployeeCodeRef.current = focusedEmployeeCode
   const onWorkspaceExpandRef = useRef(onWorkspaceExpand)
   onWorkspaceExpandRef.current = onWorkspaceExpand
+  const unreadKeysRef = useRef(unreadKeys)
+  unreadKeysRef.current = unreadKeys
 
   const onChatRoute = isChatHashRoute()
   const displaySelectedKey = String(selectedSessionKey || '').trim()
@@ -792,6 +818,10 @@ export function ShellSessionList({
       const key = String(sessionKey || '').trim()
       if (!key) return
       clearPendingShellSession()
+      // 点开会话即清除「标为未读」手动标记（对齐 zcode 未读语义）
+      if (unreadKeysRef.current.has(key)) {
+        setUnreadKeys(markSessionUnread(key, false))
+      }
       document.getElementById('app-shell-aside')?.classList.remove('shell-aside-open')
       document.getElementById('shell-aside-overlay')?.classList.remove('visible')
       // 不在其它路由上立刻 select：宿主仍是 display:none，MessageVirtualList 会在 0 高度下 boot，
@@ -810,8 +840,87 @@ export function ShellSessionList({
     [onSelectSession],
   )
 
+  /** 行所属工作空间的本地路径（特殊组 / 未注册目录返回空） */
+  const resolveRowWorkspacePath = useCallback(
+    (row: ShellSidebarSyncRow | null | undefined): string => {
+      if (!row) return ''
+      const wsKey = String(row.workspaceKey || '').trim()
+      if (!wsKey || isSpecialWorkspaceGroupKey(wsKey)) return ''
+      const g = groups.find((x) => x.workspaceKey === wsKey)
+      return (g ? resolveShellGroupWorkspacePath(g, registeredWorkspacePaths) : '') || ''
+    },
+    [groups, registeredWorkspacePaths],
+  )
+
+  const copyTextToClipboard = useCallback(async (text: string, okLabel: string) => {
+    const value = String(text || '')
+    if (!value) return
+    try {
+      await navigator.clipboard.writeText(value)
+      toast(okLabel, 'success')
+    } catch {
+      toast('复制失败，请手动复制', 'error')
+    }
+  }, [])
+
+  /** 在文件管理器打开会话工作空间（对齐 zcode「在文件管理器中打开」） */
+  const revealRowWorkspaceFolder = useCallback(
+    async (row: ShellSidebarSyncRow | null | undefined) => {
+      const raw = resolveRowWorkspacePath(row)
+      if (!raw) {
+        toast('该会话没有可打开的本地工作空间', 'info')
+        return
+      }
+      try {
+        const { api } = await import('../../lib/tauri-api.js')
+        const resolvedInfo = await api.resolveWorkspacePath(raw)
+        const resolved = String(resolvedInfo?.resolved || raw).trim()
+        if (!resolved) {
+          toast('无法解析文件夹路径', 'error')
+          return
+        }
+        if (resolvedInfo?.exists === false) {
+          toast(`目录不存在：${resolved}`, 'error')
+          return
+        }
+        if (resolvedInfo?.is_dir === false) {
+          toast(`不是文件夹：${resolved}`, 'error')
+          return
+        }
+        await api.revealPathInFileManager(resolved)
+        toast('已在文件管理器中打开', 'success')
+      } catch (e) {
+        toast(String((e as Error)?.message || e), 'error')
+      }
+    },
+    [resolveRowWorkspacePath],
+  )
+
+  /** 移动会话到其他工作空间（对齐 zcode taskGroup.moveToGroup；复用 workspace-bind API） */
+  const handleMoveToWorkspace = useCallback(
+    async (sessionKey: string, workspaceKey: string) => {
+      const key = String(sessionKey || '').trim()
+      const g = groups.find((x) => x.workspaceKey === workspaceKey)
+      const path = (g ? resolveShellGroupWorkspacePath(g, registeredWorkspacePaths) : '') || ''
+      if (!key || !path) {
+        toast('目标工作空间没有本地路径', 'error')
+        return
+      }
+      try {
+        const { wsClient } = await import('../../lib/ws-client.js')
+        await wsClient.bindSessionWorkspace(key, path, { userPinned: true })
+        toast('已移动到目标工作空间', 'success')
+        removeToppedSession(key)
+        void Promise.resolve(onRefreshSessionList()).catch(() => {})
+      } catch (e) {
+        toast(String((e as Error)?.message || e), 'error')
+      }
+    },
+    [groups, registeredWorkspacePaths, onRefreshSessionList],
+  )
+
   const runMenuAction = useCallback(
-    (action: 'pin' | 'rename' | 'stop' | 'delete' | 'fork' | 'refresh', sessionKey: string) => {
+    (action: SessionMenuAction, sessionKey: string) => {
       const key = String(sessionKey || '').trim()
       if (!key) return
       setContextMenu(null)
@@ -821,6 +930,10 @@ export function ShellSessionList({
         return
       }
       if (action === 'delete') {
+        // 删除时一并清掉本行视图状态（归档 / 未读 / 置顶顺序）
+        setArchivedKeys(setSessionArchived(key, false))
+        setUnreadKeys(markSessionUnread(key, false))
+        removeToppedSession(key)
         window.setTimeout(() => onDeleteSession(key), 0)
         return
       }
@@ -836,6 +949,46 @@ export function ShellSessionList({
         setTitleEditKey(key)
         return
       }
+      if (action === 'top') {
+        const row = rows.find((r) => String(r.sessionKey || '') === key)
+        setToppedOrder(topSessionInWorkspace(String(row?.workspaceKey || ''), key))
+        return
+      }
+      if (action === 'archive') {
+        setArchivedKeys(setSessionArchived(key, true))
+        removeToppedSession(key)
+        setUnreadKeys(markSessionUnread(key, false))
+        toast('已归档', 'success')
+        return
+      }
+      if (action === 'unarchive') {
+        setArchivedKeys(setSessionArchived(key, false))
+        toast('已取消归档', 'success')
+        return
+      }
+      if (action === 'mark-unread') {
+        setUnreadKeys(markSessionUnread(key, true))
+        return
+      }
+      if (action === 'copy-id') {
+        void copyTextToClipboard(key, '已复制会话 ID')
+        return
+      }
+      if (action === 'copy-path') {
+        const row = rows.find((r) => String(r.sessionKey || '') === key)
+        const p = resolveRowWorkspacePath(row)
+        if (!p) {
+          toast('该会话没有本地工作空间路径', 'info')
+          return
+        }
+        void copyTextToClipboard(p, '已复制路径')
+        return
+      }
+      if (action === 'reveal') {
+        const row = rows.find((r) => String(r.sessionKey || '') === key)
+        void revealRowWorkspaceFolder(row)
+        return
+      }
       if (action === 'pin') {
         const row = rows.find((r) => String(r.sessionKey || '') === key)
         const nextPinned = !row?.isPinned
@@ -846,7 +999,18 @@ export function ShellSessionList({
         })
       }
     },
-    [onDeleteSession, onForkSession, onMoreMenuClose, onPinSession, onRefreshSession, onStopSession, rows],
+    [
+      copyTextToClipboard,
+      onDeleteSession,
+      onForkSession,
+      onMoreMenuClose,
+      onPinSession,
+      onRefreshSession,
+      onStopSession,
+      resolveRowWorkspacePath,
+      revealRowWorkspaceFolder,
+      rows,
+    ],
   )
 
   const handleTitleCommit = useCallback(
@@ -930,6 +1094,43 @@ export function ShellSessionList({
     ? rows.find((r) => String(r.sessionKey || '') === contextMenu.sessionKey) || null
     : null
 
+  /** 归档行从 pinned/recent/员工分组剔除，单独落到底部「已归档」区（对齐 zcode ArchiveGroupCard） */
+  const nonArchivedRows = useMemo(() => {
+    if (archivedKeys.size === 0) return rows
+    return rows.filter((r) => !archivedKeys.has(String(r.sessionKey || '')))
+  }, [rows, archivedKeys])
+
+  const archivedRows = useMemo(() => {
+    if (archivedKeys.size === 0) return [] as ShellSidebarSyncRow[]
+    return rows
+      .filter((r) => archivedKeys.has(String(r.sessionKey || '')))
+      .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+  }, [rows, archivedKeys])
+
+  /** 「移到顶部」排序位次：sessionKey → 标记顺序 */
+  const toppedRankMap = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const list of Object.values(toppedOrder)) {
+      list.forEach((k, idx) => {
+        if (!map.has(k)) map.set(k, idx)
+      })
+    }
+    return map
+  }, [toppedOrder])
+
+  /** recent 区排序：移到顶部的行先按标记顺序排前，其余按更新时间倒序 */
+  const byToppedThenUpdated = useCallback(
+    (a: ShellSidebarSyncRow, b: ShellSidebarSyncRow) => {
+      const ra = toppedRankMap.get(String(a.sessionKey || ''))
+      const rb = toppedRankMap.get(String(b.sessionKey || ''))
+      if (ra !== undefined && rb !== undefined) return ra - rb
+      if (ra !== undefined) return -1
+      if (rb !== undefined) return 1
+      return Number(b.updatedAt || 0) - Number(a.updatedAt || 0)
+    },
+    [toppedRankMap],
+  )
+
   // 员工筛选只跟下拉手动选择走：保持「全部员工」时点进某会话不应改写筛选。
 
   useEffect(() => {
@@ -995,7 +1196,7 @@ export function ShellSessionList({
   /** 员工 Tab：会话 ∪ 雇佣花名册 */
   const employeeGroups = useMemo(() => {
     if (!isEmployeesTab) return [] as EmployeeSidebarGroup[]
-    const sessionOnly = rows.filter((r) => r.workspaceKey === WORKSPACE_GROUP_PROACTIVE)
+    const sessionOnly = nonArchivedRows.filter((r) => r.workspaceKey === WORKSPACE_GROUP_PROACTIVE)
     let groups = buildEmployeeSidebarGroups(sessionOnly, effectiveEmployeeRoles, agents)
     const q = String(sessionFilter || '').trim().toLowerCase()
     if (q) {
@@ -1022,7 +1223,7 @@ export function ShellSessionList({
         .filter((g): g is EmployeeSidebarGroup => !!g)
     }
     return groups
-  }, [isEmployeesTab, rows, effectiveEmployeeRoles, sessionFilter])
+  }, [isEmployeesTab, nonArchivedRows, effectiveEmployeeRoles, sessionFilter])
 
   const focusedEmployeeGroup = useMemo(() => {
     if (!focusedEmployeeCode) return null
@@ -1030,7 +1231,7 @@ export function ShellSessionList({
     return employeeGroups.find((g) => g.agentCode.toLowerCase() === lc) || null
   }, [focusedEmployeeCode, employeeGroups])
 
-  const employeeFilterLabel = focusedEmployeeGroup?.label || '全部员工'
+  const employeeFilterLabel = focusedEmployeeGroup?.label || '全部 BOT'
 
   const activeDeptId = useMemo(
     () => deptIdFromSessionKey(displaySelectedKey),
@@ -1102,7 +1303,7 @@ export function ShellSessionList({
           return Number(b.updatedAt || 0) - Number(a.updatedAt || 0)
         })
     }
-    let list = rows
+    let list = nonArchivedRows
       .filter((r) => !!r.isPinned)
       .sort((a, b) => {
         const po = Number(a.pinOrder ?? 0) - Number(b.pinOrder ?? 0)
@@ -1115,7 +1316,7 @@ export function ShellSessionList({
       list = list.filter((r) => normalizePinKey(r.workspaceKey) === nk)
     }
     return list
-  }, [rows, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows])
+  }, [nonArchivedRows, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows])
 
   const pinnedKeySet = useMemo(
     () => new Set(pinnedRows.map((r) => String(r.sessionKey || ''))),
@@ -1132,14 +1333,14 @@ export function ShellSessionList({
         },
       )
     }
-    let list = rows.filter((r) => !pinnedKeySet.has(String(r.sessionKey || '')))
+    let list = nonArchivedRows.filter((r) => !pinnedKeySet.has(String(r.sessionKey || '')))
     list = list.filter((r) => r.workspaceKey !== WORKSPACE_GROUP_PROACTIVE)
     if (focusedWorkspaceKey) {
       const nk = normalizePinKey(focusedWorkspaceKey)
       list = list.filter((r) => normalizePinKey(r.workspaceKey) === nk)
     }
-    return [...list].sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
-  }, [rows, pinnedKeySet, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows])
+    return [...list].sort(byToppedThenUpdated)
+  }, [nonArchivedRows, pinnedKeySet, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows, byToppedThenUpdated])
 
   const selectEmployeeFilter = useCallback((code: string | null) => {
     const next = code ? String(code).trim() || null : null
@@ -1217,6 +1418,30 @@ export function ShellSessionList({
     })
   }, [])
 
+  /** 「移动到工作空间」子菜单目标：其余有本地路径的普通工作空间（对齐 zcode taskGroup.moveToGroup）。
+   *  BOT/虚拟组会话与无其他目标时返回 undefined（隐藏该菜单项）。 */
+  const buildRowMoveTargets = useCallback(
+    (row: ShellSidebarSyncRow | null | undefined): SessionMoveTarget[] | undefined => {
+      const currentWs = String(row?.workspaceKey || '').trim()
+      if (
+        currentWs === WORKSPACE_GROUP_PROACTIVE ||
+        currentWs === WORKSPACE_GROUP_VIRTUAL ||
+        isProactiveSessionKey(String(row?.sessionKey || ''))
+      ) {
+        return undefined
+      }
+      const targets: SessionMoveTarget[] = []
+      for (const g of workspaceFilterOptions) {
+        const key = String(g.workspaceKey || '').trim()
+        if (!key || key === currentWs) continue
+        if (!resolveShellGroupWorkspacePath(g, registeredWorkspacePaths)) continue
+        targets.push({ workspaceKey: key, label: String(g.label || key) })
+      }
+      return targets.length > 0 ? targets : undefined
+    },
+    [workspaceFilterOptions, registeredWorkspacePaths],
+  )
+
   const renderSessionRow = (row: ShellSidebarSyncRow) => {
     const sk = String(row.sessionKey || '')
     const active = onChatRoute && sk === displaySelectedKey
@@ -1225,6 +1450,10 @@ export function ShellSessionList({
         key={sk}
         row={row}
         active={active}
+        archived={archivedKeys.has(sk)}
+        unreadMarked={unreadKeys.has(sk)}
+        hasWorkspacePath={!!resolveRowWorkspacePath(row)}
+        moveTargets={buildRowMoveTargets(row)}
         moreOpen={moreMenuKey === sk}
         editingTitle={titleEditKey === sk}
         agents={agents}
@@ -1236,6 +1465,7 @@ export function ShellSessionList({
         onMoreToggle={() => onMoreMenuToggle(sk)}
         onRefresh={() => onRefreshSession(sk)}
         onMenuAction={(action) => runMenuAction(action, sk)}
+        onMoveToWorkspace={(targetKey) => void handleMoveToWorkspace(sk, targetKey)}
         onTitleCommit={(title) => void handleTitleCommit(sk, title)}
         onTitleCancel={() => setTitleEditKey('')}
         onStartTitleEdit={() => {
@@ -1385,7 +1615,7 @@ export function ShellSessionList({
               onClick={() => setViewMode('project')}
             >
               <ShellFolderIcon size={12} />
-              <span>员工</span>
+              <span>BOT</span>
             </button>
             <button
               type="button"
@@ -1658,14 +1888,14 @@ export function ShellSessionList({
               />
             </button>
             {empMenuOpen ? (
-              <div className="react-chat-aside-ws-menu" role="listbox" aria-label="选择员工">
+              <div className="react-chat-aside-ws-menu" role="listbox" aria-label="选择 BOT">
                 <div className="react-chat-aside-ws-menu-search">
                   <input
                     ref={empMenuSearchRef}
                     type="search"
                     className="react-chat-aside-ws-menu-search-input"
-                    placeholder="搜索员工…"
-                    aria-label="搜索员工"
+                    placeholder="搜索 BOT…"
+                    aria-label="搜索 BOT"
                     value={empMenuQuery}
                     onChange={(e) => setEmpMenuQuery(e.target.value)}
                     onKeyDown={(e) => {
@@ -1683,7 +1913,7 @@ export function ShellSessionList({
                   className={`react-chat-aside-ws-menu-item${!focusedEmployeeCode ? ' is-active' : ''}`}
                   onClick={() => selectEmployeeFilter(null)}
                 >
-                  <span className="react-chat-aside-ws-menu-item-label">全部员工</span>
+                  <span className="react-chat-aside-ws-menu-item-label">全部 BOT</span>
                 </button>
                 {employeeMenuOptions.map((g) => {
                   const active =
@@ -1713,7 +1943,7 @@ export function ShellSessionList({
                   )
                 })}
                 {String(empMenuQuery || '').trim() && employeeMenuOptions.length === 0 ? (
-                  <div className="react-chat-aside-ws-menu-empty">无匹配员工</div>
+                  <div className="react-chat-aside-ws-menu-empty">无匹配 BOT</div>
                 ) : null}
               </div>
             ) : null}
@@ -1810,17 +2040,18 @@ export function ShellSessionList({
           pinnedRows.length === 0 &&
           recentVisibleRows.length === 0 &&
           !showDutyFold &&
-          !showEmptyWorkspaceSections ? (
+          !showEmptyWorkspaceSections &&
+          archivedRows.length === 0 ? (
             <li className="react-chat-muted react-chat-session-empty-state" style={{ padding: '10px 12px' }}>
               <span>
                 {isEmployeesTab
                   ? isSearching
                     ? '无匹配会话'
                     : focusedEmployeeCode
-                      ? '该员工暂无会话'
+                      ? '该 BOT 暂无会话'
                       : (effectiveEmployeeRoles || []).length > 0
-                        ? '暂无员工对话'
-                        : '暂无已雇佣员工'
+                        ? '暂无 BOT 对话'
+                        : '暂无已雇佣 BOT'
                   : focusedWorkspaceKey
                     ? '此工作空间暂无会话'
                     : isSearching
@@ -1872,7 +2103,7 @@ export function ShellSessionList({
             showEmptyWorkspaceSections) ? (
             <li
               className="react-chat-session-recent-block"
-              aria-label={isEmployeesTab ? '员工' : '任务'}
+              aria-label={isEmployeesTab ? 'BOT' : '任务'}
             >
               <ul className="react-chat-session-recent-list">
                 {groupedRecentSections
@@ -1906,7 +2137,7 @@ export function ShellSessionList({
                               <button
                                 type='button'
                                 className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
-                                title={isEmployeesTab ? '新开员工对话' : '新建任务'}
+                                title={isEmployeesTab ? '新开 BOT 对话' : '新建任务'}
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
@@ -2025,15 +2256,44 @@ export function ShellSessionList({
               </ul>
             </li>
           ) : null}
+
+          {/* 已归档区（对齐 zcode ArchiveGroupCard）：折叠计数，展开列出归档会话，行菜单可取消归档/删除 */}
+          {!isDeptsTab && !listLoading && archivedRows.length > 0 ? (
+            <li className="react-chat-session-archived-block" aria-label="已归档">
+              <button
+                type="button"
+                className={`react-chat-session-archived-toggle${archivedExpanded ? ' is-open' : ''}`}
+                aria-expanded={archivedExpanded}
+                onClick={() => setArchivedExpanded((v) => !v)}
+              >
+                <ShellChevronIcon
+                  size={12}
+                  className={`react-chat-session-archived-chevron${archivedExpanded ? ' is-open' : ''}`}
+                />
+                <span>已归档 · {archivedRows.length}</span>
+              </button>
+              {archivedExpanded ? (
+                <ul className="react-chat-session-archived-list">
+                  {archivedRows.map((row) => renderSessionRow(row))}
+                </ul>
+              ) : null}
+            </li>
+          ) : null}
         </ul>
       </div>
 
       <SessionContextMenuPortal
         menu={contextMenu}
         row={contextRow}
+        archived={contextRow ? archivedKeys.has(String(contextRow.sessionKey || '')) : false}
+        hasWorkspacePath={!!resolveRowWorkspacePath(contextRow)}
+        moveTargets={buildRowMoveTargets(contextRow)}
         onClose={() => setContextMenu(null)}
         onAction={(action) => {
           if (contextMenu) runMenuAction(action, contextMenu.sessionKey)
+        }}
+        onMoveToWorkspace={(targetKey) => {
+          if (contextMenu) void handleMoveToWorkspace(contextMenu.sessionKey, targetKey)
         }}
       />
       <WorkspaceFolderContextMenuPortal

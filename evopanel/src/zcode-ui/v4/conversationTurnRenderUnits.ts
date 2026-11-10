@@ -43,7 +43,7 @@ export interface ConversationTurnRenderUnit {
   /** 操作正文锚点之后、真正轮尾 marker 之前的 row；保持 CLI 全序原位渲染。 */
   assistantFollowingRows: AssistantWorkRow[];
   assistantTailRows: AssistantWorkRow[];
-  /** Browser 自动轮尾截图：完成态渲染在 file diff 摘要之后、消息操作栏之前。 */
+  /** 轮尾媒体（Browser/CUA 截图、platform 生图视频）：完成态在 file diff 摘要之后、操作栏之前。 */
   browserTurnEndRows: AssistantWorkRow[];
   /** turn-local Hook product rows；不进入 assistant work/折叠，只供轮尾详情 action。 */
   hookInvocations: HookInvocationRow[];
@@ -186,8 +186,16 @@ function isBrowserTurnEndRow(row: AssistantWorkRow): boolean {
   // EvoFlow CUA：带 media 的截图卡若留在「已工作」里，回合结束后折叠就看不见。
   // 提到轮尾（最终答复之后、操作栏之前），与 browser_turn_end 同理。
   // 绑渠道扫码不整卡上提：工具行留原位，仅由轮尾 BindChannelTurnCards 挂码。
-  return (
+  if (
     display?.kind === "cua" &&
+    Array.isArray(display.media) &&
+    display.media.length > 0
+  ) {
+    return true;
+  }
+  // platform media.* 生图/视频：同理提到轮尾，否则只在工具卡下可见、折进「已工作」后丢失。
+  return (
+    display?.kind === "platform_ui" &&
     Array.isArray(display.media) &&
     display.media.length > 0
   );

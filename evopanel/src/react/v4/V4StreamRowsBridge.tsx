@@ -74,8 +74,9 @@ export function getSharedV4SessionDataLayer(): SessionDataLayer {
  * 命中已有快照的预热零成本，不受限；冷启动订阅按滑动窗口限量 + 总数封顶。
  */
 const WARM_COLD_WINDOW_MS = 3_000;
-const WARM_COLD_MAX_PER_WINDOW = 2;
-const WARM_MAX_LIVE_SESSIONS = 6;
+/** 1 cold hydrate at a time in the window — parallel 1k+ row hydrates stall Gateway. */
+const WARM_COLD_MAX_PER_WINDOW = 1;
+const WARM_MAX_LIVE_SESSIONS = 4;
 let _warmColdTimestamps: number[] = [];
 
 export function warmEvoflowV4Session(
@@ -443,8 +444,31 @@ export function V4StreamRowsBridge(props: {
       },
       skipDedupe: true,
     });
+    // acquire 后立刻自愈卡住的 connecting（SessionDataLayer 已 ensureConnected；
+    // 这里再兜一层，覆盖 lease 已挂上但首帧仍未到的 hung HTTP：短延迟 retry）。
+    let earlyRetryTimer: number | null = null;
+    if (!hasSnap && st.status === "connecting" && !st.subscriptionId) {
+      earlyRetryTimer = window.setTimeout(() => {
+        try {
+          const cur = acquired.store.getState();
+          if (cur.snapshot || cur.subscriptionId || cur.status !== "connecting") return;
+          void acquired.store.retry();
+          logV4Life({
+            event: "connecting_early_retry",
+            level: "warn",
+            threadId: sessionId,
+            zh: "切会话后 1.2s 仍无订阅：提前 retry（不等满 5s watchdog）。",
+            detail: { openKind: acquired.openKind, storeStatus: cur.status },
+            skipDedupe: true,
+          });
+        } catch {
+          /* best-effort */
+        }
+      }, 1_200);
+    }
     setLease(acquired);
     return () => {
+      if (earlyRetryTimer != null) window.clearTimeout(earlyRetryTimer);
       acquired.release();
       setLease(null);
     };
@@ -679,11 +703,12 @@ export function V4StreamRowsBridge(props: {
     }
   }, [pathState, sessionId, enabled, snapshot, state?.status, leaseForSession]);
 
-  // connecting 每秒打进度；满 5s 再 warn + recovery（与发消息触发的自愈同路径）。
+  // connecting 每秒打进度；无订阅 2s / 有订阅等首帧 5s 后 warn + recovery。
   useLayoutEffect(() => {
     if (pathState !== "v4-connecting" || !sessionId) return;
     const started = connectingSinceRef.current || Date.now();
     connectingSinceRef.current = started;
+    const stuckAfterMs = store?.getState()?.subscriptionId ? 5_000 : 2_000;
     const tick = window.setInterval(() => {
       if (lastPathLogRef.current !== `v4-connecting:${sessionId}`) return;
       const st = store?.getState();
@@ -771,7 +796,7 @@ export function V4StreamRowsBridge(props: {
       } catch {
         /* best-effort */
       }
-    }, 5_000);
+    }, stuckAfterMs);
     return () => {
       window.clearInterval(tick);
       window.clearTimeout(stuck);

@@ -79,14 +79,14 @@ export const TerminalStagePanel = memo(function TerminalStagePanel({
     ? undefined
     : stripMindMapHint(persisted || fallback) || undefined
 
+  // 标题已在右栏标签页展示，正文里不再重复「会话终端 / 终端」
   return (
     <div className="react-chat-terminal-stage" role="region" aria-label={title || '终端'}>
-      <div className="react-chat-terminal-stage-header">
-        <span className="react-chat-terminal-stage-title">{title || '终端'}</span>
-        {loading && !livePreferred ? (
+      {loading && !livePreferred ? (
+        <div className="react-chat-terminal-stage-header">
           <span className="react-chat-terminal-stage-hint">加载输出…</span>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
       <div className="react-chat-terminal-stage-body">
         <TerminalToolPanel
           command={command}

@@ -716,14 +716,21 @@ export const ChatComposer = memo(function ChatComposer({
     }
     const t = live.trim()
     if (!t && !pendingFiles.length && contextAttachCount <= 0) {
-      // 忙时、输入框空、已有排队：再次 Enter → 打断当前回复，队首立即发送（插队）
-      if (
-        (streaming || sending) &&
-        pendingSendQueue[0] &&
-        onInterruptAndFlushQueue &&
-        !pendingFiles.length
-      ) {
-        void onInterruptAndFlushQueue(pendingSendQueue[0].id)
+      if (streaming || sending) {
+        // 忙时、输入框空、已有排队：再次 Enter → 打断当前回复，队首立即发送（插队）
+        if (pendingSendQueue[0] && onInterruptAndFlushQueue) {
+          void onInterruptAndFlushQueue(pendingSendQueue[0].id)
+          return
+        }
+        // 仅有「下次模型调用时提交」纠偏时：空 Enter 与 Esc 同路径，立刻打断并发送
+        if (pendingSteers.length > 0 && onInterruptAndSendSteers) {
+          onInterruptAndSendSteers()
+          return
+        }
+        // 忙时空 Enter 且无可发内容：给反馈，避免像「按了没反应」
+        void import('../../components/toast.js').then(({ toast }) => {
+          toast('输入内容后再发送；当前回合进行中可先排队', 'info')
+        })
       }
       return
     }
@@ -1424,7 +1431,9 @@ export const ChatComposer = memo(function ChatComposer({
                   : streaming || sending
                     ? pendingSendQueue.length
                       ? '已排队 · 空 Enter 打断并立即发送队首 · 有内容再 Enter 继续排队…'
-                      : 'Enter 排队，回合结束后自动发送…'
+                      : pendingSteers.length
+                        ? '有待提交纠偏 · 空 Enter / Esc 立即发送 · 有内容再 Enter 排队…'
+                        : 'Enter 排队，回合结束后自动发送…'
                     : placeholder
             }
             disabled={!sessionReady}
@@ -1521,7 +1530,9 @@ export const ChatComposer = memo(function ChatComposer({
                 }
                 return
               }
+              // 中文 IME 选词回车只确认候选，不发送；否则会「第一次回车提交了、再回车像空回车」
               if (e.key === 'Enter' && !e.shiftKey) {
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return
                 e.preventDefault()
                 void handleSend()
               }

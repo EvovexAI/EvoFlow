@@ -323,7 +323,7 @@ export function renderHandlersEditorHtml({
           from
             ? `<label class="task-handlers-reassign">
           <input type="checkbox" data-handler-reassign-all${reassignChecked} />
-          <span>用户改派：显示同组织全部在岗同事</span>
+          <span>用户改派：显示同组织全部已启用 BOT</span>
         </label>`
             : ''
         }

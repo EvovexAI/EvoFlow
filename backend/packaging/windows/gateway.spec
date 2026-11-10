@@ -102,6 +102,7 @@ for _asset_subdir in (
     "dept_avatars",
     "builtin_agent_souls",
     "prompts",
+    "builtin_ext_apps",
 ):
     _src = _assets_root / _asset_subdir
     if _src.is_dir():

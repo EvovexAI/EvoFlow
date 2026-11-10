@@ -305,22 +305,41 @@ def _mcp_error_hint(server_name: str, cfg: dict[str, Any], err_text: str) -> str
 
 
 def _normalize_mcp_tool_names(tools: list[BaseTool], servers_config: dict[str, Any]) -> None:
-    from evoflow.mcp.binding import qualified_mcp_tool_name
+    from evoflow.mcp.binding import mcp_server_tool_id, qualified_mcp_tool_name
 
     for tool in tools:
         original_name = tool.name
         for server_name in servers_config.keys():
+            server_id = mcp_server_tool_id(server_name)
             prefix_us = f"{server_name}_"
             prefix_ds = f"{server_name}__"
-            mcp_prefix = f"mcp__{server_name}__"
-            if original_name.startswith(mcp_prefix):
+            prefix_id_us = f"{server_id}_"
+            prefix_id_ds = f"{server_id}__"
+            mcp_prefix_display = f"mcp__{server_name}__"
+            mcp_prefix_id = f"mcp__{server_id}__"
+            if original_name.startswith(mcp_prefix_id):
+                # Already ASCII-safe qualified — keep.
+                break
+            if original_name.startswith(mcp_prefix_display):
+                tool.name = qualified_mcp_tool_name(
+                    server_name, original_name[len(mcp_prefix_display) :]
+                )
+                logger.debug("Normalized MCP tool name: %s -> %s", original_name, tool.name)
                 break
             if original_name.startswith(prefix_ds):
                 tool.name = qualified_mcp_tool_name(server_name, original_name[len(prefix_ds) :])
                 logger.debug("Normalized MCP tool name: %s -> %s", original_name, tool.name)
                 break
+            if original_name.startswith(prefix_id_ds) and server_id != server_name:
+                tool.name = qualified_mcp_tool_name(server_name, original_name[len(prefix_id_ds) :])
+                logger.debug("Normalized MCP tool name: %s -> %s", original_name, tool.name)
+                break
             if original_name.startswith(prefix_us):
                 tool.name = qualified_mcp_tool_name(server_name, original_name[len(prefix_us) :])
+                logger.debug("Normalized MCP tool name: %s -> %s", original_name, tool.name)
+                break
+            if original_name.startswith(prefix_id_us) and server_id != server_name:
+                tool.name = qualified_mcp_tool_name(server_name, original_name[len(prefix_id_us) :])
                 logger.debug("Normalized MCP tool name: %s -> %s", original_name, tool.name)
                 break
         else:

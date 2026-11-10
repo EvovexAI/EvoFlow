@@ -1,4 +1,4 @@
-﻿/* 各业务模块卡片/面板：暗色实底 + 液态玻璃磨砂（加载于 liquid-glass 之后） */
+/* 各业务模块卡片/面板：暗色实底 + 液态玻璃磨砂（加载于 liquid-glass 之后） */
 
 /* ── 暗色：模块页基础可读性 ── */
 html[data-theme='dark'] #content > .page {
@@ -2333,7 +2333,7 @@ html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] :is(.hire-overlay, .r
   -webkit-backdrop-filter: none !important;
 }
 
-/* ── 员工详情 · 上班记录 / 时间线 / 任务列表 ── */
+/* ── 员工详情 · 巡检记录 / 时间线 / 任务列表 ── */
 html[data-theme='dark'] .proactive-page :is(
   .pro-worklog-round,
   .pro-worklog-listrow,
@@ -2400,7 +2400,7 @@ html[data-translucent-ui='1'] .proactive-page .pro-worklog-day-head {
   border-bottom: 1px solid color-mix(in srgb, var(--border-primary) 42%, transparent);
 }
 
-/* 上班日期横条：近2天 / 今天 / 昨天（与视图 Tab 同款分段） */
+/* 巡检日期横条：近2天 / 今天 / 昨天（与视图 Tab 同款分段） */
 html[data-theme='dark'] .proactive-page .pro-worklog-daybar,
 html[data-theme='dark'] .proactive-page .pro-worklog-listbar,
 html[data-translucent-ui='1'] .proactive-page .pro-worklog-daybar,
@@ -2555,7 +2555,7 @@ html[data-translucent-ui='1'] .proactive-page table thead th {
   background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
 }
 
-/* WebGL：上班记录区域全部透明描边 */
+/* WebGL：巡检记录区域全部透明描边 */
 html[data-translucent-ui='1'][data-liquid-glass-webgl='1'] .proactive-page :is(
   .pro-item-card,
   .pro-worklog-round,

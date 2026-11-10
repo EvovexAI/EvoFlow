@@ -4,8 +4,6 @@
 
 **Evolutionary Workflow.**
 
-**Going forward, this project is iterated and self-evolved by AI employees in the EvoFlow R&D department.**
-
 Built by [EvovexAI](https://www.evovexai.com): AI employees finish long-running work — plan, decompose, execute, recover, and deliver, with full observability and human gates.
 
 [![Release](https://img.shields.io/github/v/release/EvovexAI/EvoFlow?style=flat-square&color=6366f1)](https://github.com/EvovexAI/EvoFlow/releases)
@@ -24,8 +22,6 @@ Built by [EvovexAI](https://www.evovexai.com): AI employees finish long-running 
 
 ## Overview
 
-**Going forward, this project is iterated and self-evolved by AI employees in the EvoFlow R&D department.**
-
 EvoFlow = **Evo**lutionary **Flow**: not another chat window, but work that can evolve as an organization — AI employees with posts, duty shifts, approvals, and reports; experience lands in the Asset Center so the next round starts smarter. The control plane covers chat, Plan, Goal, task center, workflows, and observability.
 
 Further reading: [Why EvoFlow](docs/user/explanation/why-evoflow.md) · [Ecosystem comparison (DeerFlow / Hermes / Codex / OpenClaw)](docs/user/explanation/ecosystem-comparison.md) · [Agent system](docs/user/explanation/agent-system.md)
@@ -38,7 +34,7 @@ Further reading: [Why EvoFlow](docs/user/explanation/why-evoflow.md) · [Ecosyst
 - **Agent Teams · smart employees** — multi-agent division of labor; on-duty posts with checkpoint approval and reports
 - **App Center / automation** — productize multi-node fixed business workflows; schedules and IM dispatch
 - **Workspace · code index** — project-directory bounds; symbol/import graphs for agent retrieval
-- **Self-evolution** — Asset Center (experience / reflection / profiles); this project is continuously iterated by EvoFlow R&D AI employees
+- **Self-evolution** — Asset Center (experience / reflection / profiles) so the next round starts smarter
 - **Governance suite** — multi-account / SSO, cost ledger, ops observability, Security Center
 - **Resource market** — install packs and extension apps; Skills and MCP for capability expansion
 - **Sandbox & observability** — isolated execution; visible tasks, tool calls, and usage

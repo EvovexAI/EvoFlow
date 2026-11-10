@@ -1,6 +1,6 @@
 /**
  * 部门群聊 · 成员实时态（排队 / 回复中）。
- * HomeDeptGroupChat 写入；摘要 DeptGroupPane 订阅，避免点名单只能看到静态「在岗」。
+ * HomeDeptGroupChat 写入；摘要 DeptGroupPane 订阅，避免点名单只能看到静态「已启用」。
  */
 
 export type DeptMemberLivePhase = 'idle' | 'queued' | 'running'

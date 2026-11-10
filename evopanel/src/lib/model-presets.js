@@ -71,7 +71,7 @@ export const MODEL_PRESETS = {
     { id: 'gpt-4o', name: 'GPT-4o', contextWindow: 128000 },
     { id: 'gpt-4o-mini', name: 'GPT-4o Mini', contextWindow: 128000 },
     { id: 'o3-mini', name: 'o3 Mini', contextWindow: 200000, reasoning: true },
-    { id: 'gpt-5.4', name: 'GPT-5.4（Codex 订阅）', contextWindow: 200000, reasoning: true },
+    { id: 'gpt-5.4', name: 'GPT-5.4（Codex 订阅）', contextWindow: 272000, reasoning: true, vision: true },
   ],
   anthropic: [
     { id: 'claude-sonnet-4-5-20250514', name: 'Claude Sonnet 4.5', contextWindow: 200000 },

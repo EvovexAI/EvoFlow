@@ -371,6 +371,8 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
     SYNC_IMAGE_GENERATE_ACTIONS.has(action) &&
     mediaPreview.length === 0 &&
     toolCall.status !== "failed";
+  // 有媒体结果：只出预览画廊（对齐 CUA / browser_turn_end），整卡已提到轮尾。
+  const mediaOnly = mediaPreview.length > 0;
 
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
   // 媒体预览挂在工具卡外侧，避免 forceOpen 把入参/结果 JSON 一起摊开。
@@ -417,6 +419,12 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
     [primaryText],
   );
 
+  if (mediaOnly) {
+    return (
+      <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
+    );
+  }
+
   return (
     <>
       <ToolLayout
@@ -441,9 +449,6 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
           aspectRatio={aspectRatio}
           label={`${actionLabel || "生图"}中`}
         />
-      ) : null}
-      {mediaPreview.length ? (
-        <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
       ) : null}
     </>
   );

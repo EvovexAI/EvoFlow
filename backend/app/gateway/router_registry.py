@@ -84,6 +84,7 @@ def register_core_routers(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.routers.agents", label="agents")
     _include_module_router(app, "app.gateway.routers.skills", label="skills")
     _include_module_router(app, "app.gateway.routers.ui_extensions", label="ui_extensions")
+    _include_module_router(app, "app.gateway.routers.ui_ext_apps", label="ui_ext_apps")
     _include_module_router(app, "app.gateway.routers.artifacts", label="artifacts")
     _include_module_router(app, "app.gateway.routers.uploads", label="uploads")
     _include_module_router(app, "app.gateway.routers.threads", label="threads")

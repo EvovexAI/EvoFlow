@@ -38,6 +38,7 @@ export const ZCODE_KNOWN_TOOL_NAMES = [
   "assets",
 ] as const;
 
+
 export type ZCodeKnownToolName = (typeof ZCODE_KNOWN_TOOL_NAMES)[number];
 
 export type ZCodeToolFamily =
@@ -91,6 +92,8 @@ const TOOL_FAMILY_BY_NAME: Record<ZCodeKnownToolName, ZCodeToolFamily> = {
   CreateWorkflow: "workflow",
   AmendWorkflow: "workflow",
   submit_result: "workflow",
+  // EvoFlow 资产工具：read/search/list/profile/note 以读为主，归 file-read family。
+  assets: "file-read",
 };
 
 const TOOL_NAME_BY_LOWER = new Map<string, ZCodeKnownToolName>(

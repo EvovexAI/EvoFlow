@@ -252,7 +252,7 @@ async function refreshIMBindingsUi(channelName) {
     const allRows = [...unboundRows, ...hireable, ...boundRows, ...orphans]
     if (!allRows.length) {
       html +=
-        '<p class="im-field-hint" style="margin:0">暂无在岗员工。请先在「智能体」部署智能体，或点下方对应按钮「部署并绑」。</p>'
+        '<p class="im-field-hint" style="margin:0">暂无已启用 BOT。请先在「智能体」部署智能体，或点下方对应按钮「部署并绑」。</p>'
       body.innerHTML = html
       _bindIMRosterActions(body, ch)
       return

@@ -14,6 +14,7 @@ import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
 import { V4StreamRowsBridge, retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
+import { ConversationCompactTipBanner } from '../../v4/ConversationCompactTipBanner.js'
 import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
@@ -842,6 +843,20 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       evoflowSessionKey={selectedSessionKey}
                       // 左下角齿轮 ↔ 右下角停止：同一 selectedTurnBusy
                       sessionBusy={selectedTurnBusy}
+                      topChrome={
+                        <ConversationCompactTipBanner
+                          sessionKey={selectedSessionKey}
+                          // 优先用后端 context_usage.message_count；未上报时用 V4 行数兜底
+                          messageCount={
+                            displayContextUsage?.messageCount ??
+                            (v4RowCount > 0 ? v4RowCount : undefined)
+                          }
+                          pct={displayContextUsage?.pct}
+                          compacting={manualContextCompacting}
+                          sessionBusy={selectedTurnBusy}
+                          onCompact={handleManualContextCompact}
+                        />
+                      }
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
                         // 与 V4SessionPaneBridge 对齐：会话 root 必须进 target，相对路径才能拼对

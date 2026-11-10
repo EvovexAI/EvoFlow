@@ -82,7 +82,7 @@ def mount_langgraph_in_process() -> Starlette:
     os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
     from evoflow.langgraph_runtime_env import _resolve_n_jobs_per_worker
 
-    # Prefer env / Settings→通用 (langgraphMaxConcurrent); default 10.
+    # Prefer env / Settings→通用 (langgraphMaxConcurrent); default 3 (RSS-safe).
     os.environ["N_JOBS_PER_WORKER"] = str(_resolve_n_jobs_per_worker())
     if checkpointer:
         os.environ.setdefault("LANGGRAPH_CHECKPOINTER", json.dumps(checkpointer))

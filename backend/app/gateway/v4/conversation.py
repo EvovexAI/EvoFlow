@@ -47,6 +47,28 @@ logger = logging.getLogger(__name__)
 
 V4_WIRE_PROTOCOL_VERSION = 3
 
+# Cap concurrent cold hydrates. Hover-warm + multi-click used to pile 3×
+# multi-second transcript rebuilds and starve subscribe/health (2026-11-10
+# 12:54: event_loop_lag 21s + subscribe 7–9s). Override with
+# EVOFLOW_V4_HYDRATE_CONCURRENCY (1–4).
+_hydrate_sem: asyncio.Semaphore | None = None
+
+
+def _hydrate_concurrency_limit() -> int:
+    raw = (os.environ.get("EVOFLOW_V4_HYDRATE_CONCURRENCY") or "1").strip()
+    try:
+        n = int(raw)
+    except ValueError:
+        n = 1
+    return max(1, min(n, 4))
+
+
+def _hydrate_semaphore() -> asyncio.Semaphore:
+    global _hydrate_sem
+    if _hydrate_sem is None:
+        _hydrate_sem = asyncio.Semaphore(_hydrate_concurrency_limit())
+    return _hydrate_sem
+
 _PHASE_DRAFT = "draft"
 _PHASE_RUNNING = "running"
 _PHASE_COMPLETED = "completedSuccess"
@@ -616,16 +638,20 @@ class V4ConversationHub:
         # Sync hydrate under the asyncio lock froze Gateway for multi‑second windows
         # on large transcripts (2026-11-08 formal package lockup: health/Feishu/UI
         # all stuck while one subscribe hydrated 700+ rows).
+        # Also serialize hydrates: parallel hover-warm of 1k+ row sessions
+        # contended SQLite + CPU and made every click feel dead.
         hydrate_ms: float | None = None
         hydrate_rows = 0
+        prebuilt_snapshot: dict[str, Any] | None = None
         if not resume_ok and not sess.rows:
             try:
                 from app.gateway.v4.hydration import hydrate_session_from_transcript
 
                 hydrate_started = time.perf_counter()
-                loaded = await asyncio.to_thread(
-                    hydrate_session_from_transcript, self, sess.session_id
-                )
+                async with _hydrate_semaphore():
+                    loaded = await asyncio.to_thread(
+                        hydrate_session_from_transcript, self, sess.session_id
+                    )
                 hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
                 hydrate_rows = int(loaded or 0)
                 if loaded:
@@ -648,6 +674,27 @@ class V4ConversationHub:
         elif not resume_ok:
             hydrate_ms = 0.0
             hydrate_rows = len(sess.rows)
+
+        # Build initial snapshot off the event loop (json.dumps of the tail
+        # window is multi‑100ms on fat tool rows). Hold only a short lock to enqueue.
+        if not resume_ok and sess.rows:
+            try:
+                snap_started = time.perf_counter()
+                prebuilt_snapshot = await asyncio.to_thread(self._build_snapshot, sess)
+                snap_ms = round((time.perf_counter() - snap_started) * 1000, 1)
+                if snap_ms >= 200:
+                    logger.warning(
+                        "[v4.perf] snapshot build slow session=%s snapshot_ms=%.1f rows=%s",
+                        sess.session_id,
+                        snap_ms,
+                        len(sess.rows),
+                    )
+            except Exception:
+                logger.exception(
+                    "[v4.snapshot] off-loop build failed session=%s; falling back under lock",
+                    sess.session_id,
+                )
+                prebuilt_snapshot = None
 
         async with self._lock:
             # 重订阅替换（对齐 zcode subscribeParams 注释：按 (connectionId, topic) 判定）。
@@ -695,7 +742,12 @@ class V4ConversationHub:
                 # Re-read rows after off-thread hydrate (may have filled sess.rows).
                 if hydrate_rows <= 0:
                     hydrate_rows = len(sess.rows)
-                self._enqueue_snapshot_locked(sub, sess, delivery_kind="initial")
+                if prebuilt_snapshot is not None:
+                    self._enqueue_prebuilt_snapshot_locked(
+                        sub, sess, prebuilt_snapshot, delivery_kind="initial"
+                    )
+                else:
+                    self._enqueue_snapshot_locked(sub, sess, delivery_kind="initial")
                 if hydrate_ms is not None and hydrate_ms >= 500:
                     logger.warning(
                         "[v4.perf] subscribe hydration slow session=%s hydrate_ms=%.1f rows=%s",
@@ -782,6 +834,41 @@ class V4ConversationHub:
                 len(subs),
             )
 
+    def author_seed_rows(self, session_id: str, rows: list[dict[str, Any]]) -> int:
+        """Cold-load history without per-row delta_log / ``_write_lock`` thrash.
+
+        Subscribe always delivers an initial snapshot, so N×``row.appended`` is
+        pure contention against live AG-UI authors on the shared write lock
+        (multi-chat freeze: hydrate worker holds the lock while stream handlers
+        on the event loop wait). Existing subscribers are marked overflowed so
+        their next flush resyncs via snapshot.
+        """
+        if not rows:
+            return 0
+        flush_subs: list[_Subscription] = []
+        with self._write_lock:
+            sess = self._get_or_create_session(session_id)
+            if sess.rows:
+                return 0
+            max_rid = 0
+            for row in rows:
+                rid = int(row["rowId"])
+                sess.rows[rid] = row
+                if rid > max_rid:
+                    max_rid = rid
+            if max_rid >= int(sess.next_row_id):
+                sess.next_row_id = max_rid + 1
+            for sub in self._subscriptions.values():
+                if sub.session_id != sess.session_id:
+                    continue
+                sub.pending_ops = []
+                sub.pending_bytes = 0
+                sub.overflowed = True
+                flush_subs.append(sub)
+        for sub in flush_subs:
+            self._schedule_flush_threadsafe(sub)
+        return len(rows)
+
     def author_append_row(self, session_id: str, row: dict[str, Any]) -> None:
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
@@ -816,6 +903,17 @@ class V4ConversationHub:
         self.author_state_patch(session_id, {"control": _minimal_control(phase)})
 
     # -- flush 调度 -------------------------------------------------------------
+
+    def _schedule_flush_threadsafe(self, sub: _Subscription) -> None:
+        """Hydrate / worker threads must not call ``loop.call_later`` directly."""
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            self._schedule_flush(sub)
+            return
+        try:
+            loop.call_soon_threadsafe(self._schedule_flush, sub)
+        except RuntimeError:
+            self._schedule_flush(sub)
 
     def _schedule_flush(self, sub: _Subscription) -> None:
         """首个 pending op 到达后定时一窗（对齐 ZCode scheduleFlush：单 timer）。"""
@@ -972,15 +1070,15 @@ class V4ConversationHub:
                 return window
             take = max(_SNAPSHOT_MIN_TAIL_ROWS, take // 2)
 
-    def _enqueue_snapshot_locked(
+    def _enqueue_prebuilt_snapshot_locked(
         self,
         sub: _Subscription,
         sess: _SessionState,
+        snapshot: dict[str, Any],
         *,
         delivery_kind: str,
     ) -> None:
-        """调用方必须已持有 ``_write_lock``。"""
-        snapshot = self._build_snapshot(sess)
+        """Enqueue a snapshot already built off-loop. Caller holds ``_lock``."""
         frame = {
             "topic": sub.topic,
             "subscriptionId": sub.subscription_id,
@@ -992,13 +1090,27 @@ class V4ConversationHub:
         sub.queue.append(self._wrap_wire(sub, frame, delivery_kind))
         sub.delivered_seq = sess.seq
         sub.last_flushed_seq = sess.seq
+        window = (snapshot.get("rows") or {}).get("window") or []
         logger.info(
             "[v4.flush] snapshot session=%s sub=%s seq=%d rows=%d kind=%s",
             sess.session_id,
             sub.subscription_id,
             sess.seq,
-            len(snapshot["rows"]["window"]),
+            len(window),
             delivery_kind,
+        )
+
+    def _enqueue_snapshot_locked(
+        self,
+        sub: _Subscription,
+        sess: _SessionState,
+        *,
+        delivery_kind: str,
+    ) -> None:
+        """调用方必须已持有 ``_write_lock`` / ``_lock``。"""
+        snapshot = self._build_snapshot(sess)
+        self._enqueue_prebuilt_snapshot_locked(
+            sub, sess, snapshot, delivery_kind=delivery_kind
         )
 
     def _wrap_wire(

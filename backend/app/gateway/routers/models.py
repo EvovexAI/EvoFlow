@@ -959,6 +959,13 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
     if not base:
         return {"success": False, "message": "base_url 为空", "models": []}
 
+    # Codex subscription connections have empty api_key and use OAuth — do not
+    # hit chatgpt.com/backend-api/codex/models with a bare/missing Bearer key.
+    from evoflow.models.codex_models import is_codex_subscription_base_url, list_codex_subscription_models
+
+    if is_codex_subscription_base_url(base) and not key:
+        return list_codex_subscription_models(allow_builtin_fallback=True)
+
     url = f"{base}/models"
     headers: dict[str, str] = {"accept": "application/json"}
     if key:
