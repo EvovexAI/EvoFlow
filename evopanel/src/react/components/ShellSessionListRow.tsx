@@ -17,6 +17,10 @@ import type { RunningSessionSummary } from '../hooks/useRunningSessionSummaries.
 import { useShellSessionRunningPreview } from '../hooks/useShellSessionRunningPreview.js'
 import { useRunningElapsedLabel } from '../hooks/useRunningElapsedLabel.js'
 import { isProactiveSessionKey, proactiveAgentCodeFromSessionKey } from '../lib/session-list/workspace-groups.js'
+import {
+  resolveSessionListIdentity,
+  sessionTriggerLabel,
+} from '../lib/session-list/session-identity.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 import {
   ShellLoaderIcon,
@@ -483,9 +487,13 @@ function ShellSessionListRowInner({
   onPrefetch,
 }: ShellSessionListRowProps) {
   const sessionKey = String(row.sessionKey || '')
+  const identity = resolveSessionListIdentity(sessionKey)
+  const triggerLabel = sessionTriggerLabel(identity.trigger)
   const proactiveAgentCode = isProactiveSessionKey(sessionKey)
     ? proactiveAgentCodeFromSessionKey(sessionKey)
-    : ''
+    : identity.ownerKind === 'agent'
+      ? identity.ownerCode
+      : ''
   /** 仅「员工」变体用员工名当标题；会话行与普通对话一致用 row.title */
   const useEmployeeTitle = variant === 'employee'
   const employeeName = useEmployeeTitle
@@ -728,10 +736,24 @@ function ShellSessionListRowInner({
         ) : useEmployeeTitle ? (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{employeeName}</SessionTitleOverflowText>
+            <span
+              className="react-chat-session-trigger-chip"
+              data-trigger={identity.trigger}
+              title={`触发：${triggerLabel}`}
+            >
+              {triggerLabel}
+            </span>
           </div>
         ) : (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{row.title}</SessionTitleOverflowText>
+            <span
+              className="react-chat-session-trigger-chip"
+              data-trigger={identity.trigger}
+              title={`触发：${triggerLabel}`}
+            >
+              {triggerLabel}
+            </span>
           </div>
         )}
 

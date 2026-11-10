@@ -6350,40 +6350,96 @@ export class WsClient {
       }
     }
 
-    /** Document attach → thread uploads/ + markitdown before run starts. */
+    /**
+     * Documents AND images → thread uploads/ before run starts.
+     * Images still go as vision ``image_url`` blocks below; uploads give the model a
+     * durable Path for edit/generate (media.generate_image reference_image_urls).
+     * Clipboard paste has no original FS path — without this the agent hunts the disk.
+     */
     let uploadedFilesMeta = []
-    if (docAtts.length) {
-      const toUpload = []
-      for (const att of docAtts) {
-        const name = String(att.filename || att.file?.name || 'file').trim() || 'file'
-        if (att.file instanceof Blob) {
-          toUpload.push(
-            att.file instanceof File
-              ? att.file
-              : new File([att.file], name, { type: att.mimeType || 'application/octet-stream' }),
-          )
-          continue
-        }
-        if (!att.content) continue
-        try {
-          const bin = atob(att.content)
-          const bytes = new Uint8Array(bin.length)
-          for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-          toUpload.push(new File([bytes], name, { type: att.mimeType || 'application/octet-stream' }))
-        } catch (e) {
-          console.warn('[evoflow] rebuild upload blob failed', name, e)
-        }
+    const claimUniqueUploadName = (rawName, mime, used) => {
+      let name = String(rawName || '').trim() || 'file'
+      name = name.replace(/[\\/]+/g, '_').replace(/^\.+/, '') || 'file'
+      const mimeLower = String(mime || '').toLowerCase()
+      if (!/\.[a-z0-9]{1,8}$/i.test(name)) {
+        const ext =
+          mimeLower === 'image/jpeg' || mimeLower === 'image/jpg'
+            ? '.jpg'
+            : mimeLower === 'image/webp'
+              ? '.webp'
+              : mimeLower === 'image/gif'
+                ? '.gif'
+                : mimeLower.startsWith('image/')
+                  ? '.png'
+                  : ''
+        if (ext) name = `${name}${ext}`
       }
-      if (toUpload.length) {
+      if (!used.has(name)) {
+        used.add(name)
+        return name
+      }
+      const dot = name.lastIndexOf('.')
+      const stem = dot > 0 ? name.slice(0, dot) : name
+      const suffix = dot > 0 ? name.slice(dot) : ''
+      let n = 1
+      let candidate = `${stem}_${n}${suffix}`
+      while (used.has(candidate)) {
+        n += 1
+        candidate = `${stem}_${n}${suffix}`
+      }
+      used.add(candidate)
+      return candidate
+    }
+    const rebuildBase64File = (att, name) => {
+      if (!att?.content) return null
+      try {
+        const bin = atob(att.content)
+        const bytes = new Uint8Array(bin.length)
+        for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+        return new File([bytes], name, { type: att.mimeType || 'application/octet-stream' })
+      } catch (e) {
+        console.warn('[evoflow] rebuild upload blob failed', name, e)
+        return null
+      }
+    }
+    const toUpload = []
+    const usedUploadNames = new Set()
+    for (const att of docAtts) {
+      const name = claimUniqueUploadName(att.filename || att.file?.name || 'file', att.mimeType, usedUploadNames)
+      if (att.file instanceof Blob) {
+        toUpload.push(
+          att.file instanceof File
+            ? (att.file.name === name ? att.file : new File([att.file], name, { type: att.mimeType || att.file.type || 'application/octet-stream' }))
+            : new File([att.file], name, { type: att.mimeType || 'application/octet-stream' }),
+        )
+        continue
+      }
+      const rebuilt = rebuildBase64File(att, name)
+      if (rebuilt) toUpload.push(rebuilt)
+    }
+    for (let i = 0; i < imageAtts.length; i++) {
+      const att = imageAtts[i]
+      // Clipboard pastes are often all named image.png — uniquify so we don't clobber.
+      const rawName = String(att.filename || att.file?.name || '').trim() || `pasted-image-${i + 1}.png`
+      const name = claimUniqueUploadName(rawName, att.mimeType || 'image/png', usedUploadNames)
+      const rebuilt = rebuildBase64File(att, name)
+      if (rebuilt) toUpload.push(rebuilt)
+    }
+    if (toUpload.length) {
+      try {
         const { api } = await import('./tauri-api.js')
         const result = await api.uploadThreadFiles(threadId, toUpload)
         for (const info of result?.files || []) {
           const filename = String(info?.filename || '').trim()
           if (!filename) continue
+          const virtualPath = info.virtual_path || `/mnt/user-data/uploads/${filename}`
+          const hostPath = String(info.path || '').trim()
           uploadedFilesMeta.push({
             filename,
             size: Number(info.size) || 0,
-            path: info.virtual_path || `/mnt/user-data/uploads/${filename}`,
+            path: virtualPath,
+            // Host absolute path for LOCAL_HOST / media.generate_image resolvers.
+            ...(hostPath ? { absolute_path: hostPath } : {}),
             status: 'uploaded',
           })
           const mdName = String(info?.markdown_file || '').trim()
@@ -6392,10 +6448,14 @@ export class WsClient {
               filename: mdName,
               size: 0,
               path: info.markdown_virtual_path || `/mnt/user-data/uploads/${mdName}`,
+              ...(info.markdown_path ? { absolute_path: String(info.markdown_path) } : {}),
               status: 'uploaded',
             })
           }
         }
+      } catch (e) {
+        // Vision blocks still go through; path injection is best-effort.
+        console.warn('[evoflow] thread upload for attachments failed', e)
       }
     }
 

@@ -15,6 +15,12 @@ import {
   getDisplayLabel,
   stripProactiveEmployeeTitlePrefix,
 } from '../src/react/lib/session-list/display.js'
+import {
+  resolveSessionListIdentity,
+  sessionTriggerLabel,
+  buildOwnerSidebarGroups,
+  looksLikeImChannelToken,
+} from '../src/react/lib/session-list/session-identity.js'
 
 describe('proactive employee session grouping', () => {
   it('isProactiveSession detects key prefix and context.source', () => {
@@ -90,6 +96,9 @@ describe('proactive employee session grouping', () => {
 
   it('strips employee title prefix for sidebar rows', () => {
     expect(stripProactiveEmployeeTitlePrefix('智能体员工·运维')).toBe('运维')
+    expect(stripProactiveEmployeeTitlePrefix('AIGC 导演 · 你有啥记忆', ['AIGC 导演'])).toBe(
+      '你有啥记忆',
+    )
     expect(getDisplayLabel('proactive:ops', '智能体员工·运维')).toBe('运维')
   })
 
@@ -147,5 +156,76 @@ describe('proactive employee session grouping', () => {
     const expanded = splitVisibleAndFoldedDutySessions(rows, { expandAll: true })
     expect(expanded.folded).toEqual([])
     expect(expanded.visible).toHaveLength(rows.length)
+  })
+})
+
+describe('session list identity (Owner × Trigger)', () => {
+  it('classifies main / BOT panel / channel / schedule / task / dept / automation', () => {
+    expect(resolveSessionListIdentity('agent:main:new-abcd')).toMatchObject({
+      ownerKey: 'main',
+      ownerKind: 'main',
+      trigger: 'panel',
+    })
+    expect(resolveSessionListIdentity('proactive:aigc:chat:2026-01-01')).toMatchObject({
+      ownerKey: 'aigc',
+      ownerKind: 'agent',
+      trigger: 'panel',
+    })
+    expect(resolveSessionListIdentity('proactive:aigc:chat:feishu:oc_abc')).toMatchObject({
+      trigger: 'channel',
+    })
+    expect(resolveSessionListIdentity('agent:main:feishu:oc_xyz')).toMatchObject({
+      ownerKey: 'main',
+      trigger: 'channel',
+    })
+    expect(resolveSessionListIdentity('proactive:aigc:duty:round-1')).toMatchObject({
+      trigger: 'schedule',
+    })
+    expect(resolveSessionListIdentity('proactive:aigc:task:tid-9')).toMatchObject({
+      trigger: 'task',
+    })
+    expect(resolveSessionListIdentity('automation:task1:sticky')).toMatchObject({
+      ownerKey: 'main',
+      trigger: 'schedule',
+    })
+    expect(resolveSessionListIdentity('dept:marketing:chat')).toMatchObject({
+      ownerKey: 'dept:marketing',
+      ownerKind: 'dept',
+      trigger: 'dept',
+    })
+    expect(
+      resolveSessionListIdentity('proactive:bot:chat:free', { channel: 'feishu' }),
+    ).toMatchObject({ trigger: 'channel' })
+  })
+
+  it('maps trigger chips and IM tokens', () => {
+    expect(sessionTriggerLabel('panel')).toBe('对话')
+    expect(sessionTriggerLabel('channel')).toBe('渠道')
+    expect(sessionTriggerLabel('schedule')).toBe('定时')
+    expect(sessionTriggerLabel('task')).toBe('任务')
+    expect(sessionTriggerLabel('dept')).toBe('部门')
+    expect(looksLikeImChannelToken('feishu')).toBe(true)
+    expect(looksLikeImChannelToken('wecom:acct')).toBe(true)
+    expect(looksLikeImChannelToken('2026-01-01T00-00-00')).toBe(false)
+  })
+
+  it('buildOwnerSidebarGroups orders main, agents, then depts', () => {
+    const groups = buildOwnerSidebarGroups(
+      [
+        { sessionKey: 'proactive:botb:chat:1', updatedAt: 50 },
+        { sessionKey: 'agent:main:new-1', updatedAt: 10 },
+        { sessionKey: 'dept:sales:chat', updatedAt: 99 },
+        { sessionKey: 'proactive:bota:duty:1', updatedAt: 80 },
+      ],
+      {
+        seedOwners: [
+          { ownerKey: 'main', ownerKind: 'main', ownerCode: '', label: '主对话' },
+          { ownerKey: 'bota', ownerKind: 'agent', ownerCode: 'bota', label: 'BOT A' },
+          { ownerKey: 'botb', ownerKind: 'agent', ownerCode: 'botb', label: 'BOT B' },
+        ],
+      },
+    )
+    expect(groups.map((g) => g.ownerKey)).toEqual(['main', 'bota', 'botb', 'dept:sales'])
+    expect(groups[0].label).toBe('主对话')
   })
 })

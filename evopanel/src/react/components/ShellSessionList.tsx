@@ -1284,13 +1284,8 @@ export function ShellSessionList({
       const g = employeeGroups.find((x) => x.agentCode.toLowerCase() === lc)
       return g?.sessions || []
     }
-    // 全部员工：标题前缀员工名，避免多岗会话混在一起分不清
-    return employeeGroups.flatMap((g) =>
-      g.sessions.map((r) => ({
-        ...r,
-        title: `${g.label} · ${String(r.title || '').trim() || '会话'}`,
-      })),
-    )
+    // 全部 BOT：组头已标明 Owner，行上 Trigger 芯片标明来源，标题不再拼员工名
+    return employeeGroups.flatMap((g) => g.sessions)
   }, [isEmployeesTab, employeeGroups, focusedEmployeeCode])
 
   const pinnedRows = useMemo(() => {

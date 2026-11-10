@@ -4165,6 +4165,40 @@ html[data-theme='dark'] .react-chat-history-item.active {
 .react-chat-history-item-text--chat {
   flex-direction: row;
   align-items: center;
+  gap: 6px;
+}
+
+/* Owner 分组下标清触发方式：对话 / 渠道 / 定时 / 任务 / 部门 */
+.react-chat-session-trigger-chip {
+  flex: 0 0 auto;
+  max-width: 3.5em;
+  padding: 0 5px;
+  height: 16px;
+  line-height: 16px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  color: var(--shell-muted, #6b7280);
+  background: color-mix(in srgb, var(--shell-text, #25283a) 8%, transparent);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.react-chat-history-item.active .react-chat-session-trigger-chip {
+  color: var(--shell-text, #25283a);
+  background: color-mix(in srgb, var(--shell-text, #25283a) 12%, transparent);
+}
+
+html[data-theme='dark'] .react-chat-session-trigger-chip {
+  color: color-mix(in srgb, #e5e7eb 72%, transparent);
+  background: color-mix(in srgb, #ffffff 10%, transparent);
+}
+
+html[data-theme='dark'] .react-chat-history-item.active .react-chat-session-trigger-chip {
+  color: #e5e7eb;
+  background: color-mix(in srgb, #ffffff 14%, transparent);
 }
 
 .react-chat-history-item-text--employee {

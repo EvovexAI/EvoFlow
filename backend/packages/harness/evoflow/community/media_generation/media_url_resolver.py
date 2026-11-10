@@ -108,11 +108,36 @@ def _path_match_keys(raw: str, *, outputs_dir: Path | None) -> set[str]:
     return {k for k in keys if k}
 
 
+def _uploads_dir_near_outputs(outputs_dir: Path | None) -> Path | None:
+    """Sibling ``uploads/`` next to ``outputs/`` (thread user-data layout)."""
+    if outputs_dir is None:
+        return None
+    try:
+        sibling = outputs_dir.parent / "uploads"
+        if sibling.is_dir():
+            return sibling.resolve()
+    except OSError:
+        return None
+    return None
+
+
 def resolve_local_media_file(raw: str, *, outputs_dir: Path | None) -> Path | None:
-    """Map a tool argument (local path / outputs/… / @@…@@) to an existing file."""
+    """Map a tool argument (local path / outputs/… / uploads/… / @@…@@) to an existing file."""
     s = _strip_wrappers(raw)
     if not s or is_provider_accessible_url(s):
         return None
+    uploads_dir = _uploads_dir_near_outputs(outputs_dir)
+    # Virtual sandbox path → host uploads/
+    if s.startswith("/mnt/user-data/uploads/") and uploads_dir is not None:
+        rel = s[len("/mnt/user-data/uploads/") :].lstrip("/")
+        if rel:
+            cand = uploads_dir / rel
+            if cand.is_file():
+                return cand.resolve()
+    if s.startswith("uploads/") and uploads_dir is not None:
+        p = uploads_dir / s[len("uploads/") :]
+        if p.is_file():
+            return p.resolve()
     if s.startswith("outputs/") and outputs_dir is not None:
         p = outputs_dir / s[len("outputs/") :]
         if p.is_file():
@@ -121,10 +146,15 @@ def resolve_local_media_file(raw: str, *, outputs_dir: Path | None) -> Path | No
     if p.is_file():
         return p.resolve()
     name = p.name
-    if outputs_dir is not None and name:
-        cand = outputs_dir / name
-        if cand.is_file():
-            return cand.resolve()
+    if name:
+        if outputs_dir is not None:
+            cand = outputs_dir / name
+            if cand.is_file():
+                return cand.resolve()
+        if uploads_dir is not None:
+            cand = uploads_dir / name
+            if cand.is_file():
+                return cand.resolve()
     return None
 
 
@@ -227,7 +257,7 @@ def resolve_media_reference_url(
     if local_file is None:
         raise ValueError(
             f"Media reference must be http(s) URL, data:image/...;base64,..., "
-            f"oss:// / asset://, or a file under outputs/; could not resolve: {s!r}"
+            f"oss:// / asset://, or a file under outputs/ or uploads/; could not resolve: {s!r}"
         )
 
     upload_model = _dashscope_upload_model(purpose=purpose, provider=provider)

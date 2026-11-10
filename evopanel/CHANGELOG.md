@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.17] - 2026-11-10
+
+相对 **1.3.16**：侧栏会话行增加触发方式标签（仍保留任务 / BOT / 部门三栏），标题去掉员工名/渠道长前缀；粘贴图片写入会话 uploads，生图改图可引用本地路径；媒体解析覆盖 uploads。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.17.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **会话触发标签**：侧栏行显示对话 / 渠道 / 定时 / 任务 / 部门，区分消息从哪触发
+
+### Changed
+
+- **侧栏标题**：去掉「员工名 ·」与「飞书 · 谁 · id」类长前缀；三栏结构不变
+- **图片附件落盘**：与文档一样 materialize 到 thread uploads，供媒体工具 Path 引用
+- **上传路径提示**：非虚拟工作区优先展示本机绝对路径
+
+### Fixed
+
+- **媒体 URL 解析**：支持 `uploads/` 与 `/mnt/user-data/uploads/…` 映射到会话 uploads 目录
+
 ## [1.3.16] - 2026-11-10
 
 相对 **1.3.15**：长会话压缩提示、演示工作台运行态可视化、删员工同步停 IM 僵尸连接；MCP 中文名可挂、知识库配额耗尽回落关键词；安装占用清孤儿进程；对话冷加载限流防卡死。
