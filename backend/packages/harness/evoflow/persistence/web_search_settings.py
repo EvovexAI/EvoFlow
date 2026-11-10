@@ -17,6 +17,7 @@ KNOWN_BACKENDS = frozenset(
         "tavily",
         "brave-free",
         "keenable",
+        "specstream",
         "searxng",
         "firecrawl",
         "infoquest",
@@ -34,6 +35,7 @@ RECOMMEND_QUALITY_ORDER: list[str] = [
     "infoquest",
     "firecrawl",
     "keenable",
+    "specstream",
     "ddgs",
 ]
 
@@ -44,6 +46,7 @@ SECRET_FIELDS = frozenset(
         "tavilyApiKey",
         "braveApiKey",
         "keenableApiKey",
+        "specstreamApiKey",
         "firecrawlApiKey",
         "infoquestApiKey",
     }
@@ -64,6 +67,7 @@ DEFAULT_WEB_SEARCH_SETTINGS: dict[str, Any] = {
     "tavilyBaseUrl": "",
     "braveApiKey": "",
     "keenableApiKey": "",
+    "specstreamApiKey": "",
     "firecrawlApiKey": "",
     "firecrawlApiUrl": "",
     "infoquestApiKey": "",
@@ -86,6 +90,7 @@ _ENV_BINDINGS: list[tuple[str, str]] = [
     ("TAVILY_BASE_URL", "tavilyBaseUrl"),
     ("BRAVE_SEARCH_API_KEY", "braveApiKey"),
     ("KEENABLE_API_KEY", "keenableApiKey"),
+    ("SPECSTREAM_API_KEY", "specstreamApiKey"),
     ("FIRECRAWL_API_KEY", "firecrawlApiKey"),
     ("FIRECRAWL_API_URL", "firecrawlApiUrl"),
     ("INFOQUEST_API_KEY", "infoquestApiKey"),
@@ -183,6 +188,16 @@ PROVIDER_UI: list[dict[str, str]] = [
         "docsUrl": "https://keenable.ai/",
         "signupUrl": "https://keenable.ai/",
         "hint": "可选第三方搜索；无需密钥可用公共端点，不参与自动探测默认。可选 KEENABLE_API_KEY 提高额度。",
+    },
+    {
+        "id": "specstream",
+        "label": "SpecStream",
+        "secretField": "specstreamApiKey",
+        "urlField": "",
+        "defaultBaseUrl": "",
+        "docsUrl": "https://specstream.ai/search-api",
+        "signupUrl": "https://specstream.ai/workspace",
+        "hint": "可选第三方搜索，每条结果带来源链接和摘要；需 SPECSTREAM_API_KEY，不参与自动探测默认。",
     },
     {
         "id": "ddgs",

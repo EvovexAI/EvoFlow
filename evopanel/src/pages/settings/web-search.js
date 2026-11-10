@@ -237,6 +237,16 @@ function providerCardsHtml() {
           hint: '可选；不参与自动探测默认',
         },
         {
+          id: 'specstream',
+          label: 'SpecStream',
+          secretField: 'specstreamApiKey',
+          urlField: '',
+          defaultBaseUrl: '',
+          docsUrl: 'https://specstream.ai/search-api',
+          signupUrl: 'https://specstream.ai/workspace',
+          hint: '可选；不参与自动探测默认',
+        },
+        {
           id: 'ddgs',
           label: 'DDGS',
           secretField: '',
@@ -369,6 +379,7 @@ function preferredOptionsHtml() {
     { id: 'firecrawl', label: 'Firecrawl' },
     { id: 'infoquest', label: 'InfoQuest' },
     { id: 'keenable', label: 'Keenable（可选）' },
+    { id: 'specstream', label: 'SpecStream（可选）' },
     { id: 'ddgs', label: 'DDGS（兜底）' },
   ]
   return opts

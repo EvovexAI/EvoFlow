@@ -69,6 +69,7 @@ export const DEFAULT_WEB_SEARCH_SETTINGS = {
   tavilyBaseUrl: '',
   braveApiKey: '',
   keenableApiKey: '',
+  specstreamApiKey: '',
   firecrawlApiKey: '',
   firecrawlApiUrl: '',
   infoquestApiKey: '',
