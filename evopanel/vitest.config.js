@@ -251,6 +251,7 @@ export default defineConfig({
       'tests/proactive-nav-chrome-macos.test.js',
       'tests/proactive-role-card-meta.test.js',
       'tests/mcp-binding-chip.test.js',
+      'tests/mcp-connector-headers.test.js',
       'tests/user-facing-error.test.js',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',

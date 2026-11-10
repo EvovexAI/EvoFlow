@@ -267,6 +267,25 @@
   border-radius: var(--radius-md);
 }
 
+.mcp-header-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mcp-header-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+@media (max-width: 560px) {
+  .mcp-header-row {
+    grid-template-columns: 1fr;
+  }
+}
+
 .mcp-row-toggle {
   flex-shrink: 0;
   position: relative;
