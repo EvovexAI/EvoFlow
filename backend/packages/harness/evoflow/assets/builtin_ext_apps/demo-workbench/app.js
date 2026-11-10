@@ -1,7 +1,7 @@
 /* 演示工作台 — 对接 EvoFlow 网关 API 的单页演示应用。
    数据全部来自本机网关（同源相对路径 /api/...，本机默认零鉴权）：
-   - 员工体系：/api/proactive/roles*、/sessions/*（roster + busy + 工作板 + 会话回放）
-   - 工作流：  /api/apps*（列表 / 运行 / run 详情 2s 轮询拿节点级进度与输出）
+   - 员工体系：/api/proactive/roles*、/sessions/*、/api/agents（头像）
+   - 工作流：  /api/apps*（列表 / 运行 / run 详情 2s 轮询 + soft-creep 进度 + 节点会话实时记录）
    - 总览：    /api/tasks（任务中心最近记录）
    源码在用户数据目录 ui-extensions/demo-workbench/，改完刷新本页即生效。 */
 
@@ -13,16 +13,19 @@
   var state = {
     view: "overview",
     roles: [],
+    agentsByCode: {}, // agent_code → { avatar, has_avatar_file, avatar_rev, agent_name, ... }
     busyMap: {},
     apps: [],
     tasks: [],
     empQuery: "",
     empDetail: null, // { code, role, tab, sessionKey, conversations, messages }
-    runView: null, // { runId, appId, status, progress, steps, lastFetch }
+    runView: null, // { runId, appId, taskId, status, progress, startedAt, steps, liveBySubtask, softStarts }
     runHistory: null, // { appId, items }
   };
 
   var pollers = {};
+  var inflight = {}; // name → AbortController / truthy
+
   function setPoller(name, fn, ms) {
     clearPoller(name);
     pollers[name] = setInterval(fn, ms);
@@ -34,7 +37,7 @@
     }
   }
   function clearViewPollers() {
-    ["overview", "employees", "run", "messages", "detail"].forEach(clearPoller);
+    ["overview", "employees", "run", "soft", "live", "messages", "detail"].forEach(clearPoller);
   }
 
   function apiFetch(method, path, body, timeoutMs) {
@@ -99,15 +102,17 @@
     var d = new Date(iso);
     if (isNaN(d.getTime())) return String(iso);
     var diff = Date.now() - d.getTime();
-    if (diff >= 0 && diff < 60000) return "刚刚";
+    // 用粗粒度桶，避免「刚刚」每秒变字导致整页重绘卡顿
+    if (diff >= 0 && diff < 90000) return "刚刚";
     if (diff >= 0 && diff < 3600000) return Math.floor(diff / 60000) + " 分钟前";
     if (diff >= 0 && diff < 86400000) return Math.floor(diff / 3600000) + " 小时前";
     var pad = function (n) { return (n < 10 ? "0" : "") + n; };
     return pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + pad(d.getHours()) + ":" + pad(d.getMinutes());
   }
   function fmtDuration(a, b) {
-    if (!a || !b) return "";
-    var ms = new Date(b).getTime() - new Date(a).getTime();
+    if (!a) return "";
+    var end = b ? new Date(b).getTime() : Date.now();
+    var ms = end - new Date(a).getTime();
     if (isNaN(ms) || ms < 0) return "";
     if (ms < 60000) return Math.max(1, Math.round(ms / 1000)) + "s";
     return Math.floor(ms / 60000) + "m" + Math.round((ms % 60000) / 1000) + "s";
@@ -115,8 +120,55 @@
   function pct(v) {
     var n = Number(v);
     if (isNaN(n)) n = 0;
-    if (n <= 1 && n > 0 && String(v || "").indexOf(".") >= 0) n = n * 100; // 0.x 形态
+    if (n <= 1 && n > 0 && String(v || "").indexOf(".") >= 0) n = n * 100;
     return Math.max(0, Math.min(100, Math.round(n)));
+  }
+
+  function normStatus(s) {
+    return String(s || "").trim().toLowerCase().replace(/-/g, "_");
+  }
+  function isLiveRunning(status) {
+    var k = normStatus(status);
+    return k === "running" || k === "executing" || k === "in_progress" || k === "active";
+  }
+  function isActiveRun(status) {
+    var k = normStatus(status);
+    return isLiveRunning(k) || k === "planned" || k === "pending";
+  }
+  function isTerminal(status) {
+    return ["completed", "failed", "cancelled", "canceled", "timed_out"].indexOf(normStatus(status)) >= 0;
+  }
+  function stepCssStatus(status) {
+    var k = normStatus(status);
+    if (isLiveRunning(k)) return "running";
+    if (k === "done" || k === "success" || k === "succeeded") return "completed";
+    return k || "pending";
+  }
+
+  /* soft-creep：服务端进度常离散停在 10/55…，前端在运行中向 ~92% 渐近 */
+  var SOFT_CEILING = 92;
+  var SOFT_TAU_MS = 120000;
+  function softDisplayProgress(stored, status, runningForMs) {
+    var st = normStatus(status);
+    var floorRaw = pct(stored);
+    if (st === "completed" || st === "done" || st === "success" || st === "succeeded") return 100;
+    if (["failed", "error", "cancelled", "canceled", "timed_out", "skipped", "blocked"].indexOf(st) >= 0) {
+      return floorRaw || 0;
+    }
+    if (!isLiveRunning(st)) return floorRaw || 0;
+    var floor = floorRaw > 0 ? floorRaw : 8;
+    if (floor >= SOFT_CEILING) return Math.min(99, floor);
+    var elapsed = Math.max(0, Number(runningForMs) || 0);
+    var span = SOFT_CEILING - floor;
+    var crept = floor + span * (1 - Math.exp(-elapsed / SOFT_TAU_MS));
+    return Math.max(floor, Math.min(SOFT_CEILING, Math.round(crept)));
+  }
+  function softStartMs(map, id, startedAt) {
+    if (!map) return Date.now();
+    if (map[id]) return map[id];
+    var t = startedAt ? Date.parse(String(startedAt)) : NaN;
+    map[id] = Number.isFinite(t) ? t : Date.now();
+    return map[id];
   }
 
   var RUN_STATUS = {
@@ -129,12 +181,17 @@
     planned: ["idle", "排队中"],
     pending: ["idle", "待执行"],
     executing: ["run", "执行中"],
+    in_progress: ["run", "执行中"],
+    active: ["run", "运行中"],
     timed_out: ["fail", "超时"],
   };
-  function runChip(status) {
-    var key = String(status || "pending").toLowerCase();
+  function runChip(status, withSpin) {
+    var key = normStatus(status) || "pending";
     var hit = RUN_STATUS[key] || ["idle", key || "未知"];
-    return '<span class="chip ' + hit[0] + '"><span class="chip-dot"></span>' + esc(hit[1]) + "</span>";
+    var spin = withSpin !== false && isLiveRunning(key)
+      ? '<span class="spin-gear" aria-hidden="true"></span>'
+      : '<span class="chip-dot"></span>';
+    return '<span class="chip ' + hit[0] + '">' + spin + esc(hit[1]) + "</span>";
   }
 
   var AVATAR_HUES = [222, 258, 288, 340, 12, 32, 152, 190];
@@ -148,6 +205,60 @@
   function initials(name) {
     var s = String(name || "?").trim();
     return s.slice(0, 1).toUpperCase();
+  }
+
+  function parseAvatarString(avatar) {
+    var raw = String(avatar || "").trim();
+    if (!raw) return null;
+    if (raw === "image") return { type: "image", value: "image" };
+    var idx = raw.indexOf(":");
+    if (idx <= 0) {
+      if (/^https?:\/\//i.test(raw) || raw.charAt(0) === "/") return { type: "url", value: raw };
+      if (/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(raw)) return { type: "emoji", value: raw };
+      return null;
+    }
+    return { type: raw.slice(0, idx), value: raw.slice(idx + 1) };
+  }
+
+  function avatarHtml(code, name, sizeClass, busy) {
+    var agent = state.agentsByCode[String(code || "").toLowerCase()] || {};
+    var parsed = parseAvatarString(agent.avatar);
+    var cls = "avatar" + (sizeClass ? " " + sizeClass : "");
+    var label = esc(initials(name || agent.agent_name || code));
+    var title = esc(name || code || "");
+    var busyDot =
+      busy === undefined
+        ? ""
+        : '<span class="busy-dot' + (busy ? " on" : "") + '"></span>';
+
+    var inner;
+    if (parsed && parsed.type === "emoji" && parsed.value) {
+      inner = '<span class="' + cls + ' avatar-emoji" title="' + title + '">' + esc(parsed.value) + "</span>";
+    } else {
+      var src = "";
+      if (parsed && parsed.type === "preset" && parsed.value) {
+        src = "/api/agents/avatar-presets/" + encodeURIComponent(String(parsed.value).trim().toLowerCase());
+      } else if (parsed && parsed.type === "url") {
+        src = parsed.value;
+      } else if (
+        (parsed && parsed.type === "image") ||
+        agent.has_avatar_file === true ||
+        (!parsed && code)
+      ) {
+        var rev = agent.avatar_rev || agent.avatar || "";
+        src = "/api/agents/" + encodeURIComponent(code) + "/avatar" + (rev ? "?v=" + encodeURIComponent(String(rev)) : "");
+      }
+      if (!src) {
+        inner = '<span class="' + cls + '" style="' + avatarStyle(code) + '" title="' + title + '">' + label + "</span>";
+      } else {
+        inner =
+          '<span class="' + cls + ' avatar-img-wrap" style="' + avatarStyle(code) + '" title="' + title + '" data-fallback="' + label + '">' +
+          '<img class="avatar-img" src="' + esc(src) + '" alt="" loading="lazy" decoding="async" ' +
+          'onerror="var p=this.parentNode;if(p){this.remove();p.textContent=p.getAttribute(\'data-fallback\')||\'?\';}" />' +
+          "</span>";
+      }
+    }
+    return '<span class="avatar-slot">' + inner + busyDot + "</span>";
   }
 
   var ICON = {
@@ -175,6 +286,7 @@
     var port = document.getElementById("gw-port");
     var chip = document.getElementById("live-chip");
     var text = document.getElementById("live-text");
+    if (!dot || !label || !port || !chip || !text) return;
     dot.className = "sys-dot " + (ok ? "ok" : "down");
     label.textContent = ok ? "网关已连接" : "网关不可达";
     port.hidden = !window.location.port;
@@ -193,7 +305,7 @@
     });
     document.getElementById("crumb-view").textContent =
       view === "overview" ? "总览" : view === "employees" ? "员工体系" : "工作流";
-    if (view === "overview") { renderOverviewSkeleton(); refreshOverview(); setPoller("overview", refreshOverview, 6000); }
+    if (view === "overview") { renderOverviewSkeleton(); refreshOverview(); setPoller("overview", refreshOverview, 8000); }
     if (view === "employees") { renderEmployeesSkeleton(); refreshEmployees(); setPoller("employees", refreshEmployeesLight, 5000); }
     if (view === "workflows") { state.runView = null; renderWorkflowsSkeleton(); refreshWorkflows(); }
   }
@@ -205,8 +317,54 @@
   document.getElementById("btn-refresh").addEventListener("click", function () {
     if (state.view === "overview") refreshOverview();
     else if (state.view === "employees") refreshEmployees();
-    else if (state.view === "workflows" && state.runView) pollRun(true);
+    else if (state.view === "workflows" && state.runView) { pollRun(true); pollLiveRecords(); }
     else if (state.view === "workflows") refreshWorkflows();
+  });
+
+  /* 页面级事件委托：避免每次轮询重绘后重复绑监听器 */
+  document.getElementById("page").addEventListener("click", function (e) {
+    var t = e.target.closest("[data-goto],[data-run],[data-history],[data-code],#btn-back,#btn-cancel,#btn-sample,.history-row[data-rid]");
+    if (!t) return;
+    if (t.id === "btn-back") {
+      state.runView = null;
+      clearViewPollers();
+      setView("workflows");
+      return;
+    }
+    if (t.id === "btn-cancel") {
+      var rv = state.runView;
+      if (!rv || t.disabled) return;
+      t.disabled = true;
+      apiPost("/api/apps/runs/" + encodeURIComponent(rv.runId) + "/cancel")
+        .then(function () { toast("已请求取消"); pollRun(true); })
+        .catch(function (err) { toast("取消失败：" + err.message, true); t.disabled = false; });
+      return;
+    }
+    if (t.id === "btn-sample") {
+      t.disabled = true;
+      t.textContent = "创建中…";
+      createSampleWorkflow().then(function (app) {
+        toast("示例工作流已创建：正在自动运行");
+        return runApp(app.id);
+      }).catch(function (err) {
+        toast("创建失败：" + err.message, true);
+        t.disabled = false;
+      });
+      return;
+    }
+    var goto = t.getAttribute("data-goto");
+    if (goto) { setView(goto); return; }
+    var runIdAttr = t.getAttribute("data-run");
+    if (runIdAttr) { runApp(runIdAttr); return; }
+    var hist = t.getAttribute("data-history");
+    if (hist) { showRunHistory(hist); return; }
+    var code = t.getAttribute("data-code");
+    if (code && t.classList.contains("emp-card")) { openEmployeeDrawer(code); return; }
+    var rid = t.getAttribute("data-rid");
+    if (rid) {
+      var appId = (state.runView && state.runView.appId) || (state.runHistory && state.runHistory.appId);
+      if (appId) openRunView(appId, rid);
+    }
   });
 
   /* ────────────────────────── 总览 ────────────────────────── */
@@ -219,10 +377,7 @@
       '<button class="hero-btn" data-goto="workflows">运行演示工作流</button></div></div>' +
       '<div class="metrics-grid">' + Array(4).join('<div class="metric-card"><div class="metric-icon">' + ICON.people + '</div><div class="metric-body"><div class="metric-value">—</div><div class="metric-label">加载中…</div></div></div>') + "</div>" +
       '<div class="skeleton" style="height:180px"></div>';
-    if (!paintIfChanged(page(), "sk-overview", html)) return;
-    page().querySelectorAll("[data-goto]").forEach(function (b) {
-      b.addEventListener("click", function () { setView(b.getAttribute("data-goto")); });
-    });
+    paintIfChanged(page(), "sk-overview", html);
   }
 
   function busyCodesParam() {
@@ -233,7 +388,6 @@
       .join(",");
   }
 
-  /* 部分端点（如 /api/tasks 带 page 参数时）返回 {success, data:{...}} 包裹形态。 */
   function unwrapData(payload, key) {
     if (!payload) return undefined;
     if (payload[key] !== undefined) return payload[key];
@@ -241,11 +395,33 @@
     return undefined;
   }
 
+  function ingestAgents(list) {
+    var map = {};
+    (list || []).forEach(function (a) {
+      var code = String((a && (a.agent_code || a.name)) || "").trim().toLowerCase();
+      if (!code) return;
+      map[code] = a;
+    });
+    state.agentsByCode = map;
+  }
+
+  function loadAgentsIndex() {
+    return apiGet("/api/agents", 8000)
+      .then(function (r) {
+        ingestAgents((r && r.agents) || (Array.isArray(r) ? r : []));
+      })
+      .catch(function () { /* 头像回退首字 */ });
+  }
+
   function refreshOverview() {
-    apiGet("/api/proactive/roles")
-      .then(function (r) { state.roles = (r && r.roles) || []; })
-      .catch(function () { state.roles = []; })
-      .then(function () {
+    if (inflight.overview) return;
+    inflight.overview = true;
+    Promise.all([
+      apiGet("/api/proactive/roles").catch(function () { return { roles: [] }; }),
+      loadAgentsIndex(),
+    ])
+      .then(function (pair) {
+        state.roles = (pair[0] && pair[0].roles) || [];
         return Promise.all([
           apiGet("/api/proactive/roles-busy?codes=" + busyCodesParam()).catch(function () { return { busy: {} }; }),
           apiGet("/api/apps").catch(function () { return []; }),
@@ -258,7 +434,8 @@
         state.tasks = unwrapData(r[2], "tasks") || [];
         paintOverview();
       })
-      .catch(function () { /* 各自已兜底 */ });
+      .catch(function () { /* 各自已兜底 */ })
+      .finally(function () { inflight.overview = false; });
   }
 
   function busyCount() {
@@ -274,8 +451,7 @@
     var apps = state.apps;
     var totalRuns = apps.reduce(function (s, a) { return s + (Number(a.total_runs) || 0); }, 0);
     var running = state.tasks.filter(function (t) {
-      var s = String(t.status || "").toLowerCase();
-      return s === "running" || s === "executing" || s === "planned";
+      return isActiveRun(t.status);
     }).length;
 
     var busyChips = roles
@@ -283,7 +459,7 @@
       .map(function (r) {
         var b = state.busyMap[r.agent_code] || {};
         var label = empName(r) + " · " + (b.current_session_key ? String(b.current_session_key).split(":").slice(-1)[0] : "任务中");
-        return '<span class="chip run" title="' + esc(b.current_session_key || "") + '"><span class="chip-dot"></span>' + esc(label) + "</span>";
+        return '<span class="chip run"><span class="spin-gear" aria-hidden="true"></span>' + esc(label) + "</span>";
       }).join(" ");
 
     var taskRows = state.tasks
@@ -309,7 +485,7 @@
       metricCard(ICON.layers, "violet", String(running), "进行中任务", "来自任务中心") +
       "</div>" +
 
-      '<div class="section-head"><h2>正在工作的员工</h2><span class="head-hint">每 6 秒自动刷新</span></div>' +
+      '<div class="section-head"><h2>正在工作的员工</h2><span class="head-hint">每 8 秒自动刷新</span></div>' +
       '<div class="card card-pad" style="margin-bottom:22px">' +
       (busyChips || '<span class="head-hint">当前没有忙碌的员工 —— 去「员工体系」给演示员工安排点活，或运行一个工作流。</span>') +
       "</div>" +
@@ -319,10 +495,7 @@
         ? taskRows
         : '<div class="card"><div class="empty-state"><div class="empty-icon">' + ICON.inbox + "</div><h3>还没有任务记录</h3><p>运行一个演示工作流后，这里会出现任务中心的实时记录。</p></div></div>");
 
-    if (!paintIfChanged(page(), "overview", html)) return;
-    page().querySelectorAll("[data-goto]").forEach(function (b) {
-      b.addEventListener("click", function () { setView(b.getAttribute("data-goto")); });
-    });
+    paintIfChanged(page(), "overview", html);
   }
 
   function metricCard(icon, tone, value, label, sub) {
@@ -349,10 +522,14 @@
   }
 
   function refreshEmployees() {
-    apiGet("/api/proactive/roles")
-      .then(function (r) { state.roles = (r && r.roles) || []; })
-      .catch(function () { state.roles = []; })
-      .then(function () {
+    if (inflight.employees) return;
+    inflight.employees = true;
+    Promise.all([
+      apiGet("/api/proactive/roles").catch(function () { return { roles: [] }; }),
+      loadAgentsIndex(),
+    ])
+      .then(function (pair) {
+        state.roles = (pair[0] && pair[0].roles) || [];
         return apiGet("/api/proactive/roles-busy?codes=" + busyCodesParam()).catch(function () { return { busy: {} }; });
       })
       .then(function (r) {
@@ -360,15 +537,19 @@
         paintEmployees();
         if (state.empDetail) refreshEmployeeDetail(false);
       })
-      .catch(function () { /* 已兜底 */ });
+      .catch(function () { /* 已兜底 */ })
+      .finally(function () { inflight.employees = false; });
   }
   function refreshEmployeesLight() {
+    if (inflight.employeesLight) return;
+    inflight.employeesLight = true;
     apiGet("/api/proactive/roles-busy?codes=" + busyCodesParam())
       .then(function (r) {
         state.busyMap = (r && r.busy) || {};
         paintEmployees();
       })
-      .catch(function () { /* 忽略瞬时失败 */ });
+      .catch(function () { /* 忽略瞬时失败 */ })
+      .finally(function () { inflight.employeesLight = false; });
   }
 
   function paintEmployees() {
@@ -379,7 +560,6 @@
       '<div id="emp-grid-wrap"></div>';
     var firstPaint = paintIfChanged(page(), "employees", html);
 
-    // 搜索框只渲染一次；输入时只重绘卡片网格，保住焦点与光标。
     var input = document.getElementById("emp-search");
     if (firstPaint && input) {
       input.addEventListener("input", function () {
@@ -402,12 +582,7 @@
         "</div><h3>" + (q ? "没有匹配的员工" : "还没有员工") + "</h3><p>" +
         (q ? "换个关键词试试。" : "在主面板「员工」页创建演示员工后，这里会实时显示他们的状态。") + "</p></div></div>";
     var wrap = document.getElementById("emp-grid-wrap");
-    if (!paintIfChanged(wrap, "employees-grid", html)) return;
-    wrap.querySelectorAll(".emp-card").forEach(function (card) {
-      card.addEventListener("click", function () {
-        openEmployeeDrawer(card.getAttribute("data-code"));
-      });
-    });
+    paintIfChanged(wrap, "employees-grid", html);
   }
 
   function empCardHtml(r) {
@@ -425,12 +600,11 @@
       : "空闲中";
     return (
       '<div class="emp-card' + (state.empDetail && state.empDetail.code === code ? " selected" : "") + '" data-code="' + esc(code) + '">' +
-      '<div class="emp-top"><div class="avatar" style="' + avatarStyle(code) + '">' + esc(initials(empName(r))) +
-      '<span class="busy-dot' + (busy ? " on" : "") + '"></span></div>' +
+      '<div class="emp-top">' + avatarHtml(code, empName(r), "", !!busy) +
       '<div class="emp-meta"><div class="emp-name">' + esc(empName(r)) + "</div>" +
       '<div class="emp-sub">' + esc(r.department || "未分配部门") + " · " + esc(code) + "</div></div></div>" +
       '<div class="emp-chips">' + statusChip +
-      (busy ? '<span class="chip run"><span class="chip-dot"></span>忙碌</span>' : '<span class="chip idle"><span class="chip-dot"></span>空闲</span>') +
+      (busy ? '<span class="chip run"><span class="spin-gear" aria-hidden="true"></span>忙碌</span>' : '<span class="chip idle"><span class="chip-dot"></span>空闲</span>') +
       "</div>" +
       '<div class="emp-current">' + currentLine + "</div></div>"
     );
@@ -460,6 +634,12 @@
   }
 
   function renderDrawerShell() {
+    // 防止重复打开叠多层遮罩导致点击变钝
+    var oldMask = document.getElementById("drawer-mask");
+    var oldDr = document.getElementById("emp-drawer");
+    if (oldMask) oldMask.remove();
+    if (oldDr) oldDr.remove();
+
     var d = state.empDetail;
     var r = d.role;
     var mask = document.createElement("div");
@@ -471,7 +651,7 @@
     dr.id = "emp-drawer";
     dr.className = "drawer";
     dr.innerHTML =
-      '<div class="drawer-head"><div class="avatar" style="' + avatarStyle(d.code) + '">' + esc(initials(empName(r))) + "</div>" +
+      '<div class="drawer-head">' + avatarHtml(d.code, empName(r), "avatar-lg") +
       '<div class="drawer-title"><b>' + esc(empName(r)) + "</b><span>" + esc(r.department || "未分配部门") + " · " + esc(d.code) +
       ' <span id="drawer-busy"></span></span></div>' +
       '<button class="drawer-close" title="关闭">' + ICON.x + "</button></div>" +
@@ -514,7 +694,6 @@
         .catch(function (e) { body.innerHTML = '<div class="empty-state"><p>' + esc(e.message) + "</p></div>"; });
       return;
     }
-    // sessions tab
     if (!d.conversations || force) {
       apiGet("/api/proactive/sessions/" + encodeURIComponent(d.code) + "/conversations?limit=50")
         .then(function (r) {
@@ -544,7 +723,6 @@
     var approvals = (r && r.pending_approvals) || [];
     var counts = (r && r.counts) || {};
     var taskRows = tasks.map(function (t) {
-      var id = t.task_id || t.id || "";
       return (
         '<div class="task-row"><div class="task-main"><div class="task-name">' + esc(t.name || t.id || "未命名工作项") + "</div>" +
         '<div class="task-desc">' + esc(fmtTime(t.updated_at || t.created_at)) + (t.round_id ? " · 轮次 " + esc(t.round_id) : "") + "</div></div>" +
@@ -688,28 +866,7 @@
         : '<div class="card"><div class="empty-state"><div class="empty-icon">' + ICON.flow +
           "</div><h3>还没有保存的工作流</h3><p>一键创建一个内置的演示工作流（3 个真实节点，由员工智能体执行）。</p>" +
           '<button class="primary-btn" id="btn-sample">' + ICON.plus + "创建示例工作流</button></div></div>");
-    if (!paintIfChanged(page(), "workflows", html)) return;
-
-    page().querySelectorAll("[data-run]").forEach(function (b) {
-      b.addEventListener("click", function () { runApp(b.getAttribute("data-run")); });
-    });
-    page().querySelectorAll("[data-history]").forEach(function (b) {
-      b.addEventListener("click", function () { showRunHistory(b.getAttribute("data-history")); });
-    });
-    var sample = document.getElementById("btn-sample");
-    if (sample) {
-      sample.addEventListener("click", function () {
-        sample.disabled = true;
-        sample.textContent = "创建中…";
-        createSampleWorkflow().then(function (app) {
-          toast("示例工作流已创建：正在自动运行");
-          return runApp(app.id);
-        }).catch(function (e) {
-          toast("创建失败：" + e.message, true);
-          sample.disabled = false;
-        });
-      });
-    }
+    paintIfChanged(page(), "workflows", html);
   }
 
   function appCardHtml(a) {
@@ -763,7 +920,17 @@
   }
 
   function openRunView(appId, runId) {
-    state.runView = { appId: appId, runId: runId, status: "pending", progress: 0, steps: [] };
+    state.runView = {
+      appId: appId,
+      runId: runId,
+      taskId: null,
+      status: "pending",
+      progress: 0,
+      startedAt: null,
+      steps: [],
+      liveBySubtask: {},
+      softStarts: {},
+    };
     state.view = "workflows";
     document.querySelectorAll("#primary-nav .nav-item").forEach(function (b) {
       b.classList.toggle("active", b.getAttribute("data-view") === "workflows");
@@ -773,6 +940,8 @@
     paintRunShell();
     pollRun(true);
     setPoller("run", function () { pollRun(false); }, 2000);
+    setPoller("soft", tickSoftProgress, 1000);
+    setPoller("live", pollLiveRecords, 2500);
     if (!state.runHistory || state.runHistory.appId !== appId) {
       state.runHistory = { appId: appId, items: [] };
       loadRunHistory(appId);
@@ -788,14 +957,9 @@
       '<div class="two-col"><div><div class="section-head"><h2 style="font-size:14px">运行历史</h2></div>' +
       '<div class="card" id="run-history"><div class="card-pad head-hint">加载中…</div></div></div>' +
       '<div><div class="card run-banner" id="run-banner"></div>' +
-      '<div class="section-head"><h2 style="font-size:14px">节点进度</h2><span class="head-hint" id="run-poll-hint">每 2 秒轮询</span></div>' +
+      '<div class="section-head"><h2 style="font-size:14px">节点进度</h2><span class="head-hint" id="run-poll-hint">每 2 秒轮询 · soft-creep 1s</span></div>' +
       '<div id="run-steps"></div></div></div>';
     if (!paintIfChanged(page(), "run-shell:" + rv.runId, html)) return;
-    document.getElementById("btn-back").addEventListener("click", function () {
-      state.runView = null;
-      clearViewPollers();
-      setView("workflows");
-    });
     paintRunBanner();
     paintRunSteps();
   }
@@ -804,54 +968,138 @@
     var rv = state.runView;
     if (!rv) return;
     if (!force && isTerminal(rv.status)) return;
+    if (inflight.run && !force) return;
+    inflight.run = true;
     apiGet("/api/apps/runs/" + encodeURIComponent(rv.runId))
       .then(function (r) {
         rv.status = String((r && r.status) || "pending").toLowerCase();
         rv.progress = r ? r.progress : 0;
         rv.steps = (r && r.steps) || [];
         rv.resultSummary = (r && r.result_summary) || "";
+        rv.taskId = (r && r.task_id) || rv.taskId || null;
+        rv.startedAt = (r && (r.started_at || r.created_at)) || rv.startedAt;
+        if (isLiveRunning(rv.status)) softStartMs(rv.softStarts, "run:" + rv.runId, rv.startedAt);
         paintRunBanner();
         paintRunSteps();
         if (isTerminal(rv.status)) {
           clearPoller("run");
+          clearPoller("soft");
+          clearPoller("live");
           var hint = document.getElementById("run-poll-hint");
           if (hint) hint.textContent = "运行已结束";
           toast("运行" + (RUN_STATUS[rv.status] ? RUN_STATUS[rv.status][1] : rv.status));
-          loadRunHistory(rv.appId); // 历史行状态同步到终态
+          loadRunHistory(rv.appId);
+        } else {
+          pollLiveRecords();
         }
       })
-      .catch(function () { /* 下个 tick 再试 */ });
+      .catch(function () { /* 下个 tick 再试 */ })
+      .finally(function () { inflight.run = false; });
   }
 
-  function isTerminal(status) {
-    return ["completed", "failed", "cancelled", "canceled"].indexOf(String(status).toLowerCase()) >= 0;
+  function runDisplayPct(rv) {
+    if (!rv) return 0;
+    var start = softStartMs(rv.softStarts, "run:" + rv.runId, rv.startedAt);
+    return softDisplayProgress(rv.progress, rv.status, Date.now() - start);
+  }
+
+  function stepDisplayPct(rv, s) {
+    var st = normStatus(s.status);
+    var id = String(s.subtask_id || s.ref || s.name || "");
+    if (isLiveRunning(st)) {
+      var start = softStartMs(rv.softStarts, "step:" + id, s.started_at);
+      return softDisplayProgress(s.progress, st, Date.now() - start);
+    }
+    return pct(s.progress);
+  }
+
+  function cssAttrEscape(v) {
+    if (window.CSS && typeof CSS.escape === "function") return CSS.escape(v);
+    return String(v).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  }
+
+  function tickSoftProgress() {
+    var rv = state.runView;
+    if (!rv || isTerminal(rv.status)) return;
+    // 优先原地改进度条，避免整卡 HTML 重建
+    var bannerPct = document.querySelector("#run-banner .pct");
+    var bannerFill = document.querySelector("#run-banner .progress-fill");
+    var p = runDisplayPct(rv);
+    if (bannerPct) bannerPct.textContent = p + "%";
+    if (bannerFill) {
+      bannerFill.style.width = (p || 4) + "%";
+      bannerFill.classList.toggle("indeterminate", isLiveRunning(rv.status) && !pct(rv.progress));
+      bannerFill.classList.toggle("is-running", isLiveRunning(rv.status));
+    }
+    var spin = document.querySelector("#run-banner .run-spin");
+    if (spin) spin.hidden = !isLiveRunning(rv.status) && !isActiveRun(rv.status);
+
+    (rv.steps || []).forEach(function (s) {
+      if (s.is_rollup_step) return;
+      var id = String(s.subtask_id || s.ref || "");
+      if (!id || !isLiveRunning(s.status)) return;
+      var card = document.querySelector('.step-card[data-sid="' + cssAttrEscape(id) + '"]');
+      if (!card) return;
+      var sp = stepDisplayPct(rv, s);
+      var fill = card.querySelector(".progress-fill");
+      var label = card.querySelector(".pct");
+      if (fill) fill.style.width = sp + "%";
+      if (label) label.textContent = sp + "%";
+    });
   }
 
   function paintRunBanner() {
     var el = document.getElementById("run-banner");
     var rv = state.runView;
     if (!el || !rv) return;
-    var p = pct(rv.progress);
-    var statusLabel = (RUN_STATUS[rv.status] || [0, rv.status])[1];
+    var p = runDisplayPct(rv);
+    var statusLabel = (RUN_STATUS[normStatus(rv.status)] || [0, rv.status])[1];
+    var live = isLiveRunning(rv.status) || isActiveRun(rv.status);
     var html =
       '<div class="run-progress"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:6px">' +
-      '<span><b style="font-size:15px">' + esc(statusLabel) + "</b> " +
+      '<span class="run-status-line">' +
+      (live ? '<span class="run-spin" title="运行中" aria-label="运行中"></span>' : "") +
+      '<b style="font-size:15px">' + esc(statusLabel) + "</b> " +
       '<span class="run-id">' + esc(rv.runId) + "</span></span>" +
       '<span class="pct">' + p + "%</span></div>" +
-      '<div class="progress-track"><div class="progress-fill' + (rv.status === "running" && !p ? " indeterminate" : "") + '" style="width:' + (p || 4) + '%"></div></div></div>' +
-      (rv.status === "running" || rv.status === "executing" || rv.status === "planned"
+      '<div class="progress-track"><div class="progress-fill' +
+      (isLiveRunning(rv.status) ? " is-running" : "") +
+      (isLiveRunning(rv.status) && !pct(rv.progress) ? " indeterminate" : "") +
+      '" style="width:' + (p || 4) + '%"></div></div></div>' +
+      (isActiveRun(rv.status)
         ? '<button class="small-btn danger" id="btn-cancel">取消运行</button>'
         : "");
-    if (!paintIfChanged(el, "banner", html)) return;
-    var cancel = document.getElementById("btn-cancel");
-    if (cancel) {
-      cancel.addEventListener("click", function () {
-        cancel.disabled = true;
-        apiPost("/api/apps/runs/" + encodeURIComponent(rv.runId) + "/cancel")
-          .then(function () { toast("已请求取消"); pollRun(true); })
-          .catch(function (e) { toast("取消失败：" + e.message, true); cancel.disabled = false; });
-      });
+    paintIfChanged(el, "banner", html);
+  }
+
+  function liveTrailHtml(subtaskId) {
+    var rv = state.runView;
+    if (!rv || !subtaskId) return "";
+    var rows = (rv.liveBySubtask && rv.liveBySubtask[subtaskId]) || [];
+    if (!rows.length) {
+      return '<div class="live-trail empty"><span class="spin-gear" aria-hidden="true"></span>等待实时调用记录…</div>';
     }
+    var items = rows.slice(-12).map(function (m) {
+      var role = String(m.role || "").toLowerCase();
+      var toolName = m.tool_name || m.name || "";
+      var calls = m.tool_calls;
+      if (!toolName && Array.isArray(calls) && calls.length) {
+        toolName = (calls[0] && (calls[0].name || (calls[0].function && calls[0].function.name))) || "";
+      }
+      var content = m.content;
+      if (typeof content !== "string") {
+        try { content = JSON.stringify(content); } catch (e) { content = String(content || ""); }
+      }
+      content = String(content || "").replace(/\s+/g, " ").trim();
+      if (content.length > 160) content = content.slice(0, 160) + "…";
+      var kind = role === "tool" || toolName ? "tool" : role === "user" || role === "human" ? "user" : "ai";
+      var title = toolName ? "调用 " + toolName : (kind === "user" ? "用户" : "助手");
+      return (
+        '<div class="live-row ' + kind + '"><span class="live-kind">' + esc(title) + "</span>" +
+        (content ? '<span class="live-body">' + esc(content) + "</span>" : "") + "</div>"
+      );
+    }).join("");
+    return '<div class="live-trail"><div class="live-trail-head"><span class="spin-gear" aria-hidden="true"></span>实时调用 · ' + rows.length + " 条</div>" + items + "</div>";
   }
 
   function paintRunSteps() {
@@ -867,10 +1115,12 @@
       '<div class="step-list">' +
       steps
         .map(function (s) {
-          var status = String(s.status || "pending").toLowerCase();
-          var p = pct(s.progress);
+          var status = normStatus(s.status);
+          var css = stepCssStatus(status);
+          var p = stepDisplayPct(rv, s);
           var name = s.display_name || s.name || "节点 " + (s.ref || "");
           var out = String(s.result_summary || "").trim();
+          var sid = String(s.subtask_id || s.ref || "");
           var evi = (s.evidence_paths || []).map(function (p2) {
             return '<span class="evidence-chip" title="' + esc(p2) + '">' + esc(String(p2).split(/[\\/]/).pop()) + "</span>";
           }).join("");
@@ -879,14 +1129,20 @@
             if (!label) return "";
             return '<span class="evidence-chip" title="' + esc(label) + '">' + esc(String(label).split(/[\\/]/).pop()) + "</span>";
           }).join("");
+          var dur = isLiveRunning(status)
+            ? fmtDuration(s.started_at, null)
+            : fmtDuration(s.started_at, s.completed_at);
           return (
-            '<div class="step-card ' + esc(status) + '">' +
+            '<div class="step-card ' + esc(css) + '" data-sid="' + esc(sid) + '">' +
             '<div class="step-head">' + runChip(s.status) +
             '<span class="step-name">' + esc(name) + "</span>" +
             (s.assigned_agent ? '<span class="step-agent">' + esc(s.assigned_agent) + "</span>" : "") +
-            '<span class="step-agent">' + esc(fmtDuration(s.started_at, s.completed_at)) + "</span></div>" +
-            '<div class="step-progress"><div class="progress-track"><div class="progress-fill" style="width:' + p + '%"></div></div>' +
+            '<span class="step-agent">' + esc(dur) + "</span></div>" +
+            '<div class="step-progress"><div class="progress-track"><div class="progress-fill' +
+            (isLiveRunning(status) ? " is-running" : "") +
+            '" style="width:' + p + '%"></div></div>' +
             '<span class="pct">' + p + "%</span></div>" +
+            (isLiveRunning(status) ? liveTrailHtml(sid) : "") +
             (out ? '<div class="step-output">' + esc(out) + "</div>" : "") +
             (s.error_text ? '<div class="step-error">' + esc(s.error_text) + "</div>" : "") +
             (evi || outputs ? '<div class="step-evidence">' + evi + outputs + "</div>" : "") +
@@ -897,6 +1153,52 @@
       "</div>";
     }
     paintIfChanged(el, "run-steps", html);
+  }
+
+  function pollLiveRecords() {
+    var rv = state.runView;
+    if (!rv || !rv.taskId || isTerminal(rv.status)) return;
+    if (inflight.live) return;
+    var runningSteps = (rv.steps || []).filter(function (s) {
+      return !s.is_rollup_step && isLiveRunning(s.status) && s.subtask_id;
+    });
+    if (!runningSteps.length) return;
+    inflight.live = true;
+    Promise.all(
+      runningSteps.map(function (s) {
+        var sid = String(s.subtask_id);
+        return apiGet(
+          "/api/tasks/" + encodeURIComponent(rv.taskId) +
+          "/subtasks/" + encodeURIComponent(sid) +
+          "/conversation-history?limit=40",
+          8000
+        )
+          .then(function (r) {
+            rv.liveBySubtask[sid] = (r && r.messages) || [];
+          })
+          .catch(function () { /* 保持上次 */ });
+      })
+    )
+      .then(function () {
+        // 只刷新进行中节点的实时区，尽量少动 DOM
+        runningSteps.forEach(function (s) {
+          var sid = String(s.subtask_id);
+          var card = document.querySelector('.step-card[data-sid="' + cssAttrEscape(sid) + '"]');
+          if (!card) return;
+          var trail = card.querySelector(".live-trail");
+          var next = liveTrailHtml(sid);
+          if (!trail) {
+            var progress = card.querySelector(".step-progress");
+            if (progress) progress.insertAdjacentHTML("afterend", next);
+          } else {
+            var tmp = document.createElement("div");
+            tmp.innerHTML = next;
+            var fresh = tmp.firstChild;
+            if (fresh && trail.outerHTML !== fresh.outerHTML) trail.replaceWith(fresh);
+          }
+        });
+      })
+      .finally(function () { inflight.live = false; });
   }
 
   function loadRunHistory(appId) {
@@ -923,26 +1225,23 @@
             var id = r.run_id || r.id || "";
             var selected = id === rv.runId ? " selected" : "";
             return (
-              '<div class="history-row' + selected + '" data-rid="' + esc(id) + '">' + runChip(r.status) +
+              '<div class="history-row' + selected + '" data-rid="' + esc(id) + '">' + runChip(r.status, false) +
               '<span class="h-main">' + esc(r.result_summary || "") + "</span>" +
               '<span class="h-time">' + esc(fmtTime(r.started_at || r.created_at)) + "</span></div>"
             );
           })
           .join("")
       : '<div class="card-pad head-hint">这个工作流还没有历史运行。</div>';
-    if (!paintIfChanged(el, "run-history", html)) return;
-    el.querySelectorAll(".history-row").forEach(function (row) {
-      row.addEventListener("click", function () {
-        openRunView(rv.appId, row.getAttribute("data-rid"));
-      });
-    });
+    paintIfChanged(el, "run-history", html);
   }
 
   function showRunHistory(appId) {
     var app = state.apps.filter(function (a) { return a.id === appId; })[0];
+    state.runHistory = { appId: appId, items: state.runHistory && state.runHistory.appId === appId ? state.runHistory.items : [] };
     apiGet("/api/apps/" + encodeURIComponent(appId) + "/runs?limit=20")
       .then(function (r) {
         var items = (r && (r.items || r.runs)) || [];
+        state.runHistory = { appId: appId, items: items };
         var html =
           '<div class="section-head"><h2>' + esc((app && app.name) || appId) + " · 运行历史</h2>" +
           '<button class="ghost-btn" id="btn-back">' + ICON.back + " 返回</button></div>" +
@@ -952,7 +1251,7 @@
                 .map(function (run) {
                   var id = run.run_id || run.id || "";
                   return (
-                    '<div class="history-row" data-rid="' + esc(id) + '">' + runChip(run.status) +
+                    '<div class="history-row" data-rid="' + esc(id) + '">' + runChip(run.status, false) +
                     '<span class="h-main">' + esc(run.result_summary || id) + "</span>" +
                     '<span class="h-time">' + esc(fmtTime(run.started_at || run.created_at)) + "</span></div>"
                   );
@@ -960,11 +1259,7 @@
                 .join("")
             : '<div class="empty-state" style="padding:24px"><p>还没有运行记录，去列表点「运行」。</p></div>') +
           "</div>";
-        if (!paintIfChanged(page(), "history-page:" + appId, html)) return;
-        document.getElementById("btn-back").addEventListener("click", function () { setView("workflows"); });
-        page().querySelectorAll(".history-row[data-rid]").forEach(function (row) {
-          row.addEventListener("click", function () { openRunView(appId, row.getAttribute("data-rid")); });
-        });
+        paintIfChanged(page(), "history-page:" + appId, html);
       })
       .catch(function (e) { toast("历史加载失败：" + e.message, true); });
   }
@@ -973,5 +1268,5 @@
 
   checkHealth();
   setPoller("health", checkHealth, 10000);
-  setView("overview");
+  loadAgentsIndex().finally(function () { setView("overview"); });
 })();

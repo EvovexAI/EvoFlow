@@ -2,7 +2,7 @@
   "schema": 1,
   "id": "demo-workbench",
   "name": "演示工作台",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "系统内置演示应用：对接演示员工体系与演示工作流，实时查看员工状态/工作板、工作流节点进度与输出。源码安装在用户数据目录 ui-extensions/demo-workbench/，可直接打开修改。",
   "icon": "./icon.svg",
   "nav": {
