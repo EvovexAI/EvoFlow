@@ -562,15 +562,20 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
 
     let proxied
     try {
+      const proxyRequest = {
+        method: String(method || 'GET').toUpperCase(),
+        path: apiPath,
+        body: body == null ? null : body,
+        query: queryMap,
+        // 必须是 map：Rust `headers: BTreeMap` 不接受 JSON null（任务中心等无 token 时会炸）
+        headers,
+      }
+      // 传给 Rust gateway_proxy：缩短 V4 subscribe 等关键路径的 90s 默认占槽。
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        proxyRequest.timeoutMs = Math.round(timeoutMs)
+      }
       proxied = await invoke('gateway_proxy', {
-        request: {
-          method: String(method || 'GET').toUpperCase(),
-          path: apiPath,
-          body: body == null ? null : body,
-          query: queryMap,
-          // 必须是 map：Rust `headers: BTreeMap` 不接受 JSON null（任务中心等无 token 时会炸）
-          headers,
-        },
+        request: proxyRequest,
       })
       if (preferGatewayHttp && !silent) {
         transportLog(

@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.19] - 2026-11-11
+
+相对 **1.3.18**：多会话切换 / 忙闲齿轮收口；排队续发不再误标用户停止；知识库向量硬失败仍可关键词搜；覆盖安装主动关进程；BOT 分组可拖拽排序。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.19.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **BOT 分组拖拽排序**：员工 Tab 组头按编制序，本机拖拽偏好写入 localStorage
+
+### Changed
+
+- **覆盖安装**：探测桌面/Gateway 在跑时交互确认并关闭（静默/被动直接关）
+- **知识库向量**：硬失败 / 配额失败均降级关键词；可关语义向量；健康度按可检索计
+- **忙闲对齐**：`live-execution-busy` 综合工具 / 流式正文 / 后台 bash；终态 + 侧栏 idle 不再被陈旧 running 钉死
+
+### Fixed
+
+- **多会话切换空白**：V4 钉会话投影、遮罩上限、有快照不盖加载中
+- **结束后画布转圈**：RUN_FINISHED 先 seal 未收口工具与 streaming 正文
+- **排队续发误标用户停止**：成功回合后迟到的 USER_INTERRUPT 不再降级 turnHeader
+- **网关重启历史消失**：LangGraph 404 重建前灌回已有 transcript 投影
+
 ## [1.3.18] - 2026-11-11
 
 相对 **1.3.17**：工作区媒体解析限流防拖死界面；中文路径媒体预览可播；裸 `run_error` / 断连有人话提示；BOT 列表可开关巡检。

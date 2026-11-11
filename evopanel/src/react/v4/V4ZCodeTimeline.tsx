@@ -58,6 +58,7 @@ import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.j
 import type { IServiceAccessor } from "@zcode/services";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
+import { getSharedV4SessionDataLayer } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import { proactiveAgentCodeFromSessionKey } from "../lib/session-list/workspace-groups.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
@@ -1279,6 +1280,28 @@ export function V4ZCodeTimeline(props: {
       setSessionSwitchHold(false);
       return;
     }
+    // 目标 thread 在 pin/keep-warm 里已有快照：不要盖遮罩（旧投影优于空白）。
+    // 注意：此时 props.snapshot 可能仍是上一会话的，只能按 sessionId peek。
+    let warmWindowRows = 0;
+    if (sessionId) {
+      try {
+        const peek = getSharedV4SessionDataLayer().peekStore(sessionId)?.getState();
+        warmWindowRows = peek?.snapshot?.rows?.window?.length ?? 0;
+      } catch {
+        /* ignore */
+      }
+    }
+    if (warmWindowRows > 0) {
+      setSessionSwitchHold(false);
+      logV4Life({
+        event: "switch_hold_skip",
+        threadId: sessionId,
+        zh: `会话切换：目标已有投影 ${warmWindowRows} 行，跳过遮罩（${String(prevKey || "∅").slice(-30)} → ${timelineSessionKey.slice(-30)}）`,
+        detail: { from: prevKey, to: timelineSessionKey, warmWindowRows },
+        skipDedupe: true,
+      });
+      return;
+    }
     switchHoldStartedAtRef.current = Date.now();
     setSessionSwitchHold(true);
     // 空白开诊断：hold 从此刻开始盖住时间线，release 行给出持有时长与释放原因。
@@ -1292,42 +1315,54 @@ export function V4ZCodeTimeline(props: {
   }, [timelineSessionKey, sessionId]);
   useLayoutEffect(() => {
     if (!sessionSwitchHold) return;
-    // 仍在等租约：底下本就是「加载中…」，遮罩可与之一致；有行后多留两帧给测高。
+    const releaseHold = (why: string) => {
+      setSessionSwitchHold(false);
+      logV4Life({
+        event: "switch_hold_release",
+        threadId: sessionId,
+        zh: `会话切换：遮罩释放（持有 ${Date.now() - switchHoldStartedAtRef.current}ms，窗口行=${snapshot?.rows.window?.length ?? 0}；${why}）`,
+        detail: {
+          heldMs: Date.now() - switchHoldStartedAtRef.current,
+          windowRows: snapshot?.rows.window?.length ?? 0,
+          totalCount: snapshot?.rows.totalCount ?? 0,
+          why,
+        },
+        skipDedupe: true,
+      });
+    };
+    // 仍在等租约：底下本就是「加载中…」。多会话并发时 subscribe 可能卡数十秒，
+    // 遮罩绝不能一直盖着——最多 1.5s 后放开，露出 connecting 空态 / 迟到首帧。
     if (connecting && !(snapshot?.rows.window?.length)) {
-      // 持续 connecting 时每 2s 报一次「还没行」——空白开就是卡在这。
-      const t = window.setTimeout(() => {
+      const maxHoldMs = 1_500;
+      const warnT = window.setTimeout(() => {
         if (!sessionSwitchHold) return;
         logV4Life({
           event: "switch_hold_wait",
           level: "warn",
           threadId: sessionId,
-          zh: `切会话遮罩已持有 ${Date.now() - switchHoldStartedAtRef.current}ms 仍未释放（connecting=${connecting ? 1 : 0}，窗口行=${snapshot?.rows.window?.length ?? 0}）——若长时间如此即为空白开的现场。`,
+          zh: `切会话遮罩已持有 ${Date.now() - switchHoldStartedAtRef.current}ms 仍无窗口行（connecting）——将按时释放遮罩，避免空白开。`,
           detail: {
             heldMs: Date.now() - switchHoldStartedAtRef.current,
             connecting,
-            windowRows: snapshot?.rows.window?.length ?? 0,
-            totalCount: snapshot?.rows.totalCount ?? 0,
+            windowRows: 0,
+            maxHoldMs,
           },
           skipDedupe: true,
         });
-      }, 2_000);
-      return () => window.clearTimeout(t);
+      }, 800);
+      const releaseT = window.setTimeout(() => {
+        if (!sessionSwitchHold) return;
+        releaseHold("connecting_max_hold");
+      }, maxHoldMs);
+      return () => {
+        window.clearTimeout(warnT);
+        window.clearTimeout(releaseT);
+      };
     }
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        setSessionSwitchHold(false);
-        logV4Life({
-          event: "switch_hold_release",
-          threadId: sessionId,
-          zh: `会话切换：遮罩释放（持有 ${Date.now() - switchHoldStartedAtRef.current}ms，窗口行=${snapshot?.rows.window?.length ?? 0}）`,
-          detail: {
-            heldMs: Date.now() - switchHoldStartedAtRef.current,
-            windowRows: snapshot?.rows.window?.length ?? 0,
-            totalCount: snapshot?.rows.totalCount ?? 0,
-          },
-          skipDedupe: true,
-        });
+        releaseHold("rows_ready");
       });
     });
     return () => {

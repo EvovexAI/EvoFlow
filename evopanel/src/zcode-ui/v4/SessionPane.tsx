@@ -121,6 +121,7 @@ import {
 } from "@/v4/ConversationComposer.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { shouldIgnoreEscapeForStopGeneration } from "@/v4/composer/escapeStop.js";
+import { resolveLiveExecutionBusyFromSnapshot } from "@/v4/live-execution-busy.js";
 import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
@@ -3551,7 +3552,9 @@ export function SessionPane({
       const current = snapshotRef.current;
       const whoZh = source === "escape" ? "用户按 Esc 停止" : "用户点击 V4 停止按钮";
       const stopTrigger = source === "escape" ? "v4_escape" : "v4_stop_button";
-      if (!sessionId || !current?.control.canStop) {
+      // 直接从 snapshot 派生（含 backgroundWorks / 仍 running 的工具卡），避免依赖后面才算的 status 面板计数。
+      const stoppable = resolveLiveExecutionBusyFromSnapshot(current);
+      if (!sessionId || !stoppable) {
         logger.lifecycle.info("[v4-pane] stop 命令被跳过（无可停执行）", {
           source,
           whoZh,
@@ -3559,7 +3562,7 @@ export function SessionPane({
         });
         return;
       }
-      const foregroundExecutionId = current.control.activeWorks.find(
+      const foregroundExecutionId = current?.control?.activeWorks?.find(
         (work) => work.foregroundExecutionId,
       )?.foregroundExecutionId;
       logger.lifecycle.info("[v4-pane] stop 命令发出", {
@@ -3623,7 +3626,7 @@ export function SessionPane({
   // 「stop 等危险操作永远作用于明确的 pane，快捷键走 focused pane」。
   useEffect(() => {
     if (!focused || readOnly) return;
-    if (!sessionId || !snapshot?.control.canStop) return;
+    if (!sessionId || !liveExecutionBusy) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (shouldIgnoreEscapeForStopGeneration(event)) return;
@@ -3632,7 +3635,7 @@ export function SessionPane({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focused, handleStop, readOnly, sessionId, snapshot?.control.canStop]);
+  }, [focused, handleStop, liveExecutionBusy, readOnly, sessionId]);
 
   // handleStop 带 source 参数（button / escape 两个调用点），但 ConversationComposer 是 memo：
   // 直接写 onStop={() => handleStop("button")} 每次 render 都换引用，memo 白做，而 composer
@@ -3887,6 +3890,11 @@ export function SessionPane({
   const runningTerminalCount = statusPanelModel.runningBashWorks.length;
   const runningAgentCount = statusPanelModel.runningSubagentWorks.length;
   const runningWorkflowCount = statusPanelModel.runningWorkflowRuns.length;
+  /** 停止/齿轮：跟「还有活」走，不单信 control.canStop（防 RUN_FINISHED 早关、工具卡仍 running）。 */
+  const liveExecutionBusy = resolveLiveExecutionBusyFromSnapshot(
+    snapshot,
+    runningBackgroundWorkCount,
+  );
   useEffect(() => {
     setTerminalSectionOpen(false);
     setAgentSectionOpen(false);
@@ -4433,6 +4441,7 @@ export function SessionPane({
       composerRestoreRequest={composerRestoreRequest}
       onComposerRestoreApplied={handleComposerRestoreApplied}
       onStop={handleStopFromButton}
+      executionBusy={liveExecutionBusy}
       onSelectModel={handleSelectModel}
       onSelectThought={handleSelectThought}
       onSwitchMode={handleSwitchMode}
@@ -4825,9 +4834,7 @@ export function SessionPane({
               searchResultHighlightRequest={isDraft ? null : searchResultHighlightRequest}
               onSearchResultHighlightDone={onSearchResultHighlightDone}
               sessionPhase={isDraft ? undefined : snapshot?.control.phase}
-              sessionBusy={
-                !isDraft && Boolean(snapshot?.control.canStop || snapshot?.control.phase === "running")
-              }
+              sessionBusy={!isDraft && liveExecutionBusy}
               shareSelection={
                 shareActive && shareInSelectionStage && shareDraft?.view === "timeline" && sessionId
                   ? {

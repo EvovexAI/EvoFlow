@@ -1391,7 +1391,7 @@ export async function stopXiaomiChat() {
   if (!key) return
   const runId = _activeRunId || wsClient.getCollabChatRunId?.(key) || ''
   try {
-    if (runId) await api.chatAbort?.(key, runId)
+    if (runId) await api.chatAbort?.(key, runId, { userInitiated: true })
     else await api.chatSessionsStopExecution?.(key).catch(() => {})
   } catch {
     try {

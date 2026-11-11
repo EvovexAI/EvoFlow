@@ -57,6 +57,8 @@ class UpdateBaseBody(BaseModel):
     embeddingApiKey: str | None = None
     summaryEnabled: bool | None = None
     imageCaptionEnabled: bool | None = None
+    # False = keyword-only by design (no vector nag / no embed calls).
+    vectorEnabled: bool | None = None
     # 停用/忽略（内置库等不可删除时使用）：隐藏后不在默认列表展示，仍随版本同步。
     hidden: bool | None = None
 

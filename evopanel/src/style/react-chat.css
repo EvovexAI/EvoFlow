@@ -7677,21 +7677,6 @@ html.dark .react-chat-context-ring.is-clickable:hover .react-chat-context-ring-p
   background: color-mix(in srgb, var(--bg-primary, #ffffff) 86%, transparent);
 }
 
-.react-chat-history-sync-hint {
-  position: absolute;
-  top: 8px;
-  left: 50%;
-  z-index: 2;
-  transform: translateX(-50%);
-  padding: 4px 12px;
-  border-radius: 999px;
-  font-size: var(--ef-text-sm);
-  color: var(--text-secondary, #6b7280);
-  background: color-mix(in srgb, var(--bg-primary, #ffffff) 92%, transparent);
-  border: 1px solid var(--border, #e5e7eb);
-  pointer-events: none;
-}
-
 /* 上拉加载指示器：浮层展示，不占文档流，避免 prepend 前后 scrollHeight 被撑乱 */
 .react-chat-history-older-loading {
   position: absolute;
@@ -35307,6 +35292,20 @@ html.dark .react-chat-workspace-preview-media-wrap {
   background: rgba(255, 255, 255, 0.04);
 }
 
+/* 右栏视频：避免 <video> 被 flex 纵向撑满后「画面在上、原生控件贴底」中间空一大截 */
+.react-chat-workspace-preview-media-wrap.is-video {
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  padding: 12px;
+  background: #0b0f17;
+}
+
+html[data-theme='dark'] .react-chat-workspace-preview-media-wrap.is-video,
+html.dark .react-chat-workspace-preview-media-wrap.is-video {
+  background: #000;
+}
+
 .react-chat-workspace-preview-media-btn {
   max-width: 100%;
   border: none;
@@ -35333,9 +35332,14 @@ html.dark .react-chat-workspace-preview-media-wrap {
 
 .react-chat-workspace-preview-media-video {
   display: block;
-  max-width: 100%;
-  max-height: min(72vh, 640px);
+  /* 按片源比例自适应；高度不得超过容器，避免控件与画面脱节 */
   width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 100%;
+  flex: 0 1 auto;
+  align-self: center;
+  object-fit: contain;
   border-radius: 8px;
   background: #000;
 }

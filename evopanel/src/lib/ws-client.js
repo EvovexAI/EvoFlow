@@ -8696,7 +8696,11 @@ export class WsClient {
       _userStopSessionKeys.delete(key)
       _userStopSkipRunIdleKeys.delete(key)
     }
-    this._emitEvent('chat', { sessionKey: key, runId: targetRunId, state: 'aborted' })
+    // 仅用户点停才 emit aborted。send_prep / 非主动 abort 若也 emit，
+    // 排队续发会把刚完成的一轮打成「用户停止」（V4 completedInterrupted）。
+    if (userInitiated) {
+      this._emitEvent('chat', { sessionKey: key, runId: targetRunId, state: 'aborted' })
+    }
     return Promise.resolve({ ok: true, aborted: true, runId: targetRunId })
   }
 

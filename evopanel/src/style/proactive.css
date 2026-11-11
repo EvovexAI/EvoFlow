@@ -701,6 +701,17 @@
   font-size: 13px;
   line-height: 1.55;
 }
+.pro-duty-sheet-prompt {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
 .pro-resp-list-more {
   list-style: none;
   margin-left: -1.1em;

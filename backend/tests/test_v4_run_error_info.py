@@ -128,3 +128,76 @@ def test_user_interrupt_run_error_is_interrupted_not_error_banner(monkeypatch: p
     assert ctrl is not None
     assert ctrl["phase"] == "completedInterrupted"
     assert ctrl["lastError"] is None
+
+
+def test_late_user_interrupt_does_not_downgrade_completed_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Queue auto-send / send_prep race must not rewrite success →「用户停止」."""
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    tid = "mirror-late-interrupt-after-success"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "hi")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-ok"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1", "role": "assistant"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "done"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-ok"},
+        ],
+    )
+    headers = [r for r in _rows(tid) if r.get("kind") == "turnHeader"]
+    assert headers
+    assert headers[-1]["state"] == "completedSuccess"
+    sealed_header_id = int(headers[-1]["rowId"])
+    # FINISHED 会 reset ephemeral；模拟迟到 interrupt 仍指向已成功 header。
+    st = mirror._states[tid]  # noqa: SLF001
+    st.run_started = True
+    st.turn_header_row_id = sealed_header_id
+    mirror.feed_events(
+        tid,
+        [
+            {
+                "type": "RUN_ERROR",
+                "code": "USER_INTERRUPT",
+                "message": "user_interrupt",
+                "threadId": tid,
+                "runId": "run-ok",
+            },
+        ],
+    )
+    sealed = next(r for r in _rows(tid) if int(r["rowId"]) == sealed_header_id)
+    assert sealed["state"] == "completedSuccess"
+
+
+def test_run_finished_seals_open_tool_calls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TOOL_CALL_END→running 后若无 RESULT，FINISHED 必须封掉，否则画布永久转圈。"""
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    tid = "mirror-seal-open-tools"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "hi")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-seal"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-open",
+                "toolCallName": "web_search",
+            },
+            {"type": "TOOL_CALL_ARGS", "toolCallId": "tc-open", "delta": "{}"},
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-open"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-seal"},
+        ],
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert tools
+    assert tools[-1]["status"] == "cancelled"
+    headers = [r for r in _rows(tid) if r.get("kind") == "turnHeader"]
+    assert headers[-1]["state"] == "completedSuccess"

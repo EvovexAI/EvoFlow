@@ -71,4 +71,41 @@ describe('buildConversationTurnRenderUnits sessionBusy', () => {
     })
     expect(units[0].isRunning).toBe(false)
   })
+
+  it('keeps live duration ticking when sessionBusy reopens a sealed header', () => {
+    const units = buildConversationTurnRenderUnits(turnRows('completedSuccess'), {
+      sessionBusy: true,
+      nowMs: 6_000,
+    })
+    expect(units[0].workStatus).toEqual({ state: 'running', durationMs: 5_000 })
+    expect(units[0].workSegments?.[0]?.workStatus).toEqual({
+      state: 'running',
+      durationMs: 5_000,
+    })
+  })
+
+  it('anchors running duration to userInput when turnHeader is still missing', () => {
+    const rows: ConversationRow[] = [
+      {
+        rowId: 2,
+        turnId: 't2',
+        kind: 'userInput',
+        text: '搞定了吗',
+        origin: 'realUser',
+        createdAt: 10_000,
+        createdAtSeq: 1,
+        actions: { canEdit: false },
+      },
+    ]
+    const units = buildConversationTurnRenderUnits(rows, {
+      sessionBusy: true,
+      nowMs: 13_500,
+    })
+    expect(units[0].isRunning).toBe(true)
+    expect(units[0].workStatus).toEqual({ state: 'running', durationMs: 3_500 })
+    expect(units[0].workSegments?.[0]?.workStatus).toEqual({
+      state: 'running',
+      durationMs: 3_500,
+    })
+  })
 })

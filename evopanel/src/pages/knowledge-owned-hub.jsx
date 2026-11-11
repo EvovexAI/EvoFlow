@@ -106,20 +106,22 @@ export function KnowledgeStats({ bases, docCounts }) {
         acc.ready += Number(health.ready) || 0;
         acc.processing += (Number(health.pending) || 0) + (Number(health.processing) || 0);
         acc.failed += Number(health.failed) || 0;
+        acc.vectorDegraded += Number(health.vectorDegraded) || 0;
         return acc;
       },
-      { total: 0, ready: 0, processing: 0, failed: 0 },
+      { total: 0, ready: 0, processing: 0, failed: 0, vectorDegraded: 0 },
     );
   }, [bases, docCounts]);
-  const localCount = (bases || []).filter((b) => b.embeddingMode === "local").length;
   const health = summary.total ? Math.round((summary.ready / summary.total) * 100) : 0;
   const healthHint = summary.failed
     ? `${summary.failed} 个文档需要处理`
     : summary.processing
       ? `${summary.processing} 个文档正在索引`
-      : summary.total
-        ? "全部文档可检索"
-        : "上传资料后开始计算";
+      : summary.vectorDegraded
+        ? `${summary.vectorDegraded} 个语义降级（关键词仍可用）`
+        : summary.total
+          ? "全部文档可检索"
+          : "上传资料后开始计算";
 
   return (
     <div className="ko-stats" data-testid="ko-stats">
@@ -247,14 +249,28 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onSettings,
   const failed = Number(health.failed) || 0;
   const processing = (Number(health.pending) || 0) + (Number(health.processing) || 0);
   const ready = Number(health.ready) || 0;
-  const status = failed ? "attention" : processing ? "processing" : total && ready === total ? "ready" : "empty";
+  const vectorDegraded = Number(health.vectorDegraded) || 0;
+  const keywordOnly = base.vectorEnabled === false;
+  const status = failed
+    ? "attention"
+    : processing
+      ? "processing"
+      : total && ready === total
+        ? keywordOnly || vectorDegraded
+          ? "degraded"
+          : "ready"
+        : "empty";
   const statusLabel = failed
     ? `${failed} 个文档失败`
     : processing
       ? `${processing} 个文档处理中`
-      : total
-        ? `${ready} 个文档可检索`
-        : "等待上传资料";
+      : keywordOnly
+        ? `${ready} 个文档可检索（仅关键词）`
+        : vectorDegraded
+          ? `${ready} 个可检索 · ${vectorDegraded} 个语义降级`
+          : total
+            ? `${ready} 个文档可检索`
+            : "等待上传资料";
 
   const openMenuAt = (clientX, clientY) => {
     const pad = 8;
@@ -301,17 +317,29 @@ function KnowledgeListItem({ base, docCount, busy, onOpen, onDelete, onSettings,
             {base.description || "本地资料库 · 上传后可检索、问答和阅读"}
           </span>
           <span className={`ko-data-list__health is-${status}`}>
-            {status === "attention" ? "需要处理失败文档" : status === "processing" ? "资料正在建立索引" : status === "empty" ? "下一步：上传第一份资料" : "可以开始搜索或问 AI"}
+            {status === "attention"
+              ? "需要处理失败文档"
+              : status === "processing"
+                ? "资料正在建立索引"
+                : status === "empty"
+                  ? "下一步：上传第一份资料"
+                  : status === "degraded"
+                    ? keywordOnly
+                      ? "仅关键词检索（已关闭向量）"
+                      : "可以搜索；语义检索已降级"
+                    : "可以开始搜索或问 AI"}
           </span>
         </div>
         <div className="ko-data-list__meta">
           <span>{docCount != null ? `${docCount} 文档` : "—"}</span>
           <span>
-            {base.embeddingModelRef || base.embeddingModel
-              ? String(base.embeddingModelRef || base.embeddingModel).replace(/^BAAI\//, "")
-              : base.embeddingMode === "local"
-                ? "本地嵌入"
-                : "云端嵌入"}
+            {keywordOnly
+              ? "仅关键词"
+              : base.embeddingModelRef || base.embeddingModel
+                ? String(base.embeddingModelRef || base.embeddingModel).replace(/^BAAI\//, "")
+                : base.embeddingMode === "local"
+                  ? "本地嵌入"
+                  : "云端嵌入"}
           </span>
           <span>{base.updatedAt ? formatShortDate(base.updatedAt) : "—"}</span>
         </div>
@@ -712,15 +740,19 @@ function aggregateBasesHealth(bases) {
   let pending = 0;
   let processing = 0;
   let failed = 0;
+  let vectorDegraded = 0;
+  let keywordOnlyBases = 0;
   let hidden = 0;
   for (const b of bases || []) {
     if (b && b.hidden) hidden += 1;
+    if (b && b.vectorEnabled === false) keywordOnlyBases += 1;
     const h = b && b.documentHealth;
     if (!h) continue;
     ready += Number(h.ready || 0);
     pending += Number(h.pending || 0);
     processing += Number(h.processing || 0);
     failed += Number(h.failed || 0);
+    vectorDegraded += Number(h.vectorDegraded || 0);
   }
   const total = ready + pending + processing + failed;
   if (total === 0) {
@@ -731,6 +763,7 @@ function aggregateBasesHealth(bases) {
       hints: [{ kind: "ok", text: "还没有文档，上传后会显示真实健康度" }],
     };
   }
+  // Score = searchable ratio. Vector degrade is a soft warning, not a health crash.
   const readyRatio = ready / total;
   let score = Math.round(readyRatio * 100);
   let label = "健康";
@@ -742,6 +775,10 @@ function aggregateBasesHealth(bases) {
     score = Math.max(0, score - Math.min(20, (pending + processing) * 2));
     if (label === "健康") label = "索引中";
   }
+  if (failed === 0 && vectorDegraded > 0 && label === "健康") {
+    label = "语义降级";
+    score = Math.max(0, score - Math.min(8, Math.ceil(vectorDegraded / 10)));
+  }
   const hints = [];
   if (failed > 0) {
     hints.push({
@@ -749,17 +786,24 @@ function aggregateBasesHealth(bases) {
       text: `${failed} 篇文档解析失败，查看对应知识库的「索引状态」可重试`,
     });
   } else {
-    hints.push({ kind: "ok", text: `没有失败文档（${ready}/${total} 已就绪）` });
+    hints.push({ kind: "ok", text: `没有失败文档（${ready}/${total} 已可检索）` });
   }
   if (pending + processing > 0) {
     hints.push({
       kind: "warn",
       text: `${pending + processing} 篇正在处理，等索引完成会回到 100`,
     });
+  } else if (vectorDegraded > 0) {
+    hints.push({
+      kind: "warn",
+      text: `${vectorDegraded} 篇语义检索降级（关键词仍可用；可换模型重建或设为仅关键词）`,
+    });
   } else {
     hints.push({ kind: "ok", text: "所有文档已完成解析" });
   }
-  if (hidden > 0) {
+  if (keywordOnlyBases > 0) {
+    hints.push({ kind: "ok", text: `${keywordOnlyBases} 个库为仅关键词模式` });
+  } else if (hidden > 0) {
     hints.push({ kind: "warn", text: `另有 ${hidden} 个已停用知识库未计入` });
   }
   const tone = score >= 85 ? "ok" : score >= 60 ? "warn" : "err";

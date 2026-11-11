@@ -1831,34 +1831,32 @@ async function loadTabData(page) {
   }
 }
 
-/** Roster badge — 工作中 / 已启用 / 已停用 / 草稿
- * 「已启用」= 可对话/派活（status=active）；关巡检 / 总开关关 ≠ 已停用。
- * 「已停用」= paused；「草稿」= draft 未确认。
- */
+/** Roster 右上角徽章 — 只表示岗位可用态：工作中 / 已启用 / 已停用 / 草稿。
+ *  巡检开闭另见卡片下方 signal，勿再塞进右上角。 */
 function roleDutyBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
   const st = String(role?.status || '')
-  const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
 
   if (st === 'draft') {
     return { label: '草稿', cls: 'pro-badge--muted', tip: '草稿未确认，确认启用后才会排班' }
   }
   if (st === 'paused') {
-    return { label: '已停用', cls: 'pro-badge--muted', tip: '已停用，不会自动巡检；启用后可对话 / 派活' }
+    return { label: '已停用', cls: 'pro-badge--muted', tip: '岗位已停用；启用后可对话 / 派活' }
   }
 
   if (st === 'active') {
-    let tip = '已启用 · 按计划自动巡检'
-    if (suspended) tip = '已启用 · 可对话 / 派活，不定时巡检'
-    else if (_engineRunning === false) tip = '已启用 · 可对话/派活；总开关已关，到期不会自动跑'
-    else if (role?.next_heartbeat_at) tip = `已启用 · 下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
     const dash = roleDash(role?.agent_code)
     const noopN = Number(dash?.consecutive_noop_count || 0)
     const idle =
       !!dash?.idle_suspected ||
       noopN >= 3 ||
       Number(dash?.no_op_pct || 0) >= 40
-    return { label: '已启用', cls: 'pro-badge--ok', tip, idle }
+    return {
+      label: '已启用',
+      cls: 'pro-badge--ok',
+      tip: '岗位已启用；可对话 / 派活',
+      idle,
+    }
   }
   return { label: '已停用', cls: 'pro-badge--muted', tip: st || '—' }
 }
@@ -3331,7 +3329,22 @@ function renderHealthDashboard(dash, roles) {
         <div class="pro-health-card-head">
           <div>
             <strong>${esc(r.role_name || r.agent_name || r.agent_code)}</strong>
-            <span class="pro-meta-chip">${esc(r.status === 'active' ? '已启用' : r.status === 'paused' ? '已停用' : r.status === 'draft' ? '草稿' : r.status)}</span>
+            <span class="pro-meta-chip">${esc(
+              r.status === 'paused'
+                ? '已停用'
+                : r.status === 'draft'
+                  ? '草稿'
+                  : r.status === 'active'
+                    ? '已启用'
+                    : r.status,
+            )}</span>
+            ${
+              r.status === 'active' || r.status === 'paused'
+                ? `<span class="pro-meta-chip">${esc(
+                    isRolePatrolOff(r) ? '已关闭巡检' : '已开启巡检',
+                  )}</span>`
+                : ''
+            }
             ${idle ? `<span class="pro-meta-chip pro-meta-chip--warn">疑似空转×${esc(String(r.consecutive_noop_count || 0))}</span>` : ''}
             ${r.budget_warn ? '<span class="pro-meta-chip pro-meta-chip--warn">预算告警</span>' : ''}
           </div>
@@ -3492,18 +3505,19 @@ function renderRoles(roles) {
         a.status === 'pending' && String(a.role_agent_code) === String(r.agent_code),
     ).length
     const patrolOff = isRolePatrolOff(r)
+    // 下方 signal：近况优先；没有近况时才回落到「已开启/关闭巡检」（勿与右上角启用态重复）
     let oneLiner = '暂无近况'
     if (isDraft) oneLiner = '草稿未确认 · 确认启用后才开始自动巡检'
-    else if (isPaused) oneLiner = '已停用 · 不会自动巡检'
-    else if (patrolOff) oneLiner = '已启用 · 不定时巡检（可对话/派活）'
-    else if (_engineRunning === false) oneLiner = '已启用 · 总开关已关（到期不自动跑）'
     else if (pendingN) oneLiner = `${pendingN} 项待你拍板`
     else if (isBusy) oneLiner = '工作中 · 正在干活…'
     else if (isIdle) {
       const n = Number(dash?.consecutive_noop_count || 0)
       oneLiner = n ? `近期没干活 · 连续 ${n} 轮没什么产出` : '近期没干活 · 没什么实质产出'
     } else if (lastInit?.title) oneLiner = previewLine(lastInit.title, 64)
+    else if (patrolOff) oneLiner = '已关闭巡检'
+    else if (_engineRunning === false) oneLiner = '已开启巡检 · 总开关已关'
     else if (r.last_heartbeat_at) oneLiner = `上次巡检 ${fmtTime(r.last_heartbeat_at)}`
+    else oneLiner = '已开启巡检'
 
     const isSystemFrontDesk = !!r.system_front_desk || String(r.agent_code || '') === 'xiaomi'
     const primary = resolveEmployeePrimaryAction(r, { isDraft, isPaused, isBusy, pendingN })
@@ -3842,12 +3856,7 @@ function bindRoles(container) {
             }
           }
           notifyEmployeesUpdated({ reason: turnOn ? 'proactive.patrol_on' : 'proactive.patrol_off', agentCode: code })
-          toast(
-            turnOn
-              ? `已开启巡检 ${name}（${roleScheduleSummary({ heartbeat_schedule: nextCron }) || '按计划'}）`
-              : `已关闭巡检 ${name}：可对话 / 派活，不定时自动找活`,
-            'success',
-          )
+          toast(turnOn ? `已开启巡检 ${name}` : `已关闭巡检 ${name}`, 'success')
           if (page) {
             renderTabContent(page)
             void loadTabData(page)

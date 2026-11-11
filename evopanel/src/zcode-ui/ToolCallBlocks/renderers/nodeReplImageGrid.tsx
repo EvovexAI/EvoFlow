@@ -74,7 +74,7 @@ export function NodeReplImageGrid({
 
   return (
     <>
-      <ImageThumbnailGallery data-node-repl-image-gallery="" grouped={previewItems.length >= 2}>
+      <ImageThumbnailGallery data-node-repl-image-gallery="" grouped>
         {previewItems.map((item, index) => (
           <button
             ref={(node) => {

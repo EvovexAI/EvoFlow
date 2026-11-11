@@ -23,7 +23,9 @@ session 时，把旧链路的 transcript（``evoflow_chat_messages``，与
   ``output.display``（kind:"cua" + media），否则冷恢复后截图轮尾为空；
 - assistant.reasoning → reasoning 行；content 文本 → assistantText 行。
 
-幂等：仅当 session 全新（rows 空且 seq==0）才 hydrate；live 镜像先到则跳过。
+幂等：仅当 session 全新（rows 空）才 hydrate；live 镜像先到则跳过。
+网关重启后 stream 404 remint：须在重发前 ``rehydrate_after_thread_remint``，
+否则 note_user_input 先种 1–2 行会使 subscribe hydrate 跳过，历史整页消失。
 """
 
 from __future__ import annotations
@@ -453,6 +455,31 @@ def force_rehydrate_session_from_transcript(
         fp = fingerprint if fingerprint is not None else transcript_fingerprint_for_thread(tid)
         sess.catchup_fp = fp
     return loaded
+
+
+def rehydrate_after_thread_remint(thread_id: str) -> int:
+    """force_recreate / stream-404 remint 后：把已 remap 的 transcript 灌进新 thread 投影。
+
+    竞态：重发 stream 的 ``note_user_input`` 会先在新 session 上种 1–2 行；
+    随后 FE subscribe 走普通 hydrate，见 ``sess.rows`` 非空直接 return 0，
+    用户只看见本轮输入/回复，像「开启了新线程」。必须在重发前 force-rehydrate。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid or tid.startswith("v4-"):
+        return 0
+    try:
+        from app.gateway.v4.conversation import HUB
+
+        loaded = force_rehydrate_session_from_transcript(HUB, tid)
+        logger.info(
+            "[v4.hydration] remint rehydrate thread=%s rows=%s",
+            tid,
+            loaded,
+        )
+        return int(loaded or 0)
+    except Exception:
+        logger.exception("[v4.hydration] remint rehydrate failed thread=%s", tid)
+        return 0
 
 
 def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:

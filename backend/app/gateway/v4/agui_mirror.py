@@ -759,6 +759,94 @@ class V4Mirror:
                 },
             )
 
+    _OPEN_TOOL_STATUSES = frozenset(
+        {"", "inputStreaming", "pendingApproval", "running", "in_progress"}
+    )
+
+    def _seal_open_tool_calls(
+        self, tid: str, st: _MirrorState, *, now_ms: int, status: str
+    ) -> None:
+        """RUN 收尾时封掉未 RESULT 的工具卡。
+
+        TOOL_CALL_END 会把 status 写成 running；若随后 RUN_FINISHED 而 RESULT 迟到，
+        ``_reset_turn_ephemeral`` 已清 ``tool_row_ids``，迟到 RESULT 再也写不进行 →
+        工具卡永久 running，前端 timelineBusy 与侧栏 idle 打架（切回话一直转圈）。
+        """
+        if not st.tool_row_ids:
+            return
+        seal = str(status or "cancelled").strip() or "cancelled"
+        for tcid, rid in list(st.tool_row_ids.items()):
+            try:
+                row_id = int(rid)
+            except (TypeError, ValueError):
+                continue
+            sess = self._hub.get_session(tid)
+            existing = sess.rows.get(row_id) if sess is not None else None
+            cur = (
+                str(existing.get("status") or "").strip()
+                if isinstance(existing, dict)
+                else ""
+            )
+            if cur and cur not in self._OPEN_TOOL_STATUSES:
+                continue
+            self._hub.author_upsert_row(
+                tid,
+                {
+                    "rowId": row_id,
+                    "turnId": st.turn_id,
+                    "kind": "toolCall",
+                    "toolCallId": tcid,
+                    "toolName": self._tool_name(st, tcid, {}),
+                    "status": seal,
+                    "inputText": st.tool_acc.get(tcid, ""),
+                    "createdAt": (
+                        int(existing.get("createdAt") or 0)
+                        if isinstance(existing, dict)
+                        else now_ms
+                    )
+                    or now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                    "startedAt": (
+                        int(existing.get("startedAt") or 0)
+                        if isinstance(existing, dict)
+                        else now_ms
+                    )
+                    or now_ms,
+                    "endedAt": now_ms,
+                },
+            )
+
+    def _seal_streaming_assistant_text(
+        self, tid: str, st: _MirrorState, *, now_ms: int, state: str = "complete"
+    ) -> None:
+        """RUN_FINISHED 时把仍 streaming 的正文收成 complete，避免终态后 timelineBusy。"""
+        if not st.text_row_ids:
+            return
+        for mid, rid in list(st.text_row_ids.items()):
+            sess = self._hub.get_session(tid)
+            existing = sess.rows.get(int(rid)) if sess is not None else None
+            cur_state = (
+                str(existing.get("state") or "").strip()
+                if isinstance(existing, dict)
+                else ""
+            )
+            if cur_state and cur_state != "streaming":
+                continue
+            self._hub.author_upsert_row(
+                tid,
+                {
+                    "rowId": rid,
+                    "turnId": st.turn_id,
+                    "kind": "assistantText",
+                    "text": str(st.text_acc.get(mid) or ""),
+                    "state": state,
+                    "createdAt": st.turn_started_at_ms or now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                    "entityId": mid,
+                    "endedAt": now_ms,
+                },
+            )
+
     def _on_activity_snapshot(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
         """Project ACTIVITY_SNAPSHOT retrying/model_error into V4 control + optional text."""
         if not st.run_started:
@@ -1394,6 +1482,20 @@ class V4Mirror:
             if not st.run_started or st.turn_header_row_id == 0:
                 return
             user_stopped = et == "RUN_ERROR" and _is_user_interrupt_event(ev)
+            # 排队续发 / send_prep 误杀：RUN_FINISHED 已落成成功后迟到的 USER_INTERRUPT
+            # 不得把 turnHeader 从 completedSuccess 降成「用户停止」。
+            if user_stopped:
+                sess = self._hub.get_session(tid)
+                existing = (
+                    sess.rows.get(int(st.turn_header_row_id))
+                    if sess is not None and st.turn_header_row_id
+                    else None
+                )
+                if (
+                    isinstance(existing, dict)
+                    and str(existing.get("state") or "") == "completedSuccess"
+                ):
+                    return
             if et == "RUN_FINISHED":
                 v4_state = "completedSuccess"
             elif user_stopped:
@@ -1471,6 +1573,15 @@ class V4Mirror:
             ctrl["lastError"] = last_error
             ctrl["apiRetry"] = None
             self._patch_control(tid, ctrl)
+            # 先封未收口工具/流式正文，再清 ephemeral——否则迟到 RESULT 丢写，
+            # 工具卡永久 running，切回话画布齿轮与侧栏 idle 不一致。
+            if user_stopped:
+                self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
+            elif et == "RUN_ERROR":
+                self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="error")
+            else:
+                self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
+                self._seal_streaming_assistant_text(tid, st, now_ms=now_ms, state="complete")
             # 重置：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return

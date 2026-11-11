@@ -746,8 +746,8 @@ export async function handleSend(
     }) => {
       try {
         suppressNextAbortToastRef.current = true
-        // 本地 abort SSE wire；无在途 run 时几乎零开销。勿 await 网络。
-        // 这不是用户点停；落盘便于和真正的 execution/stop 区分。
+        // 只掐本地 SSE wire。勿 api.chatAbort：它会 emit state=aborted，
+        // 排队续发/新发送会被当成「用户停止」（V4 completedInterrupted）。
         void import('../../lib/stream-stop-log.js')
           .then(({ logStreamStop }) => {
             logStreamStop({
@@ -758,7 +758,7 @@ export async function handleSend(
                 whoZh: stalledPrior?.stalled
                   ? '上一轮还在等首帧，新发送前清理旧 SSE（非用户点停）'
                   : '新发送前清理旧 SSE wire（非用户点停）',
-                note: 'handleSend 预备：chatAbort 清旧 wire；通常不调 execution/stop',
+                note: 'handleSend 预备：abortStreamWire 清旧 wire；不 emit aborted、不调 execution/stop',
                 stalledPriorMs: stalledPrior?.sinceMs ?? undefined,
                 stalledPriorPreview: stalledPrior?.textPreview
                   ? String(stalledPrior.textPreview).slice(0, 80)
@@ -769,7 +769,11 @@ export async function handleSend(
             })
           })
           .catch(() => {})
-        void api.chatAbort(sessionKey).catch(() => {})
+        try {
+          wsClient.abortStreamWire(sessionKey)
+        } catch {
+          /* ignore */
+        }
       } catch {
         /* ignore */
       } finally {

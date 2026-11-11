@@ -77,7 +77,10 @@ const WARM_COLD_WINDOW_MS = 3_000;
 /** 1 cold hydrate at a time in the window — parallel 1k+ row hydrates stall Gateway. */
 const WARM_COLD_MAX_PER_WINDOW = 1;
 const WARM_MAX_LIVE_SESSIONS = 4;
+/** 多会话并跑：钉住最近/执行中会话的租约，避免 30s keep-warm 过期后冷开空白。 */
+const PIN_MAX_SESSIONS = 4;
 let _warmColdTimestamps: number[] = [];
+const _pinnedLeases = new Map<string, SessionLease>();
 
 export function warmEvoflowV4Session(
   sessionId: string,
@@ -122,6 +125,72 @@ export function warmEvoflowV4Session(
     });
   } catch {
     /* best effort */
+  }
+}
+
+/**
+ * 钉住一组 thread 的 V4 投影租约（执行中 + 最近点过的会话）。
+ * 与悬停 warm 不同：不立刻 release，refCount 保持 >0，store 不会进 30s keep-warm 过期关闭。
+ * 这是「三路并跑切来切去空白」的根治：ZCode 同语义 — 有投影就继续显示，别冷开干等。
+ */
+export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void {
+  const want: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of threadIds) {
+    const id = String(raw || "").trim();
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    want.push(id);
+    if (want.length >= PIN_MAX_SESSIONS) break;
+  }
+  const wantSet = new Set(want);
+  for (const [id, lease] of [..._pinnedLeases.entries()]) {
+    if (wantSet.has(id)) continue;
+    try {
+      lease.release();
+    } catch {
+      /* ignore */
+    }
+    _pinnedLeases.delete(id);
+    logV4Life({
+      event: "pin_release",
+      threadId: id,
+      zh: "取消钉住 V4 投影租约（会话已不在执行中/最近列表）。",
+      detail: { pinned: _pinnedLeases.size },
+    });
+  }
+  const layer = getSharedLayer();
+  for (const id of want) {
+    const existing = _pinnedLeases.get(id);
+    if (existing) {
+      try {
+        existing.store.ensureConnected();
+      } catch {
+        /* ignore */
+      }
+      continue;
+    }
+    try {
+      // pin 集合已截断到 PIN_MAX；允许冷 acquire，不被悬停 warm 的 live 上限挡住。
+      const lease = layer.acquire(id);
+      _pinnedLeases.set(id, lease);
+      const st = lease.store.getState();
+      const rowCount =
+        st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+      logV4Life({
+        event: "pin_acquire",
+        threadId: id,
+        zh: `钉住 V4 投影租约（openKind=${lease.openKind}，行数≈${rowCount}）→ 切回不应冷开空白。`,
+        detail: {
+          openKind: lease.openKind,
+          rowCount,
+          storeStatus: st.status,
+          pinned: _pinnedLeases.size,
+        },
+      });
+    } catch {
+      /* best effort */
+    }
   }
 }
 
@@ -475,9 +544,12 @@ export function V4StreamRowsBridge(props: {
   }, [layer, enabled, sessionId]);
 
   // sessionId 已变但 effect 尚未提交时，绝不能读上一会话的 store（会 ready 错配 → 误 hold 老面板）。
+  // 但 pin/keep-warm 里若已有目标 session 的投影，peek 出来先画——对齐 ZCode「旧投影优于空白」。
   const leaseForSession =
     lease && sessionId && lease.sessionId === sessionId ? lease : null;
-  const store = leaseForSession?.store ?? null;
+  const peekStore =
+    !leaseForSession && sessionId ? layer.peekStore(sessionId) : null;
+  const store = leaseForSession?.store ?? peekStore;
   const state: StoreState | null = useSyncExternalStore(
     (listener) => store?.subscribe(listener) ?? (() => {}),
     () => store?.getState() ?? NOT_READY,

@@ -342,7 +342,15 @@ function materializeDraftUnit(
   const latestAssistantTextRow =
     actionAssistantTextRow ??
     (!isRunning && lastFlowRow && isAssistantTextRow(lastFlowRow) ? lastFlowRow : undefined);
-  const workDurationMs = resolveConversationTurnWorkDurationMs(draft.header, options, isRunning);
+  const fallbackStartedAt =
+    draft.header?.startedAt ??
+    draft.userInputs[0]?.createdAt ??
+    visibleOrderedRows.find(isUserInputRow)?.createdAt;
+  const workDurationMs = resolveConversationTurnWorkDurationMs(
+    draft.header,
+    { nowMs: options.nowMs, ...(fallbackStartedAt !== undefined ? { fallbackStartedAt } : {}) },
+    isRunning,
+  );
   const workStatus = resolveConversationTurnWorkStatus(
     draft.header,
     bodyRows,
@@ -368,6 +376,7 @@ function materializeDraftUnit(
     forceOpenHistory,
     timelineOnly,
     nowMs: options.nowMs,
+    ...(fallbackStartedAt !== undefined ? { fallbackStartedAt } : {}),
   });
   const orderedAssistantHistoryRows = workSegments.flatMap(
     (segment) => segment.assistantHistoryRows,

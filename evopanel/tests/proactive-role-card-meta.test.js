@@ -6,6 +6,7 @@ import {
   roleDescIsNameEcho,
   roleDutyOneLiner,
   roleMatchesDeptFilter,
+  roleSystemPromptPreview,
 } from '../src/lib/proactive-role-card-meta.js'
 
 describe('proactive role card meta', () => {
@@ -60,6 +61,21 @@ describe('proactive role card meta', () => {
       config: { responsibilities: ['接待访客', '转达消息'] },
     }
     expect(roleDutyOneLiner(role)).toBe('接待访客 · 转达消息')
+  })
+
+  it('falls back to system prompt preview when no desc/responsibilities', () => {
+    const role = {
+      role_name: '出图师',
+      agent_description: '员工：出图师',
+      system_prompt: '## 岗位职责\n- 按需求出图\n- 校对构图\n\n其余说明很长很长很长很长很长',
+    }
+    const line = roleDutyOneLiner(role)
+    expect(line).toContain('按需求出图')
+    expect(line).toContain('校对构图')
+  })
+
+  it('roleSystemPromptPreview strips headers and bullets', () => {
+    expect(roleSystemPromptPreview('## 职责\n- 出图\n- 校对', 80)).toBe('职责 · 出图 · 校对')
   })
 })
 

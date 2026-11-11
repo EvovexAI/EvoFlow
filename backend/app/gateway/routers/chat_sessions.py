@@ -1540,17 +1540,41 @@ async def ensure_session_thread(
     key = _require_session_access(request, session_key)
     if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
+    session_map = await run_db(sess_repo.load_session_map)
+    row = session_map.get(key) or {}
+    prev_tid = str(row.get("threadId") or "").strip()
     _t0 = _time.perf_counter()
     try:
         thread_id = await chat_svc.ensure_session_thread(key, force_recreate=force_recreate)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     _ensure_ms = round((_time.perf_counter() - _t0) * 1000.0, 2)
+    new_tid = str(thread_id or "").strip()
+    # FE force_recreate（stream 404 后）路径：与 gateway 透明 remint 同款，
+    # 先把 remap 后的 transcript 灌进新 thread，避免随后 subscribe hydrate 跳过。
+    if force_recreate and prev_tid and new_tid and new_tid != prev_tid:
+        try:
+            import asyncio
+
+            from app.gateway.v4.hydration import rehydrate_after_thread_remint
+
+            await asyncio.to_thread(rehydrate_after_thread_remint, new_tid)
+        except Exception:
+            logger.warning(
+                "ensure-thread remint v4 rehydrate failed sk=%s old=%s new=%s",
+                key,
+                prev_tid,
+                new_tid,
+                exc_info=True,
+            )
     # Hot path: do not COUNT(*) the transcript on every ensure-thread (old/long
     # sessions were paying multi-second TTFT here). Prefer denormalized row count.
-    session_map = await run_db(sess_repo.load_session_map)
-    row = session_map.get(key) or {}
     message_count = int(row.get("messageCount") or 0)
+    if force_recreate and new_tid and new_tid != prev_tid:
+        # Remint 后 session 行已更新；刷新 messageCount 以免返回陈旧值。
+        session_map = await run_db(sess_repo.load_session_map)
+        row = session_map.get(key) or {}
+        message_count = int(row.get("messageCount") or 0)
     try:
         from evoflow.observability.run_latency_trace import write_run_latency_event
 
