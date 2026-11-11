@@ -243,7 +243,7 @@ function providerCardsHtml() {
           urlField: '',
           defaultBaseUrl: '',
           docsUrl: 'https://specstream.ai/search-api',
-          signupUrl: 'https://specstream.ai/workspace',
+          signupUrl: 'https://specstream.ai/signup?src=evoflow',
           hint: '可选；不参与自动探测默认',
         },
         {

@@ -35,7 +35,7 @@ class SpecStreamWebSearchProvider(WebSearchProvider):
         if not api_key:
             return {
                 "success": False,
-                "error": "SPECSTREAM_API_KEY environment variable not set. Create a key at https://specstream.ai/workspace",
+                "error": "SPECSTREAM_API_KEY environment variable not set. Create a key at https://specstream.ai/signup?src=evoflow",
             }
         count = max(1, min(int(limit), 20))
         try:
