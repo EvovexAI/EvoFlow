@@ -130,6 +130,15 @@ export class SessionDataLayer {
     return this.entries.has(conversationTopic(sessionId));
   }
 
+  /**
+   * 只读窥探已有 store（不增减引用）。切会话时 React 换租约前一帧可用来
+   * 读 keep-warm/pin 快照，避免 lease mismatch → 空白 connecting。
+   */
+  peekStore(sessionId: string): ConversationProjectionStore | null {
+    const entry = this.entries.get(conversationTopic(sessionId));
+    return entry?.store ?? null;
+  }
+
   /** renderer pending-command registry 的只读对账入口；仍复用本 layer 的同一 host connection。 */
   queryCommands(params: CommandsQueryParams): Promise<CommandsQueryResult> {
     return this.transport.queryCommands(params);

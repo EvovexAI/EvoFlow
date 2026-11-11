@@ -14,6 +14,24 @@ function isTauriAssetMediaUrl(url) {
   return false
 }
 
+function hostPathHasNonAscii(path) {
+  return /[^\x00-\x7F]/.test(String(path || ''))
+}
+
+function hostPathIsUnderRoot(absPath, root) {
+  const a = String(absPath || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .toLowerCase()
+  const r = String(root || '')
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .toLowerCase()
+  if (!a || !r) return false
+  return a === r || a.startsWith(`${r}/`)
+}
+
 describe('isTauriAssetMediaUrl', () => {
   it('accepts Tauri 2 asset.localhost URLs', () => {
     assert.equal(isTauriAssetMediaUrl('https://asset.localhost/D%3A%2Fout%2Fmv.mp4'), true)
@@ -31,5 +49,33 @@ describe('isTauriAssetMediaUrl', () => {
       false,
     )
     assert.equal(isTauriAssetMediaUrl('https://tauri.localhost/index.html'), false)
+  })
+})
+
+describe('hostPathHasNonAscii (skip convertFileSrc)', () => {
+  it('flags Chinese deliverable paths', () => {
+    assert.equal(
+      hostPathHasNonAscii(
+        'D:/dev/github/knowledge-library/ai-showcase/aigc/ai-creative-ad-video/projects/皇帝第一视角-30秒-20261110/11-deliver/皇帝第一视角_30s_完成版.mp4',
+      ),
+      true,
+    )
+    assert.equal(hostPathHasNonAscii('D:/out/mv.mp4'), false)
+  })
+})
+
+describe('hostPathIsUnderRoot (serve-file root pick)', () => {
+  it('treats outside-workspace abs paths as not under bound root', () => {
+    assert.equal(
+      hostPathIsUnderRoot(
+        'D:/dev/github/knowledge-library/foo/bar.mp4',
+        'C:/Users/admin/.evoflow/workspaces/role',
+      ),
+      false,
+    )
+    assert.equal(
+      hostPathIsUnderRoot('C:/Users/admin/.evoflow/workspaces/role/out/a.mp4', 'C:/Users/admin/.evoflow/workspaces/role'),
+      true,
+    )
   })
 })

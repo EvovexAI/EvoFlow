@@ -42,10 +42,13 @@ export function useRightStageChatBridge() {
   const setWorkspacePanelOpen = useCallback((open: boolean, opts?: { write?: boolean }) => {
     if (open) {
       const write = opts?.write === true
+      // 顶栏/菜单是用户显式打开：必须 forceExpand，否则 userCollapsed 时只写签不撑开，
+      // 左侧已被 syncShellAside 收起，右侧却仍折叠 → 「点了工作区却看不到文件」。
       rightStageStore.show({
         kind: write ? 'write' : 'workspace-browse',
         title: write ? defaultTitleForKind('write') : defaultTitleForKind('workspace-browse'),
         data: {},
+        forceExpand: true,
       })
       return
     }

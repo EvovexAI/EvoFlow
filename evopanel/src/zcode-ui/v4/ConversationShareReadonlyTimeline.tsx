@@ -765,7 +765,7 @@ function ReadonlyAssistantWorkItems({
     <div
       className={
         layout === "mediaWrap"
-          ? "flex flex-wrap items-start gap-2 [&>*]:w-fit [&>*]:max-w-[min(100%,20rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
+          ? "flex flex-wrap items-start gap-1.5 [&>*]:w-fit [&>*]:max-w-[min(100%,10rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
           : "flex flex-col gap-4"
       }
       data-conversation-share-work-items

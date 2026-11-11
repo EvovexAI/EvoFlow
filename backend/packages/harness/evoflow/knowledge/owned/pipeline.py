@@ -68,12 +68,18 @@ def arm_embedding_quota_skip(reason: str, *, seconds: float) -> None:
 _arm_embedding_quota_skip = arm_embedding_quota_skip
 
 
-def embedding_error_is_soft_unavailable(exc: BaseException) -> tuple[bool, float]:
-    """Whether to degrade to keyword-only (and how long to cool down).
+# Hard embedding failures (wrong model, dim mismatch, provider bug) still leave
+# keyword search usable. Brief cooldown avoids hammering a broken model across
+# a queued batch; rebuild / model switch clears the skip.
+_EMBED_SKIP_HARD_S = 120.0
 
-    Returns ``(True, cooldown_s)`` for quota / rate-limit / auth that will not
-    recover inside this job. Other embedding errors still fail the job so
-    genuine bugs surface.
+
+def embedding_error_is_soft_unavailable(exc: BaseException) -> tuple[bool, float]:
+    """Whether the failure is quota/rate-limit/auth (long cool-down).
+
+    Returns ``(True, cooldown_s)`` for soft unavailability. Hard embedding errors
+    return ``(False, 0)`` — callers still degrade to keyword-only, but use a
+    short cool-down via ``note_embedding_unavailable`` instead of failing parse.
     """
     try:
         from evoflow.error_classifier import FailoverReason, classify
@@ -97,10 +103,9 @@ def embedding_error_is_soft_unavailable(exc: BaseException) -> tuple[bool, float
 
 
 def note_embedding_unavailable(exc: BaseException) -> bool:
-    """If ``exc`` is quota/rate-limit/auth, arm cooldown and return True."""
+    """Arm embedding cool-down for any EmbeddingError; return True if soft."""
     soft, cool_s = embedding_error_is_soft_unavailable(exc)
-    if soft:
-        arm_embedding_quota_skip(str(exc), seconds=cool_s)
+    arm_embedding_quota_skip(str(exc), seconds=cool_s if soft else _EMBED_SKIP_HARD_S)
     return soft
 
 
@@ -402,24 +407,26 @@ async def run_parse_index(
             )
             vectors.extend(part)
     except EmbeddingError as exc:
-        if note_embedding_unavailable(exc):
-            reason = str(exc).strip() or "embedding unavailable"
-            logger.warning(
-                "owned parse_index embedding unavailable → keyword-only doc=%s: %s",
-                doc_id,
-                reason[:300],
-            )
-            _publish_keyword_only(
-                kb_id=kb_id,
-                doc_id=doc_id,
-                chunk_ids=chunk_ids,
-                chunk_rows=chunk_rows,
-                old_ids=old_ids,
-                reason=reason,
-                job_id=job_id,
-            )
-            return
-        raise
+        # Soft (quota/auth) or hard (model/provider): never mark parse failed —
+        # keyword + FTS stay usable; vector_status=degraded surfaces separately.
+        soft = note_embedding_unavailable(exc)
+        reason = str(exc).strip() or "embedding unavailable"
+        logger.warning(
+            "owned parse_index embedding %s → keyword-only doc=%s: %s",
+            "unavailable" if soft else "failed",
+            doc_id,
+            reason[:300],
+        )
+        _publish_keyword_only(
+            kb_id=kb_id,
+            doc_id=doc_id,
+            chunk_ids=chunk_ids,
+            chunk_rows=chunk_rows,
+            old_ids=old_ids,
+            reason=reason,
+            job_id=job_id,
+        )
+        return
 
     if not vectors or len(vectors) != len(chunk_ids):
         raise RuntimeError("embedding result size mismatch")

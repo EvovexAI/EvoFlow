@@ -353,10 +353,11 @@ describe('message-row-stream-display', () => {
     // 方案 B：流式时 thinking-wait 始终在气泡底部
     expect(plan.slots.some((s) => s.kind === 'thinking-wait')).toBe(true)
     expect(plan.slots[plan.slots.length - 1].kind).toBe('thinking-wait')
+    // 开放思考收进 Exploring 折叠（activity chunk 的 reasoning piece），不再单独挂 top-reasoning 卡片
+    const exploring = plan.slots.find((s) => s.kind === 'chunk')
     expect(
-      plan.slots.some(
-        (s) =>
-          s.kind === 'top-reasoning' && String(s.text).includes('The user is asking'),
+      exploring?.kind === 'chunk' && exploring.chunk.pieces.some(
+        (p) => p.kind === 'reasoning' && String(p.text).includes('The user is asking'),
       ),
     ).toBe(true)
   })
@@ -605,7 +606,6 @@ describe('message-row-display-plan', () => {
     // 思考随工具收进 Exploring 折叠；流式 preview 增长体现在 fold 内最新 reasoning piece
     expect(plan.slots.some((s) => s.kind === 'chunk')).toBe(true)
   })
-  })
 
   it('hides reasoning-pending when body live-tail is active (run f02ef685)', async () => {
     const { buildAssistantBubbleDisplayPlan } = await import(
@@ -722,9 +722,15 @@ describe('message-row-display-plan', () => {
       plainShowThinkingCursor: false,
       aguiTurn: { runId: 'run-9c3192c34e4c', threadId: 't1', finished: true },
     })
-    // 全部思考 + 工具收进单一 Exploring 折叠；最终正文留外
+    // 全部思考 + 工具 + 最终正文收进单一 Exploring 折叠（agui 顺序路径：正文留在折叠内按
+    // 到达顺序排列，不拆出 plain-body / live-tail）
     expect(plan.slots.filter((s) => s.kind === 'chunk')).toHaveLength(1)
-    expect(plan.slots.some((s) => s.kind === 'plain-body' || s.kind === 'live-tail')).toBe(true)
+    const singleChunk = plan.slots.find((s) => s.kind === 'chunk')
+    expect(
+      singleChunk?.kind === 'chunk' && singleChunk.chunk.pieces.some(
+        (p) => p.kind === 'text' && String(p.text).includes('好，开始冒烟'),
+      ),
+    ).toBe(true)
     expect(plan.slots.filter((s) => s.kind === 'top-reasoning')).toHaveLength(0)
     expect(plan.slots.filter((s) => s.kind === 'tool-row')).toHaveLength(0)
   })
@@ -852,3 +858,4 @@ describe('tool-filter-id-resolve', () => {
     expect(resolveToolByFilterId(tools, 'call_xyz:session:0')).toBe(tools[0])
   })
 })
+

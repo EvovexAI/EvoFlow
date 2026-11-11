@@ -38,12 +38,14 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'done',
-          attachRecommended: false,
-          langgraphActive: false,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'done',
+            attachRecommended: false,
+            langgraphActive: false,
+          }),
       })),
     )
     await expect(isSessionRunStillActive('sk-done')).resolves.toBe(false)
@@ -55,13 +57,15 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'done',
-          attachRecommended: false,
-          streamResumeRecommended: false,
-          langgraphActive: false,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'done',
+            attachRecommended: false,
+            streamResumeRecommended: false,
+            langgraphActive: false,
+          }),
       })),
     )
     const result = await reattachRunningSessionIfNeeded({
@@ -80,12 +84,14 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'running',
-          attachRecommended: true,
-          langgraphActive: true,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'running',
+            attachRecommended: true,
+            langgraphActive: true,
+          }),
       })),
     )
     await expect(isSessionRunStillActive('sk-active')).resolves.toBe(true)
@@ -97,11 +103,13 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'running',
-          attachRecommended: true,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'running',
+            attachRecommended: true,
+          }),
       })),
     )
     const onClear = vi.fn()
@@ -123,11 +131,13 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'idle',
-          attachRecommended: false,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'idle',
+            attachRecommended: false,
+          }),
       })),
     )
     const wsClient = {
@@ -150,13 +160,15 @@ describe('session-reattach', () => {
         calls += 1
         return {
           ok: true,
-          json: async () => ({
-            ok: true,
-            runStatus: calls >= 2 ? 'done' : 'running',
-            runId: 'run-1',
-            threadId: 'thread-1',
-            attachRecommended: calls < 2,
-          }),
+          status: 200,
+          text: async () =>
+            JSON.stringify({
+              ok: true,
+              runStatus: calls >= 2 ? 'done' : 'running',
+              runId: 'run-1',
+              threadId: 'thread-1',
+              attachRecommended: calls < 2,
+            }),
         }
       }),
     )
@@ -186,13 +198,15 @@ describe('session-reattach', () => {
       'fetch',
       vi.fn(async () => ({
         ok: true,
-        json: async () => ({
-          ok: true,
-          runStatus: 'running',
-          runId: 'run-busy',
-          threadId: 'thread-1',
-          attachRecommended: true,
-        }),
+        status: 200,
+        text: async () =>
+          JSON.stringify({
+            ok: true,
+            runStatus: 'running',
+            runId: 'run-busy',
+            threadId: 'thread-1',
+            attachRecommended: true,
+          }),
       })),
     )
     const resume = vi.fn(async () => ({ ok: true }))

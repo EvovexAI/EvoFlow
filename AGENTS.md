@@ -37,3 +37,9 @@
 - **未知 `/api/*` 默认 DATA**，禁止默认进 Control——新慢接口也要被隔离，不能等 hang 再打补丁
 - Best-effort（catalog、serve-file、git、browser/log…）过载时由 `TrafficLaneMiddleware` **503 shed**
 - 本机媒体优先 Tauri `convertFileSrc`，勿默认经 Gateway 拉大 mp4
+
+## Agent 终端长任务（防对话假死）
+
+`ffmpeg` / `render*.py` / 整片编码 / 大批量生图生视频：**禁止前台干等 + `| tail`**（会卡在「正在获取任务输出」，对话像死机；中断后进程常变僵尸）。
+
+权威规则：`.cursor/rules/long-running-shell.mdc`（先探活 → 后台 + 日志 → 轮询产物；只杀确认过的 PID）。

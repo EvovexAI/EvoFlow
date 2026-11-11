@@ -6,6 +6,67 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.19] - 2026-11-11
+
+相对 **1.3.18**：多会话切换 / 忙闲齿轮收口；排队续发不再误标用户停止；知识库向量硬失败仍可关键词搜；覆盖安装主动关进程；BOT 分组可拖拽排序。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.19.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **BOT 分组拖拽排序**：员工 Tab 组头按编制序，本机拖拽偏好写入 localStorage
+
+### Changed
+
+- **覆盖安装**：探测桌面/Gateway 在跑时交互确认并关闭（静默/被动直接关）
+- **知识库向量**：硬失败 / 配额失败均降级关键词；可关语义向量；健康度按可检索计
+- **忙闲对齐**：`live-execution-busy` 综合工具 / 流式正文 / 后台 bash；终态 + 侧栏 idle 不再被陈旧 running 钉死
+
+### Fixed
+
+- **多会话切换空白**：V4 钉会话投影、遮罩上限、有快照不盖加载中
+- **结束后画布转圈**：RUN_FINISHED 先 seal 未收口工具与 streaming 正文
+- **排队续发误标用户停止**：成功回合后迟到的 USER_INTERRUPT 不再降级 turnHeader
+- **网关重启历史消失**：LangGraph 404 重建前灌回已有 transcript 投影
+
+## [1.3.18] - 2026-11-11
+
+相对 **1.3.17**：工作区媒体解析限流防拖死界面；中文路径媒体预览可播；裸 `run_error` / 断连有人话提示；BOT 列表可开关巡检。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.18.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **BOT 巡检快捷开关**：列表上直接打开 / 关闭自动巡检
+
+### Changed
+
+- **媒体预览**：非 ASCII 路径改可播放通道；预览 heal 并发封顶；失败可刷新
+- **RUN_ERROR 文案**：裸 `run_error` / RemoteProtocol / disconnected 给出可操作中文提示，并标 recoverable
+- **侧栏触发芯片**：主面板会话隐藏默认「对话」标签
+
+### Fixed
+
+- **工作区 resolve-target 饿死 REST**：专用线程池 + 并发槽 + 超时软 miss，避免大媒体树 walk 拖死员工 / 对话接口
+- **连发卡顿**：未等到首帧又发送时归档上一轮 sendTrace，便于识别 stalled 重发
+
+## [1.3.17] - 2026-11-10
+
+相对 **1.3.16**：侧栏会话行增加触发方式标签（仍保留任务 / BOT / 部门三栏），标题去掉员工名/渠道长前缀；粘贴图片写入会话 uploads，生图改图可引用本地路径；媒体解析覆盖 uploads。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.17.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **会话触发标签**：侧栏行显示对话 / 渠道 / 定时 / 任务 / 部门，区分消息从哪触发
+
+### Changed
+
+- **侧栏标题**：去掉「员工名 ·」与「飞书 · 谁 · id」类长前缀；三栏结构不变
+- **图片附件落盘**：与文档一样 materialize 到 thread uploads，供媒体工具 Path 引用
+- **上传路径提示**：非虚拟工作区优先展示本机绝对路径
+
+### Fixed
+
+- **媒体 URL 解析**：支持 `uploads/` 与 `/mnt/user-data/uploads/…` 映射到会话 uploads 目录
+
 ## [1.3.16] - 2026-11-10
 
 相对 **1.3.15**：长会话压缩提示、演示工作台运行态可视化、删员工同步停 IM 僵尸连接；MCP 中文名可挂、知识库配额耗尽回落关键词；安装占用清孤儿进程；对话冷加载限流防卡死。

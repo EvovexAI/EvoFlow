@@ -217,6 +217,7 @@ describe('dept-group-transcript migrate', () => {
     expect(gatewayProxy).not.toHaveBeenCalled()
     expect(rows).toHaveLength(1)
     expect(rows[0].text).toBe('from-db')
-    expect(localStorage.getItem(`${DEPT_CHAT_LS_PREFIX}${deptId}`)).toBeTruthy()
+    // 32655cae：DB 已有权威副本时跳过 LS 导入，且会清掉可能过期的 LS 备份
+    expect(localStorage.getItem(`${DEPT_CHAT_LS_PREFIX}${deptId}`)).toBeNull()
   })
 })

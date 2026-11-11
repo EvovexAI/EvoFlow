@@ -30,7 +30,9 @@ describe('verify-perf-stress (offline)', () => {
     expect(live.textDeltaCount).toBeGreaterThan(1000)
     expect(live.structuralCount).toBeGreaterThan(5000)
     expect(live.displayTicks).toBeLessThanOrEqual(live.structuralCount + 2)
-    expect(live.displayTicks).toBeLessThan(live.eventCount * 0.6)
+    // b0357c4d 起 REASONING_START/REASONING_MESSAGE_START 也归 structural（与 ChatApp 路由一致），
+    // structural 占比 ≈11/15；阈值仍须把「每事件都 tick」的 legacy 路径挡在外面。
+    expect(live.displayTicks).toBeLessThan(live.eventCount * 0.8)
   })
 
   it('2000 tool rounds composite stream', () => {

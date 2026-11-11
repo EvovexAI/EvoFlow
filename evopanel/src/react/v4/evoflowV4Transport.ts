@@ -78,11 +78,20 @@ function v4Log(channel: string, message: string, detail?: Record<string, unknown
   else console.info(line);
 }
 
-async function postJson<T>(url: string, body: unknown): Promise<T> {
+/** 与 conversationProjectionStore.SUBSCRIBE_HTTP_TIMEOUT_MS 对齐：底层 gateway_proxy 必须同窗超时，
+ * 否则 JS race 先失败、Rust invoke 仍占槽到 90s，多会话切来切去会堵死后续 subscribe。 */
+const V4_SUBSCRIBE_PROXY_TIMEOUT_MS = 12_000;
+
+async function postJson<T>(
+  url: string,
+  body: unknown,
+  opts?: { timeoutMs?: number },
+): Promise<T> {
   const resp = await evoflowFetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    ...(opts?.timeoutMs != null ? { timeoutMs: opts.timeoutMs } : {}),
   });
   if (!resp.ok) {
     throw new Error(`v4 ${url} failed: HTTP ${resp.status}`);
@@ -193,6 +202,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
         // 桌面面板走 continuous 档（30ms flush 窗）；web/手机消费方可传别的 clientMode。
         clientMode: "desktop-continuous",
       },
+      { timeoutMs: V4_SUBSCRIBE_PROXY_TIMEOUT_MS },
     );
     const subscribeHttpMs = Date.now() - httpStarted;
     const subscriptionId = result.ack.subscriptionId;

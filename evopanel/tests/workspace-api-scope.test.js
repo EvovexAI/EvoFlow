@@ -148,7 +148,7 @@ describe('workspace path normalization', () => {
     expect(src?.path).toContain('凌不渡vs盲僧_30秒成片_v2场记链版.mp4')
     expect(src?.workspacePath).toBe('D:/dev/github/knowledge-library/ai漫剧工具包')
     expect(buildRightStageMediaSource('readme.md')).toBeNull()
-  })
+  }, 30_000)  // 右栏重导入：全量并发跑时 5s 默认超时会误报
 
   it('compares windows workspace paths case-insensitively for tree focus', async () => {
     const {

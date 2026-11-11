@@ -614,7 +614,7 @@ export function WorkspaceFilePreviewPane({
             </button>
           </div>
         ) : showVideo ? (
-          <div className="react-chat-workspace-preview-media-wrap">
+          <div className="react-chat-workspace-preview-media-wrap is-video">
             <video
               className="react-chat-workspace-preview-media-video"
               src={mediaSrc}

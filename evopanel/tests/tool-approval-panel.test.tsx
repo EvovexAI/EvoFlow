@@ -13,7 +13,8 @@ describe('ToolApprovalPanel 决策态（多工具审批点击回执）', () => {
     const seen: string[] = []
     render(<ToolApprovalPanel toolName="terminal" summary="rm -rf tmp" onConfirm={(c) => seen.push(c)} />)
     expect(screen.getByText('允许')).toBeTruthy()
-    expect(screen.getByText('始终允许本项目')).toBeTruthy()
+    // aa7167eb 起 always_project 选项文案改为「本会话内不再询问」
+    expect(screen.getByText('本会话内不再询问')).toBeTruthy()
     expect(screen.getByText('完全访问')).toBeTruthy()
     expect(screen.getByText('拒绝')).toBeTruthy()
     expect(screen.getByText('新对话默认完全访问')).toBeTruthy()

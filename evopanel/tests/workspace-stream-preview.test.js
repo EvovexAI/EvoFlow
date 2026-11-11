@@ -34,7 +34,9 @@ describe('workspace stream auto preview', () => {
     expect(isStreamAutoPreviewPath('outputs/image.png')).toBe(false)
   })
 
-  it('does not detect in-flight txt write for auto side panel', () => {
+  it('detects in-flight txt write for the write pane（自动开门已收窄到 isStreamAutoPreviewPath=HTML）', () => {
+    // 旧契约「txt 不进检测」随侧栏架构拆分失效：自动开门由 isStreamAutoPreviewPath（仅 HTML）
+    // 把关，detect 负责侧栏写入面板的内容跟踪——txt/md 等纯文本也要能跟随流式写入。
     const tools = [
       {
         name: 'write_to_file',
@@ -46,7 +48,11 @@ describe('workspace stream auto preview', () => {
         },
       },
     ]
-    expect(detectStreamingWritePreview(tools, { requireReady: false })).toBeNull()
+    const hit = detectStreamingWritePreview(tools, { requireReady: false })
+    expect(hit?.path).toBe('outputs/notes.txt')
+    expect(hit?.streaming).toBe(true)
+    // 自动开门闸门仍只认 HTML：txt 绝不触发侧栏自动展开
+    expect(isStreamAutoPreviewPath('outputs/notes.txt')).toBe(false)
   })
 
   it('ignores in-flight write tools for non-previewable paths', () => {
@@ -122,7 +128,7 @@ describe('workspace stream auto preview', () => {
     expect(detectStreamingWritePreview(tools, { requireReady: false })).toBeNull()
   })
 
-  it('does not detect partial function.arguments stream for txt write', () => {
+  it('detects partial function.arguments stream for txt write（arguments 半截 JSON 也参与面板跟踪）', () => {
     const tools = [
       {
         name: 'write_to_file',
@@ -133,7 +139,9 @@ describe('workspace stream auto preview', () => {
         },
       },
     ]
-    expect(detectStreamingWritePreview(tools, { requireReady: false })).toBeNull()
+    const hit = detectStreamingWritePreview(tools, { requireReady: false })
+    expect(hit?.path).toBe('outputs/notes.txt')
+    expect(hit?.content).toBe('hello wo')
   })
 
   it('shows html stream body early once angle bracket appears', () => {

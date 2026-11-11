@@ -294,7 +294,7 @@ export function MarkdownImage({
       <div
         aria-label={failed ? intl.formatMessage({ id: "codeViewer.imageUnavailable" }) : undefined}
         className={cn(
-          "inline-flex h-44 w-56 max-w-[min(100%,20rem)] shrink-0 items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle align-top",
+          "inline-flex h-28 w-36 max-w-[min(100%,10rem)] shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-2 py-1.5 text-center text-ui-base text-foreground-subtle align-top",
           className,
         )}
         data-markdown-local-image={failed ? "error" : "loading"}
@@ -316,7 +316,7 @@ export function MarkdownImage({
       <div
         aria-label={intl.formatMessage({ id: "codeViewer.imageUnavailable" })}
         className={cn(
-          "inline-flex h-44 w-56 max-w-[min(100%,20rem)] shrink-0 items-center justify-center rounded-xl border border-border bg-surface px-3 py-2 text-center text-ui-base text-foreground-subtle align-top",
+          "inline-flex h-28 w-36 max-w-[min(100%,10rem)] shrink-0 items-center justify-center rounded-lg border border-border bg-surface px-2 py-1.5 text-center text-ui-base text-foreground-subtle align-top",
           className,
         )}
         data-markdown-image-state="error"
@@ -364,9 +364,9 @@ export function MarkdownImage({
         className={cn(
           imageThumbnailTriggerClassName,
           effectiveImageStatus === "loading" &&
-            // 画廊父级的响应式 w-auto/h-44 选择器优先级高于普通尺寸类，
+            // 画廊父级的响应式 w-auto/h-28 选择器优先级高于普通尺寸类，
             // 加载态内部又是绝对定位，导致按钮宽度塌缩；仅在加载期间强制固定方形。
-            "relative !h-44 !w-44 !max-w-full cursor-default",
+            "relative !h-28 !w-28 !max-w-full cursor-default",
         )}
         data-image-thumbnail-trigger=""
         data-markdown-image-trigger=""

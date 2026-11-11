@@ -38,13 +38,22 @@ describe('message-row-timeline', () => {
   })
 
   it('shouldUsePlainStreamPath only for streaming text-only turns', () => {
+    // 无任何已封存 segment 的纯流式：走 plain 路径
+    expect(
+      shouldUsePlainStreamPath({
+        isStreaming: true,
+        hasToolsInTurnEarly: false,
+        displaySegments: [],
+      }),
+    ).toBe(true)
+    // 已封存 text segment（body_text closed）→ 走 agui 路径用 MarkdownHtml 渲染，不走 plain 的 <pre>
     expect(
       shouldUsePlainStreamPath({
         isStreaming: true,
         hasToolsInTurnEarly: false,
         displaySegments: [{ kind: 'text', text: 'hi' }],
       }),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       shouldUsePlainStreamPath({
         isStreaming: false,

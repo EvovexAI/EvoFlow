@@ -1,5 +1,6 @@
 ; Reference fork of tauri-bundler utils.nsh (optional local copy; release build uses Tauri utils.nsh).
-; Install/uninstall does not call CheckIfAppIsRunning — see windows/installer.nsi.
+; Install/uninstall: CheckIfAppIsRunning left empty; EvpPromptCloseRunningApp in
+; windows/installer-hooks.nsh handles detect → confirm → kill instead.
 ; Upstream: crates/tauri-bundler/src/bundle/windows/nsis/utils.nsh
 
 ; Change shell and registry context based on running
@@ -22,7 +23,7 @@
   ${EndIf}
 !macroend
 
-; EvoPanel: do not detect/kill running app during install or uninstall (fork of Tauri utils.nsh).
+; EvoFlow: stock Tauri CheckIfAppIsRunning disabled; see EvpPromptCloseRunningApp.
 !macro CheckIfAppIsRunning executableName productName
 !macroend
 

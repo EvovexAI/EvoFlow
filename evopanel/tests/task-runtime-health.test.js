@@ -36,7 +36,7 @@ describe('resolveTaskRuntimeHealth', () => {
 
   it('suffix text for status line', () => {
     expect(runtimeHealthStatusSuffix('live')).toBe('进程在跑')
-    expect(runtimeHealthStatusSuffix('interrupted')).toBe('进程已停')
+    expect(runtimeHealthStatusSuffix('interrupted')).toBe('进程失联')
     expect(runtimeHealthStatusSuffix('idle')).toBe('')
   })
 

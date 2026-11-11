@@ -30,12 +30,12 @@ function displayName(role) {
   return name || code || '员工'
 }
 
-/** @returns {{ label: string, tone: 'run'|'ok'|'warn'|'muted' }} */
+/** @returns {{ label: string, tone: 'run'|'ok'|'warn'|'muted' }}
+ *  精简格只标岗位可用态；巡检开闭见员工墙完整卡片下方。 */
 function statusOf(role, busySet) {
   const code = String(role?.agent_code || '')
   if (busySet.has(code)) return { label: '工作中', tone: 'run' }
   const st = String(role?.status || '')
-  // 关巡检仍可对话/派活 → 已启用；只有停用/草稿才算不可用
   if (st === 'draft') return { label: '草稿', tone: 'warn' }
   if (st === 'paused') return { label: '已停用', tone: 'muted' }
   if (st === 'active') return { label: '已启用', tone: 'ok' }

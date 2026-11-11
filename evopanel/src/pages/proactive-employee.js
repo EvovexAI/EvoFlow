@@ -20,12 +20,14 @@ import { mountProactiveLiveProcess } from '../components/proactive-live-process.
 import { mountAgentAvatar } from '../lib/mount-agent-ui.js'
 import { showEditRoleModal, loadKnowledgeVaults } from '../lib/proactive-role-edit.js'
 import {
+  isDutyScheduleOff,
   roleScheduleExpr,
   roleScheduleSummary,
   cronToPlainZh,
   formatPreviewRunLabel,
   formatPreviewRelative,
 } from '../lib/schedule-panel.js'
+import { roleSystemPromptPreview } from '../lib/proactive-role-card-meta.js'
 import {
   tasksFromListResponse,
   normalizeWorkBoardTasks,
@@ -1459,36 +1461,47 @@ function heroDesc(role, initiatives) {
   return parts.join(' · ')
 }
 
-/** Detail badge — 工作中 / 已启用 / 已停用 / 草稿
- * 已启用 = 可对话/派活（status=active）；关巡检 ≠ 已停用。
- * 已停用 = paused；草稿 = draft。
- */
+function isEmployeePatrolOff(role) {
+  if (!role) return true
+  if (role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended) return true
+  return isDutyScheduleOff(roleScheduleExpr(role))
+}
+
+/** Detail 启用态徽章 — 工作中 / 已启用 / 已停用 / 草稿（巡检开闭另见旁侧 chip） */
 function roleStatusBadge(role, busy = false) {
   if (busy) return { label: '工作中', cls: 'pro-badge--run', tip: '正在执行本轮任务' }
   const st = String(role?.status || '')
-  const suspended = !!(role?.auto_patrol_suspended || role?.config?.auto_patrol_suspended)
 
   if (st === 'draft') {
     return { label: '草稿', cls: 'pro-badge--muted', tip: '草稿未确认，确认启用后才会排班' }
   }
   if (st === 'paused') {
-    return { label: '已停用', cls: 'pro-badge--muted', tip: '已停用，不会自动巡检；启用后可对话 / 派活' }
+    return { label: '已停用', cls: 'pro-badge--muted', tip: '岗位已停用；启用后可对话 / 派活' }
   }
 
   if (st === 'active') {
-    if (suspended) {
-      return {
-        label: '已启用',
-        cls: 'pro-badge--ok',
-        tip: '已启用 · 可在线对话 / 派活，不定时巡检',
-      }
+    return {
+      label: '已启用',
+      cls: 'pro-badge--ok',
+      tip: '岗位已启用；可对话 / 派活',
     }
-    const tipNext = role?.next_heartbeat_at
-      ? `已启用 · 下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
-      : '已启用 · 按计划自动巡检'
-    return { label: '已启用', cls: 'pro-badge--ok', tip: tipNext }
   }
   return { label: '已停用', cls: 'pro-badge--muted', tip: st || '—' }
+}
+
+/** 巡检开闭文案（与启用态拆开，避免和「已启用」叠在同一徽章） */
+function rolePatrolBadge(role) {
+  if (isEmployeePatrolOff(role)) {
+    return {
+      label: '已关闭巡检',
+      cls: 'pro-badge--muted',
+      tip: '不定时自动找活；仍可对话 / 派活',
+    }
+  }
+  const tipNext = role?.next_heartbeat_at
+    ? `下次自动巡检 ${fmtTime(role.next_heartbeat_at)}`
+    : '按计划自动巡检'
+  return { label: '已开启巡检', cls: 'pro-badge--ok', tip: tipNext }
 }
 
 function fmtPeriodDay(iso) {
@@ -1660,22 +1673,29 @@ function renderRoleProfile(
   const cfg = role.config || {}
   const dept = role.department || cfg.department || ''
   const badge = roleStatusBadge(role, busy)
+  const patrolBadge =
+    String(role?.status || '') === 'draft' ? null : rolePatrolBadge(role)
   const stats = workStats(initiatives)
   const autonomy = AUTONOMY_LABEL[cfg.autonomy_level] || cfg.autonomy_level || '—'
   const autonomyHint =
     AUTONOMY_HINT[cfg.autonomy_level] || AUTONOMY_HINT.approval_for_risky
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.filter(Boolean) : []
-  // 岗位页展示岗位职责，不用智能体 description（那是「智能体」页人设摘要）。
-  // 职责已合并进智能体 system_prompt（## 岗位职责），这里只剩旧数据回显；
-  // 没有旧数据就不渲染占位文案（「暂未配置」是误导——职责其实写在提示词里）。
-  const heroDutyHtml = resp.length
-    ? `<ul class="pro-resp-list pro-resp-list--hero">${resp
-        .slice(0, 4)
-        .map((t) => `<li>${esc(t)}</li>`)
-        .join('')}${
-        resp.length > 4 ? `<li class="pro-resp-list-more">另有 ${resp.length - 4} 项…</li>` : ''
-      }</ul>`
-    : ''
+  // 职责已并进智能体 system_prompt：优先回显旧职责列表；否则展示提示词摘要。
+  const promptPreview = roleSystemPromptPreview(
+    agent?.system_prompt || role?.system_prompt || '',
+    220,
+  )
+  let heroDutyHtml = ''
+  if (resp.length) {
+    heroDutyHtml = `<ul class="pro-resp-list pro-resp-list--hero">${resp
+      .slice(0, 4)
+      .map((t) => `<li>${esc(t)}</li>`)
+      .join('')}${
+      resp.length > 4 ? `<li class="pro-resp-list-more">另有 ${resp.length - 4} 项…</li>` : ''
+    }</ul>`
+  } else if (promptPreview) {
+    heroDutyHtml = `<p class="pro-duty-sheet-prompt" title="系统提示词摘要">${esc(promptPreview)}</p>`
+  }
 
   // Hero 能力标签 + 工作量；频率只在「自动巡检时间」折叠里出现一次
   const sheetStats = [
@@ -1788,6 +1808,11 @@ function renderRoleProfile(
             <code>${esc(code)}</code>
             <span class="pro-duty-sheet-sep">·</span>
             <span class="pro-badge ${badge.cls}" data-role-status>${esc(badge.label)}</span>
+            ${
+              patrolBadge
+                ? `<span class="pro-duty-sheet-sep">·</span><span class="pro-badge ${patrolBadge.cls}" data-role-patrol title="${esc(patrolBadge.tip || '')}">${esc(patrolBadge.label)}</span>`
+                : ''
+            }
             ${
               !!role.system_front_desk || String(code || '') === 'xiaomi'
                 ? '<span class="pro-duty-sheet-sep">·</span><span class="pro-badge pro-badge--muted" title="安装自带，催办全局待办">系统前台</span>'
@@ -4184,8 +4209,19 @@ function bindEmployeePage(page, role, initiatives) {
       }
       const statusEl = page.querySelector('[data-role-status]')
       if (statusEl) {
-        statusEl.className = 'pro-badge pro-badge--ok'
-        statusEl.textContent = '已启用'
+        const next = roleStatusBadge(role, false)
+        statusEl.className = `pro-badge ${next.cls}`
+        statusEl.textContent = next.label
+        if (next.tip) statusEl.title = next.tip
+        else statusEl.removeAttribute('title')
+      }
+      const patrolEl = page.querySelector('[data-role-patrol]')
+      if (patrolEl) {
+        const nextPatrol = rolePatrolBadge(role)
+        patrolEl.className = `pro-badge ${nextPatrol.cls}`
+        patrolEl.textContent = nextPatrol.label
+        if (nextPatrol.tip) patrolEl.title = nextPatrol.tip
+        else patrolEl.removeAttribute('title')
       }
     } catch (e) {
       toast(`停止失败: ${e?.message || e}`, 'error')

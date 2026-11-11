@@ -51,10 +51,7 @@ export function PlatformMediaGeneratingPlaceholder({
       aria-live="polite"
       aria-label={`${label} ${pct}%`}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2 text-ui-sm text-foreground-subtle">
-        <span className="min-w-0 truncate">{label}</span>
-        <span className="shrink-0 tabular-nums font-semibold text-foreground">{pct}%</span>
-      </div>
+      {/* 进度只画在色块上（中心 % + 底条）；上方不再重复长文案/百分比。 */}
       <div
         className="relative w-full overflow-hidden rounded-xl border border-border shadow-sm"
         style={{ aspectRatio: `${w} / ${h}` }}

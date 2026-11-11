@@ -2,8 +2,14 @@
 /**
  * Debounced PUT / best-effort DELETE of live-run snapshots via gateway API.
  * Extracted from ChatApp.tsx (P136).
+ *
+ * 多会话并流行时：后台会话用更长 debounce，避免 PUT /live-run 占满 gatewayProxy
+ * 槽位，把 V4 subscribe 堵到 45–110s（切会话空白开根因之一）。
  */
 export type LiveRunSnapshotPersistCtx = Record<string, any>
+
+const LIVE_RUN_PUT_SELECTED_MS = 2_000
+const LIVE_RUN_PUT_BACKGROUND_MS = 10_000
 
 export function putLiveRunSnapshotBestEffort(
   ctx: LiveRunSnapshotPersistCtx,
@@ -24,6 +30,9 @@ export function putLiveRunSnapshotBestEffort(
   ctx.liveRunPersistPendingRef.current[sk] = snapshot
   const prevTimer = ctx.liveRunPersistTimerRef.current[sk]
   if (prevTimer) clearTimeout(prevTimer)
+  const selected = String(ctx.selectedSessionKeyRef?.current || '').trim()
+  const isSelected = !selected || selected === sk
+  const delayMs = isSelected ? LIVE_RUN_PUT_SELECTED_MS : LIVE_RUN_PUT_BACKGROUND_MS
   ctx.liveRunPersistTimerRef.current[sk] = setTimeout(() => {
     const latest = ctx.liveRunPersistPendingRef.current[sk]
     ctx.liveRunPersistTimerRef.current[sk] = null
@@ -35,7 +44,7 @@ export function putLiveRunSnapshotBestEffort(
         body: JSON.stringify(latest),
       })
       .catch(() => {})
-  }, 2000)
+  }, delayMs)
 }
 
 export function deleteLiveRunSnapshotBestEffort(

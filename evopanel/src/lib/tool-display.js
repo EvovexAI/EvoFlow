@@ -800,6 +800,10 @@ export const BUILTIN_SUBAGENT_UI_NAMES = {
   Agent: 'Agent',
   'code-agent': '代码助手',
   bash: '终端执行',
+  // claude-code 等在 /api/agents 里被 UI 隐藏，必须本地兜底，否则折叠条会裸显 code
+  'claude-code': 'Claude Code',
+  'claude-session': 'Claude Code',
+  claude: 'Claude Code',
   'knowledge-retriever': '知识检索',
   'knowledge-curator': '知识整理',
   'project-architect': '项目·方案',

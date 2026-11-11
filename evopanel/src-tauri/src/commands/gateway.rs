@@ -58,6 +58,10 @@ pub struct GatewayProxyRequest {
     /// Panel often sends `headers: null` when logged out / no WebUI JWT.
     #[serde(default, deserialize_with = "null_as_default")]
     pub headers: BTreeMap<String, String>,
+    /// Optional per-request HTTP timeout (ms). V4 subscribe must be short so a
+    /// stalled call does not occupy the JS gatewayProxy slot for the default 90s.
+    #[serde(default, alias = "timeoutMs")]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Serialize)]
@@ -261,8 +265,10 @@ async fn send_stream_connect(
 pub async fn gateway_proxy(request: GatewayProxyRequest) -> Result<GatewayProxyResponse, String> {
     let method = parse_method(&request.method)?;
     let url = build_target_url(&request.path, request.query.as_ref())?;
+    // Default 90s for long POSTs; callers (e.g. V4 subscribe) may pass a shorter cap.
+    let timeout = Duration::from_millis(request.timeout_ms.unwrap_or(90_000).clamp(1_000, 600_000));
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(90))
+        .timeout(timeout)
         .build()
         .map_err(|e| format!("创建网关 HTTP 客户端失败: {e}"))?;
 

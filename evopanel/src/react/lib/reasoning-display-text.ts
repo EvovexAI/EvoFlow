@@ -29,7 +29,8 @@ export function reasoningStreamOneLine(text: string, maxLen = 160): string {
   const flat = normalizeReasoningDisplayText(text).replace(/\n+/g, ' ').trim()
   if (!flat) return ''
   if (flat.length <= maxLen) return flat
-  return flat.slice(-maxLen)
+  // 露尾截断加省略号前缀，与 head 截断（reasoningPreviewOneLine 尾部 …）对仗
+  return `…${flat.slice(-maxLen)}`
 }
 
 /** 历史记录（非流式）展开时只保留前若干字符，思考内容不重要不必占满版面。 */

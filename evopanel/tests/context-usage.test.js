@@ -58,7 +58,7 @@ describe('context-usage helpers', () => {
       cacheRead: 2061120,
       cacheMiss: 248954,
     })
-    expect(text).toContain('会话累计  输入 2.60M · 输出 19.0k')
+    expect(text).toContain('会话累计（厂商返回）  输入 2.60M · 输出 19.0k')
     expect(text).toContain('命中率 89.2%')
     expect(text).toContain('命中 2.06M')
     expect(text).toContain('未命中 249k')
@@ -69,8 +69,8 @@ describe('context-usage helpers', () => {
       { usedTokens: 27400, windowTokens: 524000, messageCount: 36, compacted: false },
       { input: 1000, output: 200, cacheRead: 800, cacheMiss: 200 },
     )
-    expect(text).toContain('模型上下文')
-    expect(text).toContain('会话累计')
+    expect(text).toContain('上下文占用')
+    expect(text).toContain('会话累计（厂商返回）')
     expect(text.split('\n\n').length).toBe(2)
   })
 
@@ -112,7 +112,13 @@ describe('context-usage helpers', () => {
       pct: 1.6,
       updatedAt: 200,
     }
-    expect(mergeContextUsageSnapshots(older, newer)).toEqual(newer)
+    // Newer snapshot wins; overhead fields omitted by it are normalized to null fallbacks.
+    const merged = mergeContextUsageSnapshots(older, newer)
+    expect(merged.updatedAt).toBe(200)
+    expect(merged.usedTokens).toBe(2000)
+    expect(merged.windowTokens).toBe(128000)
+    expect(merged.messageTokens).toBeNull()
+    expect(merged.systemTokens).toBeNull()
     expect(mergeContextUsageSnapshots(newer, older)).toEqual(newer)
   })
 })

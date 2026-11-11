@@ -60,6 +60,13 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('User interrupted the run')).toBe('')
   })
 
+  it('maps bare run_error / model disconnect to actionable Chinese', () => {
+    expect(toUserFacingError('run_error')).toMatch(/模型服务中断|负载过高|开新会话/)
+    expect(
+      toUserFacingError('httpx.RemoteProtocolError: Server disconnected without sending a response.'),
+    ).toMatch(/模型服务中断|负载过高|开新会话/)
+  })
+
   it('marks gateway connectivity copy as toast noise', () => {
     expect(isConnectivityToastNoise('服务连接异常，请确认服务已启动后重试')).toBe(true)
     expect(isConnectivityToastNoise('服务连接异常：gateway warming')).toBe(true)

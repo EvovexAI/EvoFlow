@@ -209,3 +209,46 @@ def test_channel_assistant_mirror_appends_text() -> None:
     texts = [r for r in sess.rows.values() if r.get("kind") == "assistantText"]
     assert texts, "channel mirror must create assistantText row"
     assert any("你好" in str(r.get("text") or "") for r in texts)
+
+
+def test_remint_live_seed_blocks_hydrate_unless_forced() -> None:
+    """stream-404 remint 竞态：新 thread 先被 note_user_input 种 2 行时，
+    普通 hydrate 会跳过；rehydrate_after_thread_remint 必须把 transcript 灌回。
+    """
+    from app.gateway.v4 import conversation as conv_mod
+    from app.gateway.v4.hydration import rehydrate_after_thread_remint
+
+    remint_tid = "remint-thread-404"
+    hub = V4ConversationHub()
+    prev_hub = conv_mod.HUB
+    conv_mod.HUB = hub
+    try:
+        # Simulate retried stream seeding a non-empty session before FE subscribe.
+        sess = hub._get_or_create_session(remint_tid)  # noqa: SLF001
+        sess.rows[1] = {
+            "rowId": 1,
+            "kind": "turnHeader",
+            "turnId": "run-new",
+            "phase": "running",
+        }
+        sess.rows[2] = {
+            "rowId": 2,
+            "kind": "userInput",
+            "text": "把剧本写好",
+            "turnId": "run-new",
+            "origin": "realUser",
+        }
+        sess.next_row_id = 3
+        assert len(sess.rows) == 2
+
+        with _msgs(MESSAGES_V1):
+            skipped = hydrate_session_from_transcript(hub, remint_tid)
+        assert skipped == 0
+        assert len(hub.get_session(remint_tid).rows) == 2
+
+        with _msgs(MESSAGES_V1):
+            loaded = rehydrate_after_thread_remint(remint_tid)
+        assert loaded > 2
+        assert len(hub.get_session(remint_tid).rows) == loaded
+    finally:
+        conv_mod.HUB = prev_hub

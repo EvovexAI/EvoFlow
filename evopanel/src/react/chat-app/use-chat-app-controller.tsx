@@ -806,7 +806,12 @@ import { useSessionExecutionProbes } from '../hooks/useSessionExecutionProbes.js
 import { buildHistoryViewFromRaw } from '../lib/chatHistoryView.js'
 import { fetchSessionHistoryTailMessages } from '../hooks/fetchSessionHistory.js'
 import { warmSessionHistoryPrefetch } from '../lib/warm-session-history-prefetch.js'
-import { warmEvoflowV4Session } from '../v4/V4StreamRowsBridge.js'
+import { syncEvoflowV4PinnedSessions, warmEvoflowV4Session } from '../v4/V4StreamRowsBridge.js'
+import {
+  getV4TimelineBusy,
+  getV4TimelineBusyEpoch,
+  subscribeV4TimelineBusy,
+} from '../v4/v4-timeline-busy-store.js'
 import {
   displayRowsEquivalent,
   mergeDbOnlyHistoryRows,
@@ -1161,22 +1166,49 @@ export function useChatAppController() {
     executingSessionKeysRef.current = executingSessionKeys
   }, [executingSessionKeys])
 
-  // 后台正在跑的会话提前挂 V4 keep-warm：切回去时尽量已有快照，避免空白遮罩干等 subscribe。
-  // 限流在 warmEvoflowV4Session 内（窗口 2 冷开 / 最多 6 live），不 force 以免扫表打爆。
+  // 钉住「当前选中 + 正在跑 + 最近切过」的 V4 投影：悬停 warm 只 keep-warm 30s，
+  // 三路并跑切来切去时租约会过期 → 冷开空白。pin 保持 refCount>0，切回直接画快照。
+  const recentV4ThreadIdsRef = useRef<string[]>([])
+  useLayoutEffect(() => {
+    const sk = String(selectedSessionKey || '').trim()
+    if (!sk) return
+    const tid = String(
+      sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)?.threadId ||
+        wsClient?.getSessionThreadId?.(sk) ||
+        '',
+    ).trim()
+    if (!tid) return
+    recentV4ThreadIdsRef.current = [
+      tid,
+      ...recentV4ThreadIdsRef.current.filter((x) => x !== tid),
+    ].slice(0, 4)
+  }, [selectedSessionKey])
   useEffect(() => {
     if (!isEvoflowChatV4Enabled()) return
+    const resolveTid = (sk: string) =>
+      String(
+        sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)?.threadId ||
+          wsClient?.getSessionThreadId?.(sk) ||
+          '',
+      ).trim()
+    const ordered: string[] = []
+    const seen = new Set<string>()
+    const pushTid = (tid: string) => {
+      const id = String(tid || '').trim()
+      if (!id || seen.has(id)) return
+      seen.add(id)
+      ordered.push(id)
+    }
     const selected = String(selectedSessionKey || '').trim()
+    if (selected) pushTid(resolveTid(selected))
     for (const sk of executingSessionKeys) {
       const key = String(sk || '').trim()
       if (!key || key === selected) continue
-      const threadId = String(
-        sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === key)?.threadId ||
-          wsClient?.getSessionThreadId?.(key) ||
-          '',
-      ).trim()
-      if (threadId) warmEvoflowV4Session(threadId)
+      pushTid(resolveTid(key))
     }
-  }, [executingSessionKeys, selectedSessionKey])
+    for (const tid of recentV4ThreadIdsRef.current) pushTid(tid)
+    syncEvoflowV4PinnedSessions(ordered)
+  }, [executingSessionKeys, selectedSessionKey, sessions])
 
   const seenRunIdsRef = useRef(new Set<string>())
   const activeChatRunIdRef = useRef<string | null>(null)
@@ -1251,6 +1283,7 @@ export function useChatAppController() {
           liveRunPersistPendingRef,
           liveRunPersistTimerRef,
           gatewayApiFetch,
+          selectedSessionKeyRef: sessionRef,
         },
         sessionKey,
         snapshot,
@@ -2310,6 +2343,15 @@ export function useChatAppController() {
   const { executing: selectedTurnBusy, goalActive: selectedGoalActive } = useSessionExecutionState(
     selectedSessionKey,
     selectedSessionRowForExec,
+  )
+  // V4 时间线仍有 streaming/工具时，sse_final 可能已关 selectedTurnBusy——Composer 齿轮/停止要并上。
+  const v4TimelineBusyEpoch = useSyncExternalStore(
+    subscribeV4TimelineBusy,
+    getV4TimelineBusyEpoch,
+  )
+  const displayTurnBusy = useMemo(
+    () => selectedTurnBusy || getV4TimelineBusy(selectedSessionKey),
+    [selectedTurnBusy, selectedSessionKey, v4TimelineBusyEpoch],
   )
   const [memoryRecallRefreshKey, setMemoryRecallRefreshKey] = useState(0)
   const prevTurnBusyForRecallRef = useRef(false)
@@ -4852,9 +4894,6 @@ export function useChatAppController() {
     historyLoading &&
     !selectedSessionLive &&
     !selectedTurnBusy
-  // 有内容却未揭开（含从知识库/任务中心切回时 --booting）：始终给加载提示，避免白屏无反馈
-  const showHistorySyncHint = renderRows.length > 0 && !historyViewReady
-
   /** 与输入区右下角 processing dock 同源；会话列表 running 行复用 ``dockLabel``。 */
   /** 流式「运行中」计时唯一标准：当前会话本轮 ``currentTurnStartedAt``（非整段 activity 环节）。 */
   const resolveLiveStreamActivityForSession = useCallback(
@@ -6680,6 +6719,7 @@ export function useChatAppController() {
     selectedSkills,
     selectedStreamPriorTurnStrip,
     selectedTurnBusy,
+    displayTurnBusy,
     selectSessionFromShell,
     sessionFilter,
     sessionMode,
@@ -6721,7 +6761,6 @@ export function useChatAppController() {
     SHOW_SESSION_MODE_COLLAB_UI,
     showChatSummaryFloat,
     showHistoryFetchOverlay,
-    showHistorySyncHint,
     sidebarActiveTaskId,
     sidebarActiveView,
     sidebarHistory,

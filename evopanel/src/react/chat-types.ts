@@ -265,9 +265,9 @@ export interface ChatWsPayload {
 
 export interface ChatAttachment {
   mimeType: string
-  /** Original filename (required for document upload → thread uploads/). */
+  /** Original filename (images + docs both materialize into thread uploads/). */
   filename?: string
-  /** Base64 payload for vision image blocks. Documents prefer ``file`` instead. */
+  /** Base64 payload for vision image blocks; also rebuilt into uploads for Path injection. */
   content?: string
   /** Raw File for POST /api/threads/{id}/uploads (docs / non-images). */
   file?: File

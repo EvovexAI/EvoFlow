@@ -17,6 +17,10 @@ import type { RunningSessionSummary } from '../hooks/useRunningSessionSummaries.
 import { useShellSessionRunningPreview } from '../hooks/useShellSessionRunningPreview.js'
 import { useRunningElapsedLabel } from '../hooks/useRunningElapsedLabel.js'
 import { isProactiveSessionKey, proactiveAgentCodeFromSessionKey } from '../lib/session-list/workspace-groups.js'
+import {
+  resolveSessionListIdentity,
+  sessionTriggerLabel,
+} from '../lib/session-list/session-identity.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
 import {
   ShellLoaderIcon,
@@ -483,9 +487,15 @@ function ShellSessionListRowInner({
   onPrefetch,
 }: ShellSessionListRowProps) {
   const sessionKey = String(row.sessionKey || '')
+  const identity = resolveSessionListIdentity(sessionKey)
+  const triggerLabel = sessionTriggerLabel(identity.trigger)
+  /** 普通面板对话不挂芯片，避免满屏「对话」；渠道 / 定时 / 任务 / 部门才标 */
+  const showTriggerChip = identity.trigger !== 'panel'
   const proactiveAgentCode = isProactiveSessionKey(sessionKey)
     ? proactiveAgentCodeFromSessionKey(sessionKey)
-    : ''
+    : identity.ownerKind === 'agent'
+      ? identity.ownerCode
+      : ''
   /** 仅「员工」变体用员工名当标题；会话行与普通对话一致用 row.title */
   const useEmployeeTitle = variant === 'employee'
   const employeeName = useEmployeeTitle
@@ -728,10 +738,28 @@ function ShellSessionListRowInner({
         ) : useEmployeeTitle ? (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{employeeName}</SessionTitleOverflowText>
+            {showTriggerChip ? (
+              <span
+                className="react-chat-session-trigger-chip"
+                data-trigger={identity.trigger}
+                title={`触发：${triggerLabel}`}
+              >
+                {triggerLabel}
+              </span>
+            ) : null}
           </div>
         ) : (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{row.title}</SessionTitleOverflowText>
+            {showTriggerChip ? (
+              <span
+                className="react-chat-session-trigger-chip"
+                data-trigger={identity.trigger}
+                title={`触发：${triggerLabel}`}
+              >
+                {triggerLabel}
+              </span>
+            ) : null}
           </div>
         )}
 

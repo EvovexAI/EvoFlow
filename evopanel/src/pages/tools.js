@@ -13,6 +13,12 @@ import {
   selectHtml,
   setBtnState,
 } from './expert-center-shared.js'
+import {
+  emptyMcpHeaderRow,
+  headersFromWizardRows,
+  isRemoteMcpType,
+  mcpTransportLabel,
+} from '../lib/mcp-connector-headers.js'
 
 function unwrapMcpServers(parsed) {
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {}
@@ -111,10 +117,29 @@ function resolveUiStatus(name, config, runtimeStatus) {
 }
 
 function transportLabel(config) {
-  const t = String(config?.type || 'stdio').toLowerCase()
-  if (t === 'sse') return 'SSE'
-  if (t === 'http') return 'HTTP'
-  return 'Stdio'
+  return mcpTransportLabel(config)
+}
+
+function renderWizardHeaderRows(rows) {
+  const list = rows?.length ? rows : [emptyMcpHeaderRow()]
+  return `
+    <div class="form-group">
+      <label class="form-label">请求头（可选）</label>
+      <div class="mcp-header-rows" data-headers>
+        ${list
+          .map(
+            (row, i) => `
+          <div class="mcp-header-row" data-hi="${i}">
+            <input class="form-input" data-hk="key" placeholder="Authorization" value="${esc(row.key)}" autocomplete="off">
+            <input class="form-input" data-hk="value" placeholder="Bearer $MCP_TOKEN" value="${esc(row.value)}" autocomplete="off">
+            <button type="button" class="btn btn-secondary btn-sm" data-hact="remove"${list.length <= 1 ? ' disabled' : ''}>删除</button>
+          </div>`,
+          )
+          .join('')}
+      </div>
+      <button type="button" class="btn btn-secondary btn-sm" data-hact="add" style="margin-top:8px">添加请求头</button>
+      <p class="form-hint">例如 Authorization。值可用 $VAR / \${VAR} 引用本机环境变量。</p>
+    </div>`
 }
 
 function authLabel(config) {
@@ -566,11 +591,23 @@ function openAddConnectorWizard(page) {
     command: '',
     args: '',
     url: '',
+    headers: [emptyMcpHeaderRow()],
     description: '',
     auth: 'none',
     scope: 'global',
   }
   const steps = ['基本信息', '连接配置', '身份认证', '测试连接', '使用范围', '完成']
+
+  const syncHeaderRowsFromDom = (root) => {
+    const rows = []
+    root.querySelectorAll('.mcp-header-row').forEach((rowEl) => {
+      rows.push({
+        key: rowEl.querySelector('[data-hk="key"]')?.value || '',
+        value: rowEl.querySelector('[data-hk="value"]')?.value || '',
+      })
+    })
+    state.headers = rows.length ? rows : [emptyMcpHeaderRow()]
+  }
 
   const renderStep = () => {
     const step = state.step
@@ -587,9 +624,10 @@ function openAddConnectorWizard(page) {
         <div class="form-group"><label class="form-label">技术类型</label>
           <select class="form-input" data-f="type">
             <option value="stdio"${state.type === 'stdio' ? ' selected' : ''}>stdio（MCP Server）</option>
-            <option value="sse"${state.type === 'sse' ? ' selected' : ''}>sse</option>
-            <option value="http"${state.type === 'http' ? ' selected' : ''}>http</option>
-          </select></div>`
+            <option value="sse"${state.type === 'sse' ? ' selected' : ''}>SSE</option>
+            <option value="http"${state.type === 'http' ? ' selected' : ''}>HTTP（Streamable HTTP）</option>
+          </select></div>
+        <p class="form-hint">远程 MCP 选 HTTP（Streamable HTTP）时填写完整服务端点，例如 https://example.com/mcp。</p>`
     } else if (step === 1) {
       body += state.type === 'stdio'
         ? `<div class="form-group"><label class="form-label">命令</label>
@@ -597,24 +635,31 @@ function openAddConnectorWizard(page) {
            <div class="form-group"><label class="form-label">参数（空格分隔）</label>
             <input class="form-input" data-f="args" value="${esc(state.args)}" placeholder="-y @modelcontextprotocol/server-github"></div>`
         : `<div class="form-group"><label class="form-label">URL</label>
-            <input class="form-input" data-f="url" value="${esc(state.url)}" placeholder="https://..."></div>`
+            <input class="form-input" data-f="url" value="${esc(state.url)}" placeholder="${
+              state.type === 'http' ? 'https://example.com/mcp' : 'https://...'
+            }"></div>
+           ${renderWizardHeaderRows(state.headers)}`
     } else if (step === 2) {
       body += `
         <div class="form-group"><label class="form-label">认证方式</label>
           <select class="form-input" data-f="auth">
-            <option value="none">无</option>
-            <option value="env">环境变量（稍后在配置中补充）</option>
-            <option value="oauth">OAuth</option>
+            <option value="none"${state.auth === 'none' ? ' selected' : ''}>无</option>
+            <option value="env"${state.auth === 'env' ? ' selected' : ''}>环境变量（稍后在配置中补充）</option>
+            <option value="oauth"${state.auth === 'oauth' ? ' selected' : ''}>OAuth</option>
           </select></div>
-        <p class="form-hint">敏感凭证建议写入本机环境或配置文件，勿硬编码到对话中。</p>`
+        <p class="form-hint">需要 Authorization 等请求头时，请在上一步「连接配置」填写；敏感值用 $VAR 引用本机环境变量，勿硬编码到对话中。</p>`
     } else if (step === 3) {
-      body += `<p>将写入连接器配置并触发后台连接。保存后可在列表中查看「连接中 / 可用 / 失败」状态。</p>`
+      const headerCount = Object.keys(headersFromWizardRows(state.headers)).length
+      const remoteHint = isRemoteMcpType(state.type)
+        ? `将用 URL${headerCount ? ` 与 ${headerCount} 个请求头` : ''} 写入配置并触发后台连接与工具发现。`
+        : '将写入连接器配置并触发后台连接。'
+      body += `<p>${remoteHint}保存后可在列表中查看「连接中 / 可用 / 失败」状态。</p>`
     } else if (step === 4) {
       body += `
         <div class="form-group"><label class="form-label">使用范围</label>
           <select class="form-input" data-f="scope">
-            <option value="global">全局可用</option>
-            <option value="assign">稍后分配给智能体</option>
+            <option value="global"${state.scope === 'global' ? ' selected' : ''}>全局可用</option>
+            <option value="assign"${state.scope === 'assign' ? ' selected' : ''}>稍后分配给智能体</option>
           </select></div>`
     } else {
       body += `<p>连接器已添加。可在详情中查看发现的工具，并分配给智能体。</p>`
@@ -643,7 +688,26 @@ function openAddConnectorWizard(page) {
         state[el.dataset.f] = el.value
       })
     })
+    root.querySelector('[data-headers]')?.addEventListener('input', () => syncHeaderRowsFromDom(root))
+    root.querySelector('[data-headers]')?.addEventListener('change', () => syncHeaderRowsFromDom(root))
+    root.querySelector('[data-hact="add"]')?.addEventListener('click', () => {
+      syncHeaderRowsFromDom(root)
+      state.headers = [...state.headers, emptyMcpHeaderRow()]
+      renderStep()
+    })
+    root.querySelectorAll('[data-hact="remove"]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        syncHeaderRowsFromDom(root)
+        const row = btn.closest('.mcp-header-row')
+        const idx = Number(row?.dataset.hi)
+        if (!Number.isFinite(idx)) return
+        const next = state.headers.filter((_, i) => i !== idx)
+        state.headers = next.length ? next : [emptyMcpHeaderRow()]
+        renderStep()
+      })
+    })
     root.querySelector('[data-act="prev"]')?.addEventListener('click', () => {
+      if (step === 1 && isRemoteMcpType(state.type)) syncHeaderRowsFromDom(root)
       state.step = Math.max(0, state.step - 1)
       renderStep()
     })
@@ -652,6 +716,18 @@ function openAddConnectorWizard(page) {
       if (state.step === 0 && !String(state.name || '').trim()) {
         toast('请填写名称', 'warning')
         return
+      }
+      if (state.step === 1) {
+        if (isRemoteMcpType(state.type)) {
+          syncHeaderRowsFromDom(root)
+          if (!String(state.url || '').trim()) {
+            toast('请填写 MCP 服务 URL', 'warning')
+            return
+          }
+        } else if (!String(state.command || '').trim()) {
+          toast('请填写启动命令', 'warning')
+          return
+        }
       }
       if (state.step === 3) {
         setBtnState(btn, 'loading', { loading: '保存中…', idle: '保存并测试' })
@@ -699,7 +775,11 @@ async function saveWizardConnector(page, state) {
       .map((s) => s.trim())
       .filter(Boolean)
   } else {
-    cfg.url = state.url || ''
+    const url = String(state.url || '').trim()
+    if (!url) throw new Error('请填写 MCP 服务 URL')
+    cfg.url = url
+    const headers = headersFromWizardRows(state.headers)
+    if (Object.keys(headers).length) cfg.headers = headers
   }
   if (state.auth === 'oauth') cfg.oauth = {}
   const current = await api.getMCPConfig()

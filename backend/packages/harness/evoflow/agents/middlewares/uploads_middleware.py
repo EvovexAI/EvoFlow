@@ -4,9 +4,9 @@ import logging
 from pathlib import Path
 
 try:
-    from typing import NotRequired, override
+    from typing import Any, NotRequired, override
 except ImportError:
-    from typing import NotRequired, override
+    from typing import Any, NotRequired, override
 
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
@@ -16,6 +16,8 @@ from langgraph.runtime import Runtime
 from evoflow.config.paths import Paths, get_paths
 
 logger = logging.getLogger(__name__)
+
+_IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic", ".heif"}
 
 
 class UploadsMiddlewareState(AgentState):
@@ -41,7 +43,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         if not uploads_dir:
             return ""
         path = uploads_dir / str(file.get("filename") or "")
-        if not path.is_file() or path.suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic", ".heif"}:
+        if not path.is_file() or path.suffix.lower() in _IMAGE_SUFFIXES:
             return ""
         try:
             from evoflow.knowledge.parser import parse_file
@@ -54,8 +56,36 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             logger.exception("Failed to extract uploaded file %s", path.name)
             return ""
 
+    def _display_path(
+        self,
+        file: dict,
+        uploads_dir: Path | None,
+        *,
+        use_virtual_paths: bool,
+    ) -> str:
+        filename = str(file.get("filename") or "")
+        virtual = str(file.get("path") or f"/mnt/user-data/uploads/{filename}")
+        if use_virtual_paths:
+            return virtual
+        host = str(file.get("absolute_path") or "").strip()
+        if host:
+            return host
+        if uploads_dir and filename:
+            candidate = uploads_dir / filename
+            if candidate.is_file():
+                try:
+                    return str(candidate.resolve())
+                except OSError:
+                    return str(candidate)
+        return virtual
+
     def _create_files_message(
-        self, new_files: list[dict], historical_files: list[dict], uploads_dir: Path | None
+        self,
+        new_files: list[dict],
+        historical_files: list[dict],
+        uploads_dir: Path | None,
+        *,
+        use_virtual_paths: bool = True,
     ) -> str:
         lines = ["<uploaded_files>"]
 
@@ -66,9 +96,13 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
                 size_kb = file["size"] / 1024
                 size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
                 lines.append(f"- {file['filename']} ({size_str})")
-                lines.append(f"  Path: {file['path']}")
-                if Path(file["filename"]).suffix.lower() in {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic", ".heif"}:
-                    lines.append("  Image attached; inspect the image itself.")
+                lines.append(f"  Path: {self._display_path(file, uploads_dir, use_virtual_paths=use_virtual_paths)}")
+                if Path(file["filename"]).suffix.lower() in _IMAGE_SUFFIXES:
+                    lines.append(
+                        "  Image attached as pixels in this message; inspect the image itself. "
+                        "For edit/generate (e.g. media.generate_image), pass this Path as reference_image_urls — "
+                        "do not search the filesystem for the original paste source."
+                    )
                 else:
                     extracted = self._read_attachment_text(file, uploads_dir)
                     if extracted:
@@ -87,7 +121,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
                 size_kb = file["size"] / 1024
                 size_str = f"{size_kb:.1f} KB" if size_kb < 1024 else f"{size_kb / 1024:.1f} MB"
                 lines.append(f"- {file['filename']} ({size_str})")
-                lines.append(f"  Path: {file['path']}")
+                lines.append(f"  Path: {self._display_path(file, uploads_dir, use_virtual_paths=use_virtual_paths)}")
                 lines.append("")
 
         lines.append("You can read these files using the `read` tool with the paths shown above.")
@@ -109,14 +143,16 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
                 continue
             if uploads_dir is not None and not (uploads_dir / filename).is_file():
                 continue
-            files.append(
-                {
-                    "filename": filename,
-                    "size": int(f.get("size") or 0),
-                    "path": str(f.get("path") or f"/mnt/user-data/uploads/{filename}"),
-                    "extension": Path(filename).suffix,
-                }
-            )
+            entry = {
+                "filename": filename,
+                "size": int(f.get("size") or 0),
+                "path": str(f.get("path") or f"/mnt/user-data/uploads/{filename}"),
+                "extension": Path(filename).suffix,
+            }
+            abs_path = str(f.get("absolute_path") or "").strip()
+            if abs_path:
+                entry["absolute_path"] = abs_path
+            files.append(entry)
         return files if files else None
 
     def _human_text(self, message: HumanMessage) -> str:
@@ -126,7 +162,9 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         if isinstance(content, list):
             parts: list[str] = []
             for block in content:
-                if isinstance(block, dict) and block.get("type") == "text":
+                if isinstance(block, str):
+                    parts.append(block)
+                elif isinstance(block, dict) and block.get("type") == "text":
                     parts.append(str(block.get("text") or ""))
             return "\n".join(parts)
         return str(content or "")
@@ -134,10 +172,32 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
     def _already_injected(self, message: HumanMessage) -> bool:
         return "<uploaded_files>" in self._human_text(message)
 
+    def _content_blocks_from_message(self, message: HumanMessage) -> list[str | dict[str, Any]]:
+        content = message.content
+        if isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        if isinstance(content, list):
+            return list(content)
+        return [{"type": "text", "text": str(content or "")}]
+
     def _inject_block(self, last: HumanMessage, block: str) -> HumanMessage:
+        """Prefix ``<uploaded_files>`` without dropping multimodal ``image_url`` blocks."""
+        blocks = self._content_blocks_from_message(last)
+        prefix = blocks[0] if blocks and isinstance(blocks[0], dict) and blocks[0].get("type") == "text" else None
         original = self._human_text(last)
+        merged_text = f"{block}\n\n{original}"
+        if prefix and isinstance(prefix, dict):
+            blocks[0] = {"type": "text", "text": merged_text}
+        else:
+            blocks = [{"type": "text", "text": merged_text}, *blocks]
+        if len(blocks) == 1 and isinstance(blocks[0], dict) and blocks[0].get("type") == "text":
+            return HumanMessage(
+                content=str(blocks[0].get("text") or ""),
+                id=last.id,
+                additional_kwargs=last.additional_kwargs,
+            )
         return HumanMessage(
-            content=f"{block}\n\n{original}",
+            content=blocks,
             id=last.id,
             additional_kwargs=last.additional_kwargs,
         )
@@ -188,6 +248,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
             return None
 
         uploads_dir = self._resolve_uploads_dir(runtime)
+        use_virtual_paths = bool((runtime.context or {}).get("use_virtual_paths"))
         new_files = self._collect_new_files(state, messages, uploads_dir)
         new_filenames = {f["filename"] for f in new_files}
         historical_files: list[dict] = []
@@ -200,6 +261,7 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
                             "filename": file_path.name,
                             "size": stat.st_size,
                             "path": f"/mnt/user-data/uploads/{file_path.name}",
+                            "absolute_path": str(file_path.resolve()),
                             "extension": file_path.suffix,
                         }
                     )
@@ -207,13 +269,19 @@ class UploadsMiddleware(AgentMiddleware[UploadsMiddlewareState]):
         if not new_files and not historical_files:
             return None
 
-        block = self._create_files_message(new_files, historical_files, uploads_dir)
+        block = self._create_files_message(
+            new_files,
+            historical_files,
+            uploads_dir,
+            use_virtual_paths=use_virtual_paths,
+        )
         updated = self._inject_block(last, block)
         logger.info(
-            "uploaded_files injected before_model: new=%s historical=%s uploads_dir=%s",
+            "uploaded_files injected before_model: new=%s historical=%s uploads_dir=%s use_virtual=%s",
             [f.get("filename") for f in new_files],
             [f.get("filename") for f in historical_files],
             str(uploads_dir) if uploads_dir else "(none)",
+            use_virtual_paths,
         )
         return {"uploaded_files": new_files, "messages": [updated]}
 

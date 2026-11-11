@@ -155,6 +155,20 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
     return facing
   }
 
+  // Bare AG-UI RUN_ERROR code / model disconnect — do not leave users with only "run_error".
+  if (
+    /^(run_error|error|unknown|failed|failure)$/i.test(msg) ||
+    (/RemoteProtocolError|Server disconnected|connection reset|connection aborted|broken pipe/i.test(
+      msg,
+    ) &&
+      !hasCjk(msg))
+  ) {
+    const facing =
+      '本轮生成失败：模型服务中断或本机负载过高，请稍后重试；超长对话建议开新会话'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   if (looksUserFriendly(msg)) return msg
   if (looksLikeStackTrace(msg) && !hasCjk(msg)) {
     logRawUserFacingError(raw, fallback)

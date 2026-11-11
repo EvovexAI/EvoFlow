@@ -3508,6 +3508,11 @@ button.ko-tag.is-active {
   box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.18);
 }
 
+.ko-status-dot.is-degraded {
+  background: var(--kb-yellow, #f59e0b);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.16);
+}
+
 .ko-status-dot.is-empty {
   background: var(--kb-text-muted);
   box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
@@ -3540,6 +3545,10 @@ button.ko-tag.is-active {
 
 .ko-data-list__health.is-attention {
   color: var(--kb-red, #ef4444);
+}
+
+.ko-data-list__health.is-degraded {
+  color: var(--kb-yellow, #b45309);
 }
 
 .ko-data-list__health.is-empty {

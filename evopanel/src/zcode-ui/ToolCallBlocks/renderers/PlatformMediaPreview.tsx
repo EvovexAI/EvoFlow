@@ -110,7 +110,7 @@ export function PlatformMediaPreview({
         <>
           <ImageThumbnailGallery
             data-platform-media-image-gallery=""
-            grouped={imageItems.length >= 2}
+            grouped
           >
             {imageItems.map((item, index) => (
               <button

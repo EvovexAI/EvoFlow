@@ -5,7 +5,8 @@
 ; 使用「单勾选」代替默认双 radio，避免接受/拒绝选项被挤到可视区外。
 ;
 ; 安装/卸载进程策略（轻量）：
-;   一轮 taskkill（桌面父进程树 /T → gateway / 旧名）
+;   探测桌面/gateway 是否在跑 → 交互安装弹确认（静默/被动跳过）
+;   → 一轮 taskkill（桌面父进程树 /T → gateway / 旧名）
 ;   → 再按安装目录范围清 bash/python/node 孤儿（不 taskkill 全机 python）
 ;   → 短等 ~1.5s → 探测关键文件是否可写；仍占用则弹 Retry。
 ; 不做全机进程表多轮扫描，也不再最长 ~15s 写锁轮询。
@@ -25,17 +26,100 @@
 ; Prefer windows\kill-install-orphans.ps1 when already on disk (upgrade/uninstall).
 ; Fresh overwrite PREINSTALL may not have the new script yet → inline fallback
 ; (same logic; kept short; nsExec hides the console — no -WindowStyle Hidden).
+; EvpEnsureInstallDirUnlocked expands EvpKillRunningAppProcesses twice (initial
+; + Retry). Capture __COUNTER__ once so labels stay unique per expansion —
+; hardcoded evp_orphans_* failed makensis in 1.3.16 Windows CI.
 !macro EvpKillInstallDirOrphans
+  !define EVP_ORPHANS_UID ${__COUNTER__}
   DetailPrint "Stopping install-dir bash/python orphans..."
-  IfFileExists "$INSTDIR\windows\kill-install-orphans.ps1" 0 evp_orphans_inline
+  IfFileExists "$INSTDIR\windows\kill-install-orphans.ps1" 0 evp_orphans_inline_${EVP_ORPHANS_UID}
     nsExec::Exec 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\windows\kill-install-orphans.ps1" -InstallDir "$INSTDIR"'
     Pop $0
-    Goto evp_orphans_done
-  evp_orphans_inline:
+    Goto evp_orphans_done_${EVP_ORPHANS_UID}
+  evp_orphans_inline_${EVP_ORPHANS_UID}:
     ; Image-name filter first; then ExecutablePath / CommandLine must touch $INSTDIR.
     nsExec::Exec `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "$$inst=[System.IO.Path]::GetFullPath('$INSTDIR').TrimEnd('\\'); if (-not $$inst) { exit 0 }; $$pfx=$$inst+'\'; $$filter='Name=''python.exe'' OR Name=''pythonw.exe'' OR Name=''bash.exe'' OR Name=''sh.exe'' OR Name=''node.exe'''; Get-CimInstance Win32_Process -Filter $$filter -ErrorAction SilentlyContinue | ForEach-Object { $$kill=$$false; if ($$_.ExecutablePath) { try { $$full=[System.IO.Path]::GetFullPath($$_.ExecutablePath); if ($$full.Equals($$inst,[StringComparison]::OrdinalIgnoreCase) -or $$full.StartsWith($$pfx,[StringComparison]::OrdinalIgnoreCase)) { $$kill=$$true } } catch {} }; if (-not $$kill -and $$_.CommandLine -and $$_.CommandLine.IndexOf($$inst,[StringComparison]::OrdinalIgnoreCase) -ge 0) { $$kill=$$true }; if ($$kill) { Stop-Process -Id $$_.ProcessId -Force -ErrorAction SilentlyContinue } }"`
     Pop $0
-  evp_orphans_done:
+  evp_orphans_done_${EVP_ORPHANS_UID}:
+  !undef EVP_ORPHANS_UID
+!macroend
+
+; Sets $R6 = 1 if a core EvoFlow image is running, else 0.
+; Uses tasklist+findstr via nsExec (no FindProcess plugin; avoid false UI when idle).
+!macro EvpAnyCoreAppProcessRunning
+  !define EVP_DET_UID ${__COUNTER__}
+  StrCpy $R6 0
+
+  nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq ${MAINBINARYNAME}.exe" 2>nul | findstr /I /C:"${MAINBINARYNAME}.exe" >nul'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $R6 1
+    Goto evp_det_done_${EVP_DET_UID}
+  ${EndIf}
+
+  !if "${MAINBINARYNAME}" != "evoflow"
+    nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq evoflow.exe" 2>nul | findstr /I /C:"evoflow.exe" >nul'
+    Pop $0
+    ${If} $0 = 0
+      StrCpy $R6 1
+      Goto evp_det_done_${EVP_DET_UID}
+    ${EndIf}
+  !endif
+
+  nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq evopanel.exe" 2>nul | findstr /I /C:"evopanel.exe" >nul'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $R6 1
+    Goto evp_det_done_${EVP_DET_UID}
+  ${EndIf}
+
+  nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq EvoPanel.exe" 2>nul | findstr /I /C:"EvoPanel.exe" >nul'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $R6 1
+    Goto evp_det_done_${EVP_DET_UID}
+  ${EndIf}
+
+  nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq evoflow-gateway.exe" 2>nul | findstr /I /C:"evoflow-gateway.exe" >nul'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $R6 1
+    Goto evp_det_done_${EVP_DET_UID}
+  ${EndIf}
+
+  nsExec::Exec 'cmd /C tasklist /NH /FI "IMAGENAME eq backend-gateway.exe" 2>nul | findstr /I /C:"backend-gateway.exe" >nul'
+  Pop $0
+  ${If} $0 = 0
+    StrCpy $R6 1
+  ${EndIf}
+
+evp_det_done_${EVP_DET_UID}:
+  !undef EVP_DET_UID
+!macroend
+
+; If core processes are running: interactive → confirm then continue; Silent/Passive → no UI.
+; Does not kill; caller runs EvpKillRunningAppProcesses / EvpEnsureInstallDirUnlocked next.
+; actionVerb: short Chinese verb for the dialog, e.g. "安装" / "卸载".
+!macro EvpPromptCloseRunningApp actionVerb
+  !define EVP_PROMPT_UID ${__COUNTER__}
+  !insertmacro EvpAnyCoreAppProcessRunning
+  ${If} $R6 = 0
+    Goto evp_prompt_done_${EVP_PROMPT_UID}
+  ${EndIf}
+
+  DetailPrint "EvoFlow is running; confirm before close (${actionVerb})..."
+  ${If} ${Silent}
+  ${OrIf} $PassiveMode = 1
+    Goto evp_prompt_done_${EVP_PROMPT_UID}
+  ${EndIf}
+
+  MessageBox MB_OKCANCEL|MB_ICONEXCLAMATION \
+    "检测到 EvoFlow 正在运行。$\r$\n$\r$\n${actionVerb}需要关闭桌面程序及后台服务（含 Gateway），以便继续。正在进行的任务可能中断，未保存内容可能丢失。$\r$\n$\r$\n点击「确定」由安装程序关闭并继续${actionVerb}，或点击「取消」。" \
+    IDOK evp_prompt_done_${EVP_PROMPT_UID}
+  Abort
+
+evp_prompt_done_${EVP_PROMPT_UID}:
+  !undef EVP_PROMPT_UID
 !macroend
 
 ; Desktop owns one gateway child (stdio). Kill parent tree first so the
@@ -125,7 +209,8 @@ evp_unlock_ok_${EVP_UNLOCK_UID}:
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
-  ; Overwrite / upgrade: light stop + probe before copying binaries.
+  ; Detect → confirm (interactive) → stop + probe before copying binaries.
+  !insertmacro EvpPromptCloseRunningApp "安装"
   !insertmacro EvpEnsureInstallDirUnlocked
   ; taskkill /F skips graceful Drop → sidecar.lock can keep a dead PID and the
   ; next launch refuses to spawn Gateway (blank UI). Clear per-profile locks.
@@ -162,7 +247,8 @@ evp_unlock_ok_${EVP_UNLOCK_UID}:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
-  ; Uninstall: one light kill so Delete of gateway tree is less likely to hit locked DLLs.
+  ; Uninstall: confirm if running, then one light kill so Delete hits fewer locked DLLs.
+  !insertmacro EvpPromptCloseRunningApp "卸载"
   !insertmacro EvpKillRunningAppProcesses
   !insertmacro EvpBriefSettle
 

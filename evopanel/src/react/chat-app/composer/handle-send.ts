@@ -11,8 +11,10 @@ import type { PluginSelection } from '../../components/PluginPickerModal.js'
 import type { PriorTurnStripBundle } from '../../lib/turn-text-isolation.js'
 import {
   bindChatTurnSendSession,
+  describeStalledPriorSend,
   logChatTurnSendClick,
   logChatTurnSendWire,
+  logChatTurnStalledResend,
 } from '../../lib/chat-turn-timing-log.js'
 
 export type HandleSendOpts = {
@@ -390,6 +392,8 @@ export async function handleSend(
     }
     const turnStartTs = Date.now()
     const attachCount = Array.isArray(attachments) ? attachments.length : 0
+    // 必须在 bind/logChatTurnSendClick 重置 sendTrace 之前快照；否则「卡住重发」永远看不到上一轮。
+    const stalledPriorSnapshot = describeStalledPriorSend(sessionKey)
     const bind = bindChatTurnSendSession({
       sessionKey,
       text: userMessage,
@@ -733,11 +737,17 @@ export async function handleSend(
       }
     }
 
-    const abortStaleChatStream = () => {
+    const abortStaleChatStream = (stalledPrior?: {
+      stalled: boolean
+      sinceMs: number | null
+      textPreview: string
+      wireLogged: boolean
+      runStartedLogged: boolean
+    }) => {
       try {
         suppressNextAbortToastRef.current = true
-        // 本地 abort SSE wire；无在途 run 时几乎零开销。勿 await 网络。
-        // 这不是用户点停；落盘便于和真正的 execution/stop 区分。
+        // 只掐本地 SSE wire。勿 api.chatAbort：它会 emit state=aborted，
+        // 排队续发/新发送会被当成「用户停止」（V4 completedInterrupted）。
         void import('../../lib/stream-stop-log.js')
           .then(({ logStreamStop }) => {
             logStreamStop({
@@ -745,13 +755,25 @@ export async function handleSend(
               trigger: 'send_prep_abort_stale_stream',
               hasEndMarker: false,
               detail: {
-                whoZh: '新发送前清理旧 SSE wire（非用户点停）',
-                note: 'handleSend 预备：chatAbort 清旧 wire；通常不调 execution/stop',
+                whoZh: stalledPrior?.stalled
+                  ? '上一轮还在等首帧，新发送前清理旧 SSE（非用户点停）'
+                  : '新发送前清理旧 SSE wire（非用户点停）',
+                note: 'handleSend 预备：abortStreamWire 清旧 wire；不 emit aborted、不调 execution/stop',
+                stalledPriorMs: stalledPrior?.sinceMs ?? undefined,
+                stalledPriorPreview: stalledPrior?.textPreview
+                  ? String(stalledPrior.textPreview).slice(0, 80)
+                  : undefined,
+                stalledPriorWire: stalledPrior?.wireLogged ?? undefined,
+                stalledPriorRunStarted: stalledPrior?.runStartedLogged ?? undefined,
               },
             })
           })
           .catch(() => {})
-        void api.chatAbort(sessionKey).catch(() => {})
+        try {
+          wsClient.abortStreamWire(sessionKey)
+        } catch {
+          /* ignore */
+        }
       } catch {
         /* ignore */
       } finally {
@@ -768,7 +790,26 @@ export async function handleSend(
       }
       // 本地 context + 本地 abort：不串行等待 Gateway PATCH/stop（否则「运行中」空转数秒才进「准备中」）
       await syncChatContextBeforeSend().catch(() => {})
-      abortStaleChatStream()
+      // busy 误清时用户会连发：上一轮已上线却无首帧 → 明确提示，别 silently 掐掉
+      const stalledPrior = stalledPriorSnapshot
+      if (stalledPrior.stalled) {
+        const sec =
+          stalledPrior.sinceMs != null ? Math.round(stalledPrior.sinceMs / 1000) : null
+        toast(
+          sec != null
+            ? `上一轮已等 ${sec}s 仍无回复，已中断并改发这条（超长对话建议开新会话）`
+            : '上一轮仍无回复，已中断并改发这条（超长对话建议开新会话）',
+          'warning',
+        )
+        logChatTurnStalledResend({
+          sessionKey,
+          sinceMs: stalledPrior.sinceMs,
+          priorPreview: stalledPrior.textPreview,
+          wireLogged: stalledPrior.wireLogged,
+          runStartedLogged: stalledPrior.runStartedLogged,
+        })
+      }
+      abortStaleChatStream(stalledPrior)
     } catch {
       /* ignore prep errors */
     }

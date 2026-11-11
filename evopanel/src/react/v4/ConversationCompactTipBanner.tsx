@@ -1,13 +1,16 @@
 /**
  * 长会话友好提示：消息很多 / 上下文偏满时，提醒可主动压缩。
  * 挂在对话区顶部（主聊 V4），点击走既有手动压缩。
+ * 出现后只亮几秒再自动收起，避免一直顶着难受；水位再涨约百条可再提醒。
  */
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FoldVerticalIcon, InfoIcon, XIcon } from "lucide-react";
 
 /** 「几百」起步：约 200 条消息后提示；上下文占用也作辅助触发。 */
 export const COMPACT_TIP_MESSAGE_COUNT = 200;
 export const COMPACT_TIP_PCT = 75;
+/** 提示条自动收起（毫秒）：亮几秒就藏，别一直顶着。 */
+export const COMPACT_TIP_AUTO_DISMISS_MS = 5_500;
 
 function dismissStorageKey(sessionKey: string): string {
   return `evoflow:compact-tip-dismissed:${sessionKey}`;
@@ -120,6 +123,17 @@ export function ConversationCompactTipBanner({
     writeDismissedAtCount(sk, count);
     setDismissedAtCount(count);
   }, [sk, count]);
+
+  // 出现后只计时一次就收；勿把 onDismiss/count 放进 deps，否则流式涨条数会不断重设定时器、提示永远不关。
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  useEffect(() => {
+    if (!visible || !onCompact) return;
+    const t = window.setTimeout(() => {
+      onDismissRef.current();
+    }, COMPACT_TIP_AUTO_DISMISS_MS);
+    return () => window.clearTimeout(t);
+  }, [visible, onCompact, sk]);
 
   const onClickCompact = useCallback(() => {
     if (!onCompact || compacting || sessionBusy) return;

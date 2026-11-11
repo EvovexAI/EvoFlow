@@ -233,7 +233,7 @@ Function PageReinstall
   ; EvoFlow: NSIS→NSIS version upgrades overwrite in place (same as same-version
   ; reinstall). Upstream Tauri defaults the first radio to "uninstall before
   ; installing", which forces a full uninstall cycle for every bump — skip that
-  ; page. PREINSTALL hook already stops processes and probes write locks.
+  ; page. PREINSTALL prompts if running, then stops processes and probes locks.
   ; WiX→NSIS migration still needs the uninstall path below.
   ${If} $R0 = 1
   ${AndIf} $WixMode <> 1
@@ -660,7 +660,7 @@ Section Install
     !insertmacro NSIS_HOOK_PREINSTALL
   !endif
 
-  ; EvoPanel: running app processes are killed in NSIS_HOOK_PREINSTALL.
+  ; EvoFlow: PREINSTALL prompts if running (unless Silent/Passive), then kills.
 
   ; Copy main executable
   File "${MAINBINARYSRCPATH}"
@@ -797,7 +797,7 @@ Section Uninstall
     !insertmacro NSIS_HOOK_PREUNINSTALL
   !endif
 
-  ; EvoPanel: running app processes are killed in NSIS_HOOK_PREUNINSTALL.
+  ; EvoFlow: PREUNINSTALL prompts if running (unless Silent/Passive), then kills.
 
   ; Delete the app directory and its content from disk
   ; Copy main executable

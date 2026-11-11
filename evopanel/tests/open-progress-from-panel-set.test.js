@@ -96,6 +96,8 @@ describe('openProgressFromPanelSet', () => {
   })
 
   it('opens employeeProcess with agent only (dispatch/wake without taskId)', () => {
+    // afterEach 的 hideAll 会钉住收起锁；先归位再显式锁定，保证用例自洽。
+    rightStageStore.hideAll()
     const id = openProgressFromPanelSet({
       kind: 'employeeProcess',
       title: '值班',
@@ -106,7 +108,8 @@ describe('openProgressFromPanelSet', () => {
     expect(tab?.data?.agentCode).toBe('duty-ops')
     expect(tab?.data?.taskId).toBeFalsy()
     expect(tab?.title).toBe('值班小助手')
-    expect(rightStageStore.getSnapshot().collapsed).toBe(false)
+    // f31b7138 起收起锁不被 autoOpen 抢回：panel_set 员工签只写入不强行撑开。
+    expect(rightStageStore.getSnapshot().collapsed).toBe(true)
   })
 
   it('drops caller main sessionKey so employee pane cannot pin left chat stream', () => {

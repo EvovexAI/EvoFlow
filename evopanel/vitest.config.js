@@ -135,6 +135,7 @@ export default defineConfig({
       'tests/session-list-pin.test.js',
       'tests/session-list-dept-reselect.test.js',
       'tests/session-list-proactive-group.test.js',
+      'tests/employee-group-order-storage.test.ts',
       'tests/session-list-employee-orphan-prune.test.js',
       'tests/shell-running-preview.test.js',
       'tests/turn-text-isolation.test.js',
@@ -251,7 +252,13 @@ export default defineConfig({
       'tests/proactive-nav-chrome-macos.test.js',
       'tests/proactive-role-card-meta.test.js',
       'tests/mcp-binding-chip.test.js',
+      'tests/mcp-connector-headers.test.js',
       'tests/user-facing-error.test.js',
+      // 连发无回复：send_click 顶掉 sendTrace 后仍能识别上一轮无首帧
+      'tests/chat-turn-timing-stalled.test.js',
+      'tests/live-execution-busy.test.js',
+      // 多会话钉住 V4 投影：peekStore + pin 租约，切回不冷开空白
+      'tests/v4-pin-sessions.test.js',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',

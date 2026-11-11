@@ -52,9 +52,9 @@ describe('getToolIcon', () => {
 })
 
 describe('formatToolDisplayTitle', () => {
-  it('formats collab subtask tools with English short labels', () => {
-    expect(toolShortLabel('checklist')).toBe('Subtask_work_checklist')
-    expect(toolShortLabel('done')).toBe('Subtask_outcome_report')
+  it('formats collab subtask tools with short human labels（584c1126 起 checklist/done 用动作短标签）', () => {
+    expect(toolShortLabel('checklist')).toBe('Checklist')
+    expect(toolShortLabel('done')).toBe('Done')
     expect(
       formatToolDisplayTitle({
         name: 'checklist',
@@ -287,7 +287,7 @@ describe('action-router tool briefs (tasks / knowledge / platform)', () => {
           args_json: JSON.stringify({ query: '怎么配 MCP' }),
         },
       }),
-    ).toBe('检索知识库文档 · 怎么配 MCP')
+    ).toBe('检索自有知识库（默认 hybrid 多库扇出） · 怎么配 MCP')
     expect(
       formatToolDisplayTitle({
         name: 'platform',
@@ -501,7 +501,7 @@ describe('collab subtask tool output', () => {
         name: 'platform',
         input: { action: 'knowledge.search', args_json: '{"query":"MCP"}' },
       }),
-    ).toMatch(/^检索知识库文档/)
+    ).toMatch(/^检索自有知识库/)
     expect(
       formatActivityDetailFromToolCalls([
         { name: 'platform', status: 'running', input: { action: 'employees.list' } },
@@ -560,3 +560,4 @@ describe('formatSubagentTypeLabel / resolveAssignedAgentDisplayName', () => {
     ).toBe('代码助手')
   })
 })
+

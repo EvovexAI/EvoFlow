@@ -9,9 +9,11 @@ import { STORAGE_SESSION_NAMES_KEY, STORAGE_SESSION_NAMES_CHARSET_PURGE_KEY } fr
 
 const IM_CHANNEL_LABELS: Record<string, string> = {
   feishu: '飞书',
+  wecom: '企微',
   weixin: '微信',
   slack: 'Slack',
   telegram: 'Telegram',
+  dingtalk: '钉钉',
 }
 
 function shortImId(id: string, keep = 14): string {
@@ -62,12 +64,26 @@ function parseImChannelParts(channel: string): { label: string; shortId: string 
   return null
 }
 
-/** 侧栏分组已标明「智能体员工」时，去掉标题前缀避免重复 */
-export function stripProactiveEmployeeTitlePrefix(title: string | null | undefined): string {
+/**
+ * 侧栏 Owner 分组已标明「谁」时，去掉标题里重复的员工名 / 「智能体员工」前缀。
+ * 也剥旧缓存里的「AIGC 导演 · …」双写标题。
+ */
+export function stripProactiveEmployeeTitlePrefix(
+  title: string | null | undefined,
+  knownLabels: ReadonlyArray<string> = [],
+): string {
   const t = String(title || '').trim()
   if (!t) return ''
-  const stripped = t.replace(/^智能体员工\s*[·•.\-—–]\s*/, '').trim()
-  return stripped || t
+  let next = t.replace(/^智能体员工\s*[·•.\-—–]\s*/, '').trim()
+  for (const raw of knownLabels) {
+    const label = String(raw || '').trim()
+    if (!label) continue
+    const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`^${escaped}\\s*[·•.\\-—–]\\s*`)
+    const stripped = next.replace(re, '').trim()
+    if (stripped && stripped !== next) next = stripped
+  }
+  return next || t
 }
 
 export function parseSessionLabel(key: string): string {
@@ -84,14 +100,13 @@ export function parseSessionLabel(key: string): string {
       if (idx >= 0) {
         const kind = m.slice(1, -1)
         const suffix = rest.slice(idx + m.length)
-        if (kind === 'task') return `任务 · ${suffix.slice(0, 18) || '未命名'}`
+        // Trigger 芯片已标明「任务 / 渠道 / 定时」，fallback 标题保持短名
+        if (kind === 'task') return suffix.slice(0, 18) || '未命名任务'
         if (kind === 'chat') {
-          // Employee IM (飞书/企微): proactive:{code}:chat:feishu:oc_…
+          // Employee IM: proactive:{code}:chat:feishu:oc_…
           const im = parseImChannelParts(suffix)
-          if (im) {
-            return im.shortId ? `${im.label} · ${im.shortId}` : im.label
-          }
-          return '渠道对话'
+          if (im) return im.shortId || '渠道对话'
+          return '新对话'
         }
         return '值班'
       }
@@ -110,9 +125,8 @@ export function parseSessionLabel(key: string): string {
   if (agent === 'main' && channel === 'main') return '主会话'
   const im = parseImChannelParts(channel)
   if (im) {
-    const who = agentWhoLabel(agent)
-    if (im.shortId) return `${im.label} · ${who} · ${im.shortId}`
-    return `${im.label} · ${who}`
+    // Owner 分组 + Trigger=渠道 已标明身份，标题只留短 id
+    return im.shortId || agentWhoLabel(agent) || '渠道对话'
   }
   if (agent === 'main' || agent === 'lead_agent') return channel
   return `${agent} / ${channel}`

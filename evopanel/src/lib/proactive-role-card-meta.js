@@ -43,6 +43,26 @@ export function roleDescIsNameEcho(desc, role) {
   return names.includes(bare)
 }
 
+/**
+ * 系统提示词摘要（职责已并进提示词后，名册/详情用这段顶原先职责列表）。
+ * @param {unknown} prompt
+ * @param {number} [max]
+ */
+export function roleSystemPromptPreview(prompt, max = 160) {
+  const raw = String(prompt || '')
+    .replace(/\r\n/g, '\n')
+    .replace(/^#{1,6}\s+/gm, '')
+    .replace(/^\s*[-*•]\s+/gm, '')
+    .replace(/\n{2,}/g, '\n')
+    .trim()
+  if (!raw) return ''
+  const lines = raw
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+  return previewLine(lines.slice(0, 4).join(' · ') || raw, max)
+}
+
 /** 卡片脸上一句简介；回声描述、与部门重复的描述都不再占用这一行 */
 export function roleDutyOneLiner(role, max = 88) {
   const desc = cleanLabel(
@@ -56,7 +76,12 @@ export function roleDutyOneLiner(role, max = 88) {
     ? role.config.responsibilities.filter(Boolean)
     : []
   if (resp.length) return previewLine(resp.join(' · '), max)
-  return ''
+  const prompt =
+    role?.system_prompt ||
+    role?.agent_system_prompt ||
+    role?.config?.extra_context?.system_prompt ||
+    ''
+  return roleSystemPromptPreview(prompt, max)
 }
 
 

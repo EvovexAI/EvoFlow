@@ -40,10 +40,41 @@ from evoflow.knowledge.owned.worker import ensure_owned_kb_worker_started
 
 logger = logging.getLogger(__name__)
 
+_MISSING = object()
+
 _QUERY_EMBED_CACHE: dict[tuple[str, ...], tuple[float, list[float]]] = {}
 _QUERY_EMBED_CACHE_LOCK = threading.Lock()
 _QUERY_EMBED_CACHE_TTL_S = 300.0
 _QUERY_EMBED_CACHE_MAX = 128
+
+# Parse failures whose error text looks like embedding — heal to keyword-only
+# instead of leaving the hub stuck on 「需要处理失败文档」.
+_EMBED_FAIL_HINTS = (
+    "embedding",
+    "embed ",
+    "向量",
+    "embeddingerror",
+    "429",
+    "quota",
+    "rate limit",
+    "insufficient_quota",
+    "doubao-embedding",
+    "text-embedding",
+    "embedding-vision",
+    "dimension",
+    "vector",
+    "model not found",
+    "invalid model",
+    "not support",
+    "unsupported",
+)
+
+
+def _error_looks_like_embedding_failure(*parts: str) -> bool:
+    blob = " ".join(str(p or "") for p in parts).lower()
+    if not blob.strip():
+        return False
+    return any(h in blob for h in _EMBED_FAIL_HINTS)
 
 
 async def _cached_query_embedding(cache_key: tuple[str, ...], loader: Any) -> list[float]:
@@ -368,7 +399,11 @@ def _document_counts_by_kb(rows: list[Any]) -> dict[str, int]:
 
 
 def _document_health_by_kb(rows: list[Any]) -> dict[str, dict[str, int]]:
-    """Return parse/index health counts for the list view without loading documents."""
+    """Return parse/index health counts for the list view without loading documents.
+
+    ``vectorDegraded`` counts completed (searchable) docs whose vectors are
+    missing/degraded — a soft hint, not a parse failure.
+    """
     health: dict[str, dict[str, int]] = {}
     for r in rows:
         kid = str(r["id"] if isinstance(r, sqlite3.Row) else r[0])
@@ -383,12 +418,25 @@ def _document_health_by_kb(rows: list[Any]) -> dict[str, dict[str, int]]:
                     """,
                     (kid,),
                 ).fetchall()
+                degraded = int(
+                    conn.execute(
+                        """
+                        SELECT COUNT(*) FROM kb_documents
+                        WHERE kb_id=? AND deleted_at IS NULL
+                          AND parse_status='completed'
+                          AND COALESCE(vector_status, '') IN ('degraded', 'failed', 'pending', 'building')
+                        """,
+                        (kid,),
+                    ).fetchone()[0]
+                    or 0
+                )
             values = {str(item["parse_status"] or "unknown"): int(item["c"] or 0) for item in grouped}
             health[kid] = {
                 "ready": values.get("completed", 0),
                 "pending": values.get("pending", 0),
                 "processing": values.get("processing", 0),
                 "failed": values.get("failed", 0),
+                "vectorDegraded": degraded,
             }
         except Exception:
             logger.debug("document health skipped for kb=%s", kid, exc_info=True)
@@ -429,7 +477,8 @@ def list_bases(
             continue
         item["documentCount"] = counts.get(str(item["id"]), 0)
         item["documentHealth"] = health.get(
-            str(item["id"]), {"ready": 0, "pending": 0, "processing": 0, "failed": 0}
+            str(item["id"]),
+            {"ready": 0, "pending": 0, "processing": 0, "failed": 0, "vectorDegraded": 0},
         )
         out.append(item)
     return out
@@ -598,6 +647,7 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     summary_enabled = payload.get("summaryEnabled", payload.get("summary_enabled"))
     image_caption = payload.get("imageCaptionEnabled", payload.get("image_caption_enabled"))
     hidden = payload.get("hidden")
+    vector_enabled_raw = payload.get("vectorEnabled", payload.get("vector_enabled", _MISSING))
 
     embedding_touch = any(
         k in payload
@@ -616,6 +666,8 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     )
 
     reindex_doc_ids: list[str] = []
+    keyword_only_heal_ids: list[str] = []
+    vector_on_reindex_ids: list[str] = []
     with db() as conn:
         row = conn.execute("SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL", (kb_id,)).fetchone()
         if not row:
@@ -653,6 +705,16 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         if hidden is not None:
             sets.append("hidden=?")
             vals.append(1 if hidden else 0)
+
+        vector_enabled_changed = False
+        vector_enabled_next: bool | None = None
+        if vector_enabled_raw is not _MISSING:
+            vector_enabled_next = bool(vector_enabled_raw)
+            old_ve = bool(int(row["vector_enabled"] if row["vector_enabled"] is not None else 1))
+            if vector_enabled_next != old_ve:
+                vector_enabled_changed = True
+                sets.append("vector_enabled=?")
+                vals.append(1 if vector_enabled_next else 0)
 
         embedding_changed = False
         if embedding_touch:
@@ -722,6 +784,50 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
                     ).fetchall()
                 reindex_doc_ids = [str(r["id"]) for r in doc_rows]
 
+        if vector_enabled_changed and vector_enabled_next is False:
+            # Keyword-only mode: drop vectors, mark searchable docs degraded, heal failures.
+            if "embedding_dim=?" not in sets:
+                sets.append("embedding_dim=?")
+                vals.append(None)
+            with db_for_kb(kb_id) as kb_conn:
+                kb_conn.execute("DELETE FROM kb_chunk_embeddings WHERE kb_id=?", (kb_id,))
+                kb_conn.execute(
+                    """
+                    UPDATE kb_documents
+                    SET vector_status='degraded',
+                        index_error=CASE
+                          WHEN COALESCE(index_error, '') = '' THEN '此库已设为仅关键词检索'
+                          ELSE index_error
+                        END,
+                        updated_at=?
+                    WHERE kb_id=? AND deleted_at IS NULL AND parse_status='completed'
+                    """,
+                    (now, kb_id),
+                )
+                fail_rows = kb_conn.execute(
+                    """
+                    SELECT id FROM kb_documents
+                    WHERE kb_id=? AND deleted_at IS NULL AND parse_status='failed'
+                    """,
+                    (kb_id,),
+                ).fetchall()
+            # Explicit keyword-only: re-parse failures so they become searchable.
+            keyword_only_heal_ids = [str(r["id"]) for r in fail_rows]
+        elif vector_enabled_changed and vector_enabled_next is True and not embedding_changed:
+            # Re-enable vectors: rebuild with the current embedding binding.
+            with db_for_kb(kb_id) as kb_conn:
+                doc_rows = kb_conn.execute(
+                    """
+                    SELECT id FROM kb_documents
+                    WHERE kb_id=? AND deleted_at IS NULL
+                    """,
+                    (kb_id,),
+                ).fetchall()
+            vector_on_reindex_ids = [str(r["id"]) for r in doc_rows]
+            if row["embedding_dim"] is not None and "embedding_dim=?" not in sets:
+                sets.append("embedding_dim=?")
+                vals.append(None)
+
         vals.append(kb_id)
         conn.execute(
             f"UPDATE kb_bases SET {', '.join(sets)} WHERE id=?",
@@ -734,11 +840,38 @@ def update_base(kb_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         except Exception:
             logger.debug("reindex enqueue failed for %s", doc_id, exc_info=True)
 
+    heal_payload = {
+        "skip_embedding": True,
+        "skip_embedding_reason": "此库已设为仅关键词检索",
+    }
+    for doc_id in keyword_only_heal_ids:
+        try:
+            jobs.enqueue(
+                kb_id=kb_id,
+                doc_id=doc_id,
+                type="reindex",
+                priority=85,
+                payload=heal_payload,
+            )
+        except Exception:
+            logger.debug("keyword-only heal enqueue failed for %s", doc_id, exc_info=True)
+
+    for doc_id in vector_on_reindex_ids:
+        if doc_id in reindex_doc_ids:
+            continue
+        try:
+            jobs.enqueue(kb_id=kb_id, doc_id=doc_id, type="reindex", priority=80)
+        except Exception:
+            logger.debug("vector-on reindex enqueue failed for %s", doc_id, exc_info=True)
+
     out = get_base(kb_id)
     if out is None:
         raise ValueError("knowledge base not found")
-    if reindex_doc_ids:
-        out = {**out, "reindexQueued": len(reindex_doc_ids)}
+    queued_n = len(reindex_doc_ids) + len(keyword_only_heal_ids) + len(
+        [d for d in vector_on_reindex_ids if d not in reindex_doc_ids]
+    )
+    if queued_n:
+        out = {**out, "reindexQueued": queued_n}
     return out
 
 
@@ -936,6 +1069,118 @@ def requeue_unpublished_keyword_docs(
     if queued:
         logger.info(
             "requeued unpublished keyword docs scanned=%s queued=%s kb=%s",
+            scanned,
+            queued,
+            kb_id or "*",
+        )
+    return {
+        "ok": True,
+        "scanned": scanned,
+        "requeued": queued,
+        "kbId": kb_id,
+    }
+
+
+def requeue_embedding_failed_as_keyword(
+    kb_id: str | None = None,
+    *,
+    limit: int = 200,
+) -> dict[str, Any]:
+    """Heal docs stuck on ``parse_status=failed`` due to embedding errors.
+
+    Older pipelines marked hard EmbeddingError as parse failure, which kept the
+    hub nagging even though keyword search could work. Re-run with
+    ``skip_embedding`` so chunks + FTS publish without re-hitting a broken model.
+    """
+    ensure_owned_kb_worker_started()
+    kids: list[str] = []
+    if kb_id:
+        kids = [str(kb_id).strip()]
+    else:
+        with db() as conn:
+            rows = conn.execute(
+                "SELECT id FROM kb_bases WHERE deleted_at IS NULL ORDER BY updated_at DESC"
+            ).fetchall()
+        kids = [str(r["id"]) for r in rows if r["id"]]
+
+    # Skip docs that already have an active parse/reindex job.
+    active: set[str] = set()
+    try:
+        with db() as conn:
+            for r in conn.execute(
+                """
+                SELECT DISTINCT doc_id FROM kb_jobs
+                WHERE doc_id IS NOT NULL
+                  AND type IN ('parse_index', 'reindex')
+                  AND state IN ('queued', 'running')
+                """
+            ).fetchall():
+                active.add(str(r[0] or ""))
+    except Exception:
+        logger.debug("active job lookup failed for embed-heal", exc_info=True)
+
+    queued = 0
+    scanned = 0
+    now = utc_now()
+    heal_payload = {
+        "skip_embedding": True,
+        "skip_embedding_reason": "向量失败已降级为仅关键词",
+    }
+    for kid in kids:
+        if queued >= limit:
+            break
+        try:
+            with db_for_kb(kid) as conn:
+                docs = conn.execute(
+                    """
+                    SELECT id, error_message, index_error, vector_status
+                    FROM kb_documents
+                    WHERE kb_id=? AND deleted_at IS NULL AND parse_status='failed'
+                    ORDER BY updated_at ASC
+                    LIMIT ?
+                    """,
+                    (kid, max(1, limit - queued)),
+                ).fetchall()
+        except Exception:
+            logger.debug("embed-fail heal scan skipped kb=%s", kid, exc_info=True)
+            continue
+        for row in docs:
+            doc_id = str(row["id"] or "").strip()
+            if not doc_id or doc_id in active:
+                continue
+            scanned += 1
+            vec = str(row["vector_status"] or "").lower()
+            looks_embed = _error_looks_like_embedding_failure(
+                row["error_message"], row["index_error"]
+            ) or vec in ("failed", "degraded", "building", "pending")
+            if not looks_embed:
+                continue
+            with db_for_kb(kid) as conn:
+                conn.execute(
+                    """
+                    UPDATE kb_documents
+                    SET parse_status='pending', index_status='building',
+                        keyword_status='building', vector_status='building',
+                        error_message='', updated_at=?
+                    WHERE id=? AND deleted_at IS NULL
+                    """,
+                    (now, doc_id),
+                )
+            try:
+                jobs.enqueue(
+                    kb_id=kid,
+                    doc_id=doc_id,
+                    type="reindex",
+                    priority=88,
+                    payload=heal_payload,
+                )
+                queued += 1
+                active.add(doc_id)
+            except Exception:
+                logger.debug("embed-fail heal enqueue failed for %s", doc_id, exc_info=True)
+    if queued:
+        logger.info(
+            "healed embedding-failed docs to keyword scanned=%s queued=%s kb=%s",
             scanned,
             queued,
             kb_id or "*",

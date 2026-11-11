@@ -78,6 +78,9 @@ export function usePendingSendQueue(opts: {
   /** interrupt+send 进行中：防快速双触（双 Enter/双 Esc）导致重复 stop+send。 */
   const interruptFlushInFlightRef = useRef(false)
   const pendingDrainBusyRef = useRef(false)
+  /** busy→idle 后 FE 已闲、LG 仍收尾时延后 drain；按 session 计数，避免僵尸 run 卡死排队。 */
+  const pendingDrainLgWaitRef = useRef(new Map<string, number>())
+  const PENDING_DRAIN_LG_WAIT_MAX = 24
   const prevTurnBusyForDrainRef = useRef(false)
   /** 忙时 ↑ 已入 pending-inject；本轮结束后若尚未被模型消费则 skipAppend 续跑 */
   const midTurnInjectRef = useRef<Array<{ messageId: string; text: string; sessionKey: string }>>([])
@@ -508,8 +511,36 @@ export function usePendingSendQueue(opts: {
           }
         }
 
+        const lgStillGoing = async (): Promise<boolean> => {
+          try {
+            const status = await wsClient.getSessionRunStatus(sk)
+            return !!(
+              status?.executing ||
+              status?.status === 'running' ||
+              status?.status === 'pending'
+            )
+          } catch {
+            return false
+          }
+        }
+        const deferWhileLgBusy = (): boolean => {
+          if (String(sessionRef.current || '').trim() !== sk) return false
+          const waits = pendingDrainLgWaitRef.current.get(sk) || 0
+          if (waits >= PENDING_DRAIN_LG_WAIT_MAX) {
+            pendingDrainLgWaitRef.current.delete(sk)
+            return false
+          }
+          pendingDrainLgWaitRef.current.set(sk, waits + 1)
+          window.setTimeout(() => {
+            void runPendingDrainRef.current(sk)
+          }, 450)
+          return true
+        }
+
         if (needsContinue) {
           try {
+            if ((await lgStillGoing()) && deferWhileLgBusy()) return
+            pendingDrainLgWaitRef.current.delete(sk)
             await handleSendRef.current(needsContinue.text, undefined, undefined, {
               messageId: needsContinue.messageId,
               skipTranscriptAppend: true,
@@ -535,6 +566,10 @@ export function usePendingSendQueue(opts: {
         if (isSessionExecuting(sk, { sessionRow: rowStill })) {
           return
         }
+        // FE 在 SSE final 后立刻 idle，LG 可能仍在收尾。此时续发会 multitask=interrupt，
+        // 把上一轮打成「用户停止」。等 Gateway 确认不在跑再发。
+        if ((await lgStillGoing()) && deferWhileLgBusy()) return
+        pendingDrainLgWaitRef.current.delete(sk)
         if (String(sessionRef.current || '').trim() !== sk) return
         setPendingSendQueue((prev) => prev.filter((x) => x.id !== next.id))
         await handleSendRef.current(next.text)
@@ -567,6 +602,7 @@ export function usePendingSendQueue(opts: {
 
     queueOwnerSessionRef.current = sk
     pendingDrainBusyRef.current = false
+    if (prevSk) pendingDrainLgWaitRef.current.delete(prevSk)
 
     const restored = sk ? queuesBySessionRef.current.get(sk) || [] : []
     setPendingSendQueueState(restored)

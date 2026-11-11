@@ -148,3 +148,21 @@ def test_build_ui_feedback_attaches_media():
     assert ui.get("action") == "media.generate_image"
     assert isinstance(ui.get("media"), list) and ui["media"]
     assert ui["media"][0]["kind"] == "image"
+
+
+def test_resolve_local_media_file_accepts_uploads_virtual_and_relative(tmp_path):
+    from evoflow.community.media_generation.media_url_resolver import resolve_local_media_file
+
+    outputs = tmp_path / "outputs"
+    uploads = tmp_path / "uploads"
+    outputs.mkdir()
+    uploads.mkdir()
+    img = uploads / "pasted-image-1.png"
+    img.write_bytes(b"png")
+
+    assert resolve_local_media_file(
+        "/mnt/user-data/uploads/pasted-image-1.png",
+        outputs_dir=outputs,
+    ) == img.resolve()
+    assert resolve_local_media_file("uploads/pasted-image-1.png", outputs_dir=outputs) == img.resolve()
+    assert resolve_local_media_file("pasted-image-1.png", outputs_dir=outputs) == img.resolve()

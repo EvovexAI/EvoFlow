@@ -93,9 +93,10 @@ describe('状态面板偏好', () => {
 
 describe('进程聚合', () => {
   it('三类来源各出一行', () => {
+    // 对齐 ZCode：终端行来自 backgroundWorks（只列 running 后台 bash）
     const items = buildProcessItems({
-      terminalStreams: {
-        tc1: { toolCallId: 'tc1', phase: 'running', command: 'npm run build' },
+      backgroundWorks: {
+        w1: { workId: 'w1', kind: 'bash', title: 'npm run build', status: 'running', startedAt: 1 },
       },
       subagentTasks: {
         t1: { taskId: 't1', phase: 'running', description: '写测试' },
@@ -108,29 +109,38 @@ describe('进程聚合', () => {
 
   it('running 排在最前，completed 沉底', () => {
     const items = buildProcessItems({
-      terminalStreams: {
-        a: { toolCallId: 'a', phase: 'success', command: 'done-cmd' },
-        b: { toolCallId: 'b', phase: 'running', command: 'live-cmd' },
+      // 终端只收 running；completed 用子智能体表达
+      backgroundWorks: {
+        b: { workId: 'b', kind: 'bash', title: 'live-cmd', status: 'running', startedAt: 1 },
+      },
+      subagentTasks: {
+        a: { taskId: 'a', phase: 'completed' },
       },
     })
     expect(items[0].state).toBe('running')
     expect(items[items.length - 1].state).toBe('completed')
   })
 
-  it('phase=success 但 exitCode 非 0 仍判失败', () => {
-    // 后端 phase 可能滞后于 exit 事件，exitCode 才是权威
-    const [item] = buildProcessItems({
-      terminalStreams: { a: { toolCallId: 'a', phase: 'success', command: 'x', exitCode: 2 } },
+  it('已结束的终端不进面板列表（对齐 ZCode：留在聊天卡片，exitCode 也不再参与判定）', () => {
+    // 旧契约「phase=success 但 exitCode 非 0 判失败」随 backgroundWorks 收敛而下线：
+    // 面板只展示 running 后台 bash，成功/失败终端在聊天卡片内自行渲染终态。
+    const items = buildProcessItems({
+      backgroundWorks: {
+        a: { workId: 'a', kind: 'bash', title: 'x', status: 'success', startedAt: 1, endedAt: 2, command: 'x' },
+      },
+      subagentTasks: {
+        t: { taskId: 't', phase: 'failed', description: 'boom' },
+      },
     })
-    expect(item.state).toBe('failed')
-    expect(item.detail).toBe('退出码 2')
+    expect(items.map((i) => i.kind)).toEqual(['agent'])
+    expect(items[0].state).toBe('failed')
   })
 
-  it('同一轮终端多实例按 invocationId 分开，不互相覆盖', () => {
+  it('多个后台终端按 workId 分开，不互相覆盖', () => {
     const items = buildProcessItems({
-      terminalStreams: {
-        k1: { toolCallId: 'tc1', invocationId: 'i1', phase: 'running', command: 'first' },
-        k2: { toolCallId: 'tc1', invocationId: 'i2', phase: 'running', command: 'second' },
+      backgroundWorks: {
+        k1: { workId: 'w1', kind: 'bash', title: 'first', status: 'running', startedAt: 1 },
+        k2: { workId: 'w2', kind: 'bash', title: 'second', status: 'running', startedAt: 2 },
       },
     })
     expect(items).toHaveLength(2)
@@ -140,7 +150,9 @@ describe('进程聚合', () => {
   it('长命令压成单行并截断', () => {
     const long = 'echo ' + 'x'.repeat(200)
     const [item] = buildProcessItems({
-      terminalStreams: { a: { toolCallId: 'a', phase: 'running', command: `  ${long}\n  ` } },
+      backgroundWorks: {
+        a: { workId: 'a', kind: 'bash', title: 'long', status: 'running', startedAt: 1, command: `  ${long}\n  ` },
+      },
     })
     expect(item.label.length).toBeLessThanOrEqual(72)
     expect(item.label.endsWith('…')).toBe(true)
@@ -205,9 +217,12 @@ describe('进程聚合', () => {
 
   it('summary 计数与胶囊摘要：优先报在跑的那条', () => {
     const s = buildProcessSummary({
-      terminalStreams: {
-        a: { toolCallId: 'a', phase: 'success', command: 'ok-cmd' },
-        b: { toolCallId: 'b', phase: 'running', command: 'live-cmd' },
+      // 终端只收 running；completed 用子智能体表达
+      backgroundWorks: {
+        b: { workId: 'b', kind: 'bash', title: 'live-cmd', status: 'running', startedAt: 1 },
+      },
+      subagentTasks: {
+        a: { taskId: 'a', phase: 'completed' },
       },
     })
     expect(s.completed).toBe(1)
@@ -225,8 +240,9 @@ describe('进程聚合', () => {
   })
 
   it('无在跑进程时胶囊报最后一个失败', () => {
+    // 失败终端不进面板列表，胶囊的失败摘要来自子智能体/工作流终态
     const s = buildProcessSummary({
-      terminalStreams: { a: { toolCallId: 'a', phase: 'failed', command: 'boom' } },
+      subagentTasks: { a: { taskId: 'a', phase: 'failed', description: 'boom' } },
     })
     expect(s.capsuleState).toBe('failed')
     expect(s.capsuleLabel).toBe('boom')
@@ -285,7 +301,7 @@ describe('状态面板可见 tab / 活动跳转', () => {
     expect(tabs.find((t) => t.id === 'platform')?.label).toBe('平台 3')
   })
 
-  it('部门群聊首 tab 为「群聊」，员工会话为「员工」', () => {
+  it('部门群聊首 tab 为「群聊」，员工会话为「BOT」（员工改叫 BOT，与侧栏口径一致）', () => {
     expect(
       buildVisibleSummaryPanelTabs({
         isDeptChatSession: true,
@@ -301,7 +317,7 @@ describe('状态面板可见 tab / 活动跳转', () => {
         artifactCount: 0,
         platformCount: 0,
       }).find((t) => t.id === 'agent')?.label,
-    ).toBe('员工')
+    ).toBe('BOT')
   })
 
   it('调试关闭 / 非员工任务 tab 回落到智能体', () => {

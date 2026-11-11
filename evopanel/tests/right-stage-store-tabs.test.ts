@@ -14,6 +14,9 @@ import { setChatWorkspaceRoot } from '../src/lib/chat-workspace-context.js'
 describe('RightStageStore multi-tab', () => {
   beforeEach(() => {
     rightStageStore.hideAll()
+    // f31b7138 起 hideAll 会钉住「收起锁」；补一次显式展开，
+    // 让 show()/切会话恢复按「用户未锁收起」的语义展开面板。
+    rightStageStore.expand()
   })
 
   it('closeTab only removes one tab', () => {
