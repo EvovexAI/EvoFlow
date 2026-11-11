@@ -31,6 +31,19 @@ _GIT_IGNORE_SUBPROCESS_S = 6.0
 _SERVE_FILE_LARGE_BYTES = 5 * 1024 * 1024
 _SERVE_FILE_LARGE_SLOT: asyncio.Semaphore | None = None
 
+# resolve-target heal walks (2026-11-10 / 2026-11-11): infinite-canvas media trees
+# held the default asyncio threadpool for 50–100s → employee/chat REST looked "stuck".
+# Isolation: dedicated pool + concurrency slot + heal budget + soft miss (exists=false).
+_RESOLVE_TARGET_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="evoflow-resolve-target"
+)
+_RESOLVE_TARGET_SLOT: asyncio.Semaphore | None = None
+_RESOLVE_TARGET_WALL_S = 3.5
+_RESOLVE_TARGET_ACQUIRE_S = 0.8
+_RESOLVE_TARGET_HEAL_MAX_SCAN = 1_500
+_RESOLVE_TARGET_HEAL_MAX_KEYS = 2
+_RESOLVE_TARGET_HEAL_BUDGET_S = 2.5
+
 
 def _git_slot() -> asyncio.Semaphore:
     """Lazy semaphore bound to the running loop (avoid import-time loop binding)."""
@@ -45,6 +58,14 @@ def _serve_file_large_slot() -> asyncio.Semaphore:
     if _SERVE_FILE_LARGE_SLOT is None:
         _SERVE_FILE_LARGE_SLOT = asyncio.Semaphore(2)
     return _SERVE_FILE_LARGE_SLOT
+
+
+def _resolve_target_slot() -> asyncio.Semaphore:
+    """Cap concurrent resolve-target heals (matches dedicated pool size)."""
+    global _RESOLVE_TARGET_SLOT
+    if _RESOLVE_TARGET_SLOT is None:
+        _RESOLVE_TARGET_SLOT = asyncio.Semaphore(2)
+    return _RESOLVE_TARGET_SLOT
 
 from evoflow.authz.http_guard import require_workspace_path_visible, require_workspace_root_access
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
@@ -417,8 +438,16 @@ def _rel_under_root(root: Path, path: Path) -> str | None:
             return None
 
 
-def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int = 4_000) -> Path | None:
+def _fuzzy_locate_under_workspace(
+    root: Path,
+    rel_or_name: str,
+    *,
+    max_scan: int = 4_000,
+    budget_s: float | None = None,
+) -> Path | None:
     """Cite omitted ``projects/<ep>/`` prefix: locate unique ``**/rel`` (or basename) under root."""
+    import time
+
     norm = str(rel_or_name or "").replace("\\", "/").strip().strip("/")
     if not norm or not root.is_dir():
         return None
@@ -427,7 +456,10 @@ def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int
     suffix_hits: list[Path] = []
     name_hits: list[Path] = []
     scanned = 0
+    deadline = (time.monotonic() + float(budget_s)) if budget_s and budget_s > 0 else None
     for dirpath, dirnames, filenames in os.walk(root, topdown=True):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         dirnames[:] = [
             d
             for d in dirnames
@@ -436,6 +468,8 @@ def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int
         for fn in filenames:
             scanned += 1
             if scanned > max_scan:
+                break
+            if deadline is not None and scanned % 64 == 0 and time.monotonic() >= deadline:
                 break
             p = Path(dirpath) / fn
             rel_p = _rel_under_root(root, p)
@@ -447,6 +481,8 @@ def _fuzzy_locate_under_workspace(root: Path, rel_or_name: str, *, max_scan: int
             elif name and len(name) >= 3 and fn.lower() == name.lower():
                 name_hits.append(p)
         if scanned > max_scan:
+            break
+        if deadline is not None and time.monotonic() >= deadline:
             break
 
     def _pick(hits: list[Path]) -> Path | None:
@@ -472,13 +508,20 @@ def _heal_missing_workspace_file_target(
     root: str | None,
     thread_id: str | None,
     cited: str,
+    max_scan: int = 4_000,
+    max_locate_keys: int | None = None,
+    budget_s: float | None = None,
 ) -> Path:
     """When cited path 404s: collapse numbered mangling, then search under workspace root."""
+    import time
+
     try:
         if target.is_file():
             return target
     except OSError:
         pass
+
+    heal_deadline = (time.monotonic() + float(budget_s)) if budget_s and budget_s > 0 else None
 
     cited_norm = str(cited or "").replace("\\", "/").strip()
     candidates: list[str] = []
@@ -503,6 +546,8 @@ def _heal_missing_workspace_file_target(
                 candidates.append(rel_from_root)
 
     for cand in candidates:
+        if heal_deadline is not None and time.monotonic() >= heal_deadline:
+            return target
         try:
             nxt = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=cand)
         except ValueError:
@@ -538,8 +583,20 @@ def _heal_missing_workspace_file_target(
                 locate_keys.append(leaf)
         if cited_norm and Path(cited_norm).name not in locate_keys:
             locate_keys.append(Path(cited_norm).name)
+        if max_locate_keys is not None and max_locate_keys > 0:
+            locate_keys = locate_keys[: int(max_locate_keys)]
         for key in locate_keys:
-            hit = _fuzzy_locate_under_workspace(root_path, key)
+            if heal_deadline is not None and time.monotonic() >= heal_deadline:
+                break
+            remaining = None
+            if heal_deadline is not None:
+                remaining = max(0.05, heal_deadline - time.monotonic())
+            hit = _fuzzy_locate_under_workspace(
+                root_path,
+                key,
+                max_scan=max_scan,
+                budget_s=remaining,
+            )
             if hit is not None:
                 try:
                     if hit.is_file():
@@ -1370,8 +1427,15 @@ def _resolve_target_sync(
     """Worker-thread body for resolve-target (heal must not touch the event loop)."""
     target = _resolve_workspace_file_target(root=root, thread_id=thread_id, rel=rel)
     if not target.exists() and _should_attempt_path_heal(rel, target):
+        # Tight budget: miss fast rather than walk a media monorepo for a minute.
         target = _heal_missing_workspace_file_target(
-            target, root=root, thread_id=thread_id, cited=rel
+            target,
+            root=root,
+            thread_id=thread_id,
+            cited=rel,
+            max_scan=_RESOLVE_TARGET_HEAL_MAX_SCAN,
+            max_locate_keys=_RESOLVE_TARGET_HEAL_MAX_KEYS,
+            budget_s=_RESOLVE_TARGET_HEAL_BUDGET_S,
         )
     try:
         resolved = str(target.resolve(strict=False))
@@ -1383,6 +1447,32 @@ def _resolve_target_sync(
     except OSError:
         exists, is_dir = False, False
     return rel, resolved, exists, is_dir
+
+
+def _soft_miss_resolve_target(rel: str) -> ResolveWorkspaceTargetResponse:
+    """UI treats exists=false as miss and falls back — never pin chat/employee REST."""
+    return ResolveWorkspaceTargetResponse(
+        path=rel,
+        resolved=rel,
+        exists=False,
+        is_dir=False,
+    )
+
+
+def _log_resolve_target_slow(*, kind: str, rel: str, duration_s: float | None = None) -> None:
+    try:
+        from app.gateway.hang_diagnostics import append_gateway_slow_log
+
+        append_gateway_slow_log(
+            kind=kind,
+            method="GET",
+            path="/api/workspaces/resolve-target",
+            query=f"path={rel[:200]}",
+            duration_s=duration_s,
+            status_code=200,
+        )
+    except Exception:
+        pass
 
 
 @router.get("/resolve-target", response_model=ResolveWorkspaceTargetResponse)
@@ -1399,15 +1489,50 @@ async def resolve_workspace_target(
     rel = _normalize_rel_path(path)
     if not rel:
         raise HTTPException(status_code=400, detail="path is required")
+
+    # Fail fast when both heal workers are busy — do not queue behind 3.5s walks
+    # (2026-11-11: 3–6 concurrent mp4 resolves → oldest@100s, employee APIs starved).
+    slot = _resolve_target_slot()
+    acquired = False
     try:
-        out_rel, resolved, exists, is_dir = await asyncio.to_thread(
-            _resolve_target_sync,
-            root=root,
-            thread_id=thread_id,
-            rel=rel,
+        await asyncio.wait_for(slot.acquire(), timeout=_RESOLVE_TARGET_ACQUIRE_S)
+        acquired = True
+    except TimeoutError:
+        logger.warning("resolve-target slot busy path=%s", rel[:240])
+        _log_resolve_target_slow(kind="resolve_target_shed", rel=rel, duration_s=0.0)
+        return _soft_miss_resolve_target(rel)
+
+    try:
+        loop = asyncio.get_running_loop()
+        # Dedicated pool: cancelled wait_for cannot stop a thread mid-walk, but
+        # walks stay off the default asyncio pool used by chat/employee REST.
+        out_rel, resolved, exists, is_dir = await asyncio.wait_for(
+            loop.run_in_executor(
+                _RESOLVE_TARGET_EXECUTOR,
+                lambda: _resolve_target_sync(root=root, thread_id=thread_id, rel=rel),
+            ),
+            timeout=_RESOLVE_TARGET_WALL_S,
         )
+    except TimeoutError:
+        logger.warning(
+            "resolve-target timed out after %.1fs path=%s root=%s thread_id=%s",
+            _RESOLVE_TARGET_WALL_S,
+            rel[:240],
+            (root or "")[:160],
+            (thread_id or "")[:80],
+        )
+        _log_resolve_target_slow(
+            kind="resolve_target_timeout",
+            rel=rel,
+            duration_s=_RESOLVE_TARGET_WALL_S,
+        )
+        return _soft_miss_resolve_target(rel)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        if acquired:
+            slot.release()
+
     return ResolveWorkspaceTargetResponse(
         path=out_rel,
         resolved=resolved,
@@ -1443,8 +1568,15 @@ def _prepare_serve_file_target(
         pass
     if not target.is_file():
         if _should_attempt_path_heal(path, target):
+            # Same tight budget as resolve-target — serve-file must not walk monorepos.
             target = _heal_missing_workspace_file_target(
-                target, root=root, thread_id=thread_id, cited=path
+                target,
+                root=root,
+                thread_id=thread_id,
+                cited=path,
+                max_scan=_RESOLVE_TARGET_HEAL_MAX_SCAN,
+                max_locate_keys=_RESOLVE_TARGET_HEAL_MAX_KEYS,
+                budget_s=_RESOLVE_TARGET_HEAL_BUDGET_S,
             )
         if not target.is_file():
             raise HTTPException(status_code=404, detail="file not found")

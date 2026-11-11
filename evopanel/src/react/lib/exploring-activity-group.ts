@@ -341,7 +341,7 @@ export function exploringHeaderToolMeta(
   tools: unknown[],
   activityPieces?: ActivityPiece[],
   turnTools?: unknown[],
-): { toolLabel: string; fileStats: { added: number; removed: number } } {
+): { toolLabel: string; fileStats: { added: number; removed: number }; toolRounds: number } {
   const toolCount =
     tools && tools.length
       ? tools.length
@@ -358,13 +358,22 @@ export function exploringHeaderToolMeta(
           return seen.size
         })()
 
-  const toolLabel =
-    toolCount === 0
-      ? ''
-      : `${toolCount} ${toolCount === 1 ? 'tool' : 'tools'}`
+  // 对齐函数头注释的展示契约「3工具 2轮 +12 −3」：中文工具数 + 工具批次轮次。
+  // 之前实现输出英文 `3 tools` 且丢轮次，与注释/测试（中文 UI）不一致。
+  const toolLabel = toolCount === 0 ? '' : `${toolCount}工具`
 
   const fileStats = accumulateFileEditStatsFromTools(turnTools ?? tools)
-  return { toolLabel, fileStats }
+  return { toolLabel, fileStats, toolRounds: countToolRounds(activityPieces) }
+}
+
+/** 工具批次轮次 = activityPieces 里非空 tools 段个数（与「步」不同：一段多工具算一轮） */
+function countToolRounds(activityPieces?: ActivityPiece[]): number {
+  if (!activityPieces?.length) return 0
+  let n = 0
+  for (const p of activityPieces) {
+    if (p?.kind === 'tools' && (p.ids?.length ?? 0) > 0) n++
+  }
+  return n
 }
 
 /** Exploring 标题后：「3工具 2轮 +12 −3」（整轮文件变更 +/- 累加） */
@@ -373,10 +382,15 @@ export function exploringHeaderToolSummary(
   activityPieces?: ActivityPiece[],
   turnTools?: unknown[],
 ): string {
-  const { toolLabel, fileStats } = exploringHeaderToolMeta(tools, activityPieces, turnTools)
+  const { toolLabel, fileStats, toolRounds } = exploringHeaderToolMeta(
+    tools,
+    activityPieces,
+    turnTools,
+  )
   if (!toolLabel) return ''
 
   const parts = [toolLabel]
+  if (toolRounds > 0) parts.push(`${toolRounds}轮`)
   const fileStatBrief = formatFileEditDiffStatBrief(fileStats)
   if (fileStatBrief) parts.push(fileStatBrief)
 

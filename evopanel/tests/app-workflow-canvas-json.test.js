@@ -15,9 +15,10 @@ import { flowToSteps, START_NODE_ID } from '../src/react/lib/app-workflow-flow.t
 
 describe('app-workflow-canvas-json', () => {
   it('migrates legacy step.canvas + depends_on into canvas_json', () => {
+    // 非平铺布局（y 间距 ≥ 48）才会走 legacy 坐标迁移；平铺视为未初始化，会被自动分层布局替换。
     const steps = normalizeSteps([
       { ref: '1', name: 'a', depends_on: [], canvas: { x: 100, y: 200 } },
-      { ref: '2', name: 'b', depends_on: ['1'], canvas: { x: 400, y: 200 } },
+      { ref: '2', name: 'b', depends_on: ['1'], canvas: { x: 400, y: 400 } },
     ])
     const canvas = migrateStepsToCanvas(steps)
     expect(canvas.nodes[0].nodeId).toBe(START_NODE_ID)
@@ -41,7 +42,7 @@ describe('app-workflow-canvas-json', () => {
         description: 'write',
         assigned_agent: 'writer',
         depends_on: ['1'],
-        canvas: { x: 440, y: 80 },
+        canvas: { x: 440, y: 240 },
       },
     ])
     const canvas = migrateStepsToCanvas(steps)

@@ -53,7 +53,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setLsDefaultOn()
+  setLsDefaultOff()
 })
 
 describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离', () => {

@@ -29,6 +29,27 @@ def test_run_error_info_schema_failure() -> None:
     assert info["source"] == "runtime"
 
 
+def test_run_error_info_bare_run_error_is_actionable() -> None:
+    info = _run_error_info({"code": "run_error", "message": "run_error"}, now_ms=2)
+    assert info["code"] == "run_error"
+    assert "负载" in info["message"] or "中断" in info["message"]
+    assert "开新会话" in info["message"]
+    assert "上游未返回" in info["detail"]
+    assert info["recoverable"] is True
+
+
+def test_run_error_info_remote_disconnect() -> None:
+    info = _run_error_info(
+        {
+            "code": "ERROR",
+            "message": "httpx.RemoteProtocolError: Server disconnected without sending a response.",
+        },
+        now_ms=3,
+    )
+    assert "连接中断" in info["message"]
+    assert info["recoverable"] is True
+
+
 def test_agui_error_dict_extracts_message() -> None:
     state = AgUiEncoderState(thread_id="t1", run_id="r1")
     events = evf_payload_to_agui_events(

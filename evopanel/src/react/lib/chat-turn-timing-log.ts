@@ -28,9 +28,28 @@ export type ChatTurnSendTrace = {
 }
 
 let sendTrace: ChatTurnSendTrace | null = null
+/**
+ * 上一轮已点发送/上线、但还没等到首帧时被新一轮 send_click 顶掉的快照。
+ * Composer 会先 logChatTurnSendClick 重置 sendTrace；卡顿重发必须读这份，不能读新 trace。
+ */
+let unansweredPriorTrace: ChatTurnSendTrace | null = null
 /** 同一会话状态卡展示去重，避免 effect 连打 */
 const summaryShownRecent = new Map<string, number>()
 const SUMMARY_DEDUPE_MS = 1_500
+
+function archiveUnansweredSendTrace(): void {
+  if (!sendTrace) return
+  if (sendTrace.firstResponseLogged) return
+  if (!sendTrace.sendClickLogged && !sendTrace.wireLogged) return
+  unansweredPriorTrace = { ...sendTrace }
+}
+
+function clearUnansweredIfMatched(sessionKey?: string | null): void {
+  if (!unansweredPriorTrace) return
+  const sk = String(sessionKey || '').trim()
+  if (sk && unansweredPriorTrace.sessionKey && sk !== unansweredPriorTrace.sessionKey) return
+  unansweredPriorTrace = null
+}
 
 function enabled(): boolean {
   try {
@@ -129,6 +148,7 @@ export function bindChatTurnSendSession(opts: {
     }
     return { sendClickAlreadyLogged: !!sendTrace.sendClickLogged }
   }
+  archiveUnansweredSendTrace()
   sendTrace = {
     sessionKey,
     startedAt: Date.now(),
@@ -150,6 +170,71 @@ export function chatTurnSinceSendMs(sessionKey?: string | null): number | null {
   return Math.max(0, Date.now() - sendTrace.startedAt)
 }
 
+/** 上一轮已上线但还没等到首帧时，用户又点发送——用于 toast / 日志，避免「连发像死机」。 */
+export function describeStalledPriorSend(sessionKey?: string | null): {
+  stalled: boolean
+  sinceMs: number | null
+  textPreview: string
+  wireLogged: boolean
+  runStartedLogged: boolean
+} {
+  const empty = {
+    stalled: false,
+    sinceMs: null as number | null,
+    textPreview: '',
+    wireLogged: false,
+    runStartedLogged: false,
+  }
+  const sk = String(sessionKey || '').trim()
+  // 优先读被新一轮 send_click 顶掉的快照；否则读当前仍未首帧的 sendTrace（bind 前快照）。
+  const prior =
+    unansweredPriorTrace &&
+    (!sk || !unansweredPriorTrace.sessionKey || sk === unansweredPriorTrace.sessionKey)
+      ? unansweredPriorTrace
+      : sendTrace &&
+          !sendTrace.firstResponseLogged &&
+          (!sk || !sendTrace.sessionKey || sk === sendTrace.sessionKey)
+        ? sendTrace
+        : null
+  if (!prior || prior.firstResponseLogged) return empty
+  if (!prior.sendClickLogged && !prior.wireLogged) return empty
+  const since = Math.max(0, Date.now() - prior.startedAt)
+  // 太短不算卡住（paint/wire 本来就要几百毫秒）；太久也不提示（用户可能已停很久）
+  if (since < 5_000 || since > 10 * 60_000) return empty
+  return {
+    stalled: true,
+    sinceMs: since,
+    textPreview: prior.textPreview || '',
+    wireLogged: !!prior.wireLogged,
+    runStartedLogged: !!prior.runStartedLogged,
+  }
+}
+
+/** 卡住重发诊断：进 frontend-*.log，和 send_click / first_response 同一通道。 */
+export function logChatTurnStalledResend(opts: {
+  sessionKey?: string | null
+  sinceMs?: number | null
+  priorPreview?: string | null
+  wireLogged?: boolean
+  runStartedLogged?: boolean
+}): void {
+  const sessionKey = String(opts.sessionKey || '').trim()
+  const since = opts.sinceMs != null ? Math.max(0, Number(opts.sinceMs) || 0) : null
+  const prior = clipText(opts.priorPreview, 120)
+  emit(
+    `卡住重发：上一轮${since != null ? `已等 ${since}ms` : ''}仍无首帧，已打断并改发${prior ? `（上一条「${prior}」）` : ''}`,
+    {
+      event: 'stalled_resend',
+      sessionKey: sessionKey || undefined,
+      ...(since != null ? { sinceMs: since } : {}),
+      priorPreview: prior || undefined,
+      wireLogged: opts.wireLogged ?? undefined,
+      runStartedLogged: opts.runStartedLogged ?? undefined,
+    },
+    'warn',
+  )
+}
+
 /**
  * ① 点击发送按钮 / 实际发起发送：时间 + 发送内容。
  * Composer 先记；handle-send 仅在尚未记过时补记（目标/语音等入口）。
@@ -163,6 +248,7 @@ export function logChatTurnSendClick(opts: {
   const textPreview = clipText(opts.text, 240)
   const attachmentCount = Math.max(0, Number(opts.attachmentCount) || 0)
   const sessionKey = String(opts.sessionKey || '').trim()
+  archiveUnansweredSendTrace()
   sendTrace = {
     sessionKey: sessionKey || sendTrace?.sessionKey || '',
     startedAt: Date.now(),
@@ -333,6 +419,7 @@ export function logChatTurnFirstResponse(opts: {
     sendTrace.firstResponseLogged = true
     if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
   }
+  clearUnansweredIfMatched(sessionKey || sendTrace?.sessionKey)
   const since = chatTurnSinceSendMs(sessionKey || sendTrace?.sessionKey)
   const preview = clipText(opts.preview, 200)
   const kindLabel =

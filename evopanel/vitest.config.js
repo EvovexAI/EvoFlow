@@ -253,6 +253,8 @@ export default defineConfig({
       'tests/mcp-binding-chip.test.js',
       'tests/mcp-connector-headers.test.js',
       'tests/user-facing-error.test.js',
+      // 连发无回复：send_click 顶掉 sendTrace 后仍能识别上一轮无首帧
+      'tests/chat-turn-timing-stalled.test.js',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',

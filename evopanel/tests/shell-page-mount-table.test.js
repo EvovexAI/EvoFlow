@@ -20,10 +20,11 @@ describe('shell-page mount table', () => {
     expect(hit?.params.code).toBe('duty-ops')
   })
 
-  it('titles employees paths as 员工', () => {
-    expect(resolveShellPageTabTitle({ path: '/employees' })).toBe('员工')
+  it('titles employees paths as BOT', () => {
+    // 员工名册对外统一叫 BOT（与 chat-summary-panel 等用例口径一致）
+    expect(resolveShellPageTabTitle({ path: '/employees' })).toBe('BOT')
     expect(resolveShellPageTabTitle({ path: '/proactive', mountId: 'employees.board' })).toBe(
-      '员工',
+      'BOT',
     )
   })
 

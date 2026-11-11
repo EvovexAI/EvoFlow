@@ -576,14 +576,34 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
     # Keep detail bounded for wire size but long enough for Pydantic / vendor text.
     detail = raw[:4000]
     low = raw.lower()
+    code_low = code.lower().replace("-", "_")
+    bare = low in {"run_error", "error", "unknown", "failed", "failure"} or (
+        code_low in {"run_error", "error"} and len(raw) <= 40 and not any("\u4e00" <= ch <= "\u9fff" for ch in raw)
+    )
     if "pydanticinvalidforjsonschema" in low or "cannot generate a jsonschema" in low:
         facing = "本轮生成失败：工具参数 schema 异常（可点「详情/复制」反馈）"
         if "knowledge" in low:
             facing = "本轮生成失败：knowledge 工具 schema 异常（可点「详情/复制」反馈）"
     elif "rate limit" in low or "429" in low:
         facing = "本轮生成失败：模型限流，请稍后重试"
+    elif (
+        "remoteprotocolerror" in low
+        or "server disconnected" in low
+        or "connection reset" in low
+        or "connection aborted" in low
+        or "broken pipe" in low
+    ):
+        facing = "本轮生成失败：模型连接中断，请稍后重试；超长对话建议开新会话"
     elif "timeout" in low or "timed out" in low:
         facing = "本轮生成失败：请求超时，请稍后重试"
+    elif bare:
+        # Upstream often emits only ``run_error`` with no vendor text — say what to do.
+        facing = "本轮生成失败：模型服务中断或本机负载过高，请稍后重试；超长对话建议开新会话"
+        if low in {"run_error", "error", "unknown"}:
+            detail = (
+                f"{raw}（上游未返回具体原因；常见：模型断连、Gateway 过载、上下文过长。"
+                "可查 ~/.evoflow/logs/frontend-*.log / gateway-*.log）"
+            )[:4000]
     elif len(raw) <= 160 and any("\u4e00" <= ch <= "\u9fff" for ch in raw):
         facing = raw
     else:
@@ -592,7 +612,7 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
         "code": code[:120],
         "message": facing[:500],
         "detail": detail,
-        "recoverable": False,
+        "recoverable": bare or "remoteprotocol" in low or "disconnected" in low,
         "at": now_ms,
         "source": "runtime",
     }

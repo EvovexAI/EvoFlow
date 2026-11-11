@@ -40,6 +40,7 @@ import type { MessageSegment, SubagentStreamTask, TerminalStreamTask } from '../
 import { ReasoningInlineBlock } from './ReasoningInlineBlock.js'
 import { ToolCallList } from './ToolCallList.js'
 import { PlatformResultCards } from './PlatformResultCards.js'
+import { collectPlatformResultTools } from '../../lib/right-stage/platform-feedback.js'
 import { MarkdownHtml } from './MarkdownHtml.js'
 
 /**
@@ -266,11 +267,12 @@ function ExploringActivityChunkInner({
     return (
       <div className="msg-tool-activity-fold-inner">
         {(() => {
-          // 对话结束后折叠，只显示最终正文（plain-body/live-tail slot）。
-          // ExploringActivityChunk 内所有 piece（text/tools/reasoning）标为 history，
-          // 折叠时由 CSS display:none 隐藏；展开时全部可见。
+          // v5.10（恢复 432d4840 语义）：所有 piece 全量标 latest，折叠态不再按 role 隐藏。
+          // 旧 v5.5「只留最后 text」体验割裂（折叠后只剩 1 段、其它全藏）已下线；
+          // CSS 保留 [data-piece-role=history]{display:none} 作逃生口，当前不产生 history piece。
+          // 折叠入口仍是外层 TurnHistoryFold 状态条（v5.4 单一入口）。
           return mergeConsecutiveReasoningPieces(pieces).map((piece, pi) => {
-            const role: 'latest' | 'history' = 'history'
+            const role: 'latest' | 'history' = 'latest'
             const inner = renderPiece(piece, pi)
             if (inner == null) return null
             return (
@@ -303,18 +305,22 @@ function ExploringActivityChunkInner({
   // v5.4：所有 piece 平铺到外层 TurnHistoryFold body；按 piece.kind 标 data-piece-role
   //       （text=latest, tools/reasoning=history）。折叠由外层 + CSS 共同控制。
   // 绑渠道二维码等平台卡：紧挨工具列表下方，且标 latest——折叠「已工作」后仍可见。
+  // 只有真有平台结果卡时才挂 hoist 容器：wrapper 自身不带 data-piece-role 会污染
+  // 「piece 全量 latest」的计数（v5.10：latest 只应落在真实 piece 上）。
   const platformFilterIds = activityPieces
     .filter((p): p is Extract<ActivityPiece, { kind: 'tools' }> => p.kind === 'tools')
     .flatMap((p) => (Array.isArray(p.ids) ? p.ids : []))
     .map((id) => String(id || '').trim())
     .filter(Boolean)
+  const hasPlatformResultRows = platformFilterIds.length > 0 &&
+    collectPlatformResultTools(tools, platformFilterIds).length > 0
 
   return (
     <Fragment key={`exploring-${chunkIndex}-${chunkStartIndex}`}>
       <div className={`msg-flat-activity-chunk${variant === 'fold' ? ' is-legacy-fold' : ''}`}>
         {renderActivityInner(activityPieces)}
       </div>
-      {platformFilterIds.length ? (
+      {hasPlatformResultRows ? (
         <div
           className="msg-platform-results-hoist"
           data-piece-role="latest"

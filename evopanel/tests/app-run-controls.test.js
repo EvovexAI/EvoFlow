@@ -7,6 +7,8 @@ describe('appRunControlFlags', () => {
       canPause: false,
       canResume: false,
       canCancel: false,
+      canRecover: false,
+      canRestore: false,
       isTerminal: true,
     })
     expect(appRunControlFlags('cancelled').isTerminal).toBe(true)
@@ -17,6 +19,8 @@ describe('appRunControlFlags', () => {
       canPause: false,
       canResume: true,
       canCancel: true,
+      canRecover: false,
+      canRestore: true,
       isTerminal: false,
     })
   })
@@ -26,6 +30,8 @@ describe('appRunControlFlags', () => {
       canPause: true,
       canResume: false,
       canCancel: true,
+      canRecover: false,
+      canRestore: false,
       isTerminal: false,
     })
   })

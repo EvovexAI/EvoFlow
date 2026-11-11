@@ -221,17 +221,15 @@ describe('session-runtime-store', () => {
   it('keeps rows and stream on the same session entry', () => {
     const sk = 'agent:main:test-a'
     const streamRef = { current: emptyStream() }
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
     commitActiveSessionRuntime(sk, {
       rows: [{ role: 'user', text: '哈哈哈', timestamp: 1 }],
       stream: streamRef.current,
-      isSending: true,
       seenRunIds: [],
       activeChatRunId: null,
     })
     mountSessionRuntime(sk, {
       streamRef,
-      setIsSending: () => {},
-      isSendingRef: { current: true },
       seenRunIdsRef: { current: new Set() },
       activeChatRunIdRef: { current: null },
     })
@@ -244,7 +242,7 @@ describe('session-runtime-store', () => {
     const sk = 'agent:main:test-b'
     const rt = getSessionRuntime(sk)
     rt.rows = [{ role: 'user', text: 'hi', timestamp: 1 }]
-    rt.isSending = true
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
     updateSessionRuntimeRows(sk, (r) => [
       ...r,
       { role: 'assistant', text: 'partial', timestamp: 2 },
@@ -294,10 +292,9 @@ describe('session-runtime-store', () => {
 
   it('listLiveSessionRuntimeKeys includes background sending sessions', () => {
     const sk = 'agent:main:test-live-list'
-    const rt = getSessionRuntime(sk)
-    rt.isSending = true
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED' })
     expect(listLiveSessionRuntimeKeys()).toContain(sk)
-    rt.isSending = false
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
     expect(listLiveSessionRuntimeKeys()).not.toContain(sk)
   })
 
@@ -322,78 +319,67 @@ describe('session-runtime-store', () => {
     expect(isSessionRuntimeStreamVisible(fresh)).toBe(false)
   })
 
-  it('mountSessionRuntime does not inherit executingAlso as isSending without runtime live', () => {
+  it('mountSessionRuntime does not inherit stale turn timing when runtime is not busy', () => {
     const sk = 'agent:main:test-mount-idle'
     const rt = getSessionRuntime(sk)
-    rt.isSending = false
-    rt.attachState = 'idle'
     const streamRef = { current: emptyStream() }
-    const isSendingRef = { current: true }
+    const turnStartTsRef = { current: 12345 }
     mountSessionRuntime(sk, {
       streamRef,
-      setIsSending: (v) => {
-        isSendingRef.current = v
-      },
-      isSendingRef,
       seenRunIdsRef: { current: new Set() },
       activeChatRunIdRef: { current: null },
+      turnStartTsRef,
     })
-    expect(isSendingRef.current).toBe(false)
+    expect(turnStartTsRef.current).toBe(null)
     expect(streamRef.current).toBe(rt.stream)
   })
 
-  it('commit keeps runtime isSending when snapshot ref is stale', () => {
+  it('commit keeps runtime turn timing when snapshot is stale', () => {
     const sk = 'agent:main:test-commit-sending'
-    const rt = getSessionRuntime(sk)
-    rt.isSending = true
+    dispatchSessionTurnEvent(sk, { type: 'SEND_STARTED', turnStartTs: 2222 })
     commitActiveSessionRuntime(sk, {
       rows: [],
       stream: emptyStream(),
-      isSending: false,
       seenRunIds: [],
       activeChatRunId: null,
     })
-    expect(getSessionRuntime(sk).isSending).toBe(true)
-    rt.isSending = false
+    expect(isTurnBusy(getSessionRuntime(sk))).toBe(true)
+    expect(getSessionRuntime(sk).turnStartTs).toBe(2222)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
     commitActiveSessionRuntime(sk, {
       rows: [],
       stream: emptyStream(),
-      isSending: false,
       seenRunIds: [],
       activeChatRunId: null,
     })
-    expect(getSessionRuntime(sk).isSending).toBe(false)
+    expect(getSessionRuntime(sk).turnStartTs).toBe(null)
   })
 
-  it('mountSessionRuntime restores sending without legacy turnStartTs refs', () => {
+  it('mountSessionRuntime restores busy turn timing without legacy turnStartTs refs', () => {
     const skA = 'agent:main:test-timing-a'
     const skB = 'agent:main:test-timing-b'
     const streamRef = { current: emptyStream() }
 
-    commitActiveSessionRuntime(skA, {
-      rows: [{ role: 'user', text: 'go', timestamp: 1 }],
-      stream: streamRef.current,
-      isSending: true,
-      seenRunIds: [],
-      activeChatRunId: null,
-    })
+    dispatchSessionTurnEvent(skA, { type: 'SEND_STARTED', turnStartTs: 1111 })
 
     mountSessionRuntime(skB, {
       streamRef: { current: emptyStream() },
-      setIsSending: () => {},
-      isSendingRef: { current: false },
       seenRunIdsRef: { current: new Set() },
       activeChatRunIdRef: { current: null },
     })
 
+    const turnStartTsRef = { current: null }
+    const liveTurnTimingSessionKeyRef = { current: '' }
     mountSessionRuntime(skA, {
       streamRef,
-      setIsSending: () => {},
-      isSendingRef: { current: true },
       seenRunIdsRef: { current: new Set() },
       activeChatRunIdRef: { current: null },
+      turnStartTsRef,
+      liveTurnTimingSessionKeyRef,
     })
-    expect(getSessionRuntime(skA).isSending).toBe(true)
+    expect(isTurnBusy(getSessionRuntime(skA))).toBe(true)
+    expect(turnStartTsRef.current).toBe(1111)
+    expect(liveTurnTimingSessionKeyRef.current).toBe(skA)
   })
 })
 
@@ -402,18 +388,16 @@ describe('deriveSessionRecoveryPhase', () => {
     expect(
       deriveSessionRecoveryPhase({
         runStatus: 'running',
-        attachState: 'idle',
-        isSending: false,
+        turnPhase: 'stopped',
       }),
     ).toBe('idle')
   })
 
-  it('returns running_unattached when db running and attach is detached without snapshot', () => {
+  it('returns running_unattached when db running and turn is idle without snapshot', () => {
     expect(
       deriveSessionRecoveryPhase({
         runStatus: 'running',
-        attachState: 'detached',
-        isSending: false,
+        turnPhase: 'idle',
         snapshotAvailable: false,
       }),
     ).toBe('running_unattached')
@@ -423,8 +407,7 @@ describe('deriveSessionRecoveryPhase', () => {
     expect(
       deriveSessionRecoveryPhase({
         runStatus: 'running',
-        attachState: 'idle',
-        isSending: true,
+        turnPhase: 'live',
       }),
     ).toBe('live_attached')
   })
@@ -442,16 +425,14 @@ describe('recoveryPhaseLabel', () => {
     expect(
       deriveSessionRecoveryPhase({
         runStatus: 'idle',
-        attachState: 'detached',
-        isSending: true,
+        turnPhase: 'outbound',
       }),
-    ).toBe('idle')
+    ).toBe('live_attached')
     expect(
       recoveryPhaseLabel(
         deriveSessionRecoveryPhase({
           runStatus: 'idle',
-          attachState: 'detached',
-          isSending: true,
+          turnPhase: 'outbound',
         }),
       ),
     ).toBeNull()

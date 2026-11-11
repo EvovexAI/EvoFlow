@@ -54,6 +54,8 @@ export function lastToolsSegmentIndexInTimeline(segments: MessageSegment[]): num
  * 该 reasoning 段是否正在接收流式 delta。
  * 仅当该段是时间线「最后一段推理」且时间线末尾仍是 reasoning 时，才把 live preview 灌入。
  * 若末尾已是 tools/text，说明更新的思考应落在更后的新槽位——禁止回灌更早思考（否则会跳到工具上方）。
+ * 例外：layoutSegmentsWithOpenReasoning 注入、上提到正文前的未闭合思考（__open_reasoning__）
+ * 时间线末尾虽是 tools/text，仍属活跃流式思考，靠 open id 保持流式。
  */
 export function isReasoningPieceActivelyStreaming(opts: {
   isStreaming: boolean
@@ -65,7 +67,9 @@ export function isReasoningPieceActivelyStreaming(opts: {
   if (!opts.isStreaming) return false
   if (opts.pieceSegIndex !== opts.lastReasoningSegIdx) return false
   if (opts.lastTimelineSegmentKind && opts.lastTimelineSegmentKind !== 'reasoning') {
-    return false
+    if (opts.pieceId !== '__open_reasoning__') {
+      return false
+    }
   }
   return true
 }

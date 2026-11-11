@@ -57,7 +57,10 @@ describe('speech-client queue dedup', () => {
 
   it('only flushes unplayed tail at final', () => {
     appendStreamingSpeech('你好，这是第一句。')
-    expect(finalFlushStreamingSpeech('你好，这是第一句。')).toBe(false)
+    // a3363f5a 起返回「final 仍有播报工作」= 新尾巴入队或 kick 未播句：
+    // 整句已在流式阶段入队 → final 不重复入队，但测试环境无 TTS、句子未播 → kick 后返回 true。
+    expect(finalFlushStreamingSpeech('你好，这是第一句。')).toBe(true)
+    // 关键契约：游标到末尾，不得留下重复尾巴。
     expect(hasStreamingSpeechRemaining('你好，这是第一句。')).toBe(false)
   })
 
@@ -70,6 +73,8 @@ describe('speech-client queue dedup', () => {
   it('realigns when stream text is rewritten with same length', () => {
     appendStreamingSpeech('旧前缀内容。')
     appendStreamingSpeech('新前缀内容。')
-    expect(finalFlushStreamingSpeech('新前缀内容。')).toBe(false)
+    // 同长度改写触发 realign（回退游标后重入队新文本）；final 不再重复入队，仅 kick 未播句 → true。
+    expect(finalFlushStreamingSpeech('新前缀内容。')).toBe(true)
+    expect(hasStreamingSpeechRemaining('新前缀内容。')).toBe(false)
   })
 })

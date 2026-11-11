@@ -489,6 +489,8 @@ function ShellSessionListRowInner({
   const sessionKey = String(row.sessionKey || '')
   const identity = resolveSessionListIdentity(sessionKey)
   const triggerLabel = sessionTriggerLabel(identity.trigger)
+  /** 普通面板对话不挂芯片，避免满屏「对话」；渠道 / 定时 / 任务 / 部门才标 */
+  const showTriggerChip = identity.trigger !== 'panel'
   const proactiveAgentCode = isProactiveSessionKey(sessionKey)
     ? proactiveAgentCodeFromSessionKey(sessionKey)
     : identity.ownerKind === 'agent'
@@ -736,24 +738,28 @@ function ShellSessionListRowInner({
         ) : useEmployeeTitle ? (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{employeeName}</SessionTitleOverflowText>
-            <span
-              className="react-chat-session-trigger-chip"
-              data-trigger={identity.trigger}
-              title={`触发：${triggerLabel}`}
-            >
-              {triggerLabel}
-            </span>
+            {showTriggerChip ? (
+              <span
+                className="react-chat-session-trigger-chip"
+                data-trigger={identity.trigger}
+                title={`触发：${triggerLabel}`}
+              >
+                {triggerLabel}
+              </span>
+            ) : null}
           </div>
         ) : (
           <div className="react-chat-history-item-text react-chat-history-item-text--chat">
             <SessionTitleOverflowText>{row.title}</SessionTitleOverflowText>
-            <span
-              className="react-chat-session-trigger-chip"
-              data-trigger={identity.trigger}
-              title={`触发：${triggerLabel}`}
-            >
-              {triggerLabel}
-            </span>
+            {showTriggerChip ? (
+              <span
+                className="react-chat-session-trigger-chip"
+                data-trigger={identity.trigger}
+                title={`触发：${triggerLabel}`}
+              >
+                {triggerLabel}
+              </span>
+            ) : null}
           </div>
         )}
 

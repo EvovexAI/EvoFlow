@@ -79,6 +79,9 @@ _STREAM_MARKERS = (
 # Explicit best-effort — polls, probes, large media, background consolidate
 _BEST_EFFORT_CONTAINS = (
     "/workspaces/serve-file",
+    # Path heal can os.walk large media trees (65s+ observed); shed/isolate so
+    # chat subscribe on CONTROL/DATA is not wedged behind a stuck resolve.
+    "/workspaces/resolve-target",
     "/workspaces/git_status",
     "/workspaces/git-status",
     "/git_status",

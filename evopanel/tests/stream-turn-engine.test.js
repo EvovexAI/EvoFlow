@@ -156,15 +156,17 @@ describe('reduceStreamTurn reasoning_piece after tools', () => {
     expect(projectStreamTurn(s).reasoningSegments).toEqual(['before', ' after'])
   })
 
-  it('places late first-round reasoning before tools that raced ahead', () => {
+  it('appends late first-round reasoning after tools in arrival order', () => {
     let s = emptyStreamTurn()
     s = reduceStreamTurn(s, {
       type: 'tools',
       entries: [{ id: 't1', name: 'read_file', status: 'running' }],
     })
     s = reduceStreamTurn(s, { type: 'reasoning_piece', piece: 'delayed think' })
-    expect(s.timeline.map((x) => x.kind)).toEqual(['reasoning', 'tools'])
-    expect(s.timeline[0].text).toBe('delayed think')
+    // 工具已先到达且尚无任何思考：按到达序追加到末尾（不再插到首个 tools 之前，
+    // 否则用户会看到思考突然跳到已输出工具上方）。
+    expect(s.timeline.map((x) => x.kind)).toEqual(['tools', 'reasoning'])
+    expect(s.timeline[1].text).toBe('delayed think')
   })
 
   it('starts new reasoning segment after each tool batch (interleaved)', () => {
@@ -757,7 +759,15 @@ describe('reduceStreamTurn write_file_progress', () => {
       progress: { path: 'a.txt', lines_added: 12, lines_removed: 0 },
     })
     const tool = s.tools[0]
-    expect(tool._writeProgress).toEqual({ path: 'a.txt', tool_name: undefined, lines_added: 12, lines_removed: 0 })
+    expect(tool._writeProgress).toEqual({
+      path: 'a.txt',
+      tool_name: undefined,
+      phase: 'args',
+      lines_added: 12,
+      lines_removed: 0,
+      content: '',
+      content_len: 0,
+    })
   })
 })
 

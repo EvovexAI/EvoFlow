@@ -2301,7 +2301,12 @@ export const api = {
     const q = new URLSearchParams({ path: normalizeWorkspaceReadPath(path, r) })
     if (r) q.set('root', r)
     if (t) q.set('thread_id', t)
-    return gatewayProxy('GET', `/workspaces/resolve-target?${q.toString()}`)
+    // Backend wall ~3.5s; client abort slightly above so we don't leave orphans hanging
+    // the Gateway DATA/best-effort slot (2026-11-10: 65s heal walked chat open to 34s).
+    return gatewayProxy('GET', `/workspaces/resolve-target?${q.toString()}`, null, null, {
+      timeoutMs: 4_500,
+      silent: true,
+    })
   },
   revealPathInFileManager: (absolutePath) => {
     // 桌面端走 Tauri；Web/Vite 开发态走 dev-api（本机 Node 开资源管理器）

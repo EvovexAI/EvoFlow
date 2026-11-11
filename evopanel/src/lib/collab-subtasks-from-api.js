@@ -193,15 +193,9 @@ async function fetchCollabTaskRow(taskId = '', options = {}) {
   const sessionKey = String(options.sessionKey || '').trim()
   const preferTaskId = String(options.preferTaskId || taskId || '').trim()
 
-  if (preferTaskId) {
-    try {
-      const direct = await tasksAPI.getTask(preferTaskId)
-      if (direct && typeof direct === 'object') return direct
-    } catch {
-      /* fall through to session/thread lookup */
-    }
-  }
-
+  // 与 plan 路径共用 GET /tasks（thread_id / session_key）+ 共享行缓存（见 plan-from-api），
+  // preferTaskId 只作为服务端过滤条件；getTask 仅在两者都拿不到行时兜底，
+  // 避免 lead 直查绕过缓存与 thread 归属解析（回归 97924875 的 dedupe 契约）。
   if (sessionKey) {
     const bySession = await fetchTaskRowBySessionKey(sessionKey, {
       preferTaskId,

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.18] - 2026-11-11
+
+相对 **1.3.17**：工作区媒体解析限流防拖死界面；中文路径媒体预览可播；裸 `run_error` / 断连有人话提示；BOT 列表可开关巡检。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.18.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **BOT 巡检快捷开关**：列表上直接打开 / 关闭自动巡检
+
+### Changed
+
+- **媒体预览**：非 ASCII 路径改可播放通道；预览 heal 并发封顶；失败可刷新
+- **RUN_ERROR 文案**：裸 `run_error` / RemoteProtocol / disconnected 给出可操作中文提示，并标 recoverable
+- **侧栏触发芯片**：主面板会话隐藏默认「对话」标签
+
+### Fixed
+
+- **工作区 resolve-target 饿死 REST**：专用线程池 + 并发槽 + 超时软 miss，避免大媒体树 walk 拖死员工 / 对话接口
+- **连发卡顿**：未等到首帧又发送时归档上一轮 sendTrace，便于识别 stalled 重发
+
 ## [1.3.17] - 2026-11-10
 
 相对 **1.3.16**：侧栏会话行增加触发方式标签（仍保留任务 / BOT / 部门三栏），标题去掉员工名/渠道长前缀；粘贴图片写入会话 uploads，生图改图可引用本地路径；媒体解析覆盖 uploads。
