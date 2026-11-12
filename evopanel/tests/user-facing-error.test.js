@@ -49,6 +49,15 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('GET live-run failed: 404')).toBe('暂时无法加载对话，请刷新后重试')
   })
 
+  it('maps cold-start v4 subscribe 404 away from generic fallback', () => {
+    expect(toUserFacingError('v4 /api/v4/conversation/subscribe failed: HTTP 404')).toBe(
+      '会话服务正在启动，请稍后重试',
+    )
+    expect(toUserFacingError('POST /api/v4/conversation/subscribe :: Not Found')).toBe(
+      '会话服务正在启动，请稍后重试',
+    )
+  })
+
   it('returns fallback for stack traces', () => {
     expect(toUserFacingError('Error\n  File "foo.py", line 1')).toBe('操作失败，请稍后重试')
   })

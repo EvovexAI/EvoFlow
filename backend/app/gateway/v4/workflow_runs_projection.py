@@ -280,25 +280,33 @@ def load_collab_bundle(main_task_id: str) -> tuple[dict[str, Any] | None, list[d
         sid = _clip(row.get("subtaskId") or row.get("subtask_id") or row.get("id"), 128)
         if not sid:
             continue
-        subs.append(
-            {
-                "subtaskId": sid,
-                "ref": _clip(row.get("ref"), 32),
-                "name": _clip(row.get("name"), 128),
-                "description": _clip(row.get("description"), 240),
-                "status": _clip(row.get("status"), 64),
-                "assignedAgent": _clip(
-                    row.get("assignedAgent") or row.get("assigned_to") or row.get("assignedTo"),
-                    128,
-                ),
-                "assignedAgentDisplay": _clip(
-                    row.get("assignedAgentDisplay")
-                    or row.get("assignedAgentName")
-                    or row.get("assigned_agent_name"),
-                    128,
-                ),
-            }
+        sub_thread = _clip(
+            row.get("subtaskThreadId")
+            or row.get("subtask_thread_id")
+            or row.get("external_session_id")
+            or row.get("externalSessionId"),
+            128,
         )
+        item: dict[str, Any] = {
+            "subtaskId": sid,
+            "ref": _clip(row.get("ref"), 32),
+            "name": _clip(row.get("name"), 128),
+            "description": _clip(row.get("description"), 240),
+            "status": _clip(row.get("status"), 64),
+            "assignedAgent": _clip(
+                row.get("assignedAgent") or row.get("assigned_to") or row.get("assignedTo"),
+                128,
+            ),
+            "assignedAgentDisplay": _clip(
+                row.get("assignedAgentDisplay")
+                or row.get("assignedAgentName")
+                or row.get("assigned_agent_name"),
+                128,
+            ),
+        }
+        if sub_thread:
+            item["subtaskThreadId"] = sub_thread
+        subs.append(item)
     return main, subs
 
 
@@ -334,15 +342,18 @@ def project_collab_to_workflow_run(
             128,
         ) or f"agent-{index + 1}"
 
-        actors.append(
-            {
-                "siteId": lid,
-                "ordinal": index,
-                "name": agent_name,
-                "status": _actor_status(sub.get("status")),
-                "phaseName": phase_name,
-            }
-        )
+        actor: dict[str, Any] = {
+            "siteId": lid,
+            "ordinal": index,
+            "name": agent_name,
+            "status": _actor_status(sub.get("status")),
+            "phaseName": phase_name,
+        }
+        # ≡ collab subtask_thread_id：对话卡 Agent 药丸与右侧画布节点打开同源
+        sub_thread = _clip(sub.get("subtaskThreadId") or sub.get("subtask_thread_id"), 128)
+        if sub_thread:
+            actor["sessionId"] = sub_thread
+        actors.append(actor)
         node: dict[str, Any] = {
             "siteId": sid,
             "ordinal": index,

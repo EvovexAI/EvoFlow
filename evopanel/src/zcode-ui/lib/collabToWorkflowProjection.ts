@@ -161,6 +161,7 @@ export function projectCollabToWorkflowRun(input: {
       phaseEdges.push({ from: `p${index}`, to: phaseId });
     }
 
+    const subThread = String(sub.subtaskThreadId || "").trim();
     actors.push({
       siteId: lid,
       ordinal: index,
@@ -170,6 +171,8 @@ export function projectCollabToWorkflowRun(input: {
       ) || `agent-${index + 1}`,
       status: actorStatus(sub.status),
       phaseName,
+      // ≡ collab subtask_thread_id：对话卡 Agent 药丸与右侧画布节点打开同源
+      ...(subThread ? { sessionId: clip(subThread, 128) } : {}),
     });
 
     const phase = nodePhase(sub.status);

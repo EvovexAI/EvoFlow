@@ -21,11 +21,12 @@ import type { ToolCallBlockRenderContext } from "../shared.js";
 import { PlatformMediaGeneratingPlaceholder } from "./PlatformMediaGeneratingPlaceholder.js";
 import { PlatformMediaPreview } from "./PlatformMediaPreview.js";
 import { logWorkflowProgress } from "../../../lib/workflow-progress-debug-log.js";
-import { PlatformWorkflowProgressCard } from "./PlatformWorkflowProgressCard.js";
+import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
 import {
   isPlatformWorkflowProgressAction,
   readPlatformWorkflowProgressRef,
 } from "./platformWorkflowProgress.js";
+import type { WorkflowRunCardSummary } from "@/ToolCallBlocks/shared.js";
 
 /** 同步生图：一次工具调用内提交+轮询，适合挂「出图中」彩色占位。异步视频提交不走这里。 */
 const SYNC_IMAGE_GENERATE_ACTIONS = new Set(["media.generate_image"]);
@@ -520,17 +521,44 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
     );
   }
 
+  // workflow.run：工具行只出一行摘要（对齐 CreateWorkflow → WorkflowToolSummary）；
+  // 完整进度卡只在轮尾 digests，避免「工具下一块 + 轮尾再一块」。
   if (workflowProgressRef) {
+    const joined = context.workflowRun;
+    const summary: WorkflowRunCardSummary = joined ?? {
+      runId: workflowProgressRef.mainTaskId,
+      status: isRunning ? "running" : "pending",
+      nodesSettled: 0,
+      nodesTotal: 0,
+      toolCallId: toolCall.toolId,
+    };
     logWorkflowProgress(
-      "platform.render:progressCard",
+      "platform.render:toolSummary",
       {
         toolId: toolCall.toolId,
         mainTaskId: workflowProgressRef.mainTaskId,
-        hasJoin: Boolean(context.workflowRun?.runId),
+        hasJoin: Boolean(joined?.runId),
+        joinStatus: joined?.status ?? null,
       },
-      { dedupeKey: `render-card:${toolCall.toolId}:${workflowProgressRef.mainTaskId}` },
+      { dedupeKey: `ref-summary:${toolCall.toolId}:${workflowProgressRef.mainTaskId}` },
     );
-  } else if (isPlatformWorkflowProgressAction(action)) {
+    return (
+      <WorkflowToolSummary
+        toolCallId={toolCall.toolId}
+        summary={summary}
+        onOpen={
+          context.onOpenWorkflowRun
+            ? () =>
+                context.onOpenWorkflowRun?.({
+                  workflowName: workflowProgressRef.name,
+                })
+            : undefined
+        }
+      />
+    );
+  }
+
+  if (isPlatformWorkflowProgressAction(action)) {
     logWorkflowProgress(
       "platform.render:toolLayoutOnly",
       {
@@ -545,31 +573,23 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
 
   return (
     <>
-      {workflowProgressRef ? (
-        <PlatformWorkflowProgressCard
-          progressRef={workflowProgressRef}
-          toolCallId={toolCall.toolId}
-          workflowRun={context.workflowRun}
-        />
-      ) : (
-        <ToolLayout
-          toolId={toolCall.toolId}
-          icon={PLATFORM_TOOL_ICON}
-          showIcon={context.showIcon !== false}
-          canToggle={context.canToggle ?? true}
-          forceOpen={context.forceOpen}
-          kindLabel={kindLabel}
-          sourceLabel={context.sourceLabel}
-          primaryText={primaryTextNode}
-          secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
-          statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
-          statusTooltip={toolCall.status === "failed" ? errorText : undefined}
-          showFailureStatus={toolCall.status === "failed"}
-          isRunning={isRunning}
-          title={primaryText}
-          renderContent={renderContent}
-        />
-      )}
+      <ToolLayout
+        toolId={toolCall.toolId}
+        icon={PLATFORM_TOOL_ICON}
+        showIcon={context.showIcon !== false}
+        canToggle={context.canToggle ?? true}
+        forceOpen={context.forceOpen}
+        kindLabel={kindLabel}
+        sourceLabel={context.sourceLabel}
+        primaryText={primaryTextNode}
+        secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
+        statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
+        statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+        showFailureStatus={toolCall.status === "failed"}
+        isRunning={isRunning}
+        title={primaryText}
+        renderContent={renderContent}
+      />
       {showGeneratingPlaceholder ? (
         <PlatformMediaGeneratingPlaceholder
           aspectRatio={aspectRatio}

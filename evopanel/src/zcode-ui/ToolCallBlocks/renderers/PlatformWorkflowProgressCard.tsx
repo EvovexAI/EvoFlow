@@ -111,16 +111,19 @@ export function PlatformWorkflowProgressCard({
   const openPill = (pill: TimelinePill) => {
     if (!effectiveRunId) return;
     // stepIds 在投影里就是 subtaskId（见 collabToWorkflowProjection.siteIdFor）
-    const subtaskId = String(pill.stepIds?.[0] || pill.instance?.siteId || "").trim();
+    const subtaskId = String(pill.stepIds?.[0] || "").trim();
     if (!subtaskId) return;
     const title =
       String(pill.runtimeName || pill.lane?.name || subtaskId).trim() || subtaskId;
+    // 与右侧画布节点同一载荷：subtaskThreadId ≡ actor.sessionId ≡ collab subtask_thread_id
+    const subtaskThreadId = String(pill.instance?.sessionId || "").trim();
     openCollabSubtaskInRightStage(
       {
         subtaskId,
         mainTaskId: effectiveRunId,
         title,
         ...(leadThreadId ? { leadThreadId } : {}),
+        ...(subtaskThreadId ? { subtaskThreadId } : {}),
         ...(pill.status ? { status: String(pill.status) } : {}),
       },
       { sessionKey: stageSessionKey },

@@ -1965,6 +1965,24 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   );
 });
 
+/** platform_ui openStage.collab-workflow → mainTaskId（≡ runId）。 */
+function readPlatformCollabWorkflowRunId(row: ToolCallRow): string {
+  if (String(row.toolName || "").trim().toLowerCase() !== "platform") return "";
+  const display = row.display ?? row.output?.display;
+  if (!display || display.kind !== "platform_ui" || !Array.isArray(display.actions)) return "";
+  for (const action of display.actions) {
+    const open = action?.openStage;
+    if (!open || String(open.kind || "").trim() !== "collab-workflow") continue;
+    const data =
+      open.data && typeof open.data === "object" ? (open.data as Record<string, unknown>) : null;
+    const rid = String(
+      data?.mainTaskId || data?.main_task_id || data?.taskId || data?.task_id || "",
+    ).trim();
+    if (rid) return rid;
+  }
+  return "";
+}
+
 const ToolCallRowView = memo(function ToolCallRowView({
   row,
   context,
@@ -1991,22 +2009,10 @@ const ToolCallRowView = memo(function ToolCallRowView({
     // 避免「图标转、工具行仍是普通平台卡」。
     (String(row.toolName || "").trim().toLowerCase() === "platform"
       ? (() => {
-          const display = row.display ?? row.output?.display;
-          if (display && display.kind === "platform_ui" && Array.isArray(display.actions)) {
-            for (const action of display.actions) {
-              const open = action?.openStage;
-              if (!open || String(open.kind || "").trim() !== "collab-workflow") continue;
-              const data =
-                open.data && typeof open.data === "object"
-                  ? (open.data as Record<string, unknown>)
-                  : null;
-              const rid = String(
-                data?.mainTaskId || data?.main_task_id || data?.taskId || data?.task_id || "",
-              ).trim();
-              if (!rid) continue;
-              const hit = context.workflowRunByRunId?.get(rid);
-              if (hit) return hit;
-            }
+          const openStageRunId = readPlatformCollabWorkflowRunId(row);
+          if (openStageRunId) {
+            const hit = context.workflowRunByRunId?.get(openStageRunId);
+            if (hit) return hit;
           }
           const platformAction = readPlatformToolAction(row.input);
           if (!isPlatformWorkflowProgressAction(platformAction)) return undefined;
@@ -2025,6 +2031,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
           return running.length === 1 ? running[0] : undefined;
         })()
       : undefined);
+  const workflowOpenRunId = workflowRun?.runId || readPlatformCollabWorkflowRunId(row);
   // 工具行去掉纵向内边距（对齐 z-code-2 无 per-tool padding）；连续工具间距由
   // ConversationAssistantWorkItems 的 gap-4 组容器统一给。
   // zcode 的 Agent/Task 卡摘要行带「Open on the right」入口（agentSummaryAction）。
@@ -2080,8 +2087,8 @@ const ToolCallRowView = memo(function ToolCallRowView({
   ]);
   // 原因：已启动的工具卡与轮尾摘要重复画同一条实时进度；上方改为普通摘要入口。
   // 只替换成功关联的发起行，编译诊断及 Resume 等其他工具仍走原有渲染。
-  // EvoFlow platform workflow.run：不要收成一行摘要——进度卡必须挂在工具行上立刻可见
-  // （等轮尾 digests / 下一轮对话才出卡，体感就是「已经在跑却没有工作流区域」）。
+  // EvoFlow platform workflow.run：走下方 ToolCallBlock → WorkflowToolSummary（一行），
+  // 完整进度卡只在轮尾 digests，避免双卡。
   if (
     workflowRun &&
     context.workflowRunByToolCallId?.has(row.toolCallId) &&
@@ -2177,7 +2184,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
               : undefined
           }
           onOpenWorkflowRun={
-            context.onOpenWorkflowRun && context.sessionId && workflowRun
+            context.onOpenWorkflowRun && context.sessionId && workflowOpenRunId
               ? (request) =>
                   context.onOpenWorkflowRun?.({
                     ...request,
@@ -2185,7 +2192,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     // 打开请求的关联键是发起行（CreateWorkflow）id，不是点中行的 id——
                     // resume 行点开时两者不同，详情页拿它找 causalityGraph/脚本。
                     toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
-                    runId: workflowRun.runId,
+                    runId: workflowOpenRunId,
                   })
               : undefined
           }

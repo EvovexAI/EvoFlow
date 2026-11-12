@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.21] - 2026-11-12
+
+相对 **1.3.20**：正式包冷启动先挂好聊天订阅再标 ready；工作流进度卡与画布节点同源；启动中错误提示更清楚。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.21.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Changed
+
+- **工作流进度卡**：对话 Agent 药丸与右侧画布节点打开共用 subtask 线程 id
+
+### Fixed
+
+- **冷启动会话 404**：`/health/ready` 延后到 V4 conversation 路由挂载之后，避免装完立刻 subscribe 失败卡「加载中」
+- **启动中人话提示**：会话服务未就绪时提示「会话服务正在启动，请稍后重试」
+
 ## [1.3.20] - 2026-11-12
 
 相对 **1.3.19**：对话内工作流进度卡；右栏交互终端；部门群跟岗占位与可复制；`/workflow` 斜杠命令；知识库失败任务可忽略；飞书/企微永久错误停刷。

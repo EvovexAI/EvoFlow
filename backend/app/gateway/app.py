@@ -205,13 +205,31 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             app.state.startup_phase = "registering_core_routes"
             _t_core = _st.perf_counter()
             register_core_routers(app)
+            # V4 主聊天订阅必须在 /health/ready 之前挂上。
+            # 否则正式包装完立刻开会话时，UI 以为网关已就绪，
+            # POST /api/v4/conversation/subscribe 仍 404 → 面板卡「加载中」
+            # 或被 toUserFacingError 收成「操作失败，请稍后重试」。
+            try:
+                from app.gateway.router_registry import (
+                    register_v4_conversation_router,
+                    register_v4_demo_router,
+                )
+
+                register_v4_demo_router(app)
+                register_v4_conversation_router(app)
+                _st_log("v4 conversation routers registered (pre-ready)")
+            except Exception:
+                logger.exception(
+                    "V4 conversation router registration failed before ready "
+                    "(will retry after extended)"
+                )
             await asyncio.sleep(0)
             app.state.routers_registered = True
             app.state.extended_routers_registered = False
             mark_core_routers_ready()
             _st_log(f"core routers registered ({(_st.perf_counter() - _t_core) * 1000:.0f}ms)")
 
-            # Flip /health/ready as soon as core API routes exist.
+            # Flip /health/ready only after core + V4 chat routes exist.
             app.state.startup_ready = True
             app.state.startup_phase = "ready"
             app.state.startup_ready_event.set()

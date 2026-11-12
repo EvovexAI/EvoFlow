@@ -2136,7 +2136,7 @@ export function V4ZCodeTimeline(props: {
           },
         );
       },
-      // Agent 药丸 → 右栏 collab 子任务执行面板（非整条 ZCode actor transcript）
+      // Agent 药丸 → 右栏 collab 子任务执行面板（与画布节点同一 openCollabSubtaskInRightStage）
       onOpenWorkflowActor: (request) => {
         const runId = String(request?.runId || "").trim();
         if (!runId) return;
@@ -2147,6 +2147,7 @@ export function V4ZCodeTimeline(props: {
         const siteId = String(request?.siteId || "").trim();
         const ordinal = Number(request?.ordinal);
         const nodes = Array.isArray(run?.nodes) ? run.nodes : [];
+        const actors = Array.isArray(run?.actors) ? run.actors : [];
         const byActor =
           nodes.find(
             (n) =>
@@ -2158,12 +2159,24 @@ export function V4ZCodeTimeline(props: {
         // 投影 node.siteId ≡ subtaskId；再回落 step 身份 siteId（极少）
         const subtaskId = String(byActor?.siteId || "").trim();
         if (!subtaskId) return;
+        const actorRow =
+          actors.find(
+            (a) =>
+              String(a?.siteId || "").trim() === siteId && Number(a?.ordinal) === ordinal,
+          ) || actors[Number.isFinite(ordinal) ? ordinal : -1];
+        // 与 CollabWorkflowCanvas 同源：优先药丸/actor 上的 sessionId（≡ subtask_thread_id）
+        const subtaskThreadId = String(
+          request?.actorSessionId || actorRow?.sessionId || "",
+        ).trim();
+        const lead =
+          String(evoflowSessionKey || "").trim() || String(sessionId || "").trim();
         openCollabSubtaskInRightStage(
           {
             subtaskId,
             mainTaskId: runId,
             title: String(request?.actorName || byActor?.phaseName || subtaskId).trim(),
-            ...(sessionId ? { leadThreadId: sessionId } : {}),
+            ...(lead ? { leadThreadId: lead } : {}),
+            ...(subtaskThreadId ? { subtaskThreadId } : {}),
           },
           {
             sessionKey: evoflowSessionKey ? String(evoflowSessionKey) : undefined,
