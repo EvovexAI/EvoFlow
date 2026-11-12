@@ -31,6 +31,7 @@ import {
 } from '../../../lib/right-stage/open-collab-subtask-stage.js'
 import { setWorkspaceIndexWatchEnabled } from '../../../lib/workspace-index-watch.js'
 import { TerminalStagePanel } from '../../components/TerminalStagePanel.js'
+import { V4InteractiveTerminalPane } from './v4-interactive-terminal-pane.js'
 import { WorkspaceFilePreviewPanel } from '../../components/WorkspaceFilePreviewPanel.js'
 import { AssetFilePreviewPanel } from '../../components/AssetFilePreviewPanel.js'
 import { RightStageTabErrorBoundary } from './right-stage-tab-error-boundary.js'
@@ -186,10 +187,40 @@ export function renderRightStageBody(
     workspaceOpenScopeRef,
     workspaceTreePinned,
     wsClient,
+    rightStageActiveKey,
+    rightStageOpen,
   } = ctx
   const kind = surface.kind
   if (kind === 'summary') {
     return null
+  }
+  if (kind === 'interactive-terminal') {
+    const data = surface.data || {}
+    const cwd =
+      String(data.cwd || '').trim() ||
+      String(effectiveWorkspaceRoot || '').trim()
+    const threadId =
+      String(data.threadId || '').trim() ||
+      String(chatThreadIdForSidebar || '').trim() ||
+      String(selectedSessionKey || '').trim()
+    const sessionId = `interactive-terminal:${surface.id}`
+    const tabKey = tabKeyOf(surface)
+    const activeKey = String(rightStageActiveKey || rightStageStore.getSnapshot().activeKey || '')
+    const stageOpen = rightStageOpen !== false && !rightStageStore.getSnapshot().collapsed
+    return (
+      <RightStageTabErrorBoundary title={String(surface.title || '终端')}>
+        <div className="h-full min-h-0 flex flex-col">
+          <V4InteractiveTerminalPane
+            cwd={cwd}
+            threadId={threadId}
+            sessionKey={String(surface.sessionKey || selectedSessionKey || '')}
+            sessionId={sessionId}
+            workspaceKey={cwd || sessionId}
+            isVisible={stageOpen && activeKey === tabKey}
+          />
+        </div>
+      </RightStageTabErrorBoundary>
+    )
   }
   if (kind === 'terminal') {
     const data = surface.data || {}

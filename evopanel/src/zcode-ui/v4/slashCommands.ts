@@ -30,6 +30,17 @@ export type V4VisibleSlashCommand =
       kind: "unsupportedGoal";
       action: string;
       displayText: string;
+    }
+  | {
+      /** `/workflow` 无参数：提示需要名称，不发给模型。 */
+      kind: "emptyWorkflow";
+      displayText: string;
+    }
+  | {
+      /** `/workflow <名称>`：按普通 sendText 发出（正文保留斜杠原文）。 */
+      kind: "sendWorkflowPrompt";
+      text: string;
+      displayText: string;
     };
 
 interface V4VisibleSlashCommandParseOptions {
@@ -78,6 +89,10 @@ export function parseV4VisibleSlashCommand(
 
   if (commandName === "compact" || commandName === "compress") {
     return { kind: "compact", displayText };
+  }
+  if (commandName === "workflow") {
+    if (!args) return { kind: "emptyWorkflow", displayText };
+    return { kind: "sendWorkflowPrompt", text: displayText, displayText };
   }
   if (commandName !== "goal" && commandName !== "target") {
     return null;

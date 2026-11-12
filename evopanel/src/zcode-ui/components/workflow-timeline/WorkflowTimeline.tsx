@@ -267,6 +267,7 @@ export const WorkflowTimeline = memo(function WorkflowTimeline({
         key={pill.key}
         avatarIndex={pill.avatarIndex}
         laneClass={pill.laneClass}
+        laneId={pill.lane.id}
         name={label}
         status={pill.status}
         {...(open === undefined ? {} : { open })}

@@ -5,6 +5,8 @@
  * sessionKey 稳定为 ``proactive:{code}:chat:dept-{deptId}``，同一部门同一人始终续聊。
  */
 import { api } from '../../lib/tauri-api.js'
+import { normalizeChatToolPayloadToEntries } from '../../lib/chat-normalize.js'
+import { formatActivityLabelsFromToolCalls } from '../../lib/tool-display.js'
 import { deptChatSessionKey } from './dept-chat-session.js'
 import {
   extractDeptGroupHandoffs,
@@ -114,7 +116,32 @@ export type DeptMemberWorkTurnOpts = {
   /** 本群成员（角色名），给管家提示「可以 @ 谁」 */
   roster?: Array<{ agent_code: string; role_name: string }>
   onDelta?: (text: string) => void
+  /** 工具进行中一行摘要（群气泡「正在回复」下方 ticker） */
+  onActivity?: (info: { kind: 'tool'; text: string }) => void
   signal?: { aborted?: boolean }
+}
+
+function liveToolLineFromChatPayload(payload: any): string {
+  try {
+    const entries = normalizeChatToolPayloadToEntries(payload) || []
+    const labels = formatActivityLabelsFromToolCalls(entries)
+    const last = labels.length ? String(labels[labels.length - 1] || '').trim() : ''
+    if (last) return last
+  } catch {
+    /* fall through */
+  }
+  const data =
+    payload?.data && typeof payload.data === 'object' ? (payload.data as Record<string, unknown>) : payload
+  const name = String(
+    payload?.toolName ||
+      payload?.tool_name ||
+      (data && (data as { name?: string }).name) ||
+      (data && (data as { tool_name?: string }).tool_name) ||
+      (data && (data as { tool?: string }).tool) ||
+      (data && (data as { toolCallName?: string }).toolCallName) ||
+      '',
+  ).trim()
+  return name ? name.replace(/_/g, ' ') : ''
 }
 
 export type DeptMemberWorkTurnResult = {
@@ -242,6 +269,10 @@ export async function runDeptMemberWorkTurn(
       ingestHandoffs(p.output)
       ingestHandoffs(p.content)
       ingestHandoffs(p)
+      if (st === 'tool') {
+        const line = liveToolLineFromChatPayload(p)
+        if (line) opts.onActivity?.({ kind: 'tool', text: line })
+      }
     } else if (st === 'delta') {
       const piece = extractAssistantText(p)
       if (piece) {

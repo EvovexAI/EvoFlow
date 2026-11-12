@@ -280,6 +280,21 @@ async def v4_conversation_catchup(body: dict[str, Any]) -> JSONResponse:
     return JSONResponse(result)
 
 
+@conversation_router.post("/workflowRuns", summary="v4 conversation workflowRuns journal list")
+async def v4_conversation_workflow_runs(body: dict[str, Any]) -> JSONResponse:
+    """对齐 ZCode ``conversationWorkflowRunsV4``：本会话最近 collab→workflow 投影摘要。"""
+    session_id = str(body.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=422, detail="sessionId is required")
+    limit = body.get("limit")
+    try:
+        lim = int(limit) if limit is not None else 8
+    except (TypeError, ValueError):
+        lim = 8
+    result = V4_CONVERSATION_HUB.list_workflow_runs(session_id, limit=lim)
+    return JSONResponse(result)
+
+
 @conversation_router.post("/file_changes", summary="v4 conversation per-turn file changes")
 async def v4_conversation_file_changes(body: dict[str, Any]) -> JSONResponse:
     """对齐 zcode ``conversationFileChangesV4``：按 turn row 展开文件摘要与只读 diff。"""

@@ -125,8 +125,12 @@ export function parseSessionLabel(key: string): string {
   if (agent === 'main' && channel === 'main') return '主会话'
   const im = parseImChannelParts(channel)
   if (im) {
-    // Owner 分组 + Trigger=渠道 已标明身份，标题只留短 id
-    return im.shortId || agentWhoLabel(agent) || '渠道对话'
+    // Owner 分组 + Trigger=渠道 已标明身份；无 chat id 时用「飞书对话」之类，勿回显 raw key
+    const head = String(channel.split(':')[0] || '').trim().toLowerCase()
+    if (!im.shortId || im.shortId.toLowerCase() === head) {
+      return `${im.label}对话`
+    }
+    return im.shortId
   }
   if (agent === 'main' || agent === 'lead_agent') return channel
   return `${agent} / ${channel}`
@@ -190,11 +194,26 @@ export function isPlaceholderSessionTitle(title: string | null | undefined): boo
   if (/^new-[a-z0-9]{4,}$/i.test(t)) return true
   // 纯数字短标题（如 "1"）易与 Running 状态连读成「1 Running」
   if (/^\d{1,3}$/.test(t)) return true
+  // 通道推送镜像的内部标题「通道会话·agent:code:feishu」→ 回落 parseSessionLabel
+  if (/^通道会话\s*[·•.\-—–]/.test(t)) return true
+  // 直接把 session_key 当标题的残留
+  if (/^agent:[a-z0-9_-]+:(feishu|wecom|weixin|slack|telegram|dingtalk)\b/i.test(t)) return true
   return false
 }
 
-/** 侧栏标题：以 DB title 为准；无标题 / 内部 id / 弱 IM 标题时用可读文案 */
-export function getDisplayLabel(key: string, dbTitle?: string | null): string {
+export type DisplayLabelOpts = {
+  /** DB agent_id / context 归属码 */
+  agentId?: string | null
+  /** context.channel：feishu / wecom … */
+  channel?: string | null
+}
+
+/** 侧栏标题：好 title 优先；内部「通道会话·…」时用 channel + 归属回落（不是瞎拆 key） */
+export function getDisplayLabel(
+  key: string,
+  dbTitle?: string | null,
+  opts?: DisplayLabelOpts,
+): string {
   // 部门常驻群：顶栏直接用「部门名 N 人」，忽略残留的 chat 主题标题
   if (isDeptChatSessionKey(key)) {
     const deptTitle = deptChatDisplayTitle(key)
@@ -234,6 +253,14 @@ export function getDisplayLabel(key: string, dbTitle?: string | null): string {
   } catch {
     /* ignore */
   }
+  // 有 channel 字段时：标题回落成「飞书对话」；员工名由组头 / agent_id 承担
+  const ch = String(opts?.channel || '')
+    .trim()
+    .toLowerCase()
+    .split(':')[0]
+  if (ch && IM_CHANNEL_LABELS[ch]) {
+    return `${IM_CHANNEL_LABELS[ch]}对话`
+  }
   if (!fromKey || isPlaceholderSessionTitle(fromKey) || isWeakDeptChatTitle(fromKey)) return '新对话'
   return fromKey
 }
@@ -263,7 +290,10 @@ export function pickSessionRowTitle(
   if (solid(prev)) return prev
 
   const soft = [api, local, prev].filter((t) => t && !isPlaceholderSessionTitle(t))
-  if (!soft.length) return api || prev || local || '新对话'
+  if (!soft.length) {
+    // 全部是「通道会话·agent:…」这类内部标题时，走可读回落（飞书对话 / 短 id）
+    return getDisplayLabel(sk, api || prev || local, undefined)
+  }
   return soft.reduce((best, cur) => {
     if (looksLikeAutoFallbackTitle(best) && !looksLikeAutoFallbackTitle(cur)) return cur
     if (!looksLikeAutoFallbackTitle(best) && looksLikeAutoFallbackTitle(cur)) return best

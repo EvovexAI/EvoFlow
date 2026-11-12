@@ -92,6 +92,30 @@ def _is_hidden_duty_brief_user_text(text: object) -> bool:
         return True
     return False
 
+
+def _is_hidden_task_notification_user_text(text: object) -> bool:
+    """Background task wakeups are provider-context only — not chat bubbles.
+
+    Aligns with panel ``isTaskNotificationUserText`` / projection policy
+    ``task_notification`` → providerContextOnly. Live + cold hydrate must both
+    skip, or refresh resurfaces raw ``<task-notification>`` XML in the timeline.
+    """
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    return head.startswith("<task-notification>") or head.startswith(
+        "<subagent-notification>"
+    )
+
+
+def _is_hidden_task_notification_message_id(message_id: object) -> bool:
+    mid = str(message_id or "").strip()
+    if not mid:
+        return False
+    return mid.startswith("bash-task-notification:") or mid.startswith(
+        "subagent-task-notification:"
+    )
+
 # node_repl js 工具结果尾部的展示标记（见 plugins/node_repl_tool.py）。
 _CUA_DISPLAY_MARKER_PREFIX = "{evoflow-cua-display:"
 # ZCode appKey scheme → 面板 ApplicationIconLocator kind。
@@ -933,6 +957,12 @@ class V4Mirror:
         # 值班 full brief：可见开场靠 transcript 里的 proactive_duty_beat，勿双写。
         if raw and _is_hidden_duty_brief_user_text(raw) and not atts:
             return
+        # 后台任务续跑通知：给模型看，不进用户气泡。
+        if not atts and (
+            (raw and _is_hidden_task_notification_user_text(raw))
+            or _is_hidden_task_notification_message_id(message_id)
+        ):
+            return
         st = self._state(tid)
         st.user_text = raw
         st.user_attachments = atts[:16]
@@ -1145,11 +1175,17 @@ class V4Mirror:
             st.user_origin = "realUser"
             st.user_epilogue_start = 0
             if (user_text or user_atts) and not (
-                user_text
-                and not user_atts
+                not user_atts
                 and (
-                    _is_hidden_tool_approval_user_text(user_text)
-                    or _is_hidden_duty_brief_user_text(user_text)
+                    (
+                        user_text
+                        and (
+                            _is_hidden_tool_approval_user_text(user_text)
+                            or _is_hidden_duty_brief_user_text(user_text)
+                            or _is_hidden_task_notification_user_text(user_text)
+                        )
+                    )
+                    or _is_hidden_task_notification_message_id(user_mid)
                 )
             ):
                 reusable = self._find_reusable_user_input_row(
@@ -1476,6 +1512,43 @@ class V4Mirror:
             if v4_status == "error":
                 result_row["error"] = {"code": "tool_error", "message": content[:2000]}
             self._hub.author_upsert_row(tid, result_row)
+            # platform workflow.run 族 → workflowRuns 投影（对齐 ZCode digest / join）
+            if tool_name_l.lower() == "platform" and v4_status == "success":
+                try:
+                    action = ""
+                    args_text = st.tool_acc.get(tcid, "") or ""
+                    if '"action"' in args_text:
+                        import re as _re
+
+                        m = _re.search(r'"action"\s*:\s*"([^"]+)"', args_text)
+                        if m:
+                            action = m.group(1).strip()
+                    if not action and content.lstrip().startswith("{"):
+                        try:
+                            blob = json.loads(content)
+                            if isinstance(blob, dict):
+                                action = str(blob.get("action") or "").strip()
+                        except (TypeError, ValueError):
+                            pass
+                    display_block = (
+                        tool_output.get("display")
+                        if isinstance(tool_output.get("display"), dict)
+                        else None
+                    )
+                    self._hub.upsert_workflow_run_from_platform(
+                        tid,
+                        tool_call_id=tcid,
+                        action=action,
+                        content=content,
+                        display=display_block,
+                    )
+                except Exception:
+                    logger.debug(
+                        "workflowRuns upsert from platform failed session=%s tcid=%s",
+                        tid,
+                        tcid,
+                        exc_info=True,
+                    )
             return
 
         if et in ("RUN_FINISHED", "RUN_ERROR"):

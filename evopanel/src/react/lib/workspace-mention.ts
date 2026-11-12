@@ -14,6 +14,7 @@ export type MentionType = 'file' | 'employee' | 'skill' | 'plugin'
  */
 export const COMPOSER_SLASH_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'goal', description: '用后面的文字启动当前会话目标' },
+  { name: 'workflow', description: '运行工作流' },
 ]
 
 export type MentionRange = {

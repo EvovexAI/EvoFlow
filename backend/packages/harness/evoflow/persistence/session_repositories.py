@@ -1417,28 +1417,63 @@ _ORPHAN_EMPLOYEE_SESSION_FILTER = f"""
       )
 """
 
+# Legacy employee IM keys (``agent:{code}:feishu…``) belong with BOT roster, same as
+# ``proactive:{code}:chat:feishu:…``. Keep primary ``agent:main:…`` on the task list.
+_EMPLOYEE_IM_AGENT_SESSION_SQL = """
+(
+  (
+    session_key LIKE 'agent:%:feishu'
+    OR session_key LIKE 'agent:%:feishu:%'
+    OR session_key LIKE 'agent:%:wecom'
+    OR session_key LIKE 'agent:%:wecom:%'
+    OR session_key LIKE 'agent:%:weixin'
+    OR session_key LIKE 'agent:%:weixin:%'
+    OR session_key LIKE 'agent:%:slack'
+    OR session_key LIKE 'agent:%:slack:%'
+    OR session_key LIKE 'agent:%:telegram'
+    OR session_key LIKE 'agent:%:telegram:%'
+    OR session_key LIKE 'agent:%:dingtalk'
+    OR session_key LIKE 'agent:%:dingtalk:%'
+  )
+  AND session_key NOT LIKE 'agent:main:%'
+  AND session_key NOT LIKE 'agent:lead_agent:%'
+  AND session_key NOT LIKE 'agent:executor:%'
+)
+"""
+
+_NOT_EMPLOYEE_SIDEBAR_SESSION_SQL = (
+    f"(session_key NOT LIKE 'proactive:%' AND NOT {_EMPLOYEE_IM_AGENT_SESSION_SQL})"
+)
+
 
 def _workspace_filter_sql(workspace_key: str | None) -> tuple[str, list[Any]]:
     key = str(workspace_key or "").strip()
     if not key:
         return "", []
     if key == WORKSPACE_GROUP_PROACTIVE:
-        return " AND session_key LIKE 'proactive:%'", []
+        return (
+            f" AND (session_key LIKE 'proactive:%' OR {_EMPLOYEE_IM_AGENT_SESSION_SQL})",
+            [],
+        )
     if key == WORKSPACE_GROUP_VIRTUAL:
         return (
-            " AND COALESCE(use_virtual_paths, 0) = 1 AND session_key NOT LIKE 'proactive:%'",
+            f" AND COALESCE(use_virtual_paths, 0) = 1 AND {_NOT_EMPLOYEE_SIDEBAR_SESSION_SQL}",
             [],
         )
     if key == WORKSPACE_GROUP_UNBOUND:
         return (
-            " AND COALESCE(use_virtual_paths, 0) = 0 AND COALESCE(TRIM(local_workspace_root), '') = '' AND session_key NOT LIKE 'proactive:%'",
+            " AND COALESCE(use_virtual_paths, 0) = 0"
+            " AND COALESCE(TRIM(local_workspace_root), '') = ''"
+            f" AND {_NOT_EMPLOYEE_SIDEBAR_SESSION_SQL}",
             [],
         )
     # Unbound sessions (local_workspace_root IS NULL/empty) belong to no workspace;
     # include them in every bound-workspace view so legacy sessions never disappear
     # from the default panel list.
     return (
-        f" AND COALESCE(use_virtual_paths, 0) = 0 AND session_key NOT LIKE 'proactive:%' AND ({_WORKSPACE_ROOT_SQL_NORM} = ? OR COALESCE(TRIM(local_workspace_root), '') = '')",
+        " AND COALESCE(use_virtual_paths, 0) = 0"
+        f" AND {_NOT_EMPLOYEE_SIDEBAR_SESSION_SQL}"
+        f" AND ({_WORKSPACE_ROOT_SQL_NORM} = ? OR COALESCE(TRIM(local_workspace_root), '') = '')",
         [normalize_workspace_group_key(key)],
     )
 
@@ -1451,7 +1486,8 @@ def summarize_sessions_by_workspace_for_ui() -> list[dict[str, Any]]:
             f"""
         SELECT
           CASE
-            WHEN session_key LIKE 'proactive:%' THEN '{WORKSPACE_GROUP_PROACTIVE}'
+            WHEN session_key LIKE 'proactive:%' OR {_EMPLOYEE_IM_AGENT_SESSION_SQL}
+              THEN '{WORKSPACE_GROUP_PROACTIVE}'
             WHEN COALESCE(use_virtual_paths, 0) = 1 THEN '{WORKSPACE_GROUP_VIRTUAL}'
             WHEN COALESCE(TRIM(local_workspace_root), '') = '' THEN '{WORKSPACE_GROUP_UNBOUND}'
             ELSE {_WORKSPACE_ROOT_SQL_NORM}

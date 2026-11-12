@@ -6,6 +6,42 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.21] - 2026-11-12
+
+相对 **1.3.20**：正式包冷启动先挂好聊天订阅再标 ready；工作流进度卡与画布节点同源；启动中错误提示更清楚。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.21.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Changed
+
+- **工作流进度卡**：对话 Agent 药丸与右侧画布节点打开共用 subtask 线程 id
+
+### Fixed
+
+- **冷启动会话 404**：`/health/ready` 延后到 V4 conversation 路由挂载之后，避免装完立刻 subscribe 失败卡「加载中」
+- **启动中人话提示**：会话服务未就绪时提示「会话服务正在启动，请稍后重试」
+
+## [1.3.20] - 2026-11-12
+
+相对 **1.3.19**：对话内工作流进度卡；右栏交互终端；部门群跟岗占位与可复制；`/workflow` 斜杠命令；知识库失败任务可忽略；飞书/企微永久错误停刷。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.20.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **工作流进度卡**：对话时间线展开节点进度与摘要
+- **交互终端**：右栏工作区 PTY 终端
+- **`/workflow` 斜杠命令**：带名称发出；无参数提示补全
+
+### Changed
+
+- **部门群跟岗**：@ 入队即「正在回复」；过程面板忙闲对齐投影；顶栏复制对话
+- **IM 会话归组**：渠道会话优先归入对应 BOT 侧栏
+- **知识库失败任务**：可 dismiss / 清理永久失败孤儿任务
+
+### Fixed
+
+- **飞书 / 企微永久凭证错误**：停止无效重连刷屏
+- **任务通知误入对话投影**：隐藏不应出现在 V4 时间线的任务通知
+
 ## [1.3.19] - 2026-11-11
 
 相对 **1.3.18**：多会话切换 / 忙闲齿轮收口；排队续发不再误标用户停止；知识库向量硬失败仍可关键词搜；覆盖安装主动关进程；BOT 分组可拖拽排序。

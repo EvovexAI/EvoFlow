@@ -14,8 +14,6 @@ import { ControlHintTooltip } from "@/ControlHintTooltip.js";
 import { Button } from "@/components/ui/button.js";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover.js";
 import { buildSlashApplyMentionPayload } from "@/lib/slashApplyMentionPayload.js";
-import { useSlashCommands } from "@/hooks/useSlashCommands.js";
-import { normalizeSlashCommandValue } from "@/slashCommandHelpers.js";
 import type { LexicalChatInputHandle } from "@/LexicalChatInput.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { MentionPanel, type MentionPanelSection } from "@/mentions/components/MentionPanel.js";
@@ -87,7 +85,6 @@ export function ChatPromptActionMenu({
     intl.formatMessage({ id: "chat.mention.plugins.title" }),
   );
   const provider = useChatViewActiveTaskProvider(sessionId, workspacePath, workspaceIdentity);
-  const slashCommands = useSlashCommands(workspacePath, workspaceIdentity);
   const files = useFileMentionProvider(
     workspacePath,
     workspaceIdentity,
@@ -223,19 +220,13 @@ export function ChatPromptActionMenu({
           // 打开瞬间快照，菜单打开期间候选不平移，键盘选择不会错位。
           // /goal 仍是消息开头命令且是会话级目标：仅新会话空草稿提供，避免在消息中间插入后被忽略。
           // /workflow 同样只在消息开头展开，但不绑定会话状态：任意会话空草稿都提供；
-          // 命令目录以 CLI catalog 为权威，catalog 缺 workflow（插件被禁用）时不提供，
-          // 否则会把 CLI 不会展开的裸文本发给模型。
+          // App 层常驻提供，不依赖 CLI catalog（EvoFlow 目录常缺 workflow）。
           const emptyDraft = inputApiRef.current?.getText() === "";
           const offered = (command: QuickCommand, available: boolean) =>
             emptyDraft && available && !excludedSlashCommandNames?.includes(command);
           setQuickCommands([
             ...(offered("goal", sessionId === null) ? (["goal"] as const) : []),
-            ...(offered(
-              "workflow",
-              slashCommands.some((entry) => normalizeSlashCommandValue(entry.name) === "workflow"),
-            )
-              ? (["workflow"] as const)
-              : []),
+            ...(offered("workflow", true) ? (["workflow"] as const) : []),
           ]);
           selectionStateRef.current = inputApiRef.current?.getEditorState();
           setSelectedIndex(0);

@@ -1307,6 +1307,20 @@ class FeishuChannel(Channel):
         finally:
             client._lock.release()
 
+    @staticmethod
+    def _is_permanent_feishu_ws_error(exc: BaseException) -> bool:
+        """Credentials / app config that will never succeed until the user fixes them."""
+        msg = str(exc).lower()
+        needles = (
+            "app_id is invalid",
+            "app id is invalid",
+            "invalid app_id",
+            "app_secret is invalid",
+            "app secret is invalid",
+            "invalid app_secret",
+        )
+        return any(n in msg for n in needles)
+
     async def _feishu_ws_connect_loop(
         self,
         app_id: str,
@@ -1319,6 +1333,9 @@ class FeishuChannel(Channel):
         We intentionally avoid ``lark.ws.Client.start()``: on handshake failure it
         enters the SDK's infinite ``_reconnect()`` loop and spams ERROR logs while
         holding the thread. EvoFlow treats Feishu IM as optional at boot.
+
+        Permanent credential errors (invalid app_id/secret) stop the loop after one
+        ERROR — retrying every 120s only floods logs and cannot self-heal.
         """
         import lark_oapi as lark
 
@@ -1327,6 +1344,7 @@ class FeishuChannel(Channel):
         while self._running:
             client: Any = None
             ping_task: asyncio.Task | None = None
+            permanent = False
             try:
                 client = lark.ws.Client(
                     app_id=app_id,
@@ -1346,11 +1364,19 @@ class FeishuChannel(Channel):
             except Exception as exc:
                 if not self._running:
                     break
-                logger.warning(
-                    "Feishu WebSocket unavailable (%s); gateway and EvoPanel continue. Retrying in %.0fs.",
-                    exc,
-                    delay_sec,
-                )
+                if self._is_permanent_feishu_ws_error(exc):
+                    permanent = True
+                    logger.error(
+                        "Feishu WebSocket stopped: permanent credential error (%s). "
+                        "Fix app_id/app_secret in channel settings and restart the channel.",
+                        exc,
+                    )
+                else:
+                    logger.warning(
+                        "Feishu WebSocket unavailable (%s); gateway and EvoPanel continue. Retrying in %.0fs.",
+                        exc,
+                        delay_sec,
+                    )
             finally:
                 if ping_task is not None:
                     ping_task.cancel()
@@ -1359,7 +1385,7 @@ class FeishuChannel(Channel):
                 if client is not None:
                     with contextlib.suppress(Exception):
                         await client._disconnect()
-            if not self._running:
+            if permanent or not self._running:
                 break
             await asyncio.sleep(delay_sec)
             delay_sec = min(delay_sec * 2, max_delay)
@@ -1996,6 +2022,17 @@ class FeishuChannel(Channel):
             raise ValueError("receive_id and text must be non-empty")
         rid = receive_id.strip()
         rtype = str(receive_id_type or "chat_id").strip() or "chat_id"
+        # Reject test stubs like oc_test before they spam Feishu 230001.
+        if rtype in {"", "chat_id"}:
+            try:
+                from app.channels.feishu_automation_learned_chat import is_plausible_feishu_chat_id
+
+                if not is_plausible_feishu_chat_id(rid):
+                    raise ValueError(f"invalid Feishu chat_id (refusing push): {rid!r}")
+            except ValueError:
+                raise
+            except Exception:
+                pass
         aid = str(account_id or "").strip()
         push_kind = str(kind or "im_message").strip() or "im_message"
         if not self._api_client_for(aid):

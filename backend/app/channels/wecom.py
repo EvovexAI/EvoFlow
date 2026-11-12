@@ -420,6 +420,18 @@ class WecomChannel(Channel):
             elif msg.type in {aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSE, aiohttp.WSMsgType.ERROR}:
                 raise RuntimeError("WeCom websocket closed during authentication")
 
+    @staticmethod
+    def _is_permanent_wecom_ws_error(exc: BaseException) -> bool:
+        """Credentials that cannot self-heal until the user updates bot_id/secret."""
+        msg = str(exc).lower()
+        needles = (
+            "invalid bot_id or secret",
+            "errcode=853000",
+            "errcode\":853000",
+            " e=853000",
+        )
+        return any(n in msg for n in needles)
+
     async def _listen_loop(self) -> None:
         """Read websocket events forever, reconnecting on errors."""
         backoff_idx = 0
@@ -433,6 +445,14 @@ class WecomChannel(Channel):
                 return
             except Exception as exc:
                 if not self._running:
+                    return
+                if self._is_permanent_wecom_ws_error(exc):
+                    logger.error(
+                        "[Wecom] websocket stopped: permanent credential error (%s). "
+                        "Fix bot_id/secret in channel settings and restart WeCom.",
+                        exc,
+                    )
+                    self._fail_pending_responses(RuntimeError("WeCom credentials invalid"))
                     return
                 logger.warning("[Wecom] websocket error: %s", exc)
                 self._fail_pending_responses(RuntimeError("WeCom connection interrupted"))

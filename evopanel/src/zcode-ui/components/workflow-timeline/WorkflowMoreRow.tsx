@@ -83,6 +83,7 @@ export function WorkflowMoreRow({
             key={pill.key}
             avatarIndex={pill.avatarIndex}
             laneClass={pill.laneClass}
+            laneId={pill.lane.id}
             name={nameOf(pill)}
             status={pill.status}
           />

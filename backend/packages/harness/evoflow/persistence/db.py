@@ -47,6 +47,109 @@ _DEFAULT_MAX_ATTEMPTS = max(1, int(os.getenv("EVOFLOW_SQLITE_MAX_ATTEMPTS", "8")
 T = TypeVar("T")
 
 
+def _is_stale_cursor_error(exc: BaseException) -> bool:
+    """True when a prior SELECT left unread rows on the shared connection.
+
+    SQLite surfaces this as ``DatabaseError: another row available`` (SQLITE_ROW
+    returned from reset/finalize). It races when one thread returns a cursor from
+    ``execute`` and another thread runs a write before the first finishes
+    ``fetch*``.
+    """
+    msg = str(exc).lower()
+    return "another row available" in msg or "you can only execute one statement" in msg
+
+
+def _heal_stale_shared_connection(conn: sqlite3.Connection) -> None:
+    """Best-effort clear of leftover statements so the next execute can proceed."""
+    try:
+        conn.rollback()
+    except Exception:
+        logger.debug("sqlite: stale-cursor rollback failed", exc_info=True)
+
+
+class _BufferedCursor:
+    """In-memory cursor over rows already fetched under the process lock.
+
+    Avoids holding ``_lock`` across the caller’s ``fetch*`` and eliminates the
+    ``another row available`` race on the shared connection.
+    """
+
+    __slots__ = ("description", "lastrowid", "rowcount", "_i", "_rows")
+
+    def __init__(self, rows: list[Any], *, description: Any, rowcount: int, lastrowid: Any) -> None:
+        self._rows = rows
+        self._i = 0
+        self.description = description
+        self.rowcount = rowcount
+        self.lastrowid = lastrowid
+
+    def fetchone(self) -> Any:
+        if self._i >= len(self._rows):
+            return None
+        row = self._rows[self._i]
+        self._i += 1
+        return row
+
+    def fetchmany(self, size: int | None = None) -> list[Any]:
+        if size is None:
+            size = len(self._rows) - self._i
+        size = max(0, int(size))
+        end = min(len(self._rows), self._i + size)
+        out = self._rows[self._i : end]
+        self._i = end
+        return list(out)
+
+    def fetchall(self) -> list[Any]:
+        out = self._rows[self._i :]
+        self._i = len(self._rows)
+        return list(out)
+
+    def close(self) -> None:
+        self._rows = []
+        self._i = 0
+
+    def __iter__(self):
+        while True:
+            row = self.fetchone()
+            if row is None:
+                break
+            yield row
+
+
+class _PassthroughCursor:
+    """Thin wrapper around a real sqlite3 cursor (DML / nested locked sections)."""
+
+    __slots__ = ("_cur",)
+
+    def __init__(self, cur: sqlite3.Cursor) -> None:
+        self._cur = cur
+
+    def fetchone(self) -> Any:
+        with _lock:
+            return self._cur.fetchone()
+
+    def fetchmany(self, size: int | None = None) -> list[Any]:
+        with _lock:
+            rows = self._cur.fetchmany(size) if size is not None else self._cur.fetchmany()
+            return list(rows)
+
+    def fetchall(self) -> list[Any]:
+        with _lock:
+            return list(self._cur.fetchall())
+
+    def close(self) -> None:
+        with _lock:
+            self._cur.close()
+
+    def __iter__(self):
+        with _lock:
+            rows = list(self._cur)
+        yield from rows
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._cur, name)
+
+
 class _LockedConnection:
     """Proxy that serializes all access to the shared SQLite connection."""
 
@@ -65,7 +168,7 @@ class _LockedConnection:
         with _lock:
             self._conn.row_factory = value
 
-    def execute(self, sql: str, parameters: Any = (), /) -> sqlite3.Cursor:
+    def execute(self, sql: str, parameters: Any = (), /) -> Any:
         """Execute a statement on the shared connection with lazy legacy backfill.
 
         If a legacy ``evoflow.db`` was opened before any backfill ran (process
@@ -74,6 +177,9 @@ class _LockedConnection:
         raises ``sqlite3.DatabaseError: no such column: …``. We catch that
         specific error, ALTER TABLE the missing columns, then retry once.
         A process-level flag prevents repeating the probe on every request.
+
+        SELECT results are buffered under the process lock so a concurrent writer
+        cannot hit ``another row available`` between ``execute`` and ``fetch*``.
         """
         from evoflow.persistence.schema import (
             _backfill_legacy_columns,
@@ -81,29 +187,55 @@ class _LockedConnection:
         )
 
         global _LAZY_BACKFILL_DONE
-        with _lock:
+        already_held = _lock._is_owned()  # type: ignore[attr-defined]
+        if not already_held:
+            _lock.acquire()
+        try:
             try:
-                return self._conn.execute(sql, parameters)
+                cur = self._conn.execute(sql, parameters)
             except sqlite3.DatabaseError as exc:
-                if _LAZY_BACKFILL_DONE or not _is_legacy_missing_column_error(exc):
+                if _is_stale_cursor_error(exc):
+                    logger.warning(
+                        "sqlite: stale cursor on shared connection (%s) — healing and retrying",
+                        exc,
+                    )
+                    _heal_stale_shared_connection(self._conn)
+                    cur = self._conn.execute(sql, parameters)
+                elif _LAZY_BACKFILL_DONE or not _is_legacy_missing_column_error(exc):
                     raise
-                _LAZY_BACKFILL_DONE = True
-                logger.warning(
-                    "sqlite: missing legacy column on live connection "
-                    "(%s) — running lazy backfill and retrying",
-                    exc,
-                )
-                _backfill_legacy_columns(self._conn)
-                self._conn.commit()
-                return self._conn.execute(sql, parameters)
+                else:
+                    _LAZY_BACKFILL_DONE = True
+                    logger.warning(
+                        "sqlite: missing legacy column on live connection "
+                        "(%s) — running lazy backfill and retrying",
+                        exc,
+                    )
+                    _backfill_legacy_columns(self._conn)
+                    self._conn.commit()
+                    cur = self._conn.execute(sql, parameters)
+            if cur.description is None:
+                # DML/DDL — no pending rows; safe to return the live cursor.
+                return _PassthroughCursor(cur)
+            # Buffer SELECT rows before releasing the lock (or before returning to
+            # a nested caller that may interleave other statements).
+            rows = list(cur.fetchall())
+            return _BufferedCursor(
+                rows,
+                description=cur.description,
+                rowcount=int(cur.rowcount or len(rows)),
+                lastrowid=cur.lastrowid,
+            )
+        finally:
+            if not already_held and _lock._is_owned():  # type: ignore[attr-defined]
+                _lock.release()
 
-    def executemany(self, sql: str, parameters: Any) -> sqlite3.Cursor:
+    def executemany(self, sql: str, parameters: Any) -> Any:
         with _lock:
-            return self._conn.executemany(sql, parameters)
+            return _PassthroughCursor(self._conn.executemany(sql, parameters))
 
-    def executescript(self, sql_script: str) -> sqlite3.Cursor:
+    def executescript(self, sql_script: str) -> Any:
         with _lock:
-            return self._conn.executescript(sql_script)
+            return _PassthroughCursor(self._conn.executescript(sql_script))
 
     def commit(self) -> None:
         with _lock:
@@ -395,7 +527,7 @@ def _open_shared_connection(path: Path) -> sqlite3.Connection:
 
 
 def run_db_with_retry[T](fn: Callable[[], T], *, max_attempts: int | None = None) -> T:
-    """Run a DB closure with process lock + sqlite busy retry."""
+    """Run a DB closure with process lock + sqlite busy / stale-cursor retry."""
     attempts = _DEFAULT_MAX_ATTEMPTS if max_attempts is None else max_attempts
     last: BaseException | None = None
     for attempt in range(max(1, int(attempts))):
@@ -415,6 +547,22 @@ def run_db_with_retry[T](fn: Callable[[], T], *, max_attempts: int | None = None
                 e,
             )
             time.sleep(delay)
+        except sqlite3.DatabaseError as e:
+            # ``another row available`` can also surface as DatabaseError.
+            last = e
+            if not _is_stale_cursor_error(e) or attempt >= attempts - 1:
+                raise
+            with db_connection_lock():
+                raw = _raw_connection()
+                if raw is not None:
+                    _heal_stale_shared_connection(raw)
+            logger.warning(
+                "sqlite stale cursor (attempt %s/%s), healed and retrying: %s",
+                attempt + 1,
+                attempts,
+                e,
+            )
+            time.sleep(min(0.02 * (2**attempt), 0.5))
     if last:
         raise last
     raise RuntimeError("run_db_with_retry failed without exception")

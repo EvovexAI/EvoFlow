@@ -54,6 +54,7 @@ import {
   isProactiveSessionKey,
   isSpecialWorkspaceGroupKey,
   normalizeWorkspacePathKey,
+  employeeOwnerCodeFromSession,
   proactiveAgentCodeFromSessionKey,
   resolveShellGroupWorkspacePath,
   splitVisibleAndFoldedDutySessions,
@@ -252,7 +253,8 @@ function buildEmployeeSidebarGroups(
 ): EmployeeSidebarGroup[] {
   const sessionsByCode = new Map<string, ShellSidebarSyncRow[]>()
   for (const row of sessionRows) {
-    const code = proactiveAgentCodeFromSessionKey(row.sessionKey)
+    // 归属看 agent_id（及 channel），不是只拆 session_key
+    const code = employeeOwnerCodeFromSession(row)
     if (!code) continue
     const lc = normalizeEmployeeCodeKey(code)
     const list = sessionsByCode.get(lc) || []
@@ -292,7 +294,7 @@ function buildEmployeeSidebarGroups(
   const orphans: { code: string; labelHint: string; label: string }[] = []
   for (const [lc, rowsForCode] of sessionsByCode) {
     if (seen.has(lc)) continue
-    const code = proactiveAgentCodeFromSessionKey(rowsForCode[0]?.sessionKey) || lc
+    const code = employeeOwnerCodeFromSession(rowsForCode[0]) || lc
     // workspaceLabel 对 proactive 会话恒为「智能体员工」，不能当岗位名传入
     const wsLabel = String(rowsForCode[0]?.workspaceLabel || '').trim()
     const labelHint = isGenericEmployeeWorkspaceLabel(wsLabel) ? '' : wsLabel
@@ -1406,9 +1408,9 @@ export function ShellSessionList({
       const byCode = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
       for (const row of recentVisibleRows) {
         const code =
-          proactiveAgentCodeFromSessionKey(row.sessionKey) ||
+          employeeOwnerCodeFromSession(row) ||
           String(row.workspaceKey || '').toLowerCase()
-        if (!code) continue
+        if (!code || code === WORKSPACE_GROUP_PROACTIVE) continue
         const lc = normalizeEmployeeCodeKey(code)
         const entry = byCode.get(lc) || { label: '', rows: [], avatarAgentCode: code }
         if (!entry.label) {

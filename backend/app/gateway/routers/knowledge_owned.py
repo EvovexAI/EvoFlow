@@ -248,21 +248,41 @@ async def retry_document(request: Request, kb_id: str, doc_id: str) -> dict[str,
 
 @router.post("/bases/{kb_id}/purge-orphans")
 async def purge_orphan_jobs(request: Request, kb_id: str) -> dict[str, Any]:
-    """Cancel jobs whose owning KB or document was soft-deleted.
+    """Clear the index ledger for one KB (orphans + terminal failures).
 
-    Stops the long tail of ``knowledge base or document not found`` errors
-    that show up in the index banner after a KB is rebuilt or a doc is
-    deleted. The action is idempotent and never deletes user data — it
-    only flips queued/running/error jobs whose target row no longer exists
-    into the ``cancelled`` state.
+    UI label: 「一键清理失效任务」.
+
+    1. Cancel jobs whose document/KB was soft-deleted (true orphans).
+    2. Dismiss remaining ``state=error`` rows for this KB so the banner
+       stops showing 「失败 N」for stale 429 / model failures.
+    3. Re-queue embedding-failed docs as keyword-only so they become
+       searchable without re-hitting a broken quota.
+
+    Never deletes user documents — only job ledger rows + optional reindex.
     """
     require_kb_visible(request, kb_id)
     from evoflow.knowledge.owned import jobs as owned_jobs
 
-    # Only purge jobs that belong to this KB; the global reconcile already
-    # covers cross-KB cases on the worker tick.
-    purged = owned_jobs.purge_failed_orphan_jobs(limit=500)
-    return {"kbId": kb_id, "purged": int(purged or 0)}
+    orphans = owned_jobs.purge_failed_orphan_jobs(limit=500, kb_id=kb_id)
+    dismissed = owned_jobs.dismiss_error_jobs(
+        kb_id,
+        limit=500,
+        reason="cleared from ledger (一键清理失效任务)",
+    )
+    healed = 0
+    try:
+        heal = owned_service.requeue_embedding_failed_as_keyword(kb_id, limit=200)
+        healed = int(heal.get("requeued") or 0)
+    except Exception:
+        healed = 0
+    purged = int(orphans or 0) + int(dismissed or 0)
+    return {
+        "kbId": kb_id,
+        "purged": purged,
+        "orphans": int(orphans or 0),
+        "dismissed": int(dismissed or 0),
+        "healed": healed,
+    }
 
 
 @router.delete("/bases/{kb_id}")

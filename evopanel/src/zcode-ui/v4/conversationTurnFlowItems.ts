@@ -19,6 +19,18 @@ function isUserInputRow(row: ConversationRow): row is UserInputRow {
   return row.kind === "userInput";
 }
 
+function isHiddenTaskNotificationUserInput(row: UserInputRow): boolean {
+  const text = String(row.text || "").trimStart();
+  if (text.startsWith("<task-notification>") || text.startsWith("<subagent-notification>")) {
+    return true;
+  }
+  const entityId = String(row.entityId || "").trim();
+  return (
+    entityId.startsWith("bash-task-notification:") ||
+    entityId.startsWith("subagent-task-notification:")
+  );
+}
+
 function isAssistantTextRow(row: ConversationRow): row is AssistantTextRow {
   return row.kind === "assistantText";
 }
@@ -58,6 +70,7 @@ export function buildConversationFlowItems(options: {
 
   for (const row of options.orderedRows) {
     if (isUserInputRow(row)) {
+      if (isHiddenTaskNotificationUserInput(row)) continue;
       // Live mirror + transcript 偶发同文连写两条；折叠头两侧会看起来像「开场说了两遍」。
       const prev = items.at(-1);
       if (

@@ -72,6 +72,54 @@ async def test_workflow_dispatch_failure_does_not_fall_into_lead_path(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_no_runnable_subtasks_stalls_workflow(monkeypatch: pytest.MonkeyPatch):
+    """Deadlocked DAG must leave the minute queue instead of spinning forever."""
+    task = {
+        **WORKFLOW_TASK,
+        "status": "executing",
+        "subtasks": [
+            {"id": "s1", "status": "pending", "depends_on": ["missing"]},
+        ],
+    }
+    patched: list[dict] = []
+
+    monkeypatch.setattr(pipeline, "find_main_task", lambda _s, _t: ({"id": "p"}, dict(task)))
+    monkeypatch.setattr(pipeline, "get_project_storage", lambda: object())
+    monkeypatch.setattr(pipeline, "is_unattended_task", lambda _t: True)
+    monkeypatch.setattr(pipeline, "is_task_execution_authorized", lambda _s, _t: True)
+
+    async def _noop_finalize(_t):
+        return None
+
+    monkeypatch.setattr(pipeline, "_finalize_executing_task", _noop_finalize)
+
+    async def _patch(tid, mutator):
+        updated = mutator(dict(task))
+        patched.append(updated)
+        return updated
+
+    monkeypatch.setattr(pipeline, "_patch_task_async", _patch)
+    monkeypatch.setattr(pipeline, "_sync_linked_app_run", lambda *_a, **_k: None)
+    monkeypatch.setattr(
+        "evoflow.collab.app_runner.dispatch_workflow_task_now",
+        _async_return({"success": False, "error": "no_runnable_subtasks"}),
+    )
+    monkeypatch.setattr("evoflow.collab.app_runner._dispatch_result_ok", lambda _p: False)
+
+    async def _reconcile(*_a, **_k):
+        return {"healed": []}
+
+    monkeypatch.setattr("evoflow.collab.workflow_reconciler.reconcile_task", _reconcile)
+
+    out = await pipeline.advance_unattended_task("wf1")
+
+    assert out["action"] == "stalled_no_runnable"
+    assert out["ok"] is False
+    assert patched and patched[0]["status"] == "failed"
+    assert "stalled:no_runnable_subtasks" in str(patched[0].get("error") or "")
+
+
+@pytest.mark.asyncio
 async def test_workflow_dispatch_success_returns_dispatched(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(pipeline, "find_main_task", lambda _s, _t: ({"id": "p"}, dict(WORKFLOW_TASK)))
     monkeypatch.setattr(pipeline, "get_project_storage", lambda: object())

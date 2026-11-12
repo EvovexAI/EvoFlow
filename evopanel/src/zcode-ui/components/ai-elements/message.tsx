@@ -148,7 +148,7 @@ export const MessageContent = ({ children, className, ...props }: MessageContent
 export type MessageActionsProps = ComponentProps<"div">;
 
 export const MessageActions = ({ className, children, ...props }: MessageActionsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props}>
+  <div data-slot="message-actions" className={cn("flex items-center gap-1", className)} {...props}>
     {children}
   </div>
 );

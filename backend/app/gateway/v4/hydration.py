@@ -78,6 +78,25 @@ def _is_hidden_duty_brief_text(text: str) -> bool:
     return False
 
 
+def _is_hidden_task_notification_text(text: str) -> bool:
+    """``<task-notification>`` 是模型唤醒载体，冷恢复不得落成可见 userInput。"""
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    return head.startswith("<task-notification>") or head.startswith(
+        "<subagent-notification>"
+    )
+
+
+def _is_hidden_task_notification_message_id(message_id: str | None) -> bool:
+    mid = str(message_id or "").strip()
+    if not mid:
+        return False
+    return mid.startswith("bash-task-notification:") or mid.startswith(
+        "subagent-task-notification:"
+    )
+
+
 def _text_from_message_content(content: Any) -> str:
     """message content 的文本提取：字符串 / 块数组（有无 type 均收）/ 嵌套 payload。"""
     if content is None:
@@ -599,6 +618,12 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 if tool_name and _is_hidden_context_user_tool_name(tool_name):
                     continue
                 if text and _is_hidden_duty_brief_text(text) and not attachments:
+                    continue
+                # 后台任务续跑通知：给模型看；刷新后历史里也不该冒成用户气泡。
+                if not attachments and (
+                    (text and _is_hidden_task_notification_text(text))
+                    or _is_hidden_task_notification_message_id(msg_id)
+                ):
                     continue
                 # 同轮连续相同正文（brief/beat 镜像 + transcript 双写）只留一条。
                 if (

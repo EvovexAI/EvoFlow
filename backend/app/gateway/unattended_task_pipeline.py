@@ -784,6 +784,89 @@ async def _notify_lead_agent_task_failed(task_id: str, task: dict[str, Any]) -> 
             logger.debug("trigger lead follow run for failed task failed task_id=%s", task_id, exc_info=True)
 
 
+async def _stall_workflow_no_runnable(
+    task_id: str,
+    task: dict[str, Any],
+    *,
+    err: str,
+    parsed: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Heal once on ``no_runnable_subtasks``; if still deadlocked, fail the main task.
+
+    Returns a result dict when the tick should stop (healed+dispatched, or stalled).
+    Returns ``None`` when the caller should keep the original dispatch error.
+    """
+    from evoflow.collab.app_runner import _dispatch_result_ok, dispatch_workflow_task_now
+
+    try:
+        from evoflow.collab.workflow_reconciler import reconcile_task
+
+        heal = await reconcile_task(task_id, reason="unattended_no_runnable", dispatch=False)
+    except Exception:
+        logger.debug(
+            "unattended_pipeline: reconcile after no_runnable failed task_id=%s",
+            task_id,
+            exc_info=True,
+        )
+        heal = {"healed": []}
+
+    healed = list(heal.get("healed") or []) if isinstance(heal, dict) else []
+    if healed:
+        try:
+            parsed2 = await dispatch_workflow_task_now(task_id, authorized_by="system")
+        except Exception:
+            logger.warning(
+                "unattended_pipeline: re-dispatch after heal failed task_id=%s",
+                task_id,
+                exc_info=True,
+            )
+            parsed2 = None
+        if _dispatch_result_ok(parsed2):
+            return {
+                "task_id": task_id,
+                "ok": True,
+                "action": "healed_and_dispatched",
+                "healed": healed,
+                "dispatch": parsed2,
+            }
+        err2 = str((parsed2 or {}).get("error") or (parsed2 or {}).get("message") or err)
+        if "no_runnable" not in err2.lower():
+            return {
+                "task_id": task_id,
+                "ok": False,
+                "error": err2,
+                "healed": healed,
+                "dispatch": parsed2,
+            }
+
+    # Still no runnable wave and nothing in flight → leave the minute queue.
+    stall_msg = f"stalled:no_runnable_subtasks:{err[:500]}"
+
+    def _fail(t: dict[str, Any]) -> dict[str, Any]:
+        t["status"] = "failed"
+        t["unattended_stage"] = "failed"
+        t["failed_at"] = utc_now_iso_z()
+        t["error"] = stall_msg[:2000]
+        return t
+
+    await _patch_task_async(task_id, _fail)
+    _sync_linked_app_run(task, status="failed", error=stall_msg[:500])
+    logger.warning(
+        "unattended_pipeline: stalled workflow with no runnable subtasks task_id=%s healed=%s err=%s",
+        task_id,
+        len(healed),
+        err[:300],
+    )
+    return {
+        "task_id": task_id,
+        "ok": False,
+        "action": "stalled_no_runnable",
+        "error": stall_msg,
+        "healed": healed,
+        "dispatch": parsed,
+    }
+
+
 async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
     """Advance one unattended task by a single pipeline step."""
     storage = get_project_storage()
@@ -942,6 +1025,13 @@ async def _advance_unattended_task_impl(task_id: str) -> dict[str, Any]:
         if _dispatch_result_ok(parsed):
             return {"task_id": task_id, "ok": True, "action": "dispatched", "dispatch": parsed}
         err = str((parsed or {}).get("error") or (parsed or {}).get("message") or "dispatch_failed")
+        # Deadlocked DAG: no runnable wave and nothing in-flight. Heal once; if still
+        # stuck, fail the main task so the 60s queue stops re-dispatching forever
+        # (observed: task 2611080207_1016 → ~1000×/day ``no_runnable_subtasks``).
+        if "no_runnable" in err.lower() and not _has_in_flight_subtasks(task):
+            stalled = await _stall_workflow_no_runnable(task_id, task, err=err, parsed=parsed)
+            if stalled is not None:
+                return stalled
         # Terminal for this tick: a workflow run never falls through to the Lead
         # planning path (no LangGraph thread, no plan scenario hydration).
         return {"task_id": task_id, "ok": False, "error": err, "dispatch": parsed}

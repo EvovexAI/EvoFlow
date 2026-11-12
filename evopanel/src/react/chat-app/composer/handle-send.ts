@@ -266,6 +266,12 @@ export async function handleSend(
         toast('已切换为 EvoFlow（当前会话）', 'success')
         return
       }
+      // /workflow — App 层入口：空参数提示；有名称则作为普通消息发出（保留 /workflow 原文）。
+      const workflowEmpty = slash.match(/^\/workflow(?:\s+([\s\S]*))?$/i)
+      if (workflowEmpty && !String(workflowEmpty[1] || '').trim()) {
+        toast('请输入工作流名称或说明', 'warning')
+        return
+      }
       // /goal — ZCode 式会话目标（v4 命令面：sendGoalCommand/pauseGoal/resumeGoal）。
       // /hosted、/hd 与 start|apply 仍走 hosted goal（planner 流程，GoalModePanel）。
       const goalDirectMatch = slash.match(/^\/(?:goal|hosted|hd)\s+([\s\S]+)$/i)

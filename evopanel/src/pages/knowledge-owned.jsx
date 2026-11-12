@@ -2826,16 +2826,30 @@ export default function KnowledgeOwnedPage() {
                     </button>
                     <button
                       className="ko-btn"
+                      title="清除本库失败台账；向量额度/模型失败的文档会降级为可关键词检索"
                       onClick={async () => {
+                        if (!selectedId) {
+                          notify("未选中知识库");
+                          return;
+                        }
                         try {
                           const res = await api.purgeOrphanOwnedJobs(selectedId);
                           const purged = Number(res?.purged ?? 0);
-                          notify(
-                            purged > 0
-                              ? `已清理 ${purged} 个失效任务`
-                              : "没有发现失效任务",
-                          );
+                          const healed = Number(res?.healed ?? 0);
+                          const dismissed = Number(res?.dismissed ?? 0);
                           await loadDocs(selectedId);
+                          if (purged > 0 || healed > 0) {
+                            const parts = [];
+                            if (dismissed > 0 || purged > 0) {
+                              parts.push(`已清理 ${purged || dismissed} 条失败记录`);
+                            }
+                            if (healed > 0) {
+                              parts.push(`${healed} 篇改为关键词可检索`);
+                            }
+                            notify(parts.join(" · ") || "已清理");
+                          } else {
+                            notify("没有可清理的失败任务");
+                          }
                         } catch (e) {
                           notify(e?.message || "清理失效任务失败");
                         }
