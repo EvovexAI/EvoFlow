@@ -160,7 +160,7 @@ export async function openPlanBundleWizard(opts = {}) {
   const hideTier = !!(catalog?.ui?.hide_tiers || catalog?.ui?.hideTiers)
   const capsHint = ents.length
     ? `<p style="margin:0 0 12px;opacity:.75;font-size:.82rem;line-height:1.45">将接通：${esc(ents.join('、'))}。${
-        hideTiers ? 'Credits 额度以控制台为准，无需选手动档位。' : '额度以控制台订阅为准，此处无需再选档位。'
+        hideTier ? 'Credits 额度以控制台为准，无需选手动档位。' : '额度以控制台订阅为准，此处无需再选档位。'
       }</p>`
     : ''
 
