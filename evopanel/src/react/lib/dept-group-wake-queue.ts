@@ -4,6 +4,7 @@
  * - busy/409 入队重试，不丢
  * - 短窗口内同人近似目标合并
  */
+import { logDeptGroupWake } from './dept-group-wake-log.js'
 
 export type WakeJobStatus = 'queued' | 'running' | 'done' | 'failed'
 
@@ -194,6 +195,20 @@ export class DeptGroupWakeQueue {
 
     if (input.chainKey && this.nestSeen.has(input.chainKey)) {
       // 同轮内同链已叫醒过 → 跳过；失败会从 nestSeen 剔除，允许再试
+      logDeptGroupWake({
+        event: 'enqueue_skip',
+        level: 'warn',
+        zh: `入队跳过·防环 · @${input.roleName || agentCode}（同链已叫醒）`,
+        agentCode,
+        roleName: input.roleName,
+        sourceMsgId: input.sourceMsgId,
+        detail: {
+          reason: 'nest_seen',
+          chainKey: input.chainKey,
+          depth: input.depth,
+          goal: goal.slice(0, 160),
+        },
+      })
       return Promise.resolve()
     }
 
@@ -218,6 +233,20 @@ export class DeptGroupWakeQueue {
         mergeHit.enqueuedAt = now
       }
       mergeHit.updatedAt = now
+      logDeptGroupWake({
+        event: 'enqueue_skip',
+        zh: `入队合并 · @${input.roleName || agentCode} → 既有任务 ${mergeHit.status}`,
+        agentCode,
+        roleName: input.roleName,
+        jobId: mergeHit.id,
+        sourceMsgId: input.sourceMsgId || mergeHit.sourceMsgId,
+        detail: {
+          reason: 'merge_window',
+          mergeStatus: mergeHit.status,
+          depth: input.depth,
+          goal: goal.slice(0, 160),
+        },
+      })
       this.emit()
       return new Promise((resolve, reject) => {
         const prevResolve = mergeHit.resolve
@@ -251,6 +280,21 @@ export class DeptGroupWakeQueue {
       const list = this.queues.get(agentCode) || []
       list.push(job)
       this.queues.set(agentCode, list)
+      logDeptGroupWake({
+        event: 'enqueue',
+        zh: `已入队 · @${input.roleName || agentCode}（depth=${input.depth}）`,
+        agentCode,
+        roleName: input.roleName,
+        jobId: id,
+        sourceMsgId: input.sourceMsgId,
+        detail: {
+          depth: input.depth,
+          stewardMode: !!input.stewardMode,
+          fromAgentName: input.fromAgentName || undefined,
+          queueLen: list.length,
+          goal: goal.slice(0, 160),
+        },
+      })
       this.emit()
       void this.pump(agentCode)
     })

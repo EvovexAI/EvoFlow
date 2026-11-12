@@ -19,6 +19,10 @@ export type ShellSidebarSyncRow = {
   workspaceKey: string
   /** 侧栏展示用短标签（目录 basename 等） */
   workspaceLabel: string
+  /** DB 列 agent_id：员工/智能体归属（权威，勿只靠解析 session_key） */
+  agentId?: string
+  /** context.channel：飞书/企微等渠道类型 */
+  channel?: string
 }
 
 /** API：工作目录汇总（侧栏文件夹计数） */

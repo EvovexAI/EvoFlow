@@ -227,6 +227,7 @@ export default defineConfig({
       'tests/browser-panel-node-repl-intent.test.js',
       'tests/cua-glow-agui.test.js',
       'tests/platform-feedback.test.js',
+      'tests/platform-workflow-progress.test.ts',
       'tests/dept-group-handoff.test.js',
       'tests/dept-group-steward.test.js',
       'tests/dept-group-wake-queue.test.js',

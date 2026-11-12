@@ -242,3 +242,22 @@ def test_write_git_bash_path_does_not_create_ghost_d_tree(tmp_path):
     resolved = resolve_tool_path(posix, runtime=rt)
     assert isinstance(resolved, Path)
     assert resolved.resolve() == target.resolve()
+
+
+def test_read_git_bash_path_does_not_hit_ghost_d_tree(tmp_path):
+    """read(/d/.../file) must resolve to the real workspace, not D:\\d\\... ghost tree.
+
+    Regression: ``read`` used to call ``Path("/d/...").resolve()`` with no
+    ``from_bash_posix_path`` hop, so a Git-Bash-style path reported
+    ``File not found`` while ``bash`` read the same path fine (observed as a
+    spurious tool_error on a workflow node).
+    """
+    rt = _rt(tmp_path)
+    target = _mk(tmp_path, "outputs/merged.txt", "A-01\nA-02\n")
+    posix = to_bash_posix_path(str(target))
+    assert posix.startswith("/"), posix
+
+    out = read_file_hd.invoke({"path": posix, "runtime": rt})
+    body = out.content if hasattr(out, "content") else out
+    assert "A-01" in body and "A-02" in body, body
+    assert "File not found" not in body, body

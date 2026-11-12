@@ -6,6 +6,7 @@ import {
   WORKSPACE_GROUP_PROACTIVE,
   WORKSPACE_GROUP_PROACTIVE_LABEL,
   WORKSPACE_GROUP_UNBOUND,
+  employeeOwnerCodeFromSession,
   isProactiveSession,
   proactiveAgentCodeFromSessionKey,
   resolveSessionWorkspaceGroup,
@@ -13,6 +14,7 @@ import {
 } from '../src/react/lib/session-list/workspace-groups.js'
 import {
   getDisplayLabel,
+  pickSessionRowTitle,
   stripProactiveEmployeeTitlePrefix,
 } from '../src/react/lib/session-list/display.js'
 import {
@@ -102,11 +104,64 @@ describe('proactive employee session grouping', () => {
     expect(getDisplayLabel('proactive:ops', '智能体员工·运维')).toBe('运维')
   })
 
+  it('replaces internal 通道会话·agent:… titles with readable IM label', () => {
+    expect(getDisplayLabel('agent:aigc-remaker:feishu', '通道会话·agent:aigc-remaker:feishu')).toBe(
+      '飞书对话',
+    )
+    expect(getDisplayLabel('agent:aigc-remaker:feishu:oc_abcdef1234567890', '')).toMatch(/^oc_/)
+    // merge 路径：api/prev 全是内部标题时也不能原样吐回
+    expect(
+      pickSessionRowTitle(
+        'agent:aigc-remaker:feishu',
+        '通道会话·agent:aigc-remaker:feishu',
+        '通道会话·agent:aigc-remaker:feishu',
+      ),
+    ).toBe('飞书对话')
+  })
+
   it('extracts agent_code from proactive session key for avatar lookup', () => {
     expect(proactiveAgentCodeFromSessionKey('proactive:frontend_architect')).toBe(
       'frontend_architect',
     )
     expect(proactiveAgentCodeFromSessionKey('agent:main:abc')).toBe('')
+  })
+
+  it('puts legacy employee IM agent:{code}:feishu under BOT group, not 任务', () => {
+    expect(proactiveAgentCodeFromSessionKey('agent:aigc-remaker:feishu')).toBe('aigc-remaker')
+    expect(proactiveAgentCodeFromSessionKey('agent:aigc-remaker:feishu:oc_abc')).toBe(
+      'aigc-remaker',
+    )
+    expect(proactiveAgentCodeFromSessionKey('agent:main:feishu:oc_1')).toBe('')
+    const g = resolveSessionWorkspaceGroup({
+      sessionKey: 'agent:aigc-remaker:feishu',
+      title: '通道会话·agent:aigc-remaker:feishu',
+      context: { channel: 'feishu' },
+    })
+    expect(g.workspaceKey).toBe(WORKSPACE_GROUP_PROACTIVE)
+    expect(g.label).toBe(WORKSPACE_GROUP_PROACTIVE_LABEL)
+    expect(
+      resolveSessionWorkspaceGroup({
+        sessionKey: 'agent:main:feishu:oc_1',
+        title: '飞书',
+        context: { channel: 'feishu' },
+      }).workspaceKey,
+    ).not.toBe(WORKSPACE_GROUP_PROACTIVE)
+  })
+
+  it('prefers agent_id + context.channel over session_key for employee ownership', () => {
+    // 即便 key 仍是 agent:main:…，flat agent_id + channel 也应归员工
+    const row = {
+      sessionKey: 'agent:main:feishu:oc_legacy',
+      agentId: 'aigc-remaker',
+      context: { channel: 'feishu', source: 'channel_push', agent_id: 'aigc-remaker' },
+    }
+    expect(employeeOwnerCodeFromSession(row)).toBe('aigc-remaker')
+    expect(isProactiveSession(row)).toBe(true)
+    expect(resolveSessionWorkspaceGroup(row).workspaceKey).toBe(WORKSPACE_GROUP_PROACTIVE)
+    expect(getDisplayLabel(row.sessionKey, '通道会话·agent:main:feishu:oc_legacy', {
+      agentId: 'aigc-remaker',
+      channel: 'feishu',
+    })).toBe('飞书对话')
   })
 
   it('folds older duty sessions per employee, keeps latest and selected', () => {

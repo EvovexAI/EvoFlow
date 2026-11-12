@@ -18,6 +18,8 @@ const WORKSPACE_SCOPED_KINDS = new Set<string>([
   'workspace-browse',
   'write',
   'mind-map',
+  // ZCode 对齐：交互式 PTY 终端按工作区保活，切会话仍保留
+  'interactive-terminal',
   // 小V：全局前台，切会话仍保留
   'xiaomi',
 ])

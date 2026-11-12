@@ -112,19 +112,60 @@ export function resolveWorkflowTurnDigests(
       });
       continue;
     }
-    if (row.display?.kind !== "resume_workflow_run") continue;
-    const runId = row.display.runId;
-    if (seen.has(runId)) continue;
-    seen.add(runId);
-    const resumed = join.byRunId?.get(runId);
+    if (row.display?.kind === "resume_workflow_run") {
+      const runId = row.display.runId;
+      if (seen.has(runId)) continue;
+      seen.add(runId);
+      const resumed = join.byRunId?.get(runId);
+      digests.push({
+        // 发起行 id 只有联接到投影才知道；不在投影里的 resume 卡没有图可找。
+        graph: graphOf(resumed?.toolCallId),
+        key: `${row.rowId}:${row.toolCallId}`,
+        name: undefined,
+        runId,
+        summary: resumed,
+        toolCallId: row.toolCallId,
+      });
+      continue;
+    }
+    // EvoFlow platform workflow.run：toolCallId 对不上时，用 openStage.mainTaskId ≡ runId 回落。
+    if (String(row.toolName || "").trim().toLowerCase() !== "platform") continue;
+    const display = row.display ?? row.output?.display;
+    if (!display || display.kind !== "platform_ui" || !Array.isArray(display.actions)) continue;
+    let platformRunId = "";
+    for (const action of display.actions) {
+      const open = action?.openStage;
+      if (!open || String(open.kind || "").trim() !== "collab-workflow") continue;
+      const data =
+        open.data && typeof open.data === "object"
+          ? (open.data as Record<string, unknown>)
+          : null;
+      platformRunId = String(
+        data?.mainTaskId || data?.main_task_id || data?.taskId || data?.task_id || "",
+      ).trim();
+      if (platformRunId) break;
+    }
+    if (!platformRunId || seen.has(platformRunId)) continue;
+    seen.add(platformRunId);
+    const fromRun = join.byRunId?.get(platformRunId);
+    // entityLabel / openStage.title 才是工作流名；display.title 常是「已启动工作流」反馈句。
+    let platformName =
+      typeof display.entityLabel === "string" ? display.entityLabel.trim() : "";
+    if (!platformName) {
+      for (const action of display.actions) {
+        const open = action?.openStage;
+        if (!open || String(open.kind || "").trim() !== "collab-workflow") continue;
+        platformName = String(open.title || "").trim();
+        if (platformName) break;
+      }
+    }
     digests.push({
-      // 发起行 id 只有联接到投影才知道；不在投影里的 resume 卡没有图可找。
-      graph: graphOf(resumed?.toolCallId),
+      graph: graphOf(fromRun?.toolCallId ?? row.toolCallId),
       key: `${row.rowId}:${row.toolCallId}`,
-      name: undefined,
-      runId,
-      summary: resumed,
-      toolCallId: row.toolCallId,
+      name: platformName || undefined,
+      runId: platformRunId,
+      summary: fromRun,
+      toolCallId: fromRun?.toolCallId ?? row.toolCallId,
     });
   }
   return digests;

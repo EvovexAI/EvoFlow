@@ -207,6 +207,37 @@ export function XiaomiRightStagePane() {
     }
   }, [])
 
+  /** 侧栏直接打开小V 岗位编辑；保存后即时生效，无需离开当前页 */
+  const onEditXiaomi = useCallback(() => {
+    void Promise.all([
+      import('../../../lib/tauri-api.js'),
+      import('../../../lib/proactive-role-edit.js'),
+    ])
+      .then(async ([{ api }, { showEditRoleModal }]) => {
+        const res = (await api.proactiveGetRole('xiaomi')) as { role?: unknown } | unknown
+        const role =
+          res && typeof res === 'object' && 'role' in (res as object)
+            ? (res as { role?: unknown }).role || res
+            : res
+        if (!role || typeof role !== 'object') {
+          toast('找不到小V 岗位', 'error')
+          return
+        }
+        await showEditRoleModal(role, {
+          sheetTitle: '编辑小V',
+          sheetKicker: '系统前台',
+          confirmLabel: '保存',
+          allowAgentRebind: false,
+          onSaved: () => {
+            toast('小V 已更新', 'success')
+          },
+        })
+      })
+      .catch((e) => {
+        toast(`无法打开编辑：${(e as Error)?.message || e}`, 'error')
+      })
+  }, [])
+
   const onNewChat = useCallback(async () => {
     try {
       await startXiaomiNewChat()
@@ -361,6 +392,28 @@ export function XiaomiRightStagePane() {
           </button>
         </div>
         <div className="xm-stage-toolbar-actions">
+          <button
+            type="button"
+            className="xm-stage-icon-btn"
+            onClick={onEditXiaomi}
+            title="编辑小V"
+            aria-label="编辑小V"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </button>
           <div className={`xm-stage-hist${histOpen ? ' is-open' : ''}`}>
             <button
               type="button"

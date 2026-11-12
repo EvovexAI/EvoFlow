@@ -38,6 +38,8 @@ import type {
   V4ConversationRowsRangeResult,
   V4ConversationSubscribeResult,
   V4ConversationUnsubscribeParams,
+  V4ConversationWorkflowRunsParams,
+  V4ConversationWorkflowRunsResult,
 } from "@zcode/shared/zcode-protocol-v4";
 import type { ConversationTransport } from "@zcode/ui/v4/transport.js";
 import { evoflowFetch, evoflowFetchStream } from "../../lib/ws-client.js";
@@ -378,8 +380,16 @@ export class EvoFlowV4Transport implements ConversationTransport {
   workflowRunEvents(): never {
     unsupported("workflowRunEvents");
   }
-  workflowRuns(): never {
-    unsupported("workflowRuns");
+  async workflowRuns(
+    params: V4ConversationWorkflowRunsParams,
+  ): Promise<V4ConversationWorkflowRunsResult> {
+    return await postJson<V4ConversationWorkflowRunsResult>(
+      "/api/v4/conversation/workflowRuns",
+      {
+        sessionId: params.sessionId,
+        ...(params.limit !== undefined ? { limit: params.limit } : {}),
+      },
+    );
   }
   workflowRunArtifacts(): never {
     unsupported("workflowRunArtifacts");

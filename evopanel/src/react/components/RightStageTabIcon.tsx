@@ -68,6 +68,12 @@ const KIND_TAB_ICONS: Record<string, ReactNode> = {
       <line x1="12" y1="19" x2="20" y2="19" />
     </>
   ),
+  'interactive-terminal': (
+    <>
+      <polyline points="4 17 10 11 4 5" />
+      <line x1="12" y1="19" x2="20" y2="19" />
+    </>
+  ),
   'platform-feedback': (
     <>
       <rect x="3" y="4" width="18" height="14" rx="2" />

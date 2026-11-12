@@ -302,7 +302,14 @@ def _session_keys_for_push(
 
     if rid and ch in {"feishu", "wecom", "dingtalk", "telegram"}:
         bot = sender or role or "main"
-        keys.append(f"agent:{bot}:{ch}:{rid}")
+        # Prefer employee-group key so Feishu/WeCom land under BOT, not「任务」
+        emp = role if role and role not in {"main", "lead_agent", "executor"} else ""
+        if not emp and bot and bot not in {"main", "lead_agent", "executor"}:
+            emp = bot
+        if emp:
+            keys.append(f"proactive:{emp}:chat:{ch}:{rid}")
+        else:
+            keys.append(f"agent:{bot}:{ch}:{rid}")
 
     # Desktop decisions still belong on the employee trail (already added).
     # Dedup while preserving order.
@@ -313,6 +320,90 @@ def _session_keys_for_push(
             seen.add(k)
             out.append(k)
     return out
+
+
+_CHANNEL_SIDEBAR_LABEL = {
+    "feishu": "飞书",
+    "wecom": "企微",
+    "weixin": "微信",
+    "dingtalk": "钉钉",
+    "telegram": "Telegram",
+    "slack": "Slack",
+}
+
+
+def _is_internal_channel_session_title(title: str) -> bool:
+    t = str(title or "").strip()
+    if not t:
+        return True
+    if t.startswith("通道会话"):
+        return True
+    if t.startswith("agent:") and any(
+        f":{ch}" in t or t.endswith(f":{ch}")
+        for ch in ("feishu", "wecom", "weixin", "dingtalk", "telegram", "slack")
+    ):
+        return True
+    return False
+
+
+def _sidebar_title_for_channel_session(session_key: str, *, role_agent_code: str = "") -> str:
+    """Human title for IM mirror sessions — never ``通道会话·agent:code:feishu``."""
+    sk = str(session_key or "").strip()
+    role_code = str(role_agent_code or "").strip()
+
+    def _who(code: str) -> str:
+        c = str(code or "").strip()
+        if not c or c in {"main", "lead_agent", "executor"}:
+            return "主对话"
+        if c == "xiaomi":
+            return "小V"
+        role = None
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            role = ProactiveRepository.get_role(c)
+        except Exception:
+            role = None
+        try:
+            return _resolve_employee_zh_name(c, role) or c
+        except Exception:
+            return c
+
+    if sk.startswith("proactive:"):
+        rest = sk[len("proactive:") :]
+        code = rest
+        for marker in (":chat:", ":duty:", ":task:"):
+            idx = rest.find(marker)
+            if idx >= 0:
+                code = rest[:idx]
+                suffix = rest[idx + len(marker) :]
+                ch = suffix.split(":", 1)[0].strip().lower() if suffix else ""
+                rid = ""
+                if ":" in suffix:
+                    rid = suffix.split(":", 1)[1].strip()
+                label = _CHANNEL_SIDEBAR_LABEL.get(ch, "")
+                who = _who(role_code or code)
+                if label and rid:
+                    short = rid if len(rid) <= 14 else f"{rid[:12]}…"
+                    return f"{label} · {who} · {short}"
+                if label:
+                    return f"{label} · {who}"
+                return who
+        return _who(role_code or code)
+
+    if sk.startswith("agent:"):
+        parts = sk.split(":")
+        code = str(parts[1] or "").strip() if len(parts) >= 2 else ""
+        ch = str(parts[2] or "").strip().lower() if len(parts) >= 3 else ""
+        rid = ":".join(parts[3:]).strip() if len(parts) >= 4 else ""
+        label = _CHANNEL_SIDEBAR_LABEL.get(ch, ch or "IM")
+        who = _who(role_code or code)
+        if rid:
+            short = rid if len(rid) <= 14 else f"{rid[:12]}…"
+            return f"{label} · {who} · {short}"
+        return f"{label} · {who}"
+
+    return _who(role_code) if role_code else "通道对话"
 
 
 def _ensure_transcript_session(session_key: str, *, role_agent_code: str = "") -> str | None:
@@ -328,25 +419,47 @@ def _ensure_transcript_session(session_key: str, *, role_agent_code: str = "") -
     thread_id = str(existing.get("threadId") or existing.get("thread_id") or "").strip() or None
     now_ms = int(time.time() * 1000)
     created_ms = int(existing.get("createdAt") or 0) or now_ms
+    title = _sidebar_title_for_channel_session(sk, role_agent_code=role_agent_code)
+    existing_title = str(existing.get("title") or "").strip()
+
+    # 归属 / 渠道写进独立字段：agent_id 列 + context.channel（不要只靠 session_key）
+    code = str(role_agent_code or "").strip()
+    channel = ""
     if sk.startswith("proactive:"):
-        code = sk.split(":", 1)[-1]
-        title = f"智能体员工·{role_agent_code or code}"
-        ctx = {
-            "source": "proactive",
-            "proactive_agent_code": code,
-            "agent_id": code,
-            "session_mode": "agent",
-            "channel_push_mirror": True,
-        }
+        rest = sk[len("proactive:") :]
+        code = rest
+        for marker in (":chat:", ":duty:", ":task:"):
+            idx = rest.find(marker)
+            if idx >= 0:
+                code = rest[:idx].strip()
+                suffix = rest[idx + len(marker) :]
+                channel = suffix.split(":", 1)[0].strip().lower() if suffix else ""
+                break
+        src = "proactive"
+    elif sk.startswith("agent:"):
+        parts = sk.split(":")
+        if not code:
+            code = str(parts[1] or "").strip() if len(parts) >= 2 else ""
+        channel = str(parts[2] or "").strip().lower() if len(parts) >= 3 else ""
+        src = "channel_push"
     else:
-        title = str(existing.get("title") or "").strip() or f"通道会话·{sk}"
-        ctx = {
-            "source": "channel_push",
-            "channel_push_mirror": True,
-            "session_mode": "agent",
-        }
-        if role_agent_code:
-            ctx["proactive_agent_code"] = role_agent_code
+        src = "channel_push"
+    if not code:
+        code = str(role_agent_code or "").strip()
+
+    ctx: dict[str, Any] = {
+        "source": src,
+        "channel_push_mirror": True,
+        "session_mode": "agent",
+    }
+    if code:
+        ctx["agent_id"] = code
+        ctx["agent_code"] = code
+        ctx["agent_name"] = code
+        ctx["proactive_agent_code"] = code
+    if channel:
+        ctx["channel"] = channel
+        ctx["channel_name"] = channel
     try:
         kwargs: dict[str, Any] = {
             "thread_id": thread_id,
@@ -355,7 +468,11 @@ def _ensure_transcript_session(session_key: str, *, role_agent_code: str = "") -
             "context": ctx,
             "session_status": sess_repo.SESSION_STATUS_ACTIVE,
         }
-        if not str(existing.get("title") or "").strip():
+        # 同步写 DB 列 agent_id（flat_fields 也会从 context 抽，这里显式兜底）
+        if code:
+            kwargs["agent_id"] = code
+        # 空标题或内部「通道会话·agent:…」一律写成可读岗位名
+        if _is_internal_channel_session_title(existing_title):
             kwargs["title"] = title
         sess_repo.upsert_session_row(sk, **kwargs)
     except Exception:

@@ -1721,6 +1721,26 @@ html.dark .dept-im__avatar--self {
   color: #8b9bb0;
 }
 
+/* 群气泡「正在回复」下一行实时态（排队 / 当前工具） */
+.dept-im__live-line,
+.evo-home-cmd__gc-live-line {
+  margin-top: 4px;
+  max-width: 100%;
+  font-size: 11px;
+  line-height: 1.35;
+  color: #8b9bb0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-theme='dark'] .dept-im__live-line,
+html.dark .dept-im__live-line,
+html[data-theme='dark'] .evo-home-cmd__gc-live-line,
+html.dark .evo-home-cmd__gc-live-line {
+  color: #7a8494;
+}
+
 /* 微信居中时间 / 系统提示 */
 .dept-im__time-sep,
 .dept-im__sys-sep {
@@ -40340,6 +40360,11 @@ html.dark .react-chat-stage-popover {
 .react-chat-right-stage-body > .react-chat-screenshot-panel {
   height: 100%;
   min-height: 0;
+}
+
+/* 右栏员工对话：窄栏难悬停，消息复制按钮常显（主聊仍 hover 才出） */
+[data-v4-embedded='true'] [data-slot='message-actions'] {
+  opacity: 1 !important;
 }
 
 /* 员工执行过程：底部「继续对话」composer 不在 bottom-dock 内，单独对齐深色表面 */

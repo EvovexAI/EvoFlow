@@ -280,8 +280,13 @@ export function SlashCommandPlugin({
           tokenEnd,
         );
 
-        if (isAppCommand) {
-          // App 层命令"选中即执行"：只移除输入中的 `/xxx` token，不插入 mention、不发送。
+        const appCommand = isAppCommand
+          ? appCommands?.find(
+              (command) => normalizeSlashCommandValue(command.value) === suggestion.value,
+            )
+          : undefined;
+        if (appCommand?.run) {
+          // App 层"选中即执行"：只移除输入中的 `/xxx` token，不插入 mention、不发送。
           selectionState.selection.removeText();
           return;
         }
@@ -297,10 +302,13 @@ export function SlashCommandPlugin({
       setActiveTrigger(null);
       setSelectedIndex(0);
       if (isAppCommand) {
-        appCommands
-          ?.find((command) => normalizeSlashCommandValue(command.value) === suggestion.value)
-          ?.run();
-        return;
+        const appCommand = appCommands?.find(
+          (command) => normalizeSlashCommandValue(command.value) === suggestion.value,
+        );
+        if (appCommand?.run) {
+          appCommand.run();
+          return;
+        }
       }
       requestAnimationFrame(() => {
         editor.focus();

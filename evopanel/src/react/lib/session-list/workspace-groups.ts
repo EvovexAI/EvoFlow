@@ -24,6 +24,37 @@ export function isProactiveSessionKey(sessionKey: string | null | undefined): bo
   return String(sessionKey || '').trim().startsWith('proactive:')
 }
 
+/** 与后端 IM_CHANNEL_NAMES / 侧栏 identity 对齐：旧版 ``agent:{code}:feishu…`` 也归员工组 */
+const EMPLOYEE_IM_CHANNEL_HEADS = new Set([
+  'feishu',
+  'wecom',
+  'weixin',
+  'slack',
+  'telegram',
+  'dingtalk',
+])
+
+const SYSTEM_AGENT_SESSION_CODES = new Set(['', 'main', 'lead_agent', 'executor', 'agent'])
+
+/**
+ * 旧版员工 IM key：``agent:{code}:feishu`` / ``agent:{code}:feishu:oc_…``。
+ * 新流量已迁到 ``proactive:{code}:chat:feishu:…``；遗留 key 仍须挂到对应 BOT 下，勿留在「任务」。
+ */
+export function employeeImAgentCodeFromSessionKey(
+  sessionKey: string | null | undefined,
+): string {
+  const sk = String(sessionKey || '').trim()
+  if (!sk.startsWith('agent:')) return ''
+  const parts = sk.split(':')
+  const code = String(parts[1] || '').trim()
+  if (!code || SYSTEM_AGENT_SESSION_CODES.has(code.toLowerCase())) return ''
+  const channelHead = String(parts[2] || '')
+    .trim()
+    .toLowerCase()
+  if (!channelHead || !EMPLOYEE_IM_CHANNEL_HEADS.has(channelHead)) return ''
+  return code
+}
+
 const PROACTIVE_KIND_MARKERS = [':duty:', ':task:', ':chat:'] as const
 
 /** Parse ``proactive:{code}`` / ``proactive:{code}:duty|task|chat:…`` */
@@ -61,23 +92,98 @@ export function parseProactiveSessionKey(sessionKey: string | null | undefined):
   }
 }
 
-/** ``proactive:{agent_code}`` / multi-session → agent_code；非员工会话返回空串 */
+/**
+ * 侧栏「BOT / 员工」分组用的 agent_code（仅从 key 猜时的回落）。
+ * 有会话行时请优先用 ``employeeOwnerCodeFromSession``（看 agent_id 列）。
+ */
 export function proactiveAgentCodeFromSessionKey(sessionKey: string | null | undefined): string {
-  return parseProactiveSessionKey(sessionKey).agentCode
+  return (
+    parseProactiveSessionKey(sessionKey).agentCode ||
+    employeeImAgentCodeFromSessionKey(sessionKey)
+  )
 }
 
-/** 智能体员工值班会话：key 前缀或 context.source */
-export function isProactiveSession(
-  session: Pick<ChatSessionRow, 'sessionKey' | 'context'> | null | undefined,
-): boolean {
-  if (!session) return false
-  if (isProactiveSessionKey(session.sessionKey)) return true
-  const src = String(
-    (session.context as { source?: string } | undefined)?.source || '',
+function sessionContextChannel(
+  context: Record<string, unknown> | null | undefined,
+): string {
+  if (!context || typeof context !== 'object') return ''
+  return String(
+    (context as { channel?: unknown }).channel ||
+      (context as { channel_name?: unknown }).channel_name ||
+      '',
   )
     .trim()
     .toLowerCase()
-  return src === 'proactive' || src.startsWith('proactive_')
+}
+
+/**
+ * 员工归属码：优先 DB ``agent_id`` / context，再回落 session_key。
+ * （与 gateway「flat agent_id is source of truth」一致。）
+ */
+export function employeeOwnerCodeFromSession(
+  session:
+    | Pick<ChatSessionRow, 'sessionKey' | 'context' | 'agentId'>
+    | { sessionKey?: string; agentId?: string | null; channel?: string | null; context?: Record<string, unknown> | null }
+    | null
+    | undefined,
+): string {
+  if (!session) return ''
+  const ctx =
+    session.context && typeof session.context === 'object'
+      ? (session.context as Record<string, unknown>)
+      : null
+  const fromCol = String(
+    (session as { agentId?: unknown }).agentId ||
+      ctx?.agent_id ||
+      ctx?.proactive_agent_code ||
+      '',
+  ).trim()
+  if (fromCol && !SYSTEM_AGENT_SESSION_CODES.has(fromCol.toLowerCase())) return fromCol
+  const fromName = String(ctx?.agent_name || '').trim()
+  if (
+    fromName &&
+    !SYSTEM_AGENT_SESSION_CODES.has(fromName.toLowerCase()) &&
+    /^[a-z0-9][a-z0-9_-]*$/i.test(fromName)
+  ) {
+    return fromName
+  }
+  return proactiveAgentCodeFromSessionKey(
+    String((session as { sessionKey?: unknown }).sessionKey || ''),
+  )
+}
+
+function isImChannelName(channel: string | null | undefined): boolean {
+  const ch = String(channel || '')
+    .trim()
+    .toLowerCase()
+  if (!ch) return false
+  if (EMPLOYEE_IM_CHANNEL_HEADS.has(ch)) return true
+  const head = ch.split(':')[0] || ''
+  return EMPLOYEE_IM_CHANNEL_HEADS.has(head)
+}
+
+/** 智能体员工会话：agent_id+渠道/来源 优先；再认 proactive key / 遗留 IM key */
+export function isProactiveSession(
+  session: Pick<ChatSessionRow, 'sessionKey' | 'context' | 'agentId'> | null | undefined,
+): boolean {
+  if (!session) return false
+  if (isProactiveSessionKey(session.sessionKey)) return true
+  if (employeeImAgentCodeFromSessionKey(session.sessionKey)) return true
+  const ctx =
+    session.context && typeof session.context === 'object'
+      ? (session.context as Record<string, unknown>)
+      : null
+  const src = String(ctx?.source || '')
+    .trim()
+    .toLowerCase()
+  if (src === 'proactive' || src.startsWith('proactive_')) return true
+  const owner = employeeOwnerCodeFromSession(session)
+  if (!owner) return false
+  const channel = sessionContextChannel(ctx)
+  // 有归属员工 + 渠道字段（或 channel_push）→ 员工侧栏，不靠拆 session_key
+  if (isImChannelName(channel)) return true
+  if (src === 'channel' || src === 'channel_push' || src.startsWith('channel_')) return true
+  return false
 }
 
 export function isSpecialWorkspaceGroupKey(workspaceKey: string | null | undefined): boolean {

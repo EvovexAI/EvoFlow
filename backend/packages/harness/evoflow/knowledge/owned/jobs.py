@@ -393,7 +393,52 @@ def cancel_jobs_for_doc(doc_id: str, *, reason: str = "document deleted") -> int
         return int(cur.rowcount or 0)
 
 
-def purge_failed_orphan_jobs(*, limit: int = 500) -> int:
+def dismiss_error_jobs(
+    kb_id: str,
+    *,
+    limit: int = 500,
+    reason: str = "cleared from ledger",
+) -> int:
+    """Mark terminal ``error`` jobs for one KB as cancelled (ledger dismiss).
+
+    Used by the index banner 「一键清理失效任务」. Quota / model failures leave
+    ``state=error`` rows that keep the UI at 「失败 N」forever; dismissing them
+    does not delete documents — it only clears the nagging ledger.
+    """
+    kid = str(kb_id or "").strip()
+    if not kid:
+        return 0
+    now = utc_now()
+    note = (reason or "cleared from ledger")[:500]
+    with db() as conn:
+        rows = conn.execute(
+            """
+            SELECT id FROM kb_jobs
+            WHERE kb_id=? AND state='error'
+            ORDER BY updated_at ASC
+            LIMIT ?
+            """,
+            (kid, max(1, min(int(limit or 500), 2000))),
+        ).fetchall()
+        ids = [str(r["id"]) for r in rows if r["id"]]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
+        cur = conn.execute(
+            f"""
+            UPDATE kb_jobs SET state='cancelled', error_message=?,
+              finished_at=?, updated_at=?, locked_by='', locked_at=NULL
+            WHERE id IN ({placeholders}) AND state='error'
+            """,
+            (note, now, now, *ids),
+        )
+        n = int(cur.rowcount or 0)
+    if n:
+        logger.info("owned kb dismissed %s error jobs kb=%s", n, kid)
+    return n
+
+
+def purge_failed_orphan_jobs(*, limit: int = 500, kb_id: str | None = None) -> int:
     """Cancel jobs whose owning KB or document was soft-deleted.
 
     Walks the central job queue, joins against ``kb_bases`` (deleted_at) and
@@ -403,31 +448,45 @@ def purge_failed_orphan_jobs(*, limit: int = 500) -> int:
     ``knowledge base or document not found`` errors that show up in the UI
     banner after a KB is deleted or rebuilt.
 
-    Returns the number of jobs cancelled.
+    When ``kb_id`` is set, only that library's jobs are considered (per-KB
+    「一键清理」). Returns the number of jobs cancelled.
     """
     now = utc_now()
     cancelled = 0
     seen: set[tuple[str, str | None]] = set()
+    scope = str(kb_id or "").strip() or None
 
     with db() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, kb_id, doc_id
-            FROM kb_jobs
-            WHERE state IN ('queued', 'running', 'error')
-            ORDER BY updated_at ASC
-            LIMIT ?
-            """,
-            (int(limit),),
-        ).fetchall()
+        if scope:
+            rows = conn.execute(
+                """
+                SELECT id, kb_id, doc_id
+                FROM kb_jobs
+                WHERE kb_id=? AND state IN ('queued', 'running', 'error')
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (scope, int(limit)),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, kb_id, doc_id
+                FROM kb_jobs
+                WHERE state IN ('queued', 'running', 'error')
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (int(limit),),
+            ).fetchall()
 
         for row in rows:
             job_id = str(row["id"] or "")
-            kb_id = str(row["kb_id"] or "").strip()
+            kid = str(row["kb_id"] or "").strip()
             doc_id = str(row["doc_id"] or "").strip() or None
-            if not job_id or not kb_id:
+            if not job_id or not kid:
                 continue
-            key = (kb_id, doc_id)
+            key = (kid, doc_id)
             if key in seen:
                 continue
             seen.add(key)
@@ -435,7 +494,7 @@ def purge_failed_orphan_jobs(*, limit: int = 500) -> int:
             # KB soft-deleted?
             base = conn.execute(
                 "SELECT 1 FROM kb_bases WHERE id=? AND deleted_at IS NULL",
-                (kb_id,),
+                (kid,),
             ).fetchone()
             if base is None:
                 conn.execute(
@@ -453,13 +512,13 @@ def purge_failed_orphan_jobs(*, limit: int = 500) -> int:
             # doc soft-deleted (per-KB index DB)?
             if doc_id:
                 try:
-                    with db_for_kb(kb_id) as kb_conn:
+                    with db_for_kb(kid) as kb_conn:
                         doc = kb_conn.execute(
                             "SELECT 1 FROM kb_documents WHERE id=? AND deleted_at IS NULL",
                             (doc_id,),
                         ).fetchone()
                 except Exception:
-                    logger.debug("orphan purge: doc lookup failed for %s/%s", kb_id, doc_id, exc_info=True)
+                    logger.debug("orphan purge: doc lookup failed for %s/%s", kid, doc_id, exc_info=True)
                     continue
                 if doc is None:
                     conn.execute(
@@ -473,7 +532,7 @@ def purge_failed_orphan_jobs(*, limit: int = 500) -> int:
                     )
                     cancelled += 1
     if cancelled:
-        logger.info("owned kb purged %s orphan jobs", cancelled)
+        logger.info("owned kb purged %s orphan jobs%s", cancelled, f" kb={scope}" if scope else "")
     return cancelled
 
 

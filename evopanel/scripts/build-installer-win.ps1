@@ -240,6 +240,25 @@ function Get-DriveFreeGb([string]$Path) {
   return [math]::Round($drive.Free / 1GB, 2)
 }
 
+function Get-FreePhysicalMemoryGb() {
+  # Parallel PyInstaller + Vite often dies with node exit -1073741819 (0xC0000005)
+  # when the machine is already tight on RAM; prefer sequential instead.
+  try {
+    $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+    return [math]::Round(([double]$os.FreePhysicalMemory) / 1MB, 1)
+  } catch {
+    return $null
+  }
+}
+
+# Vite production transform can peak several GB; keep a safety margin above that.
+$minParallelFreeGb = 8.0
+$ramFreeGb = Get-FreePhysicalMemoryGb
+if ($useParallel -and $null -ne $ramFreeGb -and $ramFreeGb -lt $minParallelFreeGb) {
+  Write-Step "low free RAM (${ramFreeGb} GB < ${minParallelFreeGb} GB) - forcing sequential (avoids vite ACCESS_VIOLATION / -1073741819)"
+  $useParallel = $false
+}
+
 Write-Step "repo root: $RepoRoot"
 Write-Step "evopanel dir: $DeerpanelDir"
 

@@ -60,11 +60,27 @@ import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCode
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import { getSharedV4SessionDataLayer } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
+import {
+  buildWorkflowRunByRunId,
+  buildWorkflowRunByToolCallId,
+  buildWorkflowRunPendingQuestionsByRunId,
+} from "@zcode/ui/v4/workflowRunCardJoin.js";
+import { buildWorkflowGraphByToolCallIdFromRuns } from "@zcode/ui/lib/collabToWorkflowProjection.js";
+import { openCollabWorkflowInRightStage } from "../../lib/right-stage/open-collab-workflow-stage.js";
+import { openCollabSubtaskInRightStage } from "../../lib/right-stage/open-collab-subtask-stage.js";
 import { proactiveAgentCodeFromSessionKey } from "../lib/session-list/workspace-groups.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { logV4Life } from "../lib/v4-lifecycle-log.js";
+import { logWorkflowProgress } from "../../lib/workflow-progress-debug-log.js";
+import {
+  mergeWorkflowRunsWithChildWorks,
+  projectActiveWorkflowChildWorks,
+} from "../../lib/childWorkWorkflowBridge.js";
+import { useSessionChildWorks } from "../hooks/useSessionChildWorks.js";
+import { useCollabSubtasksFromApi } from "../hooks/useCollabSubtasksFromApi.js";
+import { projectCollabToWorkflowRun } from "@zcode/ui/lib/collabToWorkflowProjection.js";
 import { evoflowLocalRevealPlatform } from "../../pages/settings/evoflow-bridge-services.js";
 import { apiUrlAsync } from "../../lib/api-client.js";
 import {
@@ -75,7 +91,6 @@ import {
   ToolApprovalPanel,
   type ToolApprovalChoice,
 } from "../components/ToolApprovalPanel.js";
-
 /**
  * V4 行内授权何时展示（对齐旧链路 isToolPendingApproval + resolvedIds）：
  * 1. 会话策略关闭授权 UI（grant_all）→ 不展示
@@ -1838,6 +1853,234 @@ export function V4ZCodeTimeline(props: {
     return { entityType: "user", entityId: "user" };
   }, [evoflowSessionKey]);
 
+  // 底部图标同源：execution/state.childWorks（SessionChildWorkIcons）
+  const childWorksSessionKey = String(evoflowSessionKey || "").trim() || null;
+  const { works: sessionChildWorks, activeByKind: childWorksActiveByKind } =
+    useSessionChildWorks(childWorksSessionKey);
+  const childWorkWorkflowStubs = useMemo(
+    () => projectActiveWorkflowChildWorks(sessionChildWorks),
+    [sessionChildWorks],
+  );
+  const primaryChildTaskId = childWorkWorkflowStubs[0]?.runId ?? null;
+  const childCollabLive = useCollabSubtasksFromApi({
+    taskId: primaryChildTaskId,
+    threadId: null,
+    sessionKey: childWorksSessionKey,
+    enabled: Boolean(primaryChildTaskId),
+    pollMs: 2500,
+  });
+  const childWorkWorkflowProjections = useMemo(() => {
+    if (!primaryChildTaskId) return childWorkWorkflowStubs;
+    const liveSubs = childCollabLive.subtasks;
+    const liveMain = childCollabLive.mainTask;
+    if (!liveMain && (!liveSubs || liveSubs.length === 0)) return childWorkWorkflowStubs;
+    return childWorkWorkflowStubs.map((row) => {
+      if (row.runId !== primaryChildTaskId) return row;
+      const projected = projectCollabToWorkflowRun({
+        mainTask: liveMain || {
+          taskId: row.runId,
+          name: row.name,
+          status: "running",
+        },
+        subtasks: liveSubs || [],
+        runId: row.runId,
+        name: row.name,
+      });
+      if (!projected) return row;
+      return {
+        ...row,
+        run: projected.run,
+        summary: projected.summary,
+        name: projected.name || row.name,
+      };
+    });
+  }, [
+    childCollabLive.mainTask,
+    childCollabLive.subtasks,
+    childWorkWorkflowStubs,
+    primaryChildTaskId,
+  ]);
+  const childWorkActiveWorkflows = useMemo(
+    () =>
+      childWorkWorkflowProjections.map((row) => ({
+        runId: row.runId,
+        name: row.name,
+        summary: row.summary,
+      })),
+    [childWorkWorkflowProjections],
+  );
+
+  // collab→workflowRuns 投影：与 ZCode SessionPane 同款 join；并入 active childWorks，
+  // 避免「图标已亮、snapshot.workflowRuns 仍空 → 对话无卡」。
+  const workflowRunsLive = useMemo(
+    () =>
+      mergeWorkflowRunsWithChildWorks(
+        snapshot?.workflowRuns?.runs,
+        childWorkWorkflowProjections,
+      ),
+    [childWorkWorkflowProjections, snapshot?.workflowRuns?.runs],
+  );
+  // childWorks 熄灭后 live 投影会丢掉仅靠 bridge 活着的 run → 尾轮卡随对话结束消失。
+  // 会话内保留见过的 run，join / sticky 摘要才能在结束后继续画。
+  type WorkflowDigestStickyEntry = {
+    runId: string;
+    toolCallId: string;
+    name: string;
+    summary: (typeof childWorkActiveWorkflows)[number]["summary"];
+    turnKey: string;
+  };
+  const [workflowRunsRetained, setWorkflowRunsRetained] = useState(workflowRunsLive);
+  const [workflowDigestSticky, setWorkflowDigestSticky] = useState<WorkflowDigestStickyEntry[]>(
+    [],
+  );
+  const stickySessionRef = useRef(sessionId);
+  useEffect(() => {
+    if (stickySessionRef.current !== sessionId) {
+      stickySessionRef.current = sessionId;
+      setWorkflowRunsRetained(workflowRunsLive);
+      setWorkflowDigestSticky([]);
+      return;
+    }
+    setWorkflowRunsRetained((prev) => {
+      const byId = new Map(prev.map((run) => [String(run.runId || "").trim(), run]));
+      for (const run of workflowRunsLive) {
+        const id = String(run.runId || "").trim();
+        if (id) byId.set(id, run);
+      }
+      const next = [...byId.values()];
+      if (next.length > 32) next.splice(32);
+      return next;
+    });
+  }, [sessionId, workflowRunsLive]);
+  const workflowRunsProjection = workflowRunsRetained;
+
+  const onWorkflowDigestSticky = useCallback((entries: readonly WorkflowDigestStickyEntry[]) => {
+    if (entries.length === 0) return;
+    setWorkflowDigestSticky((prev) => {
+      const byId = new Map(prev.map((entry) => [entry.runId, entry]));
+      let changed = false;
+      for (const entry of entries) {
+        const id = String(entry.runId || "").trim();
+        if (!id) continue;
+        const old = byId.get(id);
+        const nextEntry = {
+          runId: id,
+          toolCallId: entry.toolCallId || old?.toolCallId || "",
+          name: entry.name || old?.name || "工作流",
+          summary: entry.summary ?? old?.summary!,
+          turnKey: entry.turnKey || old?.turnKey || "",
+        };
+        if (
+          old &&
+          old.toolCallId === nextEntry.toolCallId &&
+          old.name === nextEntry.name &&
+          old.turnKey === nextEntry.turnKey &&
+          old.summary === nextEntry.summary
+        ) {
+          continue;
+        }
+        changed = true;
+        byId.set(id, nextEntry);
+      }
+      return changed ? [...byId.values()] : prev;
+    });
+  }, []);
+  // sticky 摘要跟 retained 投影对齐（结束后 status/nodes 仍能更新）。
+  useEffect(() => {
+    setWorkflowDigestSticky((prev) => {
+      if (prev.length === 0) return prev;
+      const byRunId = buildWorkflowRunByRunId(workflowRunsProjection);
+      let changed = false;
+      const next = prev.map((entry) => {
+        const live = byRunId.get(entry.runId);
+        if (!live) return entry;
+        if (
+          live.status === entry.summary.status &&
+          live.nodesSettled === entry.summary.nodesSettled &&
+          live.nodesTotal === entry.summary.nodesTotal &&
+          live.run === entry.summary.run
+        ) {
+          return entry;
+        }
+        changed = true;
+        return { ...entry, summary: live };
+      });
+      return changed ? next : prev;
+    });
+  }, [workflowRunsProjection]);
+
+  const workflowRunByToolCallId = useMemo(
+    () => buildWorkflowRunByToolCallId(workflowRunsProjection),
+    [workflowRunsProjection],
+  );
+  const workflowRunByRunId = useMemo(
+    () => buildWorkflowRunByRunId(workflowRunsProjection),
+    [workflowRunsProjection],
+  );
+  const workflowRunPendingQuestionsByRunId = useMemo(
+    () => buildWorkflowRunPendingQuestionsByRunId(workflowRunsProjection),
+    [workflowRunsProjection],
+  );
+  const workflowGraphByToolCallId = useMemo(
+    () => buildWorkflowGraphByToolCallIdFromRuns(workflowRunsProjection),
+    [workflowRunsProjection],
+  );
+  const workflowRunsRevision = snapshot?.workflowRuns?.revision ?? 0;
+  const backgroundWorks = snapshot?.backgroundWorks;
+  useEffect(() => {
+    const runs = workflowRunsProjection ?? [];
+    const bg = Array.isArray(backgroundWorks) ? backgroundWorks : [];
+    const workflowBg = bg.filter(
+      (w) => w && typeof w === "object" && String((w as { kind?: unknown }).kind || "") === "workflow",
+    );
+    const iconWorkflow = childWorksActiveByKind.get("workflow") || [];
+    logWorkflowProgress(
+      "snapshot.workflowRuns",
+      {
+        sessionId,
+        evoflowSessionKey: childWorksSessionKey,
+        revision: workflowRunsRevision,
+        runCount: runs.length,
+        runs: runs.map((r) => ({
+          runId: r.runId,
+          status: r.status,
+          toolCallId: r.toolCallId ?? null,
+          actors: r.actors?.length ?? 0,
+          nodes: r.nodes?.length ?? 0,
+        })),
+        backgroundWorksTotal: bg.length,
+        backgroundWorksWorkflow: workflowBg.map((w) => ({
+          workId: (w as { workId?: string }).workId,
+          title: (w as { title?: string }).title,
+          status: (w as { status?: string }).status,
+        })),
+        childWorksWorkflowIcon: iconWorkflow.map((w) => ({
+          workId: w.workId,
+          refId: w.refId,
+          status: w.status,
+          taskId: (w.extra as { task_id?: string } | null)?.task_id ?? null,
+          title: w.title,
+        })),
+        childWorkBridgeCount: childWorkWorkflowProjections.length,
+        joinByToolCallId: [...workflowRunByToolCallId.keys()],
+        joinByRunId: [...workflowRunByRunId.keys()],
+      },
+      {
+        dedupeKey: `snap:${sessionId}:${workflowRunsRevision}:${runs.length}:${iconWorkflow.length}:${childWorkWorkflowProjections.length}`,
+      },
+    );
+  }, [
+    backgroundWorks,
+    childWorkWorkflowProjections,
+    childWorksActiveByKind,
+    childWorksSessionKey,
+    sessionId,
+    workflowRunByRunId,
+    workflowRunByToolCallId,
+    workflowRunsProjection,
+    workflowRunsRevision,
+  ]);
+
   const rowContext = useMemo<ConversationRowRenderContext>(
     () => ({
       workspacePath: workspacePath ?? "",
@@ -1869,11 +2112,69 @@ export function V4ZCodeTimeline(props: {
       // 引用 chip → 资产中心：员工会话落到该员工 vault，其它落到「我」
       assetEntityType: assetEntity.entityType,
       assetEntityId: assetEntity.entityId,
+      // ZCode workflowRuns 协议对齐：轮尾 digest / 工具卡 join
+      workflowRunByToolCallId,
+      workflowRunByRunId,
+      workflowRunPendingQuestionsByRunId,
+      workflowGraphByToolCallId,
+      childWorkActiveWorkflows,
+      workflowDigestSticky,
+      onWorkflowDigestSticky,
+      onOpenWorkflowRun: (request) => {
+        // EvoFlow：runId ≡ mainTaskId（投影侧已对齐），右栏 collab-workflow 按主任务拉子节点。
+        const tid = String(request?.runId || "").trim();
+        if (!tid) return;
+        openCollabWorkflowInRightStage(
+          {
+            mainTaskId: tid,
+            title: request.workflowName || "工作流",
+            ...(sessionId ? { leadThreadId: sessionId } : {}),
+          },
+          {
+            forceExpand: true,
+            sessionKey: evoflowSessionKey ? String(evoflowSessionKey) : undefined,
+          },
+        );
+      },
+      // Agent 药丸 → 右栏 collab 子任务执行面板（非整条 ZCode actor transcript）
+      onOpenWorkflowActor: (request) => {
+        const runId = String(request?.runId || "").trim();
+        if (!runId) return;
+        const runs = workflowRunsProjection;
+        const run = Array.isArray(runs)
+          ? runs.find((r) => String(r?.runId || "").trim() === runId)
+          : undefined;
+        const siteId = String(request?.siteId || "").trim();
+        const ordinal = Number(request?.ordinal);
+        const nodes = Array.isArray(run?.nodes) ? run.nodes : [];
+        const byActor =
+          nodes.find(
+            (n) =>
+              String(n?.actorSiteId || "").trim() === siteId &&
+              Number(n?.actorOrdinal) === ordinal,
+          ) ||
+          nodes.find((n) => Number(n?.actorOrdinal) === ordinal) ||
+          nodes[Number.isFinite(ordinal) ? ordinal : -1];
+        // 投影 node.siteId ≡ subtaskId；再回落 step 身份 siteId（极少）
+        const subtaskId = String(byActor?.siteId || "").trim();
+        if (!subtaskId) return;
+        openCollabSubtaskInRightStage(
+          {
+            subtaskId,
+            mainTaskId: runId,
+            title: String(request?.actorName || byActor?.phaseName || subtaskId).trim(),
+            ...(sessionId ? { leadThreadId: sessionId } : {}),
+          },
+          {
+            sessionKey: evoflowSessionKey ? String(evoflowSessionKey) : undefined,
+          },
+        );
+      },
     }),
     // approvalRenderKey：仅在待审批集合变化时换 context，让工具行挂上/摘掉面板；
-    // 不跟每帧 rows/snapshot 绑定，避免展开「文件已更改」时整区闪。
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey gates refresh
-    [sessionId, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment, assetEntity.entityType, assetEntity.entityId],
+    // workflowRunsRevision：投影推进时换 join，避免每帧 rows 抖动。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: approvalRenderKey + workflowRunsRevision gate refresh
+    [sessionId, evoflowSessionKey, onOpenCodeViewer, onOpenFileLink, onOpenFileLinkProp, onOpenBrowserUrl, fetchFileChanges, renderToolCallApproval, workspacePath, approvalRenderKey, onAutoOpenCodeViewers, handleAutoOpenAssistantPptx, assistantPreviewPptxAutoOpenTarget, hostTheme, readAttachment, assetEntity.entityType, assetEntity.entityId, workflowRunsRevision, workflowRunByToolCallId, workflowRunByRunId, workflowRunPendingQuestionsByRunId, workflowGraphByToolCallId, workflowRunsProjection, childWorkActiveWorkflows, workflowDigestSticky, onWorkflowDigestSticky],
   );
 
   // stream-compare：页面画什么 → 同轮目录 v4-ui-display.log（排查发送后白屏/无回复）。

@@ -184,6 +184,9 @@ class _SessionState:
     """assistant 反馈（rowId/messageId → like|dislike）；v1 shell 只记录不持久化。"""
     _queue_admission_seq: int = 0
     """queue 项 admissionSeq 计数（与 command inbox 的 admission 序独立递增）。"""
+    # ZCode workflowRuns 投影（EvoFlow：由 collab 任务映射；进 snapshot / journal 查询）
+    workflow_runs: list[dict[str, Any]] = field(default_factory=list)
+    workflow_runs_revision: int = 0
 
     def control(self) -> dict[str, Any]:
         return _minimal_control(self.phase)
@@ -902,6 +905,326 @@ class V4ConversationHub:
         sess.phase = phase
         self.author_state_patch(session_id, {"control": _minimal_control(phase)})
 
+    def _workflow_runs_state(self, sess: _SessionState) -> dict[str, Any]:
+        from app.gateway.v4.workflow_runs_projection import strip_internal_keys
+
+        return {
+            "revision": int(sess.workflow_runs_revision),
+            "runs": [strip_internal_keys(r) for r in sess.workflow_runs if isinstance(r, dict)],
+        }
+
+    def _background_works_from_workflow_runs(self, sess: _SessionState) -> list[dict[str, Any]]:
+        """Running collab 投影 → composer 底部「运行中工作流」图标（与对话进度卡同源）。"""
+        out: list[dict[str, Any]] = []
+        for run in sess.workflow_runs:
+            if not isinstance(run, dict):
+                continue
+            status = str(run.get("status") or "").strip()
+            if status not in {"pending", "running"}:
+                continue
+            rid = str(run.get("runId") or "").strip()
+            if not rid:
+                continue
+            title = str(run.get("_label") or "工作流").strip() or "工作流"
+            started = run.get("lastEventSequence")
+            if not isinstance(started, int) or started < 0:
+                started = 0
+            out.append(
+                {
+                    "workId": rid,
+                    "kind": "workflow",
+                    "title": title[:160],
+                    "status": "running",
+                    "startedAt": started,
+                    "cancellable": False,
+                    "anchorRowId": None,
+                }
+            )
+        if out:
+            logger.info(
+                "workflow-progress backgroundWorks n=%s works=%s",
+                len(out),
+                [
+                    {
+                        "workId": w.get("workId"),
+                        "title": w.get("title"),
+                        "toolCallId": next(
+                            (
+                                str(r.get("toolCallId") or "")
+                                for r in sess.workflow_runs
+                                if isinstance(r, dict)
+                                and str(r.get("runId") or "") == str(w.get("workId") or "")
+                            ),
+                            "",
+                        ),
+                    }
+                    for w in out
+                ],
+            )
+        return out[:8]
+
+    def upsert_workflow_run_from_platform(
+        self,
+        session_id: str,
+        *,
+        tool_call_id: str,
+        action: str,
+        content: str,
+        display: dict[str, Any] | None,
+    ) -> bool:
+        """platform workflow.run 族结果 → 投影一条 WorkflowRunState 并 state.updated。"""
+        from app.gateway.v4.workflow_runs_projection import (
+            extract_workflow_progress_from_platform_result,
+            load_collab_bundle,
+            project_collab_to_workflow_run,
+            upsert_run_list,
+        )
+
+        tip = extract_workflow_progress_from_platform_result(
+            action=action, content=content, display=display
+        )
+        if not tip:
+            logger.info(
+                "workflow-progress upsert skip: no tip session=%s toolCallId=%s action=%s",
+                session_id,
+                tool_call_id,
+                action,
+            )
+            return False
+        main, subs = load_collab_bundle(str(tip["mainTaskId"]))
+        # runId ≡ mainTaskId：右栏 collab-workflow / GET /tasks 只认主任务 id。
+        # platform 另发的 runId（如 R1）若写进协议键，⤢ 会用错 id 打开「暂无子任务节点」。
+        main_task_id = str(tip["mainTaskId"])
+        run = project_collab_to_workflow_run(
+            main_task=main
+            or {
+                "taskId": main_task_id,
+                "name": tip.get("name") or "工作流",
+                "status": "running",
+            },
+            subtasks=subs,
+            tool_call_id=tool_call_id,
+            run_id=main_task_id,
+            name=str(tip.get("name") or ""),
+        )
+        if not run:
+            logger.info(
+                "workflow-progress upsert skip: project failed session=%s toolCallId=%s main=%s",
+                session_id,
+                tool_call_id,
+                main_task_id,
+            )
+            return False
+        with self._write_lock:
+            sess = self._get_or_create_session(session_id)
+            sess.workflow_runs = upsert_run_list(sess.workflow_runs, run)
+            sess.workflow_runs_revision += 1
+            patch = {
+                "workflowRuns": self._workflow_runs_state(sess),
+                "backgroundWorks": self._background_works_from_workflow_runs(sess),
+            }
+        logger.info(
+            "workflow-progress upsert ok session=%s toolCallId=%s runId=%s status=%s "
+            "actors=%s nodes=%s bg=%s",
+            session_id,
+            tool_call_id,
+            run.get("runId"),
+            run.get("status"),
+            len(run.get("actors") or []),
+            len(run.get("nodes") or []),
+            len(patch.get("backgroundWorks") or []),
+        )
+        self.author_state_patch(session_id, patch)
+        # 运行中：后台轻量刷新，把子任务进度推进投影
+        if str(run.get("status") or "") in {"pending", "running"}:
+            self._schedule_workflow_run_refresh(
+                session_id,
+                main_task_id=main_task_id,
+                run_id=main_task_id,
+                tool_call_id=tool_call_id,
+                name=str(tip.get("name") or ""),
+            )
+        return True
+
+    def upsert_workflow_run_from_task(
+        self,
+        session_id: str,
+        *,
+        main_task_id: str,
+        name: str = "",
+        tool_call_id: str = "",
+        status: str = "running",
+    ) -> bool:
+        """childWorks / app_runner 注册工作流时写入投影（不依赖 platform 工具结果）。"""
+        from app.gateway.v4.workflow_runs_projection import (
+            load_collab_bundle,
+            project_collab_to_workflow_run,
+            upsert_run_list,
+        )
+
+        tid = str(session_id or "").strip()
+        mid = str(main_task_id or "").strip()
+        if not tid or not mid:
+            return False
+        main, subs = load_collab_bundle(mid)
+        run = project_collab_to_workflow_run(
+            main_task=main
+            or {
+                "taskId": mid,
+                "name": name or "工作流",
+                "status": status or "running",
+            },
+            subtasks=subs,
+            tool_call_id=tool_call_id,
+            run_id=mid,
+            name=str(name or ""),
+        )
+        if not run:
+            logger.info(
+                "workflow-progress upsert_from_task skip: project failed session=%s main=%s",
+                tid,
+                mid,
+            )
+            return False
+        with self._write_lock:
+            sess = self._get_or_create_session(tid)
+            sess.workflow_runs = upsert_run_list(sess.workflow_runs, run)
+            sess.workflow_runs_revision += 1
+            patch = {
+                "workflowRuns": self._workflow_runs_state(sess),
+                "backgroundWorks": self._background_works_from_workflow_runs(sess),
+            }
+        logger.info(
+            "workflow-progress upsert_from_task ok session=%s runId=%s status=%s "
+            "actors=%s nodes=%s toolCallId=%s",
+            tid,
+            run.get("runId"),
+            run.get("status"),
+            len(run.get("actors") or []),
+            len(run.get("nodes") or []),
+            tool_call_id or "",
+        )
+        self.author_state_patch(tid, patch)
+        if str(run.get("status") or "") in {"pending", "running"}:
+            self._schedule_workflow_run_refresh(
+                tid,
+                main_task_id=mid,
+                run_id=mid,
+                tool_call_id=tool_call_id,
+                name=str(name or ""),
+            )
+        return True
+
+    def refresh_workflow_run(
+        self,
+        session_id: str,
+        *,
+        main_task_id: str,
+        run_id: str,
+        tool_call_id: str = "",
+        name: str = "",
+    ) -> bool:
+        from app.gateway.v4.workflow_runs_projection import (
+            load_collab_bundle,
+            project_collab_to_workflow_run,
+            upsert_run_list,
+        )
+
+        main, subs = load_collab_bundle(main_task_id)
+        if main is None and not subs:
+            return False
+        run = project_collab_to_workflow_run(
+            main_task=main or {"taskId": main_task_id, "name": name or "工作流", "status": "running"},
+            subtasks=subs,
+            tool_call_id=tool_call_id,
+            run_id=run_id or main_task_id,
+            name=name,
+        )
+        if not run:
+            return False
+        with self._write_lock:
+            sess = self._sessions.get(session_id)
+            if sess is None:
+                return False
+            sess.workflow_runs = upsert_run_list(sess.workflow_runs, run)
+            sess.workflow_runs_revision += 1
+            patch = {
+                "workflowRuns": self._workflow_runs_state(sess),
+                "backgroundWorks": self._background_works_from_workflow_runs(sess),
+            }
+        self.author_state_patch(session_id, patch)
+        return str(run.get("status") or "") in {"pending", "running"}
+
+    def _schedule_workflow_run_refresh(
+        self,
+        session_id: str,
+        *,
+        main_task_id: str,
+        run_id: str,
+        tool_call_id: str,
+        name: str,
+    ) -> None:
+        loop = self._loop
+        if loop is None or loop.is_closed():
+            try:
+                loop = asyncio.get_running_loop()
+                self._loop = loop
+            except RuntimeError:
+                return
+
+        async def _poll() -> None:
+            # ~2.5s × 120 ≈ 5 min；终态自动停
+            for _ in range(120):
+                await asyncio.sleep(2.5)
+                try:
+                    still = await asyncio.to_thread(
+                        self.refresh_workflow_run,
+                        session_id,
+                        main_task_id=main_task_id,
+                        run_id=run_id,
+                        tool_call_id=tool_call_id,
+                        name=name,
+                    )
+                except Exception:
+                    logger.debug(
+                        "workflowRuns refresh failed session=%s task=%s",
+                        session_id,
+                        main_task_id,
+                        exc_info=True,
+                    )
+                    break
+                if not still:
+                    break
+
+        def _start() -> None:
+            try:
+                loop.create_task(_poll())
+            except Exception:
+                logger.debug("workflowRuns poll schedule failed", exc_info=True)
+
+        try:
+            running = asyncio.get_running_loop()
+        except RuntimeError:
+            running = None
+        if running is loop:
+            _start()
+        else:
+            try:
+                loop.call_soon_threadsafe(_start)
+            except Exception:
+                logger.debug("workflowRuns poll threadsafe failed", exc_info=True)
+
+    def list_workflow_runs(self, session_id: str, *, limit: int = 8) -> dict[str, Any]:
+        """``POST /api/v4/conversation/workflowRuns`` journal 面。"""
+        from app.gateway.v4.workflow_runs_projection import to_journal_summary
+
+        lim = max(1, min(int(limit or 8), 64))
+        with self._write_lock:
+            sess = self._sessions.get(session_id)
+            runs = list(sess.workflow_runs) if sess is not None else []
+        summaries = [to_journal_summary(r) for r in runs[:lim] if isinstance(r, dict)]
+        return {"runs": summaries}
+
     # -- flush 调度 -------------------------------------------------------------
 
     def _schedule_flush_threadsafe(self, sub: _Subscription) -> None:
@@ -1031,9 +1354,11 @@ class V4ConversationHub:
             "queue": sess.queue_state(),
             "pendingInteractions": [],
             "pendingCommands": [],
-            "backgroundWorks": [],
+            "backgroundWorks": self._background_works_from_workflow_runs(sess),
             "goal": self._session_goal_state(sess),
             "plan": None,
+            # 冷快照必须带 workflowRuns：刷新/重连后正在跑的 collab 投影不能丢
+            "workflowRuns": self._workflow_runs_state(sess),
             "rows": {
                 # 尾部窗口；更早行走 rows/range 游标补拉（rowsWindowSchema 截断语义）。
                 "window": window,

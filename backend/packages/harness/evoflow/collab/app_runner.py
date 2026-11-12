@@ -1180,6 +1180,30 @@ def run_app_workflow(
                     "app_name": app_name,
                 },
             )
+            # 底部图标亮时同步 V4 workflowRuns，对话轮尾进度卡与图标同源。
+            try:
+                from evoflow.persistence.session_repositories import (
+                    resolve_thread_bindings_for_session_keys,
+                )
+
+                bindings = resolve_thread_bindings_for_session_keys([origin_sk], max_keys=1)
+                v4_sid = bindings[0][1] if bindings else ""
+                if v4_sid:
+                    from app.gateway.v4.conversation import HUB
+
+                    HUB.upsert_workflow_run_from_task(
+                        v4_sid,
+                        main_task_id=str(task_id),
+                        name=str(app_name or "工作流"),
+                        status="running",
+                    )
+            except Exception:
+                logger.debug(
+                    "workflowRuns upsert_from_task skipped run_id=%s session=%s",
+                    run_id,
+                    origin_sk,
+                    exc_info=True,
+                )
         except Exception:
             logger.debug(
                 "workflow child-work register skipped run_id=%s session=%s",

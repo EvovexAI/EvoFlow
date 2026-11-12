@@ -28,6 +28,7 @@ import {
 } from "./WorkflowRunSettingsPopover.js";
 import { timelineHeight, WorkflowTimeline } from "./WorkflowTimeline.js";
 import { WorkflowTruncatedNotice } from "./WorkflowTruncatedNotice.js";
+import { buildCausalityGraphFromWorkflowRun } from "@/lib/collabToWorkflowProjection.js";
 
 /** 下方运行卡默认展开，无箭头但仍可收起；状态由标题表达。 */
 export interface WorkflowRunDigestProps {
@@ -94,15 +95,26 @@ export function WorkflowRunDigest({
   const run = summary?.run;
   const [expanded, setExpanded] = useState(true);
 
+  // EvoFlow collab 投影常不带 CreateWorkflow 发起图：从 run.nodes/actors 反推站台，
+  // 否则 hasRail=false → 点标题不展开、下面也没有时间线。
+  const resolvedGraph = useMemo(() => {
+    if (graph !== undefined && graph.steps.length > 0) return graph;
+    if (run === undefined) return undefined;
+    return buildCausalityGraphFromWorkflowRun(run);
+  }, [graph, run]);
+
   // 阶段线只在有活投影且有图时画：没有投影的图全是 pending 灯，会把一条已完成的 run 画成没跑过。
   const model = useMemo(
     () =>
-      graph !== undefined && graph.steps.length > 0 && run !== undefined
-        ? buildWorkflowTimeline(graph, run)
+      resolvedGraph !== undefined && resolvedGraph.steps.length > 0 && run !== undefined
+        ? buildWorkflowTimeline(resolvedGraph, run)
         : undefined,
-    [graph, run],
+    [resolvedGraph, run],
   );
   const hasRail = model !== undefined && model.stations.length > 0;
+  // 无轨道时（summary 缺席 →「工作流已结束」单行）：卡身点击应与 ⤢ 同路打开右栏，
+  // 否则用户点标题无反馈，只有右上角可用。
+  const clickOpensDetails = !hasRail && onOpenRun !== undefined;
   const shown = useMemo(
     () =>
       expanded || !model
@@ -126,7 +138,13 @@ export function WorkflowRunDigest({
   // 卡上刻意**不**画 lineage：
   // 「调整自 / 已被替代」两句只在详情页与确认窗说；卡只换种类词——卡上太吵。
   // 细节串的最后一段是子代理模型名（没指定过模型就没有这一段），强度与规范串进 tooltip。
-  const cardDetail = workflowCardDetail(format, model, graph, run, subagentModelProviderName);
+  const cardDetail = workflowCardDetail(
+    format,
+    model,
+    resolvedGraph,
+    run,
+    subagentModelProviderName,
+  );
   const live = summary?.status === "running";
   const kind = format({
     id: summary === undefined ? WORKFLOW_RUN_ENDED_KIND_ID : workflowRunKindMessageId(summary),
@@ -196,29 +214,40 @@ export function WorkflowRunDigest({
       aria-label={kind}
       className={cn(
         "wf-motion wf-arrive flex w-full min-w-0 flex-col gap-1 rounded-xl border border-border/70 bg-card/70 px-3.5 pb-2 pt-1.5 outline-none",
-        hasRail && "cursor-pointer focus-visible:ring-2 focus-visible:ring-ring/40",
+        (hasRail || clickOpensDetails) &&
+          "cursor-pointer focus-visible:ring-2 focus-visible:ring-ring/40",
       )}
       data-expanded={hasRail ? String(expanded) : undefined}
       data-testid={testId(TID_CHAT_WORKFLOW_RUN_DIGEST, testIdKey)}
       data-workflow-run-digest="true"
       data-workflow-run-id={runId}
       data-workflow-run-status={summary?.status ?? "absent"}
-      role={hasRail ? "button" : undefined}
-      tabIndex={hasRail ? 0 : undefined}
+      role={hasRail || clickOpensDetails ? "button" : undefined}
+      tabIndex={hasRail || clickOpensDetails ? 0 : undefined}
       aria-expanded={hasRail ? expanded : undefined}
       onClick={(event) => {
-        if (hasRail && !hitsControl(event.target, event.currentTarget))
+        if (hitsControl(event.target, event.currentTarget)) return;
+        if (hasRail) {
           setExpanded((value) => !value);
+          return;
+        }
+        if (clickOpensDetails) onOpenRun();
       }}
       onKeyDown={(event) => {
         if (
-          !hasRail ||
           hitsControl(event.target, event.currentTarget) ||
           (event.key !== "Enter" && event.key !== " ")
         )
           return;
-        event.preventDefault();
-        setExpanded((value) => !value);
+        if (hasRail) {
+          event.preventDefault();
+          setExpanded((value) => !value);
+          return;
+        }
+        if (clickOpensDetails) {
+          event.preventDefault();
+          onOpenRun();
+        }
       }}
     >
       <WorkflowCardHeader

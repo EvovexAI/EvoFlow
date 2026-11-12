@@ -172,6 +172,36 @@ export interface ConversationRowRenderContext {
    */
   workflowGraphByToolCallId?: ReadonlyMap<string, WorkflowCausalityGraphData>;
   /**
+   * EvoFlow：底部 SessionChildWorkIcons 已亮的 workflow（execution/state.childWorks），
+   * 轮尾 digest 在工具行 join 不到时仍用这些 run 出卡——与图标同源。
+   */
+  childWorkActiveWorkflows?: ReadonlyArray<{
+    runId: string;
+    name: string;
+    summary: WorkflowRunCardSummary;
+  }>;
+  /**
+   * EvoFlow：childWorks 熄灭后仍按发起轮钉住的进度卡（流式结束 / 跑完后不丢卡）。
+   * turnKey = ConversationTurnGroup unit.key。
+   */
+  workflowDigestSticky?: ReadonlyArray<{
+    runId: string;
+    toolCallId: string;
+    name: string;
+    summary: WorkflowRunCardSummary;
+    turnKey: string;
+  }>;
+  /** 尾轮在挂 active childWorks 时回写 sticky，供该轮结束后继续展示。 */
+  onWorkflowDigestSticky?: (
+    entries: ReadonlyArray<{
+      runId: string;
+      toolCallId: string;
+      name: string;
+      summary: WorkflowRunCardSummary;
+      turnKey: string;
+    }>,
+  ) => void;
+  /**
    * CreateWorkflow / AmendWorkflow 行 → 草稿位置（稿号、是否已被替代），由宿主从行窗口一遍建立
    * （`workflowDraftJoin.buildWorkflowDraftByToolCallId`）。编译反馈行据此写「第 n 稿」并决定空环灯的
    * 颜色；缺席时卡片不编号。

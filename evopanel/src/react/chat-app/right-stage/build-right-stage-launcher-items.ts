@@ -30,6 +30,25 @@ export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherIte
       ctx.setWorkspaceTreePinned(true)
       ctx.syncShellAsideForWorkspacePanel(true)
     },
+    onOpenTerminal: () => {
+      const cwd = String(ctx.effectiveWorkspaceRoot || '').trim()
+      const threadId = String(
+        ctx.wsClient?.getSessionThreadId?.(ctx.selectedSessionKey || '') ||
+          ctx.chatThreadIdForSidebar ||
+          '',
+      ).trim()
+      const title =
+        (cwd && cwd.split(/[\\/]/).filter(Boolean).pop()) || '终端'
+      void import('../../../lib/right-stage/ensure-interactive-terminal-stage.js').then((m) => {
+        m.ensureInteractiveTerminalStage({
+          cwd,
+          threadId,
+          title,
+          sessionKey: ctx.selectedSessionKey || undefined,
+          forceNew: true,
+        })
+      })
+    },
     onOpenWorkflow: () => {
       ctx.openCollabExecPanel()
     },

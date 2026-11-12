@@ -11,6 +11,7 @@ import { cn } from "@/components/lib/utils.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import type { LaneClass, StepRunStatus } from "@/components/workflow-graph/types.js";
 import { WorkflowAgentFace, agentColor } from "@/components/workflow-timeline/WorkflowAgentFace.js";
+import { useWorkflowAgentFaceOverride } from "@/components/workflow-timeline/WorkflowAgentFaceOverride.js";
 
 export { agentColor, avatarColor } from "@/components/workflow-timeline/WorkflowAgentFace.js";
 
@@ -18,7 +19,8 @@ export { agentColor, avatarColor } from "@/components/workflow-timeline/Workflow
  * 子代理药丸：带色头像 +
  * 名字 + 右侧状态标记。卡片的站下与侧栏的行都是它——同一个特性只有一枚药丸。
  *
- * 头像是瓦片脸（`WorkflowAgentFace`）：机身色按代理编号取九色环，表情读 status。
+ * 头像默认是瓦片脸（`WorkflowAgentFace`）：机身色按代理编号取九色环，表情读 status。
+ * 宿主可通过 `WorkflowAgentFaceOverrideContext` 换成自家头像（EvoFlow → AssignedAgentAvatar）。
  * 工作区没有身份，所以没有颜色，只有终端字形。`pending` 与无状态逐像素相同（不变式 3）：
  * 没有标记、名字用次淡色、脸睡着。
  *
@@ -36,6 +38,7 @@ export function LaneGlyph({
   laneClass,
   className,
   avatarIndex,
+  laneId,
   name,
   status,
 }: {
@@ -43,9 +46,25 @@ export function LaneGlyph({
   className?: string;
   name: string;
   avatarIndex?: number | undefined;
+  /** 车道 id；覆盖头像时用来联 agent_code */
+  laneId?: string;
   status?: StepRunStatus | undefined;
 }) {
+  const faceOverride = useWorkflowAgentFaceOverride();
   if (laneClass === "agent") {
+    if (faceOverride) {
+      return (
+        <>
+          {faceOverride({
+            avatarIndex,
+            className,
+            name,
+            status,
+            ...(laneId === undefined ? {} : { laneId }),
+          })}
+        </>
+      );
+    }
     return (
       <WorkflowAgentFace
         avatarIndex={avatarIndex}
@@ -108,6 +127,7 @@ export function WorkflowAgentPill({
   enterDelayMs,
   inertTitle,
   laneClass,
+  laneId,
   name,
   open,
   size = "md",
@@ -121,6 +141,8 @@ export function WorkflowAgentPill({
   /** 已本地化的显示名（运行时名 > 车道显示名）。 */
   name: string;
   laneClass: LaneClass;
+  /** 车道 id（EvoFlow 常 ≡ assignedAgent code），传给头像覆盖。 */
+  laneId?: string;
   status: StepRunStatus | undefined;
   title?: string;
   className?: string;
@@ -154,6 +176,7 @@ export function WorkflowAgentPill({
         laneClass={laneClass}
         name={name}
         avatarIndex={avatarIndex}
+        {...(laneId === undefined ? {} : { laneId })}
         status={status}
         className={cn(
           "shrink-0",

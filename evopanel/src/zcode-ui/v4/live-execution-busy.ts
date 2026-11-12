@@ -29,7 +29,7 @@ type RowLike = {
   state?: string;
 };
 
-type WorkLike = { status?: string } | null | undefined;
+type WorkLike = { status?: string; kind?: string } | null | undefined;
 
 type SnapshotLike = {
   control?: { canStop?: boolean; phase?: string } | null;
@@ -37,17 +37,30 @@ type SnapshotLike = {
   backgroundWorks?: readonly WorkLike[] | null;
 } | null;
 
+/** 工作流 / 协作节点：有独立图标与进度卡，不绑对话右下角停止钮。 */
+const BACKGROUND_WORK_KINDS_EXCLUDED_FROM_STOP = new Set([
+  "workflow",
+  "collab_subtask",
+]);
+
 export function isTerminalControlPhase(phase?: string | null): boolean {
   return TERMINAL_PHASES.has(String(phase || "").trim());
 }
 
+/**
+ * 统计会拖住「对话停止 / 工作中」的后台活。
+ * 刻意不含 workflow：对话 turn 结束即该停；工作流继续跑只亮 SessionChildWorkIcons。
+ */
 export function countRunningBackgroundWorks(
   works: readonly WorkLike[] | null | undefined,
 ): number {
   if (!works || works.length === 0) return 0;
   let n = 0;
   for (const w of works) {
-    if (String(w?.status || "") === "running") n += 1;
+    if (String(w?.status || "") !== "running") continue;
+    const kind = String(w?.kind || "").trim();
+    if (BACKGROUND_WORK_KINDS_EXCLUDED_FROM_STOP.has(kind)) continue;
+    n += 1;
   }
   return n;
 }
