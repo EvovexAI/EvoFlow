@@ -191,24 +191,39 @@ def shape_tool_result(
         remember_shaped(thread_id or "", tool_call_id, content)
         return content
 
-    # read_file / read_files: always return full body inline, no persist / no summary / no code compact.
+    # read_file / read_files: full body inline, no persist / no summary / no code compact.
+    # 但 read_logic 是整文件读入且 read 豁免 shaping——超大文件（日志/数据集）
+    # 会整份进模型上下文。加与 partial_read 同款的硬顶：超出保留头部并指引
+    # offset/limit 分页续读，正常源文件（≤cap）不受影响。
     if name in ("read", "read_file", "read_files"):
         out = _attach_preserved_read_blocks(working_content, post_reads)
+        if not partial_read:
+            read_cap = max(cfg.threshold_chars // 2, 32_000)
+            if len(out) > read_cap:
+                out = out[:read_cap] + (
+                    f"\n\n… [{len(out):,} chars total; showing first {read_cap:,}. "
+                    "Re-read with offset/limit to page through the rest.]"
+                )
         out = _maybe_read_action_hint(out, name, thread_id=thread_id, partial_read=partial_read)
         remember_shaped(thread_id or "", tool_call_id, out)
         return out
 
-    shaped_body = _shape_working_body(working_content, tool_name=name)
-
-    # Optional disk offload for extreme payloads (zcode resultBudget artifact 策略).
-    if cfg.enabled and len(shaped_body) > cfg.threshold_chars and len(working_content) > cfg.threshold_chars:
-        shaped_body = maybe_persist(working_content, tool_name, tool_call_id, thread_id=thread_id)
-        # <persisted-output> 信封自带 2K head preview 预算，不走 inline cap——
-        # 二次截断会把路径/闭合标签截掉，模型就找不回全量输出了。
+    # Optional disk offload for extreme payloads (zcode resultBudget artifact 策略)。
+    # 判定必须在 inline 截断之前、按原文长度：shaped_body 已被截到 tier_medium
+    # （≈3k tokens，约 12k chars），截断后再比对 threshold_chars(50k) 恒为假，
+    # <persisted-output> 信封曾因此永远不可达（死代码）。
+    persisted = False
+    if cfg.enabled and len(working_content) > cfg.threshold_chars:
         from evoflow.tools.large_result_store import is_persisted_output_content
 
-        if not is_persisted_output_content(shaped_body) and count_tool_tokens(shaped_body) > cfg.tier_medium_tokens:
-            shaped_body = _apply_inline_token_cap(shaped_body, cfg.tier_medium_tokens)
+        offloaded = maybe_persist(working_content, name, tool_call_id, thread_id=thread_id)
+        if is_persisted_output_content(offloaded):
+            # 信封自带 2K head preview 预算，不走 inline cap——二次截断会把
+            # 路径/闭合标签截掉，模型就找不回全量输出了。
+            shaped_body = offloaded
+            persisted = True
+    if not persisted:
+        shaped_body = _shape_working_body(working_content, tool_name=name)
 
     out = _attach_preserved_read_blocks(shaped_body, post_reads)
     remember_shaped(thread_id or "", tool_call_id, out)

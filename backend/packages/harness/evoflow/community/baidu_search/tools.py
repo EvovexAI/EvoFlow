@@ -608,7 +608,9 @@ def web_search_tool(
             }
             if eng:
                 row_out["_engine"] = eng
-            if raw_content:
+            # _snippet 只有在 content 被截断时才携带额外信息；未截断时两者逐字
+            # 重复，白白让每条结果的 token 翻倍。
+            if raw_content and raw_content != content_val:
                 row_out["_snippet"] = raw_content
             tv = str(r.get("_topic") or "").strip()
             if tv:
