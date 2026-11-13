@@ -360,6 +360,14 @@ class SubagentExecutor:
         # Reuse shared middleware composition with lead agent.
         middlewares = build_subagent_runtime_middlewares(lazy_init=True)
         middlewares.append(SubagentTurnLimitMiddleware(self.config.max_turns))
+        # Same-target explore thrash / identical-error retries inside a subagent run
+        # previously had no guard — the 900s runaway (investigation thread 69af4ce5)
+        # thrashed inside its own graph while the lead's LoopDetectionMiddleware only
+        # sees the lead thread. Instance is created per task run, so its window/state
+        # is naturally scoped to this one subagent execution.
+        from evoflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+
+        middlewares.append(LoopDetectionMiddleware())
 
         # todo_write is middleware-provided (not in the native registry): mount the
         # TodoMiddleware when the role whitelist explicitly selects it so the
