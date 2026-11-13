@@ -5,26 +5,26 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from evoflow.authz.http_guard import require_org_admin
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
-
-from evoflow.authz.http_guard import require_org_admin
+from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/codex-auth", tags=["codex-auth"])
 
 
-class DeviceStartRequest(BaseModel):
+class LoginStartRequest(BaseModel):
     open_browser: bool = Field(default=False, description="Try opening the verification URL locally")
 
 
-class DevicePollRequest(BaseModel):
+class LoginPollRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
 
 
 class EnsureModelRequest(BaseModel):
-    model: str = Field(default="gpt-5.4", description="Codex model id")
+    model: str = Field(..., min_length=1, description="Authorized ChatGPT model slug")
     display_name: str | None = Field(default=None)
     set_primary: bool = Field(default=False)
 
@@ -41,105 +41,76 @@ def _http_from_auth_error(exc: Exception) -> HTTPException:
     return HTTPException(status_code=500, detail=str(exc))
 
 
+def require_local_plan_admin(request: Request) -> None:
+    require_org_admin(request)
+    if request.client is None or request.client.host not in {"127.0.0.1", "::1"}:
+        raise HTTPException(status_code=403, detail="ChatGPT plan settings are local to this installation.")
+
+
 @router.get("/status")
 async def codex_auth_status(http_request: Request) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import get_auth_status
+    require_local_plan_admin(http_request)
+    from evoflow.models.chatgpt_plan_auth import auth_status
 
-    return get_auth_status()
+    return await run_in_threadpool(auth_status)
 
 
-@router.post("/device/start")
-async def codex_device_start(http_request: Request, body: DeviceStartRequest) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import CodexAuthError, start_device_login
+@router.post("/login/start")
+async def codex_login_start(http_request: Request, body: LoginStartRequest) -> dict[str, Any]:
+    require_local_plan_admin(http_request)
+    from evoflow.models.chatgpt_plan_auth import CodexAuthError, start_login
 
     try:
-        return start_device_login(open_browser=body.open_browser)
+        return await run_in_threadpool(start_login, open_browser=body.open_browser)
     except CodexAuthError as exc:
         raise _http_from_auth_error(exc) from exc
 
 
-@router.post("/device/poll")
-async def codex_device_poll(http_request: Request, body: DevicePollRequest) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import CodexAuthError, poll_device_login
+@router.post("/login/poll")
+async def codex_login_poll(http_request: Request, body: LoginPollRequest) -> dict[str, Any]:
+    require_local_plan_admin(http_request)
+    from evoflow.models.chatgpt_plan_auth import poll_login
 
-    try:
-        return poll_device_login(body.session_id)
-    except CodexAuthError as exc:
-        raise _http_from_auth_error(exc) from exc
-
-
-@router.post("/import-cli")
-async def codex_import_cli(http_request: Request) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import CodexAuthError, import_cli_and_save
-
-    try:
-        return import_cli_and_save()
-    except CodexAuthError as exc:
-        raise _http_from_auth_error(exc) from exc
-
-
-@router.post("/refresh")
-async def codex_refresh(http_request: Request) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import CodexAuthError, get_auth_status, resolve_runtime_tokens
-
-    try:
-        resolve_runtime_tokens(force_refresh=True, refresh_if_expiring=True)
-        return get_auth_status()
-    except CodexAuthError as exc:
-        raise _http_from_auth_error(exc) from exc
+    return poll_login(body.session_id)
 
 
 @router.delete("")
 @router.post("/logout")
 async def codex_logout(http_request: Request) -> dict[str, Any]:
-    require_org_admin(http_request)
-    from evoflow.models.codex_oauth import clear_auth_store, get_auth_status
+    require_local_plan_admin(http_request)
+    from evoflow.models.chatgpt_plan_auth import CodexAuthError, auth_status, logout
 
-    cleared = clear_auth_store()
-    status = get_auth_status()
-    status["cleared"] = cleared
-    return status
+    try:
+        await run_in_threadpool(logout)
+    except CodexAuthError as exc:
+        raise _http_from_auth_error(exc) from exc
+    return await run_in_threadpool(auth_status)
 
 
 @router.get("/models")
 async def codex_list_models(http_request: Request) -> dict[str, Any]:
-    """List Codex subscription models using the signed-in OAuth session."""
-    require_org_admin(http_request)
-    from evoflow.models.codex_models import list_codex_subscription_models
+    require_local_plan_admin(http_request)
+    from evoflow.models.codex_models import list_chatgpt_plan_models
 
-    result = list_codex_subscription_models(allow_builtin_fallback=True)
-    if not result.get("success") and result.get("relogin_required"):
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "message": result.get("message") or "Unauthorized",
-                "code": result.get("code") or "codex_unauthorized",
-                "relogin_required": True,
-            },
-        )
-    return result
+    return await run_in_threadpool(list_chatgpt_plan_models)
 
 
 @router.post("/ensure-model")
 async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) -> dict[str, Any]:
     """Create/update a Panel model row that uses the Codex Responses provider."""
-    require_org_admin(http_request)
+    require_local_plan_admin(http_request)
     from evoflow.config import (
         add_model_to_config,
         get_app_config,
         reload_models_from_db,
         update_model_in_config,
     )
-    from evoflow.models.codex_models import lookup_builtin_codex_model
-    from evoflow.models.codex_oauth import DEFAULT_CODEX_BASE_URL, codex_runtime_use_path, get_auth_status
+    from evoflow.models.chatgpt_plan_auth import API_BASE, auth_status
+    from evoflow.models.codex_models import list_chatgpt_plan_models
+    from evoflow.models.codex_oauth import codex_runtime_use_path
     from evoflow.persistence import config_repositories as cfg_repo
 
-    status = get_auth_status()
+    status = await run_in_threadpool(auth_status)
     if not status.get("logged_in"):
         raise HTTPException(
             status_code=401,
@@ -149,9 +120,14 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
             },
         )
 
-    model_id = str(body.model or "gpt-5.4").strip() or "gpt-5.4"
+    model_id = body.model.strip()
+    catalog = await run_in_threadpool(list_chatgpt_plan_models)
+    if not catalog["success"]:
+        raise HTTPException(status_code=401 if catalog.get("relogin_required") else 502, detail=catalog["message"])
+    meta = next((model for model in catalog["models"] if model["slug"] == model_id), None)
+    if meta is None:
+        raise HTTPException(status_code=400, detail="The model is unavailable to this ChatGPT plan.")
     name = f"codex-{model_id}".replace("/", "-").replace(" ", "-")
-    meta = lookup_builtin_codex_model(model_id) or {}
     display = (body.display_name or "").strip() or str(meta.get("display_name") or "").strip() or f"Codex {model_id}"
     use_path = codex_runtime_use_path()
     context_length = meta.get("resolved_context_window") or meta.get("context_window")
@@ -160,9 +136,9 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
         "vendor": "openai-codex",
         "model": model_id,
         "display_name": display,
-        "description": "ChatGPT / Codex subscription (OAuth)",
+        "description": "ChatGPT plan via Sign in with ChatGPT",
         "use": use_path,
-        "base_url": DEFAULT_CODEX_BASE_URL,
+        "base_url": API_BASE,
         "api_key": "",
         "supports_thinking": bool(meta.get("supports_reasoning", True)),
         "supports_reasoning_effort": bool(meta.get("supports_reasoning", True)),

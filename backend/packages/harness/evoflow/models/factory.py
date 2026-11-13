@@ -1,6 +1,7 @@
 import logging
 import os
 import time
+from functools import wraps
 from typing import Any
 from urllib.parse import urlparse
 
@@ -1159,43 +1160,37 @@ def _instrument_vendor_call_timing(model: BaseChatModel) -> None:
         except Exception:
             pass
 
-    def _setattr(name: str, wrapped) -> None:
-        object.__setattr__(model, name, wrapped.__get__(model, type(model)))
-
-    # Sync methods
-    if hasattr(model, "stream") and callable(model.stream):
-        orig = model.stream
-
-        def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
+    def wrap_sync(original):
+        @wraps(original)
+        def timed(*args, **kwargs):
             _log_before_vendor()
-            return orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+            return original(*args, **kwargs)
 
-        _setattr("stream", timed)
+        return timed
 
-    if hasattr(model, "_generate") and callable(model._generate):
-        orig = model._generate
-
-        def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
+    def wrap_async(original):
+        @wraps(original)
+        async def timed(*args, **kwargs):
             _log_before_vendor()
-            return orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+            return await original(*args, **kwargs)
 
-        _setattr("_generate", timed)
+        return timed
 
-    # Async methods — LangGraph / streaming uses these.
-    if hasattr(model, "astream") and callable(model.astream):
-        orig = model.astream
-
-        async def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
+    def wrap_async_stream(original):
+        @wraps(original)
+        async def timed(*args, **kwargs):
             _log_before_vendor()
-            return await orig(messages, stop=stop, run_manager=run_manager, **kwargs)
+            async for chunk in original(*args, **kwargs):
+                yield chunk
 
-        _setattr("astream", timed)
+        return timed
 
-    if hasattr(model, "_agenerate") and callable(model._agenerate):
-        orig = model._agenerate
-
-        async def timed(self, messages, stop=None, *, run_manager=None, **kwargs):
-            _log_before_vendor()
-            return await orig(messages, stop=stop, run_manager=run_manager, **kwargs)
-
-        _setattr("_agenerate", timed)
+    for name, wrap in (
+        ("stream", wrap_sync),
+        ("_generate", wrap_sync),
+        ("astream", wrap_async_stream),
+        ("_agenerate", wrap_async),
+    ):
+        original = getattr(model, name, None)
+        if callable(original):
+            object.__setattr__(model, name, wrap(original))
