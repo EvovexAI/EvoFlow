@@ -42,6 +42,7 @@ export default defineConfig({
     include: [
       'tests/shell-session-list-menu.test.tsx',
       'tests/platform-scope-ui.test.js',
+      'tests/codex-auth-panel.test.js',
       'tests/v4-wire-conformance.test.ts',
       'tests/v4-running-text-interleave.test.ts',
       'tests/zcode-flat-reasoning.test.js',

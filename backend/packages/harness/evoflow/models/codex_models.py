@@ -1,4 +1,4 @@
-"""Codex subscription model catalog (OAuth → chatgpt.com/backend-api/codex/models)."""
+"""Model metadata and account-specific ChatGPT subscription catalog."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import httpx
 
 from evoflow.models.codex_oauth import (
     CODEX_OAUTH_USER_AGENT,
-    CodexAuthError,
     DEFAULT_CODEX_BASE_URL,
+    CodexAuthError,
     resolve_runtime_tokens,
 )
 
@@ -350,3 +350,35 @@ def list_codex_subscription_models(*, allow_builtin_fallback: bool = True) -> di
         "source": "remote",
         "base_url": DEFAULT_CODEX_BASE_URL,
     }
+
+
+def list_chatgpt_plan_models() -> dict[str, Any]:
+    """List the models visible to the current ChatGPT plan grant."""
+    from evoflow.models.chatgpt_plan_auth import API_BASE, access_token
+
+    try:
+        response = httpx.get(
+            f"{API_BASE}/models",
+            headers={"Authorization": f"Bearer {access_token()}", "Accept": "application/json"},
+            timeout=12,
+        )
+        response.raise_for_status()
+        items = response.json()["models"]
+        if not isinstance(items, list):
+            raise ValueError("Invalid model catalog")
+        rows = _parse_models_payload({
+            "models": [item for item in items if isinstance(item, dict) and item.get("visibility") == "list"],
+        })
+    except CodexAuthError as exc:
+        return {"success": False, "message": str(exc), "models": [], "relogin_required": exc.relogin_required}
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        return {
+            "success": False,
+            "message": f"OpenAI did not return a ChatGPT plan model list (HTTP {status}).",
+            "models": [],
+            "relogin_required": status == 401,
+        }
+    except (httpx.RequestError, KeyError, ValueError, TypeError):
+        return {"success": False, "message": "Unable to read the OpenAI model catalog.", "models": []}
+    return {"success": True, "models": rows, "source": "remote", "base_url": API_BASE}
