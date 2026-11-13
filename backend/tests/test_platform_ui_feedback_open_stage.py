@@ -14,6 +14,30 @@ def _entry(name: str, domain: str, risk: str = "write") -> PlatformAction:
     )
 
 
+def test_skills_cta_goes_to_settings_skill_management_not_asset_market():
+    """`/skills` 是资源中心市场页；通知「打开技能」必须进设置 → 技能。"""
+    entry = _entry("skills.import_orphans", "skills")
+    result = {
+        "ok": True,
+        "action": "skills.import_orphans",
+        "imported": 3,
+        "name": "custom",
+    }
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    skill = next(a for a in ui["actions"] if "技能" in str(a.get("label") or ""))
+    assert skill["route"] == "/settings?tab=skill-management"
+
+
+def test_mcp_cta_goes_to_settings_connectors():
+    entry = _entry("mcp.install", "mcp")
+    result = {"ok": True, "action": "mcp.install", "name": "demo"}
+    ui = build_platform_ui_feedback(entry, {}, result)
+    assert ui is not None
+    mcp = next(a for a in ui["actions"] if "MCP" in str(a.get("label") or ""))
+    assert mcp["route"] == "/settings?tab=mcp-connectors"
+
+
 def test_tasks_create_workflow_open_stage():
     entry = _entry("tasks.create", "tasks")
     result = {

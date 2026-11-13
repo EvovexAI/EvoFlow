@@ -493,8 +493,14 @@ backend/*.db-wal
 
 # Scratch / tmp workspace (was mistakenly tracked under .tmp/)
 .tmp/
+.tmp-*
 tmp/
 /temp/
+# One-off root scratch dumps (never ship)
+/left.md
+/merge.md
+/right.md
+/outputs/
 
 # Local diagnostic logs & gateway scratch
 .gw-*

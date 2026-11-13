@@ -10,6 +10,7 @@ import {
   rtIsStoppedRun,
 } from '../session-runtime-store.js'
 import { isSessionRecoveryCooldownActive } from '../stream-reattach-cooldown.js'
+import { getV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
 import { getSessionExecutionProbe } from './probe-cache.js'
 import { isSessionGoalRunning } from './goal-mode-state.js'
 import type { SessionExecutionRow } from './types.js'
@@ -56,8 +57,11 @@ export function isSessionExecuting(
 
   if (isSessionRuntimeLive(rt)) return true
 
-  // 用户停止后的 recovery 冷却：忽略 DB/probe 残留的 running（LangGraph 取消有延迟）
+  // 用户停止后的 recovery 冷却：忽略 DB/probe / V4 残留 running（LangGraph 取消有延迟）
   if (isSessionRecoveryCooldownActive(sk)) return false
+
+  // V4 时间线仍有 streaming / running 工具（含后台 pin）：侧栏齿轮与 pin 集合同源。
+  if (getV4TimelineBusy(sk)) return true
 
   const row = opts.sessionRow
   const st = String(row?.runStatus || '').trim().toLowerCase()

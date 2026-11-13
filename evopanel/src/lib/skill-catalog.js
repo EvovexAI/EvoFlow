@@ -102,6 +102,17 @@ export function getSkillTagMeta(key) {
 
 /** @type {SkillCatalogEntry[] | null} */
 let _cached = null
+/** 上次成功拉取的时间戳（ms）。缓存不能永久有效：技能目录可能在面板外被改动。 */
+let _cachedAt = 0
+/**
+ * 缓存有效期。超过就重新拉一次 ``GET /skills``。
+ *
+ * 之前这里没有 TTL——应用启动时 ``prefetchSkillCatalog()`` 把目录灌进模块级缓存，
+ * 之后「添加技能」永远读这份快照。用户往 ``skills/custom`` 直接拷了 204 个技能、
+ * 后端 ``/skills`` 已经全部返回，前端弹窗却还是旧列表，只能靠安装/启停这类
+ * 会触发 ``invalidateSkillCatalog()`` 的写操作才“刷出来”。给个短 TTL 让它自愈。
+ */
+const CATALOG_TTL_MS = 30_000
 /** @type {Promise<SkillCatalogEntry[]> | null} */
 let _inflight = null
 /** @type {Set<(rows: SkillCatalogEntry[]) => void>} */
@@ -155,7 +166,19 @@ function notifyListeners(rows) {
 /** 安装/卸载/启停后调用，使下次 load 重新拉取。 */
 export function invalidateSkillCatalog() {
   _cached = null
+  _cachedAt = 0
   _inflight = null
+}
+
+/**
+ * 缓存是否还新鲜。
+ * 同时兼容 ``_cachedAt`` 缺失的情况（老调用点直接赋 ``_cached``），
+ * 那样视为过期，宁多多拉一次也不返回旧快照。
+ */
+function isCacheFresh() {
+  if (!_cached) return false
+  if (!_cachedAt) return false
+  return Date.now() - _cachedAt < CATALOG_TTL_MS
 }
 
 /** 订阅目录变更（缓存刷新后通知 React 等 UI）。 */
@@ -173,7 +196,7 @@ export function subscribeSkillCatalog(listener) {
 export async function loadSkillCatalog(opts = {}) {
   const { force = false, enabledOnly = false } = opts
 
-  if (!force && _cached) {
+  if (!force && isCacheFresh()) {
     return enabledOnly ? _cached.filter((s) => s.enabled) : _cached.slice()
   }
 
@@ -187,6 +210,7 @@ export async function loadSkillCatalog(opts = {}) {
     const raw = Array.isArray(data?.skills) ? data.skills : Array.isArray(data) ? data : []
     const rows = raw.map(normalizeSkillRow).filter((s) => s.name)
     _cached = rows
+    _cachedAt = Date.now()
     _inflight = null
     notifyListeners(rows)
     return rows
@@ -203,7 +227,7 @@ export async function loadSkillCatalog(opts = {}) {
 
 /** 应用启动或进入聊天时可预拉取，避免首次点开 pill 才请求。 */
 export function prefetchSkillCatalog() {
-  if (_cached || _inflight) return _inflight
+  if (isCacheFresh() || _inflight) return _inflight
   return loadSkillCatalog().catch(() => [])
 }
 

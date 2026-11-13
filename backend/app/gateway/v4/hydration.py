@@ -50,6 +50,9 @@ _HIDDEN_CONTEXT_USER_TOOL_NAMES = frozenset(
         "tool_approval_command",
         "proactive_duty_brief",
         "xiaomi_ui_context",
+        # 持久化给模型回灌，但不得进可见 userInput（刷新后曾把整段摘要当用户气泡）
+        "conversation_summary",
+        "tool_history",
     }
 )
 
@@ -85,6 +88,28 @@ def _is_hidden_task_notification_text(text: str) -> bool:
         return False
     return head.startswith("<task-notification>") or head.startswith(
         "<subagent-notification>"
+    )
+
+
+def _is_hidden_context_compaction_text(text: str) -> bool:
+    """上下文压缩摘要 / tool history：给模型看，对齐旧面板 isContextCompactionContent。"""
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    lower = head.lower()
+    if lower.startswith("[context compaction"):
+        return True
+    if lower.startswith("here is a summary of the conversation to date"):
+        return True
+    if lower.startswith("here's a summary of the conversation to date"):
+        return True
+    return head.startswith(
+        (
+            "[上下文摘要",
+            "[深度压缩摘要",
+            "[tool:history]",
+            "[tool:summary]",
+        )
     )
 
 
@@ -624,6 +649,9 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     (text and _is_hidden_task_notification_text(text))
                     or _is_hidden_task_notification_message_id(msg_id)
                 ):
+                    continue
+                # 上下文压缩摘要：持久化供回灌，UI 只应看到 timeline compact 分隔线。
+                if text and _is_hidden_context_compaction_text(text) and not attachments:
                     continue
                 # 同轮连续相同正文（brief/beat 镜像 + transcript 双写）只留一条。
                 if (

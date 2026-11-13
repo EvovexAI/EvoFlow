@@ -19,6 +19,7 @@ import {
 } from '../../lib/session-runtime-store.js'
 import { logStreamStop } from '../../lib/stream-stop-log.js'
 import { parseTurnTimestampMs } from '../../lib/turn-timing.js'
+import { getV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
 import { turnBusyForSession } from '../utils/session-busy.js'
 
 type SessionRuntime = ReturnType<typeof getSessionRuntime>
@@ -122,6 +123,8 @@ export function useGlobalStaleBusyPoll(ctx: UseStaleTurnWatchdogsCtx): void {
         const last = Number(rt.lastEventAt || 0)
         if (!last) continue
         if (Date.now() - last < 45000) continue
+        // V4 投影仍显示活工具 / streaming：勿清（后台 pin 帧可能不走 AG-UI lastEventAt）
+        if (getV4TimelineBusy(sk)) continue
         invalidateSessionRuntimeStatusCache(sk)
         const silentMs = Date.now() - last
         const runIdBefore = rt.activeChatRunId || rt.stream.runId

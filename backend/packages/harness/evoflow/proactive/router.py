@@ -1791,6 +1791,12 @@ async def get_role_work_board(
 
     pending_approvals = [_approval_to_dict(a, enrich=True) for a in ProactiveRepository.list_pending_approvals() if a.role_agent_code == code]
 
+    # Enrich display fields so Panel never has to show raw agent_code / risk enum.
+    try:
+        tasks = [_enrich_work_board_task(t) for t in tasks]
+    except Exception:
+        logger.debug("work-board task enrich failed", exc_info=True)
+
     return {
         "agent_code": code,
         "role_name": role.role_name,
@@ -2919,6 +2925,73 @@ def _synthesize_round_journals_from_chat(
                 "updated_at": last_at,
             }
         )
+    return out
+
+
+_RISK_LEVEL_ZH = {
+    "low": "低风险",
+    "medium": "中风险",
+    "med": "中风险",
+    "high": "高风险",
+    "critical": "严重",
+}
+
+_BUILTIN_AGENT_ZH = {
+    "xiaomi": "小V",
+    "main": "主对话",
+    "lead_agent": "主对话",
+    "executor": "执行器",
+}
+
+
+def _agent_display_name(code: str) -> str:
+    """Resolve agent_code → 中文展示名（agent_name / role_name / 内置表）。"""
+    c = str(code or "").strip()
+    if not c:
+        return ""
+    try:
+        from evoflow.config.agents_config import load_agent_config
+
+        cfg = load_agent_config(c)
+        name = str(getattr(cfg, "agent_name", None) or "").strip() if cfg is not None else ""
+        if name and name.casefold() != c.casefold():
+            return name
+    except Exception:
+        pass
+    try:
+        role = ProactiveRepository.get_role(c)
+        if role is not None:
+            for cand in (getattr(role, "agent_name", None), getattr(role, "role_name", None)):
+                name = str(cand or "").strip()
+                if name and name.casefold() != c.casefold():
+                    return name
+    except Exception:
+        pass
+    return _BUILTIN_AGENT_ZH.get(c.casefold(), c)
+
+
+def _enrich_work_board_task(task: dict[str, Any]) -> dict[str, Any]:
+    """Attach *_zh fields for Panel employee task rail."""
+    if not isinstance(task, dict):
+        return task
+    out = dict(task)
+    assignee = str(out.get("assigned_to") or "").strip()
+    raised = str(out.get("raised_by") or "").strip()
+    risk = str(out.get("risk_level") or "").strip()
+    if assignee:
+        out["assigned_to_zh"] = _agent_display_name(assignee)
+    if raised:
+        out["raised_by_zh"] = _agent_display_name(raised)
+    if risk:
+        out["risk_level_zh"] = _RISK_LEVEL_ZH.get(risk.casefold(), risk)
+    # Prefer Chinese status when backend already stamped status_zh; else leave UI to map.
+    if not str(out.get("status_zh") or "").strip():
+        try:
+            from evoflow.admin.tasks import _status_zh
+
+            out["status_zh"] = _status_zh(str(out.get("status") or ""))
+        except Exception:
+            pass
     return out
 
 

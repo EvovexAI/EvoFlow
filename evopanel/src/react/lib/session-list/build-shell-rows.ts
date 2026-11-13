@@ -64,15 +64,13 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
     const sessionKey = String(s.sessionKey || '')
     const isSelectedRow = sel === sessionKey
     const executing = isSessionExecuting(sessionKey, { sessionRow: s })
-    const runningPreviewLine = executing
-      ? ''
-      : resolveRunningPreviewLine(
-          sessionKey,
-          executing,
-          isSelectedRow,
-          runningSessionMap,
-          resolveLiveStreamActivityForSession,
-        )
+    const runningPreviewLine = resolveRunningPreviewLine(
+      sessionKey,
+      executing,
+      isSelectedRow,
+      runningSessionMap,
+      resolveLiveStreamActivityForSession,
+    )
     const isGoal = isSessionGoalActive(sessionKey)
     const summary = runningSessionMap[sessionKey]
     const ws = resolveSessionWorkspaceGroup(s, configuredWorkspaceRoot)

@@ -32,6 +32,9 @@ import {
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 import { bindOpenTraceThread, endOpenTrace, markOpenStage } from "@zcode/ui/lib/openTrace.js";
 import { publishV4DisplayAuthority } from "./v4Gate.js";
+import { setV4TimelineBusy } from "./v4-timeline-busy-store.js";
+import { resolveLiveExecutionBusyFromSnapshot } from "../../zcode-ui/v4/live-execution-busy.js";
+import { getSessionRuntime, noteSessionEvent } from "../lib/session-runtime-store.js";
 import { evoflowFetch } from "../../lib/ws-client.js";
 
 export interface V4TimelinePayload {
@@ -81,6 +84,62 @@ const WARM_MAX_LIVE_SESSIONS = 4;
 const PIN_MAX_SESSIONS = 4;
 let _warmColdTimestamps: number[] = [];
 const _pinnedLeases = new Map<string, SessionLease>();
+/** threadId → 取消 pin busy 订阅 */
+const _pinBusyUnsubs = new Map<string, () => void>();
+/** threadId → sessionKey（侧栏 busy 与 runtime lastEventAt 用 sessionKey） */
+const _pinSessionKeyByThread = new Map<string, string>();
+
+function _pushPinBusyFromStore(
+  threadId: string,
+  sessionKey: string,
+  store: { getState: () => StoreState; subscribe: (l: () => void) => () => void },
+): void {
+  const sk = String(sessionKey || "").trim();
+  const tid = String(threadId || "").trim();
+  if (!sk || !tid) return;
+  const prevUnsub = _pinBusyUnsubs.get(tid);
+  if (prevUnsub) {
+    try {
+      prevUnsub();
+    } catch {
+      /* ignore */
+    }
+    _pinBusyUnsubs.delete(tid);
+  }
+  const push = () => {
+    try {
+      const snap = store.getState()?.snapshot ?? null;
+      // 后台钉住会话：勿传 hostExecuting=false，否则终态 phase + 陈旧工具卡会被误清。
+      const busy = resolveLiveExecutionBusyFromSnapshot(snap);
+      setV4TimelineBusy(sk, busy);
+      if (busy) {
+        const rt = getSessionRuntime(sk);
+        noteSessionEvent(sk, rt, { at: Date.now(), silent: true });
+      }
+    } catch {
+      /* best-effort */
+    }
+  };
+  push();
+  _pinBusyUnsubs.set(tid, store.subscribe(push));
+}
+
+function _releasePinBusy(threadId: string, clearBusy: boolean): void {
+  const tid = String(threadId || "").trim();
+  if (!tid) return;
+  const unsub = _pinBusyUnsubs.get(tid);
+  if (unsub) {
+    try {
+      unsub();
+    } catch {
+      /* ignore */
+    }
+    _pinBusyUnsubs.delete(tid);
+  }
+  const sk = _pinSessionKeyByThread.get(tid);
+  _pinSessionKeyByThread.delete(tid);
+  if (clearBusy && sk) setV4TimelineBusy(sk, false);
+}
 
 export function warmEvoflowV4Session(
   sessionId: string,
@@ -128,19 +187,42 @@ export function warmEvoflowV4Session(
   }
 }
 
+export type V4PinTarget = {
+  threadId: string;
+  /** 侧栏 / runtime 用 sessionKey；缺省时只钉租约、不同步 busy */
+  sessionKey?: string | null;
+};
+
 /**
  * 钉住一组 thread 的 V4 投影租约（执行中 + 最近点过的会话）。
  * 与悬停 warm 不同：不立刻 release，refCount 保持 >0，store 不会进 30s keep-warm 过期关闭。
  * 这是「三路并跑切来切去空白」的根治：ZCode 同语义 — 有投影就继续显示，别冷开干等。
+ *
+ * 同时把各 pin store 的「还有活」同步到 v4-timeline-busy-store，并轻触 lastEventAt，
+ * 避免切走选中会话后 SyncV4TimelineBusy 清 busy、45s stale 轮询误清侧栏转圈。
  */
-export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void {
+export function syncEvoflowV4PinnedSessions(
+  targets: readonly (string | V4PinTarget)[],
+): void {
   const want: string[] = [];
   const seen = new Set<string>();
-  for (const raw of threadIds) {
-    const id = String(raw || "").trim();
+  const sessionByThread = new Map<string, string>();
+  for (const raw of targets) {
+    const id =
+      typeof raw === "string"
+        ? String(raw || "").trim()
+        : String(raw?.threadId || "").trim();
     if (!id || seen.has(id)) continue;
     seen.add(id);
     want.push(id);
+    const sk =
+      typeof raw === "string"
+        ? ""
+        : String(raw?.sessionKey || "").trim();
+    if (sk) {
+      sessionByThread.set(id, sk);
+      _pinSessionKeyByThread.set(id, sk);
+    }
     if (want.length >= PIN_MAX_SESSIONS) break;
   }
   const wantSet = new Set(want);
@@ -152,6 +234,7 @@ export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void 
       /* ignore */
     }
     _pinnedLeases.delete(id);
+    _releasePinBusy(id, true);
     logV4Life({
       event: "pin_release",
       threadId: id,
@@ -161,6 +244,7 @@ export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void 
   }
   const layer = getSharedLayer();
   for (const id of want) {
+    const sk = sessionByThread.get(id) || _pinSessionKeyByThread.get(id) || "";
     const existing = _pinnedLeases.get(id);
     if (existing) {
       try {
@@ -168,6 +252,7 @@ export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void 
       } catch {
         /* ignore */
       }
+      if (sk) _pushPinBusyFromStore(id, sk, existing.store);
       continue;
     }
     try {
@@ -177,6 +262,7 @@ export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void 
       const st = lease.store.getState();
       const rowCount =
         st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
+      if (sk) _pushPinBusyFromStore(id, sk, lease.store);
       logV4Life({
         event: "pin_acquire",
         threadId: id,
@@ -186,6 +272,7 @@ export function syncEvoflowV4PinnedSessions(threadIds: readonly string[]): void 
           rowCount,
           storeStatus: st.status,
           pinned: _pinnedLeases.size,
+          sessionKey: sk || null,
         },
       });
     } catch {
@@ -878,7 +965,10 @@ export function V4StreamRowsBridge(props: {
   const status = state?.status ?? "connecting";
   const loadingOlder = state?.loadingOlder ?? false;
   const payload = useMemo<V4TimelinePayload | null>(() => {
-    if (!snapshot || !sessionId || !leaseForSession) return null;
+    // 切会话瞬间 lease effect 尚未提交：leaseForSession=null，但 pin/peek 里已有
+    // 目标 thread 投影。旧逻辑强依赖 lease → payload=null → 时间线空白一帧。
+    // store 已是「本 session 的 lease 或 peek」，不会误交上一会话快照。
+    if (!snapshot || !sessionId || !store) return null;
     return {
       sessionId,
       snapshot,
@@ -886,7 +976,7 @@ export function V4StreamRowsBridge(props: {
       loadingOlder,
       onLoadOlder,
     };
-  }, [sessionId, snapshot, status, loadingOlder, onLoadOlder, leaseForSession]);
+  }, [sessionId, snapshot, status, loadingOlder, onLoadOlder, store]);
 
   if (!enabled || !sessionId) {
     return children(null, !enabled ? "disabled" : "no-thread");

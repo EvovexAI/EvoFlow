@@ -175,12 +175,14 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
 
   if (showRightStage) {
     // 先亮右侧小V 文字面板 / 语音全屏（壳按钮、快捷键等显式打开路径）
+    // forceExpand：用户点小V / 壳按钮是显式打开；否则收起锁会让「点了没撑开」。
     rightStageStore.show({
       kind: XIAOMI_STAGE_KIND,
       id: XIAOMI_STAGE_ID,
       title: '小V',
       layout: 'narrow',
       data: { globalAssistant: true },
+      forceExpand: true,
     })
     syncXiaomiStageDomHint(true)
     requestUserPin(XIAOMI_STAGE_KIND)

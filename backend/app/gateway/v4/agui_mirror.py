@@ -108,6 +108,28 @@ def _is_hidden_task_notification_user_text(text: object) -> bool:
     )
 
 
+def _is_hidden_context_compaction_user_text(text: object) -> bool:
+    """Compaction / tool-history injects must not become visible userInput."""
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    lower = head.lower()
+    if lower.startswith("[context compaction"):
+        return True
+    if lower.startswith("here is a summary of the conversation to date"):
+        return True
+    if lower.startswith("here's a summary of the conversation to date"):
+        return True
+    return head.startswith(
+        (
+            "[上下文摘要",
+            "[深度压缩摘要",
+            "[tool:history]",
+            "[tool:summary]",
+        )
+    )
+
+
 def _is_hidden_task_notification_message_id(message_id: object) -> bool:
     mid = str(message_id or "").strip()
     if not mid:
@@ -963,6 +985,9 @@ class V4Mirror:
             or _is_hidden_task_notification_message_id(message_id)
         ):
             return
+        # 上下文压缩摘要：同理，勿落可见气泡。
+        if raw and _is_hidden_context_compaction_user_text(raw) and not atts:
+            return
         st = self._state(tid)
         st.user_text = raw
         st.user_attachments = atts[:16]
@@ -1183,6 +1208,7 @@ class V4Mirror:
                             _is_hidden_tool_approval_user_text(user_text)
                             or _is_hidden_duty_brief_user_text(user_text)
                             or _is_hidden_task_notification_user_text(user_text)
+                            or _is_hidden_context_compaction_user_text(user_text)
                         )
                     )
                     or _is_hidden_task_notification_message_id(user_mid)

@@ -1,66 +1,42 @@
-import { describe, it } from 'vitest'
-import assert from 'node:assert/strict'
+import { describe, it, expect } from 'vitest'
 import {
-  listSessionBoardTasks,
-  pickBoardTask,
-  resolveOverlayLiveTask,
+  agentCodeLabelZh,
+  effectiveBoardTaskStatus,
+  groupBoardTasksByLane,
+  riskLevelLabelZh,
 } from '../src/react/lib/employee-current-task.ts'
 
-describe('employee-current-task (multi-task session)', () => {
-  const sk = 'proactive:ops-bot:chat:round-1'
-  const tasks = [
-    {
-      task_id: 'A',
-      name: '旧任务',
-      status: 'executing',
-      source_ref: sk,
-      updated_at: '2026-08-28T10:00:00Z',
-    },
-    {
-      task_id: 'B',
-      name: '新建任务',
-      status: 'pending',
-      source_ref: sk,
-      updated_at: '2026-08-28T11:00:00Z',
-    },
-    {
-      task_id: 'C',
-      name: '其它岗位任务',
-      status: 'executing',
-      updated_at: '2026-08-28T12:00:00Z',
-    },
-  ]
-
-  it('defaults to newest active among pool (create becomes current)', () => {
-    const sessionPool = tasks.filter((t) => t.source_ref === sk)
-    const hit = pickBoardTask(sessionPool, 'A', '')
-    assert.equal(hit?.task_id, 'B')
+describe('employee-current-task display helpers', () => {
+  it('effectiveBoardTaskStatus lifts pending → executing when session is running', () => {
+    expect(effectiveBoardTaskStatus('pending', { isRunning: true })).toBe('executing')
+    expect(effectiveBoardTaskStatus('planned', { roleBusyOnSession: true })).toBe('executing')
+    expect(effectiveBoardTaskStatus('pending', { isRunning: false })).toBe('pending')
+    expect(effectiveBoardTaskStatus('completed', { isRunning: true })).toBe('completed')
   })
 
-  it('manual focus wins over newest active', () => {
-    const hit = pickBoardTask(tasks, 'A', '', 'A')
-    assert.equal(hit?.task_id, 'A')
+  it('riskLevelLabelZh maps enums', () => {
+    expect(riskLevelLabelZh('low')).toBe('低风险')
+    expect(riskLevelLabelZh('medium')).toBe('中风险')
+    expect(riskLevelLabelZh('high')).toBe('高风险')
   })
 
-  it('lists session-scoped tasks via source_ref', () => {
-    const { items, scoped } = listSessionBoardTasks(tasks, sk, ['A'])
-    assert.equal(scoped, true)
-    assert.deepEqual(
-      items.map((t) => t.task_id),
-      ['B', 'A'],
-    )
+  it('agentCodeLabelZh prefers resolver then builtins', () => {
+    expect(agentCodeLabelZh('xiaomi')).toBe('小V')
+    expect(
+      agentCodeLabelZh('dev-fullstack', (c) => (c === 'dev-fullstack' ? '全栈工程师' : '')),
+    ).toBe('全栈工程师')
+    expect(agentCodeLabelZh('unknown-agent')).toBe('unknown-agent')
   })
 
-  it('falls back to open role tasks when no source_ref match', () => {
-    const { items, scoped } = listSessionBoardTasks(tasks, 'proactive:other:chat:x', [])
-    assert.equal(scoped, false)
-    assert.ok(items.some((t) => t.task_id === 'C'))
-  })
-
-  it('overlays liveTask only when it matches focus', () => {
-    const live = resolveOverlayLiveTask('A', { taskId: 'B', name: '偷焦点' })
-    assert.equal(live, null)
-    const ok = resolveOverlayLiveTask('A', { taskId: 'A', name: '同任务' })
-    assert.equal(ok?.taskId, 'A')
+  it('groupBoardTasksByLane splits active / queued / done', () => {
+    const lanes = groupBoardTasksByLane([
+      { id: '1', status: 'executing', updated_at: '2026-01-02' },
+      { id: '2', status: 'pending', updated_at: '2026-01-03' },
+      { id: '3', status: 'completed', updated_at: '2026-01-01' },
+    ])
+    expect(lanes.active.map((t) => t.id)).toEqual(['1'])
+    expect(lanes.queued.map((t) => t.id)).toEqual(['2'])
+    expect(lanes.done.map((t) => t.id)).toEqual(['3'])
+    expect(lanes.open.map((t) => t.id)).toEqual(['1', '2'])
   })
 })

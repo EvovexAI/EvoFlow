@@ -58,7 +58,6 @@ import { logStreamCompareV4PanelDisplay } from "../lib/stream-compare-file-log.j
 import type { IServiceAccessor } from "@zcode/services";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import type { V4TimelinePayload } from "./V4StreamRowsBridge.js";
-import { getSharedV4SessionDataLayer } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
 import {
   buildWorkflowRunByRunId,
@@ -1281,9 +1280,9 @@ export function V4ZCodeTimeline(props: {
 
   // 切会话时 ConversationTimeline 会清测高缓存再 measure：首帧行高估偏小，
   // 历史会先挤成「字墙」再撑开。遮一罩等两帧 layout，避免闪一下。
-  const timelineSessionKey = embedded
-    ? String(evoflowSessionKey || sessionId || "draft")
-    : sessionId || "draft";
+  // 主聊也优先 evoflowSessionKey：payload 瞬时空时勿塌成 "draft"（会清遮罩露出空白）。
+  const timelineSessionKey =
+    String(evoflowSessionKey || sessionId || "draft").trim() || "draft";
   const [sessionSwitchHold, setSessionSwitchHold] = useState(false);
   const timelineKeyRef = useRef(timelineSessionKey);
   const switchHoldStartedAtRef = useRef(0);
@@ -1295,24 +1294,18 @@ export function V4ZCodeTimeline(props: {
       setSessionSwitchHold(false);
       return;
     }
-    // 目标 thread 在 pin/keep-warm 里已有快照：不要盖遮罩（旧投影优于空白）。
-    // 注意：此时 props.snapshot 可能仍是上一会话的，只能按 sessionId peek。
-    let warmWindowRows = 0;
-    if (sessionId) {
-      try {
-        const peek = getSharedV4SessionDataLayer().peekStore(sessionId)?.getState();
-        warmWindowRows = peek?.snapshot?.rows?.window?.length ?? 0;
-      } catch {
-        /* ignore */
-      }
-    }
-    if (warmWindowRows > 0) {
+    // 仅当「本会话 props 已带窗口行」才跳过遮罩。layer peek 有行但 Bridge 尚未
+    // 交付 payload 时跳过 → 空白一帧（三路并跑切换高频复现）。
+    const propRows = payload?.sessionId
+      ? payload.snapshot?.rows?.window?.length ?? 0
+      : 0;
+    if (propRows > 0) {
       setSessionSwitchHold(false);
       logV4Life({
         event: "switch_hold_skip",
         threadId: sessionId,
-        zh: `会话切换：目标已有投影 ${warmWindowRows} 行，跳过遮罩（${String(prevKey || "∅").slice(-30)} → ${timelineSessionKey.slice(-30)}）`,
-        detail: { from: prevKey, to: timelineSessionKey, warmWindowRows },
+        zh: `会话切换：本会话 props 已有投影 ${propRows} 行，跳过遮罩（${String(prevKey || "∅").slice(-30)} → ${timelineSessionKey.slice(-30)}）`,
+        detail: { from: prevKey, to: timelineSessionKey, propRows },
         skipDedupe: true,
       });
       return;
@@ -1327,7 +1320,7 @@ export function V4ZCodeTimeline(props: {
       detail: { from: prevKey, to: timelineSessionKey },
       skipDedupe: true,
     });
-  }, [timelineSessionKey, sessionId]);
+  }, [timelineSessionKey, sessionId, evoflowSessionKey, payload?.sessionId, payload?.snapshot?.rows?.window?.length]);
   useLayoutEffect(() => {
     if (!sessionSwitchHold) return;
     const releaseHold = (why: string) => {
