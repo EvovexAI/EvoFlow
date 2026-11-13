@@ -23,9 +23,12 @@ export type EmployeeBoardTask = {
   source_channel?: string
   source_ref?: string | null
   assigned_to?: string
+  assigned_to_zh?: string
   assigned_role?: string
   raised_by?: string
+  raised_by_zh?: string
   risk_level?: string
+  risk_level_zh?: string
   action_type?: string
   updated_at?: string
   created_at?: string
@@ -42,6 +45,24 @@ const SOURCE_ZH: Record<string, string> = {
   proactive_patrol: '值班巡检',
   proactive_dispatch: '岗位派发',
   proactive: '岗位',
+  agent: '智能体岗位',
+  '智能体岗位': '智能体岗位',
+}
+
+const RISK_ZH: Record<string, string> = {
+  low: '低风险',
+  medium: '中风险',
+  med: '中风险',
+  high: '高风险',
+  critical: '严重',
+}
+
+/** 已知内置 code → 展示名兜底（roles/agents 未加载时仍不露英文 code）。 */
+const BUILTIN_AGENT_ZH: Record<string, string> = {
+  xiaomi: '小V',
+  main: '主对话',
+  lead_agent: '主对话',
+  executor: '执行器',
 }
 
 export function boardTaskId(t: EmployeeBoardTask | null | undefined): string {
@@ -56,6 +77,53 @@ export function taskSourceLabel(raw: string | undefined | null): string {
   const s = String(raw || '').trim()
   if (!s) return ''
   return SOURCE_ZH[s] || SOURCE_ZH[s.toLowerCase()] || s
+}
+
+export function riskLevelLabelZh(raw: string | undefined | null): string {
+  const s = String(raw || '').trim()
+  if (!s) return ''
+  return RISK_ZH[s.toLowerCase()] || s
+}
+
+/**
+ * agent_code → 中文展示名。优先用调用方传入的 resolver（roles/agents SoT），
+ * 再回落内置表；仍没有则原样返回（避免空白）。
+ */
+export function agentCodeLabelZh(
+  code: string | undefined | null,
+  resolve?: (code: string) => string,
+): string {
+  const c = String(code || '').trim()
+  if (!c) return ''
+  const fromResolver = String(resolve?.(c) || '').trim()
+  if (fromResolver && fromResolver.toLowerCase() !== c.toLowerCase()) return fromResolver
+  const builtin = BUILTIN_AGENT_ZH[c.toLowerCase()]
+  if (builtin) return builtin
+  return fromResolver || c
+}
+
+/** 看板行若仍是 pending，但会话正在跑 / 岗位正忙本会话 → 按执行中展示。 */
+export function effectiveBoardTaskStatus(
+  raw: string | undefined | null,
+  opts: { isRunning?: boolean; roleBusyOnSession?: boolean } = {},
+): string {
+  const s = normalizeTaskStatusKey(raw)
+  if (isTerminalTaskStatus(s)) return s || 'completed'
+  if (opts.isRunning || opts.roleBusyOnSession) {
+    if (
+      !s ||
+      s === 'pending' ||
+      s === 'proposed' ||
+      s === 'todo' ||
+      s === 'planned' ||
+      s === 'planning' ||
+      s === 'idle' ||
+      s === 'queued'
+    ) {
+      return 'executing'
+    }
+  }
+  return s || (opts.isRunning ? 'executing' : 'pending')
 }
 
 export function normalizeTaskStatusKey(raw: string | undefined | null): string {
@@ -145,20 +213,42 @@ export function listSessionBoardTasks(
   return { items: items.slice(0, Math.max(0, limit)), scoped }
 }
 
-/** 摘要任务 Tab：待处理 / 已处理分组（非终态一律算待处理）。 */
+/** 摘要任务 Tab：进行中 / 待办 / 已处理。 */
 export function groupBoardTasksByLane(tasks: EmployeeBoardTask[]): {
+  active: EmployeeBoardTask[]
+  queued: EmployeeBoardTask[]
+  /** @deprecated 兼容旧调用：active+queued */
   open: EmployeeBoardTask[]
   done: EmployeeBoardTask[]
 } {
-  const open: EmployeeBoardTask[] = []
+  const active: EmployeeBoardTask[] = []
+  const queued: EmployeeBoardTask[] = []
   const done: EmployeeBoardTask[] = []
   for (const t of Array.isArray(tasks) ? tasks : []) {
-    if (isTerminalTaskStatus(t.status)) done.push(t)
-    else open.push(t)
+    if (isTerminalTaskStatus(t.status)) {
+      done.push(t)
+      continue
+    }
+    const s = normalizeTaskStatusKey(t.status)
+    if (
+      s === 'executing' ||
+      s === 'in_progress' ||
+      s === 'running' ||
+      s === 'active' ||
+      s === 'paused' ||
+      s === 'waiting_user' ||
+      s === 'pending_approval' ||
+      s === 'req_confirm'
+    ) {
+      active.push(t)
+    } else {
+      queued.push(t)
+    }
   }
-  open.sort(sortByActivityDesc)
+  active.sort(sortByActivityDesc)
+  queued.sort(sortByActivityDesc)
   done.sort(sortByActivityDesc)
-  return { open, done }
+  return { active, queued, open: [...active, ...queued], done }
 }
 
 /**

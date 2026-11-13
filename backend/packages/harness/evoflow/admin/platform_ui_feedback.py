@@ -958,9 +958,14 @@ def _build_actions(
         else:
             actions.append({"label": "打开设置", "route": "/settings"})
     elif domain == "skills":
-        actions.append({"label": "打开技能", "route": "/skills"})
+        # `/skills` 是资源中心「体验/市场」页，不是设置里的技能管理。
+        actions.append(
+            {"label": "打开技能", "route": "/settings?tab=skill-management"}
+        )
     elif domain == "mcp":
-        actions.append({"label": "打开 MCP", "route": "/tools"})
+        actions.append(
+            {"label": "打开 MCP", "route": "/settings?tab=mcp-connectors"}
+        )
     elif domain == "automation" and entity_id:
         actions.append({"label": "查看自动化", "route": f"/automation?id={entity_id}"})
     elif domain == "automation":

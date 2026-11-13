@@ -75,7 +75,8 @@ function ClearPendingOptimisticOnV4Echo(props: {
   return null
 }
 
-/** 把 V4 snapshot「还有活」同步到 store，供 Composer 停止键并进 displayTurnBusy。 */
+/** 把 V4 snapshot「还有活」同步到 store，供 Composer 停止键并进 displayTurnBusy。
+ * 切走会话时不要强制 false：后台 pin 仍可能在跑；由 pin busy 订阅 / 本会话再选中时覆写。 */
 function SyncV4TimelineBusy(props: {
   sessionKey: string | null | undefined
   busy: boolean
@@ -83,7 +84,6 @@ function SyncV4TimelineBusy(props: {
   const { sessionKey, busy } = props
   useEffect(() => {
     setV4TimelineBusy(sessionKey, busy)
-    return () => setV4TimelineBusy(sessionKey, false)
   }, [sessionKey, busy])
   return null
 }

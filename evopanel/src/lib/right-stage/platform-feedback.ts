@@ -1229,10 +1229,16 @@ export function platformFeedbackTitleFromToolOutput(raw: unknown, argsText?: str
 export function navigatePlatformFeedbackRoute(route: string): void {
   let next = asString(route)
   if (!next || typeof window === 'undefined') return
-  // 别名落到真实菜单路由，避免主区 404 / 空白
+  // 别名落到真实菜单路由，避免主区 404 / 空白 / 错页（旧 CTA 曾把技能指到资源市场）
+  const bare = next.replace(/^#/, '').split('?')[0]
   if (next === '/employees' || next === '#/employees') next = '/proactive'
   else if (next === '/tasks/items' || next === '#/tasks/items') next = '/tasks?tab=items'
-  else {
+  else if (bare === '/skills' || bare === '/skills/') {
+    // `/skills` → AssetCenter 体验/市场；技能管理在设置中心
+    next = '/settings?tab=skill-management'
+  } else if (bare === '/tools' || bare === '/tools/') {
+    next = '/settings?tab=mcp-connectors'
+  } else {
     const emp = next.replace(/^#/, '').match(/^\/employees\/([^/?#]+)/)
     if (emp) next = `/proactive/${emp[1]}`
     else {

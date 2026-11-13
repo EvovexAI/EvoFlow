@@ -3,7 +3,8 @@
  *
  * - 控制台过滤：`EvoFlow:workflow-progress`
  * - 桌面端落盘：`~/.evoflow/logs/frontend-YYYY-MM-DD.log`（`append_frontend_log`）
- * - 默认开；关闭：`localStorage.setItem('ef.debug.workflowProgress','0')`
+ * - 默认关（长会话每帧 join 会打爆主线程 + 14MB/日日志）；开启：
+ *   `localStorage.setItem('ef.debug.workflowProgress','1')`
  */
 
 const TAG = '[EvoFlow:workflow-progress]'
@@ -17,11 +18,11 @@ const DEDUPE_MS = 800
 function enabled(): boolean {
   try {
     const v = String(globalThis?.localStorage?.getItem?.(LS_KEY) ?? '').trim()
-    if (v === '0' || v === 'false' || v === 'off') return false
+    if (v === '1' || v === 'true' || v === 'on') return true
   } catch {
     /* ignore */
   }
-  return true
+  return false
 }
 
 function safeJson(detail: Record<string, unknown>): string {

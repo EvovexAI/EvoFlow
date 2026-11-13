@@ -305,5 +305,41 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
     expect(store.hideUnlessProgressOpen()).toBe(true)
     expect(store.getSnapshot().tabs).toEqual([])
   })
+
+  it('user-activated tab is not stolen by later auto show (screenshot)', () => {
+    const store = new RightStageStore()
+    store.show({ kind: 'screenshot', id: 'shot-1', title: '截图', data: { uri: 'a.png' } })
+    expect(store.getSnapshot().activeKey).toBe('screenshot:shot-1')
+    store.show({
+      kind: 'shell-page',
+      id: 'agent-app',
+      title: '应用',
+      forceExpand: true,
+      data: { page: 'x' },
+    })
+    expect(store.getSnapshot().activeKey).toBe('shell-page:agent-app')
+    // 用户再点应用签钉住（总览 / 标签条同路径）
+    store.activateTab('shell-page:agent-app')
+    // 后续截图 auto show：只写签，不抢 active
+    store.show({ kind: 'screenshot', id: 'shot-2', title: '截图', data: { uri: 'b.png' } })
+    expect(store.getSnapshot().tabs.map((t) => `${t.kind}:${t.id}`)).toEqual([
+      'screenshot:shot-1',
+      'shell-page:agent-app',
+      'screenshot:shot-2',
+    ])
+    expect(store.getSnapshot().activeKey).toBe('shell-page:agent-app')
+    // 同签数据刷新也不抢
+    store.show({ kind: 'screenshot', id: 'shot-1', title: '截图', data: { uri: 'a2.png' } })
+    expect(store.getSnapshot().activeKey).toBe('shell-page:agent-app')
+  })
+
+  it('forceExpand show can take focus even when another tab is pinned', () => {
+    const store = new RightStageStore()
+    store.show({ kind: 'screenshot', id: 'shot-1', forceExpand: true })
+    store.activateTab('screenshot:shot-1')
+    store.show({ kind: 'xiaomi', id: 'global', title: '小V', forceExpand: true })
+    expect(store.getSnapshot().activeKey).toBe('xiaomi:global')
+    expect(store.getSnapshot().collapsed).toBe(false)
+  })
 })
 

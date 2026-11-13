@@ -12,7 +12,7 @@ type CapTab = 'skills' | 'tools' | 'mcp' | 'knowledge'
 
 type CapRow = { id: string; name: string; tokens?: number | null }
 
-type CatalogItem = { id: string; name: string; tier?: string }
+type CatalogItem = { id: string; name: string; tier?: string; disabled?: boolean }
 
 const TABS: { id: CapTab; label: string }[] = [
   { id: 'skills', label: '技能' },
@@ -35,16 +35,20 @@ function formatTok(n: number | null | undefined): string {
   return String(v)
 }
 
-async function loadSkillCatalog(): Promise<CatalogItem[]> {
+async function loadSkillCatalog(includeDisabled = false): Promise<CatalogItem[]> {
   const { api } = await import('../../lib/tauri-api.js')
   try {
-    const rows = await api.loadSkills()
+    // force：用户点开「添加」就是要看当前真实清单。走缓存会把应用启动时的旧快照
+    // 端上来（外部拷进来的技能永远不出现），这里强制重新拉一次 /skills。
+    const rows = await api.loadSkills({ force: true })
     const list = Array.isArray(rows) ? rows : []
     return list
-      .filter((s: { enabled?: boolean }) => s?.enabled !== false)
-      .map((s: { name?: string }) => {
+      // 默认只给「可绑定」的技能；用户打开「显示已停用」时把停用项也列出来，
+      // 否则刚拷进 skills/custom 的批量技能一旦被判成停用就永远点不到（只能看空列表）。
+      .filter((s: { enabled?: boolean }) => includeDisabled || s?.enabled !== false)
+      .map((s: { name?: string; enabled?: boolean }) => {
         const name = String(s?.name || '').trim()
-        return name ? { id: name, name } : null
+        return name ? { id: name, name, disabled: s?.enabled === false } : null
       })
       .filter(Boolean) as CatalogItem[]
   } catch {
@@ -153,6 +157,8 @@ export function AgentCapabilityTabs({
   const [mcpCatalog, setMcpCatalog] = useState<CatalogItem[]>([])
   const [toolCatalog, setToolCatalog] = useState<CatalogItem[]>([])
   const [patching, setPatching] = useState(false)
+  /** 「添加技能」里是否连已停用的技能一起列出（默认否；用来排查“装了却看不到”） */
+  const [pickerShowDisabled, setPickerShowDisabled] = useState(false)
 
   const mcpUnrestricted = mcpServers == null
   const toolsUnrestricted = toolNames == null
@@ -350,10 +356,11 @@ export function AgentCapabilityTabs({
     setPickerOpen(true)
     setCatalogLoading(true)
     setPickerQ('')
+    setPickerShowDisabled(false)
     try {
       const rows =
         tab === 'skills'
-          ? await loadSkillCatalog()
+          ? await loadSkillCatalog(false)
           : tab === 'tools'
             ? await loadToolCatalog()
             : tab === 'mcp'
@@ -364,6 +371,19 @@ export function AgentCapabilityTabs({
       setCatalogLoading(false)
     }
   }, [editable, patching, busy, tab])
+
+  /** 切「显示已停用」时按同一 Tab 重新拉一次目录（技能按 enabled 过滤，其它 Tab 不受影响）。 */
+  const toggleShowDisabled = useCallback(async () => {
+    if (tab !== 'skills') return
+    const next = !pickerShowDisabled
+    setPickerShowDisabled(next)
+    setCatalogLoading(true)
+    try {
+      setCatalog(await loadSkillCatalog(next))
+    } finally {
+      setCatalogLoading(false)
+    }
+  }, [tab, pickerShowDisabled])
 
   const boundIds = useMemo(() => {
     if (tab === 'skills') return new Set(skillNames)
@@ -632,6 +652,19 @@ export function AgentCapabilityTabs({
                 placeholder="搜索…"
                 autoFocus
               />
+              {tab === 'skills' ? (
+                <label
+                  className="react-chat-agent-cap-picker-toggle"
+                  title="默认只列可绑定的技能；勾上后连已停用的也列出来（排查“装了却看不到”）"
+                >
+                  <input
+                    type="checkbox"
+                    checked={pickerShowDisabled}
+                    onChange={() => void toggleShowDisabled()}
+                  />
+                  含已停用
+                </label>
+              ) : null}
               <button
                 type="button"
                 className="react-chat-agent-cap-picker-close"
@@ -656,6 +689,7 @@ export function AgentCapabilityTabs({
                     >
                       <span className="react-chat-agent-cap-name" title={c.name}>
                         {c.name}
+                        {c.disabled ? <span className="react-chat-agent-cap-picker-off">已停用</span> : null}
                       </span>
                       <span className="react-chat-agent-cap-picker-plus">+</span>
                     </button>
@@ -663,6 +697,11 @@ export function AgentCapabilityTabs({
                 ))}
               </ul>
             )}
+            {catalog.length > 40 ? (
+              <p className="react-chat-agent-cap-picker-more">
+                共 {catalog.length} 项，先显示前 40 项 — 用上方搜索缩小范围
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

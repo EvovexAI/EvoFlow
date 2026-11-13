@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.22] - 2026-11-13
+
+相对 **1.3.21**：员工「添加技能」弹窗跟真实清单；侧栏任务在会话已跑时按执行中展示，执行者显示中文名。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.22.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **添加技能弹窗**：新增「含已停用」勾选框与「已停用」标签
+
+### Changed
+
+- **侧栏当前任务**：会话在跑时 pending 聚焦任务抬成执行中；执行者 / 提起人优先中文名
+
+### Fixed
+
+- **技能清单不刷新**：目录缓存 30 秒过期；打开「添加」强制重拉；底部「共 N 项，先显示前 40 项」
+- **本机打安装包**：`uv sync` 遇 Defender 锁文件时 copy 链接模式 + 一次重试
+
 ## [1.3.21] - 2026-11-12
 
 相对 **1.3.20**：正式包冷启动先挂好聊天订阅再标 ready；工作流进度卡与画布节点同源；启动中错误提示更清楚。

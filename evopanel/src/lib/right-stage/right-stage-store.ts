@@ -82,6 +82,11 @@ export class RightStageStore {
   /** 打开的标签（有序）。ZCode 式：多面板共存，激活者投影为 surface。 */
   private tabs: RightStageSurface[] = []
   private activeKey: string | null = null
+  /**
+   * 用户点过某个标签（或显式 forceExpand 打开）后钉住该 key。
+   * 后续截图/生图等 auto show 只更新签、不得把 active 抢回去——否则像「点了 tab / 小V 没反应」。
+   */
+  private userPinnedActiveKey: string | null = null
   /** 默认折叠；用户点侧栏按钮或 show() 时展开。 */
   private collapsed = true
   /**
@@ -316,9 +321,9 @@ export class RightStageStore {
     data?: Record<string, unknown>
     sessionKey?: string
     /**
-     * 用户显式打开（点文件 pill / 编辑卡 / 文件树）时为 true：
-     * 清掉收起锁并展开。自动开栏（平台工具、小V）不要传，以免顶掉用户「收起」。
-     * 关到最后一个签会钉 userCollapsed；若这里不强制，再点文件会只写签不撑开。
+     * 用户显式打开（点文件 pill / 编辑卡 / 文件树 / 小V）时为 true：
+     * 清掉收起锁并展开，同时钉住该签。自动开栏（截图、生图）不要传，
+     * 以免顶掉用户「收起」或把已切走的 active 抢回去。
      */
     forceExpand?: boolean
   }) {
@@ -357,6 +362,13 @@ export class RightStageStore {
       ...(sessionKey ? { sessionKey } : {}),
     }
     const key = this.tabKeyOf(next)
+    const pinned = this.userPinnedActiveKey
+    const pinAlive =
+      Boolean(pinned) &&
+      pinned !== key &&
+      this.tabs.some((t) => this.tabKeyOf(t) === pinned)
+    // 用户已钉在别的签上：auto show 只写签不抢 active；显式 forceExpand 仍可抢走并改钉。
+    const shouldActivate = forceExpand || !pinAlive
     const existingIdx = this.tabs.findIndex((t) => this.tabKeyOf(t) === key)
     if (existingIdx >= 0) {
       const prev = this.tabs[existingIdx]
@@ -374,9 +386,12 @@ export class RightStageStore {
         JSON.stringify(prev.data) === JSON.stringify(next.data)
       if (same) {
         // 仅激活；用户收起锁定时不偷偷展开（forceExpand 除外）
-        const needActivate = this.activeKey !== key
+        const needActivate = shouldActivate && this.activeKey !== key
         const needExpand = this.collapsed && (forceExpand || !this.userCollapsed)
-        if (needActivate) this.activeKey = key
+        if (needActivate) {
+          this.activeKey = key
+          if (forceExpand) this.userPinnedActiveKey = key
+        }
         if (needExpand) this.collapsed = false
         if (needActivate || needExpand) this.bump()
         return
@@ -385,7 +400,10 @@ export class RightStageStore {
     } else {
       this.tabs = [...this.tabs, next]
     }
-    this.activeKey = key
+    if (shouldActivate) {
+      this.activeKey = key
+      if (forceExpand) this.userPinnedActiveKey = key
+    }
     // 打开/激活标签：用户未锁收起时才展开；显式打开（forceExpand）始终撑开。
     if (forceExpand || !this.userCollapsed) this.collapsed = false
     logPanelSet('④ store.show 已写入', {
@@ -397,6 +415,8 @@ export class RightStageStore {
       collapsed: this.collapsed,
       userCollapsed: this.userCollapsed,
       forceExpand,
+      activated: shouldActivate,
+      pinned: this.userPinnedActiveKey || '(无)',
     })
     this.bump()
   }
@@ -432,6 +452,7 @@ export class RightStageStore {
     for (const tab of victims) this.recordClosed(this.tabKeyOf(tab), tab)
     this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) === keep)
     this.activeKey = this.tabs.length ? keep : null
+    this.userPinnedActiveKey = this.activeKey
     this.bump()
   }
 
@@ -441,14 +462,21 @@ export class RightStageStore {
     for (const tab of this.tabs) this.recordClosed(this.tabKeyOf(tab), tab)
     this.tabs = []
     this.activeKey = null
+    this.userPinnedActiveKey = null
     this.bump()
   }
 
   activateTab(key: string) {
     if (!this.tabs.some((t) => this.tabKeyOf(t) === key)) return
+    // 用户点标签 / 总览：钉住，挡住随后截图 auto show 抢回。
+    this.userPinnedActiveKey = key
     const needActivate = this.activeKey !== key
     const needExpand = this.collapsed && !this.userCollapsed
-    if (!needActivate && !needExpand) return
+    if (!needActivate && !needExpand) {
+      // 已在该签也要 bump，确保 pin 变更被订阅者看到（否则同签再点像没钉住）。
+      this.bump()
+      return
+    }
     if (needActivate) this.activeKey = key
     if (needExpand) this.collapsed = false
     this.bump()
@@ -485,14 +513,19 @@ export class RightStageStore {
     if (opts.remember && target) this.recordClosed(key, target)
     else this.recentClosed = this.recentClosed.filter((e) => e.key !== key)
     const wasActive = this.activeKey === key
+    const wasPinned = this.userPinnedActiveKey === key
     this.tabs = this.tabs.filter((t) => this.tabKeyOf(t) !== key)
     if (wasActive) {
       this.activeKey = this.tabs.length ? this.tabKeyOf(this.tabs[this.tabs.length - 1]) : null
+    }
+    if (wasPinned) {
+      this.userPinnedActiveKey = this.activeKey
     }
     // 关到最后一个标签：整栏收起，不要落回「打开标签」启动页
     if (!this.tabs.length && !this.collapsed) {
       this.collapsed = true
       this.userCollapsed = true
+      this.userPinnedActiveKey = null
     }
     this.bump()
   }
@@ -525,6 +558,7 @@ export class RightStageStore {
     const entry = this.recentClosed.find((e) => e.key === key)
     if (!entry) return
     this.recentClosed = this.recentClosed.filter((e) => e.key !== key)
+    // 总览里点「重新打开」= 用户显式意图：撑开并钉住该签。
     this.show({
       kind: entry.tab.kind,
       id: entry.tab.id,
@@ -532,6 +566,7 @@ export class RightStageStore {
       layout: entry.tab.layout,
       data: entry.tab.data,
       sessionKey: entry.tab.sessionKey,
+      forceExpand: true,
     })
   }
 
@@ -645,6 +680,7 @@ export class RightStageStore {
     }
     this.tabs = []
     this.activeKey = null
+    this.userPinnedActiveKey = null
     this.collapsed = true
     this.userCollapsed = true
     this.bump()

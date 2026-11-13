@@ -1152,13 +1152,18 @@ export function useChatAppController() {
     subscribeExecutingListRuntime,
     getExecutingListRuntimeEpoch,
   )
+  const v4TimelineBusyEpochForList = useSyncExternalStore(
+    subscribeV4TimelineBusy,
+    getV4TimelineBusyEpoch,
+  )
   const executionProbeEpoch = useSessionExecutionProbes(sessions, selectedSessionKey)
   /** 来自 session-execution 统一判定（侧栏 / Composer / 停止按钮同源） */
   const executingSessionKeys = useMemo(() => {
     void executingListEpoch
     void executionProbeEpoch
+    void v4TimelineBusyEpochForList
     return collectExecutingSessionKeys(sessions)
-  }, [sessions, executingListEpoch, executionProbeEpoch])
+  }, [sessions, executingListEpoch, executionProbeEpoch, v4TimelineBusyEpochForList])
   const runningSummaryKeys = useMemo(() => Array.from(executingSessionKeys), [executingSessionKeys])
   const { runningSessionMap } = useRunningSessionSummaries(runningSummaryKeys, selectedSessionKey)
   const executingSessionKeysRef = useRef(executingSessionKeys)
@@ -1191,22 +1196,29 @@ export function useChatAppController() {
           wsClient?.getSessionThreadId?.(sk) ||
           '',
       ).trim()
-    const ordered: string[] = []
+    const ordered: Array<{ threadId: string; sessionKey?: string }> = []
     const seen = new Set<string>()
-    const pushTid = (tid: string) => {
+    const pushTarget = (sk: string, tid: string) => {
       const id = String(tid || '').trim()
       if (!id || seen.has(id)) return
       seen.add(id)
-      ordered.push(id)
+      ordered.push({ threadId: id, sessionKey: sk || undefined })
     }
     const selected = String(selectedSessionKey || '').trim()
-    if (selected) pushTid(resolveTid(selected))
+    if (selected) pushTarget(selected, resolveTid(selected))
     for (const sk of executingSessionKeys) {
       const key = String(sk || '').trim()
       if (!key || key === selected) continue
-      pushTid(resolveTid(key))
+      pushTarget(key, resolveTid(key))
     }
-    for (const tid of recentV4ThreadIdsRef.current) pushTid(tid)
+    for (const tid of recentV4ThreadIdsRef.current) {
+      const id = String(tid || '').trim()
+      if (!id || seen.has(id)) continue
+      const sk =
+        sessionsRef.current.find((s) => String(s.threadId || '').trim() === id)?.sessionKey ||
+        ''
+      pushTarget(String(sk || '').trim(), id)
+    }
     syncEvoflowV4PinnedSessions(ordered)
   }, [executingSessionKeys, selectedSessionKey, sessions])
 

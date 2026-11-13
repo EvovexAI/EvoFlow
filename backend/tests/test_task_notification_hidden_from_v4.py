@@ -8,11 +8,14 @@ import pytest
 
 from app.gateway.v4.agui_mirror import (
     V4Mirror,
+    _is_hidden_context_compaction_user_text,
     _is_hidden_task_notification_message_id,
     _is_hidden_task_notification_user_text,
 )
 from app.gateway.v4.conversation import HUB
 from app.gateway.v4.hydration import (
+    _is_hidden_context_compaction_text,
+    _is_hidden_context_user_tool_name,
     _is_hidden_task_notification_message_id as hydrate_mid,
     _is_hidden_task_notification_text,
 )
@@ -55,6 +58,15 @@ def test_task_notification_message_id_sniff():
     assert hydrate_mid("bash-task-notification:abc")
     assert not _is_hidden_task_notification_message_id("user-msg-1")
     assert not hydrate_mid("")
+
+
+def test_context_compaction_text_and_tool_name_hidden():
+    assert _is_hidden_context_compaction_user_text("[上下文摘要 - 已压缩 12 条历史]\n…")
+    assert _is_hidden_context_compaction_text("[深度压缩摘要]\n…")
+    assert _is_hidden_context_compaction_user_text("[CONTEXT COMPACTION]\n…")
+    assert _is_hidden_context_user_tool_name("conversation_summary")
+    assert _is_hidden_context_user_tool_name("tool_history")
+    assert not _is_hidden_context_compaction_text("普通用户消息")
 
 
 def test_hidden_task_notification_not_mirrored(mirror_session: str) -> None:

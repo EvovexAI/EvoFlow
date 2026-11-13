@@ -101,10 +101,23 @@ function isUserInputRow(row: ConversationRow): row is UserInputRow {
   return row.kind === "userInput";
 }
 
-/** 后台任务唤醒载体：给模型看，不进时间线用户气泡（对齐 chat-normalize / V4 hydrate）。 */
-function isHiddenTaskNotificationUserInput(row: UserInputRow): boolean {
+/** 后台任务唤醒 / 上下文压缩摘要：给模型看，不进时间线用户气泡。 */
+function isHiddenProviderContextUserInput(row: UserInputRow): boolean {
   const text = String(row.text || "").trimStart();
+  if (!text) return false;
   if (text.startsWith("<task-notification>") || text.startsWith("<subagent-notification>")) {
+    return true;
+  }
+  const lower = text.toLowerCase();
+  if (lower.startsWith("[context compaction")) return true;
+  if (lower.startsWith("here is a summary of the conversation to date")) return true;
+  if (lower.startsWith("here's a summary of the conversation to date")) return true;
+  if (
+    text.startsWith("[上下文摘要") ||
+    text.startsWith("[深度压缩摘要") ||
+    text.startsWith("[tool:history]") ||
+    text.startsWith("[tool:summary]")
+  ) {
     return true;
   }
   const entityId = String(row.entityId || "").trim();
@@ -135,7 +148,7 @@ function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
 }
 
 function isVisibleConversationRow(row: ConversationRow): boolean {
-  if (isUserInputRow(row)) return !isHiddenTaskNotificationUserInput(row);
+  if (isUserInputRow(row)) return !isHiddenProviderContextUserInput(row);
   if (isTurnHeaderRow(row)) return false;
   if (isHookInvocationRow(row)) return false;
   return isVisibleAssistantWorkRow(row);
@@ -302,7 +315,7 @@ function materializeDraftUnit(
       ? draft.orderedRows
       : draft.orderedRows.filter((row) => !isWorkflowLaunchUserInputRow(row));
   const visibleUserInputs = renderedRows.filter(
-    (row): row is UserInputRow => isUserInputRow(row) && !isHiddenTaskNotificationUserInput(row),
+    (row): row is UserInputRow => isUserInputRow(row) && !isHiddenProviderContextUserInput(row),
   );
   const visibleAssistantWorkRows = draft.assistantWorkRows.filter(isVisibleAssistantWorkRow);
   const visibleOrderedRows = renderedRows.filter(isVisibleConversationRow);

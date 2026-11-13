@@ -61,14 +61,18 @@ import {
 import { parseProactiveSessionKey } from '../lib/session-list/workspace-groups.js'
 import { resolveEmployeeDisplayName } from '../lib/employee-display.js'
 import {
+  agentCodeLabelZh,
   boardTaskId,
+  effectiveBoardTaskStatus,
   groupBoardTasksByLane,
   listSessionBoardTasks,
   pickBoardTask,
   resolveOverlayLiveTask,
+  riskLevelLabelZh,
   taskSourceLabel,
   type EmployeeBoardTask,
 } from '../lib/employee-current-task.js'
+import type { EmployeeRoleLike } from '../lib/employee-display.js'
 import {
   cronToPlainZh,
   DUTY_SCHEDULE_PRESETS,
@@ -812,6 +816,8 @@ function TaskLaneList({
   onSelect,
   collapsed = false,
   previewLimit = 4,
+  /** 当前会话正在跑时，把仍标 pending 的聚焦任务显示为执行中 */
+  runningFocusId = '',
 }: {
   title: string
   items: EmployeeBoardTask[]
@@ -820,6 +826,7 @@ function TaskLaneList({
   /** 默认收起（已处理） */
   collapsed?: boolean
   previewLimit?: number
+  runningFocusId?: string
 }) {
   const [open, setOpen] = useState(!collapsed)
   if (!items.length) return null
@@ -831,7 +838,11 @@ function TaskLaneList({
         {visible.map((t, idx) => {
           const id = boardTaskId(t)
           const name = String(t.name || '').trim() || '未命名'
-          const st = taskStatusLabel(t.status)
+          const live =
+            Boolean(runningFocusId) && id && id === runningFocusId
+          const st = taskStatusLabel(
+            effectiveBoardTaskStatus(t.status, { isRunning: live }),
+          )
           const active = Boolean(id && id === focusedId)
           return (
             <li key={id || `lane-task-${idx}`}>
@@ -927,6 +938,10 @@ export function TaskPane({
   const [noteDirty, setNoteDirty] = useState(false)
   const [noteSaving, setNoteSaving] = useState(false)
   const [boardReloadNonce, setBoardReloadNonce] = useState(0)
+  const [roleDirectory, setRoleDirectory] = useState<EmployeeRoleLike[]>([])
+  const [agentDirectory, setAgentDirectory] = useState<
+    Array<{ agent_code?: string; agent_name?: string }>
+  >([])
 
   useEffect(() => {
     setFocusTaskId('')
@@ -939,6 +954,51 @@ export function TaskPane({
   useEffect(() => {
     setRoleMissing(false)
   }, [code])
+
+  // 执行人 / 提起人：用 roles + agents 解析中文名，避免侧栏露出 agent_code
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { api } = await import('../../lib/tauri-api.js')
+        const [rolesRes, agentsRes] = await Promise.all([
+          api.proactiveListRoles?.().catch(() => null) ??
+            api.proactiveRoles?.().catch(() => null) ??
+            Promise.resolve(null),
+          api.listAgents?.().catch(() => null) ?? Promise.resolve(null),
+        ])
+        if (cancelled) return
+        const rolesRaw = Array.isArray(rolesRes)
+          ? rolesRes
+          : Array.isArray((rolesRes as { roles?: unknown })?.roles)
+            ? (rolesRes as { roles: unknown[] }).roles
+            : []
+        const agentsRaw = Array.isArray(agentsRes)
+          ? agentsRes
+          : Array.isArray((agentsRes as { agents?: unknown })?.agents)
+            ? (agentsRes as { agents: unknown[] }).agents
+            : []
+        setRoleDirectory(
+          rolesRaw.map((r: any) => ({
+            agent_code: String(r?.agent_code || '').trim(),
+            role_name: String(r?.role_name || '').trim() || null,
+            agent_name: String(r?.agent_name || '').trim() || null,
+          })),
+        )
+        setAgentDirectory(
+          agentsRaw.map((a: any) => ({
+            agent_code: String(a?.agent_code || a?.id || '').trim(),
+            agent_name: String(a?.agent_name || a?.name || '').trim(),
+          })),
+        )
+      } catch {
+        /* ignore */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   const sessionTaskList = useMemo(() => {
     const liveHint = String(liveTask?.taskId || '').trim()
@@ -1133,17 +1193,23 @@ export function TaskPane({
     String(pinnedLive?.name || boardTask?.name || sessionTitle || '').trim() ||
     (parsed.kind === 'chat' ? '自由对话' : '未命名任务')
   const taskKind = inferEmployeeTaskKind(title, parsed.kind)
-  const statusRaw =
+  const currentSk = String(sessionKey || '').trim()
+  const busyOnThisSession = Boolean(
+    roleBusy && busySessionKey && busySessionKey === currentSk,
+  )
+  const busyOnOtherSession = Boolean(
+    roleBusy && busySessionKey && busySessionKey !== currentSk,
+  )
+  // 看板行常停在 pending，但对话已在跑 → 侧栏按执行中展示
+  const statusRaw = effectiveBoardTaskStatus(
     String(pinnedLive?.status || boardTask?.status || '').trim() ||
-    (isRunning ? 'executing' : parsed.kind === 'chat' ? 'idle' : 'pending')
+      (parsed.kind === 'chat' && !isRunning ? 'idle' : ''),
+    { isRunning, roleBusyOnSession: busyOnThisSession },
+  )
   const statusZh =
     statusRaw === 'idle' ? '空闲' : taskStatusLabel(statusRaw)
   const tone = statusRaw === 'idle' ? 'idle' : taskStatusTone(statusRaw)
   const taskDone = /complete|done|success|reviewed/i.test(statusRaw)
-  const currentSk = String(sessionKey || '').trim()
-  const busyOnOtherSession = Boolean(
-    roleBusy && busySessionKey && busySessionKey !== currentSk,
-  )
   const busyHint = proactiveBusySessionHint(busySessionKey, currentSk)
   const roundClock = formatDutyRoundClock(busyRoundId || boardTask?.round_id)
   const progress =
@@ -1159,20 +1225,51 @@ export function TaskPane({
   ).trim()
   const summary = String(boardTask?.summary || boardTask?.result || '').trim()
   const taskId = String(focusedId || preferredTaskId || pinnedLive?.taskId || '').trim()
-  const working = isRunning || (!taskDone && tone === 'progress')
+  const working = isRunning || busyOnThisSession || (!taskDone && tone === 'progress')
   const roleStatus = roleStatusLabel(roleBusy, isRunning, busyOnOtherSession)
   const hasTechDetails = Boolean(taskId || busyRoundId)
   const sourceLabel =
     String(boardTask?.source_zh || '').trim() ||
     taskSourceLabel(boardTask?.source || boardTask?.source_channel)
   const roleName = String(boardTask?.assigned_role || '').trim()
-  const assignee = String(boardTask?.assigned_to || '').trim()
-  const raisedBy = String(boardTask?.raised_by || '').trim()
+  const resolveCodeZh = useCallback(
+    (rawCode: string) =>
+      resolveEmployeeDisplayName(rawCode, {
+        roles: roleDirectory,
+        agents: agentDirectory,
+      }),
+    [roleDirectory, agentDirectory],
+  )
+  const assignee =
+    String(boardTask?.assigned_to_zh || '').trim() ||
+    agentCodeLabelZh(boardTask?.assigned_to, resolveCodeZh)
+  const raisedBy =
+    String(boardTask?.raised_by_zh || '').trim() ||
+    agentCodeLabelZh(boardTask?.raised_by, resolveCodeZh)
   const updatedLabel = formatInfoRailTime(boardTask?.updated_at || pinnedLive?.updatedAt)
   const startedLabel = formatInfoRailTime(boardTask?.started_at)
   const completedLabel = formatInfoRailTime(boardTask?.completed_at)
-  const risk = String(boardTask?.risk_level || '').trim()
-  const relatedTasks = sessionTaskList.items
+  const risk =
+    String(boardTask?.risk_level_zh || '').trim() ||
+    riskLevelLabelZh(boardTask?.risk_level)
+  const relatedTasks = useMemo(() => {
+    // 聚焦任务若会话在跑，把列表里的 status 也抬成 executing，便于进「进行中」车道
+    if (!isRunning && !busyOnThisSession) return sessionTaskList.items
+    const fid = focusedId
+    return sessionTaskList.items.map((t) => {
+      const id = boardTaskId(t)
+      if (fid && id === fid) {
+        return {
+          ...t,
+          status: effectiveBoardTaskStatus(t.status, {
+            isRunning: true,
+            roleBusyOnSession: busyOnThisSession,
+          }),
+        }
+      }
+      return t
+    })
+  }, [sessionTaskList.items, isRunning, busyOnThisSession, focusedId])
   const relatedHead = sessionTaskList.scoped ? '本会话任务' : '岗位任务'
   const taskLanes = useMemo(() => groupBoardTasksByLane(relatedTasks), [relatedTasks])
   const pct =
@@ -1231,15 +1328,25 @@ export function TaskPane({
   // 会话无关联任务（新对话）：空态卡 + 仍可看岗位任务分组列表
   const noAssociatedTask = !boardTask && !pinnedLive && !busyRoundId && !isRunning
 
+  const runningFocusId = working ? focusedId : ''
   const laneBlock =
     relatedTasks.length > 0 ? (
       <section className="react-chat-task-lanes" aria-label={relatedHead}>
         <TaskLaneList
-          title="待处理"
-          items={taskLanes.open}
+          title="进行中"
+          items={taskLanes.active}
           focusedId={focusedId}
           onSelect={setFocusTaskId}
           previewLimit={3}
+          runningFocusId={runningFocusId}
+        />
+        <TaskLaneList
+          title="待办"
+          items={taskLanes.queued}
+          focusedId={focusedId}
+          onSelect={setFocusTaskId}
+          previewLimit={3}
+          runningFocusId={runningFocusId}
         />
         <TaskLaneList
           title="已处理"
