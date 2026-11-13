@@ -218,6 +218,7 @@ _ERROR_FAIL_MARKERS = (
     "not recognized as",
     "no composition found",
     "exit code: 1",
+    "timed out",
 )
 _ERROR_WARN_THRESHOLD = 2
 _ERROR_HARD_THRESHOLD = 3
@@ -518,6 +519,11 @@ def _explore_repeat_count(thread_history: list[str], fingerprint: str) -> int:
     return sum(1 for fp in thread_history if fp == fingerprint)
 
 
+def _count_fingerprint(history: list[tuple[str, float]], fingerprint: str) -> int:
+    """Count fingerprint hits in a timestamped ``(fp, ts)`` history list."""
+    return sum(1 for h, _ in history if h == fingerprint)
+
+
 class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
     """Detect repetitive tool calls; block duplicates but keep the run alive."""
 
@@ -618,6 +624,9 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             self._block_explore_msg.pop(evicted_id, None)
             self._error_history.pop(evicted_id, None)
             self._block_error_msg.pop(evicted_id, None)
+            self._explore_streak.pop(evicted_id, None)
+            self._explore_streak_warned.pop(evicted_id, None)
+            self._block_explore_streak_msg.pop(evicted_id, None)
             logger.debug("Evicted loop tracking for thread %s (LRU)", evicted_id)
 
     def _error_result_fingerprint(self, tool_name: str, content: str, args: dict) -> str | None:
@@ -658,20 +667,144 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         return [f"{name}_err:{p}:perm", f"{name}_err:{p}:missing"]
 
     def _maybe_block_error_repeat(self, request: ToolCallRequest) -> ToolMessage | None:
-        # Path read/list_dir failure streaks are no longer intercepted — let the
-        # model retry or change strategy from real tool errors.
-        return None
+        """Block the Nth identical read/list_dir/terminal attempt that keeps failing the same way.
+
+        Failures are recorded by :meth:`_track_tool_result_errors` (real tool errors only);
+        once one error fingerprint has accumulated ``_ERROR_HARD_THRESHOLD`` results inside
+        the decay window, the next identical call is rejected with ``_ERROR_BLOCK_MSG``.
+        The error results themselves are already visible to the model, so no extra warn
+        injection is needed before the block.
+        """
+        tc = request.tool_call if isinstance(request.tool_call, dict) else {}
+        fps = self._error_call_fingerprints(tc)
+        if not fps:
+            return None
+        thread_id = self._thread_id_from_tool_request(request)
+        now = time.monotonic()
+        cutoff = now - _EXPLORE_DECAY_SECONDS
+        hit = False
+        with self._lock:
+            history = self._error_history.get(thread_id)
+            if history:
+                recent = [(h, ts) for h, ts in history if ts >= cutoff]
+                self._error_history[thread_id] = recent
+                for fp in fps:
+                    if _count_fingerprint(recent, fp) >= _ERROR_HARD_THRESHOLD:
+                        hit = True
+                        break
+        if not hit:
+            return None
+        tool_call_id = _tool_call_id(tc)
+        if not tool_call_id:
+            return None
+        with self._lock:
+            self._block_tool_call_ids[thread_id].add(tool_call_id)
+            self._block_error_msg[thread_id] = True
+        logger.error(
+            "Repeat identical error — blocking tool call (run continues)",
+            extra={
+                "thread_id": thread_id,
+                "tool": str(tc.get("name") or "?"),
+                "fingerprints": fps,
+            },
+        )
+        # Reuse the generic pop path so block-message selection stays in one place.
+        return self._maybe_block_tool(request)
 
     def _track_tool_result_errors(self, request: ToolCallRequest, result: ToolMessage | Command) -> None:
-        return
+        """Record an error-result fingerprint after execution (read/list_dir/terminal only)."""
+        if isinstance(result, Command) or not isinstance(result, ToolMessage):
+            return
+        content = str(getattr(result, "content", "") or "")
+        low = content.strip().lower()
+        if getattr(result, "status", None) != "error" and not low.startswith("error"):
+            return
+        tc = request.tool_call if isinstance(request.tool_call, dict) else {}
+        name = str(tc.get("name") or "")
+        args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+        fp = self._error_result_fingerprint(name, content, args)
+        if not fp:
+            return
+        thread_id = self._thread_id_from_tool_request(request)
+        now = time.monotonic()
+        with self._lock:
+            if thread_id in self._error_history:
+                self._error_history.move_to_end(thread_id)
+            else:
+                self._error_history[thread_id] = []
+                self._evict_if_needed()
+            history = self._error_history[thread_id]
+            history.append((fp, now))
+            if len(history) > self.window_size:
+                history[:] = history[-self.window_size :]
 
     def _check_explore_loops(
         self,
         thread_id: str,
         tool_calls: list[dict],
     ) -> str | None:
-        """Repeat explore interception disabled — read/rg/search may run freely."""
-        return None
+        """Same-target explore thrash: warn at N, hard-block read/list_dir/terminal repeats.
+
+        Each call gets a target fingerprint (``_explore_loop_fingerprint``: path+offset
+        bucket / pattern / normalized command). Search/discovery tools (rg, find,
+        search_code_index) are tracked for warnings but never hard-blocked — legitimate
+        research repeats queries with small tweaks. Blocking registers only the offending
+        tool call ids, so mixed batches keep executing their healthy calls.
+        """
+        if not tool_calls:
+            return None
+        now = time.monotonic()
+        cutoff = now - _EXPLORE_DECAY_SECONDS
+        decision: str | None = None
+        block_ids: list[str] = []
+        with self._lock:
+            if thread_id in self._explore_history:
+                self._explore_history.move_to_end(thread_id)
+            else:
+                self._explore_history[thread_id] = []
+                self._evict_if_needed()
+            history = self._explore_history[thread_id]
+            history[:] = [(h, ts) for h, ts in history if ts >= cutoff]
+            for tc in tool_calls:
+                fp = _explore_loop_fingerprint(tc)
+                if not fp:
+                    continue
+                history.append((fp, now))
+                count = _count_fingerprint(history, fp)
+                if count >= _EXPLORE_HARD_THRESHOLD and not _is_search_discovery_tool(
+                    str(tc.get("name") or "")
+                ):
+                    tid = _tool_call_id(tc)
+                    if tid:
+                        block_ids.append(tid)
+                    decision = _EXPLORE_BLOCK_MSG
+                elif count >= _EXPLORE_WARN_THRESHOLD:
+                    warned = self._explore_warned[thread_id]
+                    if fp not in warned:
+                        warned.add(fp)
+                        logger.warning(
+                            "Explore target repeated — injecting warning",
+                            extra={
+                                "thread_id": thread_id,
+                                "fingerprint": fp,
+                                "count": count,
+                            },
+                        )
+                        decision = decision or _EXPLORE_WARNING_MSG
+            if len(history) > self.window_size:
+                history[:] = history[-self.window_size :]
+            if block_ids:
+                self._block_tool_call_ids[thread_id].update(block_ids)
+                self._block_explore_msg[thread_id] = True
+        if block_ids:
+            logger.error(
+                "Explore loop hard limit — blocking same-target calls (run continues)",
+                extra={
+                    "thread_id": thread_id,
+                    "blocked": len(block_ids),
+                },
+            )
+        return decision
 
     def _track_and_check(self, state: AgentState, runtime: Runtime) -> str | None:
         messages = state.get("messages", [])
@@ -755,8 +888,40 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         return explore_msg or streak_msg or global_msg
 
     def _check_explore_streak(self, thread_id: str, tool_calls: list[dict]) -> str | None:
-        """Explore-streak warn/block disabled — consecutive read/list_dir may run freely."""
-        return None
+        """Consecutive read/list_dir/terminal batches with no act/progress — warn (block off).
+
+        Streak batches increment the counter; any batch containing an act/progress tool
+        resets it. Search-only batches (rg/find/web_search …) neither increment nor reset
+        so legitimate multi-step research doesn't trip the warn. ``_EXPLORE_STREAK_HARD=0``
+        keeps the block disabled: same-target thrash is already covered by
+        :meth:`_check_explore_loops`, and research pacing should warn, not intercept.
+        """
+        if not _is_explore_streak_batch(tool_calls):
+            if _batch_has_act_or_progress(tool_calls):
+                with self._lock:
+                    self._explore_streak[thread_id] = 0
+            return None
+        with self._lock:
+            self._explore_streak[thread_id] += 1
+            count = self._explore_streak[thread_id]
+            if count < _EXPLORE_STREAK_WARN:
+                return None
+            if self._explore_streak_warned[thread_id]:
+                return None
+            self._explore_streak_warned[thread_id] = True
+        logger.warning(
+            "Explore streak — no act/progress for consecutive batches",
+            extra={"thread_id": thread_id, "streak": count},
+        )
+        if _EXPLORE_STREAK_HARD > 0 and count >= _EXPLORE_STREAK_HARD:
+            with self._lock:
+                self._block_explore_streak_msg[thread_id] = True
+                for tc in tool_calls:
+                    tid = _tool_call_id(tc)
+                    if tid:
+                        self._block_tool_call_ids[thread_id].add(tid)
+            return _EXPLORE_STREAK_BLOCK_MSG
+        return _EXPLORE_STREAK_WARN_MSG
 
     def _apply(self, state: AgentState, runtime: Runtime) -> dict | None:
         warning = self._track_and_check(state, runtime)
@@ -781,7 +946,12 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         blocked = self._maybe_block_tool(request)
         if blocked is not None:
             return blocked
-        return handler(request)
+        blocked = self._maybe_block_error_repeat(request)
+        if blocked is not None:
+            return blocked
+        result = handler(request)
+        self._track_tool_result_errors(request, result)
+        return result
 
     @override
     async def awrap_tool_call(
@@ -792,7 +962,12 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         blocked = self._maybe_block_tool(request)
         if blocked is not None:
             return blocked
-        return await handler(request)
+        blocked = self._maybe_block_error_repeat(request)
+        if blocked is not None:
+            return blocked
+        result = await handler(request)
+        self._track_tool_result_errors(request, result)
+        return result
 
     def reset(self, thread_id: str | None = None) -> None:
         with self._lock:

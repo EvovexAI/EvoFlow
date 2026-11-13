@@ -53,6 +53,63 @@ _FEISHU_LIVE_STREAM_PATCHES = os.getenv("EVOFLOW_FEISHU_LIVE_STREAM", "0").strip
 }
 
 
+def _import_lark_sdk() -> types.SimpleNamespace:
+    """Import the lark-oapi SDK tree and return every name ``start()`` binds.
+
+    ``import lark_oapi`` eagerly loads the whole ``api/*`` model subpackage tree —
+    measured 35–96s cold when it ran inline on the gateway event loop (see
+    ``logs/debug/hang-diagnostics/gateway-hang-*.json``, MainThread parked inside
+    ``lark_oapi.api.compensation.v1.model`` imports). Callers must run this in a
+    worker thread (``asyncio.to_thread``) so the loop stays responsive; afterwards
+    the lazy ``from lark_oapi...`` sites below (_lark_ws_connect_exclusive /
+    _connect_ws_with_backoff / _on_card_action) are all sys.modules cache hits
+    and never re-take the import lock on the loop.
+    """
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
+        CreateImageRequest,
+        CreateImageRequestBody,
+        CreateMessageReactionRequest,
+        CreateMessageReactionRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
+        DeleteMessageRequest,
+        Emoji,
+        PatchMessageRequest,
+        PatchMessageRequestBody,
+        ReplyMessageRequest,
+        ReplyMessageRequestBody,
+    )
+
+    # Warm the remaining lazy-import submodules used by this file.
+    from lark_oapi.core import log as _lark_core_log  # noqa: F401
+    from lark_oapi.event.callback.model import (
+        p2_card_action_trigger as _lark_p2_card_action_trigger,  # noqa: F401
+    )
+    from lark_oapi.ws import client as _lark_ws_client_mod  # noqa: F401
+    from lark_oapi.ws import const as _lark_ws_const_mod  # noqa: F401
+
+    return types.SimpleNamespace(
+        lark=lark,
+        CreateFileRequest=CreateFileRequest,
+        CreateFileRequestBody=CreateFileRequestBody,
+        CreateImageRequest=CreateImageRequest,
+        CreateImageRequestBody=CreateImageRequestBody,
+        CreateMessageReactionRequest=CreateMessageReactionRequest,
+        CreateMessageReactionRequestBody=CreateMessageReactionRequestBody,
+        CreateMessageRequest=CreateMessageRequest,
+        CreateMessageRequestBody=CreateMessageRequestBody,
+        DeleteMessageRequest=DeleteMessageRequest,
+        Emoji=Emoji,
+        PatchMessageRequest=PatchMessageRequest,
+        PatchMessageRequestBody=PatchMessageRequestBody,
+        ReplyMessageRequest=ReplyMessageRequest,
+        ReplyMessageRequestBody=ReplyMessageRequestBody,
+    )
+
+
 class _FeishuInboundDeduper:
     """Drop Feishu WS redeliveries / reconnect replays of the same inbound.
 
@@ -990,42 +1047,29 @@ class FeishuChannel(Channel):
             return
 
         try:
-            import lark_oapi as lark
-            from lark_oapi.api.im.v1 import (
-                CreateFileRequest,
-                CreateFileRequestBody,
-                CreateImageRequest,
-                CreateImageRequestBody,
-                CreateMessageReactionRequest,
-                CreateMessageReactionRequestBody,
-                CreateMessageRequest,
-                CreateMessageRequestBody,
-                DeleteMessageRequest,
-                Emoji,
-                PatchMessageRequest,
-                PatchMessageRequestBody,
-                ReplyMessageRequest,
-                ReplyMessageRequestBody,
-            )
+            # Heavy SDK import runs in a worker thread — inline it once pinned the
+            # gateway event loop for 35–96s cold (hang-diagnostics 2026-11-13).
+            sdk = await asyncio.to_thread(_import_lark_sdk)
         except ImportError:
             logger.error("lark-oapi is not installed. Install it with: uv add lark-oapi")
             return
 
+        lark = sdk.lark
         self._lark = lark
-        self._CreateMessageRequest = CreateMessageRequest
-        self._CreateMessageRequestBody = CreateMessageRequestBody
-        self._ReplyMessageRequest = ReplyMessageRequest
-        self._ReplyMessageRequestBody = ReplyMessageRequestBody
-        self._CreateMessageReactionRequest = CreateMessageReactionRequest
-        self._CreateMessageReactionRequestBody = CreateMessageReactionRequestBody
-        self._Emoji = Emoji
-        self._PatchMessageRequest = PatchMessageRequest
-        self._PatchMessageRequestBody = PatchMessageRequestBody
-        self._DeleteMessageRequest = DeleteMessageRequest
-        self._CreateFileRequest = CreateFileRequest
-        self._CreateFileRequestBody = CreateFileRequestBody
-        self._CreateImageRequest = CreateImageRequest
-        self._CreateImageRequestBody = CreateImageRequestBody
+        self._CreateMessageRequest = sdk.CreateMessageRequest
+        self._CreateMessageRequestBody = sdk.CreateMessageRequestBody
+        self._ReplyMessageRequest = sdk.ReplyMessageRequest
+        self._ReplyMessageRequestBody = sdk.ReplyMessageRequestBody
+        self._CreateMessageReactionRequest = sdk.CreateMessageReactionRequest
+        self._CreateMessageReactionRequestBody = sdk.CreateMessageReactionRequestBody
+        self._Emoji = sdk.Emoji
+        self._PatchMessageRequest = sdk.PatchMessageRequest
+        self._PatchMessageRequestBody = sdk.PatchMessageRequestBody
+        self._DeleteMessageRequest = sdk.DeleteMessageRequest
+        self._CreateFileRequest = sdk.CreateFileRequest
+        self._CreateFileRequestBody = sdk.CreateFileRequestBody
+        self._CreateImageRequest = sdk.CreateImageRequest
+        self._CreateImageRequestBody = sdk.CreateImageRequestBody
 
         app_id = self.config.get("app_id", "")
         app_secret = self.config.get("app_secret", "")
