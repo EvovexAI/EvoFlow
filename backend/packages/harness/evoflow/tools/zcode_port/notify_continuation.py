@@ -274,14 +274,13 @@ async def _run_notification_turn(
     except Exception:
         logger.debug("ensure thread for task-notification failed tid=%s", thread_id, exc_info=True)
 
+    # langgraph 0.7+ 拒绝 configurable 与 context 并存(HTTP 400 "Cannot specify
+    # both configurable and context")。此前 run_body 同时带两者,导致
+    # StreamBackgroundWorker/SDK 路径的唤醒轮全部 400——通知被账本认领后搁浅,
+    # detached 任务完成但主对话永远等不到唤醒。会话身份只放 context(现代机制,
+    # 面板自身的 run 也是这么发的);recursion_limit 留在 config。
     run_config = {
         "recursion_limit": LONG_RUN_RECURSION_LIMIT,
-        "configurable": {
-            "session_key": session_key,
-            "thread_id": thread_id,
-            "triggered_by": "task-notification",
-            "source": src,
-        },
     }
     run_body = json.dumps(
         {

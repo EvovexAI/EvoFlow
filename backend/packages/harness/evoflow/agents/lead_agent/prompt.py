@@ -2064,7 +2064,13 @@ def get_deferred_tools_prompt_section(
         return ""
 
     names = "\n".join(pending)
-    return f"<available-deferred-tools>\n{names}\n</available-deferred-tools>"
+    # E2E 验证发现:只列名字时模型会把"派工"当口头承诺(回复已派发但从未调
+    # 工具)。必须写清激活流程与诚实性约束。
+    return (
+        f"<available-deferred-tools>\n{names}\n</available-deferred-tools>\n"
+        "以上工具尚未激活:调用前必须先用 tool_search 搜索并激活目标工具,激活后才会在下一轮请求绑定;未激活直接调用会被拒绝。"
+        "在真正调用对应工具并拿到返回结果之前,严禁向用户声称已派发/已执行/已完成上述任何能力;未激活时应告知用户你正在激活所需工具。"
+    )
 
 
 def get_loaded_tools_prompt_section(tool_names: list[str] | None) -> str:
