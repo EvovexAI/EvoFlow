@@ -548,32 +548,35 @@ export class EvoFlowV4Transport implements ConversationTransport {
 
   private onWireData(data: string): void {
     const wireBytes = data.length;
-    let candidate: WireCandidate;
-    try {
-      candidate = JSON.parse(data) as WireCandidate;
-    } catch (error) {
-      v4Log("v4-rx", "wire parse failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      logV4Life({
-        event: "wire_parse_failed",
-        level: "warn",
-        detail: {
-          error: error instanceof Error ? error.message : String(error),
-          wireBytes,
-          wireKiB: Math.round(wireBytes / 1024),
-        },
-        skipDedupe: true,
-      });
-      return;
-    }
-    // 把体积挂到 candidate 上，供 logFrameLife 使用（不进协议字段）。
-    (candidate as WireCandidate & { __wireBytes?: number }).__wireBytes = wireBytes;
-    // 不在读循环里同步跑 projection→React：侧栏开合/表格测宽的
-    // useLayoutEffect setState 会叠进同一嵌套更新计数，触发 React #185
-    //（Maximum update depth），且被旧 catch 误标成 wire parse failed。
-    queueMicrotask(() => {
+    // 大帧 JSON.parse 可占主线程数百 ms～数秒。若仍在 SSE 读循环里同步 parse，
+    // 点发送/切会话的点击处理会被饿死，表现为「面板彻底卡死、frontend 日志停更」
+    // （2026-11-14 17:07）。统一 setTimeout(0)：每帧让出一轮事件循环再 parse+投影。
+    // 必须全帧同队列 FIFO，不能「大帧 macrotask / 小帧 microtask」混排——
+    // stream-snapshot-store 按 fromSeq 严格衔接（断档即拒帧+recovery），
+    // 混排时大帧后的小帧会先落 store → 小帧被拒、丢 delta 且白打一轮重订阅。
+    setTimeout(() => {
       if (this.disposed) return;
+      let candidate: WireCandidate;
+      try {
+        candidate = JSON.parse(data) as WireCandidate;
+      } catch (error) {
+        v4Log("v4-rx", "wire parse failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        logV4Life({
+          event: "wire_parse_failed",
+          level: "warn",
+          detail: {
+            error: error instanceof Error ? error.message : String(error),
+            wireBytes,
+            wireKiB: Math.round(wireBytes / 1024),
+          },
+          skipDedupe: true,
+        });
+        return;
+      }
+      // 把体积挂到 candidate 上，供 logFrameLife 使用（不进协议字段）。
+      (candidate as WireCandidate & { __wireBytes?: number }).__wireBytes = wireBytes;
       try {
         this.handleCandidate(candidate);
       } catch (error) {
@@ -590,7 +593,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
           },
         });
       }
-    });
+    }, 0);
   }
 
   private handleCandidate(candidate: WireCandidate): void {

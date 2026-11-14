@@ -94,6 +94,18 @@ def test_subagent_transcript_is_best_effort() -> None:
     )
 
 
+def test_execution_history_is_best_effort() -> None:
+    """Task-detail history poll must shed under lag (2026-11-14 8.6s hang)."""
+    assert (
+        classify_path("/api/tasks/2611141704_a169/execution-history", method="GET").lane
+        == Lane.BEST_EFFORT
+    )
+    assert (
+        classify_path("/api/tasks/2611141704_a169/execution-history/", method="GET").lane
+        == Lane.BEST_EFFORT
+    )
+
+
 def test_sessions_list_slot_reusable() -> None:
     from app.gateway.traffic_lanes import sessions_list_slot
 

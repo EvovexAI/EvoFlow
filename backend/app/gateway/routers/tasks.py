@@ -1,5 +1,6 @@
 """Tasks API router for multi-agent collaboration - task-centric model."""
 
+import asyncio
 import logging
 import os
 from datetime import UTC, datetime
@@ -3138,46 +3139,46 @@ async def _archive_current_execution(
 
 @router.get("/{task_id}/execution-history", summary="Get Execution History", description="Get task execution history list.")
 async def get_execution_history(http_request: Request, task_id: str) -> dict:
+    """获取任务的执行历史列表。
+
+    禁止 ``list_projects`` + 逐个 ``load_project``：全仓扫盘会堵 Gateway 事件循环
+    （2026-11-14 17:06 hang：本接口 inflight 8.6s → 面板切会话/发送一起卡死）。
+    走 ``load_task_bundle`` 点查；``session_key`` 只读任务行/origin，不再同步打 LangGraph。
+    """
     require_task_visible(http_request, task_id)
-    """获取任务的执行历史列表"""
-    storage = get_project_storage()
-    projects = storage.list_projects()
+    from evoflow.persistence import task_repositories as task_repo
 
-    for project_summary in projects:
-        project = storage.load_project(project_summary["id"])
-        if not project:
-            continue
+    tid = str(task_id or "").strip()
+    if not tid:
+        raise_task_error(ErrorCode.TASK_NOT_FOUND, "任务 id 为空")
 
-        for task in project.get("tasks", []):
-            if task.get("id") == task_id:
-                execution_history = task.get("execution_history", [])
-                current_thread_id = task.get("thread_id")
+    def _lookup() -> dict[str, Any] | None:
+        bundle = task_repo.load_task_bundle(tid)
+        if not bundle:
+            return None
+        for task in bundle.get("tasks") or []:
+            if str(task.get("id") or "").strip() != tid:
+                continue
+            history = task.get("execution_history") or []
+            if not isinstance(history, list):
+                history = []
+            current_thread_id = task.get("thread_id") or None
+            session_key = (
+                str(task.get("origin_session_key") or task.get("session_key") or "").strip()
+                or None
+            )
+            return {
+                "task_id": tid,
+                "current_thread_id": current_thread_id,
+                "session_key": session_key,
+                "execution_history": history,
+                "total_executions": len(history),
+            }
+        return None
 
-                # 尝试从 LangGraph 获取 thread 的 session_key
-                session_key = None
-                if current_thread_id:
-                    try:
-                        from langgraph_sdk import get_client
-
-                        from evoflow.config.paths import get_paths
-
-                        paths = get_paths()
-                        langgraph_url = getattr(paths, "langgraph_url", None) or "http://127.0.0.1:8070/api/langgraph"
-                        client = get_client(url=langgraph_url)
-                        thread = await client.threads.get(current_thread_id)
-                        metadata = thread.get("metadata", {}) if thread else {}
-                        session_key = metadata.get("session_key")
-                    except Exception as e:
-                        logger.debug(f"Failed to get thread metadata for {current_thread_id}: {e}")
-
-                return {
-                    "task_id": task_id,
-                    "current_thread_id": current_thread_id,
-                    "session_key": session_key,
-                    "execution_history": execution_history,
-                    "total_executions": len(execution_history),
-                }
-
+    found = await asyncio.to_thread(_lookup)
+    if found is not None:
+        return found
     raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
 
 

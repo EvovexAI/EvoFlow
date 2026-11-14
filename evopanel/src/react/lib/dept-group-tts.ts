@@ -174,6 +174,14 @@ export type DeptGroupTtsAgent = {
   [key: string]: unknown
 }
 
+/** 播报前去掉 @提及（含「@名字」整段），避免念出「艾特某某」；气泡原文不动。 */
+export function stripAtMentionsForTts(text: string): string {
+  return String(text || '')
+    .replace(/@\s*[^\s@，。！？；：、,.!?;:\n/）)】\]]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 function mapDeptMessages(messages: DeptGroupTtsMsg[]) {
   const out: Array<{
     id: string
@@ -186,7 +194,7 @@ function mapDeptMessages(messages: DeptGroupTtsMsg[]) {
   for (const m of Array.isArray(messages) ? messages : []) {
     if (String(m?.kind || '') !== 'agent') continue
     const code = String(m.agentCode || m.agent_code || '').trim()
-    const text = String(m.text || '').trim()
+    const text = stripAtMentionsForTts(String(m.text || ''))
     const id = String(m.id || '')
     const streaming = !!m.streaming
     const error = !!m.error

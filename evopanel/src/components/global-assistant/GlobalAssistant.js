@@ -2583,16 +2583,23 @@ function buildRoundtableAgents(st) {
   return out
 }
 
+/** 上次 sync 时会议室是否打开；用于只在关房过渡时 stop TTS，避免每帧 stop 误伤小V */
+let _meetingRoomWasOpen = false
+
 /**
  * 全屏会议室：挂载 React AIRoundtableRoom，状态由小V store 驱动。
  */
 function syncMeetingRoom(st) {
   if (!_root) return
   if (!st.meetingRoomOpen) {
-    stopMeetingTts()
+    if (_meetingRoomWasOpen) {
+      stopMeetingTts()
+      _meetingRoomWasOpen = false
+    }
     destroyAiRoundtableMount()
     return
   }
+  _meetingRoomWasOpen = true
   const mount = ensureAiRoundtableMount()
   const paint = (state) => {
     const agents = buildRoundtableAgents(state)

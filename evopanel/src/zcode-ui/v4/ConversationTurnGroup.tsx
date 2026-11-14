@@ -1685,14 +1685,24 @@ function ConversationTurnGroupImpl({
     if (!unit.isLastTurn) return;
     applyV4CuaScreenshotAutoOpen(unit.browserTurnEndRows);
   }, [unit.isLastTurn, unit.browserTurnEndRows]);
-  // 小V语音特例：语音全屏中 Read 文件 → 右栏预览（闸门在 applyXiaomiVoiceReadAutoOpen）。
+  // 小V语音特例：语音全屏中 Read 文件 → 过策略闸门后右栏预览（file-auto-open-policy）。
+  // 只把本轮真实用户输入（origin=realUser）作为「点名」依据，后台唤醒/合成消息不算。
   useEffect(() => {
     if (!unit.isLastTurn) return;
-    applyXiaomiVoiceReadAutoOpen(unit.assistantWorkRows, {
+    void applyXiaomiVoiceReadAutoOpen(unit.assistantWorkRows, {
       workspacePath: context.workspacePath,
       sessionKey: context.sessionId,
+      userTexts: unit.visibleUserInputs
+        .filter((row) => row.origin === "realUser")
+        .map((row) => row.text),
     });
-  }, [unit.isLastTurn, unit.assistantWorkRows, context.workspacePath, context.sessionId]);
+  }, [
+    unit.isLastTurn,
+    unit.assistantWorkRows,
+    unit.visibleUserInputs,
+    context.workspacePath,
+    context.sessionId,
+  ]);
   const canRenderAssistantActions =
     !unit.timelineOnly &&
     latestAssistantTextRow?.state === "complete" &&

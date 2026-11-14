@@ -662,26 +662,32 @@ export function registerSpeechBusyExtra(fn) {
   _speechBusyExtra = typeof fn === 'function' ? fn : null
 }
 
-/** Whether assistant TTS (single-shot, streaming queue, or Frame local play) is active / pending. */
-export function isSpeechPlaybackBusy() {
+/**
+ * Whether assistant TTS (single-shot, streaming queue, or Frame local play) is active / pending.
+ * @param {{ ignoreExtra?: boolean }} [opts] ignoreExtra：部门群定稿泵句间不要被 Frame busy 卡住
+ */
+export function isSpeechPlaybackBusy(opts = {}) {
   if (_speaking || _speechQueue.playing) return true
   if (_speechQueue.sentences.some((s) => !s.played)) return true
-  try {
-    if (_speechBusyExtra?.()) return true
-  } catch {
-    /* ignore */
+  if (!opts.ignoreExtra) {
+    try {
+      if (_speechBusyExtra?.()) return true
+    } catch {
+      /* ignore */
+    }
   }
   return false
 }
 
 /**
  * Resolve when TTS finishes (or already idle). Does not steal setSpeechQueueIdleCallback.
- * @param {{ timeoutMs?: number }} [opts]
+ * @param {{ timeoutMs?: number, ignoreExtra?: boolean }} [opts]
  * @returns {Promise<void>}
  */
 export function waitForSpeechPlaybackIdle(opts = {}) {
   const timeoutMs = Math.max(1000, Number(opts.timeoutMs) || 120000)
-  if (!isSpeechPlaybackBusy()) return Promise.resolve()
+  const busyOpts = opts.ignoreExtra ? { ignoreExtra: true } : {}
+  if (!isSpeechPlaybackBusy(busyOpts)) return Promise.resolve()
 
   return new Promise((resolve) => {
     let settled = false
@@ -696,7 +702,7 @@ export function waitForSpeechPlaybackIdle(opts = {}) {
     const onIdle = () => {
       // Brief defer: speaking flag may clear between queue sentences.
       queueMicrotask(() => {
-        if (!isSpeechPlaybackBusy()) finish()
+        if (!isSpeechPlaybackBusy(busyOpts)) finish()
       })
     }
     const unsub = onSpeakingChange((speaking) => {
@@ -1073,7 +1079,9 @@ function _oneshotCacheKey(text, speaker, speechRate) {
 }
 
 /**
- * 预取 TTS 音频（不播放）。会议室可在上一位播报时生成下一位。
+ * 预取 TTS 音频（不播放）。会议室 / 部门群定稿泵用。
+ * **强制 HTTP 完整 mp3**：session WS 返回的是 MediaSource URL，oneshot 会
+ * `new Audio(同一 url)`，MediaSource 只能绑一个 element → no supported sources。
  * @param {string} text
  * @param {{ speaker?: string, speechRate?: number }} [opts]
  * @returns {Promise<{ objectUrl: string, audio: HTMLAudioElement } | null>}
@@ -1084,7 +1092,7 @@ export function prefetchAssistantSpeech(text, opts = {}) {
   const key = _oneshotCacheKey(plain, opts.speaker, opts.speechRate)
   const hit = _oneshotPrefetch.get(key)
   if (hit) return hit
-  const p = _fetchSentenceAudio(plain, opts).catch((e) => {
+  const p = _fetchSentenceAudio(plain, { ...opts, httpOnly: true }).catch((e) => {
     _oneshotPrefetch.delete(key)
     console.warn('[speech-client] prefetch failed', e)
     return null
@@ -1115,12 +1123,14 @@ function _isNoSupportedSourcesError(e) {
 
 /**
  * @param {string} text
- * @param {{ speaker?: string, speechRate?: number }} [opts]
+ * @param {{ speaker?: string, speechRate?: number, httpOnly?: boolean }} [opts]
  */
 async function _playSentenceInternal(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return
-  const key = _oneshotCacheKey(plain, opts.speaker, opts.speechRate)
+  // oneshot 定稿播报强制 HTTP mp3（见 prefetchAssistantSpeech 注释）
+  const fetchOpts = { ...opts, httpOnly: true }
+  const key = _oneshotCacheKey(plain, fetchOpts.speaker, fetchOpts.speechRate)
 
   /** @returns {Promise<{ objectUrl: string, audio: HTMLAudioElement, text?: string } | null | undefined>} */
   const takePrepared = async (allowCache) => {
@@ -1129,6 +1139,7 @@ async function _playSentenceInternal(text, opts = {}) {
       if (cached) {
         _oneshotPrefetch.delete(key)
         const prepared = await cached
+        // HTTP blob URL 可安全 new Audio；MediaSource 不行（已用 httpOnly 避免）
         if (prepared?.objectUrl) {
           return {
             objectUrl: prepared.objectUrl,
@@ -1138,7 +1149,7 @@ async function _playSentenceInternal(text, opts = {}) {
         }
       }
     }
-    return _fetchSentenceAudio(plain, opts)
+    return _fetchSentenceAudio(plain, fetchOpts)
   }
 
   let prepared = await takePrepared(true)
@@ -1244,13 +1255,9 @@ export function stopAllAssistantSpeech(opts = {}) {
             reason === 'ptt-mic-start' ||
             reason === 'composer-stop' ||
             reason === 'pause-listening'
-          // 匿名 stopAll（无明确打断意图）勿杀 Frame：等模型正文时、以及模型已完
-          // 仍在播 TTS 时都会误伤 → 句间卡顿 / play() interrupted by pause()。
-          if (
-            !allowFrameBarge &&
-            (reason === 'stopAllAssistantSpeech' || !opts.reason) &&
-            (awaiting || phase === 'speaking')
-          ) {
+          // 仅白名单意图可打断 Frame。meeting-tts-stop / dept-group-tts-stop 等
+          // 场景壳停播若落到这里，会在 tts_start 后数毫秒 pause() → 听感「小薇不播报」。
+          if (!allowFrameBarge) {
             voiceDecisionLog?.('stopall_skip_frame', {
               reason,
               phase,
@@ -1412,6 +1419,7 @@ export async function previewSpeechTts(text, speaker, opts = {}) {
 }
 
 /**
+ * 定稿 oneshot 播报（部门群 / 会议）。强制 HTTP 完整 mp3，不走 speech-session MSE。
  * @param {string} text
  * @param {{ speaker?: string, speechRate?: number }} [opts]
  * @returns {Promise<void>}
@@ -1420,7 +1428,7 @@ export async function playAssistantSpeech(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return
   // 必须等到播完：确认语若只 await play() 开始就会过早触发 TTS-stop / barge-in，把正文播报掐掉
-  await _playSentenceInternal(plain, opts)
+  await _playSentenceInternal(plain, { ...opts, httpOnly: true })
 }
 
 /** Strip markdown/noise for TTS body text. */

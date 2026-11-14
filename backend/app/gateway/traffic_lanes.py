@@ -99,6 +99,7 @@ _BEST_EFFORT_CONTAINS = (
     "/skills",  # catalog list used by idle panels
     "/subagent/",  # transcript polls every few seconds while a run is open
     "/transcript",
+    "/execution-history",  # task-detail poll; also matched by METHODS_PATHS
 )
 
 _BEST_EFFORT_EXACT = frozenset(
@@ -118,6 +119,9 @@ _BEST_EFFORT_METHODS_PATHS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("PUT", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
     ("GET", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
     ("DELETE", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
+    # Task detail history poll — was DATA + full project scan; under lag shed so
+    # chat open/send stay responsive (2026-11-14 17:06 hang: 8.6s inflight).
+    ("GET", re.compile(r"^/api/tasks/[^/]+/execution-history/?$")),
 )
 
 

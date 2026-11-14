@@ -223,7 +223,7 @@ function ensureHost() {
           <i class="ef-hud-pulse" aria-hidden="true"></i>
           <div style="min-width:0">
             <div class="ef-hud-title">Perf HUD</div>
-            <div class="ef-hud-sub" data-hud-sub>运维观测 · 实时采样</div>
+            <div class="ef-hud-sub" data-hud-sub>运维观测 · CPU/内存（对话链路看顶部信息条）</div>
           </div>
         </div>
         <div class="ef-hud-actions">

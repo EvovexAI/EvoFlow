@@ -61,6 +61,7 @@ import {
 } from '../../lib/right-stage/platform-feedback.js'
 import { parseProactiveSessionKey } from '../lib/session-list/workspace-groups.js'
 import { resolveEmployeeDisplayName } from '../lib/employee-display.js'
+import { roleDescIsNameEcho } from '../../lib/proactive-role-card-meta.js'
 import {
   agentCodeLabelZh,
   boardTaskId,
@@ -839,8 +840,7 @@ function TaskLaneList({
         {visible.map((t, idx) => {
           const id = boardTaskId(t)
           const name = String(t.name || '').trim() || '未命名'
-          const live =
-            Boolean(runningFocusId) && id && id === runningFocusId
+          const live = Boolean(runningFocusId && id && id === runningFocusId)
           const st = taskStatusLabel(
             effectiveBoardTaskStatus(t.status, { isRunning: live }),
           )
@@ -1762,13 +1762,31 @@ export function EmployeePane({
     }) || code
   const employeeName = String(agentLabel || '').trim() || code || 'BOT'
   const department = String(employeeInfo?.department || '').trim()
-  const bio = String(agentDescription || '').trim()
+  // 接口未填描述时会兜底 `员工：<显示名>`——顶部已有名字，摘要里再念一遍是噪音
+  const rawBio = String(agentDescription || '').trim()
+  const bio =
+    rawBio &&
+    !roleDescIsNameEcho(rawBio, {
+      role_name: employeeInfo?.roleName || roleName,
+      agent_name: employeeName,
+      agent_code: code,
+    })
+      ? rawBio
+      : ''
   const roleModel = String(employeeInfo?.modelName || '').trim()
   // 岗位专属模型优先；未配则显示当前会话/智能体默认模型
   const modelText = String(roleModel || modelLabel || modelName || '').trim()
   const kbIds = Array.isArray(employeeInfo?.knowledgeVaultIds)
     ? employeeInfo!.knowledgeVaultIds!
     : knowledgeVaultIds || []
+  // 岗位名与标题相同时只留部门；都空则不占一行
+  const metaLine = department
+    ? roleName && roleName !== employeeName
+      ? `${department} · ${roleName}`
+      : department
+    : roleName && roleName !== employeeName
+      ? roleName
+      : ''
 
   return (
     <div className="react-chat-agent-pane react-chat-employee-pane">
@@ -1824,10 +1842,11 @@ export function EmployeePane({
                 </button>
               ) : null}
             </div>
-            <div className="react-chat-agent-profile-meta" title={roleName}>
-              {department ? `${department} · ` : ''}
-              {roleName}
-            </div>
+            {metaLine ? (
+              <div className="react-chat-agent-profile-meta" title={metaLine}>
+                {metaLine}
+              </div>
+            ) : null}
             {modelText ? (
               <div className="react-chat-agent-profile-meta" title={modelText}>
                 {modelText}

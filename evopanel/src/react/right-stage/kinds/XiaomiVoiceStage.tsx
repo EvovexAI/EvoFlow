@@ -657,6 +657,60 @@ export function XiaomiVoiceStage() {
         >
           思考
         </button>
+        {/*
+          语音会话信息条：从底部焦点区（xws-focus）上移到顶部带，与退出/放大/台账/思考同一行。
+          单行不换行、超长截断；session_key 太长不再占正文位，收进 hover title。
+          底部只保留大号状态词 + 实时用户/AI 文本，不再重复模型/会话信息。
+        */}
+        <div
+          className={`xws-session-meta${thinkingAlwaysOn ? ' is-warn' : ''}`}
+          title={[
+            '当前语音会话用的模型；GLM-5.3 等强制思考模型关不掉思考',
+            thinkingAlwaysOn
+              ? '此模型 default_mode=enabled，语音关思考无效——请换可关思考的模型'
+              : gatewayMode
+                ? `网关=${gatewayMode}；舞台态≠设置里的思考模式`
+                : '点左上「思考」看厂商 wire',
+            sessionKey ? `session_key：${sessionKey}` : '',
+          ]
+            .filter(Boolean)
+            .join('\n')}
+        >
+          <span className="xws-session-meta-k">小V</span>
+          <span className="xws-session-meta-v">
+            {sessionModelLabel || sessionModelId || '模型…'}
+            {sessionModelId && sessionModelLabel && sessionModelLabel !== sessionModelId
+              ? ` (${sessionModelId})`
+              : ''}
+          </span>
+          <span className="xws-session-meta-sep is-aux">·</span>
+          <span
+            className={`xws-session-meta-v is-aux xws-session-meta-think${
+              thinkingAlwaysOn || modelThinkingOn === true
+                ? ' is-warn'
+                : modelThinkingOn === false
+                  ? ' is-off'
+                  : ''
+            }`}
+          >
+            {thinkingAlwaysOn
+              ? '思考关不掉'
+              : modelThinkingOn === true
+                ? '思考开'
+                : modelThinkingOn === false
+                  ? '思考关'
+                  : '思考…'}
+            {gatewayMode ? ` · ${gatewayMode}` : ''}
+          </span>
+          {wireModelId && wireModelId !== sessionModelId ? (
+            <>
+              <span className="xws-session-meta-sep is-aux">·</span>
+              <span className="xws-session-meta-v is-aux" title="最近一次实际打到厂商的模型 id">
+                wire:{wireModelId}
+              </span>
+            </>
+          ) : null}
+        </div>
       </div>
 
       <VoicePlaybackDiagnostics open={ledgerOpen} onClose={() => setLedgerOpen(false)} />
@@ -721,71 +775,11 @@ export function XiaomiVoiceStage() {
         <XiaoxiStagePet mode={petMode} />
       </div>
 
+      {/* 底部焦点区：只留大号状态词 + 实时用户/AI 文本；「思考开/关」只在顶部带，不压人偶 */}
       <div className="xws-focus" data-tauri-no-drag="">
-        <div
-          className={`xws-session-meta${thinkingAlwaysOn ? ' is-warn' : ''}`}
-          title="当前语音会话用的模型；GLM-5.3 等强制思考模型关不掉思考"
-        >
-          <span className="xws-session-meta-k">小V</span>
-          <span className="xws-session-meta-v">
-            {sessionModelLabel || sessionModelId || '模型…'}
-            {sessionModelId && sessionModelLabel && sessionModelLabel !== sessionModelId
-              ? ` (${sessionModelId})`
-              : ''}
-          </span>
-          <span className="xws-session-meta-sep">·</span>
-          <span className={`xws-session-meta-v${thinkingAlwaysOn ? ' is-warn' : ''}`}>
-            {thinkingAlwaysOn
-              ? '思考关不掉'
-              : modelThinkingOn === true
-                ? '思考开'
-                : modelThinkingOn === false
-                  ? '思考关'
-                  : '思考…'}
-          </span>
-          {wireModelId && wireModelId !== sessionModelId ? (
-            <>
-              <span className="xws-session-meta-sep">·</span>
-              <span className="xws-session-meta-v" title="最近一次实际打到厂商的模型 id">
-                wire:{wireModelId}
-              </span>
-            </>
-          ) : null}
-          {sessionKey ? (
-            <>
-              <span className="xws-session-meta-sep">·</span>
-              <span className="xws-session-meta-v" title={sessionKey}>
-                {sessionKey.length > 28 ? `${sessionKey.slice(0, 26)}…` : sessionKey}
-              </span>
-            </>
-          ) : null}
-        </div>
         <div className={`xws-status${state === 'listen' ? ' is-live' : ''}`} aria-live="polite">
           {state === 'listen' ? <span className="xws-state-dot" aria-hidden="true" /> : null}
           <span className="xws-status-word">{stateWord}</span>
-          <span
-            className={`xws-think-chip${
-              thinkingAlwaysOn || modelThinkingOn === true
-                ? ' is-on'
-                : modelThinkingOn === false
-                  ? ' is-off'
-                  : ''
-            }`}
-            title={
-              thinkingAlwaysOn
-                ? '此模型 default_mode=enabled，语音关思考无效——请换可关思考的模型'
-                : gatewayMode
-                  ? `网关=${gatewayMode}；舞台态≠设置里的思考模式`
-                  : '舞台「生成中」只是等出字；点左上「思考」看厂商 wire'
-            }
-          >
-            {thinkingAlwaysOn
-              ? '强制思考模型'
-              : `模型思考: ${
-                  modelThinkingOn === true ? '开' : modelThinkingOn === false ? '关' : '…'
-                }`}
-            {gatewayMode ? ` · ${gatewayMode}` : ''}
-          </span>
         </div>
         <div className="xws-live-user">
           <p ref={liveUserTextRef} className="xws-live-text">

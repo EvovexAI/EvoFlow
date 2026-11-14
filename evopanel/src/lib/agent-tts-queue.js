@@ -155,7 +155,9 @@ export function createAgentTtsQueue(opts = {}) {
 
   function stop() {
     stopRequested = true
-    stopAllAssistantSpeech({ reason: `${logTag}-stop` })
+    // 会议/部门群播报走 speech-client HTML 队列，与小V Frame 无关。
+    // 勿 barge Frame：会议室未开时 sync/stop 会高频触发，曾把刚 play 的小V 立刻 pause。
+    stopAllAssistantSpeech({ reason: `${logTag}-stop`, skipFrame: true })
     const cur = utterance
     if (cur?.key) {
       spokenCompleted.add(cur.key)
@@ -320,8 +322,9 @@ export function createAgentTtsQueue(opts = {}) {
     const msgs = Array.isArray(st.messages) ? st.messages : []
 
     while (!st.muted && st.open && !stopRequested) {
-      if (isSpeechPlaybackBusy()) {
-        await waitForSpeechPlaybackIdle({ timeoutMs: 180000 })
+      // 只等本泵 HTMLAudio / 流式队列；不要被 Frame busyExtra 卡住句间
+      if (isSpeechPlaybackBusy({ ignoreExtra: true })) {
+        await waitForSpeechPlaybackIdle({ timeoutMs: 180000, ignoreExtra: true })
         if (_shouldAbort(st)) return
       }
 
@@ -347,6 +350,8 @@ export function createAgentTtsQueue(opts = {}) {
         speechRate === null ? { speaker } : { speaker, speechRate }
 
       setUtterance({ key, code, text })
+      // 先预取本句 + 后面两句，减少「播完再合成」的句间空档
+      void prefetchAssistantSpeech(text, playOpts)
       prefetchFollowing(latestSt || st, key)
 
       try {
@@ -369,8 +374,7 @@ export function createAgentTtsQueue(opts = {}) {
             reason: 'user_stop',
           })
         } else {
-          await waitForSpeechPlaybackIdle({ timeoutMs: 30000 })
-          await new Promise((r) => setTimeout(r, 220))
+          // playAssistantSpeech 已等播完；不再二次 waitIdle + 220ms 硬睡（听感会顿一下）
           pushTrail({
             key,
             code,
@@ -378,6 +382,8 @@ export function createAgentTtsQueue(opts = {}) {
             at: Date.now(),
             status: 'played',
           })
+          // 极短换气，避免两句粘在一起；比 220ms 轻得多
+          await new Promise((r) => setTimeout(r, 60))
         }
       } catch (e) {
         const reason = String(/** @type {any} */ (e)?.message || e || 'error')

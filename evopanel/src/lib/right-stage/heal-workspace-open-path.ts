@@ -76,3 +76,26 @@ export async function healWorkspaceOpenPath(
     return candidate
   }
 }
+
+/**
+ * 打开前验存在，避免右栏落「file not found」死标签。
+ * 只有后端明确说不存在才判 false；查询不了（无 root / api 缺失 / 报错）不拦截，
+ * 保持旧行为——拦错一个真文件比放过一个死路径伤得多。
+ */
+export async function hostFileExists(
+  path: string,
+  opts?: { workspaceRoot?: string | null; threadId?: string | null },
+): Promise<boolean> {
+  const raw = String(path || '').trim()
+  if (!raw) return false
+  const workspaceRoot = String(opts?.workspaceRoot || '').trim()
+  const threadId = String(opts?.threadId || '').trim() || undefined
+  if (!workspaceRoot && !threadId && !isAbsoluteHostPath(raw)) return true
+  try {
+    const { api } = await import('../tauri-api.js')
+    const info = await api.resolveWorkspaceTarget(workspaceRoot, raw, threadId)
+    return info?.exists === true
+  } catch {
+    return true
+  }
+}

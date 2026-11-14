@@ -494,6 +494,26 @@ function _entryPlayableDuration(entry) {
   return 0
 }
 
+/** MSE buffered 可播秒数（无则 0）。 */
+function _entryBufferedSec(entry) {
+  try {
+    const b = entry.sb?.buffered
+    if (b && b.length > 0) {
+      const start = b.start(0)
+      const end = b.end(b.length - 1)
+      const sec = end - start
+      if (Number.isFinite(sec) && sec > 0) return sec
+    }
+  } catch {
+    /* ignore */
+  }
+  return 0
+}
+
+// 首包就 play → waiting/buffer 断供（日志「播放饥饿 pos=0」）。
+// wire 未齐：缓冲 + HAVE_FUTURE_DATA 再开；短句等 wireEnded。
+const PLAY_PRIME_SEC = 0.4
+
 /** 本地播报状态回传台账（playing / played），不挡主路径。 */
 function _sendPlaybackAck(seq, phase, extra = {}) {
   if (!isXiaomiFrameSessionActive() || !seq) return
@@ -539,6 +559,23 @@ function _kickSerialPlay() {
         continue
       }
       return
+    }
+    // wire 未齐：等缓冲够且 readyState>=HAVE_FUTURE_DATA 再 play。
+    // 仅 bufferedMs 过线仍会立刻 waiting（18:47 第二轮 pos=0 饥饿）。
+    // 短句整段常 < prime：tts_end 后 wireEnded 放行。
+    if (!entry.wireEnded) {
+      const bufferedSec = _entryBufferedSec(entry)
+      const readyState = Number(entry.audio?.readyState) || 0
+      if (bufferedSec < PLAY_PRIME_SEC || readyState < 3) {
+        voiceDecisionLog('playback_wait_prime', {
+          seq,
+          bufferedMs: Math.round(bufferedSec * 1000),
+          needMs: Math.round(PLAY_PRIME_SEC * 1000),
+          readyState,
+          pending: entry.pending?.length || 0,
+        })
+        return
+      }
     }
 
     _playingSeq = seq
@@ -609,11 +646,13 @@ function _kickSerialPlay() {
           raf = requestAnimationFrame(tickNearEnd)
           return
         }
-        // wire 已齐：句间可短切；最后一句多留一点，避免近尾预切后立刻放麦把自己录进去
+        // wire 已齐：句间可短切；最后一句多留一点，避免近尾预切后立刻放麦把自己录进去。
+        // 有下一句时勿用 40ms：MSE buffered 估短 + pause 硬切 → 句尾字被咬掉（日志 leadMs=40 leftMs≈25）。
         const hasNext = _playOrder.some((s) => s !== seq)
-        const lead = hasNext ? 0.04 : 0.22
+        const lead = hasNext ? 0.14 : 0.22
         if (dur - cur <= lead) {
           const leftMs = Math.round((dur - cur) * 1000)
+          const clipRisk = hasNext && leftMs < 80 ? 1 : 0
           voiceDecisionLog('advance_near_tail', {
             seq,
             leftMs,
@@ -621,7 +660,21 @@ function _kickSerialPlay() {
             leadMs: Math.round(lead * 1000),
             queue: _playOrder.length,
             wireEnded: true,
+            clipRisk,
           })
+          if (clipRisk) {
+            // 固定关键字：排查「播报卡顿/漏字」时 grep playback_clip_risk
+            voiceDecisionLog('playback_clip_risk', {
+              seq,
+              leftMs,
+              leadMs: Math.round(lead * 1000),
+              queue: _playOrder.length,
+            })
+            voiceFeLog(
+              '播报',
+              `playback_clip_risk 近尾预切偏紧 seq=${seq} left=${leftMs}ms lead=${Math.round(lead * 1000)}ms（听感可能掐字）`,
+            )
+          }
           voicePlaybackMark(
             '播放结束',
             '',

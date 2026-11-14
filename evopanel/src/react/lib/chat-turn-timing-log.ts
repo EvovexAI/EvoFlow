@@ -44,6 +44,52 @@ let unansweredPriorTrace: ChatTurnSendTrace | null = null
 const summaryShownRecent = new Map<string, number>()
 const SUMMARY_DEDUPE_MS = 1_500
 
+/**
+ * 首帧响应幂等闩（与 sendTrace 解耦）：后台/主动任务回合没有本窗点击锚点，
+ * sendTrace 守卫全部旁路 → 每个 TEXT/REASONING delta 都会走 emit（console + 双 IPC 落盘）。
+ * 实测 2026-11-14 单日 11,750 条「首帧响应」，峰值 57 条/s——流式全程都在给主线程
+ * 叠 JSON.stringify + 动态 import + invoke 的税，是「面板半死」的常驻贡献项。
+ * 按 session|run 只放行每个回合的首个 chunk；RUN_STARTED 时清该会话旧闩。
+ */
+const firstResponseLatched = new Map<string, number>()
+const FIRST_RESPONSE_LATCH_MAX = 64
+const FIRST_RESPONSE_LATCH_TTL_MS = 10 * 60_000
+
+/** 新回合开始：清掉该会话的全部旧闩（runId 缺失的 delta 也只记首个）。 */
+function resetFirstResponseLatch(sessionKey?: string | null): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  const prefix = `${sk}|`
+  for (const key of firstResponseLatched.keys()) {
+    if (key.startsWith(prefix) || key === `${sk}|`) firstResponseLatched.delete(key)
+  }
+}
+
+/** 消费一次闩：返回 true 表示该 chunk 已被幂等拦截，不再落盘。
+ *  runId 存在时同时占 `sk|runId` 与 `sk|-` 两键——同回合 delta 的 runId 忽有忽无
+ *  （不同事件类型携带不一致）也不会把第二个 chunk 放出去。 */
+function claimFirstResponseLatch(sessionKey?: string, runId?: string): boolean {
+  const sk = sessionKey || '-'
+  const keys = runId ? [`${sk}|${runId}`, `${sk}|`] : [`${sk}|`]
+  const now = Date.now()
+  const isFresh = (t: number | undefined) => t != null && now - t < FIRST_RESPONSE_LATCH_TTL_MS
+  if (keys.some((k) => isFresh(firstResponseLatched.get(k)))) return true
+  for (const key of keys) firstResponseLatched.set(key, now)
+  if (firstResponseLatched.size > FIRST_RESPONSE_LATCH_MAX) {
+    // 容量兜底：淘汰最早的一条，防长驻会话无限堆积
+    let oldestKey = ''
+    let oldestAt = Infinity
+    for (const [k, t] of firstResponseLatched) {
+      if (t < oldestAt) {
+        oldestAt = t
+        oldestKey = k
+      }
+    }
+    if (oldestKey) firstResponseLatched.delete(oldestKey)
+  }
+  return false
+}
+
 function archiveUnansweredSendTrace(): void {
   if (!sendTrace) return
   if (sendTrace.firstResponseLogged) return
@@ -359,8 +405,11 @@ export function logChatTurnRunStarted(opts: {
   sessionKey?: string | null
   runId?: string | null
 }): void {
-  if (!sendTrace || sendTrace.runStartedLogged) return
   const sessionKey = String(opts.sessionKey || '').trim()
+  // 新回合开始先清首帧闩。必须在 sendTrace 守卫之前：后台回合 sendTrace 为 null
+  // 会提前 return，闩若不清，该会话下一轮的首帧会被上一轮的 key 拦到 TTL 过期。
+  resetFirstResponseLatch(sessionKey)
+  if (!sendTrace || sendTrace.runStartedLogged) return
   if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
   if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
   sendTrace.runStartedLogged = true
@@ -470,9 +519,12 @@ export function logChatTurnFirstResponse(opts: {
   gatedByV4?: boolean
 }): void {
   const sessionKey = String(opts.sessionKey || '').trim()
+  const runId = String(opts.runId || sendTrace?.runId || '').trim()
+  // 幂等闩先行：无 sendTrace 的后台回合（主动任务/其他窗发送）每个 delta 都会走到这里，
+  // 必须按回合只放行首个 chunk（见 firstResponseLatched 注释）。
+  if (claimFirstResponseLatch(sessionKey || undefined, runId || undefined)) return
   if (sendTrace) {
     if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
-    if (sendTrace.firstResponseLogged) return
     sendTrace.firstResponseLogged = true
     if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
   }
@@ -495,7 +547,6 @@ export function logChatTurnFirstResponse(opts: {
       ? ` —— 偏慢：对照 send_wire / run_started 拆「准备 / 等模型 / 首 token」`
       : ''
   const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
-  const runId = String(opts.runId || sendTrace?.runId || '').trim()
   if (runId && sendTrace && !sendTrace.runId) sendTrace.runId = runId
   emit(`首帧响应：类型=${kindLabel}${sinceDesc}${previewDesc}${gateDesc}${slow}`, {
     event: 'first_response',
