@@ -12,6 +12,7 @@ from .firecrawl import FirecrawlWebSearchProvider
 from .infoquest import InfoQuestWebSearchProvider
 from .keenable import KeenableWebSearchProvider
 from .searxng import SearXNGWebSearchProvider
+from .specstream import SpecStreamWebSearchProvider
 from .tavily import TavilyWebSearchProvider
 
 
@@ -26,6 +27,7 @@ def register_all() -> None:
         BraveFreeWebSearchProvider,
         DDGSWebSearchProvider,
         KeenableWebSearchProvider,
+        SpecStreamWebSearchProvider,
     ):
         register_provider(cls())
 
@@ -41,4 +43,5 @@ __all__ = [
     "BraveFreeWebSearchProvider",
     "DDGSWebSearchProvider",
     "KeenableWebSearchProvider",
+    "SpecStreamWebSearchProvider",
 ]

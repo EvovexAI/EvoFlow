@@ -414,6 +414,7 @@ def normalize_web_search_patch(raw: dict[str, Any] | None) -> dict[str, Any]:
             "tavily_base_url": "tavilyBaseUrl",
             "brave_api_key": "braveApiKey",
             "keenable_api_key": "keenableApiKey",
+            "specstream_api_key": "specstreamApiKey",
             "firecrawl_api_key": "firecrawlApiKey",
             "firecrawl_api_url": "firecrawlApiUrl",
             "infoquest_api_key": "infoquestApiKey",
