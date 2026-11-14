@@ -115,9 +115,10 @@ class TestBatching:
         assert len(self.dispatched) == 1  # 3 条通知 → 1 个 turn
         tid, text, mid = self.dispatched[0]
         assert text.count("<task-notification>") == 3
-        # 防误读前缀只出现一次,且在最前
-        assert text.count(nc._SYSTEM_NOTIFICATION_PREFIX) == 1
-        assert text.index(nc._SYSTEM_NOTIFICATION_PREFIX) < text.index("<task-notification>")
+        # 转写必须保持裸块开头(无防误读前缀)——前后端"通知不进用户气泡"
+        # 的过滤都按裸前缀判定;防误读前缀由 provider 层中间件注入。
+        assert text.lstrip().startswith("<task-notification>")
+        assert "SYSTEM NOTIFICATION" not in text
         # 顺序保持到达序
         assert text.index("m0") < text.index("m1") < text.index("m2")
 

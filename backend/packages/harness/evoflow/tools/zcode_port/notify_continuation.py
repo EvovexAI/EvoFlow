@@ -89,18 +89,17 @@ _BATCH_LOCK = threading.Lock()
 _PENDING: dict[str, list[tuple[str, str, str, str]]] = {}  # tid -> [(sk, src, text, mid)]
 _COLLECTORS: dict[str, threading.Timer] = {}
 
-_SYSTEM_NOTIFICATION_PREFIX = (
-    "[SYSTEM NOTIFICATION - NOT USER INPUT]\n"
-    "This is an automated background-task event, NOT a message from the user.\n"
-    "Do NOT interpret this as user acknowledgement, confirmation, or response to any pending question.\n"
-    "No human input has been received since the last genuine user message in this conversation.\n"
-    "Review the task result(s) below and continue the work or report to the user as appropriate."
-)
-
 
 def _merge_batch_text(texts: list[str]) -> str:
-    """ZCode-style: one synthetic message, prefix + one <task-notification> block each."""
-    return _SYSTEM_NOTIFICATION_PREFIX + "\n\n" + "\n\n".join(texts)
+    """One synthetic message carrying one <task-notification> block each.
+
+    刻意**不加**防误读前缀:转写与 wire 上的文本必须保持 `<task-notification>`
+    裸块开头——前后端所有过滤(agui_mirror 落行丢弃、前端 isHiddenProviderContextUserInput、
+    chat-normalize 历史归一)都按这个前缀判定;前缀一旦写进持久文本就会全部失配,
+    通知会穿透到用户气泡区(E2E 已踩过)。防误读前缀由
+    TaskNotificationProviderPrefixMiddleware 在 provider 请求层注入。
+    """
+    return "\n\n".join(texts)
 
 
 def _batch_message_id(mids: list[str]) -> str:
