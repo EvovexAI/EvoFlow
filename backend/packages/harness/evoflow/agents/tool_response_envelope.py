@@ -102,4 +102,10 @@ def envelope_status_kind(meta: dict[str, Any]) -> Literal["ok", "error", "unknow
         return "ok"
     if st in ("error", "failed", "fail"):
         return "error"
+    # denied/blocked: 工具因用户拒绝或安全策略未执行——观测上必须计为失败，
+    # 而不是落进 unknown 后被 "Error:" 文本启发式判成 success。
+    # pending_approval / awaiting_other_approval 是过渡态（尚未执行，之后有
+    # replay 结果单独落库），刻意不归入 error。
+    if st in ("denied", "blocked"):
+        return "error"
     return "unknown"

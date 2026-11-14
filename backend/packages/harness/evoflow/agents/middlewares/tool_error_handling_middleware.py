@@ -26,6 +26,7 @@ from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.types import Command
 
 from evoflow.agents.tool_response_envelope import envelope_status_kind, parse_tool_envelope
+from evoflow.config.tool_results_config import get_tool_results_config
 from evoflow.tools.arg_coerce import coerce_tool_call_args
 from evoflow.tools.builtins.browser_screenshot_store import compact_legacy_screenshot_tool_content
 from evoflow.tools.tool_result_shaper import shape_tool_result
@@ -406,13 +407,25 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         partial_read = False
         if isinstance(args, dict):
             partial_read = args.get("offset") is not None or args.get("limit") is not None
-        shaped = shape_tool_result(
-            str(result.content or ""),
-            tool_name,
-            tool_call_id,
-            thread_id=tid or None,
-            partial_read=partial_read,
-        )
+        is_error_result = str(getattr(result, "status", None) or "").strip().lower() == "error"
+        if is_error_result:
+            # 错误结果的诊断价值集中在开头（失败原因/参数回显/栈帧头部）——
+            # 中段截断会恰好截掉修复线索。改为保留头部的硬顶（与 partial_read
+            # 切片同款公式），其余 error 处理照常。
+            shaped = str(result.content or "")
+            error_cap = max(get_tool_results_config().threshold_chars // 2, 32_000)
+            if len(shaped) > error_cap:
+                shaped = shaped[:error_cap] + (
+                    f"\n\n… [error output truncated, total {len(shaped):,} chars]"
+                )
+        else:
+            shaped = shape_tool_result(
+                str(result.content or ""),
+                tool_name,
+                tool_call_id,
+                thread_id=tid or None,
+                partial_read=partial_read,
+            )
         # Employee patrols: global tool compression may be off; still hard-cap
         # so we never accumulate multi-MB file dumps into the next model call.
         if _is_proactive_tool_request(request):
@@ -433,8 +446,10 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         # Some tools (Set-Content, Add-Content, Remove-Item, etc.) legitimately return
         # empty output; without a placeholder the model may return finish_reason=stop
         # with output_tokens=0, especially under long context + multi-tool-call conditions.
+        # 错误结果的空体用失败文案——"[Tool completed — no output]" 与 error
+        # status 并存会让模型误判成功。
         if not shaped or not shaped.strip():
-            shaped = "[Tool completed — no output]"
+            shaped = "[Tool failed with no output]" if is_error_result else "[Tool completed — no output]"
         if shaped != result.content:
             result = ToolMessage(content=shaped, tool_call_id=result.tool_call_id, status=getattr(result, "status", None))
         self._maybe_register_working_memory(result, request, tool_name, args)
@@ -448,6 +463,10 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         args: dict | Any,
     ) -> None:
         if not isinstance(result, ToolMessage):
+            return
+        # 失败的调用不进 working memory——否则 read 失败也会把文件记成“已读”，
+        # 模型下次重读会被“文件未变更”短路误导。
+        if str(getattr(result, "status", None) or "").strip().lower() == "error":
             return
         output_text = str(result.content or "")
         if output_text.strip().startswith("Error:"):
