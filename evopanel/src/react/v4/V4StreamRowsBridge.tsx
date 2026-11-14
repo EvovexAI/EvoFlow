@@ -118,6 +118,9 @@ function _pinnedMegaCount(): number {
   return n;
 }
 
+/** pin busy 订阅指纹：同 store+sk 已订则只推一次，避免 sync 循环撕订触发 #185 */
+const _pinBusyBindKey = new Map<string, string>();
+
 function _pushPinBusyFromStore(
   threadId: string,
   sessionKey: string,
@@ -126,7 +129,29 @@ function _pushPinBusyFromStore(
   const sk = String(sessionKey || "").trim();
   const tid = String(threadId || "").trim();
   if (!sk || !tid) return;
+  const bindKey = `${sk}::${tid}`;
   const prevUnsub = _pinBusyUnsubs.get(tid);
+  if (prevUnsub && _pinBusyBindKey.get(tid) === bindKey) {
+    // 已订同一会话：只同步一次 busy，不拆订阅（拆订+重订会在投影帧风暴里放大更新）
+    try {
+      const rt = getSessionRuntime(sk);
+      if (isSessionRecoveryCooldownActive(sk) || rt.uiTurnSettled) {
+        setV4TimelineBusy(sk, false);
+        return;
+      }
+      const snap = store.getState()?.snapshot ?? null;
+      const hostExecuting = isTurnBusy(rt) || isLivePostStreamOpen(rt);
+      setV4TimelineBusy(
+        sk,
+        resolveSessionBusyFromControl(snap, {
+          hostExecuting: hostExecuting ? true : false,
+        }),
+      );
+    } catch {
+      /* best-effort */
+    }
+    return;
+  }
   if (prevUnsub) {
     try {
       prevUnsub();
@@ -147,6 +172,7 @@ function _pushPinBusyFromStore(
       // host 仍在跑：并集因子；host 已 idle 时 control 终态直接收口（control-first，
       // 见 control-busy.ts——Phase A 后 control 与快照同源，可做权威）。
       // 勿用 isSessionRuntimeLive（停后 stream 缓冲仍有字也会 true）。
+      // 禁止把 getV4TimelineBusy 并进 hostExecuting——会与 SyncV4TimelineBusy 互喂成 #185。
       const hostExecuting = isTurnBusy(rt) || isLivePostStreamOpen(rt);
       const busy = resolveSessionBusyFromControl(snap, {
         hostExecuting: hostExecuting ? true : false,
@@ -160,6 +186,7 @@ function _pushPinBusyFromStore(
     }
   };
   push();
+  _pinBusyBindKey.set(tid, bindKey);
   _pinBusyUnsubs.set(tid, store.subscribe(push));
 }
 
@@ -175,6 +202,7 @@ function _releasePinBusy(threadId: string, clearBusy: boolean): void {
     }
     _pinBusyUnsubs.delete(tid);
   }
+  _pinBusyBindKey.delete(tid);
   const sk = _pinSessionKeyByThread.get(tid);
   _pinSessionKeyByThread.delete(tid);
   if (clearBusy && sk) setV4TimelineBusy(sk, false);
@@ -829,24 +857,29 @@ export function V4StreamRowsBridge(props: {
   const connectingSessionRef = useRef<string | null>(null);
 
   // 闸门权威：仅 ready（有快照）时闸 AG-UI TEXT_*；failed/connecting 必须放行正文。
-  // 幂等：只在「非 live → live」时 +1，「live → 非 live」时 -1，卸载时 -1。
-  // 快照每帧更新都会重跑这个 effect，若按帧 +1 会把引用计数撑爆。
+  // 只依赖 hasSnapshot 布尔，禁止依赖 snapshot 对象引用——流式每帧新引用会
+  // 触发 cleanup(−1)+setup(+1)，并在 layout 里和 SyncV4TimelineBusy / useSyncExternalStore
+  // 叠成 React #185（Maximum update depth）→ 整页空白。
+  const hasSnapshot = !!snapshot;
   const authorityRef = useRef<string | null>(null);
   useLayoutEffect(() => {
-    const live = enabled && !!sessionId && !!snapshot;
+    const live = enabled && !!sessionId && hasSnapshot;
     const tid = live ? sessionId! : null;
     const prev = authorityRef.current;
     if (prev === tid) return;
     if (prev) publishV4DisplayAuthority({ threadId: prev, live: false });
     if (tid) publishV4DisplayAuthority({ threadId: tid, live: true });
     authorityRef.current = tid;
+  }, [enabled, sessionId, hasSnapshot]);
+  // 卸载 / 换会话：只在 session 边界清权威，勿绑 snapshot 引用。
+  useLayoutEffect(() => {
     return () => {
       if (authorityRef.current) {
         publishV4DisplayAuthority({ threadId: authorityRef.current, live: false });
         authorityRef.current = null;
       }
     };
-  }, [enabled, sessionId, snapshot]);
+  }, [sessionId]);
 
   useLayoutEffect(() => {
     const key = `${pathState}:${sessionId ?? ""}`;
@@ -1023,7 +1056,7 @@ export function V4StreamRowsBridge(props: {
         detail: { path: pathState, reason },
       });
     }
-  }, [pathState, sessionId, enabled, snapshot, state?.status, leaseForSession]);
+  }, [pathState, sessionId, enabled, hasSnapshot, state?.status, leaseForSession]);
 
   // connecting 每秒打进度；无订阅 2s / 有订阅等首帧 5s 后 warn + recovery。
   useLayoutEffect(() => {

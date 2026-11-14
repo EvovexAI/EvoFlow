@@ -5,7 +5,6 @@
 import {
   useState,
   useEffect,
-  useLayoutEffect,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
@@ -35,7 +34,11 @@ import { logV4Life } from '../../lib/v4-lifecycle-log.js'
 import { noteStreamStopUiIdle } from '../../lib/stream-stop-log.js'
 import { logChatRuntimeBusyFork } from '../../lib/chat-runtime-log.js'
 import { isSessionExecuting } from '../../lib/session-execution/index.js'
-import { getSessionRuntime } from '../../lib/session-runtime-store.js'
+import {
+  getSessionRuntime,
+  isLivePostStreamOpen,
+  isTurnBusy,
+} from '../../lib/session-runtime-store.js'
 import { SS_SHELL_EMPTY_DRAFT } from '../../components/ShellSessionList.js'
 import { DeptGroupChatMain } from '../../components/DeptGroupChatMain.js'
 import { isDeptChatSessionKey } from '../../lib/dept-chat-session.js'
@@ -83,13 +86,14 @@ function ClearPendingOptimisticOnV4Echo(props: {
 
 /** 把 V4 snapshot「还有活」同步到 store，供 Composer 停止键并进 displayTurnBusy。
  * 切走会话时不要强制 false：后台 pin 仍可能在跑；由 pin busy 订阅 / 本会话再选中时覆写。
- * useLayoutEffect：赶在 paint 前写入，减少「对话区齿轮已转、右下角停止还没亮」的一帧分叉。 */
+ * 用 useEffect（非 layout）：setV4TimelineBusy → useSyncExternalStore 会同步重渲 ChatApp；
+ * 若在 layout 里写，会与 Bridge 权威 effect / 投影帧叠成 React #185 整页空白。 */
 function SyncV4TimelineBusy(props: {
   sessionKey: string | null | undefined
   busy: boolean
 }) {
   const { sessionKey, busy } = props
-  useLayoutEffect(() => {
+  useEffect(() => {
     setV4TimelineBusy(sessionKey, busy)
   }, [sessionKey, busy])
   return null
@@ -713,13 +717,21 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const stopRecovering = isSessionRecoveryCooldownActive(
                     String(selectedSessionKey || '').trim(),
                   )
+                  // hostExecuting 只看 wire/turnPhase，禁止用 selectedTurnBusy（其含
+                  // getV4TimelineBusy）——否则 SyncV4TimelineBusy 与判定互喂 → #185。
+                  const skForBusy = String(selectedSessionKey || '').trim()
+                  const rtForBusy = skForBusy ? getSessionRuntime(skForBusy) : null
+                  const wireHostExecuting = !!(
+                    rtForBusy &&
+                    (isTurnBusy(rtForBusy) || isLivePostStreamOpen(rtForBusy))
+                  )
                   const timelineBusy =
                     !stopRecovering &&
                     v4SessionMatched &&
                     resolveSessionBusyFromControl(v4Payload?.snapshot, {
                       // control-first（Phase A 后 control 与快照同源）：canStop 权威；
                       // 侧栏已 idle 时 control 终态直接收口，勿被陈旧 running 卡钉死齿轮
-                      hostExecuting: !!selectedTurnBusy,
+                      hostExecuting: wireHostExecuting,
                     })
                   // 齿轮/停止：wire busy ∪ 时间线仍 streaming/工具未收口（防 sse_final 早关）
                   const uiBusy = !!(

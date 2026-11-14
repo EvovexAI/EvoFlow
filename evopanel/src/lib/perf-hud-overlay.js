@@ -1,12 +1,13 @@
 /**
- * 运维观测开启后的科技感性能浮窗：实时 CPU / 内存（本应用 + 本机 + LangGraph）。
+ * 运维观测开启后的本机运行监控浮窗（中文）：
+ * CPU/内存 + Agent 运行时探活 + 对话回合首字卡顿/记死计数。
  * 随 `evoflow:obs-enabled-changed` 显隐；可拖拽、可收起。
  */
 import { api } from './tauri-api.js'
 import { OBS_ENABLED_CHANGED_EVENT } from '../react/obs/lib/obs-api.js'
 
 const HUD_ID = 'evoflow-perf-hud'
-const HUD_SKIN = 'telemetry-v2'
+const HUD_SKIN = 'telemetry-v3-zh'
 const POS_KEY = 'evoflow_perf_hud_pos'
 const COLLAPSED_KEY = 'evoflow_perf_hud_collapsed'
 
@@ -129,8 +130,8 @@ function hudCss() {
   return `
       #${HUD_ID}{
         position:fixed;z-index:2147482900;left:auto;right:18px;bottom:18px;top:auto;
-        width:320px;user-select:none;
-        font-family:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+        width:360px;user-select:none;
+        font-family:"Segoe UI","PingFang SC","Microsoft YaHei",ui-sans-serif,system-ui,sans-serif;
         color:#d7f7ff;
         filter:drop-shadow(0 16px 40px rgba(0,0,0,.55));
       }
@@ -193,12 +194,12 @@ function hudCss() {
         100%{box-shadow:0 0 0 0 rgba(0,229,255,0);opacity:1}
       }
       #${HUD_ID} .ef-hud-title{
-        font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#00e5ff;font-weight:800;
+        font-size:13px;letter-spacing:.06em;color:#00e5ff;font-weight:800;
         text-shadow:0 0 12px rgba(0,229,255,.45);
       }
       #${HUD_ID} .ef-hud-sub{
-        font-size:10px;color:#8fd9ea;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-        opacity:.92;
+        font-size:11px;color:#b6eaf5;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        opacity:.95;font-variant-numeric:tabular-nums;
       }
       #${HUD_ID} .ef-hud-actions{display:flex;gap:6px;flex:0 0 auto}
       #${HUD_ID} .ef-hud-btn{
@@ -235,7 +236,10 @@ function hudCss() {
         font-size:9px;color:#7ddcf0;letter-spacing:.14em;font-weight:700;
       }
       #${HUD_ID} .ef-hud-gauge-label{
-        font-size:10px;color:#00e5ff;letter-spacing:.16em;font-weight:700;text-transform:uppercase;
+        font-size:11px;color:#00e5ff;letter-spacing:.04em;font-weight:700;
+      }
+      #${HUD_ID} .ef-hud-sec{
+        margin:0 0 8px;font-size:10px;color:#5ec8dc;font-weight:700;letter-spacing:.04em;
       }
       #${HUD_ID} .ef-hud-rows{display:flex;flex-direction:column;gap:8px}
       #${HUD_ID} .ef-hud-row{
@@ -249,12 +253,14 @@ function hudCss() {
         border-color:rgba(255,92,122,.65);border-left-color:#ff5c7a;
         background:rgba(48,8,18,.55);
       }
+      #${HUD_ID} .ef-hud-row.is-ok{border-left-color:#34d399}
       #${HUD_ID} .ef-hud-row .k{
-        color:#9adcec;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+        color:#9adcec;font-size:11px;font-weight:650;
       }
       #${HUD_ID} .ef-hud-row .v{
-        color:#ffffff;font-weight:800;white-space:nowrap;font-size:12px;
-        text-shadow:0 0 8px rgba(0,229,255,.2);
+        color:#ffffff;font-weight:750;white-space:nowrap;font-size:12px;
+        text-shadow:0 0 8px rgba(0,229,255,.2);font-variant-numeric:tabular-nums;
+        max-width:58%;overflow:hidden;text-overflow:ellipsis;
       }
       #${HUD_ID} .ef-hud-row .ef-hud-bar{
         grid-column:1 / -1;height:4px;margin-top:2px;
@@ -269,8 +275,8 @@ function hudCss() {
       }
       #${HUD_ID} .ef-hud-link{
         border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);
-        color:#7ef0ff;font-size:10px;cursor:pointer;padding:4px 8px;
-        font-family:inherit;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
+        color:#7ef0ff;font-size:11px;cursor:pointer;padding:4px 8px;
+        font-family:inherit;font-weight:700;
       }
       #${HUD_ID} .ef-hud-link:hover{
         border-color:#00e5ff;color:#fff;background:rgba(0,229,255,.18);
@@ -318,13 +324,13 @@ function ensureHost() {
         <div class="ef-hud-brand">
           <i class="ef-hud-pulse" aria-hidden="true"></i>
           <div style="min-width:0">
-            <div class="ef-hud-title">SYS TELEMETRY</div>
-            <div class="ef-hud-sub" data-hud-sub>运维观测 · CPU/内存 · 对话链路看顶部信息条</div>
+            <div class="ef-hud-title">本机运行监控</div>
+            <div class="ef-hud-sub" data-hud-sub>采样中…</div>
           </div>
         </div>
         <div class="ef-hud-actions">
           <button type="button" class="ef-hud-btn" data-hud-collapse title="收起/展开">–</button>
-          <button type="button" class="ef-hud-btn" data-hud-close title="关闭浮窗（调试模式仍开启）">×</button>
+          <button type="button" class="ef-hud-btn" data-hud-close title="关闭浮窗（运维观测仍开启）">×</button>
         </div>
       </div>
       <div class="ef-hud-body" data-hud-body>
@@ -332,10 +338,14 @@ function ensureHost() {
           <div class="ef-hud-gauge" data-hud-cpu-gauge></div>
           <div class="ef-hud-gauge" data-hud-mem-gauge></div>
         </div>
+        <div class="ef-hud-sec">资源</div>
         <div class="ef-hud-rows" data-hud-rows></div>
+        <div class="ef-hud-sec" style="margin-top:10px">对话链路</div>
+        <div class="ef-hud-rows" data-hud-chat-rows></div>
         <div class="ef-hud-foot">
-          <button type="button" class="ef-hud-link" data-hud-obs>观测台</button>
-          <button type="button" class="ef-hud-link" data-hud-rm>资源</button>
+          <button type="button" class="ef-hud-link" data-hud-obs>运维观测</button>
+          <button type="button" class="ef-hud-link" data-hud-rm>资源管理</button>
+          <button type="button" class="ef-hud-link" data-hud-life>回合日志</button>
           <span class="ef-hud-tick" data-hud-tick>—</span>
         </div>
       </div>
@@ -352,7 +362,9 @@ function ensureHost() {
     host.style.right = 'auto'
     host.style.bottom = 'auto'
   }
-  host.classList.toggle('is-collapsed', isCollapsed())
+  // 新皮肤默认展开，避免只剩一行标题啥都看不见
+  setCollapsed(false)
+  host.classList.remove('is-collapsed')
 
   host.querySelector('[data-hud-collapse]')?.addEventListener('click', (e) => {
     e.stopPropagation()
@@ -369,6 +381,9 @@ function ensureHost() {
   })
   host.querySelector('[data-hud-rm]')?.addEventListener('click', () => {
     void import('./resource-manager-overlay.js').then((m) => m.openResourceManagerOverlay())
+  })
+  host.querySelector('[data-hud-life]')?.addEventListener('click', () => {
+    window.location.hash = '/system-logs?source=chat-turn-lifecycle'
   })
 
   const dragEl = host.querySelector('[data-hud-drag]')
@@ -408,7 +423,56 @@ function ensureHost() {
   return host
 }
 
-function render(host, snap) {
+async function readChatOpsSnapshot() {
+  try {
+    const [{ getActiveChatTurnStall, listChatTurnAnomalies }, { isSessionHistoryWatchActive }] =
+      await Promise.all([
+        import('../react/lib/chat-turn-timing-log.js'),
+        import('../react/lib/session-reattach.js'),
+      ])
+    const sk = String(
+      (typeof window !== 'undefined' && window.__evoflowSelectedSessionKey) || '',
+    ).trim()
+    const stall = getActiveChatTurnStall(sk || null)
+    const anomalies = listChatTurnAnomalies()
+    const deadCount = anomalies.filter((a) => a.event === 'first_token_dead').length
+    const stallCount = anomalies.filter((a) => a.event === 'first_token_stall').length
+    const watch = sk ? isSessionHistoryWatchActive(sk) : false
+    const latest = anomalies.length ? anomalies[anomalies.length - 1] : null
+    return {
+      sk,
+      stall,
+      watch,
+      deadCount,
+      stallCount,
+      anomalyCount: anomalies.length,
+      latestZh: latest?.zh || '',
+    }
+  } catch {
+    return null
+  }
+}
+
+async function probeAgentRuntime() {
+  const ports = [8384, 2024, 8123]
+  for (const port of ports) {
+    try {
+      const ctrl = new AbortController()
+      const t = window.setTimeout(() => ctrl.abort(), 700)
+      const res = await fetch(`http://127.0.0.1:${port}/ok`, {
+        signal: ctrl.signal,
+        cache: 'no-store',
+      })
+      window.clearTimeout(t)
+      if (res.ok) return { ok: true, port, label: `在线 · :${port}` }
+    } catch {
+      /* try next */
+    }
+  }
+  return { ok: false, port: null, label: '不可达' }
+}
+
+function render(host, snap, chatOps, lgProbe) {
   const appCpu = clampPct(snap?.app?.cpuPercent)
   const sysCpu = clampPct(snap?.system?.cpuPercent)
   const appMem = Number(snap?.app?.memoryBytes) || 0
@@ -430,7 +494,7 @@ function render(host, snap) {
     cpuGauge.innerHTML = `
       <div class="ef-hud-ring-wrap">
         ${ringSvg(appCpu, cpuTone)}
-        <div class="ef-hud-ring-val"><strong>${appCpu.toFixed(0)}%</strong><span>APP</span></div>
+        <div class="ef-hud-ring-val"><strong>${appCpu.toFixed(0)}%</strong><span>本应用</span></div>
       </div>
       <div class="ef-hud-gauge-label">CPU</div>
     `
@@ -439,9 +503,9 @@ function render(host, snap) {
     memGauge.innerHTML = `
       <div class="ef-hud-ring-wrap">
         ${ringSvg(sysMemPct, memTone)}
-        <div class="ef-hud-ring-val"><strong>${sysMemPct.toFixed(0)}%</strong><span>SYS</span></div>
+        <div class="ef-hud-ring-val"><strong>${sysMemPct.toFixed(0)}%</strong><span>本机</span></div>
       </div>
-      <div class="ef-hud-gauge-label">MEM</div>
+      <div class="ef-hud-gauge-label">内存</div>
     `
   }
 
@@ -449,23 +513,60 @@ function render(host, snap) {
   if (rows) {
     rows.innerHTML = `
       <div class="ef-hud-row">
-        <span class="k">Host CPU</span><span class="v">${sysCpu.toFixed(1)}%</span>
+        <span class="k">本机 CPU</span><span class="v">${sysCpu.toFixed(1)}%</span>
         ${barMeter(sysCpu, sysCpuTone)}
       </div>
       <div class="ef-hud-row">
-        <span class="k">EvoFlow RSS</span>
+        <span class="k">EvoFlow 内存</span>
         <span class="v">${formatBytes(appMem)}${sysTotal ? ` · ${appMemPct.toFixed(1)}%` : ''}</span>
         ${barMeter(appMemPct || Math.min(100, appMem / (512 * 1024 * 1024) * 100), toneForPct(appMemPct || 0, 40))}
       </div>
       <div class="ef-hud-row">
-        <span class="k">Host MEM</span>
+        <span class="k">本机内存</span>
         <span class="v">${sysTotal ? `${formatBytes(sysUsed)} / ${formatBytes(sysTotal)}` : '—'}</span>
         ${barMeter(sysMemPct, memTone)}
       </div>
-      <div class="ef-hud-row ${lgWarn ? 'is-warn' : ''}">
-        <span class="k">LangGraph</span>
-        <span class="v">${lg ? `${formatBytes(lg.memoryBytes)} · ${lgCpu.toFixed(1)}%` : 'OFFLINE'}</span>
+      <div class="ef-hud-row ${lgWarn || !lgProbe?.ok ? 'is-warn' : 'is-ok'}">
+        <span class="k">Agent 运行时</span>
+        <span class="v">${lgProbe?.label || '检测中…'}${lg ? ` · ${formatBytes(lg.memoryBytes)}` : ''}</span>
         ${lg ? barMeter(Math.min(100, (lg.memoryBytes / (4 * 1024 * 1024 * 1024)) * 100), lgWarn ? '#ff5c7a' : '#00e5ff') : ''}
+      </div>
+      <div class="ef-hud-row ${lg ? '' : 'is-warn'}">
+        <span class="k">LangGraph 进程</span>
+        <span class="v">${lg ? `CPU ${lgCpu.toFixed(1)}% · RSS ${formatBytes(lg.memoryBytes)}` : '未采样到'}</span>
+      </div>
+    `
+  }
+
+  const chatRows = host.querySelector('[data-hud-chat-rows]')
+  if (chatRows) {
+    const stall = chatOps?.stall
+    const linkMode = stall?.stalled
+      ? stall.zh
+      : chatOps?.watch
+        ? '历史轮询中（无 live SSE）'
+        : '空闲 / 或 SSE 实时中'
+    const stallClass = stall?.stalled
+      ? stall.sinceMs >= 30_000
+        ? 'is-warn'
+        : ''
+      : 'is-ok'
+    chatRows.innerHTML = `
+      <div class="ef-hud-row ${stallClass}">
+        <span class="k">当前回合</span>
+        <span class="v" title="${stall?.zh || linkMode}">${linkMode}</span>
+      </div>
+      <div class="ef-hud-row">
+        <span class="k">选中会话</span>
+        <span class="v" title="${chatOps?.sk || ''}">${chatOps?.sk ? chatOps.sk.slice(0, 28) + (chatOps.sk.length > 28 ? '…' : '') : '（未绑定）'}</span>
+      </div>
+      <div class="ef-hud-row ${(chatOps?.deadCount || 0) > 0 ? 'is-warn' : ''}">
+        <span class="k">首字异常（本会话环）</span>
+        <span class="v">记死 ${chatOps?.deadCount || 0} · 预警 ${chatOps?.stallCount || 0} · 共 ${chatOps?.anomalyCount || 0}</span>
+      </div>
+      <div class="ef-hud-row">
+        <span class="k">最近一条</span>
+        <span class="v" title="${chatOps?.latestZh || ''}">${chatOps?.latestZh ? String(chatOps.latestZh).slice(0, 36) + (chatOps.latestZh.length > 36 ? '…' : '') : '暂无'}</span>
       </div>
     `
   }
@@ -474,9 +575,10 @@ function render(host, snap) {
   if (sub) {
     const marker = snap?.instanceMarker || snap?.instance_marker || ''
     const n = (snap?.processes || []).length
+    const lgBit = lgProbe?.ok ? `运行时${lgProbe.port || ''}` : '运行时异常'
     sub.textContent = marker
-      ? `INST ${marker} · ${n} PROC · LIVE`
-      : `TELEMETRY LIVE · ${n} PROC`
+      ? `实例 ${marker} · ${n} 进程 · ${lgBit}`
+      : `${n} 个进程 · ${lgBit} · 实时采样`
   }
   const tick = host.querySelector('[data-hud-tick]')
   if (tick) tick.textContent = new Date().toLocaleTimeString()
@@ -486,8 +588,12 @@ async function refresh() {
   if (!_host || _inFlight || !_enabled) return
   _inFlight = true
   try {
-    const snap = await getSnapshot()
-    if (snap && _host) render(_host, snap)
+    const [snap, chatOps, lgProbe] = await Promise.all([
+      getSnapshot(),
+      readChatOpsSnapshot(),
+      probeAgentRuntime(),
+    ])
+    if (_host) render(_host, snap || {}, chatOps, lgProbe)
   } catch {
     /* ignore */
   } finally {

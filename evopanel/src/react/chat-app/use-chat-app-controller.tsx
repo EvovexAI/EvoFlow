@@ -1054,6 +1054,15 @@ export function useChatAppController() {
       /* ignore */
     }
   }, [selectedSessionKey, selectedThreadId])
+  // 运维浮窗读取当前会话（Perf HUD 对话链路区）
+  useEffect(() => {
+    try {
+      ;(window as Window & { __evoflowSelectedSessionKey?: string }).__evoflowSelectedSessionKey =
+        String(selectedSessionKey || '').trim()
+    } catch {
+      /* ignore */
+    }
+  }, [selectedSessionKey])
   // 已选会话但还没有 threadId：主动 ensure，否则 V4 会停在 no-thread→「加载中…」
   // 部门群聊是本地 IM 面（dept:{id}:chat），不要 ensure-thread / 建假会话，否则会卡住导航。
   useEffect(() => {
@@ -1188,6 +1197,11 @@ export function useChatAppController() {
       ...recentV4ThreadIdsRef.current.filter((x) => x !== tid),
     ].slice(0, 4)
   }, [selectedSessionKey])
+  // executingSessionKeys 是新 Set 引用；用签名稳住 pin sync，避免 epoch 抖动反复撕订。
+  const executingPinSig = useMemo(
+    () => Array.from(executingSessionKeys).sort().join('\0'),
+    [executingSessionKeys],
+  )
   useEffect(() => {
     if (!isEvoflowChatV4Enabled()) return
     const resolveTid = (sk: string) =>
@@ -1206,7 +1220,7 @@ export function useChatAppController() {
     }
     const selected = String(selectedSessionKey || '').trim()
     if (selected) pushTarget(selected, resolveTid(selected))
-    for (const sk of executingSessionKeys) {
+    for (const sk of executingPinSig ? executingPinSig.split('\0') : []) {
       const key = String(sk || '').trim()
       if (!key || key === selected) continue
       pushTarget(key, resolveTid(key))
@@ -1220,7 +1234,7 @@ export function useChatAppController() {
       pushTarget(String(sk || '').trim(), id)
     }
     syncEvoflowV4PinnedSessions(ordered)
-  }, [executingSessionKeys, selectedSessionKey, sessions])
+  }, [executingPinSig, selectedSessionKey, sessions])
 
   const seenRunIdsRef = useRef(new Set<string>())
   const activeChatRunIdRef = useRef<string | null>(null)
