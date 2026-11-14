@@ -632,8 +632,7 @@ class SubagentExecutor:
                 stream_upto = 0
                 message_count = 0
 
-                from evoflow.scheduler.subagent_stream import subagent_stream_task_id_ctx
-                from evoflow.scheduler.subagent_stream import parent_chat_stream_writer_ctx
+                from evoflow.scheduler.subagent_stream import parent_chat_stream_writer_ctx, subagent_stream_task_id_ctx
 
                 with (
                     subagent_stream_task_id_ctx(result.task_id),
