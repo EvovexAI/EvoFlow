@@ -6511,6 +6511,44 @@ html.evopanel-macos-titlebar .react-chat-header {
   color: var(--text-tertiary, #94a3b8);
 }
 
+.react-chat-header-childwork-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-secondary, #f1f5f9) 100%, transparent);
+  border: 1px solid color-mix(in srgb, #22c55e 30%, transparent);
+  color: #15803d;
+  cursor: pointer;
+}
+
+.react-chat-header-childwork-badge:hover {
+  border-color: color-mix(in srgb, #22c55e 60%, transparent);
+}
+
+.react-chat-header-childwork-badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: react-chat-childwork-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes react-chat-childwork-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.react-chat-header-childwork-badge-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .react-chat-header-run-badge.is-idle {
   background: color-mix(in srgb, var(--bg-secondary, #f1f5f9) 100%, transparent);
   color: var(--text-tertiary, #94a3b8);
