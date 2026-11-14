@@ -65,7 +65,7 @@ def build_xiaomi_voice_pipeline(
     tts_provider: str = "volcengine",
     speaker: str | None = None,
     on_user_turn: TurnHandler | None = None,
-    silence_ms: float = 800.0,
+    silence_ms: float = 1100.0,
     auto_ack: bool = False,
 ) -> tuple[Pipeline, Any, Any, None]:
     """Return (pipeline, bridge, asr_flush_target, vad).

@@ -74,8 +74,9 @@ class SpeechSession:
         self._default_speaker: str | None = None
         self._asr_provider = "volcengine"
         self._tts_provider = "volcengine"
-        # 判停静默窗口（ms）；可由 start 载荷覆盖（前端 localStorage）。800=短问句少等 100ms，犹豫语速仍安全。
-        self._silence_ms = 800.0
+        # 判停静默窗口（ms）；可由 start 载荷覆盖（前端 localStorage）。
+        # 1100：连续说时短停顿少切成「你还能」半句；仍可被 FE 覆盖。
+        self._silence_ms = 1100.0
         # 用量入账：PCM 累计字节（ASR 秒数按 turn 结算）+ TTS 按句字数
         self._pcm_bytes_total = 0
         self._pcm_bytes_billed = 0

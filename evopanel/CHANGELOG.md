@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.27] - 2026-11-14
+
+相对 **1.3.26**：修复正式包 arch-guard（核心层不得直接 import Gateway）；小 V 多轮 ASR 不再粘上一句；用户点停时先封 V4 投影再掐流。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.27.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **正式包构建失败（arch-guard）**：停止封投影与工作流进度卡写入改为 runtime ports，核心层不再直接 import `app.gateway`
+- **小 V 多轮听写粘句**：已确认上一句不再粘在本轮 ASR 前；过短句允许整句重发
+- **用户点停**：先封 V4 投影再停流
+
+### Changed
+
+- **性能浮层**：采样与展示更完整
+- **对话计时日志**：补充首响与轮次闩锁字段
+
 ## [1.3.26] - 2026-11-14
 
 相对 **1.3.25**：点发送后整窗不再因任务历史全仓扫盘或大帧解析而冻住；小 V 自查记忆/技能/配置时不再自动占满右栏；语音与部门群朗读在打断与切会话时停播干净。

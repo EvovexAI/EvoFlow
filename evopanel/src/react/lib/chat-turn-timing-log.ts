@@ -6,11 +6,16 @@
  * 2. 桌面端专属：`~/.evoflow/logs/chat-turn-lifecycle-YYYY-MM-DD.log`（保留 7 天）
  * 3. 仍镜像一份到 `frontend-YYYY-MM-DD.log`（兼容旧 grep）
  * 4. 系统日志页 → Turn lifecycle
+ * 5. 异常环：`listChatTurnAnomalies()` / `window.__evoflowTurnAnomalies`
+ *    （久等无首字会按阶段「记死」，统一事后排查 FE vs BE）
  *
  * 关闭：localStorage.setItem('EVOFLOW_TURN_TIMING_LOG', '0')
  *
  * 慢首帧拆解：看 sinceSendMs 在
  * send_click → send_wire → run_started → first_response → stream_end 之间的差。
+ *
+ * 正常判定：点击发送 → 页面出现首个回复字（first_response）→ 流正常收口（stream_end）。
+ * 任一环卡住超过阈值 → `first_token_stall` / `first_token_dead` 写入异常环 + 生命周期日志。
  */
 import { logChatRuntimeTurn, logChatRuntimeUserClick } from './chat-runtime-log.js'
 
@@ -19,6 +24,48 @@ const LC_PREFIX = '[turn-lifecycle]'
 const LS_ENABLE_KEY = 'EVOFLOW_TURN_TIMING_LOG'
 const SLOW_FIRST_MS = 3_000
 const SEND_CLICK_BIND_MS = 12_000
+
+/** 首字看门狗阈值：5s 预警 / 12s 再警 / 30s 记死（error） */
+const FIRST_TOKEN_STALL_STEPS: Array<{
+  ms: number
+  level: 'warn' | 'error'
+  dead: boolean
+}> = [
+  { ms: 5_000, level: 'warn', dead: false },
+  { ms: 12_000, level: 'warn', dead: false },
+  { ms: 30_000, level: 'error', dead: true },
+]
+
+export type ChatTurnStallStage =
+  | 'fe_prep'
+  | 'be_accept'
+  | 'await_first_token'
+  | 'await_stream_end'
+  | 'unknown'
+
+export type ChatTurnAnomaly = {
+  id: string
+  at: number
+  sessionKey: string
+  event: 'first_token_stall' | 'first_token_dead' | 'stream_end_missing'
+  stage: ChatTurnStallStage
+  sinceSendMs: number
+  wireLogged: boolean
+  runStartedLogged: boolean
+  firstResponseLogged: boolean
+  textPreview: string
+  zh: string
+  runId?: string
+}
+
+const ANOMALY_RING_MAX = 80
+const anomalyRing: ChatTurnAnomaly[] = []
+const anomalyListeners = new Set<(a: ChatTurnAnomaly) => void>()
+let stallWatchTimer: ReturnType<typeof setInterval> | null = null
+/** 本轮已打过的首字阈值（ms），避免重复刷 */
+const stallStepsFired = new Set<number>()
+let streamEndWatchTimer: ReturnType<typeof setTimeout> | null = null
+const STREAM_END_DEAD_MS = 5 * 60_000
 
 export type ChatTurnSendTrace = {
   sessionKey: string
@@ -198,6 +245,227 @@ function emit(
   persistToLifecycleLog(level, `${lcLine} ${body}`)
 }
 
+function classifyStallStage(trace: ChatTurnSendTrace): ChatTurnStallStage {
+  if (!trace.wireLogged) return 'fe_prep'
+  if (!trace.runStartedLogged) return 'be_accept'
+  if (!trace.firstResponseLogged) return 'await_first_token'
+  if (!trace.streamEndLogged) return 'await_stream_end'
+  return 'unknown'
+}
+
+function stageZh(stage: ChatTurnStallStage): string {
+  switch (stage) {
+    case 'fe_prep':
+      return '前端发送准备（paint/context/abort/上线前）'
+    case 'be_accept':
+      return '已上线、等服务端 RUN_STARTED（网关/LangGraph 受理）'
+    case 'await_first_token':
+      return '回合已开跑、等首字（模型/推理首 token）'
+    case 'await_stream_end':
+      return '已有首字、等整轮收口'
+    default:
+      return '未知阶段'
+  }
+}
+
+function pushAnomaly(a: ChatTurnAnomaly): void {
+  anomalyRing.push(a)
+  while (anomalyRing.length > ANOMALY_RING_MAX) anomalyRing.shift()
+  for (const fn of anomalyListeners) {
+    try {
+      fn(a)
+    } catch {
+      /* ignore */
+    }
+  }
+  try {
+    const w = window as Window & { __evoflowTurnAnomalies?: unknown }
+    w.__evoflowTurnAnomalies = {
+      list: listChatTurnAnomalies,
+      latest: getLatestChatTurnAnomaly,
+      activeStall: getActiveChatTurnStall,
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+export function listChatTurnAnomalies(): ChatTurnAnomaly[] {
+  return anomalyRing.slice()
+}
+
+export function getLatestChatTurnAnomaly(
+  sessionKey?: string | null,
+): ChatTurnAnomaly | null {
+  const sk = String(sessionKey || '').trim()
+  for (let i = anomalyRing.length - 1; i >= 0; i -= 1) {
+    const a = anomalyRing[i]
+    if (!sk || a.sessionKey === sk) return a
+  }
+  return null
+}
+
+/** 当前仍在等首字的活跃卡顿（有 sendTrace 且未首帧） */
+export function getActiveChatTurnStall(
+  sessionKey?: string | null,
+): {
+  stalled: boolean
+  sinceMs: number
+  stage: ChatTurnStallStage
+  stageLabel: string
+  zh: string
+} | null {
+  if (!sendTrace || sendTrace.firstResponseLogged) return null
+  if (!sendTrace.sendClickLogged && !sendTrace.wireLogged) return null
+  const sk = String(sessionKey || '').trim()
+  if (sk && sendTrace.sessionKey && sk !== sendTrace.sessionKey) return null
+  const since = Math.max(0, Date.now() - sendTrace.startedAt)
+  if (since < FIRST_TOKEN_STALL_STEPS[0].ms) return null
+  const stage = classifyStallStage(sendTrace)
+  return {
+    stalled: true,
+    sinceMs: since,
+    stage,
+    stageLabel: stageZh(stage),
+    zh: `等首字已 ${since}ms · ${stageZh(stage)}`,
+  }
+}
+
+export function subscribeChatTurnAnomalies(
+  fn: (a: ChatTurnAnomaly) => void,
+): () => void {
+  anomalyListeners.add(fn)
+  return () => {
+    anomalyListeners.delete(fn)
+  }
+}
+
+function stopFirstTokenWatch(): void {
+  if (stallWatchTimer != null) {
+    clearInterval(stallWatchTimer)
+    stallWatchTimer = null
+  }
+  stallStepsFired.clear()
+}
+
+function stopStreamEndWatch(): void {
+  if (streamEndWatchTimer != null) {
+    clearTimeout(streamEndWatchTimer)
+    streamEndWatchTimer = null
+  }
+}
+
+function recordFirstTokenStall(opts: {
+  dead: boolean
+  level: 'warn' | 'error'
+  sinceMs: number
+}): void {
+  if (!sendTrace) return
+  if (sendTrace.firstResponseLogged) return
+  const stage = classifyStallStage(sendTrace)
+  const event = opts.dead ? 'first_token_dead' : 'first_token_stall'
+  const zh = opts.dead
+    ? `首字超时记死：已等 ${opts.sinceMs}ms 仍无回复字 · 卡在「${stageZh(stage)}」——请对照 Turn lifecycle 查 FE/BE`
+    : `首字偏慢预警：已等 ${opts.sinceMs}ms · 卡在「${stageZh(stage)}」`
+  emit(
+    zh,
+    {
+      event,
+      stage,
+      stageLabel: stageZh(stage),
+      sessionKey: sendTrace.sessionKey || undefined,
+      runId: sendTrace.runId || undefined,
+      sinceSendMs: opts.sinceMs,
+      wireLogged: !!sendTrace.wireLogged,
+      runStartedLogged: !!sendTrace.runStartedLogged,
+      firstResponseLogged: false,
+      textPreview: sendTrace.textPreview || undefined,
+      dead: opts.dead,
+    },
+    opts.level,
+  )
+  pushAnomaly({
+    id: `${event}-${sendTrace.startedAt}-${opts.sinceMs}`,
+    at: Date.now(),
+    sessionKey: sendTrace.sessionKey || '',
+    event,
+    stage,
+    sinceSendMs: opts.sinceMs,
+    wireLogged: !!sendTrace.wireLogged,
+    runStartedLogged: !!sendTrace.runStartedLogged,
+    firstResponseLogged: false,
+    textPreview: sendTrace.textPreview || '',
+    zh,
+    runId: sendTrace.runId,
+  })
+}
+
+/** 点发送后启动：定时检查是否出现首字；超时写入异常环。 */
+function armFirstTokenWatch(): void {
+  stopFirstTokenWatch()
+  stopStreamEndWatch()
+  if (typeof window === 'undefined') return
+  stallWatchTimer = setInterval(() => {
+    if (!sendTrace || sendTrace.firstResponseLogged) {
+      stopFirstTokenWatch()
+      return
+    }
+    if (!sendTrace.sendClickLogged && !sendTrace.wireLogged) return
+    const since = Math.max(0, Date.now() - sendTrace.startedAt)
+    for (const step of FIRST_TOKEN_STALL_STEPS) {
+      if (since < step.ms || stallStepsFired.has(step.ms)) continue
+      stallStepsFired.add(step.ms)
+      recordFirstTokenStall({ dead: step.dead, level: step.level, sinceMs: since })
+      if (step.dead) {
+        // 记死后仍留 watch，直到首字/结束，便于后续若突然回来能对上 first_response
+        break
+      }
+    }
+  }, 1000)
+}
+
+function armStreamEndWatch(): void {
+  stopStreamEndWatch()
+  if (typeof window === 'undefined' || !sendTrace) return
+  const startedAt = sendTrace.startedAt
+  const sessionKey = sendTrace.sessionKey
+  streamEndWatchTimer = setTimeout(() => {
+    streamEndWatchTimer = null
+    if (!sendTrace || sendTrace.startedAt !== startedAt) return
+    if (sendTrace.streamEndLogged || !sendTrace.firstResponseLogged) return
+    const since = Math.max(0, Date.now() - sendTrace.startedAt)
+    const zh = `整轮未收口：已有首字但 ${since}ms 仍无 stream_end · 可能挂死或只停了 UI busy`
+    emit(
+      zh,
+      {
+        event: 'stream_end_missing',
+        stage: 'await_stream_end',
+        sessionKey: sendTrace.sessionKey || sessionKey || undefined,
+        runId: sendTrace.runId || undefined,
+        sinceSendMs: since,
+        wireLogged: true,
+        runStartedLogged: true,
+        firstResponseLogged: true,
+      },
+      'error',
+    )
+    pushAnomaly({
+      id: `stream_end_missing-${startedAt}`,
+      at: Date.now(),
+      sessionKey: sendTrace.sessionKey || sessionKey || '',
+      event: 'stream_end_missing',
+      stage: 'await_stream_end',
+      sinceSendMs: since,
+      wireLogged: true,
+      runStartedLogged: true,
+      firstResponseLogged: true,
+      textPreview: sendTrace.textPreview || '',
+      zh,
+      runId: sendTrace.runId,
+    })
+  }, STREAM_END_DEAD_MS)
+}
+
 /**
  * 把 Composer 已记下的发送锚点绑到 sessionKey（保留点击时刻）。
  * 若无近期 Composer 点击，则新建锚点。返回是否已有「点击发送」中文日志。
@@ -372,6 +640,7 @@ export function logChatTurnSendClick(opts: {
       sessionKey: sessionKey || undefined,
       detail: { attachmentCount, source: opts.source || undefined },
     })
+    armFirstTokenWatch()
   }
 }
 
@@ -398,6 +667,8 @@ export function logChatTurnSendWire(opts: {
     },
     level,
   )
+  // 目标/语音等未走 Composer 点击时，上线瞬间补启看门狗
+  if (!stallWatchTimer) armFirstTokenWatch()
 }
 
 /** AG-UI RUN_STARTED：服务端开始跑本轮 */
@@ -558,6 +829,8 @@ export function logChatTurnFirstResponse(opts: {
     gatedByV4: opts.gatedByV4 || undefined,
     ...(since != null ? { sinceSendMs: since } : {}),
   }, level)
+  stopFirstTokenWatch()
+  armStreamEndWatch()
 }
 
 export type ChatTurnStreamEndOutcome =
@@ -620,6 +893,8 @@ export function logChatTurnStreamEnd(opts: {
     ...(since != null ? { sinceSendMs: since } : {}),
     ...(opts.detail || {}),
   }, level)
+  stopFirstTokenWatch()
+  stopStreamEndWatch()
   // 结束后清本轮锚点，避免下一轮误绑 sinceSendMs
   if (sendTrace && sendTrace.streamEndLogged) {
     sendTrace = null

@@ -45,7 +45,7 @@ def _seal_v4_projection_on_user_stop(thread_id: str | None) -> None:
     if not tid:
         return
     try:
-        from app.gateway.v4.agui_mirror import mirror_seal_user_stop
+        from evoflow.runtime.ports import mirror_seal_user_stop
 
         mirror_seal_user_stop(tid)
     except Exception:

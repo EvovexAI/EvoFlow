@@ -17,7 +17,7 @@ const SOURCE_META = [
   { id: 'gateway-slow', title: 'Gateway slow', when: '慢请求' },
   { id: 'right-stage', title: 'Right stage', when: '右栏 / 工作流' },
   { id: 'chat-runtime', title: 'Chat runtime', when: '对话起停 / 点发点停 / 左右 busy' },
-  { id: 'chat-turn-lifecycle', title: 'Turn lifecycle', when: '点发送→首帧→流结束整轮生命周期' },
+  { id: 'chat-turn-lifecycle', title: 'Turn lifecycle', when: '点发送→首帧→流结束；首字超时 first_token_dead / stall 记死在此' },
   { id: 'assistant-audit', title: 'Assistant audit', when: '助手审计' },
   { id: 'guardian', title: 'Guardian', when: '守护进程' },
   { id: 'config-audit', title: 'Config audit', when: '配置变更审计' },

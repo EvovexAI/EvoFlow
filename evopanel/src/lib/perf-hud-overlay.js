@@ -6,6 +6,7 @@ import { api } from './tauri-api.js'
 import { OBS_ENABLED_CHANGED_EVENT } from '../react/obs/lib/obs-api.js'
 
 const HUD_ID = 'evoflow-perf-hud'
+const HUD_SKIN = 'telemetry-v2'
 const POS_KEY = 'evoflow_perf_hud_pos'
 const COLLAPSED_KEY = 'evoflow_perf_hud_collapsed'
 
@@ -36,15 +37,27 @@ function clampPct(v) {
 
 function ringSvg(pct, color) {
   const p = clampPct(pct)
-  const r = 28
+  const r = 26
   const c = 2 * Math.PI * r
   const dash = (p / 100) * c
   return `<svg class="ef-hud-ring" viewBox="0 0 72 72" aria-hidden="true">
-    <circle cx="36" cy="36" r="${r}" fill="none" stroke="rgba(148,163,184,.18)" stroke-width="6"/>
-    <circle cx="36" cy="36" r="${r}" fill="none" stroke="${color}" stroke-width="6"
-      stroke-linecap="round" stroke-dasharray="${dash} ${c}"
-      transform="rotate(-90 36 36)"/>
+    <circle cx="36" cy="36" r="${r}" fill="none" stroke="rgba(0,229,255,.12)" stroke-width="5"/>
+    <circle cx="36" cy="36" r="${r}" fill="none" stroke="${color}" stroke-width="5"
+      stroke-linecap="butt" stroke-dasharray="${dash} ${c}"
+      transform="rotate(-90 36 36)" style="filter:drop-shadow(0 0 4px ${color})"/>
   </svg>`
+}
+
+function barMeter(pct, color) {
+  const p = clampPct(pct)
+  return `<div class="ef-hud-bar" aria-hidden="true"><i style="width:${p.toFixed(1)}%;background:${color};box-shadow:0 0 10px ${color}"></i></div>`
+}
+
+function toneForPct(pct, warnAt = 80) {
+  const p = clampPct(pct)
+  if (p >= warnAt) return '#ff5c7a'
+  if (p >= warnAt - 20) return '#ffc14d'
+  return '#00e5ff'
 }
 
 async function getSnapshot() {
@@ -116,66 +129,97 @@ function hudCss() {
   return `
       #${HUD_ID}{
         position:fixed;z-index:2147482900;left:auto;right:18px;bottom:18px;top:auto;
-        width:292px;user-select:none;
-        font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
-        color:#e2e8f0;
-        filter:drop-shadow(0 10px 28px rgba(0,0,0,.28));
+        width:320px;user-select:none;
+        font-family:"JetBrains Mono","SF Mono",ui-monospace,Menlo,Consolas,monospace;
+        color:#d7f7ff;
+        filter:drop-shadow(0 16px 40px rgba(0,0,0,.55));
       }
       #${HUD_ID} .ef-hud-shell{
-        position:relative;border-radius:16px;overflow:hidden;
-        background:linear-gradient(155deg,rgba(15,23,42,.42),rgba(30,41,59,.36) 48%,rgba(15,23,42,.48));
-        border:1px solid rgba(125,211,252,.22);
-        backdrop-filter:blur(18px) saturate(1.35);
-        -webkit-backdrop-filter:blur(18px) saturate(1.35);
-        box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 0 0 1px rgba(56,189,248,.06);
+        position:relative;overflow:hidden;
+        clip-path:polygon(0 10px,10px 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);
+        background:
+          linear-gradient(165deg,rgba(4,14,24,.96) 0%,rgba(6,22,36,.94) 48%,rgba(3,12,22,.97) 100%);
+        border:1px solid rgba(0,229,255,.45);
+        box-shadow:
+          inset 0 0 0 1px rgba(0,229,255,.08),
+          inset 0 1px 0 rgba(255,255,255,.08),
+          0 0 24px rgba(0,229,255,.12);
       }
       #${HUD_ID} .ef-hud-shell::before{
-        content:"";position:absolute;inset:0;pointer-events:none;
+        content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
         background:
-          linear-gradient(180deg,rgba(34,211,238,.06),transparent 32%),
-          repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(148,163,184,.02) 3px);
-        opacity:.7;
+          linear-gradient(90deg,rgba(0,229,255,.04) 1px,transparent 1px) 0 0 / 16px 16px,
+          linear-gradient(0deg,rgba(0,229,255,.04) 1px,transparent 1px) 0 0 / 16px 16px,
+          linear-gradient(180deg,rgba(0,229,255,.14),transparent 28%);
+        opacity:.9;
       }
+      #${HUD_ID} .ef-hud-shell::after{
+        content:"";position:absolute;inset:0;pointer-events:none;z-index:0;
+        background:repeating-linear-gradient(
+          180deg,
+          transparent 0,transparent 2px,
+          rgba(0,0,0,.12) 3px
+        );
+        mix-blend-mode:multiply;opacity:.35;
+        animation:efHudScan 7s linear infinite;
+      }
+      @keyframes efHudScan{
+        0%{transform:translateY(-8%)}
+        100%{transform:translateY(8%)}
+      }
+      #${HUD_ID} .ef-hud-corner{
+        position:absolute;width:12px;height:12px;z-index:2;pointer-events:none;
+        border:2px solid #00e5ff;opacity:.85;
+      }
+      #${HUD_ID} .ef-hud-corner.tl{top:6px;left:6px;border-right:0;border-bottom:0}
+      #${HUD_ID} .ef-hud-corner.tr{top:6px;right:6px;border-left:0;border-bottom:0}
+      #${HUD_ID} .ef-hud-corner.bl{bottom:6px;left:6px;border-right:0;border-top:0}
+      #${HUD_ID} .ef-hud-corner.br{bottom:6px;right:6px;border-left:0;border-top:0}
       #${HUD_ID} .ef-hud-head{
-        position:relative;display:flex;align-items:center;justify-content:space-between;
-        gap:8px;padding:10px 12px 6px;cursor:grab;
+        position:relative;z-index:1;display:flex;align-items:center;justify-content:space-between;
+        gap:8px;padding:14px 14px 8px;cursor:grab;
+        border-bottom:1px solid rgba(0,229,255,.18);
       }
       #${HUD_ID} .ef-hud-head:active{cursor:grabbing}
-      #${HUD_ID} .ef-hud-brand{
-        display:flex;align-items:center;gap:8px;min-width:0;
-      }
+      #${HUD_ID} .ef-hud-brand{display:flex;align-items:center;gap:10px;min-width:0}
       #${HUD_ID} .ef-hud-pulse{
-        width:8px;height:8px;border-radius:50%;background:#22d3ee;
-        box-shadow:0 0 0 0 rgba(34,211,238,.7);
-        animation:efHudPulse 1.6s ease-out infinite;
-        flex:0 0 auto;
+        width:9px;height:9px;border-radius:1px;background:#00e5ff;transform:rotate(45deg);
+        box-shadow:0 0 0 0 rgba(0,229,255,.65);
+        animation:efHudPulse 1.4s ease-out infinite;flex:0 0 auto;
       }
       @keyframes efHudPulse{
-        0%{box-shadow:0 0 0 0 rgba(34,211,238,.55)}
-        70%{box-shadow:0 0 0 8px rgba(34,211,238,0)}
-        100%{box-shadow:0 0 0 0 rgba(34,211,238,0)}
+        0%{box-shadow:0 0 0 0 rgba(0,229,255,.6);opacity:1}
+        70%{box-shadow:0 0 0 9px rgba(0,229,255,0);opacity:.85}
+        100%{box-shadow:0 0 0 0 rgba(0,229,255,0);opacity:1}
       }
       #${HUD_ID} .ef-hud-title{
-        font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#67e8f9;font-weight:700;
+        font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:#00e5ff;font-weight:800;
+        text-shadow:0 0 12px rgba(0,229,255,.45);
       }
       #${HUD_ID} .ef-hud-sub{
-        font-size:10px;color:#94a3b8;margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        font-size:10px;color:#8fd9ea;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+        opacity:.92;
       }
-      #${HUD_ID} .ef-hud-actions{display:flex;gap:4px;flex:0 0 auto}
+      #${HUD_ID} .ef-hud-actions{display:flex;gap:6px;flex:0 0 auto}
       #${HUD_ID} .ef-hud-btn{
-        border:1px solid rgba(148,163,184,.22);background:rgba(15,23,42,.28);
-        color:#cbd5e1;border-radius:8px;width:26px;height:26px;cursor:pointer;font-size:12px;line-height:1;
+        border:1px solid rgba(0,229,255,.35);background:rgba(0,229,255,.08);
+        color:#b8f4ff;border-radius:2px;width:28px;height:28px;cursor:pointer;font-size:13px;line-height:1;
       }
-      #${HUD_ID} .ef-hud-btn:hover{border-color:rgba(34,211,238,.55);color:#67e8f9;background:rgba(15,23,42,.4)}
-      #${HUD_ID} .ef-hud-body{position:relative;padding:4px 12px 12px}
+      #${HUD_ID} .ef-hud-btn:hover{
+        border-color:#00e5ff;color:#fff;background:rgba(0,229,255,.2);
+        box-shadow:0 0 12px rgba(0,229,255,.25);
+      }
+      #${HUD_ID} .ef-hud-body{position:relative;z-index:1;padding:10px 14px 14px}
       #${HUD_ID}.is-collapsed .ef-hud-body{display:none}
       #${HUD_ID} .ef-hud-gauges{
-        display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;
+        display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;
       }
       #${HUD_ID} .ef-hud-gauge{
-        position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;
-        padding:8px 4px 6px;border-radius:12px;
-        background:rgba(15,23,42,.22);border:1px solid rgba(148,163,184,.18);
+        position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;
+        padding:10px 6px 8px;
+        background:rgba(0,20,32,.72);
+        border:1px solid rgba(0,229,255,.28);
+        clip-path:polygon(0 6px,6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%);
       }
       #${HUD_ID} .ef-hud-ring-wrap{position:relative;width:72px;height:72px}
       #${HUD_ID} .ef-hud-ring{width:72px;height:72px;display:block}
@@ -183,47 +227,99 @@ function hudCss() {
         position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
         flex-direction:column;pointer-events:none;
       }
-      #${HUD_ID} .ef-hud-ring-val strong{font-size:13px;color:#f8fafc;font-weight:700}
-      #${HUD_ID} .ef-hud-ring-val span{font-size:9px;color:#94a3b8;letter-spacing:.08em}
-      #${HUD_ID} .ef-hud-gauge-label{font-size:10px;color:#7dd3fc;letter-spacing:.08em}
-      #${HUD_ID} .ef-hud-rows{display:flex;flex-direction:column;gap:6px}
-      #${HUD_ID} .ef-hud-row{
-        display:flex;justify-content:space-between;align-items:baseline;gap:8px;
-        font-size:11px;padding:6px 8px;border-radius:8px;
-        background:rgba(15,23,42,.2);border:1px solid rgba(148,163,184,.14);
+      #${HUD_ID} .ef-hud-ring-val strong{
+        font-size:15px;color:#ffffff;font-weight:800;letter-spacing:-.02em;
+        text-shadow:0 0 10px rgba(0,229,255,.35);
       }
-      #${HUD_ID} .ef-hud-row.is-warn{border-color:rgba(251,113,133,.55);color:#fda4af}
-      #${HUD_ID} .ef-hud-row .k{color:#94a3b8}
-      #${HUD_ID} .ef-hud-row .v{color:#e2e8f0;font-weight:650;white-space:nowrap}
+      #${HUD_ID} .ef-hud-ring-val span{
+        font-size:9px;color:#7ddcf0;letter-spacing:.14em;font-weight:700;
+      }
+      #${HUD_ID} .ef-hud-gauge-label{
+        font-size:10px;color:#00e5ff;letter-spacing:.16em;font-weight:700;text-transform:uppercase;
+      }
+      #${HUD_ID} .ef-hud-rows{display:flex;flex-direction:column;gap:8px}
+      #${HUD_ID} .ef-hud-row{
+        display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;
+        font-size:11px;padding:8px 10px;
+        background:rgba(0,16,28,.78);
+        border:1px solid rgba(0,229,255,.22);
+        border-left:3px solid rgba(0,229,255,.55);
+      }
+      #${HUD_ID} .ef-hud-row.is-warn{
+        border-color:rgba(255,92,122,.65);border-left-color:#ff5c7a;
+        background:rgba(48,8,18,.55);
+      }
+      #${HUD_ID} .ef-hud-row .k{
+        color:#9adcec;font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;
+      }
+      #${HUD_ID} .ef-hud-row .v{
+        color:#ffffff;font-weight:800;white-space:nowrap;font-size:12px;
+        text-shadow:0 0 8px rgba(0,229,255,.2);
+      }
+      #${HUD_ID} .ef-hud-row .ef-hud-bar{
+        grid-column:1 / -1;height:4px;margin-top:2px;
+        background:rgba(0,229,255,.12);overflow:hidden;
+      }
+      #${HUD_ID} .ef-hud-row .ef-hud-bar i{
+        display:block;height:100%;min-width:2px;transition:width .35s ease;
+      }
       #${HUD_ID} .ef-hud-foot{
-        margin-top:8px;display:flex;justify-content:space-between;gap:8px;align-items:center;
+        margin-top:12px;display:flex;justify-content:space-between;gap:8px;align-items:center;
+        padding-top:10px;border-top:1px solid rgba(0,229,255,.18);
       }
       #${HUD_ID} .ef-hud-link{
-        border:0;background:transparent;color:#38bdf8;font-size:11px;cursor:pointer;padding:0;
-        font-family:inherit;
+        border:1px solid rgba(0,229,255,.3);background:rgba(0,229,255,.06);
+        color:#7ef0ff;font-size:10px;cursor:pointer;padding:4px 8px;
+        font-family:inherit;letter-spacing:.04em;text-transform:uppercase;font-weight:700;
       }
-      #${HUD_ID} .ef-hud-link:hover{text-decoration:underline;color:#7dd3fc}
-      #${HUD_ID} .ef-hud-tick{font-size:10px;color:#64748b}
+      #${HUD_ID} .ef-hud-link:hover{
+        border-color:#00e5ff;color:#fff;background:rgba(0,229,255,.18);
+        box-shadow:0 0 14px rgba(0,229,255,.2);
+      }
+      #${HUD_ID} .ef-hud-tick{
+        font-size:10px;color:#5ec8dc;letter-spacing:.06em;font-variant-numeric:tabular-nums;
+      }
   `
 }
 
 function ensureHost() {
   if (_host && document.body.contains(_host)) {
-    const styleEl = _host.querySelector('style')
-    if (styleEl) styleEl.textContent = hudCss()
-    return _host
+    if (_host.dataset.hudSkin === HUD_SKIN) {
+      const styleEl = _host.querySelector('style')
+      if (styleEl) styleEl.textContent = hudCss()
+      return _host
+    }
+    // Skin revision: rebuild DOM so new chrome (corners / bars) appears without refresh.
+    const display = _host.style.display
+    const left = _host.style.left
+    const top = _host.style.top
+    _host.remove()
+    _host = null
+    const rebuilt = ensureHost()
+    if (display) rebuilt.style.display = display
+    if (left) {
+      rebuilt.style.left = left
+      rebuilt.style.top = top || '0px'
+      rebuilt.style.right = 'auto'
+      rebuilt.style.bottom = 'auto'
+    }
+    return rebuilt
   }
   const host = document.createElement('div')
   host.id = HUD_ID
   host.innerHTML = `
     <style>${hudCss()}</style>
     <div class="ef-hud-shell" data-hud-shell>
+      <i class="ef-hud-corner tl" aria-hidden="true"></i>
+      <i class="ef-hud-corner tr" aria-hidden="true"></i>
+      <i class="ef-hud-corner bl" aria-hidden="true"></i>
+      <i class="ef-hud-corner br" aria-hidden="true"></i>
       <div class="ef-hud-head" data-hud-drag>
         <div class="ef-hud-brand">
           <i class="ef-hud-pulse" aria-hidden="true"></i>
           <div style="min-width:0">
-            <div class="ef-hud-title">Perf HUD</div>
-            <div class="ef-hud-sub" data-hud-sub>运维观测 · CPU/内存（对话链路看顶部信息条）</div>
+            <div class="ef-hud-title">SYS TELEMETRY</div>
+            <div class="ef-hud-sub" data-hud-sub>运维观测 · CPU/内存 · 对话链路看顶部信息条</div>
           </div>
         </div>
         <div class="ef-hud-actions">
@@ -238,13 +334,14 @@ function ensureHost() {
         </div>
         <div class="ef-hud-rows" data-hud-rows></div>
         <div class="ef-hud-foot">
-          <button type="button" class="ef-hud-link" data-hud-obs>运维观测 →</button>
-          <button type="button" class="ef-hud-link" data-hud-rm>资源管理器</button>
+          <button type="button" class="ef-hud-link" data-hud-obs>观测台</button>
+          <button type="button" class="ef-hud-link" data-hud-rm>资源</button>
           <span class="ef-hud-tick" data-hud-tick>—</span>
         </div>
       </div>
     </div>
   `
+  host.dataset.hudSkin = HUD_SKIN
   document.body.appendChild(host)
   _host = host
 
@@ -322,12 +419,17 @@ function render(host, snap) {
   const lg = pickLanggraph(snap?.processes)
   const lgWarn = lg && lg.memoryBytes >= 4 * 1024 * 1024 * 1024
 
+  const cpuTone = toneForPct(appCpu, 80)
+  const memTone = toneForPct(sysMemPct, 85)
+  const sysCpuTone = toneForPct(sysCpu, 85)
+  const lgCpu = lg ? clampPct(lg.cpuPercent) : 0
+
   const cpuGauge = host.querySelector('[data-hud-cpu-gauge]')
   const memGauge = host.querySelector('[data-hud-mem-gauge]')
   if (cpuGauge) {
     cpuGauge.innerHTML = `
       <div class="ef-hud-ring-wrap">
-        ${ringSvg(appCpu, appCpu >= 80 ? '#fb7185' : '#22d3ee')}
+        ${ringSvg(appCpu, cpuTone)}
         <div class="ef-hud-ring-val"><strong>${appCpu.toFixed(0)}%</strong><span>APP</span></div>
       </div>
       <div class="ef-hud-gauge-label">CPU</div>
@@ -336,10 +438,10 @@ function render(host, snap) {
   if (memGauge) {
     memGauge.innerHTML = `
       <div class="ef-hud-ring-wrap">
-        ${ringSvg(sysMemPct, sysMemPct >= 85 ? '#fb7185' : '#34d399')}
+        ${ringSvg(sysMemPct, memTone)}
         <div class="ef-hud-ring-val"><strong>${sysMemPct.toFixed(0)}%</strong><span>SYS</span></div>
       </div>
-      <div class="ef-hud-gauge-label">内存</div>
+      <div class="ef-hud-gauge-label">MEM</div>
     `
   }
 
@@ -347,17 +449,23 @@ function render(host, snap) {
   if (rows) {
     rows.innerHTML = `
       <div class="ef-hud-row">
-        <span class="k">本机 CPU</span><span class="v">${sysCpu.toFixed(1)}%</span>
+        <span class="k">Host CPU</span><span class="v">${sysCpu.toFixed(1)}%</span>
+        ${barMeter(sysCpu, sysCpuTone)}
       </div>
       <div class="ef-hud-row">
-        <span class="k">EvoFlow 内存</span><span class="v">${formatBytes(appMem)}${sysTotal ? ` · ${appMemPct.toFixed(1)}%` : ''}</span>
+        <span class="k">EvoFlow RSS</span>
+        <span class="v">${formatBytes(appMem)}${sysTotal ? ` · ${appMemPct.toFixed(1)}%` : ''}</span>
+        ${barMeter(appMemPct || Math.min(100, appMem / (512 * 1024 * 1024) * 100), toneForPct(appMemPct || 0, 40))}
       </div>
       <div class="ef-hud-row">
-        <span class="k">本机内存</span><span class="v">${sysTotal ? `${formatBytes(sysUsed)} / ${formatBytes(sysTotal)}` : '—'}</span>
+        <span class="k">Host MEM</span>
+        <span class="v">${sysTotal ? `${formatBytes(sysUsed)} / ${formatBytes(sysTotal)}` : '—'}</span>
+        ${barMeter(sysMemPct, memTone)}
       </div>
       <div class="ef-hud-row ${lgWarn ? 'is-warn' : ''}">
-        <span class="k">LangGraph RSS</span>
-        <span class="v">${lg ? `${formatBytes(lg.memoryBytes)} · CPU ${clampPct(lg.cpuPercent).toFixed(1)}%` : '未采样到'}</span>
+        <span class="k">LangGraph</span>
+        <span class="v">${lg ? `${formatBytes(lg.memoryBytes)} · ${lgCpu.toFixed(1)}%` : 'OFFLINE'}</span>
+        ${lg ? barMeter(Math.min(100, (lg.memoryBytes / (4 * 1024 * 1024 * 1024)) * 100), lgWarn ? '#ff5c7a' : '#00e5ff') : ''}
       </div>
     `
   }
@@ -365,9 +473,10 @@ function render(host, snap) {
   const sub = host.querySelector('[data-hud-sub]')
   if (sub) {
     const marker = snap?.instanceMarker || snap?.instance_marker || ''
+    const n = (snap?.processes || []).length
     sub.textContent = marker
-      ? `实例 ${marker} · ${(snap?.processes || []).length} 进程`
-      : `运维观测 · ${(snap?.processes || []).length} 进程`
+      ? `INST ${marker} · ${n} PROC · LIVE`
+      : `TELEMETRY LIVE · ${n} PROC`
   }
   const tick = host.querySelector('[data-hud-tick]')
   if (tick) tick.textContent = new Date().toLocaleTimeString()

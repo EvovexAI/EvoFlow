@@ -136,6 +136,21 @@ def register_runtime_adapters() -> None:
     except Exception:
         logger.debug("register kb_citations_publisher failed", exc_info=True)
 
+    # ── v4 conversation / AG-UI mirror ──────────────────────────────────
+    try:
+        from app.gateway.v4.agui_mirror import mirror_seal_user_stop as _seal_stop
+
+        ports.register("v4.mirror_seal_user_stop", _seal_stop)
+    except Exception:
+        logger.debug("register v4.mirror_seal_user_stop failed", exc_info=True)
+
+    try:
+        from app.gateway.v4.conversation import HUB as _v4_hub
+
+        ports.register("v4.upsert_workflow_run_from_task", _v4_hub.upsert_workflow_run_from_task)
+    except Exception:
+        logger.debug("register v4.upsert_workflow_run_from_task failed", exc_info=True)
+
     # ── channels + push routing + feishu ────────────────────────────────
     try:
         from app.channels.service import get_channel_service

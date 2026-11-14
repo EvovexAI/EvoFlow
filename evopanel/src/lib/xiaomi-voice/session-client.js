@@ -263,10 +263,12 @@ export async function connectXiaomiFrameSession() {
       const speaker = resolveXiaomiTtsSpeaker()
       if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
-      // 判停静默窗口：默认 900（后端默认），可用 localStorage 调参
+      // 判停静默窗口：默认 1100（连续说少切半句）；可用 localStorage 调参
       const silenceRaw = Number(localStorage.getItem('evoflow-voice-turn-silence-ms'))
       const silenceMs =
-        Number.isFinite(silenceRaw) && silenceRaw >= 300 ? Math.min(silenceRaw, 2000) : null
+        Number.isFinite(silenceRaw) && silenceRaw >= 300
+          ? Math.min(silenceRaw, 2000)
+          : 1100
       _pendingStart = { asr, tts, speaker, tid, silenceMs }
       voiceFeLog(
         '会话',

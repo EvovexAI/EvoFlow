@@ -446,6 +446,48 @@ def publish_kb_citations(
 
 
 # ---------------------------------------------------------------------------
+# v4 — conversation projection / AG-UI mirror (app.gateway.v4.*)
+# ---------------------------------------------------------------------------
+
+
+def mirror_seal_user_stop(thread_id: str | None) -> None:
+    """Seal V4 projection when the user stops a run (no-op off-process)."""
+    impl = get("v4.mirror_seal_user_stop")
+    if impl is None:
+        return
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    impl(tid)
+
+
+def upsert_workflow_run_from_task(
+    session_id: str,
+    *,
+    main_task_id: str,
+    name: str = "",
+    tool_call_id: str = "",
+    status: str = "running",
+) -> bool:
+    """Mirror a collab workflow into the V4 workflowRuns projection."""
+    impl = get("v4.upsert_workflow_run_from_task")
+    if impl is None:
+        return False
+    try:
+        return bool(
+            impl(
+                session_id,
+                main_task_id=main_task_id,
+                name=name,
+                tool_call_id=tool_call_id,
+                status=status,
+            )
+        )
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
 # channels — channel service & push routing (app.channels / channel_result_push)
 # ---------------------------------------------------------------------------
 

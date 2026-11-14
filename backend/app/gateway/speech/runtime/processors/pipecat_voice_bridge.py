@@ -134,6 +134,93 @@ def _is_junk_turn(text: str) -> bool:
     return _readable_len(t) < 2 and len(t) <= 2
 
 
+_ASR_NOISE_RE = re.compile(r"[\s\u3000，。！？、,.!?;；：:\"\"''“”‘’（）()【】\[\]…—\-]+")
+_COMMITTED_TURNS_MAX = 16
+_SHORT_COMMIT_CHARS = 12
+
+
+def _norm_user_turn(text: str) -> str:
+    t = _ASR_NOISE_RE.sub("", str(text or ""))
+    return t.lower()
+
+
+_SENT_BOUNDARY_AFTER_RE = re.compile(r"^[，。！？、,.!?;；：:\s\u3000]+")
+
+
+def _peel_one_committed_prefix(text: str, prev: str) -> tuple[str, bool]:
+    """剥掉单条已发前缀。返回 (text, peeled)。"""
+    t = (text or "").strip()
+    p = (prev or "").strip()
+    if not t or not p:
+        return t, False
+    np = _norm_user_turn(p)
+    nt = _norm_user_turn(t)
+    if not np or not nt:
+        return t, False
+    if nt == np or (np.find(nt) >= 0 and 4 <= len(nt) <= len(np)):
+        return "", True
+    if not nt.startswith(np) or len(nt) <= len(np):
+        return t, False
+    ni = 0
+    i = 0
+    while i < len(t) and ni < len(np):
+        ch = t[i]
+        if _ASR_NOISE_RE.fullmatch(ch):
+            i += 1
+            continue
+        if ch.lower() == np[ni]:
+            i += 1
+            ni += 1
+            continue
+        break
+    if ni < max(1, int(len(np) * 0.85)):
+        return t, False
+    rest = t[i:]
+    # 短前缀后无标点句界 → 同句延长（「你还能」→「你还能干点什么」），勿剥
+    if (
+        len(np) < _SHORT_COMMIT_CHARS
+        and len(nt) > len(np) + 2
+        and not _SENT_BOUNDARY_AFTER_RE.match(rest)
+    ):
+        return t, False
+    t = rest.lstrip("，。！？、,.!?;；：: \t\n\r\u3000")
+    return t, True
+
+
+def _peel_committed_asr_prefix(text: str, committed: list[str]) -> str:
+    """火山同会话 ASR 常把多轮旧定稿粘在新结果前；对近几轮已发句反复剥。"""
+    t = (text or "").strip()
+    if not t or not committed:
+        return t
+    guard = 0
+    while guard < _COMMITTED_TURNS_MAX + 2:
+        guard += 1
+        candidates = sorted(committed, key=lambda s: len(_norm_user_turn(s)), reverse=True)
+        progressed = False
+        for prev in candidates:
+            nxt, peeled = _peel_one_committed_prefix(t, prev)
+            if peeled:
+                t = nxt
+                progressed = True
+                break
+        if not progressed or not t:
+            break
+    return t
+
+
+def _remember_committed_turn(host: "PipecatVoiceBridge", text: str) -> None:
+    t = (text or "").strip()
+    if not t:
+        return
+    turns = getattr(host, "_committed_turns", None)
+    if not isinstance(turns, list):
+        turns = []
+        host._committed_turns = turns
+    turns.append(t)
+    while len(turns) > _COMMITTED_TURNS_MAX:
+        turns.pop(0)
+
+
 # 厂商单次合成长度软上限；超过才按句号切开（仍避免逗号/36 字碎切）
 _HOLD_ONESHOT_MAX_CHARS = 280
 _HOLD_SENTENCE_SPLIT_RE = re.compile(r"(?<=[。！？!?；;])")
@@ -246,7 +333,8 @@ def _build_user_turn_strategies(
     import os
 
     start = [_BotGatedVADStartStrategy(host, enable_interruptions=True)]
-    timeout_s = max(0.75, float(silence_s or 0.9))
+    # 中文口语短停顿易被 0.8s 切成半句；默认底线抬到 1.0s（仍可由 silence_ms 调）
+    timeout_s = max(1.0, float(silence_s or 1.1))
     use_smart = (os.getenv("EVOFLOW_VOICE_SMART_TURN") or "").strip().lower() in {
         "1",
         "true",
@@ -417,8 +505,15 @@ class _XiaomiHook(PipeFrameProcessor):
             return
 
         if isinstance(frame, PipeUserStoppedSpeakingFrame):
-            text = (self._last_text or "").strip()
+            raw = (self._last_text or "").strip()
             self._last_text = ""
+            committed = getattr(self._host, "_committed_turns", None) or []
+            text = _peel_committed_asr_prefix(raw, committed) if committed else raw
+            if text != raw and raw:
+                voice_log(
+                    "对话",
+                    f"ASR 粘连已剥前缀：「{raw[:40]}」→「{(text or '')[:40]}」",
+                )
             if self._speech_started_at:
                 _dur_ms = (time.monotonic() - self._speech_started_at) * 1000.0
                 self._speech_started_at = None
@@ -428,7 +523,7 @@ class _XiaomiHook(PipeFrameProcessor):
                 )
             if _is_junk_turn(text):
                 # 嗯/哦/哈哈 这类纯语气词：VAD 误触发常见，发进模型只会白耗一轮还答非所问
-                voice_log("对话", f"丢弃语气词回合：「{text}」（不进 agent）")
+                voice_log("对话", f"丢弃语气词回合：「{text or raw}」（不进 agent）")
                 await self.push_frame(frame, direction)
                 return
             if text:
@@ -436,6 +531,7 @@ class _XiaomiHook(PipeFrameProcessor):
                 self._host._turn += 1
                 turn = self._host._turn
                 self._host._turn_stopped_at = time.monotonic()
+                _remember_committed_turn(self._host, text)
                 voice_log("对话", f"用户输入（完整）：「{text}」 turn={turn}")
                 if self._auto_ack:
                     ack = random.choice(_ACK_POOL)
@@ -482,7 +578,7 @@ class PipecatVoiceBridge(FrameProcessor):
         tts_provider: str | None = "volcengine",
         speaker: str | None = None,
         on_user_turn: TurnHandler | None = None,
-        silence_ms: float = 800.0,
+        silence_ms: float = 1100.0,
         auto_ack: bool = False,
     ) -> None:
         super().__init__(name="PipecatVoiceBridge")
@@ -492,6 +588,8 @@ class PipecatVoiceBridge(FrameProcessor):
         self._on_user_turn = on_user_turn
         self._silence_s = max(0.2, float(silence_ms) / 1000.0)
         self._auto_ack = auto_ack
+        # 近几轮已发用户句：火山同会话 ASR 粘连剥前缀用
+        self._committed_turns: list[str] = []
 
         self._stt: EvoSTTService | None = None
         self._tts: VolcengineTTSService | None = None

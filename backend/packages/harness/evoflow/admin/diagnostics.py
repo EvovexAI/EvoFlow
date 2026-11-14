@@ -92,7 +92,7 @@ LOG_SOURCES: tuple[LogSource, ...] = (
         id="chat-turn-lifecycle",
         title="Turn lifecycle",
         prefixes=("chat-turn-lifecycle",),
-        when="点发送→首帧→流结束整轮生命周期（保留 7 天）",
+        when="点发送→首帧→流结束；首字超时 first_token_stall/dead 记死（保留 7 天）",
     ),
     LogSource(
         id="assistant-audit",

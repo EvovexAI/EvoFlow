@@ -1189,9 +1189,9 @@ def run_app_workflow(
                 bindings = resolve_thread_bindings_for_session_keys([origin_sk], max_keys=1)
                 v4_sid = bindings[0][1] if bindings else ""
                 if v4_sid:
-                    from app.gateway.v4.conversation import HUB
+                    from evoflow.runtime.ports import upsert_workflow_run_from_task
 
-                    HUB.upsert_workflow_run_from_task(
+                    upsert_workflow_run_from_task(
                         v4_sid,
                         main_task_id=str(task_id),
                         name=str(app_name or "工作流"),

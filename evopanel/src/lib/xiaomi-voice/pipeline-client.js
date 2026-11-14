@@ -131,20 +131,25 @@ let _coalesceText = ''
 /** 上次真正发出去的用户句 */
 let _lastCommittedTurn = ''
 let _lastCommittedAtMs = 0
+/** 近几轮已发用户句（火山同会话会把多轮旧话粘在新 ASR 前） */
+/** @type {string[]} */
+const _committedTurns = []
+const COMMITTED_TURNS_MAX = 16
 /** 「在呢」播完前 / 刚播完的宽限期，丢弃回声 turn_end */
 let _wakeAckUntilMs = 0
 /**
  * ASR 连推间隔内合并（ms）。turn_end 到达前后端已判停静默 ≥900ms，这里只需兜住
- * ASR 粘连/越听越长的快速补发；900ms 是在「后端 900ms 判停」之外的纯加层等待
- * （说完→发送 ≈1.8s 的主因之一）。500ms + dedup/延长句丢弃已够。
+ * ASR 粘连/越听越长的快速补发。略抬到 800：口语短停顿少切成「你还能」再补「干点什么」。
  * 调参：localStorage['evoflow-voice-coalesce-ms']
  */
 const USER_TURN_COALESCE_MS = (() => {
   const raw = Number(localStorage.getItem('evoflow-voice-coalesce-ms'))
-  return Number.isFinite(raw) && raw >= 200 ? Math.min(raw, 2000) : 500
+  return Number.isFinite(raw) && raw >= 200 ? Math.min(raw, 2000) : 800
 })()
 /** 已发问后，延长/近义句静默窗口（ms） */
 const USER_TURN_DEDUP_MS = 12000
+/** 上一句过短时，延长句允许整句重发（勿剥成残句） */
+const SHORT_COMMIT_REISSUE_CHARS = 12
 
 function _normUserTurn(text) {
   return String(text || '')
@@ -168,28 +173,77 @@ function _isSameOrExtendedTurn(a, b) {
   return i >= 8 && i >= Math.floor(shorter.length * 0.55)
 }
 
+function _rememberCommittedTurn(text) {
+  const t = String(text || '').trim()
+  if (!t) return
+  _lastCommittedTurn = t
+  _lastCommittedAtMs = Date.now()
+  _committedTurns.push(t)
+  while (_committedTurns.length > COMMITTED_TURNS_MAX) _committedTurns.shift()
+}
+
 /**
- * 火山同会话 ASR 常把「上一句定稿」粘在新 interim 前面（日志第二轮上屏越叠越长）。
- * 若能匹配已发送句前缀，只留下新增尾巴；纯回声 → 空串。
+ * 剥掉单条已发前缀。返回 { text, peeled }；peeled=false 表示未改动。
+ * @param {string} text
+ * @param {string} prev
+ */
+function _peelOneCommittedPrefix(text, prev) {
+  let t = String(text || '').trim()
+  const p = String(prev || '').trim()
+  if (!t || !p) return { text: t, peeled: false }
+  const np = _normUserTurn(p)
+  const nt = _normUserTurn(t)
+  if (!np || !nt) return { text: t, peeled: false }
+  if (nt === np || (np.includes(nt) && nt.length >= 4 && nt.length <= np.length)) {
+    return { text: '', peeled: true }
+  }
+  if (!nt.startsWith(np) || nt.length <= np.length) {
+    return { text: t, peeled: false }
+  }
+  let ni = 0
+  let i = 0
+  const noise = /[\s\u3000，。！？、,.!?;；：:"""''“”‘’（）()【】[\]…—\-]/
+  while (i < t.length && ni < np.length) {
+    const ch = t[i]
+    if (noise.test(ch)) {
+      i += 1
+      continue
+    }
+    if (ch.toLowerCase() === np[ni]) {
+      i += 1
+      ni += 1
+      continue
+    }
+    break
+  }
+  if (ni < Math.floor(np.length * 0.85)) return { text: t, peeled: false }
+  const rest = t.slice(i)
+  // 短前缀后无标点句界 → 同句延长，勿剥成「干点什么」
+  if (
+    np.length < SHORT_COMMIT_REISSUE_CHARS &&
+    nt.length > np.length + 2 &&
+    !/^[，。！？、,.!?;；：:\s\u3000]+/.test(rest)
+  ) {
+    return { text: t, peeled: false }
+  }
+  t = rest.replace(/^[，。！？、,.!?\s\u3000]+/, '').trim()
+  if (_isAckEchoText(t)) return { text: '', peeled: true }
+  return { text: t, peeled: true }
+}
+
+/**
+ * 火山同会话 ASR 常把「多轮旧定稿」粘在新结果前面（日志一轮吐出十几条历史 ASR最终）。
+ * 对近几轮已发句反复剥前缀；纯回声 → 空串。
  */
 function _peelCommittedAsrPrefix(text) {
   let t = String(text || '').trim()
   if (!t) return t
-  // 纯确认短句回声（整句「好的 / 收到」）
   if (_isAckEchoText(t)) return ''
-  const prev = String(_lastCommittedTurn || '').trim()
-  if (!prev) {
-    // 短应声不再按 endsWith 剥尾——「…好的」会误伤正常句
-    return t
-  }
-  const np = _normUserTurn(prev)
-  const nt = _normUserTurn(t)
-  if (!np) return t
-  if (!nt || nt === np || (np.includes(nt) && nt.length >= 4 && nt.length <= np.length)) {
-    return ''
-  }
-  if (!nt.startsWith(np) || nt.length <= np.length) {
-    // 「确认回声 + 新话」：短应声须有标点边界（「好的，…」），避免「收到了吗」被剥前缀
+  if (!_committedTurns.length && !_lastCommittedTurn) return t
+
+  // 「确认回声 + 新话」：短应声须有标点边界
+  {
+    const nt = _normUserTurn(t)
     for (const ack of _TURN_ACK_ECHO) {
       if (nt.startsWith(ack) && nt.length > ack.length) {
         let i = 0
@@ -218,31 +272,30 @@ function _peelCommittedAsrPrefix(text) {
         }
         if (!sawBoundary) continue
         t = t.slice(j).trim()
-        return _isAckEchoText(t) ? '' : t
+        if (_isAckEchoText(t)) return ''
+        break
       }
     }
-    return t
   }
-  // 按规范化前缀在原文上跳过对应可读字符
-  let ni = 0
-  let i = 0
-  const noise = /[\s\u3000，。！？、,.!?;；：:"""''“”‘’（）()【】[\]…—\-]/
-  while (i < t.length && ni < np.length) {
-    const ch = t[i]
-    if (noise.test(ch)) {
-      i += 1
-      continue
+
+  // 长句优先剥，循环直到剥不动（多轮粘连）
+  let guard = 0
+  while (guard++ < COMMITTED_TURNS_MAX + 2) {
+    const candidates = _committedTurns.length
+      ? _committedTurns.slice()
+      : [_lastCommittedTurn]
+    candidates.sort((a, b) => _normUserTurn(b).length - _normUserTurn(a).length)
+    let progressed = false
+    for (const prev of candidates) {
+      const { text: next, peeled } = _peelOneCommittedPrefix(t, prev)
+      if (peeled) {
+        t = next
+        progressed = true
+        break
+      }
     }
-    if (ch.toLowerCase() === np[ni]) {
-      i += 1
-      ni += 1
-      continue
-    }
-    break
+    if (!progressed || !t) break
   }
-  if (ni < Math.floor(np.length * 0.85)) return t
-  t = t.slice(i).replace(/^[，。！？、,.!?\s]+/, '').trim()
-  if (_isAckEchoText(t)) return ''
   return t
 }
 
@@ -1037,7 +1090,7 @@ async function _commitUserTurn(text) {
   if (!raw) return
   // 剥掉上轮粘连前缀，避免过 dedup 窗后整段「旧+新」当新句发出（面板叠加同源）
   const peeled = _peelCommittedAsrPrefix(raw)
-  const t = peeled || raw
+  let t = peeled || raw
   if (_lastCommittedTurn && !peeled && _isSameOrExtendedTurn(_lastCommittedTurn, raw)) {
     voiceFeLog('用户输入', `录入队列丢弃上轮 ASR 回声：「${raw.slice(0, 60)}」`)
     return
@@ -1053,12 +1106,27 @@ async function _commitUserTurn(text) {
     return
   }
 
-  // 已发问后的 ASR 延长/近义：绝不打断（这是「AI 回复没声」主因）
-  if (
+  // 上一句过短被误切后 ASR 补全：允许整句重发（勿当「延长丢弃」掐成半句）
+  const lastNorm = _normUserTurn(_lastCommittedTurn)
+  const nextNorm = _normUserTurn(t)
+  const shortReissue =
+    Boolean(lastNorm) &&
+    lastNorm.length < SHORT_COMMIT_REISSUE_CHARS &&
+    nextNorm.startsWith(lastNorm) &&
+    nextNorm.length > lastNorm.length + 2 &&
+    Date.now() - _lastCommittedAtMs < USER_TURN_DEDUP_MS
+  if (shortReissue) {
+    t = raw.length >= t.length ? raw : t
+    voiceFeLog(
+      '用户输入',
+      `短句延长整句重发：「${_lastCommittedTurn.slice(0, 20)}」→「${t.slice(0, 60)}」`,
+    )
+  } else if (
     _lastCommittedTurn &&
     Date.now() - _lastCommittedAtMs < USER_TURN_DEDUP_MS &&
     _isSameOrExtendedTurn(_lastCommittedTurn, t)
   ) {
+    // 已发问后的 ASR 延长/近义：绝不打断（这是「AI 回复没声」主因）
     voiceFeLog(
       '用户输入',
       `录入队列丢弃延长/近义（不打断回复）：「${t.slice(0, 60)}」距上次 ${Date.now() - _lastCommittedAtMs}ms`,
@@ -1077,8 +1145,28 @@ async function _commitUserTurn(text) {
   const playing = isXiaomiFramePlaying()
   const busy = _awaitingReply || playing
   if (busy) {
-    if (_lastCommittedTurn && _isSameOrExtendedTurn(_lastCommittedTurn, t)) {
+    if (
+      !shortReissue &&
+      _lastCommittedTurn &&
+      _isSameOrExtendedTurn(_lastCommittedTurn, t)
+    ) {
       voiceFeLog('用户输入', `思考/播报中丢弃 ASR 延长句：「${t.slice(0, 60)}」`)
+      return
+    }
+    // 短句误切后补全：取消半截问，立刻发整句（否则模型先答「你还能」）
+    if (shortReissue && _awaitingReply) {
+      voiceFeLog('用户输入', `短句延长 → abort 半截轮次重发：「${t.slice(0, 60)}」`)
+      _pendingTurns.length = 0
+      if (playing) {
+        try {
+          await bargeInXiaomiFrame('short_commit_reissue')
+        } catch {
+          /* ignore */
+        }
+      }
+      await _abortModelRunForBargeIn()
+      _awaitingReply = false
+      await _sendTurn(t)
       return
     }
     if (playing) {
@@ -1137,8 +1225,7 @@ async function _sendTurn(text) {
     window.clearTimeout(_listenUnmuteTimer)
     _listenUnmuteTimer = 0
   }
-  _lastCommittedTurn = String(text || '').trim()
-  _lastCommittedAtMs = Date.now()
+  _rememberCommittedTurn(text)
   if (_turnEndAt) {
     voiceFeLog(
       '时效',
@@ -1165,10 +1252,20 @@ async function _sendTurn(text) {
     if (_pendingTurns.length) {
       const next = String(_pendingTurns[_pendingTurns.length - 1] || '').trim()
       _pendingTurns.length = 0
-      if (next && _isSameOrExtendedTurn(_lastCommittedTurn, next)) {
+      const ln = _normUserTurn(_lastCommittedTurn)
+      const nn = _normUserTurn(next)
+      const pendingShortReissue =
+        Boolean(ln) &&
+        ln.length < SHORT_COMMIT_REISSUE_CHARS &&
+        nn.startsWith(ln) &&
+        nn.length > ln.length + 2
+      if (next && !pendingShortReissue && _isSameOrExtendedTurn(_lastCommittedTurn, next)) {
         voiceFeLog('用户输入', `发送后丢弃同轮延长排队：「${next.slice(0, 60)}」`)
         _refreshTray()
         return
+      }
+      if (pendingShortReissue) {
+        voiceFeLog('用户输入', `发送后短句延长改排队整句：「${next.slice(0, 60)}」`)
       }
       if (next) {
         // 仍在等回复：继续压住，勿立刻连发
@@ -1213,6 +1310,7 @@ export function stopXiaomiFramePipeline() {
   _clearCoalesce()
   _lastCommittedTurn = ''
   _lastCommittedAtMs = 0
+  _committedTurns.length = 0
   _wakeAckUntilMs = 0
   // 退出小微对话后不再 prefer 小V，避免迟到 ASR 仍标小V 或误路由
   void import('../background-voice-bridge.js')
