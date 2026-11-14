@@ -9,8 +9,8 @@
   "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.24/EvoFlow_1.3.24_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.24/EvoFlow_1.3.24_x64-setup.exe",
   "size": 0,
-  "changelog": "**EvoFlow v1.3.24 — 对话恢复更稳、渠道与停写更可靠**\n\n会话冷启动/切会话恢复更稳；停止与忙碌态更准；微信渠道入站出站更可靠；语音/小 V 关思考时网关日志可核对。无数据迁移，覆盖安装即可。",
-  "notes": "**EvoFlow v1.3.24 — 对话恢复更稳、渠道与停写更可靠**\n\n会话冷启动/切会话恢复更稳；停止与忙碌态更准；微信渠道入站出站更可靠；语音/小 V 关思考时网关日志可核对。无数据迁移，覆盖安装即可。",
+  "changelog": "**EvoFlow v1.3.24 — 会话恢复、停止与微信渠道**\n\n冷启动 / 切会话不再卡「加载中」或旧轮次抢显；停止后不再仍转圈；微信入站多媒体与出站按账号路由；语音 / 小 V 关思考时网关可核对是否传到厂商。无数据迁移，覆盖安装即可。",
+  "notes": "**EvoFlow v1.3.24 — 会话恢复、停止与微信渠道**\n\n冷启动 / 切会话不再卡「加载中」或旧轮次抢显；停止后不再仍转圈；微信入站多媒体与出站按账号路由；语音 / 小 V 关思考时网关可核对是否传到厂商。无数据迁移，覆盖安装即可。",
   "releasedAt": "",
   "pub_date": ""
 }
