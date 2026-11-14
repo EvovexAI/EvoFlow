@@ -204,8 +204,28 @@ def load_json_ref(pack: LoadedPack, from_path: str) -> dict[str, Any]:
 
 
 def apply_placeholders(text: str, *, org_workspace: str, org_root: str) -> str:
+    """Expand org pack placeholders (case-insensitive token names).
+
+    Accepts ``${ORG_WORKSPACE}`` / ``${org_workspace}`` etc. so templates and
+    leftover role ``workspace_path`` strings do not leak raw variables into prompts.
+    """
+    import re
+
     s = str(text or "")
-    return s.replace("${ORG_WORKSPACE}", org_workspace or "").replace("${ORG_ROOT}", org_root or "").replace("${EVOFLOW_HOME}", os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow")))
+    evo_home = os.getenv("EVOFLOW_HOME", str(Path.home() / ".evoflow"))
+    mapping = {
+        "ORG_WORKSPACE": org_workspace or "",
+        "ORG_ROOT": org_root or "",
+        "EVOFLOW_HOME": evo_home,
+    }
+
+    def _sub(match: re.Match[str]) -> str:
+        key = str(match.group(1) or "").strip().upper()
+        if key in mapping:
+            return mapping[key]
+        return match.group(0)
+
+    return re.sub(r"\$\{([A-Za-z0-9_]+)\}", _sub, s)
 
 
 def deep_apply_placeholders(obj: Any, *, org_workspace: str, org_root: str) -> Any:

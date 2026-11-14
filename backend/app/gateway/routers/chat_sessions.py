@@ -1090,11 +1090,17 @@ async def get_live_run_snapshot(request: Request, session_key: str) -> dict[str,
 async def put_live_run_snapshot(request: Request, session_key: str, body: LiveRunSnapshotBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
     from app.gateway.db_async import run_db
+    from app.gateway.hang_diagnostics import should_shed_best_effort
     from evoflow.persistence import live_run_repositories as live_repo
 
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
+
+    # Best-effort lane already 503-sheds under lag; also no-op here so FE debounce
+    # does not pile write work while subscribe hydrate needs the DB thread pool.
+    if should_shed_best_effort():
+        return {"ok": True, "sessionKey": key, "shed": True, "snapshot": None}
 
     def _write() -> dict[str, Any]:
         if sess_repo.is_session_deleted(key):
@@ -1540,17 +1546,41 @@ async def ensure_session_thread(
     key = _require_session_access(request, session_key)
     if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
+    session_map = await run_db(sess_repo.load_session_map)
+    row = session_map.get(key) or {}
+    prev_tid = str(row.get("threadId") or "").strip()
     _t0 = _time.perf_counter()
     try:
         thread_id = await chat_svc.ensure_session_thread(key, force_recreate=force_recreate)
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
     _ensure_ms = round((_time.perf_counter() - _t0) * 1000.0, 2)
+    new_tid = str(thread_id or "").strip()
+    # FE force_recreate（stream 404 后）路径：与 gateway 透明 remint 同款，
+    # 先把 remap 后的 transcript 灌进新 thread，避免随后 subscribe hydrate 跳过。
+    if force_recreate and prev_tid and new_tid and new_tid != prev_tid:
+        try:
+            import asyncio
+
+            from app.gateway.v4.hydration import rehydrate_after_thread_remint
+
+            await asyncio.to_thread(rehydrate_after_thread_remint, new_tid)
+        except Exception:
+            logger.warning(
+                "ensure-thread remint v4 rehydrate failed sk=%s old=%s new=%s",
+                key,
+                prev_tid,
+                new_tid,
+                exc_info=True,
+            )
     # Hot path: do not COUNT(*) the transcript on every ensure-thread (old/long
     # sessions were paying multi-second TTFT here). Prefer denormalized row count.
-    session_map = await run_db(sess_repo.load_session_map)
-    row = session_map.get(key) or {}
     message_count = int(row.get("messageCount") or 0)
+    if force_recreate and new_tid and new_tid != prev_tid:
+        # Remint 后 session 行已更新；刷新 messageCount 以免返回陈旧值。
+        session_map = await run_db(sess_repo.load_session_map)
+        row = session_map.get(key) or {}
+        message_count = int(row.get("messageCount") or 0)
     try:
         from evoflow.observability.run_latency_trace import write_run_latency_event
 
@@ -1921,46 +1951,64 @@ async def get_chat_session(request: Request, session_key: str) -> SessionRowResp
 @router.patch("/{session_key:path}/context", summary="Update session context fields (memory_enabled, etc.)")
 async def patch_session_context(request: Request, session_key: str, body: UpdateSessionContextBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
-        raise HTTPException(status_code=404, detail="session not found")
+    from app.gateway.db_async import run_db
+    from app.gateway.hang_diagnostics import should_shed_best_effort
 
-    prev_agent = ""
-    try:
-        prev_row = sess_repo.get_session_row_for_ui(key) or {}
-        prev_ctx = prev_row.get("context") if isinstance(prev_row.get("context"), dict) else {}
-        prev_agent = str(prev_ctx.get("agent_id") or prev_row.get("agentId") or "").strip()
-    except Exception:
+    ctx_patch = body.context if isinstance(body.context, dict) else {}
+    agent_touched = "agent_id" in ctx_patch or "agent_name" in ctx_patch
+    # Soft memory/context patches under lag: do not block event loop / DB pool
+    # (2026-11-13 12:02: PATCH context 27s + event_loop_lag 26s while switching).
+    if not agent_touched and should_shed_best_effort():
+        return {"ok": True, "sessionKey": key, "shed": True, "session": None}
+
+    def _work() -> dict[str, Any]:
+        if sess_repo.is_session_deleted(key):
+            return {"deleted": True}
         prev_agent = ""
+        try:
+            prev_row = sess_repo.get_session_row_for_ui(key) or {}
+            prev_ctx = prev_row.get("context") if isinstance(prev_row.get("context"), dict) else {}
+            prev_agent = str(prev_ctx.get("agent_id") or prev_row.get("agentId") or "").strip()
+        except Exception:
+            prev_agent = ""
 
-    sess_repo.upsert_session_row(key, context=body.context)
-    row = sess_repo.get_session_row_for_ui(key)
+        sess_repo.upsert_session_row(key, context=body.context)
+        row = sess_repo.get_session_row_for_ui(key)
 
-    # Role switch: rewrite active/pending tool columns under the new agent allowlist.
-    # Must not rely on session_key embedding (often still agent:main:…) — flat agent_id is source of truth.
-    try:
-        new_ctx = row.get("context") if isinstance(row, dict) and isinstance(row.get("context"), dict) else {}
-        ctx_patch = body.context if isinstance(body.context, dict) else {}
-        new_agent = str(new_ctx.get("agent_id") or (row.get("agentId") if isinstance(row, dict) else None) or ctx_patch.get("agent_id") or ctx_patch.get("agent_name") or "").strip()
-        agent_touched = "agent_id" in ctx_patch or "agent_name" in ctx_patch
-        if agent_touched and new_agent:
-            from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
-            from evoflow.session_tool_binding.service import repair_session_tool_state
+        # Role switch: rewrite active/pending tool columns under the new agent allowlist.
+        try:
+            new_ctx = row.get("context") if isinstance(row, dict) and isinstance(row.get("context"), dict) else {}
+            new_agent = str(
+                new_ctx.get("agent_id")
+                or (row.get("agentId") if isinstance(row, dict) else None)
+                or ctx_patch.get("agent_id")
+                or ctx_patch.get("agent_name")
+                or ""
+            ).strip()
+            if agent_touched and new_agent:
+                from evoflow.session_tool_binding.agent_tools import invalidate_agent_tool_names_cache
+                from evoflow.session_tool_binding.service import repair_session_tool_state
 
-            invalidate_agent_tool_names_cache()
-            repair_session_tool_state(key)
-            row = sess_repo.get_session_row_for_ui(key)
-            logger.info(
-                "patch_session_context: repaired tools after role switch session=%s %s -> %s active=%s pending=%s",
-                key,
-                prev_agent or "?",
-                new_agent,
-                (row or {}).get("activeTools"),
-                (row or {}).get("pendingTools"),
-            )
-    except Exception:
-        logger.warning("patch_session_context: tool snapshot refresh failed", exc_info=True)
+                invalidate_agent_tool_names_cache()
+                repair_session_tool_state(key)
+                row = sess_repo.get_session_row_for_ui(key)
+                logger.info(
+                    "patch_session_context: repaired tools after role switch session=%s %s -> %s active=%s pending=%s",
+                    key,
+                    prev_agent or "?",
+                    new_agent,
+                    (row or {}).get("activeTools"),
+                    (row or {}).get("pendingTools"),
+                )
+        except Exception:
+            logger.warning("patch_session_context: tool snapshot refresh failed", exc_info=True)
 
-    return {"ok": True, "sessionKey": key, "session": row}
+        return {"deleted": False, "row": row}
+
+    result = await run_db(_work)
+    if result.get("deleted"):
+        raise HTTPException(status_code=404, detail="session not found")
+    return {"ok": True, "sessionKey": key, "session": result.get("row")}
 
 
 @router.delete("/{session_key:path}", summary="Delete session (transcript + LangGraph thread + local data)")

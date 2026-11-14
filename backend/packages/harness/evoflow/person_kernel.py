@@ -6,6 +6,7 @@ Design SSOT: ``internal design docs (not published in this repository)``.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from datetime import UTC
 from typing import Any
@@ -1714,8 +1715,12 @@ def consolidate_craft_overnight(
                 pm_repo.update_craft_entry(rid, status="retired")
                 retired.append(rid)
 
-        # Auto skill if missing
-        if not str(canon.get("skill_name") or "").strip():
+        # Auto skill if missing (opt-in: craft entries carry the howto body in
+        # person memory and are injected via <person_craft>; auto-generating a
+        # skill per graduation floods the skill list with hash-named entries).
+        if not str(canon.get("skill_name") or "").strip() and os.getenv(
+            "EVOFLOW_CRAFT_AUTO_SKILL", ""
+        ).strip().lower() in {"1", "true", "yes", "on"}:
             sk = _auto_create_craft_skill(code, title=title, body=body, entry_id=eid)
             if sk.get("ok") or sk.get("already_exists"):
                 sname = str(sk.get("skill_name") or "")

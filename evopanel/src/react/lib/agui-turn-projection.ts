@@ -44,8 +44,18 @@ function resolveStreamingStatusLabel(state: AgUiTurnState): string {
 export function projectAgUiTurnDisplay(state: AgUiTurnState, opts?: { isStreaming?: boolean }): TurnDisplayView {
   const isStreaming = opts?.isStreaming ?? !state.finished
   const slots: TurnDisplaySlot[] = []
+  // 只展示最新一段思考折叠：气泡流式视图呈现当前轮 reasoning，历史轮思考由
+  // drain/封存进 timeline，不在此重复出折叠。
+  const lastReasoningMessageId = (() => {
+    for (let i = state.order.length - 1; i >= 0; i--) {
+      const e = state.order[i]
+      if (e.kind === 'reasoning') return e.messageId
+    }
+    return null
+  })()
   for (const entry of state.order) {
     if (entry.kind === 'reasoning') {
+      if (entry.messageId !== lastReasoningMessageId) continue
       const msg = state.messages.get(entry.messageId)
       if (!msg) continue
       const text = String(msg.content || '')

@@ -45,11 +45,30 @@ def active_employee_rows(*, exclude_xiaomi: bool = True) -> tuple[list[dict[str,
 
 
 def org_status() -> dict[str, Any]:
-    """有多少员工、谁空闲/忙碌、待审批合计。"""
+    """有多少员工、谁空闲/忙碌、待审批合计；附带部门目录摘要。"""
     rows, meta = active_employee_rows()
     busy_n = sum(1 for r in rows if r.get("busy"))
     idle_n = len(rows) - busy_n
     pending_n = sum(int(r.get("pending_approvals") or 0) for r in rows)
+    departments: list[dict[str, Any]] = []
+    try:
+        from evoflow.proactive.departments import DepartmentRepository
+
+        DepartmentRepository.ensure_from_roles()
+        for d in DepartmentRepository.list_departments(with_members=True) or []:
+            if not isinstance(d, dict):
+                continue
+            members = d.get("members") if isinstance(d.get("members"), list) else []
+            departments.append(
+                {
+                    "id": d.get("id"),
+                    "name": d.get("name"),
+                    "member_count": int(d.get("member_count") or len(members) or 0),
+                    "head_agent_code": str(d.get("head_agent_code") or "").strip(),
+                }
+            )
+    except Exception:
+        logger.debug("org_status: departments summary skipped", exc_info=True)
     return {
         "ok": True,
         "employee_count": len(rows),
@@ -58,7 +77,12 @@ def org_status() -> dict[str, Any]:
         "pending_approvals_total": pending_n,
         "gateway_reachable": bool(meta.get("gateway_reachable")),
         "employees": rows,
-        "hint": "先看忙闲再派活；派新目标 employees.dispatch，催已有 Task employees.wake。",
+        "departments": departments,
+        "department_count": len(departments),
+        "hint": (
+            "先看忙闲再派活；派新目标 employees.dispatch，催已有 Task employees.wake。"
+            "只要部门目录用 employees.departments。"
+        ),
     }
 
 

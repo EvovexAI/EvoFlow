@@ -101,6 +101,32 @@ function isUserInputRow(row: ConversationRow): row is UserInputRow {
   return row.kind === "userInput";
 }
 
+/** 后台任务唤醒 / 上下文压缩摘要：给模型看，不进时间线用户气泡。 */
+function isHiddenProviderContextUserInput(row: UserInputRow): boolean {
+  const text = String(row.text || "").trimStart();
+  if (!text) return false;
+  if (text.startsWith("<task-notification>") || text.startsWith("<subagent-notification>")) {
+    return true;
+  }
+  const lower = text.toLowerCase();
+  if (lower.startsWith("[context compaction")) return true;
+  if (lower.startsWith("here is a summary of the conversation to date")) return true;
+  if (lower.startsWith("here's a summary of the conversation to date")) return true;
+  if (
+    text.startsWith("[上下文摘要") ||
+    text.startsWith("[深度压缩摘要") ||
+    text.startsWith("[tool:history]") ||
+    text.startsWith("[tool:summary]")
+  ) {
+    return true;
+  }
+  const entityId = String(row.entityId || "").trim();
+  return (
+    entityId.startsWith("bash-task-notification:") ||
+    entityId.startsWith("subagent-task-notification:")
+  );
+}
+
 function isTimelineMarkerRow(row: ConversationRow): row is TimelineMarkerRow {
   return row.kind === "timelineMarker";
 }
@@ -122,7 +148,7 @@ function isVisibleAssistantWorkRow(row: AssistantWorkRow): boolean {
 }
 
 function isVisibleConversationRow(row: ConversationRow): boolean {
-  if (isUserInputRow(row)) return true;
+  if (isUserInputRow(row)) return !isHiddenProviderContextUserInput(row);
   if (isTurnHeaderRow(row)) return false;
   if (isHookInvocationRow(row)) return false;
   return isVisibleAssistantWorkRow(row);
@@ -288,7 +314,9 @@ function materializeDraftUnit(
     workflowLaunch === undefined
       ? draft.orderedRows
       : draft.orderedRows.filter((row) => !isWorkflowLaunchUserInputRow(row));
-  const visibleUserInputs = renderedRows.filter(isUserInputRow);
+  const visibleUserInputs = renderedRows.filter(
+    (row): row is UserInputRow => isUserInputRow(row) && !isHiddenProviderContextUserInput(row),
+  );
   const visibleAssistantWorkRows = draft.assistantWorkRows.filter(isVisibleAssistantWorkRow);
   const visibleOrderedRows = renderedRows.filter(isVisibleConversationRow);
   const timelineOnly =
@@ -342,7 +370,15 @@ function materializeDraftUnit(
   const latestAssistantTextRow =
     actionAssistantTextRow ??
     (!isRunning && lastFlowRow && isAssistantTextRow(lastFlowRow) ? lastFlowRow : undefined);
-  const workDurationMs = resolveConversationTurnWorkDurationMs(draft.header, options, isRunning);
+  const fallbackStartedAt =
+    draft.header?.startedAt ??
+    draft.userInputs[0]?.createdAt ??
+    visibleOrderedRows.find(isUserInputRow)?.createdAt;
+  const workDurationMs = resolveConversationTurnWorkDurationMs(
+    draft.header,
+    { nowMs: options.nowMs, ...(fallbackStartedAt !== undefined ? { fallbackStartedAt } : {}) },
+    isRunning,
+  );
   const workStatus = resolveConversationTurnWorkStatus(
     draft.header,
     bodyRows,
@@ -368,6 +404,7 @@ function materializeDraftUnit(
     forceOpenHistory,
     timelineOnly,
     nowMs: options.nowMs,
+    ...(fallbackStartedAt !== undefined ? { fallbackStartedAt } : {}),
   });
   const orderedAssistantHistoryRows = workSegments.flatMap(
     (segment) => segment.assistantHistoryRows,

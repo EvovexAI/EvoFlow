@@ -13,6 +13,7 @@ import {
 } from '../session-runtime-store.js'
 import { markSessionRecoveryCooldown, markStreamReattachCooldown } from '../stream-reattach-cooldown.js'
 import { clearSessionExecutionProbe } from './probe-cache.js'
+import { setV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
 import type {
   SessionRunEndedOpts,
   SessionRunEndedPatch,
@@ -97,6 +98,8 @@ export function beginSessionUserStop(sessionKey: string): {
   markSessionRecoveryCooldown(sk)
   seedSessionRuntimeStatusIdle(sk)
   dispatchSessionTurnEvent(sk, { type: 'TURN_ABORTED' })
+  // 立刻摘掉 V4 busy：pin/投影 canStop 常滞后，否则停止钮与左下角齿轮空转。
+  setV4TimelineBusy(sk, false)
   const rt = getSessionRuntime(sk)
   const stopRunId = String(rt.activeChatRunId || rt.stream.runId || '').trim() || null
   if (stopRunId) rtAddStoppedRun(rt, stopRunId)

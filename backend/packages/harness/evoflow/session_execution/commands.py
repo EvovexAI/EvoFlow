@@ -39,6 +39,19 @@ def _unregister_stream_proxy(thread_id: str | None) -> None:
         logger.debug("unregister stream proxy on stop failed thread=%s", tid, exc_info=True)
 
 
+def _seal_v4_projection_on_user_stop(thread_id: str | None) -> None:
+    """用户点停：先封 V4 投影，再掐 stream proxy（见 mirror_seal_user_stop）。"""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        from app.gateway.v4.agui_mirror import mirror_seal_user_stop
+
+        mirror_seal_user_stop(tid)
+    except Exception:
+        logger.debug("v4 mirror seal on user stop failed thread=%s", tid, exc_info=True)
+
+
 def _resolve_thread_id(session_key: str, row: dict[str, Any] | None) -> str | None:
     data = row or {}
     tid = str(data.get("thread_id") or data.get("threadId") or "").strip()
@@ -228,6 +241,8 @@ async def stop_session_execution(
     if tid:
         async with httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=3.0)) as client:
             if user_initiated:
+                # 先封投影再掐 proxy：否则 RUN_ERROR 进不了镜像，停后再发时间线错乱。
+                _seal_v4_projection_on_user_stop(tid)
                 _unregister_stream_proxy(tid)
                 cancelled, orphans = await sweep_langgraph_runs_until_idle(client, tid)
                 _reset_collab_on_stop(tid)

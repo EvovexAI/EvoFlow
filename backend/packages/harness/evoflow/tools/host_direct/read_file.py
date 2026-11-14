@@ -6,7 +6,7 @@ from pathlib import Path
 from langchain.tools import ToolRuntime, tool
 from langgraph.types import Command
 
-from evoflow.tools.host_direct.read_logic import read_file_content
+from evoflow.tools.host_direct.read_logic import apply_whole_file_read_gate, read_file_content
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
 from evoflow.tools.host_direct.workspace_path_guard import (
     _is_absolute_path,
@@ -15,6 +15,7 @@ from evoflow.tools.host_direct.workspace_path_guard import (
 )
 from evoflow.tools.minimal_schema import READ_TOOL_DESCRIPTION
 from evoflow.utils.workspace_browse import flatten_bound_workspace_absolute
+from evoflow.utils.bundled_tools import from_bash_posix_path
 
 # Image refs (local paths / http(s) URLs / browser-snapshot refs) dispatch to the
 # shared view_image pipeline instead of returning text (ZCode-style Read dispatch).
@@ -166,8 +167,11 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
         )
         return resolved
 
-    expanded = os.path.expanduser(os.path.expandvars(raw))
-    if _is_absolute_path(raw, expanded):
+    # Git Bash ``/d/foo`` and WSL ``/mnt/d/foo`` must become ``D:/foo`` before
+    # Path.resolve() on Windows; otherwise read looks for a ghost ``D:\d\foo``
+    # tree and reports "File not found" while ``bash`` reads the same path fine.
+    expanded = from_bash_posix_path(os.path.expanduser(os.path.expandvars(raw)))
+    if _is_absolute_path(expanded, expanded):
         target = Path(expanded).resolve()
         root_s, _tid = resolve_tool_workspace_root(runtime=runtime)
         if root_s:
@@ -330,6 +334,13 @@ def read_file_hd(
     text = read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)
     if not str(text).startswith("Error:"):
         full_read = offset is None and limit is None
+        if full_read:
+            # zcode-style whole-file gate: cap big reads to a paginated partial
+            # view so one large file does not ride on every later request.
+            gated = apply_whole_file_read_gate(text, path=str(resolved))
+            if gated is not text:
+                text = gated
+                full_read = False
         # Hash only meaningful for full views; partial views never qualify for edit.
         content_hash = None
         if full_read:

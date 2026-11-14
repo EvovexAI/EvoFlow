@@ -1,4 +1,4 @@
-# Local Windows desktop release helper for THIS public repo (EvovexAI/EvoFlow).
+﻿# Local Windows desktop release helper for THIS public repo (EvovexAI/EvoFlow).
 # Mirrors (approximately):
 #   .github/workflows/release-windows-public.yml (build + checksums) -> -BuildDesktopInstaller
 #   then attach installer to a NEW GitHub Release on EvovexAI/EvoFlow -> -CreatePublicGhRelease
@@ -206,8 +206,26 @@ function Invoke-BuildDesktopInstaller {
     $be = Join-Path $RepoRoot "backend"
     Push-Location $be
     try {
-        & uv sync --group dev
-        if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+        # Windows: uv rewrite of Temp\uv-trampoline*.exe PE resources often hits
+        # 拒绝访问 (-2147024891) when Defender briefly locks the file. copy link
+        # mode + one retry avoids flake on local NSIS builds.
+        $prevUvLink = $env:UV_LINK_MODE
+        if (-not $env:UV_LINK_MODE) { $env:UV_LINK_MODE = "copy" }
+        try {
+            & uv sync --group dev
+            if ($LASTEXITCODE -ne 0) {
+                Write-Host "[local-publish] uv sync failed (exit $LASTEXITCODE); retry once after 3s…" -ForegroundColor Yellow
+                Start-Sleep -Seconds 3
+                & uv sync --group dev
+            }
+            if ($LASTEXITCODE -ne 0) { throw "uv sync failed" }
+        } finally {
+            if ($null -eq $prevUvLink -or $prevUvLink -eq "") {
+                Remove-Item Env:\UV_LINK_MODE -ErrorAction SilentlyContinue
+            } else {
+                $env:UV_LINK_MODE = $prevUvLink
+            }
+        }
     } finally { Pop-Location }
 
     $ep = Join-Path $RepoRoot "evopanel"

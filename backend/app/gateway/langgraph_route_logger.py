@@ -789,6 +789,28 @@ class LangGraphRouteLoggerMiddleware:
             old_tid = lg_thread_id
             lg_thread_id = new_thread_id
             lg_run_id = None  # run_id will be re-extracted from new response
+            # Remap 后立刻 force-rehydrate：否则重发 stream 先 note_user_input
+            # 种 1–2 行，FE subscribe hydrate 跳过 → 历史整页消失。
+            try:
+                from app.gateway.v4.hydration import rehydrate_after_thread_remint
+
+                loaded = await asyncio.to_thread(
+                    rehydrate_after_thread_remint, new_thread_id
+                )
+                logger.info(
+                    "[LG-ROUTE] 404 remint v4 rehydrate old=%s new=%s rows=%s sk=%s",
+                    old_tid,
+                    new_thread_id,
+                    loaded,
+                    sk,
+                )
+            except Exception:
+                logger.warning(
+                    "[LG-ROUTE] 404 remint v4 rehydrate failed new=%s sk=%s",
+                    new_thread_id,
+                    sk,
+                    exc_info=True,
+                )
             # Re-bind ui_transform to the new thread_id so SSE frames and mirror
             # bookkeeping use the rebound thread, not the stale one.
             if ui_transform is not None:

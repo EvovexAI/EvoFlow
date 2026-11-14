@@ -29,7 +29,7 @@ export function toggleWorkspacePanel(ctx: ToggleWorkspacePanelCtx): void {
   })
   if (existing) {
     const key = `${normalizeRightStageKind(existing.kind)}:${existing.id}`
-    if (snap.activeKey === key) {
+    if (snap.activeKey === key && !snap.collapsed) {
       commitRightStageClose({
         clearDefer: 'workspace',
         mutate: () => {
@@ -44,7 +44,18 @@ export function toggleWorkspacePanel(ctx: ToggleWorkspacePanelCtx): void {
       })
       return
     }
-    rightStageStore.activateTab(key)
+    // 签已在但栏收着 / 未激活：用户点开 → 激活并强制撑开（activateTab 不破 userCollapsed）。
+    rightStageStore.show({
+      kind: existing.kind,
+      id: existing.id,
+      title: existing.title,
+      layout: existing.layout,
+      data: existing.data || {},
+      sessionKey: existing.sessionKey,
+      forceExpand: true,
+    })
+    ctx.syncShellAsideForWorkspacePanel(true)
+    ctx.setWorkspaceTreePinned(normalizeRightStageKind(existing.kind) === 'workspace-browse')
     return
   }
   ctx.cancelPendingStreamUiBumpsRef.current()

@@ -4848,6 +4848,7 @@ const enUS: Record<string, string> = {
   "chat.toolbar.modelSwitch.lockedByRunningTask.short": "busy",
   "chat.goal.runningBlocked": "Set a goal after the current task finishes.",
   "chat.goal.planModeBlocked": "Goal is unavailable in Plan mode. Switch modes to continue.",
+  "chat.workflow.empty": "Enter a workflow name or description.",
   "chat.plan.attachmentsBlocked":
     "The /plan shortcut supports text only for now. Remove attachments or context and try again.",
   "chat.compact.runningBlocked": "Compact context after the current task finishes.",
@@ -5762,6 +5763,7 @@ const enUS: Record<string, string> = {
   "chat.slash.title": "Commands and capabilities",
   "chat.slash.searchHint": "Type to search commands, skills, or agents",
   "chat.slash.app.side.description": "Open a new side conversation",
+  "chat.slash.app.workflow.description": "Run a workflow",
   "chat.slash.commands.title": "Commands",
   "chat.slash.skills.title": "Skills",
   "chat.slash.skills.empty": "No matching skills",

@@ -420,6 +420,11 @@ interface ConversationComposerProps {
   /** queue 撤回 admission 读取的完整 composer 占用态；附件包含上传中状态。 */
   onDraftStateChange?: (state: { hasContent: boolean; busy: boolean }) => void;
   onStop: () => void;
+  /**
+   * 宿主判定的「还有活」（running 工具卡 / 后台 bash / phase=running）。
+   * 优先于 snapshot.control.canStop——防 RUN_FINISHED 早关导致停止键与齿轮消失、时间线却还在刷。
+   */
+  executionBusy?: boolean;
   /** 目录选中模型（providerId/modelId）；thought/revision 由宿主从最新投影补齐。 */
   onSelectModel: (
     provider: string,
@@ -515,6 +520,7 @@ function ConversationComposerImpl({
   onTextChange,
   onDraftStateChange,
   onStop,
+  executionBusy,
   onSelectModel,
   onSelectThought,
   onSwitchMode,
@@ -1095,7 +1101,10 @@ function ConversationComposerImpl({
   const modifiedEnterSubmits = shouldEnableModifiedEnterSubmit({
     inputRoutingMode: mode,
   });
-  const canStop = Boolean(snapshot?.control.canStop);
+  const canStop =
+    executionBusy === undefined
+      ? Boolean(snapshot?.control.canStop)
+      : Boolean(executionBusy);
   const modifiedEnterReversesDelivery = modifiedEnterSubmits && canStop;
   const hasText = text.trim().length > 0;
   const hasDraftToSubmit =

@@ -200,6 +200,7 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.get": f"员工「{name}」",
         "employees.brief": f"员工「{name}」近况",
         "employees.list": "员工列表",
+        "employees.departments": "部门列表",
         "employees.org_status": "员工名册",
         "employees.board_overview": "员工看板",
         "employees.pause": f"已暂停员工「{name}」值班",
@@ -853,10 +854,11 @@ def _build_actions(
         )
     elif domain == "employees" and action in {
         "employees.list",
+        "employees.departments",
         "employees.org_status",
         "employees.board_overview",
     }:
-        # 列表 / 名册 / 看板 → 员工墙；详情走 /proactive/:code
+        # 列表 / 部门 / 名册 / 看板 → 员工墙；详情走 /proactive/:code
         actions.append(
             _shell_page_cta(
                 label="打开员工",
@@ -958,9 +960,14 @@ def _build_actions(
         else:
             actions.append({"label": "打开设置", "route": "/settings"})
     elif domain == "skills":
-        actions.append({"label": "打开技能", "route": "/skills"})
+        # `/skills` 是资源中心「体验/市场」页，不是设置里的技能管理。
+        actions.append(
+            {"label": "打开技能", "route": "/settings?tab=skill-management"}
+        )
     elif domain == "mcp":
-        actions.append({"label": "打开 MCP", "route": "/tools"})
+        actions.append(
+            {"label": "打开 MCP", "route": "/settings?tab=mcp-connectors"}
+        )
     elif domain == "automation" and entity_id:
         actions.append({"label": "查看自动化", "route": f"/automation?id={entity_id}"})
     elif domain == "automation":
@@ -979,6 +986,7 @@ _SHELL_PAGE_READ_ACTIONS = frozenset({
     "employees.get",
     "employees.brief",
     "employees.list",
+    "employees.departments",
     "employees.org_status",
     "employees.board_overview",
     "employees.messages",

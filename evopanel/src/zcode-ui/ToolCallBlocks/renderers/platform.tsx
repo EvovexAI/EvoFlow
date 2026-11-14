@@ -20,6 +20,13 @@ import { ToolLayout } from "../ToolLayout.js";
 import type { ToolCallBlockRenderContext } from "../shared.js";
 import { PlatformMediaGeneratingPlaceholder } from "./PlatformMediaGeneratingPlaceholder.js";
 import { PlatformMediaPreview } from "./PlatformMediaPreview.js";
+import { logWorkflowProgress } from "../../../lib/workflow-progress-debug-log.js";
+import { WorkflowToolSummary } from "@/v4/WorkflowToolSummary.js";
+import {
+  isPlatformWorkflowProgressAction,
+  readPlatformWorkflowProgressRef,
+} from "./platformWorkflowProgress.js";
+import type { WorkflowRunCardSummary } from "@/ToolCallBlocks/shared.js";
 
 /** 同步生图：一次工具调用内提交+轮询，适合挂「出图中」彩色占位。异步视频提交不走这里。 */
 const SYNC_IMAGE_GENERATE_ACTIONS = new Set(["media.generate_image"]);
@@ -373,6 +380,95 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
     toolCall.status !== "failed";
   // 有媒体结果：只出预览画廊（对齐 CUA / browser_turn_end），整卡已提到轮尾。
   const mediaOnly = mediaPreview.length > 0;
+  // workflow.run 族：有 mainTaskId 即挂进度卡。
+  // 1) display/openStage（与右栏 autoOpen 同源）
+  // 2) 兜底：snapshot.workflowRuns join —— 底部「运行中工作流」图标亮时投影已在，
+  //    不能因 display 解析慢/缺 openStage 只剩工具图标、对话里却没有进度卡。
+  const workflowProgressRef = useMemo(() => {
+    const display =
+      toolCall.raw &&
+      typeof toolCall.raw === "object" &&
+      "display" in toolCall.raw
+        ? (toolCall.raw as { display?: unknown }).display
+        : undefined;
+    const displayAction =
+      display &&
+      typeof display === "object" &&
+      display !== null &&
+      "action" in display &&
+      typeof (display as { action?: unknown }).action === "string"
+        ? String((display as { action: string }).action).trim()
+        : "";
+    const fromDisplay = readPlatformWorkflowProgressRef({
+      action: action || displayAction,
+      raw: toolCall.raw,
+      display,
+      outputText:
+        typeof toolCall.raw === "object" &&
+        toolCall.raw &&
+        "rawOutput" in toolCall.raw &&
+        typeof (toolCall.raw as { rawOutput?: unknown }).rawOutput === "string"
+          ? (toolCall.raw as { rawOutput: string }).rawOutput
+          : typeof toolCall.output === "string"
+            ? toolCall.output
+            : undefined,
+    });
+    if (fromDisplay) {
+      logWorkflowProgress(
+        "platform.progressRef:fromDisplay",
+        {
+          toolId: toolCall.toolId,
+          action: action || displayAction,
+          mainTaskId: fromDisplay.mainTaskId,
+          hasJoin: Boolean(context.workflowRun?.runId),
+          joinRunId: context.workflowRun?.runId ?? null,
+        },
+        { dedupeKey: `ref-display:${toolCall.toolId}:${fromDisplay.mainTaskId}` },
+      );
+      return fromDisplay;
+    }
+    const joined = context.workflowRun;
+    const runId = String(joined?.runId || "").trim();
+    if (!runId) {
+      logWorkflowProgress(
+        "platform.progressRef:null",
+        {
+          toolId: toolCall.toolId,
+          action: action || displayAction,
+          status: toolCall.status,
+          hasRaw: Boolean(toolCall.raw),
+          hasDisplay: Boolean(display),
+          displayKind:
+            display && typeof display === "object" && display !== null && "kind" in display
+              ? String((display as { kind?: unknown }).kind || "")
+              : "",
+          joinMissing: true,
+        },
+        { dedupeKey: `ref-null:${toolCall.toolId}:${action || displayAction}` },
+      );
+      return null;
+    }
+    const label =
+      readTrimmedString(
+        (display as { title?: unknown } | undefined)?.title ||
+          (display as { entityLabel?: unknown } | undefined)?.entityLabel,
+      ) || "工作流";
+    logWorkflowProgress(
+      "platform.progressRef:fromJoin",
+      {
+        toolId: toolCall.toolId,
+        action: action || displayAction,
+        runId,
+        joinStatus: joined?.status ?? null,
+      },
+      { dedupeKey: `ref-join:${toolCall.toolId}:${runId}` },
+    );
+    return {
+      mainTaskId: runId,
+      runId,
+      name: label,
+    };
+  }, [action, context.workflowRun, toolCall.output, toolCall.raw, toolCall.status, toolCall.toolId]);
 
   const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
   // 媒体预览挂在工具卡外侧，避免 forceOpen 把入参/结果 JSON 一起摊开。
@@ -422,6 +518,56 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   if (mediaOnly) {
     return (
       <PlatformMediaPreview media={mediaPreview} label={actionLabel || "生成媒体"} />
+    );
+  }
+
+  // workflow.run：工具行只出一行摘要（对齐 CreateWorkflow → WorkflowToolSummary）；
+  // 完整进度卡只在轮尾 digests，避免「工具下一块 + 轮尾再一块」。
+  if (workflowProgressRef) {
+    const joined = context.workflowRun;
+    const summary: WorkflowRunCardSummary = joined ?? {
+      runId: workflowProgressRef.mainTaskId,
+      status: isRunning ? "running" : "pending",
+      nodesSettled: 0,
+      nodesTotal: 0,
+      toolCallId: toolCall.toolId,
+    };
+    logWorkflowProgress(
+      "platform.render:toolSummary",
+      {
+        toolId: toolCall.toolId,
+        mainTaskId: workflowProgressRef.mainTaskId,
+        hasJoin: Boolean(joined?.runId),
+        joinStatus: joined?.status ?? null,
+      },
+      { dedupeKey: `ref-summary:${toolCall.toolId}:${workflowProgressRef.mainTaskId}` },
+    );
+    return (
+      <WorkflowToolSummary
+        toolCallId={toolCall.toolId}
+        summary={summary}
+        onOpen={
+          context.onOpenWorkflowRun
+            ? () =>
+                context.onOpenWorkflowRun?.({
+                  workflowName: workflowProgressRef.name,
+                })
+            : undefined
+        }
+      />
+    );
+  }
+
+  if (isPlatformWorkflowProgressAction(action)) {
+    logWorkflowProgress(
+      "platform.render:toolLayoutOnly",
+      {
+        toolId: toolCall.toolId,
+        action,
+        status: toolCall.status,
+        isRunning,
+      },
+      { dedupeKey: `render-layout:${toolCall.toolId}:${action}` },
     );
   }
 

@@ -50,8 +50,15 @@ async def _dispatch(job: dict[str, Any]) -> None:
             skip_reason: str | None = None
             from evoflow.knowledge.owned.pipeline import embedding_quota_skip_active
 
+            payload = job.get("payload") if isinstance(job.get("payload"), dict) else {}
+            if payload.get("skip_embedding"):
+                skip_embedding = True
+                skip_reason = str(
+                    payload.get("skip_embedding_reason") or "skip_embedding"
+                ).strip() or "skip_embedding"
+
             cooled, cool_reason = embedding_quota_skip_active()
-            if cooled:
+            if not skip_embedding and cooled:
                 # Recent monthly quota / rate-limit — do not re-hit the API for
                 # every queued doc; publish keyword index instead.
                 skip_embedding = True
@@ -63,26 +70,38 @@ async def _dispatch(job: dict[str, Any]) -> None:
                     kb_id,
                     skip_reason,
                 )
-            elif kb_id:
+            elif not skip_embedding and kb_id:
                 with db() as conn:
                     base = conn.execute(
                         "SELECT * FROM kb_bases WHERE id=? AND deleted_at IS NULL",
                         (kb_id,),
                     ).fetchone()
                 if base is not None:
-                    ready, reason = embedding_runtime_ready_for_base_row(dict(base))
-                    if not ready:
-                        # Do not burn the job as permanent failure — still parse / chunk /
-                        # FTS so keyword search works. Vectors wait until a model is ready.
+                    base_d = dict(base)
+                    if int(base_d.get("vector_enabled") if base_d.get("vector_enabled") is not None else 1) == 0:
+                        # Library opted into keyword-only — design choice, not a failure.
                         skip_embedding = True
-                        skip_reason = reason or "embedding runtime unavailable"
-                        logger.warning(
-                            "owned kb job will skip vectors (embedding unavailable): %s type=%s kb=%s reason=%s",
+                        skip_reason = "此库已设为仅关键词检索"
+                        logger.info(
+                            "owned kb job will skip vectors (keyword-only KB): %s type=%s kb=%s",
                             job.get("id"),
                             jtype,
                             kb_id,
-                            skip_reason,
                         )
+                    else:
+                        ready, reason = embedding_runtime_ready_for_base_row(base_d)
+                        if not ready:
+                            # Do not burn the job as permanent failure — still parse / chunk /
+                            # FTS so keyword search works. Vectors wait until a model is ready.
+                            skip_embedding = True
+                            skip_reason = reason or "embedding runtime unavailable"
+                            logger.warning(
+                                "owned kb job will skip vectors (embedding unavailable): %s type=%s kb=%s reason=%s",
+                                job.get("id"),
+                                jtype,
+                                kb_id,
+                                skip_reason,
+                            )
             await run_parse_index(
                 job,
                 skip_embedding=skip_embedding,
@@ -157,7 +176,13 @@ async def _loop() -> None:
                     # Auto path: only pending/processing — never loop forever on failed.
                     result = owned_service.requeue_orphan_parse_docs(limit=50, include_failed=False)
                     unpublished = owned_service.requeue_unpublished_keyword_docs(limit=50)
-                    return int(result.get("requeued") or 0) + int(unpublished.get("requeued") or 0)
+                    # Old hard-embed failures left parse_status=failed; heal to keyword-only.
+                    healed = owned_service.requeue_embedding_failed_as_keyword(limit=50)
+                    return (
+                        int(result.get("requeued") or 0)
+                        + int(unpublished.get("requeued") or 0)
+                        + int(healed.get("requeued") or 0)
+                    )
 
                 n = await asyncio.to_thread(_reconcile)
                 if n:

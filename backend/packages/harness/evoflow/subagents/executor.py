@@ -137,6 +137,18 @@ def _subagent_should_stop(result: SubagentResult) -> bool:
     return False
 
 
+def _background_entry_timed_out(task_id: str) -> bool:
+    """True when run_task's deadline already stamped TIMED_OUT on the shared entry.
+
+    ``result_holder`` IS the background entry, so terminal writes from the
+    still-running coroutine would otherwise flip the recorded TIMED_OUT into
+    COMPLETED/CANCELLED and corrupt the state the lead already observed.
+    """
+    with _background_tasks_lock:
+        ent = _background_tasks.get(str(task_id or ""))
+        return bool(ent and ent.status == SubagentStatus.TIMED_OUT)
+
+
 def cancel_background_tasks_for_parent_thread(
     parent_thread_id: str,
     *,
@@ -360,6 +372,14 @@ class SubagentExecutor:
         # Reuse shared middleware composition with lead agent.
         middlewares = build_subagent_runtime_middlewares(lazy_init=True)
         middlewares.append(SubagentTurnLimitMiddleware(self.config.max_turns))
+        # Same-target explore thrash / identical-error retries inside a subagent run
+        # previously had no guard — the 900s runaway (investigation thread 69af4ce5)
+        # thrashed inside its own graph while the lead's LoopDetectionMiddleware only
+        # sees the lead thread. Instance is created per task run, so its window/state
+        # is naturally scoped to this one subagent execution.
+        from evoflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+
+        middlewares.append(LoopDetectionMiddleware())
 
         # todo_write is middleware-provided (not in the native registry): mount the
         # TodoMiddleware when the role whitelist explicitly selects it so the
@@ -612,8 +632,7 @@ class SubagentExecutor:
                 stream_upto = 0
                 message_count = 0
 
-                from evoflow.scheduler.subagent_stream import subagent_stream_task_id_ctx
-                from evoflow.scheduler.subagent_stream import parent_chat_stream_writer_ctx
+                from evoflow.scheduler.subagent_stream import parent_chat_stream_writer_ctx, subagent_stream_task_id_ctx
 
                 with (
                     subagent_stream_task_id_ctx(result.task_id),
@@ -746,21 +765,24 @@ class SubagentExecutor:
                     logger.warning(f"[trace={self.trace_id}] Subagent {self.config.name} no messages in final state")
                     result.result = "No response generated"
 
-            result.status = SubagentStatus.COMPLETED
-            result.completed_at = datetime.now()
+            if not _background_entry_timed_out(result.task_id):
+                result.status = SubagentStatus.COMPLETED
+                result.completed_at = datetime.now()
 
         except TaskCancelledError as e:
             # 【新增】处理任务取消
             logger.info(f"[trace={self.trace_id}] Subagent {self.config.name} execution cancelled")
-            result.status = SubagentStatus.CANCELLED
-            result.error = f"Task cancelled: {e}"
-            result.completed_at = datetime.now()
+            if not _background_entry_timed_out(result.task_id):
+                result.status = SubagentStatus.CANCELLED
+                result.error = f"Task cancelled: {e}"
+                result.completed_at = datetime.now()
 
         except Exception as e:
             logger.exception(f"[trace={self.trace_id}] Subagent {self.config.name} async execution failed")
-            result.status = SubagentStatus.FAILED
-            result.error = str(e)
-            result.completed_at = datetime.now()
+            if not _background_entry_timed_out(result.task_id):
+                result.status = SubagentStatus.FAILED
+                result.error = str(e)
+                result.completed_at = datetime.now()
 
         return result
 
@@ -989,8 +1011,18 @@ class SubagentExecutor:
                         _background_tasks[task_id].status = SubagentStatus.TIMED_OUT
                         _background_tasks[task_id].error = f"Execution timed out after {self.config.timeout_seconds} seconds"
                         _background_tasks[task_id].completed_at = datetime.now()
-                    # Cancel the future (best effort - may not stop the actual execution)
+                    # Future.cancel() cannot stop a running thread — the coroutine kept
+                    # burning LLM tokens and holding an execution-pool slot. Mark the
+                    # task cancelled so the cooperative checkpoint in _aexecute
+                    # (_subagent_should_stop) aborts it at the next stream event;
+                    # terminal writes are guarded by _background_entry_timed_out.
                     execution_future.cancel()
+                    try:
+                        from evoflow.cancellation import mark_task_cancelled
+
+                        mark_task_cancelled(task_id, cancelled_by="system", reason="execution_timeout")
+                    except Exception:
+                        logger.debug("[trace=%s] timeout stop-signal registration failed", self.trace_id, exc_info=True)
                     _mark_registry_terminal("timed_out")
             except Exception as e:
                 logger.exception(f"[trace={self.trace_id}] Subagent {self.config.name} async execution failed")

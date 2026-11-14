@@ -46,6 +46,7 @@ from evoflow.agents.tool_approval_service import (
     tool_requires_approval,
 )
 from evoflow.agents.tool_approval_trace_log import log_tool_approval_trace
+from evoflow.agents.tool_response_envelope import parse_tool_envelope
 from evoflow.tools.tool_aliases import canonical_tool_name
 
 logger = logging.getLogger(__name__)
@@ -425,7 +426,33 @@ def _awaiting_other_approval_message(request: ToolCallRequest) -> ToolMessage:
     msg = json.dumps(
         {
             "_evoflow_tool": {"status": "awaiting_other_approval"},
-            "message": "当前工具已批准，等待其他待授权工具确认后统一执行。",
+            "message": "本工具的授权已收到，但尚未执行——正在等待同批次其他工具的授权结果，之后才会统一执行。不要引用本工具的任何结果，也不要重复调用本工具。",
+        },
+        ensure_ascii=False,
+    )
+    return ToolMessage(content=msg, tool_call_id=tc_id, name=tool_name)
+
+
+def _not_approved_resume_message(request: ToolCallRequest, decision: Any) -> ToolMessage:
+    """Resume 已到达但本调用未获批时的**终态**应答。
+
+    原 `return pending_msg` 会把「等待授权」的旧文案再还给模型——而这次
+    interrupt 已经消费、不会再有第二次 resume，模型据此反复等待/重试同一
+    工具形成死循环。这里改为明确的 denied 终态（DB 里的 pending 行保持
+    不动，用户稍后仍可在面板批准，replay 会正常执行）。"""
+    import json
+
+    tool_name = _tool_name(request)
+    tc_id = _tool_call_id(request)
+    action = str((decision or {}).get("action") or "").strip().lower() if isinstance(decision, dict) else ""
+    if action:
+        reason = "用户仅批准了同批次的其他工具，本工具未获批准"
+    else:
+        reason = "授权结果缺失或已过期（审批批次已被取代）"
+    msg = json.dumps(
+        {
+            "_evoflow_tool": {"status": "denied"},
+            "message": f"[denied] {reason}，本工具未执行。如仍需要，请重新发起该工具调用并等待用户授权。",
         },
         ensure_ascii=False,
     )
@@ -612,7 +639,9 @@ def _resolve_after_resume_sync(
         return awaiting
 
     if not _should_execute_for_decision(decision, tc_id):
-        return pending_msg
+        not_approved = _not_approved_resume_message(request, decision)
+        persist_transcript_tool_message_now(getattr(request, "runtime", None), not_approved)
+        return not_approved
 
     # 先消费签名（用户已批准），即使 handler 失败也不留签名让下次自动放行
     if tid:
@@ -661,7 +690,9 @@ async def _resolve_after_resume_async(
         return awaiting
 
     if not _should_execute_for_decision(decision, tc_id):
-        return pending_msg
+        not_approved = _not_approved_resume_message(request, decision)
+        persist_transcript_tool_message_now(getattr(request, "runtime", None), not_approved)
+        return not_approved
 
     # 先消费签名（用户已批准），即使 handler 失败也不留签名让下次自动放行
     if tid:
@@ -832,9 +863,20 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
             _trace_decision("放行：无人值守自动化模式", request)
             return handler(request)
 
-        # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
+        # 用户改主意（grant_all / 签名 / 工具名授权）优先于 deny 计数器：批准即
+        # 清计数器。原顺序 deny 拦截在前，导致被拒 ≥2 次的工具即使用户显式
+        # 授权也无法在进程存续期内解锁。
         tid = _thread_id_from_request(request)
         canon_name = _canonical_tool_name(request)
+        ws_root = _workspace_root_from_request(request) or None
+        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+            _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
+            _clear_deny_counter(tid, canon_name)
+            result = handler(request)
+            consume_signature_grant(tid, name, args, workspace_root=ws_root)
+            return result
+
+        # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
         if tid and _get_deny_count(tid, canon_name) >= _DENY_MAX_RETRIES:
             _trace_decision(
                 "拦截：工具被拒绝过多，阻止重试",
@@ -849,13 +891,6 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
                 message_id_prefix=message_id_prefix_for_gate("tool_approval"),
             )
             return blocked_msg
-
-        ws_root = _workspace_root_from_request(request) or None
-        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
-            _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
-            result = handler(request)
-            consume_signature_grant(tid, name, args, workspace_root=ws_root)
-            return result
 
         summary = summarize_tool_for_approval(name, args)
         logger.info("Tool approval required: %s (%s) raw=%s", name, _tool_call_id(request), raw_name)
@@ -890,9 +925,20 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
             _trace_decision("放行：无人值守自动化模式", request)
             return await handler(request)
 
-        # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
+        # 用户改主意（grant_all / 签名 / 工具名授权）优先于 deny 计数器：批准即
+        # 清计数器。原顺序 deny 拦截在前，导致被拒 ≥2 次的工具即使用户显式
+        # 授权也无法在进程存续期内解锁。
         tid = _thread_id_from_request(request)
         canon_name = _canonical_tool_name(request)
+        ws_root = _workspace_root_from_request(request) or None
+        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+            _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
+            _clear_deny_counter(tid, canon_name)
+            result = await handler(request)
+            consume_signature_grant(tid, name, args, workspace_root=ws_root)
+            return result
+
+        # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
         if tid and _get_deny_count(tid, canon_name) >= _DENY_MAX_RETRIES:
             _trace_decision(
                 "拦截：工具被拒绝过多，阻止重试",
@@ -908,16 +954,78 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
             )
             return blocked_msg
 
-        ws_root = _workspace_root_from_request(request) or None
-        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
-            _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
-            result = await handler(request)
-            consume_signature_grant(tid, name, args, workspace_root=ws_root)
-            return result
-
         summary = summarize_tool_for_approval(name, args)
         logger.info("Tool approval required: %s (%s) raw=%s", name, _tool_call_id(request), raw_name)
         return await _gate_tool_call_async(request, handler, summary=summary)
+
+    def _rewrite_stale_pending_messages(self, state: AgentState, runtime: Runtime) -> dict | None:
+        """把上下文里已失效的 pending_approval ToolMessage 改写为终态。
+
+        失效 = DB 中已无对应 PENDING 行（被新批次取消 / 过期清理 / 已执行）。
+        原样保留会让模型对一个永远不会执行的调用反复等待/重试（B-8/B-9）。
+        仅当 transcript 里存在 pending_approval 文案时才查 DB。"""
+        messages = state.get("messages") or []
+        pending_ids: set[str] = set()
+        for m in messages:
+            if not isinstance(m, ToolMessage):
+                continue
+            meta = parse_tool_envelope(getattr(m, "content", None))
+            if meta is None or str(meta.get("status") or "").strip().lower() != "pending_approval":
+                continue
+            tc_id = str(getattr(m, "tool_call_id", "") or "").strip()
+            if tc_id:
+                pending_ids.add(tc_id)
+        if not pending_ids:
+            return None
+        tid = _thread_id_from_runtime(runtime)
+        if not tid:
+            return None
+        try:
+            from evoflow.agents.tool_approval_service import list_pending_approvals
+
+            live = {str(r.get("tool_call_id") or "").strip() for r in list_pending_approvals(tid)}
+        except Exception:
+            logger.debug("stale pending sweep: list_pending_approvals failed", exc_info=True)
+            return None
+        stale = pending_ids - live
+        if not stale:
+            return None
+
+        new_messages = []
+        changed = False
+        for m in messages:
+            if isinstance(m, ToolMessage):
+                tc_id = str(getattr(m, "tool_call_id", "") or "").strip()
+                meta = parse_tool_envelope(getattr(m, "content", None))
+                is_pending = meta is not None and str(meta.get("status") or "").strip().lower() == "pending_approval"
+                if is_pending and tc_id in stale:
+                    rewritten = json.dumps(
+                        {
+                            "_evoflow_tool": {"status": "blocked"},
+                            "message": "[blocked] 该授权请求已过期或已被新批次取代，本工具未执行且不会再等待授权。如仍需要，请重新调用本工具并发起授权。",
+                        },
+                        ensure_ascii=False,
+                    )
+                    new_messages.append(m.model_copy(update={"content": rewritten}))
+                    changed = True
+                    continue
+            new_messages.append(m)
+        if not changed:
+            return None
+        logger.warning(
+            "Stale pending approvals rewritten to blocked terminal state: ids=%s thread=%s",
+            sorted(stale),
+            tid,
+        )
+        return replace_messages_in_state(new_messages)
+
+    @override
+    def before_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+        return self._rewrite_stale_pending_messages(state, runtime)
+
+    @override
+    async def abefore_model(self, state: AgentState, runtime: Runtime) -> dict | None:
+        return self._rewrite_stale_pending_messages(state, runtime)
 
 
 def _thread_id_from_runtime(runtime: Runtime) -> str:

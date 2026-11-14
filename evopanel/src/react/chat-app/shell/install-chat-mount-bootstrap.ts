@@ -145,6 +145,19 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
       if (!sk || !tid) return
       const force = !!detail?.force
       const reason = String(detail?.reason || '').trim()
+      const oldTid = String(detail?.oldThreadId || '').trim()
+      // 必须在 setSessions（进而换 selectedThreadId）之前同步改挂，
+      // 否则 V4StreamRowsBridge 会 cold acquire 清空时间线。
+      if (force && oldTid && oldTid !== tid) {
+        try {
+          const w = window as Window & {
+            __evoflowRebindV4OnRemint?: (a: string, b: string) => boolean
+          }
+          w.__evoflowRebindV4OnRemint?.(oldTid, tid)
+        } catch {
+          /* best effort */
+        }
+      }
       setSessions((prev) => {
         let changed = false
         const next = prev.map((s) => {

@@ -64,22 +64,30 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
     const sessionKey = String(s.sessionKey || '')
     const isSelectedRow = sel === sessionKey
     const executing = isSessionExecuting(sessionKey, { sessionRow: s })
-    const runningPreviewLine = executing
-      ? ''
-      : resolveRunningPreviewLine(
-          sessionKey,
-          executing,
-          isSelectedRow,
-          runningSessionMap,
-          resolveLiveStreamActivityForSession,
-        )
+    const runningPreviewLine = resolveRunningPreviewLine(
+      sessionKey,
+      executing,
+      isSelectedRow,
+      runningSessionMap,
+      resolveLiveStreamActivityForSession,
+    )
     const isGoal = isSessionGoalActive(sessionKey)
     const summary = runningSessionMap[sessionKey]
     const ws = resolveSessionWorkspaceGroup(s, configuredWorkspaceRoot)
+    const ctx =
+      s.context && typeof s.context === 'object'
+        ? (s.context as Record<string, unknown>)
+        : null
+    const agentId = String(
+      s.agentId || ctx?.agent_id || ctx?.proactive_agent_code || '',
+    ).trim()
+    const channel = String(ctx?.channel || ctx?.channel_name || '')
+      .trim()
+      .toLowerCase()
 
     return {
       sessionKey,
-      title: getDisplayLabel(sessionKey, s.title),
+      title: getDisplayLabel(sessionKey, s.title, { agentId, channel }),
       time: formatSessionListTime(s, { executing }),
       createdAt: Number(s.createdAt ?? 0),
       updatedAt: Number(s.updatedAt ?? s.lastActivity ?? s.createdAt ?? 0),
@@ -96,6 +104,8 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
       goalActive: isGoal,
       workspaceKey: ws.workspaceKey,
       workspaceLabel: ws.label,
+      agentId: agentId || undefined,
+      channel: channel || undefined,
     }
   })
 }

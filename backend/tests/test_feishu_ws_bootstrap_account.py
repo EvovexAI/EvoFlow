@@ -1,6 +1,12 @@
 """Feishu WS account tagging: QR-bound employee must not fall through to main."""
 
-from app.channels.feishu import resolve_feishu_ws_bootstrap_account_id
+from app.channels.feishu import FeishuChannel, resolve_feishu_ws_bootstrap_account_id
+
+
+def test_permanent_feishu_ws_error_detects_invalid_app_id():
+    assert FeishuChannel._is_permanent_feishu_ws_error(RuntimeError("app_id is invalid"))
+    assert FeishuChannel._is_permanent_feishu_ws_error(RuntimeError("App_Secret is invalid"))
+    assert not FeishuChannel._is_permanent_feishu_ws_error(RuntimeError("connection reset by peer"))
 
 
 def test_instance_account_id_wins():

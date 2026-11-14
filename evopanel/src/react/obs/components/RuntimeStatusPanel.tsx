@@ -80,6 +80,62 @@ interface RuntimeStatus {
     active_workers_count?: number
     channel_service_running?: boolean
     active_agents_count?: number
+    pckl_total_mb?: number
+    langgraph_rss_gb?: number | null
+    persistence_warn?: boolean
+  }
+  persistence_pressure?: {
+    error?: string
+    langgraph_api_dir?: string
+    pckl?: {
+      file_count?: number
+      total_mb?: number
+      total_gb?: number
+      files?: Array<{ name?: string; mb?: number; bytes?: number }>
+    }
+    checkpointer?: {
+      configured_type?: string | null
+      sqlite_exists?: boolean
+      sqlite_mb?: number
+      sqlite_path?: string | null
+      file_persistence_disabled?: boolean
+      file_persistence_env?: string
+      note?: string
+      chat_ssot?: string
+    }
+    evoflow_db?: {
+      path?: string
+      db_mb?: number
+      wal_mb?: number
+      total_mb?: number
+      exists?: boolean
+      error?: string
+    }
+    langgraph_process?: {
+      available?: boolean
+      found?: boolean
+      pid?: number
+      rss_mb?: number
+      rss_gb?: number
+      error?: string
+    }
+    fat_sessions?: {
+      error?: string
+      sessions?: Array<{
+        session_key?: string
+        thread_id?: string | null
+        title?: string | null
+        run_status?: string | null
+        message_count?: number
+        content_mb?: number
+      }>
+    }
+    warnings?: {
+      pckl_large?: boolean
+      langgraph_rss_high?: boolean
+      evoflow_wal_large?: boolean
+    }
+    legend?: Record<string, string>
   }
 }
 
@@ -228,6 +284,140 @@ function AgentActivityCards({
   )
 }
 
+function fmtMb(n: number | undefined | null): string {
+  if (n == null || Number.isNaN(Number(n))) return '-'
+  const v = Number(n)
+  if (v >= 1024) return `${(v / 1024).toFixed(2)} GB`
+  return `${v.toFixed(1)} MB`
+}
+
+function shortKey(sk?: string | null, n = 28): string {
+  if (!sk) return '-'
+  return sk.length > n ? `${sk.slice(0, n)}…` : sk
+}
+
+function PersistencePressurePanel({
+  pressure,
+  compact = false,
+}: {
+  pressure: RuntimeStatus['persistence_pressure'] | undefined
+  compact?: boolean
+}) {
+  if (!pressure) {
+    return (
+      <div className="runtime-persist-panel">
+        <div className="runtime-detail-empty">暂无持久化压力数据（需新版 Gateway）</div>
+      </div>
+    )
+  }
+  if (pressure.error) {
+    return (
+      <div className="runtime-persist-panel">
+        <div className="runtime-detail-error">{pressure.error}</div>
+      </div>
+    )
+  }
+
+  const warns = pressure.warnings
+  const lg = pressure.langgraph_process
+  const pckl = pressure.pckl
+  const cp = pressure.checkpointer
+  const db = pressure.evoflow_db
+  const fats = pressure.fat_sessions?.sessions || []
+
+  return (
+    <div className={`runtime-persist-panel ${compact ? 'compact' : ''} ${warns?.pckl_large || warns?.langgraph_rss_high ? 'is-warn' : ''}`}>
+      <div className="runtime-section-header">
+        <h4 className="runtime-section-title">内存 / Checkpoint 压力</h4>
+        <div className="runtime-section-stats">
+          {warns?.pckl_large || warns?.langgraph_rss_high || warns?.evoflow_wal_large ? (
+            <span className="stat-badge warn">有告警</span>
+          ) : (
+            <span className="stat-badge total">正常</span>
+          )}
+        </div>
+      </div>
+      <p className="runtime-persist-hint">
+        聊天正文看 <code>evoflow.db</code>；<code>*.pckl</code> 是 LangGraph 额外落盘（启动会灌进 RSS）；配置的 sqlite
+        checkpoint 聊天 UI 不用。
+      </p>
+      <div className="runtime-persist-metrics">
+        <div className={`runtime-persist-metric ${warns?.langgraph_rss_high ? 'warn' : ''}`}>
+          <span className="label">LangGraph RSS</span>
+          <strong>
+            {lg?.found ? `${lg.rss_gb ?? '-'} GB` : lg?.available === false ? '不可用' : '未发现进程'}
+          </strong>
+          <em>{lg?.pid ? `pid ${lg.pid}` : 'Agent Runtime'}</em>
+        </div>
+        <div className={`runtime-persist-metric ${warns?.pckl_large ? 'warn' : ''}`}>
+          <span className="label">.pckl 落盘</span>
+          <strong>{fmtMb(pckl?.total_mb)}</strong>
+          <em>{pckl?.file_count ?? 0} 个文件</em>
+        </div>
+        <div className={`runtime-persist-metric ${warns?.evoflow_wal_large ? 'warn' : ''}`}>
+          <span className="label">evoflow.db</span>
+          <strong>{fmtMb(db?.total_mb)}</strong>
+          <em>
+            db {fmtMb(db?.db_mb)} · wal {fmtMb(db?.wal_mb)}
+          </em>
+        </div>
+        <div className="runtime-persist-metric">
+          <span className="label">sqlite checkpoint</span>
+          <strong>
+            {cp?.sqlite_exists ? fmtMb(cp.sqlite_mb) : '未创建'}
+          </strong>
+          <em>
+            type={cp?.configured_type || '-'} · pckl
+            {cp?.file_persistence_disabled ? '已关' : '未关'}
+          </em>
+        </div>
+      </div>
+
+      {(pckl?.files?.length ?? 0) > 0 && (
+        <div className="runtime-persist-block">
+          <h5>.langgraph_api 文件</h5>
+          <div className="runtime-session-list">
+            {pckl!.files!.slice(0, compact ? 4 : 8).map((f, idx) => (
+              <div key={idx} className="runtime-session-item">
+                <span className="runtime-session-id" title={f.name}>
+                  {f.name}
+                </span>
+                <span className="runtime-stream-duration">{fmtMb(f.mb)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="runtime-persist-block">
+        <h5>最肥会话（消息体积，非 pckl 线程切片）</h5>
+        {pressure.fat_sessions?.error ? (
+          <div className="runtime-detail-error">{pressure.fat_sessions.error}</div>
+        ) : fats.length > 0 ? (
+          <div className="runtime-session-list">
+            {fats.slice(0, compact ? 5 : 8).map((s, idx) => (
+              <div key={idx} className="runtime-session-item runtime-fat-session">
+                <div className="runtime-fat-main">
+                  <span className="runtime-session-id" title={s.session_key}>
+                    {shortKey(s.title || s.session_key)}
+                  </span>
+                  <span className="runtime-fat-meta">
+                    {s.message_count ?? 0} 条 · thread {(s.thread_id || '-').slice(0, 8)}
+                    {s.run_status ? ` · ${s.run_status}` : ''}
+                  </span>
+                </div>
+                <span className="runtime-stream-duration">{fmtMb(s.content_mb)}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="runtime-detail-empty">暂无会话体积数据</div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function RuntimeSummaryGrid({ status, summary }: { status: RuntimeStatus | null; summary: RuntimeStatus['summary'] }) {
   return (
     <div className="runtime-summary-grid">
@@ -278,6 +468,15 @@ function RuntimeSummaryGrid({ status, summary }: { status: RuntimeStatus | null;
         <div className="runtime-summary-info">
           <span className="runtime-summary-label">Agent 活跃</span>
           <span className="runtime-summary-value">工作中</span>
+        </div>
+      </div>
+      <div className={`runtime-summary-card ${summary?.persistence_warn ? 'active warn' : 'active'}`}>
+        <span className="runtime-count-badge">
+          {summary?.langgraph_rss_gb != null ? `${summary.langgraph_rss_gb}` : '-'}
+        </span>
+        <div className="runtime-summary-info">
+          <span className="runtime-summary-label">LG 内存 GB</span>
+          <span className="runtime-summary-value">pckl {fmtMb(summary?.pckl_total_mb)}</span>
         </div>
       </div>
     </div>
@@ -457,6 +656,11 @@ export function RuntimeStatusPanel({ variant = 'full' }: { variant?: 'hero' | 'f
             <span className={summary?.channel_service_running ? 'pill live' : 'pill'}>
               Channel {summary?.channel_service_running ? 'ON' : 'OFF'}
             </span>
+            <span className={summary?.persistence_warn ? 'pill warn' : 'pill'}>
+              LG {summary?.langgraph_rss_gb != null ? `${summary.langgraph_rss_gb}GB` : '-'}
+              {' · '}
+              pckl {fmtMb(summary?.pckl_total_mb)}
+            </span>
           </div>
         </div>
 
@@ -470,6 +674,8 @@ export function RuntimeStatusPanel({ variant = 'full' }: { variant?: 'hero' | 'f
         ) : (
           <div className="obs-empty-state">{agentActivities?.error || '暂无 Agent 活动数据'}</div>
         )}
+
+        <PersistencePressurePanel pressure={status?.persistence_pressure} compact />
 
         <details className="agent-live-details">
           <summary>系统运行详情</summary>
@@ -487,6 +693,7 @@ export function RuntimeStatusPanel({ variant = 'full' }: { variant?: 'hero' | 'f
     >
       {error && <div className="runtime-status-error">{error}</div>}
       <RuntimeSummaryGrid status={status} summary={summary} />
+      <PersistencePressurePanel pressure={status?.persistence_pressure} />
       {agentActivities && !agentActivities.error && (agentActivities.agents?.length ?? 0) > 0 && (
         <AgentActivityCards
           agents={agentActivities.agents}

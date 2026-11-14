@@ -2716,6 +2716,105 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
   font-size: 10px;
 }
 
+/* Persistence / checkpoint pressure (Obs Dashboard) */
+.runtime-persist-panel {
+  margin-top: 16px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--obs-surface-soft);
+}
+
+.runtime-persist-panel.is-warn {
+  border-color: color-mix(in srgb, var(--red) 45%, var(--border));
+  background: color-mix(in srgb, var(--red-soft) 55%, var(--obs-surface-soft));
+}
+
+.runtime-persist-hint {
+  margin: 0 0 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.runtime-persist-hint code {
+  font-size: 10px;
+}
+
+.runtime-persist-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.runtime-persist-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--obs-surface-muted);
+  border: 1px solid transparent;
+}
+
+.runtime-persist-metric.warn {
+  border-color: color-mix(in srgb, var(--red) 40%, transparent);
+}
+
+.runtime-persist-metric .label {
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.runtime-persist-metric strong {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.runtime-persist-metric em {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-style: normal;
+}
+
+.runtime-persist-block {
+  margin-top: 10px;
+}
+
+.runtime-persist-block h5 {
+  margin: 0 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.runtime-fat-session {
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.runtime-fat-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.runtime-fat-meta {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.agent-live-pills .pill.warn,
+.runtime-summary-card.warn {
+  border-color: color-mix(in srgb, var(--red) 40%, var(--border));
+  color: var(--red);
+}
+
 /* Agent Activities Section */
 .runtime-agent-grid {
   margin-top: 24px;
@@ -2767,6 +2866,11 @@ html[data-theme="light"] .obs-dashboard-root .obs-empty-panel {
 .stat-badge.active {
   background: var(--green-soft);
   color: var(--green);
+}
+
+.stat-badge.warn {
+  background: var(--red-soft);
+  color: var(--red);
 }
 
 .stat-badge.total {

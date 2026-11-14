@@ -30,6 +30,14 @@ def test_serve_file_is_best_effort() -> None:
     assert classify_path("/api/workspaces/serve-file").lane == Lane.BEST_EFFORT
 
 
+def test_resolve_target_is_best_effort() -> None:
+    # Heal walks must not sit on DATA and starve chat open (2026-11-10 hang).
+    assert classify_path("/api/workspaces/resolve-target").lane == Lane.BEST_EFFORT
+    assert (
+        classify_path("/api/workspaces/resolve-target", method="GET").lane == Lane.BEST_EFFORT
+    )
+
+
 def test_unknown_api_defaults_to_data_not_control() -> None:
     """Coverage guarantee: new slow endpoints are isolated until allow-listed."""
     assert classify_path("/api/brand-new-slow-thing").lane == Lane.DATA
@@ -51,6 +59,19 @@ def test_v4_conversation_subscribe_is_control() -> None:
     )
     # frames SSE stays STREAM (long-lived)
     assert classify_path("/api/v4/conversation/frames").lane == Lane.STREAM
+
+
+def test_live_run_is_best_effort_not_control() -> None:
+    """Background live-run upserts must shed under lag, not block subscribe."""
+    path = "/api/chat/sessions/proactive:x:chat:1/live-run"
+    assert classify_path(path, method="PUT").lane == Lane.BEST_EFFORT
+    assert classify_path(path, method="GET").lane == Lane.BEST_EFFORT
+    assert classify_path(path, method="DELETE").lane == Lane.BEST_EFFORT
+    # Other chat mutations stay CONTROL
+    assert (
+        classify_path("/api/chat/sessions/proactive:x:chat:1/context", method="PATCH").lane
+        == Lane.CONTROL
+    )
 
 
 def test_browser_log_is_best_effort() -> None:

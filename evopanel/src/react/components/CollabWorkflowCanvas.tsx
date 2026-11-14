@@ -20,7 +20,8 @@ import { logWorkflowNodeState } from '../../lib/workflow-node-log.js'
 import { formatTaskStatusZh, taskStatusBadgeClass } from '../../lib/task-status-label.js'
 import { formatSubtaskObsLine } from '../../lib/task-observability-format.js'
 import { HoverBubble, HoverBubbleProvider } from './HoverBubble.js'
-import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
+import { WorkflowAgentFace } from '@zcode/ui/components/workflow-timeline/WorkflowAgentFace.js'
+import type { StepRunStatus } from '@zcode/ui/components/workflow-graph/types.js'
 
 function normalizeStatus(status?: string): string {
   return String(status || '')
@@ -42,6 +43,26 @@ function isCompletedStatus(status?: string): boolean {
 function resolveNodeDisplayStatus(collabStatus: string | undefined): string {
   const raw = String(collabStatus || '').trim()
   return raw || 'pending'
+}
+
+/** collab 节点态 → 瓦片脸表情用的 StepRunStatus */
+function toFaceStatus(status?: string): StepRunStatus {
+  const s = normalizeStatus(status)
+  if (isRunningStatus(s)) return 'running'
+  if (s === 'failed' || s === 'error' || s === 'timed_out') return 'failed'
+  if (isCompletedStatus(s)) return 'done'
+  return 'pending'
+}
+
+/** 按节点身份取色：同 Agent 多节点也要错开，别整图一种颜色。 */
+function faceAvatarIndex(...parts: Array<string | number | null | undefined>): number {
+  const seed = parts.map((p) => String(p ?? '').trim()).filter(Boolean).join('\0') || 'node'
+  let hash = 2166136261
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i)
+    hash = Math.imul(hash, 16777619)
+  }
+  return Math.abs(hash) % 9
 }
 
 function subtaskTitle(s: CollabSubtaskSnapshot): string {
@@ -280,7 +301,18 @@ function WorkflowNode({
           <span className="collab-wf-node-task-title">{title}</span>
           <HoverBubble text={agentName} side="top" align="center" maxWidth={200} asChild>
             <span className="collab-wf-node-agent-ico" aria-hidden>
-              <AssignedAgentAvatar agentCode={code} agents={agents} size={13} busy={running} />
+              <WorkflowAgentFace
+                avatarIndex={faceAvatarIndex(
+                  s.subtaskId,
+                  s.ref,
+                  code,
+                  agentName,
+                  title,
+                )}
+                className="size-[13px]"
+                name={agentName || code || title}
+                status={toFaceStatus(displayStatus)}
+              />
             </span>
           </HoverBubble>
           {refLabel ? <span className="collab-wf-node-ref">#{refLabel}</span> : null}

@@ -584,29 +584,29 @@ html[data-xw-voice='1'] .react-chat-main-body > .react-chat-right-stage-panel {
   min-width: 0 !important;
 }
 
-/* 小V语音域左栏（无右栏 / 兜底固定宽） */
+/* 小V语音域左栏（无右栏 / 兜底固定宽）——略加宽，少挤字 */
 html[data-xw-voice='1'] .xw-voice-host {
-  flex: 0 0 440px !important;
-  width: 440px !important;
-  max-width: 46vw !important;
+  flex: 0 0 520px !important;
+  width: 520px !important;
+  max-width: 52vw !important;
   min-height: 0;
 }
 
 /* 有右栏时：左栏按视口收缩，横向空间让给员工/任务壳页（须写在兜底规则之后） */
 html[data-xw-voice='1'] .react-chat-main-body.is-right-stage-open .xw-voice-host {
-  flex: 0 0 clamp(300px, 30vw, 400px) !important;
-  width: clamp(300px, 30vw, 400px) !important;
-  max-width: 36vw !important;
+  flex: 0 0 clamp(340px, 34vw, 480px) !important;
+  width: clamp(340px, 34vw, 480px) !important;
+  max-width: 42vw !important;
 }
 @media (max-width: 900px) {
   html[data-xw-voice='1'] .xw-voice-host {
-    flex: 0 0 360px !important;
-    width: 360px !important;
+    flex: 0 0 400px !important;
+    width: 400px !important;
   }
   html[data-xw-voice='1'] .react-chat-main-body.is-right-stage-open .xw-voice-host {
-    flex: 0 0 clamp(260px, 34vw, 320px) !important;
-    width: clamp(260px, 34vw, 320px) !important;
-    max-width: 40vw !important;
+    flex: 0 0 clamp(280px, 38vw, 360px) !important;
+    width: clamp(280px, 38vw, 360px) !important;
+    max-width: 44vw !important;
   }
 }
 
@@ -792,9 +792,9 @@ html[data-xw-voice='1'] .react-chat-main-body {
   top: 14px;
   right: 16px;
   z-index: 20;
-  /* 默认：无头栏，约两行正文；高度略留余量，避免贴底空白把字顶出视口 */
-  width: min(260px, 34vw);
-  max-height: 108px;
+  /* 默认略加宽：窄框长句折行难看；仍克制，别盖半屏 */
+  width: min(340px, 42vw);
+  max-height: 120px;
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in srgb, var(--text-primary, #202124) 10%, transparent);
@@ -806,13 +806,13 @@ html[data-xw-voice='1'] .react-chat-main-body {
   transition: width var(--dur-base) var(--ease-out-soft), max-height var(--dur-base) var(--ease-out-soft), box-shadow var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-clean.is-voice-expanded .xws-recent {
-  width: min(280px, 30vw);
-  max-height: 112px;
+  width: min(380px, 36vw);
+  max-height: 128px;
 }
 /* 悬停或焦点在浮层内 → 标题栏 + 拉高；宽度仍克制，别盖半屏 */
 .xws-clean .xws-recent:hover,
 .xws-clean .xws-recent:focus-within {
-  width: min(320px, 38vw);
+  width: min(420px, 46vw);
   max-height: min(52vh, 420px);
   z-index: 32;
   border-color: color-mix(in srgb, var(--text-primary, #202124) 14%, transparent);
@@ -820,7 +820,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
 }
 .xws-clean.is-voice-expanded .xws-recent:hover,
 .xws-clean.is-voice-expanded .xws-recent:focus-within {
-  width: min(360px, 34vw);
+  width: min(460px, 40vw);
   max-height: min(58vh, 480px);
 }
 /* 收起态顶缘淡出；展开后去掉 */
@@ -1026,10 +1026,10 @@ html[data-xw-voice='1'] .react-chat-main-body {
   text-shadow: 0 0 22px color-mix(in srgb, var(--xws-state) 45%, transparent);
   animation: xws-listen-title 1.8s ease-in-out infinite;
 }
-/* 居中两行正文：上行用户、下行小V；不写角色名 */
+/* 居中两行正文：上行用户、下行小V；不写角色名（随左栏加宽略放宽） */
 .xws-clean .xws-live-user,
 .xws-clean .xws-live-ai {
-  width: min(560px, 92%);
+  width: min(640px, 94%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1074,21 +1074,21 @@ html[data-xw-voice='1'] .react-chat-main-body {
 
 @media (max-width: 720px) {
   .xws-clean .xws-recent {
-    width: min(240px, 68vw);
-    max-height: 80px;
+    width: min(300px, 78vw);
+    max-height: 96px;
   }
   .xws-clean.is-voice-expanded .xws-recent {
-    width: min(260px, 72vw);
-    max-height: 84px;
+    width: min(320px, 82vw);
+    max-height: 100px;
   }
   .xws-clean .xws-recent:hover,
   .xws-clean .xws-recent:focus-within {
-    width: min(280px, 72vw);
+    width: min(340px, 86vw);
     max-height: min(48vh, 360px);
   }
   .xws-clean.is-voice-expanded .xws-recent:hover,
   .xws-clean.is-voice-expanded .xws-recent:focus-within {
-    width: min(300px, 78vw);
+    width: min(360px, 88vw);
     max-height: min(52vh, 400px);
   }
   .xws-clean .xws-status-word {

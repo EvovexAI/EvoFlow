@@ -96,7 +96,7 @@ describe('applyAgUiEvent', () => {
     expect(s.messages.get('rm1')?.content).toBe('用户在问当前')
   })
 
-  it('REASONING_MESSAGE_CONTENT ignores duplicate punctuation delta replay', () => {
+  it('REASONING_MESSAGE_CONTENT appends duplicate punctuation deltas verbatim (cumulative replay still deduped)', () => {
     let s = emptyAgUiTurnState('r1', 't1')
     s = applyAgUiEvent(s, { type: 'REASONING_MESSAGE_START', messageId: 'rm1' })
     const deltas = [
@@ -127,8 +127,18 @@ describe('applyAgUiEvent', () => {
     for (const delta of deltas) {
       s = applyAgUiEvent(s, { type: 'REASONING_MESSAGE_CONTENT', messageId: 'rm1', delta })
     }
+    // mergeReasoningStreamPiece 有意不做尾部重叠去重（连续相同字符如 1000 会被误吞成 10），
+    // 重复 delta 原样追加；累积重放（piece 以已有全文为前缀）仍被识别并去重。
     expect(s.messages.get('rm1')?.content).toBe(
-      'The user wants me to create a new temporary file, then delete it. Simple two-step process.',
+      'The user wants me to create a new temporary file,, then delete it.. Simple two-step process..',
+    )
+    s = applyAgUiEvent(s, {
+      type: 'REASONING_MESSAGE_CONTENT',
+      messageId: 'rm1',
+      delta: 'The user wants me to create a new temporary file,, then delete it.. Simple two-step process.. Done.',
+    })
+    expect(s.messages.get('rm1')?.content).toBe(
+      'The user wants me to create a new temporary file,, then delete it.. Simple two-step process.. Done.',
     )
   })
 
@@ -479,13 +489,17 @@ describe('applyAgUiEvent', () => {
     )
   })
 
-  it('TEXT_MESSAGE_CONTENT ignores duplicate single-char delta replay', () => {
+  it('TEXT_MESSAGE_CONTENT appends duplicate single-char deltas verbatim (cumulative replay still deduped)', () => {
     let s = emptyAgUiTurnState('r1', 't1')
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_START', messageId: 'b1', role: 'assistant' })
     for (const delta of ['已', '已', '删', '删', '除', '除']) {
       s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_CONTENT', messageId: 'b1', delta })
     }
-    expect(projectAgUiToStreamTurnFields(s).openText).toBe('已删除')
+    // appendStreamBodyPiece 有意不做尾部重叠去重（连续相同字符如 1000 会被误吞成 10），
+    // 重复单字 delta 原样追加；累积重放（piece 以已有全文为前缀）仍被识别并去重。
+    expect(projectAgUiToStreamTurnFields(s).openText).toBe('已删删除除')
+    s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_CONTENT', messageId: 'b1', delta: '已删删除除啦' })
+    expect(projectAgUiToStreamTurnFields(s).openText).toBe('已删删除除啦')
   })
 
   it('TOOL_CALL_ARGS updates args preview', () => {
@@ -531,12 +545,14 @@ describe('applyAgUiEvent', () => {
     expect(slots[slots.length - 1].kind).toBe('thinking-wait')
     expect(slots[slots.length - 1].label).toContain('web_search')
 
-    // 3) 正文流入：状态行依旧贴底
+    // 3) 正文流入：activity 被消费清除（clearActivityOnContent），状态行让位于 live-tail
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_START', messageId: 'b1', role: 'assistant' })
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_CONTENT', messageId: 'b1', delta: 'hello' })
     view = projectAgUiTurnDisplay(s, { isStreaming: true })
     slots = aguiSlotsToBubbleSlots(view)
-    expect(slots[slots.length - 1].kind).toBe('thinking-wait')
+    expect(s.activity).toBe(null)
+    expect(slots[slots.length - 1].kind).toBe('live-tail')
+    expect(slots.some((x) => x.kind === 'thinking-wait')).toBe(false)
 
     // 4) 流式结束：状态行被移除
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_END', messageId: 'b1' })
@@ -546,7 +562,7 @@ describe('applyAgUiEvent', () => {
     expect(slots.some((x) => x.kind === 'thinking-wait')).toBe(false)
   })
 
-  it('MESSAGES_SNAPSHOT hydrates closed assistant + reasoning segments', () => {
+  it('MESSAGES_SNAPSHOT hydrates reasoning segment + merges snapshot text into live assistant body', () => {
     let s = emptyAgUiTurnState('r1', 't1')
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_START', messageId: 'b2', role: 'assistant' })
     s = applyAgUiEvent(s, { type: 'TEXT_MESSAGE_CONTENT', messageId: 'b2', delta: '你好' })
@@ -557,10 +573,13 @@ describe('applyAgUiEvent', () => {
         { id: 'b2', role: 'assistant', content: '你好！有什么可以帮到你的吗？' },
       ],
     })
+    // 已 open 的 live assistant 消息不因 snapshot 关闭（TEXT_MESSAGE_END/RUN_FINISHED 才关闭），
+    // snapshot 的累积全文并入 live 正文；新的 reasoning 消息水合进 timeline。
     const proj = projectAgUiToStreamTurnFields(s)
-    expect(proj.timeline).toHaveLength(2)
-    expect(proj.timeline.some((seg) => seg.kind === 'text' && seg.text.includes('你好'))).toBe(true)
-    expect(proj.openText).toBe('')
+    expect(proj.timeline).toHaveLength(1)
+    expect(proj.timeline.some((seg) => seg.kind === 'reasoning' && seg.text === 'think')).toBe(true)
+    expect(proj.openText).toBe('你好！有什么可以帮到你的吗？')
+    expect(s.messages.get('b2')?.closed).toBe(false)
   })
 
   it('MESSAGES_SNAPSHOT does not truncate or close an open live assistant message', () => {

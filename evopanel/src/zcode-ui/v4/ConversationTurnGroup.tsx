@@ -56,6 +56,7 @@ import { getCurrentRightStageSessionKey } from "../../lib/right-stage/right-stag
 import { isRightStageTabVisibleForSession } from "../../lib/right-stage/right-stage-session-visibility.js";
 import { rightStageStore } from "../../lib/right-stage/right-stage-store.js";
 import { logRightStage } from "../../lib/right-stage/panel-set-debug-log.js";
+import { logWorkflowProgress } from "../../lib/workflow-progress-debug-log.js";
 import {
   hasMcpWorkbench,
   mcpServerNameFromToolName,
@@ -90,6 +91,8 @@ import { WorkflowNotificationToolRow } from "@/v4/WorkflowNotificationToolRow.js
 import { ConversationWorkflowDigests } from "@/v4/ConversationWorkflowDigests.js";
 import { ConversationWorkflowCompletion } from "@/v4/ConversationWorkflowCompletion.js";
 import { resolveWorkflowTurnDigests } from "@/v4/workflowTurnDigests.js";
+import { buildCausalityGraphFromWorkflowRun } from "@/lib/collabToWorkflowProjection.js";
+import type { WorkflowRunCardSummary } from "@/ToolCallBlocks/fileSummaryTypes.js";
 import { resolveWorkflowTurnCompletion } from "@/v4/workflowTurnCompletion.js";
 import { ConversationAssistantTextActions } from "@/v4/ConversationRowView.js";
 import { readAssistantFeedback } from "@/v4/ConversationRowView.js";
@@ -422,7 +425,7 @@ function ConversationAssistantWorkItems({
     <div
       className={
         layout === "mediaWrap"
-          ? "flex flex-wrap items-start gap-2 [&>*]:w-fit [&>*]:max-w-[min(100%,20rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
+          ? "flex flex-wrap items-start gap-1.5 [&>*]:w-fit [&>*]:max-w-[min(100%,10rem)] [&>*]:shrink-0 [&_[data-tool-call-id]]:w-fit [&_[data-tool-call-id]]:max-w-full [&_[data-image-thumbnail-trigger]]:my-0 [&_[data-image-thumbnail-trigger]]:mr-0"
           : "flex flex-col gap-4"
       }
     >
@@ -1528,15 +1531,128 @@ function ConversationTurnGroupImpl({
   const workflowRunByToolCallId = context.workflowRunByToolCallId;
   const workflowRunByRunId = context.workflowRunByRunId;
   const workflowGraphByToolCallId = context.workflowGraphByToolCallId;
-  const workflowTurnDigests = useMemo(
-    () =>
-      resolveWorkflowTurnDigests(unit, {
-        byToolCallId: workflowRunByToolCallId,
-        byRunId: workflowRunByRunId,
-        graphByToolCallId: workflowGraphByToolCallId,
-      }),
-    [unit, workflowGraphByToolCallId, workflowRunByRunId, workflowRunByToolCallId],
-  );
+  const workflowTurnDigests = useMemo(() => {
+    const resolved = resolveWorkflowTurnDigests(unit, {
+      byToolCallId: workflowRunByToolCallId,
+      byRunId: workflowRunByRunId,
+      graphByToolCallId: workflowGraphByToolCallId,
+    });
+    // 底部图标 = childWorks active。进度卡必须同源：
+    // - 进行中的 run 跟图标走**尾轮**（openStage/toolCallId 常晚于 childWork 注册，
+    //   若只认领本轮锚点会出现「图标转、对话无卡」）。
+    // - 已结束的 run 留在发起轮（resolved），不被尾轮吞掉。
+    const activeIds = new Set(
+      (context.childWorkActiveWorkflows ?? [])
+        .map((c) => String(c.runId || "").trim())
+        .filter(Boolean),
+    );
+    const digests = unit.isLastTurn
+      ? resolved
+      : resolved.filter((d) => !activeIds.has(d.runId));
+    const merged = [...digests];
+    const seen = new Set(digests.map((d) => d.runId));
+    const pushSummary = (
+      runId: string,
+      toolCallId: string,
+      name: string | undefined,
+      summary: WorkflowRunCardSummary | undefined,
+      keyPrefix: string,
+    ) => {
+      if (!runId || seen.has(runId)) return;
+      seen.add(runId);
+      const live = summary ?? workflowRunByRunId?.get(runId);
+      const run = live?.run;
+      merged.push({
+        key: `${keyPrefix}:${runId}`,
+        toolCallId: toolCallId || `${keyPrefix}:${runId}`,
+        runId,
+        name,
+        graph: run ? buildCausalityGraphFromWorkflowRun(run) : undefined,
+        summary: live,
+      });
+    };
+    if (unit.isLastTurn) {
+      for (const cw of context.childWorkActiveWorkflows ?? []) {
+        pushSummary(
+          String(cw.runId || "").trim(),
+          String(cw.summary.toolCallId || "").trim(),
+          cw.name,
+          cw.summary,
+          "child-work",
+        );
+      }
+    }
+    // childWorks 熄灭后：按发起轮 turnKey 钉住，避免「跑着有卡、对话一结束最新卡没了」。
+    for (const sticky of context.workflowDigestSticky ?? []) {
+      if (sticky.turnKey !== unit.key) continue;
+      pushSummary(
+        String(sticky.runId || "").trim(),
+        String(sticky.toolCallId || "").trim(),
+        sticky.name,
+        sticky.summary,
+        "sticky",
+      );
+    }
+    const joinKeys = {
+      byToolCallId: [...(workflowRunByToolCallId?.keys() ?? [])],
+      byRunId: [...(workflowRunByRunId?.keys() ?? [])],
+    };
+    logWorkflowProgress(
+      "turn.digests",
+      {
+        turnKey: unit.key,
+        isLastTurn: unit.isLastTurn,
+        isRunning: unit.isRunning,
+        digestCount: merged.length,
+        digestRunIds: merged.map((d) => d.runId),
+        digestToolCallIds: merged.map((d) => d.toolCallId),
+        activeIds: [...activeIds],
+        stickyForTurn: (context.workflowDigestSticky ?? [])
+          .filter((s) => s.turnKey === unit.key)
+          .map((s) => s.runId),
+        childWorkActive: (context.childWorkActiveWorkflows ?? []).map((c) => c.runId),
+        joinKeys,
+      },
+      {
+        dedupeKey: `digests:${unit.key}:${merged.length}:${joinKeys.byRunId.join(",")}`,
+      },
+    );
+    return merged;
+  }, [
+    context.childWorkActiveWorkflows,
+    context.workflowDigestSticky,
+    unit,
+    workflowGraphByToolCallId,
+    workflowRunByRunId,
+    workflowRunByToolCallId,
+  ]);
+
+  // 尾轮把当前 active childWorks 记到 sticky（按 unit.key），结束后仍能在本轮出卡。
+  useEffect(() => {
+    if (!unit.isLastTurn) return;
+    const note = context.onWorkflowDigestSticky;
+    if (!note) return;
+    const entries = (context.childWorkActiveWorkflows ?? [])
+      .map((cw) => {
+        const runId = String(cw.runId || "").trim();
+        if (!runId) return null;
+        return {
+          runId,
+          toolCallId: String(cw.summary.toolCallId || "").trim(),
+          name: cw.name,
+          summary: cw.summary,
+          turnKey: unit.key,
+        };
+      })
+      .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+    if (entries.length === 0) return;
+    note(entries);
+  }, [
+    context.childWorkActiveWorkflows,
+    context.onWorkflowDigestSticky,
+    unit.isLastTurn,
+    unit.key,
+  ]);
   // 完成卡：主代理消化 completed 通知的那一轮，轮尾落卡。
   // 同一条门（轮结束）；联接只认 byRunId——通知轮里没有 CreateWorkflow 行可按 toolCallId 联。
   const workflowTurnCompletion = useMemo(

@@ -82,6 +82,7 @@ _NON_USER_HUMAN_NAMES = frozenset(
         # lands after tools at list end and steals attention on every tool hop).
         "session_intent",
         "session_memory_recall",
+        "session_memory_live",
         "session_collab_live",
         "session_mission_state",
         "session_context_refs",

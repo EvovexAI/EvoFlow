@@ -251,8 +251,24 @@ def apply_vendor_thinking_request_payload(
             return _apply_zhipu_thinking_payload(payload, model_instance=model_instance)
         return _apply_openai_compat_thinking_payload(payload)
     if force_off:
-        # 其它 OpenAI 兼容：显式写 disabled，避免空参落回厂商默认开思考
-        _merge_vendor_extra_body(payload, {"thinking": {"type": "disabled"}})
+        # 其它 OpenAI 兼容：显式关思考，且必须剥掉任何 on-level reasoning_effort
+        # （曾有 minimal→low 把语音/小V 关思考又打开）。
         payload.pop("reasoning_effort", None)
+        payload.pop("reasoning", None)
+        _merge_vendor_extra_body(
+            payload,
+            {
+                "thinking": {"type": "disabled"},
+                "enable_thinking": False,
+            },
+        )
+        extra = payload.get("extra_body")
+        if isinstance(extra, dict):
+            extra = dict(extra)
+            extra.pop("reasoning", None)
+            extra.pop("reasoning_effort", None)
+            extra.pop("thinking_budget", None)
+            extra.pop("thinkingBudget", None)
+            payload["extra_body"] = extra
         return payload
     return _apply_openai_compat_thinking_payload(payload)

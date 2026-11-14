@@ -9,6 +9,10 @@ import {
   platformUiToRunEntry,
 } from '../src/lib/right-stage/platform-feedback.ts'
 import { publishPlatformFromAgUiResult } from '../src/react/chat-app/stream/publish-platform-from-agui-result.ts'
+// 重导入（zcode-ui 渲染树）提到文件级：文件加载不受单测 5s 超时约束，
+// 全量并发跑时动态 import 会被 worker 饥饿拖到超时（偶发 flake）。
+import { readToolResultDisplay } from '../src/zcode-ui/ToolCallBlocks/toolResultDisplay.ts'
+import { readPlatformProgressFeedback } from '../src/zcode-ui/ToolCallBlocks/renderers/platform.tsx'
 
 describe('parsePlatformUiFeedback', () => {
   it('uses backend ui payload when present', () => {
@@ -368,13 +372,7 @@ describe('publishArtifacts — panel_set artifacts 必须能强制打开状态�
 })
 
 describe('V4 platform_ui progress display', () => {
-  it('readToolResultDisplay 接受无二维码的 openStage actions', async () => {
-    const { readToolResultDisplay } = await import(
-      '../src/zcode-ui/ToolCallBlocks/toolResultDisplay.ts'
-    )
-    const { readPlatformProgressFeedback } = await import(
-      '../src/zcode-ui/ToolCallBlocks/renderers/platform.tsx'
-    )
+  it('readToolResultDisplay 接受无二维码的 openStage actions', () => {
     const display = {
       kind: 'platform_ui',
       schemaVersion: 1,
@@ -402,6 +400,9 @@ describe('tryEagerAutoOpenPlatformFromArgs', () => {
     )
     const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
     rightStageStore.hideAll()
+    // f31b7138 起 hideAll 会钉住「收起锁」；补一次显式展开，模拟「用户未收起」，
+    // 这样 eager 打开员工名册才会把面板留在展开态。
+    rightStageStore.expand()
     const diag = tryEagerAutoOpenPlatformFromArgs(
       JSON.stringify({ action: 'employees.list' }),
       { toolCallId: 'eager-emp-list-1', toolName: 'platform' },

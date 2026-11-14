@@ -53,18 +53,19 @@ describe('selectRootTasks', () => {
     { id: 'solo', name: '独立任务', status: 'completed', assigned_to: 'code-agent', source: 'chat' },
   ]
 
-  it('lists only roots and filters completed by root status', () => {
+  it('lists only roots; completed filter pulls roots with completed descendants', () => {
     const { roots } = selectRootTasks(tasks, {
       statusFilter: 'completed',
       sourceKey: (t) => String(t.source || ''),
     })
-    expect(roots.map((t) => t.id)).toEqual(['solo'])
+    // 树级过滤：pm 本身 awaiting_close，但下游 fe 已完成 → 根单仍展示；子单不单独成行。
+    expect(roots.map((t) => t.id)).toEqual(['pm', 'solo'])
   })
 
-  it('keeps awaiting_close roots in executing group filter', () => {
-    expect(toTaskStatusGroup('awaiting_close')).toBe('executing')
+  it('keeps awaiting_close roots in pending group filter (待确认口径)', () => {
+    expect(toTaskStatusGroup('awaiting_close')).toBe('pending')
     const { roots } = selectRootTasks(tasks, {
-      statusFilter: 'executing',
+      statusFilter: 'pending',
       sourceKey: (t) => String(t.source || ''),
     })
     expect(roots.map((t) => t.id)).toEqual(['pm'])

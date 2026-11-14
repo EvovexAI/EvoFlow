@@ -936,6 +936,7 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
     # Mirror /models/test: fill missing credentials from a DB-backed model config,
     # so the panel can list models after reload when the key is stored server-side only.
     config_name = str(request.config_name or "").strip() or None
+    config_uses_plan = False
     if config_name:
         cfg = get_app_config().get_model_config(config_name)
         if cfg is None:
@@ -944,6 +945,7 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
                 "message": f"模型「{config_name}」不存在。请先保存配置后再获取，或提供 base_url / api_key",
                 "models": [],
             }
+        config_uses_plan = "openai_codex_provider" in str(getattr(cfg, "use", ""))
         if not base:
             base = (str(getattr(cfg, "base_url", None) or "").strip()).rstrip("/")
         if not key:
@@ -959,12 +961,16 @@ async def list_remote_openai_models(http_request: Request, request: ListRemoteMo
     if not base:
         return {"success": False, "message": "base_url 为空", "models": []}
 
-    # Codex subscription connections have empty api_key and use OAuth — do not
-    # hit chatgpt.com/backend-api/codex/models with a bare/missing Bearer key.
-    from evoflow.models.codex_models import is_codex_subscription_base_url, list_codex_subscription_models
+    from evoflow.models.codex_models import is_codex_subscription_base_url
 
-    if is_codex_subscription_base_url(base) and not key:
-        return list_codex_subscription_models(allow_builtin_fallback=True)
+    if not key and (config_uses_plan or is_codex_subscription_base_url(base)):
+        from starlette.concurrency import run_in_threadpool
+
+        from app.gateway.routers.codex_auth import require_local_plan_admin
+        from evoflow.models.codex_models import list_chatgpt_plan_models
+
+        require_local_plan_admin(http_request)
+        return await run_in_threadpool(list_chatgpt_plan_models)
 
     url = f"{base}/models"
     headers: dict[str, str] = {"accept": "application/json"}

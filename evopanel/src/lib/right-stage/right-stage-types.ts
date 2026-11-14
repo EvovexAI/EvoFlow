@@ -53,6 +53,7 @@ export const RIGHT_STAGE_KIND_LABELS: Record<string, string> = {
   sessionRuntime: '运行中',
   summary: '摘要',
   terminal: '终端',
+  'interactive-terminal': '终端',
   artifacts: '本轮产物',
   'mind-map': '思维导图',
   'collab-workflow': '工作流',
@@ -117,6 +118,7 @@ export function defaultLayoutForKind(kind: string): RightStageLayout {
     case 'xiaomi':
       return 'narrow'
     case 'terminal':
+    case 'interactive-terminal':
       return 'half'
     case 'write':
     case 'artifacts':

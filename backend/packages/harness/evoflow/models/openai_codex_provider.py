@@ -1,33 +1,22 @@
-"""Custom upstream agent runtime provider using ChatGPT runtime Responses API.
-
-Uses runtime CLI OAuth tokens with chatgpt.com/backend-api/codex/responses endpoint.
-This is the same endpoint that the runtime CLI uses internally.
-
-Supports:
-- Auto-load credentials from ~/.codex/auth.json
-- Responses API format (not Chat Completions)
-- Tool calling
-- Streaming (required by the endpoint)
-- Retry with exponential backoff
-"""
+"""EvoFlow provider for authorized ChatGPT plan requests via the Responses API."""
 
 import json
 import logging
 import time
+from collections.abc import Iterator
 from typing import Any
 
 import httpx
 from langchain_core.callbacks import CallbackManagerForLLMRun
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.outputs import ChatGeneration, ChatGenerationChunk, ChatResult
 
-from evoflow.models.credential_loader import load_codex_cli_credential, runtimeCliCredential
+from evoflow.models.chatgpt_plan_auth import API_BASE, access_token
 from evoflow.models.request_payload_logger import log_model_request_payload
 
 logger = logging.getLogger(__name__)
 
-CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex"
 MAX_RETRIES = 3
 
 
@@ -44,8 +33,6 @@ class runtimeChatModel(BaseChatModel):
     model: str = "gpt-5.4"
     reasoning_effort: str = "medium"
     retry_max_attempts: int = MAX_RETRIES
-    _access_token: str = ""
-    _account_id: str = ""
 
     model_config = {"arbitrary_types_allowed": True}
 
@@ -58,38 +45,8 @@ class runtimeChatModel(BaseChatModel):
             raise ValueError("retry_max_attempts must be >= 1")
 
     def model_post_init(self, __context: Any) -> None:
-        """Auto-load Codex subscription / CLI credentials (with refresh)."""
         self._validate_retry_config()
-
-        cred = self._load_codex_auth()
-        if cred:
-            self._access_token = cred.access_token
-            self._account_id = cred.account_id
-            hint = (self._account_id[:8] + "...") if self._account_id else cred.source or "unknown"
-            logger.info("Using Codex credential (account: %s, source: %s)", hint, cred.source)
-        else:
-            raise ValueError(
-                "Codex subscription credential not found. "
-                "Sign in via Settings → 模型 → OpenAI → ChatGPT/Codex 账号登录, "
-                "or provide ~/.codex/auth.json / CODEX_AUTH_PATH."
-            )
-
         super().model_post_init(__context)
-
-    def _load_codex_auth(self) -> runtimeCliCredential | None:
-        """Load access_token and account_id (EvoFlow store or Codex CLI)."""
-        return load_codex_cli_credential()
-
-    def _reload_codex_auth(self) -> None:
-        """Force-refresh credentials before a retry after 401."""
-        try:
-            from evoflow.models.codex_oauth import resolve_runtime_tokens
-
-            creds = resolve_runtime_tokens(force_refresh=True, refresh_if_expiring=True)
-            self._access_token = str(creds.get("access_token") or "")
-            self._account_id = str(creds.get("account_id") or "")
-        except Exception as exc:
-            logger.warning("Codex credential refresh failed: %s", exc)
 
     @classmethod
     def _normalize_content(cls, content: Any) -> str:
@@ -197,9 +154,10 @@ class runtimeChatModel(BaseChatModel):
             "input": input_items,
             "store": False,
             "stream": True,
-            "reasoning": {"effort": self.reasoning_effort, "summary": "detailed"} if self.reasoning_effort != "none" else {"effort": "none"},
         }
 
+        if self.reasoning_effort != "none":
+            payload["reasoning"] = {"effort": self.reasoning_effort}
         if tools:
             payload["tools"] = self._convert_tools(tools)
 
@@ -214,22 +172,16 @@ class runtimeChatModel(BaseChatModel):
         last_error = None
         for attempt in range(1, self.retry_max_attempts + 1):
             headers = {
-                "Authorization": f"Bearer {self._access_token}",
-                "ChatGPT-Account-ID": self._account_id,
+                "Authorization": f"Bearer {access_token()}",
                 "Content-Type": "application/json",
                 "Accept": "text/event-stream",
-                "originator": "codex_cli_rs",
             }
             try:
                 return self._stream_response(headers, payload)
             except httpx.HTTPStatusError as e:
                 last_error = e
                 status = e.response.status_code
-                if status == 401 and attempt < self.retry_max_attempts:
-                    logger.warning("Codex API 401; refreshing credentials and retrying")
-                    self._reload_codex_auth()
-                    continue
-                if status in (429, 500, 529):
+                if status in (500, 502, 503, 504, 529):
                     if attempt >= self.retry_max_attempts:
                         raise
                     wait_ms = 2000 * (1 << (attempt - 1))
@@ -243,8 +195,6 @@ class runtimeChatModel(BaseChatModel):
                     time.sleep(wait_ms / 1000)
                     continue
                 raise
-            except Exception:
-                raise
 
         raise last_error
 
@@ -253,12 +203,18 @@ class runtimeChatModel(BaseChatModel):
         completed_response = None
 
         with httpx.Client(timeout=300) as client:
-            with client.stream("POST", f"{CODEX_BASE_URL}/responses", headers=headers, json=payload) as resp:
+            with client.stream("POST", f"{API_BASE}/responses", headers=headers, json=payload) as resp:
                 resp.raise_for_status()
                 for line in resp.iter_lines():
                     data = self._parse_sse_data_line(line)
-                    if data and data.get("type") == "response.completed":
+                    event_type = data.get("type") if data else None
+                    if event_type == "response.completed":
                         completed_response = data["response"]
+                        break
+                    if event_type in {"response.failed", "response.incomplete", "error"}:
+                        error = data.get("response", {}).get("error") or data
+                        code = error.get("code") or event_type
+                        raise RuntimeError(f"ChatGPT plan inference stopped: {code}")
 
         if not completed_response:
             raise RuntimeError("runtime API stream ended without response.completed event")
@@ -278,7 +234,7 @@ class runtimeChatModel(BaseChatModel):
         try:
             data = json.loads(raw_data)
         except json.JSONDecodeError:
-            logger.debug(f"Skipping non-JSON runtime SSE frame: {raw_data}")
+            logger.debug("Skipping non-JSON Responses API SSE frame")
             return None
 
         return data if isinstance(data, dict) else None
@@ -399,6 +355,19 @@ class runtimeChatModel(BaseChatModel):
         except Exception as e:
             complete_vendor_roundtrip(chat_result=None, latency_ms=(time.perf_counter() - t0) * 1000.0, error=e)
             raise
+
+    def _stream(
+        self,
+        messages: list[BaseMessage],
+        stop: list[str] | None = None,
+        run_manager: CallbackManagerForLLMRun | None = None,
+        **kwargs: Any,
+    ) -> Iterator[ChatGenerationChunk]:
+        """Publish the completed response as a live chunk for LangGraph consumers."""
+        result = self._generate(messages, stop, run_manager, **kwargs)
+        generation = result.generations[0]
+        message = AIMessageChunk(**generation.message.model_dump(exclude={"type"}))
+        yield ChatGenerationChunk(message=message, generation_info=generation.generation_info)
 
     def bind_tools(self, tools: list, **kwargs: Any) -> Any:
         """Bind tools for function calling."""

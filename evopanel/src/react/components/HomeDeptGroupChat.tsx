@@ -65,6 +65,7 @@ import {
   type DeptGroupInsertMentionDetail,
   type DeptGroupLiveMap,
 } from '../lib/dept-group-live.js'
+import { logDeptGroupWake } from '../lib/dept-group-wake-log.js'
 import {
   finalizeDeptGroupMessage,
   migrateLocalDeptChatIfNeeded,
@@ -90,11 +91,21 @@ export type GroupChatMsg = {
   ts: number
   mentions?: string[]
   streaming?: boolean
+  /** 正在回复时一行实时态（排队 / 当前工具） */
+  liveTool?: string
   /** 由谁在群里 @ 过来的（嵌套接力） */
   fromAgentName?: string
   error?: boolean
   workSessionKey?: string
   wakeJobId?: string
+}
+
+function oneLineLiveTool(raw: string | undefined, max = 72): string {
+  const t = String(raw || '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!t) return ''
+  return t.length > max ? `${t.slice(0, max)}…` : t
 }
 
 type ThreadLine = {
@@ -649,7 +660,7 @@ export function HomeDeptGroupChat({
         await sleep(28)
       }
       if (!aliveRef.current) return full
-      patchMsg(bubbleId, { text: full, streaming: false, error: false })
+      patchMsg(bubbleId, { text: full, streaming: false, liveTool: '', error: false })
       return full
     },
     [patchMsg],
@@ -835,6 +846,7 @@ export function HomeDeptGroupChat({
           text: input.attempt > 1 ? '正忙，排队重试中…' : '',
           streaming: true,
           error: false,
+          liveTool: input.attempt > 1 ? '排队重试中…' : '',
           workSessionKey,
           wakeJobId: input.jobId,
         })
@@ -868,6 +880,27 @@ export function HomeDeptGroupChat({
 
       try {
         let live = false
+        let loggedFirstDelta = false
+        let lastActLine = ''
+        logDeptGroupWake({
+          event: 'run_start',
+          zh: `开跑 · @${person.role_name}（attempt=${input.attempt}, depth=${input.depth}）`,
+          deptId: dept.id,
+          deptName: dept.name,
+          agentCode: person.agent_code,
+          roleName: person.role_name,
+          jobId: input.jobId,
+          sourceMsgId: input.sourceMsgId,
+          detail: {
+            bubbleId,
+            workSessionKey,
+            attempt: input.attempt,
+            depth: input.depth,
+            stewardMode: !!input.stewardMode,
+            fromAgentName: input.fromAgentName || undefined,
+            goal: String(input.goal || '').slice(0, 160),
+          },
+        })
         const turn = await runDeptMemberWorkTurn({
           deptId: dept.id,
           deptName: dept.name,
@@ -889,6 +922,18 @@ export function HomeDeptGroupChat({
             const body = formatBodyText(t)
             if (!body) return
             live = true
+            if (!loggedFirstDelta) {
+              loggedFirstDelta = true
+              logDeptGroupWake({
+                event: 'first_delta',
+                zh: `首包正文 · @${person.role_name}（${body.length}字）`,
+                deptId: dept.id,
+                agentCode: person.agent_code,
+                roleName: person.role_name,
+                jobId: input.jobId,
+                detail: { bubbleId, preview: body.slice(0, 80) },
+              })
+            }
             if (aliveRef.current && !input.signal.aborted) {
               patchMsg(bubbleId!, { text: body, streaming: true, error: false })
             } else {
@@ -907,6 +952,23 @@ export function HomeDeptGroupChat({
                 },
                 'streaming',
               )
+            }
+          },
+          onActivity: ({ text: toolLine }) => {
+            const line = oneLineLiveTool(toolLine)
+            if (!line || !aliveRef.current || input.signal.aborted) return
+            patchMsg(bubbleId!, { liveTool: line, streaming: true, error: false })
+            if (line !== lastActLine) {
+              lastActLine = line
+              logDeptGroupWake({
+                event: 'activity',
+                zh: `工具中 · @${person.role_name} · ${line}`,
+                deptId: dept.id,
+                agentCode: person.agent_code,
+                roleName: person.role_name,
+                jobId: input.jobId,
+                detail: { bubbleId, tool: line },
+              })
             }
           },
         })
@@ -932,19 +994,65 @@ export function HomeDeptGroupChat({
             if (aliveRef.current) {
               patchMsg(bubbleId, { text: reply, streaming: false, error: false })
             }
+          } else {
+            logDeptGroupWake({
+              event: 'run_empty',
+              level: 'warn',
+              zh: `中断且无正文 · @${person.role_name}`,
+              deptId: dept.id,
+              agentCode: person.agent_code,
+              roleName: person.role_name,
+              jobId: input.jobId,
+              detail: {
+                bubbleId,
+                aborted: !!input.signal.aborted,
+                alive: !!aliveRef.current,
+              },
+            })
           }
           return {}
         }
         if (!reply) {
+          logDeptGroupWake({
+            event: 'run_empty',
+            level: 'warn',
+            zh: `空回复 · @${person.role_name}（chatSend 结束无正文）`,
+            deptId: dept.id,
+            agentCode: person.agent_code,
+            roleName: person.role_name,
+            jobId: input.jobId,
+            sourceMsgId: input.sourceMsgId,
+            detail: { bubbleId, workSessionKey },
+          })
           patchMsg(bubbleId, {
             text: '（对方没有返回正文）',
             streaming: false,
+            liveTool: '',
             error: true,
           })
           return { error: '空回复' }
         }
+        logDeptGroupWake({
+          event: 'run_done',
+          zh: `定稿 · @${person.role_name}（${reply.length}字, handoffs=${
+            (turn.handoffs || []).length
+          }）`,
+          deptId: dept.id,
+          agentCode: person.agent_code,
+          roleName: person.role_name,
+          jobId: input.jobId,
+          sourceMsgId: input.sourceMsgId,
+          detail: {
+            bubbleId,
+            chars: reply.length,
+            liveStreamed: live,
+            handoffs: (turn.handoffs || []).map((h) => h.agentCode).slice(0, 12),
+            preview: reply.slice(0, 100),
+          },
+        })
         const finalText = live
-          ? (patchMsg(bubbleId, { text: reply, streaming: false, error: false }), reply)
+          ? (patchMsg(bubbleId, { text: reply, streaming: false, liveTool: '', error: false }),
+            reply)
           : await streamBodyIntoBubble(bubbleId, reply)
 
         if (input.depth >= MAX_NEST_DEPTH) return {}
@@ -1002,6 +1110,20 @@ export function HomeDeptGroupChat({
         const mentionMsgId = String(bubbleId || rootId).trim()
         // 只入队、不 await：否则父任务会一直 running，名单上「回复中」卡到所有下级说完
         for (const item of nested) {
+          logDeptGroupWake({
+            event: 'nest_enqueue',
+            zh: `嵌套 @ · ${person.role_name} → @${item.person.role_name}`,
+            deptId: dept.id,
+            agentCode: item.person.agent_code,
+            roleName: item.person.role_name,
+            sourceMsgId: mentionMsgId,
+            detail: {
+              fromAgentCode: person.agent_code,
+              fromAgentName: person.role_name,
+              depth: input.depth + 1,
+              goal: String(item.goal || '').slice(0, 160),
+            },
+          })
           void q
             .enqueue({
               agentCode: item.person.agent_code,
@@ -1016,25 +1138,58 @@ export function HomeDeptGroupChat({
                 goal: item.goal,
               }),
             })
-            .catch(() => {
-              /* 队列/防环失败时下级自己有气泡错误态 */
+            .catch((err: unknown) => {
+              logDeptGroupWake({
+                event: 'enqueue_fail',
+                level: 'error',
+                zh: `嵌套入队失败 · @${item.person.role_name}：${String(
+                  (err as { message?: string })?.message || err || '失败',
+                )}`,
+                deptId: dept.id,
+                agentCode: item.person.agent_code,
+                roleName: item.person.role_name,
+                sourceMsgId: mentionMsgId,
+              })
             })
         }
         return {}
       } catch (e: unknown) {
         if (!aliveRef.current || input.signal.aborted) return {}
         if (isWakeBusyError(e)) {
+          logDeptGroupWake({
+            event: 'run_busy',
+            level: 'warn',
+            zh: `对方正忙 · @${person.role_name}，将排队重试`,
+            deptId: dept.id,
+            agentCode: person.agent_code,
+            roleName: person.role_name,
+            jobId: input.jobId,
+            detail: { error: String((e as { message?: string })?.message || e) },
+          })
           patchMsg(bubbleId, {
             text: `「${person.role_name}」正忙，已加入排队…`,
             streaming: true,
+            liveTool: '排队中…',
             error: false,
           })
           return { busy: true, error: String((e as { message?: string })?.message || e) }
         }
         const msg = String((e as { message?: string })?.message || e || '点名失败')
+        logDeptGroupWake({
+          event: 'run_fail',
+          level: 'error',
+          zh: `开跑失败 · @${person.role_name}：${msg}`,
+          deptId: dept.id,
+          agentCode: person.agent_code,
+          roleName: person.role_name,
+          jobId: input.jobId,
+          sourceMsgId: input.sourceMsgId,
+          detail: { error: msg, bubbleId },
+        })
         patchMsg(bubbleId, {
           text: `未能回复：${msg}`,
           streaming: false,
+          liveTool: '',
           error: true,
         })
         toast(`点名失败：${msg}`, 'error')
@@ -1057,6 +1212,25 @@ export function HomeDeptGroupChat({
         // 否则审计页成员永远卡在排队中/回复中。
         const changed = diffWakeJobTransitions(wakeSigByJob, jobs)
         for (const j of changed) {
+          logDeptGroupWake({
+            event: 'status',
+            level: j.status === 'failed' ? 'warn' : 'info',
+            zh: `状态 · @${j.roleName || j.agentCode} → ${j.status}${
+              j.error ? `（${j.error}）` : ''
+            }`,
+            deptId: dept.id,
+            deptName: deptNameRef.current,
+            agentCode: j.agentCode,
+            roleName: j.roleName,
+            jobId: j.id,
+            sourceMsgId: j.sourceMsgId,
+            detail: {
+              status: j.status,
+              attempts: j.attempts,
+              error: j.error || undefined,
+              goal: String(j.goal || '').slice(0, 160),
+            },
+          })
           void persistDeptGroupWakeEvent({
             deptId: dept.id,
             deptName: deptNameRef.current,
@@ -1075,6 +1249,46 @@ export function HomeDeptGroupChat({
         }
         if (!aliveRef.current) return
         setWakeJobs(jobs)
+        // @ 入队后立刻挂「正在回复」占位（不必等 pump→run 才建气泡）
+        const placeholders: GroupChatMsg[] = []
+        for (const j of jobs) {
+          if (j.status !== 'queued' && j.status !== 'running') continue
+          if (bubbleByJobRef.current.has(j.id)) continue
+          const bubbleId = `agent-${j.agentCode}-${j.id}`
+          bubbleByJobRef.current.set(j.id, bubbleId)
+          placeholders.push({
+            id: bubbleId,
+            kind: 'agent',
+            agentCode: j.agentCode,
+            agentName: j.roleName,
+            text: '',
+            ts: j.updatedAt || Date.now(),
+            streaming: true,
+            liveTool: j.status === 'queued' ? '排队中…' : '',
+            workSessionKey: workSessionKeyForSpeaker(dept.id, j.agentCode),
+            wakeJobId: j.id,
+          })
+        }
+        if (placeholders.length) {
+          setMsgs((prev) => {
+            const ids = new Set(prev.map((m) => m.id))
+            const add = placeholders.filter((p) => !ids.has(p.id))
+            if (!add.length) return prev
+            for (const m of add) {
+              persistMsgRef.current(m, 'streaming')
+              logDeptGroupWake({
+                event: 'bubble',
+                zh: `气泡占位 · @${m.agentName || m.agentCode}（${m.liveTool || '回复中'}）`,
+                deptId: dept.id,
+                agentCode: m.agentCode,
+                roleName: m.agentName,
+                jobId: m.wakeJobId,
+                detail: { bubbleId: m.id, liveTool: m.liveTool || undefined },
+              })
+            }
+            return [...prev, ...add]
+          })
+        }
         for (const j of jobs) {
           if (j.status !== 'failed') continue
           const bid = bubbleByJobRef.current.get(j.id)
@@ -1088,6 +1302,7 @@ export function HomeDeptGroupChat({
                 ...m,
                 text: `「${j.roleName}」持续忙碌，稍后再 @。${j.error ? `（${j.error}）` : ''}`,
                 streaming: false,
+                liveTool: '',
                 error: true,
               }
               return finalized
@@ -1253,6 +1468,24 @@ export function HomeDeptGroupChat({
     const { targets, viaSteward } = resolveDeptGroupWakeTargets(mentioned, dept.name)
     const now = Date.now()
     const userMsgId = `user-${now}`
+    logDeptGroupWake({
+      event: 'send',
+      level: targets.length ? 'info' : 'warn',
+      zh: targets.length
+        ? `发送 · 点名 ${targets.map((p) => `@${p.role_name}`).join(' ')}${
+            viaSteward ? '（管家接管）' : ''
+          }`
+        : '发送 · 未能解析到叫醒目标',
+      deptId: dept.id,
+      deptName: dept.name,
+      sourceMsgId: userMsgId,
+      detail: {
+        viaSteward,
+        mentioned: mentioned.map((m) => m.agent_code),
+        targets: targets.map((p) => ({ code: p.agent_code, name: p.role_name })),
+        textPreview: text.slice(0, 160),
+      },
+    })
     appendMsg({
       id: userMsgId,
       kind: 'user',
@@ -1293,6 +1526,17 @@ export function HomeDeptGroupChat({
             chainKey: deptGroupWakeChainKey(userMsgId, person.agent_code),
           }).catch((e: unknown) => {
             const msg = String((e as { message?: string })?.message || e || '失败')
+            logDeptGroupWake({
+              event: 'enqueue_fail',
+              level: 'error',
+              zh: `入队失败 · @${person.role_name}：${msg}`,
+              deptId: dept.id,
+              deptName: dept.name,
+              agentCode: person.agent_code,
+              roleName: person.role_name,
+              sourceMsgId: userMsgId,
+              detail: { error: msg },
+            })
             appendMsg({
               id: `sys-err-${Date.now()}-${person.agent_code}`,
               kind: 'system',
@@ -1607,7 +1851,11 @@ export function HomeDeptGroupChat({
                               <span className="dept-im__head-name">{agentName}</span>
                             )}
                             {msg.streaming ? (
-                              <span className="dept-im__head-state">回复中</span>
+                              <span className="dept-im__head-state">
+                                {!msg.text && /^排队/.test(String(msg.liveTool || ''))
+                                  ? '排队中'
+                                  : '回复中'}
+                              </span>
                             ) : null}
                           </div>
                         ) : null}
@@ -1635,6 +1883,14 @@ export function HomeDeptGroupChat({
                             ) : null}
                           </div>
                         </button>
+                        {msg.streaming && oneLineLiveTool(msg.liveTool) ? (
+                          <div
+                            className="dept-im__live-line"
+                            title={oneLineLiveTool(msg.liveTool, 200)}
+                          >
+                            {oneLineLiveTool(msg.liveTool)}
+                          </div>
+                        ) : null}
                         {!msg.streaming && msg.text ? (
                           <MentionDispatchStrip
                             text={msg.text}
@@ -1684,6 +1940,14 @@ export function HomeDeptGroupChat({
                         <span className="evo-home-cmd__gc-caret" aria-hidden />
                       ) : null}
                     </div>
+                    {msg.streaming && oneLineLiveTool(msg.liveTool) ? (
+                      <div
+                        className="evo-home-cmd__gc-live-line"
+                        title={oneLineLiveTool(msg.liveTool, 200)}
+                      >
+                        {oneLineLiveTool(msg.liveTool)}
+                      </div>
+                    ) : null}
                     {!msg.streaming && msg.text ? (
                       <MentionDispatchStrip
                         text={msg.text}

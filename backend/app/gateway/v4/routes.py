@@ -205,11 +205,13 @@ async def v4_conversation_subscribe(body: dict[str, Any]) -> JSONResponse:
     session_id = _session_id_from_topic(topic)
     base = body.get("base") if isinstance(body.get("base"), dict) else None
     client_mode = str(body.get("clientMode") or "").strip() or None
+    intent = str(body.get("intent") or "").strip() or None
     result = await V4_CONVERSATION_HUB.subscribe(
         connection_id=connection_id,
         session_id=session_id,
         base=base,
         client_mode=client_mode,
+        intent=intent,
     )
     return JSONResponse(result)
 
@@ -277,6 +279,21 @@ async def v4_conversation_catchup(body: dict[str, Any]) -> JSONResponse:
     if not session_id:
         raise HTTPException(status_code=422, detail="sessionId is required")
     result = await asyncio.to_thread(V4_CONVERSATION_HUB.catchup_from_transcript, session_id)
+    return JSONResponse(result)
+
+
+@conversation_router.post("/workflowRuns", summary="v4 conversation workflowRuns journal list")
+async def v4_conversation_workflow_runs(body: dict[str, Any]) -> JSONResponse:
+    """对齐 ZCode ``conversationWorkflowRunsV4``：本会话最近 collab→workflow 投影摘要。"""
+    session_id = str(body.get("sessionId") or "").strip()
+    if not session_id:
+        raise HTTPException(status_code=422, detail="sessionId is required")
+    limit = body.get("limit")
+    try:
+        lim = int(limit) if limit is not None else 8
+    except (TypeError, ValueError):
+        lim = 8
+    result = V4_CONVERSATION_HUB.list_workflow_runs(session_id, limit=lim)
     return JSONResponse(result)
 
 

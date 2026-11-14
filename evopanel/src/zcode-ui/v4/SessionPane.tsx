@@ -121,6 +121,7 @@ import {
 } from "@/v4/ConversationComposer.js";
 import type { ConversationDropTargetController } from "@/v4/composer/conversationDropTarget.js";
 import { shouldIgnoreEscapeForStopGeneration } from "@/v4/composer/escapeStop.js";
+import { resolveLiveExecutionBusyFromSnapshot } from "@/v4/live-execution-busy.js";
 import { ConversationDraftEmptyState } from "@/v4/ConversationDraftEmptyState.js";
 import { ConversationDraftSuggestedPromptsContainer } from "@/v4/ConversationDraftSuggestedPromptsContainer.js";
 import { ConversationHeader, type PaneWorkspaceBadge } from "@/v4/ConversationHeader.js";
@@ -2065,33 +2066,46 @@ export function SessionPane({
     [cliSlashCommandNames],
   );
 
-  // `/side` App 层斜杠命令。命令目录仍以 CLI catalog 为权威，这里只在渲染层
-  // 按门禁注入"选中即打开辅助对话"的本地命令；草稿态（无父 session 可挂 child）、
-  // 辅助对话自身、只读与手机 viewport 均不提供。
+  // App 层斜杠：`/workflow` 常驻插入项（不依赖 CLI catalog）；`/side` 仍按门禁
+  // 「选中即打开辅助对话」。CLI 已提供同名命令时以 CLI 为准，避免遮蔽。
   const appSlashCommands = useMemo<AppSlashCommand[] | undefined>(() => {
+    const commands: AppSlashCommand[] = [];
+    if (!readOnly && !cliSlashCommandNames.has("workflow")) {
+      commands.push({
+        value: "workflow",
+        description: intl.formatMessage({ id: "chat.slash.app.workflow.description" }),
+        keywords: ["workflow", "工作流", "run workflow", "wf"],
+      });
+    }
     if (
-      !sessionId ||
-      !onOpenSelectionSideChat ||
-      !shouldOfferSideSlashCommand({
+      sessionId &&
+      onOpenSelectionSideChat &&
+      shouldOfferSideSlashCommand({
         isDraft: sessionId === null,
         selectionSideChat,
         readOnly,
         isMobileViewport: false,
       })
     ) {
-      return undefined;
+      const openNewSelectionSideChat = () => {
+        void handleOpenSelectionSideConversation(undefined, true);
+      };
+      // 关键词固定同时包含中英文别名，任一 locale 下输入 side / btw / 辅助 都能搜到。
+      // `/btw` 是 `/side` 的等价别名，适配不同用户输入习惯，面板中各自独立展示。
+      const sharedKeywords = ["side", "btw", "side chat", "auxiliary", "辅助对话", "辅助", "侧边"];
+      const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
+      for (const value of ["side", "btw"] as const) {
+        if (!cliSlashCommandNames.has(value)) {
+          commands.push({
+            value,
+            description,
+            keywords: sharedKeywords,
+            run: openNewSelectionSideChat,
+          });
+        }
+      }
     }
-    const openNewSelectionSideChat = () => {
-      void handleOpenSelectionSideConversation(undefined, true);
-    };
-    // 关键词固定同时包含中英文别名，任一 locale 下输入 side / btw / 辅助 都能搜到。
-    // `/btw` 是 `/side` 的等价别名，适配不同用户输入习惯，面板中各自独立展示。
-    const sharedKeywords = ["side", "btw", "side chat", "auxiliary", "辅助对话", "辅助", "侧边"];
-    const description = intl.formatMessage({ id: "chat.slash.app.side.description" });
-    return [
-      { value: "side", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-      { value: "btw", description, keywords: sharedKeywords, run: openNewSelectionSideChat },
-    ].filter((command) => !cliSlashCommandNames.has(command.value));
+    return commands.length > 0 ? commands : undefined;
   }, [
     cliSlashCommandNames,
     handleOpenSelectionSideConversation,
@@ -2480,6 +2494,9 @@ export function SessionPane({
         case "unsupportedGoal":
           logger.warn(`[v4-pane] 暂不支持 /goal ${command.action}`);
           return true;
+        case "emptyWorkflow":
+          toast(intl.formatMessage({ id: "chat.workflow.empty" }));
+          return true;
         default:
           return false;
       }
@@ -2565,6 +2582,11 @@ export function SessionPane({
         // 命令显式指定本次 Submission 的模式，不能靠另一条 CAS 的先后顺序保证。
         effectiveText = slashCommand.task;
         // 命令只负责配置 shortcut；后续必须走普通 sendText，不能进入 goal/compact command 分支。
+        slashCommand = null;
+      }
+      // `/workflow <名称>`：App 层可见入口，正文保留斜杠原文，按普通 sendText 发出。
+      if (slashCommand?.kind === "sendWorkflowPrompt") {
+        effectiveText = slashCommand.text;
         slashCommand = null;
       }
       // create/send ACK 期间用户可能切换任务或创建另一份 draft。
@@ -2653,13 +2675,15 @@ export function SessionPane({
         slashCommand?.kind === "sendGoalCommand" ||
         slashCommand?.kind === "resumeGoal" ||
         slashCommand?.kind === "emptyGoal" ||
-        slashCommand?.kind === "unsupportedGoal"
+        slashCommand?.kind === "unsupportedGoal" ||
+        slashCommand?.kind === "emptyWorkflow"
           ? slashCommand
           : null;
       if (!sessionId && draftSlashCommand) {
         if (
           draftSlashCommand.kind === "emptyGoal" ||
-          draftSlashCommand.kind === "unsupportedGoal"
+          draftSlashCommand.kind === "unsupportedGoal" ||
+          draftSlashCommand.kind === "emptyWorkflow"
         ) {
           await dispatchSlashCommand(
             draftSlashCommand,
@@ -3551,7 +3575,9 @@ export function SessionPane({
       const current = snapshotRef.current;
       const whoZh = source === "escape" ? "用户按 Esc 停止" : "用户点击 V4 停止按钮";
       const stopTrigger = source === "escape" ? "v4_escape" : "v4_stop_button";
-      if (!sessionId || !current?.control.canStop) {
+      // 直接从 snapshot 派生（含 backgroundWorks / 仍 running 的工具卡），避免依赖后面才算的 status 面板计数。
+      const stoppable = resolveLiveExecutionBusyFromSnapshot(current);
+      if (!sessionId || !stoppable) {
         logger.lifecycle.info("[v4-pane] stop 命令被跳过（无可停执行）", {
           source,
           whoZh,
@@ -3559,7 +3585,7 @@ export function SessionPane({
         });
         return;
       }
-      const foregroundExecutionId = current.control.activeWorks.find(
+      const foregroundExecutionId = current?.control?.activeWorks?.find(
         (work) => work.foregroundExecutionId,
       )?.foregroundExecutionId;
       logger.lifecycle.info("[v4-pane] stop 命令发出", {
@@ -3570,9 +3596,15 @@ export function SessionPane({
       });
       // 同步落到 ~/.evoflow/logs/frontend-*.log，与 ChatApp stopSessionExecution 同源可对。
       void import("../../react/lib/stream-stop-log.js")
-        .then(({ logStreamStop }) => {
+        .then(({ logStreamStop, markStreamStopTrace, streamStopSinceMs }) => {
+          markStreamStopTrace({
+            threadId: sessionId,
+            runId: foregroundExecutionId ?? null,
+            source: stopTrigger,
+          });
           logStreamStop({
             sessionKey: sessionId,
+            threadId: sessionId,
             runId: foregroundExecutionId ?? null,
             trigger: stopTrigger,
             hasEndMarker: false,
@@ -3582,17 +3614,44 @@ export function SessionPane({
               whoZh,
               note: `V4 SessionPane 主动停止：${whoZh}`,
               uiSource: source,
+              sinceStopMs: 0,
             },
           });
+          void dispatchCommand(
+            "stop",
+            foregroundExecutionId ? { expectedForegroundExecutionId: foregroundExecutionId } : {},
+            sessionId,
+          )
+            .then(() => {
+              logStreamStop({
+                sessionKey: sessionId,
+                threadId: sessionId,
+                runId: foregroundExecutionId ?? null,
+                trigger: "stop_api_done",
+                hasEndMarker: false,
+                fromUiStopButton: false,
+                skipDedupe: true,
+                detail: {
+                  whoZh: "停止 API 已返回（V4 dispatchCommand stop）",
+                  note: "V4 stop 命令 ACK/返回；页面空闲看 ui_idle_after_stop + sinceStopMs",
+                  sinceStopMs: streamStopSinceMs({ threadId: sessionId }) ?? undefined,
+                  uiSource: source,
+                },
+              });
+            })
+            .catch((error) => {
+              logger.lifecycle.warn(`[v4-pane] stop 失败: ${String(error)}`);
+            });
         })
-        .catch(() => {});
-      void dispatchCommand(
-        "stop",
-        foregroundExecutionId ? { expectedForegroundExecutionId: foregroundExecutionId } : {},
-        sessionId,
-      ).catch((error) => {
-        logger.lifecycle.warn(`[v4-pane] stop 失败: ${String(error)}`);
-      });
+        .catch(() => {
+          void dispatchCommand(
+            "stop",
+            foregroundExecutionId ? { expectedForegroundExecutionId: foregroundExecutionId } : {},
+            sessionId,
+          ).catch((error) => {
+            logger.lifecycle.warn(`[v4-pane] stop 失败: ${String(error)}`);
+          });
+        });
     },
     [dispatchCommand, sessionId],
   );
@@ -3623,7 +3682,7 @@ export function SessionPane({
   // 「stop 等危险操作永远作用于明确的 pane，快捷键走 focused pane」。
   useEffect(() => {
     if (!focused || readOnly) return;
-    if (!sessionId || !snapshot?.control.canStop) return;
+    if (!sessionId || !liveExecutionBusy) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       if (shouldIgnoreEscapeForStopGeneration(event)) return;
@@ -3632,7 +3691,7 @@ export function SessionPane({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focused, handleStop, readOnly, sessionId, snapshot?.control.canStop]);
+  }, [focused, handleStop, liveExecutionBusy, readOnly, sessionId]);
 
   // handleStop 带 source 参数（button / escape 两个调用点），但 ConversationComposer 是 memo：
   // 直接写 onStop={() => handleStop("button")} 每次 render 都换引用，memo 白做，而 composer
@@ -3658,15 +3717,18 @@ export function SessionPane({
   }, [lease, snapshot?.logEpoch]);
 
   useEffect(() => {
-    if (!shareActive || !sessionId || !hasOlderRows(snapshot)) return;
+    if (!shareActive || !sessionId || !lease?.store || !hasOlderRows(snapshot)) return;
     const key = `${sessionId}:${snapshot?.logEpoch ?? "unknown"}`;
     if (shareHydratedSessionRef.current === key) return;
     shareHydratedSessionRef.current = key;
-    void handleLoadAllOlder().catch((error) => {
-      shareHydratedSessionRef.current = null;
-      logger.warn("[conversation-share] 补齐分享目录失败", { error });
-    });
-  }, [handleLoadAllOlder, sessionId, shareActive, snapshot]);
+    // 分享需要尽量完整的问题目录，走更大 softCap，勿用日常渲染的 400 行顶。
+    void lease.store
+      .loadAllOlder({ forShare: true })
+      .catch((error) => {
+        shareHydratedSessionRef.current = null;
+        logger.warn("[conversation-share] 补齐分享目录失败", { error });
+      });
+  }, [lease, sessionId, shareActive, snapshot]);
 
   useEffect(() => {
     if (
@@ -3880,13 +3942,21 @@ export function SessionPane({
       workspacePath,
     ],
   );
-  const runningBackgroundWorkCount =
+  // 停止钮只跟对话侧活（bash / 子代理）；running 工作流不计入——对话结束即停，
+  // 工作流继续跑只走底部 SessionChildWorkIcons / 进度卡。
+  const runningBackgroundWorkCountForStop =
     statusPanelModel.runningBashWorks.length +
-    statusPanelModel.runningSubagentWorks.length +
-    statusPanelModel.runningWorkflowRuns.length;
+    statusPanelModel.runningSubagentWorks.length;
+  const runningBackgroundWorkCount =
+    runningBackgroundWorkCountForStop + statusPanelModel.runningWorkflowRuns.length;
   const runningTerminalCount = statusPanelModel.runningBashWorks.length;
   const runningAgentCount = statusPanelModel.runningSubagentWorks.length;
   const runningWorkflowCount = statusPanelModel.runningWorkflowRuns.length;
+  /** 停止/齿轮：跟「还有活」走，不单信 control.canStop（防 RUN_FINISHED 早关、工具卡仍 running）。 */
+  const liveExecutionBusy = resolveLiveExecutionBusyFromSnapshot(
+    snapshot,
+    runningBackgroundWorkCountForStop,
+  );
   useEffect(() => {
     setTerminalSectionOpen(false);
     setAgentSectionOpen(false);
@@ -4433,6 +4503,7 @@ export function SessionPane({
       composerRestoreRequest={composerRestoreRequest}
       onComposerRestoreApplied={handleComposerRestoreApplied}
       onStop={handleStopFromButton}
+      executionBusy={liveExecutionBusy}
       onSelectModel={handleSelectModel}
       onSelectThought={handleSelectThought}
       onSwitchMode={handleSwitchMode}
@@ -4825,9 +4896,7 @@ export function SessionPane({
               searchResultHighlightRequest={isDraft ? null : searchResultHighlightRequest}
               onSearchResultHighlightDone={onSearchResultHighlightDone}
               sessionPhase={isDraft ? undefined : snapshot?.control.phase}
-              sessionBusy={
-                !isDraft && Boolean(snapshot?.control.canStop || snapshot?.control.phase === "running")
-              }
+              sessionBusy={!isDraft && liveExecutionBusy}
               shareSelection={
                 shareActive && shareInSelectionStage && shareDraft?.view === "timeline" && sessionId
                   ? {

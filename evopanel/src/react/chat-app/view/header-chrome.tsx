@@ -249,8 +249,8 @@ export function ChatHeaderHelpMenu(): ReactNode {
         setDebugLocked(st.lockedByEnv)
         void toastMsg(
           st.enabled
-            ? '调试模式已开启：对话摘要会出现可点击的「调试」'
-            : '调试模式已关闭',
+            ? '调试模式已开启：摘要「调试」+ 流式专项日志（~/.evoflow/logs/stream-compare）'
+            : '调试模式已关闭（流式专项日志一并关掉）',
           'success',
         )
       })
@@ -361,7 +361,7 @@ export function ChatHeaderHelpMenu(): ReactNode {
               title={
                 debugLocked
                   ? '被环境变量 EVOFLOW_OBSERVABILITY 锁定'
-                  : '开启后对话摘要显示可点击的调试信息'
+                  : '开启后：摘要「调试」+ 落盘流式专项日志（stream-compare）'
               }
               onClick={toggleDebugMode}
             >

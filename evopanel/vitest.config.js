@@ -42,7 +42,9 @@ export default defineConfig({
     include: [
       'tests/shell-session-list-menu.test.tsx',
       'tests/platform-scope-ui.test.js',
+      'tests/codex-auth-panel.test.js',
       'tests/v4-wire-conformance.test.ts',
+      'tests/control-busy.test.ts',
       'tests/v4-running-text-interleave.test.ts',
       'tests/zcode-flat-reasoning.test.js',
       'tests/turn-history-fold.test.tsx',
@@ -135,6 +137,7 @@ export default defineConfig({
       'tests/session-list-pin.test.js',
       'tests/session-list-dept-reselect.test.js',
       'tests/session-list-proactive-group.test.js',
+      'tests/employee-group-order-storage.test.ts',
       'tests/session-list-employee-orphan-prune.test.js',
       'tests/shell-running-preview.test.js',
       'tests/turn-text-isolation.test.js',
@@ -226,6 +229,7 @@ export default defineConfig({
       'tests/browser-panel-node-repl-intent.test.js',
       'tests/cua-glow-agui.test.js',
       'tests/platform-feedback.test.js',
+      'tests/platform-workflow-progress.test.ts',
       'tests/dept-group-handoff.test.js',
       'tests/dept-group-steward.test.js',
       'tests/dept-group-wake-queue.test.js',
@@ -233,6 +237,7 @@ export default defineConfig({
       'tests/dept-group-dispatch-status.test.js',
       'tests/dept-group-mentions.test.js',
       'tests/dept-group-transcript.test.js',
+      'tests/dept-chat-list-cache.test.ts',
       'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',
       'tests/builtin-action-labels.test.js',
@@ -253,6 +258,20 @@ export default defineConfig({
       'tests/mcp-binding-chip.test.js',
       'tests/mcp-connector-headers.test.js',
       'tests/user-facing-error.test.js',
+      // 连发无回复：send_click 顶掉 sendTrace 后仍能识别上一轮无首帧
+      'tests/chat-turn-timing-stalled.test.js',
+      'tests/live-execution-busy.test.js',
+      // 多会话钉住 V4 投影：peekStore + pin 租约，切回不冷开空白
+      'tests/v4-pin-sessions.test.js',
+      'tests/v4-session-keepwarm-cancel.test.ts',
+      // stream-404 remint：旧投影改挂新 thread，避免冷开清空时间线
+      'tests/v4-remint-rebind.test.ts',
+      'tests/langgraph-thread-stale-epoch.test.ts',
+      // 超大会话渲染层尾窗软顶（防 loadAllOlder / 长流式撑爆 window）
+      'tests/projection-window-cap.test.ts',
+      // 点停 → API → UI idle 的 sinceStopMs 闭环
+      'tests/stream-stop-log.test.ts',
+      'tests/run-page-load-resume.test.ts',
       'tests/settings-modal-tauri-drag.test.js',
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',

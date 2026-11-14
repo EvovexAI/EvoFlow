@@ -89,6 +89,9 @@ import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 import { reportAppTelemetryEvent } from "@/lib/appTelemetry.js";
 import { runUserAction, runUserActionAsync } from "@/lib/userActionTelemetry.js";
 import { logger } from "@/logger.js";
+import { logWorkflowProgress } from "../../lib/workflow-progress-debug-log.js";
+import { readPlatformToolAction } from "@/ToolCallBlocks/renderers/platform.js";
+import { isPlatformWorkflowProgressAction } from "@/ToolCallBlocks/renderers/platformWorkflowProgress.js";
 import type { AssistantPreviewCard } from "@/lib/assistantPreviewCards.js";
 import {
   FileDisplayIcon,
@@ -1962,6 +1965,24 @@ const TimelineMarkerRowView = memo(function TimelineMarkerRowView({
   );
 });
 
+/** platform_ui openStage.collab-workflow → mainTaskId（≡ runId）。 */
+function readPlatformCollabWorkflowRunId(row: ToolCallRow): string {
+  if (String(row.toolName || "").trim().toLowerCase() !== "platform") return "";
+  const display = row.display ?? row.output?.display;
+  if (!display || display.kind !== "platform_ui" || !Array.isArray(display.actions)) return "";
+  for (const action of display.actions) {
+    const open = action?.openStage;
+    if (!open || String(open.kind || "").trim() !== "collab-workflow") continue;
+    const data =
+      open.data && typeof open.data === "object" ? (open.data as Record<string, unknown>) : null;
+    const rid = String(
+      data?.mainTaskId || data?.main_task_id || data?.taskId || data?.task_id || "",
+    ).trim();
+    if (rid) return rid;
+  }
+  return "";
+}
+
 const ToolCallRowView = memo(function ToolCallRowView({
   row,
   context,
@@ -1982,13 +2003,99 @@ const ToolCallRowView = memo(function ToolCallRowView({
     // 查不到。命中后 onOpenWorkflowRun 的收窄走同一条路径，tab 身份 runId 键、幂等。
     (row.display?.kind === "resume_workflow_run"
       ? context.workflowRunByRunId?.get(row.display.runId)
+      : undefined) ??
+    // platform workflow.run：toolCallId 偶发对不上投影时，用 display openStage.mainTaskId
+    // （≡ runId）回落；再缺则跟底部图标同源（childWorks / 唯一 running），
+    // 避免「图标转、工具行仍是普通平台卡」。
+    (String(row.toolName || "").trim().toLowerCase() === "platform"
+      ? (() => {
+          const openStageRunId = readPlatformCollabWorkflowRunId(row);
+          if (openStageRunId) {
+            const hit = context.workflowRunByRunId?.get(openStageRunId);
+            if (hit) return hit;
+          }
+          const platformAction = readPlatformToolAction(row.input);
+          if (!isPlatformWorkflowProgressAction(platformAction)) return undefined;
+          const active = context.childWorkActiveWorkflows ?? [];
+          if (active.length === 1) return active[0]?.summary;
+          if (active.length > 1) {
+            // 多路并行时优先本行 toolCallId；否则取列表首条（与图标主任务一致）。
+            const byTc = active.find(
+              (c) => String(c.summary.toolCallId || "").trim() === row.toolCallId,
+            );
+            return (byTc ?? active[0])?.summary;
+          }
+          const running = [...(context.workflowRunByRunId?.values() ?? [])].filter(
+            (summary) => summary.status === "running" || summary.status === "pending",
+          );
+          return running.length === 1 ? running[0] : undefined;
+        })()
       : undefined);
+  const workflowOpenRunId = workflowRun?.runId || readPlatformCollabWorkflowRunId(row);
+  // 工具行去掉纵向内边距（对齐 z-code-2 无 per-tool padding）；连续工具间距由
+  // ConversationAssistantWorkItems 的 gap-4 组容器统一给。
+  // zcode 的 Agent/Task 卡摘要行带「Open on the right」入口（agentSummaryAction）。
+  // EvoFlow 没有镜像事件产出的 subagentRow，宿主经 onOpenSubagentToolCall
+  // 按 toolCallId 联接 subagentTasks 后打开右侧实时输出面板。
+  //
+  // ⚠ hooks 必须在所有 early return 之前：EvoFlow 注入 workflowRunByToolCallId 后，
+  // join 命中会走摘要卡分支；若 useMemo 写在 return 之后，会触发
+  // 「Rendered fewer hooks than expected」把整棵时间线打崩。
+  const agentSummaryAction = useMemo(() => {
+    const open = context.onOpenSubagentToolCall;
+    if (!open) return undefined;
+    const normalized = String(row.toolName || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s-]+/g, "_");
+    if (normalized !== "agent" && normalized !== "task" && normalized !== "subagent")
+      return undefined;
+    return {
+      onActivate: () => open(row.toolCallId),
+      testId: `agent-summary-action-${row.toolCallId}`,
+    };
+  }, [context.onOpenSubagentToolCall, row.toolName, row.toolCallId]);
+  useEffect(() => {
+    if (String(row.toolName || "").trim().toLowerCase() !== "platform") return;
+    const byTc = Boolean(context.workflowRunByToolCallId?.has(row.toolCallId));
+    logWorkflowProgress(
+      "row.platform.join",
+      {
+        toolCallId: row.toolCallId,
+        status: row.status,
+        byToolCallId: byTc,
+        joinedRunId: workflowRun?.runId ?? null,
+        joinedStatus: workflowRun?.status ?? null,
+        displayKind: row.display?.kind ?? row.output?.display?.kind ?? null,
+        mapSize: context.workflowRunByToolCallId?.size ?? 0,
+        runMapSize: context.workflowRunByRunId?.size ?? 0,
+      },
+      {
+        dedupeKey: `row-join:${row.toolCallId}:${workflowRun?.runId ?? ""}:${byTc ? 1 : 0}`,
+      },
+    );
+  }, [
+    context.workflowRunByRunId,
+    context.workflowRunByToolCallId,
+    row.display?.kind,
+    row.output?.display?.kind,
+    row.status,
+    row.toolCallId,
+    row.toolName,
+    workflowRun?.runId,
+    workflowRun?.status,
+  ]);
   // 原因：已启动的工具卡与轮尾摘要重复画同一条实时进度；上方改为普通摘要入口。
   // 只替换成功关联的发起行，编译诊断及 Resume 等其他工具仍走原有渲染。
+  // EvoFlow platform workflow.run：走下方 ToolCallBlock → WorkflowToolSummary（一行），
+  // 完整进度卡只在轮尾 digests，避免双卡。
   if (
     workflowRun &&
     context.workflowRunByToolCallId?.has(row.toolCallId) &&
-    row.status !== "error"
+    row.status !== "error" &&
+    String(row.toolName || "")
+      .trim()
+      .toLowerCase() !== "platform"
   ) {
     const workflowName = readWorkflowName(row.input);
     const sessionId = context.sessionId;
@@ -2053,25 +2160,6 @@ const ToolCallRowView = memo(function ToolCallRowView({
       </RowShell>
     );
   }
-  // 工具行去掉纵向内边距（对齐 z-code-2 无 per-tool padding）；连续工具间距由
-  // ConversationAssistantWorkItems 的 gap-4 组容器统一给。
-  // zcode 的 Agent/Task 卡摘要行带「Open on the right」入口（agentSummaryAction）。
-  // EvoFlow 没有镜像事件产出的 subagentRow，宿主经 onOpenSubagentToolCall
-  // 按 toolCallId 联接 subagentTasks 后打开右侧实时输出面板。
-  const agentSummaryAction = useMemo(() => {
-    const open = context.onOpenSubagentToolCall;
-    if (!open) return undefined;
-    const normalized = String(row.toolName || "")
-      .trim()
-      .toLowerCase()
-      .replace(/[\s-]+/g, "_");
-    if (normalized !== "agent" && normalized !== "task" && normalized !== "subagent")
-      return undefined;
-    return {
-      onActivate: () => open(row.toolCallId),
-      testId: `agent-summary-action-${row.toolCallId}`,
-    };
-  }, [context.onOpenSubagentToolCall, row.toolName, row.toolCallId]);
   return (
     <RowShell rowId={row.rowId} className="py-0">
       <div data-conversation-selectable="true">
@@ -2096,7 +2184,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
               : undefined
           }
           onOpenWorkflowRun={
-            context.onOpenWorkflowRun && context.sessionId && workflowRun
+            context.onOpenWorkflowRun && context.sessionId && workflowOpenRunId
               ? (request) =>
                   context.onOpenWorkflowRun?.({
                     ...request,
@@ -2104,7 +2192,7 @@ const ToolCallRowView = memo(function ToolCallRowView({
                     // 打开请求的关联键是发起行（CreateWorkflow）id，不是点中行的 id——
                     // resume 行点开时两者不同，详情页拿它找 causalityGraph/脚本。
                     toolCallId: resolveWorkflowRunOpenToolCallId(row.toolCallId, workflowRun),
-                    runId: workflowRun.runId,
+                    runId: workflowOpenRunId,
                   })
               : undefined
           }

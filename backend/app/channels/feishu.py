@@ -53,6 +53,63 @@ _FEISHU_LIVE_STREAM_PATCHES = os.getenv("EVOFLOW_FEISHU_LIVE_STREAM", "0").strip
 }
 
 
+def _import_lark_sdk() -> types.SimpleNamespace:
+    """Import the lark-oapi SDK tree and return every name ``start()`` binds.
+
+    ``import lark_oapi`` eagerly loads the whole ``api/*`` model subpackage tree —
+    measured 35–96s cold when it ran inline on the gateway event loop (see
+    ``logs/debug/hang-diagnostics/gateway-hang-*.json``, MainThread parked inside
+    ``lark_oapi.api.compensation.v1.model`` imports). Callers must run this in a
+    worker thread (``asyncio.to_thread``) so the loop stays responsive; afterwards
+    the lazy ``from lark_oapi...`` sites below (_lark_ws_connect_exclusive /
+    _connect_ws_with_backoff / _on_card_action) are all sys.modules cache hits
+    and never re-take the import lock on the loop.
+    """
+    import lark_oapi as lark
+    from lark_oapi.api.im.v1 import (
+        CreateFileRequest,
+        CreateFileRequestBody,
+        CreateImageRequest,
+        CreateImageRequestBody,
+        CreateMessageReactionRequest,
+        CreateMessageReactionRequestBody,
+        CreateMessageRequest,
+        CreateMessageRequestBody,
+        DeleteMessageRequest,
+        Emoji,
+        PatchMessageRequest,
+        PatchMessageRequestBody,
+        ReplyMessageRequest,
+        ReplyMessageRequestBody,
+    )
+
+    # Warm the remaining lazy-import submodules used by this file.
+    from lark_oapi.core import log as _lark_core_log  # noqa: F401
+    from lark_oapi.event.callback.model import (
+        p2_card_action_trigger as _lark_p2_card_action_trigger,  # noqa: F401
+    )
+    from lark_oapi.ws import client as _lark_ws_client_mod  # noqa: F401
+    from lark_oapi.ws import const as _lark_ws_const_mod  # noqa: F401
+
+    return types.SimpleNamespace(
+        lark=lark,
+        CreateFileRequest=CreateFileRequest,
+        CreateFileRequestBody=CreateFileRequestBody,
+        CreateImageRequest=CreateImageRequest,
+        CreateImageRequestBody=CreateImageRequestBody,
+        CreateMessageReactionRequest=CreateMessageReactionRequest,
+        CreateMessageReactionRequestBody=CreateMessageReactionRequestBody,
+        CreateMessageRequest=CreateMessageRequest,
+        CreateMessageRequestBody=CreateMessageRequestBody,
+        DeleteMessageRequest=DeleteMessageRequest,
+        Emoji=Emoji,
+        PatchMessageRequest=PatchMessageRequest,
+        PatchMessageRequestBody=PatchMessageRequestBody,
+        ReplyMessageRequest=ReplyMessageRequest,
+        ReplyMessageRequestBody=ReplyMessageRequestBody,
+    )
+
+
 class _FeishuInboundDeduper:
     """Drop Feishu WS redeliveries / reconnect replays of the same inbound.
 
@@ -990,42 +1047,29 @@ class FeishuChannel(Channel):
             return
 
         try:
-            import lark_oapi as lark
-            from lark_oapi.api.im.v1 import (
-                CreateFileRequest,
-                CreateFileRequestBody,
-                CreateImageRequest,
-                CreateImageRequestBody,
-                CreateMessageReactionRequest,
-                CreateMessageReactionRequestBody,
-                CreateMessageRequest,
-                CreateMessageRequestBody,
-                DeleteMessageRequest,
-                Emoji,
-                PatchMessageRequest,
-                PatchMessageRequestBody,
-                ReplyMessageRequest,
-                ReplyMessageRequestBody,
-            )
+            # Heavy SDK import runs in a worker thread — inline it once pinned the
+            # gateway event loop for 35–96s cold (hang-diagnostics 2026-11-13).
+            sdk = await asyncio.to_thread(_import_lark_sdk)
         except ImportError:
             logger.error("lark-oapi is not installed. Install it with: uv add lark-oapi")
             return
 
+        lark = sdk.lark
         self._lark = lark
-        self._CreateMessageRequest = CreateMessageRequest
-        self._CreateMessageRequestBody = CreateMessageRequestBody
-        self._ReplyMessageRequest = ReplyMessageRequest
-        self._ReplyMessageRequestBody = ReplyMessageRequestBody
-        self._CreateMessageReactionRequest = CreateMessageReactionRequest
-        self._CreateMessageReactionRequestBody = CreateMessageReactionRequestBody
-        self._Emoji = Emoji
-        self._PatchMessageRequest = PatchMessageRequest
-        self._PatchMessageRequestBody = PatchMessageRequestBody
-        self._DeleteMessageRequest = DeleteMessageRequest
-        self._CreateFileRequest = CreateFileRequest
-        self._CreateFileRequestBody = CreateFileRequestBody
-        self._CreateImageRequest = CreateImageRequest
-        self._CreateImageRequestBody = CreateImageRequestBody
+        self._CreateMessageRequest = sdk.CreateMessageRequest
+        self._CreateMessageRequestBody = sdk.CreateMessageRequestBody
+        self._ReplyMessageRequest = sdk.ReplyMessageRequest
+        self._ReplyMessageRequestBody = sdk.ReplyMessageRequestBody
+        self._CreateMessageReactionRequest = sdk.CreateMessageReactionRequest
+        self._CreateMessageReactionRequestBody = sdk.CreateMessageReactionRequestBody
+        self._Emoji = sdk.Emoji
+        self._PatchMessageRequest = sdk.PatchMessageRequest
+        self._PatchMessageRequestBody = sdk.PatchMessageRequestBody
+        self._DeleteMessageRequest = sdk.DeleteMessageRequest
+        self._CreateFileRequest = sdk.CreateFileRequest
+        self._CreateFileRequestBody = sdk.CreateFileRequestBody
+        self._CreateImageRequest = sdk.CreateImageRequest
+        self._CreateImageRequestBody = sdk.CreateImageRequestBody
 
         app_id = self.config.get("app_id", "")
         app_secret = self.config.get("app_secret", "")
@@ -1307,6 +1351,20 @@ class FeishuChannel(Channel):
         finally:
             client._lock.release()
 
+    @staticmethod
+    def _is_permanent_feishu_ws_error(exc: BaseException) -> bool:
+        """Credentials / app config that will never succeed until the user fixes them."""
+        msg = str(exc).lower()
+        needles = (
+            "app_id is invalid",
+            "app id is invalid",
+            "invalid app_id",
+            "app_secret is invalid",
+            "app secret is invalid",
+            "invalid app_secret",
+        )
+        return any(n in msg for n in needles)
+
     async def _feishu_ws_connect_loop(
         self,
         app_id: str,
@@ -1319,6 +1377,9 @@ class FeishuChannel(Channel):
         We intentionally avoid ``lark.ws.Client.start()``: on handshake failure it
         enters the SDK's infinite ``_reconnect()`` loop and spams ERROR logs while
         holding the thread. EvoFlow treats Feishu IM as optional at boot.
+
+        Permanent credential errors (invalid app_id/secret) stop the loop after one
+        ERROR — retrying every 120s only floods logs and cannot self-heal.
         """
         import lark_oapi as lark
 
@@ -1327,6 +1388,7 @@ class FeishuChannel(Channel):
         while self._running:
             client: Any = None
             ping_task: asyncio.Task | None = None
+            permanent = False
             try:
                 client = lark.ws.Client(
                     app_id=app_id,
@@ -1346,11 +1408,19 @@ class FeishuChannel(Channel):
             except Exception as exc:
                 if not self._running:
                     break
-                logger.warning(
-                    "Feishu WebSocket unavailable (%s); gateway and EvoPanel continue. Retrying in %.0fs.",
-                    exc,
-                    delay_sec,
-                )
+                if self._is_permanent_feishu_ws_error(exc):
+                    permanent = True
+                    logger.error(
+                        "Feishu WebSocket stopped: permanent credential error (%s). "
+                        "Fix app_id/app_secret in channel settings and restart the channel.",
+                        exc,
+                    )
+                else:
+                    logger.warning(
+                        "Feishu WebSocket unavailable (%s); gateway and EvoPanel continue. Retrying in %.0fs.",
+                        exc,
+                        delay_sec,
+                    )
             finally:
                 if ping_task is not None:
                     ping_task.cancel()
@@ -1359,7 +1429,7 @@ class FeishuChannel(Channel):
                 if client is not None:
                     with contextlib.suppress(Exception):
                         await client._disconnect()
-            if not self._running:
+            if permanent or not self._running:
                 break
             await asyncio.sleep(delay_sec)
             delay_sec = min(delay_sec * 2, max_delay)
@@ -1996,6 +2066,17 @@ class FeishuChannel(Channel):
             raise ValueError("receive_id and text must be non-empty")
         rid = receive_id.strip()
         rtype = str(receive_id_type or "chat_id").strip() or "chat_id"
+        # Reject test stubs like oc_test before they spam Feishu 230001.
+        if rtype in {"", "chat_id"}:
+            try:
+                from app.channels.feishu_automation_learned_chat import is_plausible_feishu_chat_id
+
+                if not is_plausible_feishu_chat_id(rid):
+                    raise ValueError(f"invalid Feishu chat_id (refusing push): {rid!r}")
+            except ValueError:
+                raise
+            except Exception:
+                pass
         aid = str(account_id or "").strip()
         push_kind = str(kind or "im_message").strip() or "im_message"
         if not self._api_client_for(aid):

@@ -12,7 +12,7 @@ from evoflow.proactive.models import ProactiveRole
 
 OrgDetail = Literal["compact", "full"]
 
-ORG_OPEN = '<employee_org version="1">'
+ORG_OPEN = "<employee_org>"
 ORG_CLOSE = "</employee_org>"
 
 _WIRING_WARN = (
@@ -31,16 +31,15 @@ def _load_active_roster() -> list[ProactiveRole]:
         return []
 
 
-def _resp_blurb(role: ProactiveRole, *, max_len: int = 72) -> str:
-    items = [str(x).strip() for x in (role.config.responsibilities or []) if str(x).strip()]
-    if not items:
-        return "（职责未配置）"
-    text = "；".join(items[:2])
-    if len(items) > 2:
-        text += "…"
-    if len(text) > max_len:
-        return text[: max_len - 1] + "…"
-    return text
+def _person_line(role: ProactiveRole) -> str:
+    """``code · name（dept）`` — 名册不展示职责。"""
+    code = str(role.agent_code or "").strip()
+    name = str(role.role_name or "").strip() or code or "—"
+    dept = str(role.department or "").strip()
+    head = f"- `{code}` · {name}"
+    if dept:
+        head += f"（{dept}）"
+    return head
 
 
 def _peers_same_manager(role: ProactiveRole, peers: list[ProactiveRole]) -> list[ProactiveRole]:
@@ -77,6 +76,7 @@ def build_employee_org_roster_block(
         list_direct_reports,
         reports_to_code,
         role_org_key,
+        role_workspace_display,
     )
 
     raw = roster if roster is not None else _load_active_roster()
@@ -84,20 +84,23 @@ def build_employee_org_roster_block(
     peers = filter_roster_same_org(role, raw)
     self_code = str(role.agent_code or "").strip()
     self_key = role_org_key(role)
+    self_ws = role_workspace_display(role)
     manager = get_manager(role, peers)
     reports = list_direct_reports(role, peers)
     peers_same_mgr = _peers_same_manager(role, peers)
 
     if wiring.get("is_true_solo"):
-        if self_key:
-            tip = f"独立岗（同 workspace=`{self_key}`）；无上下级/平级名册。"
+        who = f"agent_code=`{self_code}`" if self_code else "本岗"
+        if self_ws:
+            tip = f"独立岗（{who} · workspace=`{self_ws}`）；无上下级/平级名册。"
         else:
-            tip = "独立岗；未绑 workspace、无上下级/平级。"
+            tip = f"独立岗（{who}）；未绑 workspace、无上下级/平级。"
         return "\n".join([ORG_OPEN, tip, ORG_CLOSE])
 
     if self_key:
+        ws_label = self_ws or self_key
         boundary = (
-            f"组织边界：相同 ``workspace_path``（key=`{self_key}`）。"
+            f"组织边界：相同 ``workspace_path``（`{ws_label}`）；本岗 ``agent_code``=`{self_code or '—'}`。"
             "上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
             "顶级可无上级；有下级时由下属的 ``reports_to`` 指向本岗。"
         )
@@ -118,10 +121,7 @@ def build_employee_org_roster_block(
 
     lines.append("## 直属上级")
     if manager:
-        lines.append(
-            f"- `{manager.agent_code}` · {manager.role_name}"
-            f"（{manager.department or '—'}）· {_resp_blurb(manager)}"
-        )
+        lines.append(_person_line(manager))
     else:
         mgr_raw = reports_to_code(role)
         if mgr_raw:
@@ -132,9 +132,7 @@ def build_employee_org_roster_block(
     lines.extend(["", "## 直属下级"])
     if reports:
         for r in reports:
-            lines.append(
-                f"- `{r.agent_code}` · {r.role_name}（{r.department or '—'}）· {_resp_blurb(r)}"
-            )
+            lines.append(_person_line(r))
     elif wiring.get("needs_reports_to_wiring"):
         lines.append("- （无——同组织有人，但尚未有人 ``reports_to`` 指向本岗）")
     else:
@@ -143,9 +141,7 @@ def build_employee_org_roster_block(
     lines.extend(["", "## 同组织平级（同一上级）"])
     if peers_same_mgr:
         for r in peers_same_mgr:
-            lines.append(
-                f"- `{r.agent_code}` · {r.role_name}（{r.department or '—'}）· {_resp_blurb(r)}"
-            )
+            lines.append(_person_line(r))
     else:
         lines.append("- （无）")
 

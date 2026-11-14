@@ -36,10 +36,29 @@ import {
 } from '../../../lib/right-stage/open-employee-process-stage.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 import { logRightStagePane } from '../../../lib/right-stage/panel-set-debug-log.js'
-import { refreshEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
+import {
+  getSharedV4SessionDataLayer,
+  refreshEvoflowV4Session,
+} from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
+import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
 import { toast } from '../../../components/toast.js'
 import { EmployeeStageAvatar } from '../../components/EmployeeStageAvatar.js'
+
+/** 从 V4 窗口行拼纯文本，供右栏「复制对话」。 */
+function plainTextFromV4Window(rows: readonly { kind?: string; text?: string }[] | null | undefined): string {
+  if (!rows || rows.length === 0) return ''
+  const parts: string[] = []
+  for (const row of rows) {
+    const kind = String(row?.kind || '')
+    const text = String(row?.text || '').trim()
+    if (!text) continue
+    if (kind === 'userInput') parts.push(`用户：${text}`)
+    else if (kind === 'assistantText') parts.push(`助手：${text}`)
+    else if (kind === 'reasoning') parts.push(`思考：${text}`)
+  }
+  return parts.join('\n\n')
+}
 
 /** 执行中：跟进度 */
 const POLL_ACTIVE_MS = 3000
@@ -396,19 +415,52 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   const statusLow = String(runStatus || '').toLowerCase()
   // 后端 run_status 是权威；busy 只在尚未取到时兜底。
   const running = statusLow ? RUNNING.has(statusLow) : busy
-  const turnBusy = sending || running
+  // chatSend 返回后 sending 立刻 false；群聊 @ 唤醒时 run_status 也常滞后/误 idle，
+  // 但 V4 仍在流式——齿轮必须以投影「还有活」为准，否则会停转而正文还在刷。
+  const [v4LiveBusy, setV4LiveBusy] = useState(false)
+  useEffect(() => {
+    const tid = String(threadId || '').trim()
+    if (!tid) {
+      setV4LiveBusy(false)
+      return
+    }
+    const hostHint = sending || running ? true : statusLow ? false : undefined
+    const tick = () => {
+      try {
+        const snap = getSharedV4SessionDataLayer().peekStore(tid)?.getState()?.snapshot ?? null
+        setV4LiveBusy(
+          resolveSessionBusyFromControl(snap, { hostExecuting: hostHint }),
+        )
+      } catch {
+        setV4LiveBusy(false)
+      }
+    }
+    tick()
+    const store = getSharedV4SessionDataLayer().peekStore(tid)
+    const unsub = store?.subscribe?.(() => tick())
+    const poll = window.setInterval(tick, 800)
+    return () => {
+      try {
+        unsub?.()
+      } catch {
+        /* ignore */
+      }
+      window.clearInterval(poll)
+    }
+  }, [threadId, sending, running, statusLow])
+  const turnBusy = sending || running || v4LiveBusy
 
   useEffect(() => {
-    if (!statusLow) return
+    if (!statusLow && !v4LiveBusy) return
     const key = employeeProcessStageTabKey(taskId, sessionKey, code)
     if (!key) return
-    const alive = RUNNING.has(statusLow)
+    const alive = RUNNING.has(statusLow) || v4LiveBusy || sending
     try {
       rightStageStore.patchTab(key, { data: { busy: alive } })
     } catch {
       /* store 不可用时忽略 */
     }
-  }, [statusLow, taskId, sessionKey, code])
+  }, [statusLow, v4LiveBusy, sending, taskId, sessionKey, code])
 
   useEffect(() => {
     openedAtRef.current = Date.now()
@@ -820,6 +872,49 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     toast('已新开对话', 'success')
   }, [code, switchEmployeeSession])
 
+  /** 侧栏直接打开当前员工编辑；保存后即时生效 */
+  const onEditEmployee = useCallback(() => {
+    const agentCode = String(code || '').trim()
+    if (!agentCode) {
+      toast('当前没有可编辑的员工', 'warning')
+      return
+    }
+    void Promise.all([
+      import('../../../lib/tauri-api.js'),
+      import('../../../lib/proactive-role-edit.js'),
+    ])
+      .then(async ([{ api }, { showEditRoleModal }]) => {
+        const res = (await api.proactiveGetRole(agentCode)) as { role?: unknown } | unknown
+        const role =
+          res && typeof res === 'object' && 'role' in (res as object)
+            ? (res as { role?: unknown }).role || res
+            : res
+        if (!role || typeof role !== 'object') {
+          toast('找不到当前员工', 'error')
+          return
+        }
+        const name =
+          String((role as { role_name?: string }).role_name || '').trim() ||
+          String(displayRole || roleName || agentCode).trim()
+        await showEditRoleModal(role, {
+          sheetTitle: name ? `编辑 ${name}` : '编辑员工',
+          sheetKicker: 'BOT',
+          confirmLabel: '保存员工',
+          allowAgentRebind: false,
+          onSaved: (updated) => {
+            const nextName = String(
+              (updated as { role_name?: string } | undefined)?.role_name || '',
+            ).trim()
+            if (nextName) setDisplayRole(nextName)
+            toast('员工已更新', 'success')
+          },
+        })
+      })
+      .catch((e) => {
+        toast(`无法打开编辑：${(e as Error)?.message || e}`, 'error')
+      })
+  }, [code, displayRole, roleName])
+
   // 点历史菜单外关闭
   useEffect(() => {
     if (!histOpen) return
@@ -905,24 +1000,87 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           agentCode={code}
           title={headerTitle}
           size={22}
-          busy={running || sending}
+          busy={turnBusy}
           className="shrink-0"
         />
         <span className="min-w-0 truncate text-ui-sm font-medium text-foreground">{headerTitle}</span>
         <span
           className={
             'rounded px-1.5 py-0.5 text-[11px] ' +
-            (running || sending
+            (turnBusy
               ? 'bg-blue-500/10 text-blue-600 dark:text-blue-400'
               : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400')
           }
         >
-          {running || sending
+          {turnBusy
             ? '执行中'
             : STATUS_LABEL[statusLow] || runStatus || (loaded ? '可对话' : '加载中')}
         </span>
         <div className="flex-1" />
         <div className="relative flex shrink-0 items-center gap-0.5" ref={histMenuRef}>
+          <button
+            type="button"
+            className="rounded p-1.5 text-foreground-subtle hover:bg-hover hover:text-foreground"
+            onClick={() => {
+              try {
+                const tid = String(threadId || '').trim()
+                const snap = tid
+                  ? getSharedV4SessionDataLayer().peekStore(tid)?.getState()?.snapshot
+                  : null
+                const text = plainTextFromV4Window(snap?.rows?.window as { kind?: string; text?: string }[])
+                if (!text) {
+                  toast('暂无可复制的对话内容', 'info')
+                  return
+                }
+                void navigator.clipboard.writeText(text).then(
+                  () => toast('已复制对话内容', 'success'),
+                  () => toast('复制失败', 'error'),
+                )
+              } catch {
+                toast('复制失败', 'error')
+              }
+            }}
+            title="复制对话"
+            aria-label="复制对话"
+            disabled={!threadId}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+              <path d="M4 16V4a2 2 0 0 1 2-2h10" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            className="rounded p-1.5 text-foreground-subtle hover:bg-hover hover:text-foreground"
+            onClick={onEditEmployee}
+            title="编辑员工"
+            aria-label="编辑员工"
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </button>
           <button
             type="button"
             className="rounded p-1.5 text-foreground-subtle hover:bg-hover hover:text-foreground"
@@ -1055,7 +1213,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
             <div className="flex min-h-0 flex-1 items-center justify-center px-4 text-ui-sm text-foreground-subtlest">
               {!loaded
                 ? '正在解析员工会话…'
-                : running || sending
+                : turnBusy
                   ? '执行中，等待会话 thread…'
                   : '暂无历史消息，可在下方直接发第一句'}
             </div>

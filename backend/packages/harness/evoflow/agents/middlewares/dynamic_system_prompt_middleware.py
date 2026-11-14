@@ -51,6 +51,11 @@ logger = logging.getLogger(__name__)
 # agent_code -> (monotonic_ts, signature)
 _ROLE_DISK_SIG_CACHE: dict[str, tuple[float, str]] = {}
 _ROLE_DISK_SIG_TTL_S = 2.0
+# agent_code -> (monotonic_ts, db_revision): the SQLite prompt revision was
+# re-read on *every* wrap (~100-300ms/wrap fixed cost); 1s TTL keeps Panel
+# saves effective on the next turn while making the hot path a dict hit.
+_ROLE_DB_REV_CACHE: dict[str, tuple[float, str]] = {}
+_ROLE_DB_REV_TTL_S = 1.0
 
 # ---- System-prompt section extraction for the context-detail modal ----
 # Section regexes (same as model_request_token_estimate but capturing, not just counting).
@@ -159,7 +164,16 @@ def _agent_role_disk_signature(agent_name: str | None) -> str:
     try:
         from evoflow.persistence.config_repositories import get_agent_prompt_revision
 
-        db_rev = get_agent_prompt_revision(code)
+        now = time.monotonic()
+        cached_rev = _ROLE_DB_REV_CACHE.get(code)
+        if cached_rev is not None and (now - cached_rev[0]) < _ROLE_DB_REV_TTL_S:
+            db_rev = cached_rev[1]
+        else:
+            db_rev = get_agent_prompt_revision(code)
+            _ROLE_DB_REV_CACHE[code] = (now, db_rev)
+            if len(_ROLE_DB_REV_CACHE) > 64:
+                oldest = next(iter(_ROLE_DB_REV_CACHE))
+                _ROLE_DB_REV_CACHE.pop(oldest, None)
     except Exception:
         db_rev = "0"
     return f"{file_sig}|db:{db_rev}"

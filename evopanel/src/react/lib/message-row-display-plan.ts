@@ -301,21 +301,49 @@ function resolveLiveTailSlot(opts: {
         : visibleExploringInnerText(c.text, suppressPlanExecPromptNoise, true, tools)
     },
   ).trim()
-  const liveTrimmed = String(liveTailPreviewText || '').trim()
+  const liveTrimmedRaw = String(liveTailPreviewText || '').trim()
+  // bottom-render 流式期间 final chunk 已被 shouldHideFinalReplyTextChunkInMap 从 map 隐藏，
+  // 正文只能靠底部 tail 呈现。liveTailPreviewText 可能为空（正文已整体封存进 segment、
+  // streamLiveTailForDisplay 判定「无未封存后缀」），此时用被隐藏的 final chunk 正文兜底，
+  // 避免流式期间 map 与底部同时无正文（正文消失）。
+  const bottomRenderStreaming = isStreaming && renderFinalReplyAtBottom && finalReplyChunkIndex >= 0
+  let tailText = liveTailPreviewText
+  let tailFromHiddenFinalChunk = false
+  if (!liveTrimmedRaw && bottomRenderStreaming) {
+    const finalChunk = displayChunks[finalReplyChunkIndex]
+    if (finalChunk?.kind === 'text') {
+      const recovered = visibleExploringInnerText(
+        finalChunk.text,
+        suppressPlanExecPromptNoise,
+        isStreaming,
+        tools,
+      )
+      if (String(recovered || '').trim()) {
+        tailText = recovered
+        tailFromHiddenFinalChunk = true
+      }
+    }
+  }
+  const liveTrimmed = String(tailText || '').trim()
   if (!liveTrimmed) return null
 
   if (liveTailTextCoveredByExploring(displayChunks, liveTrimmed)) return null
 
   if (renderFinalReplyAtBottom && finalReplyChunkIndex >= 0) {
-    const finalChunk = displayChunks[finalReplyChunkIndex]
-    const bottomText = bubbleMarkdownText(
-      isStreaming || !finalChunk || finalChunk.kind !== 'text'
-        ? liveTailPreviewText
-        : visibleExploringInnerText(finalChunk.text, suppressPlanExecPromptNoise, isStreaming, tools),
-    )
+    const bottomText = bubbleMarkdownText(tailText)
     const bottomTrimmed = String(bottomText || '').trim()
     if (!bottomTrimmed) return null
-    if (streamLiveTailContainedInDisplay(bottomTrimmed, segPlain, chunkPlain)) return null
+    // tail 取自被隐藏的 final chunk 时，segments 同文不代表已展示（map 已隐藏该 chunk），
+    // 跳过 segPlain 包含检查；chunkPlain 本就排除了该 hidden chunk。
+    if (
+      streamLiveTailContainedInDisplay(
+        bottomTrimmed,
+        tailFromHiddenFinalChunk ? '' : segPlain,
+        chunkPlain,
+      )
+    ) {
+      return null
+    }
     return { text: bottomText, isStreaming }
   }
 

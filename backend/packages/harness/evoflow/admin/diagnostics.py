@@ -83,6 +83,18 @@ LOG_SOURCES: tuple[LogSource, ...] = (
         when="右栏 / 工作流侧栏",
     ),
     LogSource(
+        id="chat-runtime",
+        title="Chat runtime",
+        prefixes=("chat-runtime",),
+        when="对话起停 / 点发点停 / 左右 busy 分叉（保留 7 天）",
+    ),
+    LogSource(
+        id="chat-turn-lifecycle",
+        title="Turn lifecycle",
+        prefixes=("chat-turn-lifecycle",),
+        when="点发送→首帧→流结束整轮生命周期（保留 7 天）",
+    ),
+    LogSource(
         id="assistant-audit",
         title="Assistant audit",
         prefixes=("assistant-audit",),

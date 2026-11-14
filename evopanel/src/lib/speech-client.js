@@ -1219,12 +1219,17 @@ export function stopAllAssistantSpeech(opts = {}) {
             reason === 'ptt-mic-start' ||
             reason === 'composer-stop' ||
             reason === 'pause-listening'
-          // 仍等模型正文时，匿名 stopAll 勿杀 Frame（确认句「行」被误伤 → 整轮 ignore）
-          if (!allowFrameBarge && reason === 'stopAllAssistantSpeech' && awaiting) {
+          // 匿名 stopAll（无明确打断意图）勿杀 Frame：等模型正文时、以及模型已完
+          // 仍在播 TTS 时都会误伤 → 句间卡顿 / play() interrupted by pause()。
+          if (
+            !allowFrameBarge &&
+            (reason === 'stopAllAssistantSpeech' || !opts.reason) &&
+            (awaiting || phase === 'speaking')
+          ) {
             voiceDecisionLog?.('stopall_skip_frame', {
               reason,
               phase,
-              awaiting: 1,
+              awaiting: awaiting ? 1 : 0,
               playing: 1,
             })
             return

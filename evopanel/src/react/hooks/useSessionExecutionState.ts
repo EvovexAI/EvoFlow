@@ -18,6 +18,10 @@ import {
   isSessionWireActive,
   type SessionExecutionRow,
 } from '../lib/session-execution/index.js'
+import {
+  getV4TimelineBusyEpoch,
+  subscribeV4TimelineBusy,
+} from '../v4/v4-timeline-busy-store.js'
 
 export type SessionExecutionView = {
   executing: boolean
@@ -37,7 +41,8 @@ function useSessionExecutionEpoch(): number {
   )
   const probeEpoch = useSyncExternalStore(subscribeSessionExecutionProbes, getSessionExecutionProbeEpoch)
   const goalEpoch = useSyncExternalStore(subscribeSessionGoalState, getSessionGoalStateEpoch)
-  return executingEpoch + probeEpoch + goalEpoch
+  const v4BusyEpoch = useSyncExternalStore(subscribeV4TimelineBusy, getV4TimelineBusyEpoch)
+  return executingEpoch + probeEpoch + goalEpoch + v4BusyEpoch
 }
 
 export function useSessionExecutionState(

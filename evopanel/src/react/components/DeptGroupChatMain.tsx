@@ -8,11 +8,11 @@ import type { HomeCmdDept, HomeCmdPerson } from './HomeOrgCommandBoard.js'
 import {
   deptIdFromSessionKey,
   getDeptChatMeta,
+  loadDeptChatList,
   rememberDeptChatMeta,
   subscribeDeptChatMeta,
   type DeptChatMeta,
 } from '../lib/dept-chat-session.js'
-import { api } from '../../lib/tauri-api.js'
 import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
 
 function metaToDept(meta: DeptChatMeta): HomeCmdDept {
@@ -42,48 +42,13 @@ async function loadDeptMeta(deptId: string): Promise<DeptChatMeta | null> {
   // 头像可能是后加的：缓存里没头像也回去拉一次，别把老 meta 永久钉住
   if (cached?.members?.length && cached.avatar) return cached
   try {
-    const [deptRes, roleRes] = await Promise.all([
-      api.proactiveListDepartments(),
-      api.proactiveListRoles('active'),
-    ])
-    const departments = Array.isArray(deptRes?.departments)
-      ? deptRes.departments
-      : Array.isArray(deptRes)
-        ? deptRes
-        : []
-    const roles = Array.isArray(roleRes?.roles)
-      ? roleRes.roles
-      : Array.isArray(roleRes)
-        ? roleRes
-        : []
-    const d = departments.find((x: any) => String(x?.id || '').trim() === deptId)
-    if (!d) return cached
-    const name = String(d.name || '').trim()
-    const members = roles
-      .filter((r: any) => {
-        const code = String(r?.agent_code || r?.code || '').trim()
-        if (!code || code === 'main') return false
-        return String(r?.department || r?.config?.department || '').trim() === name
-      })
-      .map((r: any) => ({
-        agent_code: String(r.agent_code || r.code || '').trim(),
-        role_name: String(r.role_name || r.display_name || r.agent_code || '').trim(),
-        department: name,
-        reports_to: String(r.reports_to || r?.config?.reports_to || '').trim(),
-        status: String(r.status || 'active').trim() || 'active',
-        busy: false,
-      }))
-    const meta: DeptChatMeta = {
-      id: deptId,
-      name,
-      avatar: String(d.avatar || '').trim(),
-      head_agent_code: String(d.head_agent_code || '').trim(),
-      head_role_name: String(d.head_role_name || '').trim(),
-      accent: cached?.accent || 'lead',
-      members,
+    const rows = await loadDeptChatList({ force: !cached?.members?.length })
+    const hit = rows.find((d) => d.id === deptId)
+    if (hit) {
+      rememberDeptChatMeta(hit)
+      return hit
     }
-    rememberDeptChatMeta(meta)
-    return meta
+    return cached
   } catch {
     return cached
   }

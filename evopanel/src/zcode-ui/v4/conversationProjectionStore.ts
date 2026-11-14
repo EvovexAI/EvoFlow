@@ -8,6 +8,7 @@
 import {
   applyConversationDeltas,
   isDeterministicContentFault,
+  conversationTopic,
   parseConversationTopic,
   PROTOCOL_V4_LIMITS,
   SUBSCRIPTION_CONTENT_REJECTED,
@@ -24,6 +25,12 @@ import type { ConversationTurnNavigatorHydrationResult } from "@/v4/conversation
 import type { ConversationTransport } from "@/v4/transport.js";
 import { uiMemoryDiagnosticsRegistry } from "@/lib/memoryDiagnostics.js";
 import { markOpenStage } from "@/lib/openTrace.js";
+import {
+  PROJECTION_WINDOW_SHARE_CAP,
+  PROJECTION_WINDOW_SOFT_CAP,
+  capProjectionWindow,
+  countRealUserQueries,
+} from "@/v4/projectionWindowCap.js";
 
 /**
  * runtime 换代打断 subscribe 后的退避节奏。
@@ -277,15 +284,50 @@ export function shouldAutoLoadIncompleteLeadingTurn(
  * rows/range 结果并入本地窗口（合并规范）：按 rowId 键控、只收
  * 窗口首行之前的行、去重后前插；顺序键 = rowId 升序（全序保证）。
  * 返回 null 表示无可并入行（窗口无变化，调用方不换引用）。
+ *
+ * 超软顶时按 prefer 裁切：上滚补历史用 head（保住刚拉到的更早行），
+ * 直播/导航探测用 tail（保住最新）。
  */
 function mergeOlderRows(
   window: readonly ConversationRow[],
   fetched: readonly ConversationRow[],
+  opts?: { softCap?: number; prefer?: "tail" | "head" },
 ): ConversationRow[] | null {
   const firstRowId = window[0]?.rowId ?? Number.POSITIVE_INFINITY;
   const older = fetched.filter((row) => row.rowId < firstRowId);
   if (older.length === 0) return null;
-  return [...older, ...window];
+  const merged = [...older, ...window];
+  const softCap = opts?.softCap ?? PROJECTION_WINDOW_SOFT_CAP;
+  const prefer = opts?.prefer ?? "head";
+  const capped = capProjectionWindow(merged, softCap, prefer);
+  return capped === merged ? merged : [...capped];
+}
+
+/** snapshot / delta 应用后裁尾窗，避免长流式把 window 撑到上千行。 */
+function applySoftCapToSnapshot(
+  snapshot: ConversationSnapshot,
+  prefer: "tail" | "head" = "tail",
+  softCap: number = PROJECTION_WINDOW_SOFT_CAP,
+): ConversationSnapshot {
+  const prev = snapshot.rows.window;
+  const next = capProjectionWindow(prev, softCap, prefer);
+  if (next === prev || next.length === prev.length) return snapshot;
+  if (next.length < prev.length) {
+    logger.info("[v4-store] projection window soft-capped", {
+      from: prev.length,
+      to: next.length,
+      softCap,
+      prefer,
+      totalCount: snapshot.rows.totalCount,
+    });
+  }
+  return {
+    ...snapshot,
+    rows: {
+      ...snapshot.rows,
+      window: [...next],
+    },
+  };
 }
 
 /**
@@ -360,11 +402,18 @@ export class ConversationProjectionStore {
       > & { directoryRevision: number })
     | null = null;
   private closed = false;
+  /** Mutable so stream-404 remint can rebind without dropping the snapshot. */
+  private _topic: string;
+
+  get topic(): string {
+    return this._topic;
+  }
 
   constructor(
-    readonly topic: string,
+    topic: string,
     private readonly transport: ConversationTransport,
   ) {
+    this._topic = topic;
     liveProjectionStores.add(this);
     this.offAssemblyFault = transport.onAssemblyFault((fault) => {
       if (fault.topic === this.topic) {
@@ -404,6 +453,35 @@ export class ConversationProjectionStore {
     return { ...this.sessionOpenRendererTiming };
   }
 
+  /**
+   * LangGraph stream-404 remint：threadId 换了但 transcript 已灌进新 thread。
+   * 原地改 topic、保留现有 snapshot，再后台 subscribe——避免冷开清空时间线卡死 UI。
+   */
+  rebindSessionId(newSessionId: string): void {
+    const sid = String(newSessionId || "").trim();
+    if (!sid || this.closed) return;
+    const nextTopic = conversationTopic(sid);
+    if (nextTopic === this._topic) return;
+    const prevTopic = this._topic;
+    this._topic = nextTopic;
+    const snap = this.state.snapshot;
+    if (snap && snap.sessionId !== sid) {
+      this.setState({
+        snapshot: { ...snap, sessionId: sid },
+      });
+    }
+    logger.lifecycle.info("v4 conversation store remint rebind", {
+      event: "v4.conversation.store.remint_rebind",
+      module: "ui.v4.conversation_projection_store",
+      prevTopic,
+      topic: nextTopic,
+      hasSnapshot: Boolean(this.state.snapshot),
+      status: "completed",
+    });
+    // 有快照时勿把 status 打成 connecting（bridge 靠 snapshot 判 v4；仍要换订阅收新帧）
+    void this.connect({ forceSnapshot: false, remintPreserveUi: true });
+  }
+
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -428,6 +506,10 @@ export class ConversationProjectionStore {
       forceSnapshot?: boolean;
       initialOverflowRetry?: boolean;
       rendererPrepareStartedAt?: number;
+      /** 悬停预热 → 服务端 hydrate 低优先；用户打开默认 open。 */
+      intent?: "open" | "prefetch";
+      /** remint：已有快照时保持 UI ready，只换订阅。 */
+      remintPreserveUi?: boolean;
     } = {},
   ): Promise<void> {
     if (this.closed) return;
@@ -444,18 +526,24 @@ export class ConversationProjectionStore {
       module: "ui.v4.conversation_projection_store",
       status: "started",
       topic: this.topic,
+      remintPreserveUi: !!options.remintPreserveUi,
     });
     this.sessionOpenRendererTiming = {
       rendererPrepareMs: roundedDuration(connectStartedAt, subscribeStartedAt),
     };
     this.initialSubscribeAckAt = null;
     this.connectInFlight += 1;
-    this.setState({ status: "connecting", rendererTiming: this.sessionOpenRendererTiming });
+    if (options.remintPreserveUi && snapshot) {
+      this.setState({ rendererTiming: this.sessionOpenRendererTiming });
+    } else {
+      this.setState({ status: "connecting", rendererTiming: this.sessionOpenRendererTiming });
+    }
     try {
       const subscribeParams = {
         topic: this.topic,
         base: snapshot ? { logEpoch: snapshot.logEpoch, seq: snapshot.seq } : undefined,
-      };
+        ...(options.intent === "prefetch" ? { intent: "prefetch" as const } : {}),
+      } as Parameters<ConversationTransport["subscribe"]>[0];
       const result = await Promise.race([
         this.transport.subscribe(subscribeParams),
         new Promise<never>((_, reject) => {
@@ -803,20 +891,22 @@ export class ConversationProjectionStore {
         "snapshot",
       );
       // 规则 1：整体替换，扔掉手里的一切换新的。
+      // Wire 尾窗通常 ≤60；仍做 soft-cap，防止异常大 snapshot / 测试夹具撑爆。
+      const snapshot = applySoftCapToSnapshot(frame.payload.snapshot, "tail");
       this.setState({
-        snapshot: frame.payload.snapshot,
+        snapshot,
         planDirectoryRevision: this.state.planDirectoryRevision + 1,
         // snapshot 整体替换后 real-user query 集合可能已变，终态缓存必须失效。
         turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
       });
       this.subscriptionHasAppliedBase = true;
       this.clearInitialFrameWatchdog();
-      this.reconcileOptimistic(frame.payload.snapshot);
-      this.reconcileAcceptedInputProjection(frame.payload.snapshot);
+      this.reconcileOptimistic(snapshot);
+      this.reconcileAcceptedInputProjection(snapshot);
       // initial 丢失时，publisher 允许完整 online snapshot 建立首个
       // applied base；其中的持久 transition 可能早于本次订阅，不能冒充实时新事件。
       // 首帧只播种观察基线，后续 online 跃迁才通知 pane。
-      this.observeModelTransition(frame.payload.snapshot, context.online && hadAppliedBase);
+      this.observeModelTransition(snapshot, context.online && hadAppliedBase);
       if (context.subscribeMode !== null && context.frameReceivedAt !== undefined) {
         const snapshotAppliedAt = monotonicNow();
         this.sessionOpenRendererTiming = {
@@ -875,7 +965,8 @@ export class ConversationProjectionStore {
     }
     const applied = applyConversationDeltas(current, frame.payload.deltas);
     // seq 是快照对齐水位，delta 帧应用完推进到帧右端点。
-    const next = { ...applied, seq: frame.toSeq };
+    // 长流式回合会把 window 从 ~60 撑到上千：裁掉最旧行，保住直播尾部。
+    const next = applySoftCapToSnapshot({ ...applied, seq: frame.toSeq }, "tail");
     logSubagentProjectionTransition(this.topic, current, next, "deltas");
     const removedFromRowId = frame.payload.deltas.reduce<number | null>(
       (earliest, delta) =>
@@ -1189,7 +1280,11 @@ export class ConversationProjectionStore {
       // 在途期间游标失效（row.removed 截断 / snapshot resync 整体替换）→ 结果作废，
       // 防止把权威侧已移除的历史行复活；下次触发按新窗口重新拉。
       if (current.rows.window[0]?.rowId !== beforeRowId) return;
-      const window = mergeOlderRows(current.rows.window, result.rows);
+      // 上滚意图：prefer head，丢掉窗口尾部较新行，滑动到更早历史。
+      const window = mergeOlderRows(current.rows.window, result.rows, {
+        softCap: PROJECTION_WINDOW_SOFT_CAP,
+        prefer: "head",
+      });
       if (window === null) return;
       this.setState({
         snapshot: { ...current, rows: { ...current.rows, window } },
@@ -1211,7 +1306,10 @@ export class ConversationProjectionStore {
    * 已加载的几十轮。这里按协议上限分页读取，但等全部页成功后只换一次 snapshot，
    * 避免每 200 行重建一次 timeline render units 与两个 virtualizer。
    */
-  async loadAllOlder(): Promise<ConversationTurnNavigatorHydrationResult> {
+  async loadAllOlder(opts?: {
+    /** 分享目录需要更大窗口；默认走渲染软顶，避免超大会话把完整历史钉进 timeline。 */
+    forShare?: boolean;
+  }): Promise<ConversationTurnNavigatorHydrationResult> {
     const stale = (logEpoch = this.state.snapshot?.logEpoch ?? "unknown") => ({
       status: "stale" as const,
       logEpoch,
@@ -1233,16 +1331,40 @@ export class ConversationProjectionStore {
     const initialBeforeRowId = snapshot.rows.window[0]?.rowId;
     if (!sessionId || initialBeforeRowId === undefined) return stale(snapshot.logEpoch);
 
+    const softCap = opts?.forShare ? PROJECTION_WINDOW_SHARE_CAP : PROJECTION_WINDOW_SOFT_CAP;
+    // 已在软顶且窗口内已有 ≥2 条 query：不必再为 rail 拉全量历史。
+    if (
+      !opts?.forShare &&
+      snapshot.rows.window.length >= softCap &&
+      countRealUserQueries(snapshot.rows.window) >= 2
+    ) {
+      const early = {
+        status: "hydrated" as const,
+        logEpoch: snapshot.logEpoch,
+        directoryRevision,
+      };
+      this.turnNavigatorHydrationTerminal = early;
+      logger.info("[v4-store] 完整问题目录跳过（已在软顶）", {
+        loadedRows: snapshot.rows.window.length,
+        softCap,
+        totalRows: snapshot.rows.totalCount,
+        sessionId,
+      });
+      return early;
+    }
+
     const initialLogEpoch = snapshot.logEpoch;
     const preserveIncompleteLeadingTurn = shouldAutoLoadIncompleteLeadingTurn(snapshot, false);
     const pages: ConversationRow[][] = [];
     let beforeRowId = initialBeforeRowId;
     let committed = false;
+    let hitSoftCap = false;
     this.setState({ loadingOlder: true });
     logger.debug("[v4-store] 完整问题目录开始补拉历史 rows", {
       beforeRowId,
       loadedRows: snapshot.rows.window.length,
       sessionId,
+      softCap,
       totalRows: snapshot.rows.totalCount,
     });
 
@@ -1282,6 +1404,19 @@ export class ConversationProjectionStore {
         }
         pages.push(older);
         beforeRowId = nextBeforeRowId;
+        const pendingRows =
+          pages.reduce((n, page) => n + page.length, 0) + current.rows.window.length;
+        if (pendingRows >= softCap) {
+          hitSoftCap = true;
+          logger.info("[v4-store] 完整问题目录补拉触软顶，停止继续拉", {
+            pendingRows,
+            softCap,
+            pages: pages.length,
+            sessionId,
+            totalRows: current.rows.totalCount,
+          });
+          break;
+        }
         if (!result.hasMore) break;
       }
 
@@ -1294,13 +1429,13 @@ export class ConversationProjectionStore {
         return stale(initialLogEpoch);
       }
       const olderRows = [...pages].reverse().flat();
-      const realUserQueryCount = [...olderRows, ...current.rows.window].reduce(
-        (count, row) => (row.kind === "userInput" && row.origin === "realUser" ? count + 1 : count),
-        0,
-      );
+      const realUserQueryCount = countRealUserQueries([...olderRows, ...current.rows.window]);
       if (realUserQueryCount < 2) {
         if (preserveIncompleteLeadingTurn) {
-          const window = mergeOlderRows(current.rows.window, olderRows);
+          const window = mergeOlderRows(current.rows.window, olderRows, {
+            softCap,
+            prefer: "tail",
+          });
           if (window === null) return stale(initialLogEpoch);
           committed = true;
           this.setState({
@@ -1331,7 +1466,11 @@ export class ConversationProjectionStore {
         this.turnNavigatorHydrationTerminal = result;
         return result;
       }
-      const window = mergeOlderRows(current.rows.window, olderRows);
+      // 导航/日常：prefer tail，保住最近对话；分享 forShare 用更大 softCap。
+      const window = mergeOlderRows(current.rows.window, olderRows, {
+        softCap,
+        prefer: "tail",
+      });
       if (window === null) return stale(initialLogEpoch);
       committed = true;
       this.setState({
@@ -1339,9 +1478,11 @@ export class ConversationProjectionStore {
         snapshot: { ...current, rows: { ...current.rows, window } },
       });
       logger.debug("[v4-store] 完整问题目录历史 rows 补拉完成", {
+        hitSoftCap,
         loadedRows: window.length,
         pages: pages.length,
         sessionId,
+        softCap,
       });
       const result = {
         status: "hydrated" as const,

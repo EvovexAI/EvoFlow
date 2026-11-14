@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import sys
-import threading
 import time
 from dataclasses import replace
 from datetime import datetime
@@ -1902,15 +1901,6 @@ async def task_tool(
                         if _pw is not None and hasattr(_pw, "close"):
                             _pw.close()
                         return msg
-                        try:
-                            await _persist_collab_task_memory(ex_name, result)
-                        except Exception:
-                            logger.warning(
-                                "persist collab task memory failed main=%s sub=%s",
-                                resolved_collab,
-                                resolved_subtask,
-                                exc_info=True,
-                            )
                     if result.status == SubagentStatus.COMPLETED:
                         out_text = str(result.result or "")
                         writer(_ws({"type": "task_completed", "task_id": task_id, "result": out_text}))
@@ -1975,7 +1965,17 @@ async def task_tool(
                 poll_count += 1
                 if poll_count >= max_poll_count or float(time.time()) >= _poll_deadline:
                     # Subagent may still be RUNNING; do not cleanup_background_task (race with executor).
-                    err_msg = "Polling safety limit exceeded (subagent still running)."
+                    if getattr(result, "status", None) == SubagentStatus.PENDING:
+                        # 排队饥饿：双 5-worker 池被打满，任务从未开跑。这不是执行
+                        # 超时——任务未丢失，worker 空出后会执行；明确告知模型可用
+                        # taskoutput 稍后再取，避免把“从未开始”当成“跑了 N 分钟没完成”。
+                        err_msg = (
+                            "Task was still queued (PENDING, never started) when the polling window "
+                            "closed — the subagent pool is saturated by other tasks. The task is not "
+                            "lost and will start when a worker frees up; poll again later via taskoutput."
+                        )
+                    else:
+                        err_msg = "Polling safety limit exceeded (subagent still running)."
                     logger.warning(
                         "[trace=%s] %s task_id=%s polls=%s deadline=%s",
                         trace_id,

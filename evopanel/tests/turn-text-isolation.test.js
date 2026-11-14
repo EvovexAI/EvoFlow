@@ -291,7 +291,7 @@ describe('build-stream-display-row', () => {
       },
     }
     const row = buildStreamDisplayRow(
-      streamRef,
+      streamRef.current,
       '',
       false,
       true,
@@ -316,7 +316,7 @@ describe('build-stream-display-row', () => {
         runId: 'run-1',
       },
     }
-    const row = buildStreamDisplayRow(streamRef, '', false, true)
+    const row = buildStreamDisplayRow(streamRef.current, '', false, true)
     expect(row?.text).toBe('已删除')
     expect(row?.text).not.toContain('已已')
   })
@@ -336,7 +336,7 @@ describe('build-stream-display-row', () => {
         runId: 'run-1',
       },
     }
-    const row = buildStreamDisplayRow(streamRef, '', false, true)
+    const row = buildStreamDisplayRow(streamRef.current, '', false, true)
     expect(String(row?.reasoningPreview || '')).toContain('正在分析')
     expect((row?.segments || []).some((s) => s.kind === 'reasoning')).toBe(true)
   })
@@ -373,7 +373,7 @@ describe('build-stream-display-row', () => {
         runId: 'run-1',
       },
     }
-    const row1 = buildStreamDisplayRow(streamRef, '', false, true)
+    const row1 = buildStreamDisplayRow(streamRef.current, '', false, true)
     const wp1 = row1?.tools?.[0]?._writeProgress
     expect(wp1?.content_len).toBe(2)
     expect(String(wp1?.content || '')).toBe('# ')
@@ -393,7 +393,7 @@ describe('build-stream-display-row', () => {
       },
     })
     streamRef.current.aguiTurn = agui
-    const row2 = buildStreamDisplayRow(streamRef, '', false, true)
+    const row2 = buildStreamDisplayRow(streamRef.current, '', false, true)
     const wp2 = row2?.tools?.[0]?._writeProgress
     expect(wp2?.content_len).toBe(6)
     expect(String(wp2?.content || '')).toBe('# 猫事记\n')
@@ -432,7 +432,7 @@ describe('build-stream-display-row', () => {
         runId: 'run-1',
       },
     }
-    const row1 = buildStreamDisplayRow(streamRef, '', false, true)
+    const row1 = buildStreamDisplayRow(streamRef.current, '', false, true)
     expect(String(row1?.tools?.[0]?._writeProgress?.path || '')).toBe('')
 
     agui = applyAgUiEvent(agui, {
@@ -449,7 +449,7 @@ describe('build-stream-display-row', () => {
       },
     })
     streamRef.current.aguiTurn = agui
-    const row2 = buildStreamDisplayRow(streamRef, '', false, true)
+    const row2 = buildStreamDisplayRow(streamRef.current, '', false, true)
     expect(String(row2?.tools?.[0]?._writeProgress?.path || '')).toBe('src/components/Hello.tsx')
     expect(row2).not.toBe(row1)
   })

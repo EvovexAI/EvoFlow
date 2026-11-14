@@ -2,6 +2,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import {
   isStreamCompareFileLogOn,
+  syncStreamCompareLogWithDebugMode,
   markStreamCompareSession,
   markStreamCompareRun,
   logStreamCompareSseRecv,
@@ -53,7 +54,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-  setLsDefaultOn()
+  setLsDefaultOff()
 })
 
 describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离', () => {
@@ -72,6 +73,17 @@ describe('v5.8 双日志：sse-recv + ui-display，按 sessionKey/runId 隔离',
     expect(buildDiskRunLogId('20261020141205_run-045d5743217d')).toBe(
       '20261020141205_run-045d5743217d',
     )
+  })
+
+  it('调试模式开关同步：开→LS=1，关→LS=0', () => {
+    setLsDefaultOff()
+    expect(isStreamCompareFileLogOn()).toBe(false)
+    syncStreamCompareLogWithDebugMode(true)
+    expect(localStorage.getItem('EVOFLOW_STREAM_COMPARE_LOG')).toBe('1')
+    expect(isStreamCompareFileLogOn()).toBe(true)
+    syncStreamCompareLogWithDebugMode(false)
+    expect(localStorage.getItem('EVOFLOW_STREAM_COMPARE_LOG')).toBe('0')
+    expect(isStreamCompareFileLogOn()).toBe(false)
   })
 
   it('默认关闭：未设 localStorage 不落盘；显式 1 才写，显式 0 仍关', () => {

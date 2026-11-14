@@ -23,8 +23,10 @@ describe('license entitlements (frontend)', () => {
     expect(isPremiumRoute('/settings')).toBe(false)
   })
 
-  it('nav always visible; premium flag still gates content', () => {
-    expect(isPremiumActive()).toBe(false)
+  it('nav always visible; license gate disabled keeps premium active', () => {
+    // LICENSE_GATE_ENABLED=false（公开发布默认关闸）：不拦截高级路由，
+    // isPremiumActive 恒为 true；改回 true 才恢复 premium 校验。
+    expect(isPremiumActive()).toBe(true)
     expect(showTaskCenterNav()).toBe(true)
     expect(showAppsNav()).toBe(true)
     expect(showProactiveNav()).toBe(true)

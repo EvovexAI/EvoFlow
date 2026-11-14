@@ -55,7 +55,7 @@ _CONTROL_PREFIXES = (
 
 _CONTROL_SUFFIXES = (
     "/tool-approval",
-    "/live-run",
+    # live-run 已降为 BEST_EFFORT（见下方 METHODS_PATHS）：后台轮询不能堵切会话。
     "/cancel",
     "/interrupt",
     # 切会话首帧：用户盯着空白遮罩等 ACK；勿进 DATA 与并发流式抢槽
@@ -79,6 +79,9 @@ _STREAM_MARKERS = (
 # Explicit best-effort — polls, probes, large media, background consolidate
 _BEST_EFFORT_CONTAINS = (
     "/workspaces/serve-file",
+    # Path heal can os.walk large media trees (65s+ observed); shed/isolate so
+    # chat subscribe on CONTROL/DATA is not wedged behind a stuck resolve.
+    "/workspaces/resolve-target",
     "/workspaces/git_status",
     "/workspaces/git-status",
     "/git_status",
@@ -110,6 +113,11 @@ _BEST_EFFORT_METHODS_PATHS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # Single-role detail (sidebar / voice fan-out); shed beats clogging DATA
     ("GET", re.compile(r"^/api/proactive/roles/[^/]+/?$")),
     ("GET", re.compile(r"^/api/proactive/roles/[^/]+/busy/?$")),
+    # Background live-run upserts (selected 2s / bg 10s). Under lag shed 503 —
+    # must not sit on CONTROL and block subscribe (2026-11-13 12:01: live-run 21s).
+    ("PUT", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
+    ("GET", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
+    ("DELETE", re.compile(r"^/api/chat/sessions/.+/live-run/?$")),
 )
 
 
@@ -154,6 +162,12 @@ def classify_path(path: str, *, method: str = "GET") -> LaneDecision:
         if part in p:
             return LaneDecision(Lane.CONTROL, f"control_contains:{part}")
 
+    # Best-effort method/path pairs BEFORE chat mutation — otherwise PUT
+    # /api/chat/.../live-run is swallowed by CONTROL and cannot shed under lag.
+    for meth, pat in _BEST_EFFORT_METHODS_PATHS:
+        if m == meth and pat.search(p):
+            return LaneDecision(Lane.BEST_EFFORT, "best_method_path")
+
     # Chat send / session mutation — control (user is waiting)
     if m in {"POST", "PUT", "PATCH", "DELETE"}:
         if "/api/chat/" in p or "/api/threads/" in p:
@@ -169,10 +183,6 @@ def classify_path(path: str, *, method: str = "GET") -> LaneDecision:
     for part in _BEST_EFFORT_CONTAINS:
         if part in p:
             return LaneDecision(Lane.BEST_EFFORT, f"best_contains:{part}")
-
-    for meth, pat in _BEST_EFFORT_METHODS_PATHS:
-        if m == meth and pat.search(p):
-            return LaneDecision(Lane.BEST_EFFORT, "best_method_path")
 
     # GET chat sessions list / messages → DATA (needed for UI but isolatable)
     if p.startswith("/api/"):

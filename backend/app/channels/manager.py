@@ -304,7 +304,7 @@ def _persist_channel_session_index(
             ctx["topic_id"] = str(msg.topic_id)
         if msg.user_id:
             ctx["user_id"] = str(msg.user_id)
-        account_id = str(meta.get("account_id") or "").strip()
+        account_id = ChannelManager._inbound_account_id(msg) or str(meta.get("account_id") or "").strip()
         if account_id:
             ctx["account_id"] = account_id
         row_title = ""
@@ -318,6 +318,25 @@ def _persist_channel_session_index(
             updated_at_ms=now_ms,
             context=ctx,
         )
+        # Own the IM session like desktop create_new_session so later runs can
+        # resolve principal_id → assets/users/<pid> without waiting for Panel open.
+        try:
+            from evoflow.authz.principals import get_or_create_local_admin
+            from evoflow.authz.runtime_identity import identity_from_principal_id, stamp_session_from_identity
+
+            owner = get_or_create_local_admin()
+            pid = str(owner.get("principal_id") or "").strip()
+            if pid:
+                stamp_session_from_identity(
+                    sk,
+                    identity_from_principal_id(pid, org_id=str(owner.get("org_id") or "") or None),
+                )
+        except Exception:
+            logger.debug(
+                "[Manager] stamp channel session ownership skipped session_key=%s",
+                sk,
+                exc_info=True,
+            )
     except Exception:
         logger.warning(
             "[Manager] persist evoflow_chat_sessions failed session_key=%s thread_id=%s",
@@ -487,6 +506,55 @@ def _finalize_channel_transcript_turn(session_key: str, thread_id: str) -> None:
         )
 
 
+def _stamp_channel_run_identity(run_context: dict[str, Any], session_key: str) -> None:
+    """Anchor IM runs to the same Asset Center bucket as desktop chatSend.
+
+    Desktop JWT stamping puts ``principal_id=admin`` on the run so
+    ``<user_profile>`` / ``<memory_assets>`` read ``assets/users/<pid>/``.
+    Channel inbound historically omitted identity → MemoryLiveFooter saw an
+    empty principal and either skipped live injection or fell onto the shared
+    ``users/user`` scaffold, while Panel chats kept injecting the real 画像.
+    """
+    sk = str(session_key or "").strip()
+    if sk:
+        run_context["session_key"] = sk
+    try:
+        from evoflow.authz.runtime_identity import enrich_run_context_identity
+
+        enriched = enrich_run_context_identity(run_context)
+        run_context.clear()
+        run_context.update(enriched)
+    except Exception:
+        logger.debug("[Manager] enrich_run_context_identity skipped", exc_info=True)
+
+    pid = str(run_context.get("principal_id") or run_context.get("created_by") or "").strip()
+    if pid:
+        # Match desktop default: IM sessions often have memory_enabled=NULL;
+        # leave an explicit True so the live footer / assets tool stay on.
+        run_context.setdefault("memory_enabled", True)
+        return
+
+    try:
+        from evoflow.authz.principals import get_or_create_local_admin
+        from evoflow.authz.runtime_identity import identity_from_principal_id, stamp_session_from_identity
+
+        owner = get_or_create_local_admin()
+        pid = str(owner.get("principal_id") or "").strip()
+        if not pid:
+            return
+        filled = identity_from_principal_id(pid, org_id=str(owner.get("org_id") or "") or None)
+        for key, value in filled.items():
+            if value and not str(run_context.get(key) or "").strip():
+                run_context[key] = value
+        run_context.setdefault("principal_id", pid)
+        run_context.setdefault("created_by", pid)
+        run_context.setdefault("memory_enabled", True)
+        if sk:
+            stamp_session_from_identity(sk, filled)
+    except Exception:
+        logger.debug("[Manager] channel local-admin identity stamp skipped", exc_info=True)
+
+
 def _enrich_channel_run_context(
     run_context: dict[str, Any],
     session_key: str,
@@ -513,14 +581,14 @@ def _enrich_channel_run_context(
     topic_id = str(msg.topic_id or "").strip()
     if topic_id:
         run_context["topic_id"] = topic_id
-    meta = msg.metadata if isinstance(msg.metadata, dict) else {}
-    account_id = str(meta.get("account_id") or "").strip()
+    account_id = ChannelManager._inbound_account_id(msg)
     if account_id:
         run_context["account_id"] = account_id
     body = str(msg.text or "").strip()
     if body:
         run_context.setdefault("evf_user_question", body)
         run_context.setdefault("user_message", body)
+    _stamp_channel_run_identity(run_context, sk)
 
 
 def _channel_image_entries(files: list[Any]) -> list[dict[str, Any]]:
@@ -758,8 +826,8 @@ def _release_channel_owned_paths(msg: InboundMessage) -> None:
     release until the manager is done — this function is called from the
     ``finally`` of ``_handle_message``.
 
-    Channels that never cache inbound media (e.g. weixin today) are a no-op
-    here; Feishu/WeCom implement ``release_owned_temp_paths``.
+    Feishu / WeCom / Weixin implement ``release_owned_temp_paths``; channels
+    that never cache inbound media are a no-op here.
     """
     meta = msg.metadata if isinstance(msg.metadata, dict) else {}
     raw_paths = meta.get("_owned_temp_paths")

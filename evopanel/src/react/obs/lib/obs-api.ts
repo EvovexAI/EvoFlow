@@ -148,10 +148,47 @@ export type ObsEnabledStatus = {
 }
 
 export function notifyObsEnabledChanged(enabled: boolean): void {
+  syncLinkedDebugLogs(!!enabled)
+  try {
+    void import('../../../lib/perf-hud-overlay.js')
+      .then((m) => {
+        m.syncPerfHudWithObsEnabled?.(!!enabled)
+      })
+      .catch(() => {
+        /* optional HUD */
+      })
+  } catch {
+    /* ignore */
+  }
   try {
     window.dispatchEvent(
       new CustomEvent(OBS_ENABLED_CHANGED_EVENT, { detail: { enabled: !!enabled } }),
     )
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 调试模式一并带上流式专项 + 回合生命周期日志。 */
+function syncLinkedDebugLogs(enabled: boolean): void {
+  try {
+    void import('../../lib/stream-compare-file-log.js')
+      .then((m) => {
+        m.syncStreamCompareLogWithDebugMode?.(!!enabled)
+      })
+      .catch(() => {
+        /* optional */
+      })
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (typeof localStorage === 'undefined') return
+    // 开调试：强制开回合计时/生命周期专属文件；关调试不强制关（默认真常开）。
+    if (enabled) {
+      localStorage.setItem('EVOFLOW_TURN_TIMING_LOG', '1')
+      localStorage.setItem('EVOFLOW_STREAM_STOP_LOG', '1')
+    }
   } catch {
     /* ignore */
   }
@@ -164,8 +201,22 @@ export async function fetchObsEnabledStatus(): Promise<ObsEnabledStatus> {
       locked_by_env?: boolean
       config_enabled?: boolean
     }
+    const enabled = st?.enabled === true
+    // 启动后若调试模式已开，把 stream-compare LS 对齐，避免「开关亮着但专项日志没开」。
+    syncLinkedDebugLogs(enabled)
+    try {
+      void import('../../../lib/perf-hud-overlay.js')
+        .then((m) => {
+          m.syncPerfHudWithObsEnabled?.(enabled)
+        })
+        .catch(() => {
+          /* optional HUD */
+        })
+    } catch {
+      /* ignore */
+    }
     return {
-      enabled: st?.enabled === true,
+      enabled,
       lockedByEnv: st?.locked_by_env === true,
       configEnabled: st?.config_enabled === true,
     }

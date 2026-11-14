@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from evoflow.proactive.models import ProactiveRole
 
-COLLAB_OPEN = '<employee_collab version="1">'
+COLLAB_OPEN = "<employee_collab>"
 COLLAB_CLOSE = "</employee_collab>"
 
 

@@ -190,8 +190,9 @@ export async function setVoiceTrayState(state) {
   const labels = {
     idle: `${TRAY_BASE} · 聆听`,
     recording: `${TRAY_BASE} · 聆听`,
-    processing: `${TRAY_BASE} · 思考`,
-    running: `${TRAY_BASE} · 思考`,
+    // 勿写「思考」：与设置里「关思考」撞名；本态只是等模型出字
+    processing: `${TRAY_BASE} · 处理中`,
+    running: `${TRAY_BASE} · 处理中`,
     speaking: `${TRAY_BASE} · 播报`,
   }
   const text = labels[next] || labels.idle

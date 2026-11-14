@@ -48,17 +48,22 @@ export function resolveConversationTurnWorkStatus(
 
 export function resolveConversationTurnWorkDurationMs(
   header: TurnHeaderRow | undefined,
-  options: { nowMs?: number },
+  options: { nowMs?: number; fallbackStartedAt?: number },
   isRunning: boolean,
 ): number | undefined {
+  // 运行中优先吃 UI 时钟：sessionBusy 把已 sealed 的 header 重新推成 running 时，
+  // 若仍用 activeMs/endedAt，会冻在「工作中 1 秒」；缺 turnHeader 时用 userInput 锚点，
+  // 避免裸「工作中」无秒数。
+  if (isRunning && options.nowMs !== undefined) {
+    const startedAt = header?.startedAt ?? options.fallbackStartedAt;
+    if (startedAt !== undefined) {
+      return Math.max(options.nowMs - startedAt, 0);
+    }
+    return 0;
+  }
   if (!header) return undefined;
   if (header.activeMs !== undefined) return header.activeMs;
   if (header.endedAt !== undefined) return Math.max(header.endedAt - header.startedAt, 0);
-  // UI 每秒传入 nowMs 只用于运行中“工作中 N 秒”；完成态缺少
-  // activeMs/endedAt 时不能继续吃当前时钟，否则历史“已工作”会随时间增长。
-  if (isRunning && options.nowMs !== undefined) {
-    return Math.max(options.nowMs - header.startedAt, 0);
-  }
   return undefined;
 }
 
@@ -101,6 +106,7 @@ function resolveSegmentDurationMs(options: {
   segmentRunning: boolean;
   segmentCount: number;
   nowMs?: number;
+  fallbackStartedAt?: number;
 }): number | undefined {
   const fact =
     (options.triggerRow?.entityId
@@ -108,16 +114,24 @@ function resolveSegmentDurationMs(options: {
           (candidate) => candidate.triggerEntityId === options.triggerRow?.entityId,
         )
       : undefined) ?? options.header?.workSegments?.[options.segmentIndex];
+  if (options.segmentRunning && options.nowMs !== undefined) {
+    const startedAt =
+      fact?.startedAt ??
+      options.triggerRow?.createdAt ??
+      options.header?.startedAt ??
+      options.fallbackStartedAt;
+    if (startedAt !== undefined) {
+      return Math.max(0, options.nowMs - startedAt);
+    }
+    return 0;
+  }
   if (fact?.activeMs !== undefined) return fact.activeMs;
   if (fact?.endedAt !== undefined) return Math.max(0, fact.endedAt - fact.startedAt);
-  if (fact && options.segmentRunning && options.nowMs !== undefined) {
-    return Math.max(0, options.nowMs - fact.startedAt);
-  }
   if (options.segmentCount === 1) {
     return resolveConversationTurnWorkDurationMs(
       options.header,
-      { nowMs: options.nowMs },
-      options.segmentRunning,
+      { nowMs: options.nowMs, fallbackStartedAt: options.fallbackStartedAt },
+      false,
     );
   }
   // 兼容旧 guide snapshot：新 CLI 会下发 workSegments；仅旧数据缺事实时才按
@@ -125,9 +139,6 @@ function resolveSegmentDurationMs(options: {
   const startedAt = options.triggerRow?.createdAt ?? options.header?.startedAt;
   const endedAt = options.nextTriggerRow?.createdAt ?? options.header?.endedAt;
   if (startedAt !== undefined && endedAt !== undefined) return Math.max(0, endedAt - startedAt);
-  if (startedAt !== undefined && options.segmentRunning && options.nowMs !== undefined) {
-    return Math.max(0, options.nowMs - startedAt);
-  }
   return undefined;
 }
 
@@ -143,6 +154,7 @@ export function buildConversationTurnWorkSegments(options: {
   forceOpenHistory: boolean;
   timelineOnly: boolean;
   nowMs?: number;
+  fallbackStartedAt?: number;
 }): ConversationTurnWorkSegment[] {
   const visualDrafts = splitVisualWorkSegments(options.orderedRows);
   const tailRowIds = new Set(options.assistantTailRows.map((row) => row.rowId));
@@ -179,6 +191,7 @@ export function buildConversationTurnWorkSegments(options: {
     const segmentFollowingRows =
       visibleAssistantIndex < 0 ? [] : segmentFlowRows.slice(visibleAssistantIndex + 1);
     const segmentRunning = segmentIndex === visualDrafts.length - 1 && options.isRunning;
+    const segmentUserStartedAt = segment.orderedRows.find(isUserInputRow)?.createdAt;
     const segmentDurationMs = resolveSegmentDurationMs({
       header: options.header,
       segmentIndex,
@@ -187,6 +200,7 @@ export function buildConversationTurnWorkSegments(options: {
       segmentRunning,
       segmentCount: visualDrafts.length,
       nowMs: options.nowMs,
+      fallbackStartedAt: segmentUserStartedAt ?? options.fallbackStartedAt,
     });
     const segmentWorkStatus = resolveConversationTurnWorkStatus(
       options.header,

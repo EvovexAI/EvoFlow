@@ -23,7 +23,11 @@ export interface SlashCommandPluginProps {
   appCommands?: readonly AppSlashCommand[];
 }
 
-/** App 层斜杠命令：选中即执行 UI 行为（不插入 mention、不发送）。 */
+/**
+ * App 层斜杠命令。
+ * - 有 `run`：选中即执行 UI 行为（不插入 mention、不发送），如 `/side`。
+ * - 无 `run`：与 CLI catalog 一样插入 `/value `，由后续发送路径解析，如 `/workflow`。
+ */
 export interface AppSlashCommand {
   /** 命令值（不含 `/`），如 "side"。 */
   value: string;
@@ -31,8 +35,8 @@ export interface AppSlashCommand {
   description: string;
   /** 额外搜索关键词；应同时包含中英文别名，保证两种输入习惯都能搜到。 */
   keywords?: readonly string[];
-  /** 选中命令后立即执行的 UI 行为。 */
-  run: () => void;
+  /** 选中命令后立即执行的 UI 行为；缺省则插入斜杠文本。 */
+  run?: () => void;
 }
 
 const APP_SLASH_SUGGESTION_ID_PREFIX = "app-slash:";

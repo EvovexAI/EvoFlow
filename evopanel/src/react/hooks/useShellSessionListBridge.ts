@@ -31,6 +31,10 @@ import {
   getSessionGoalStateEpoch,
   subscribeSessionGoalState,
 } from '../lib/session-execution/goal-mode-state.js'
+import {
+  getV4TimelineBusyEpoch,
+  subscribeV4TimelineBusy,
+} from '../v4/v4-timeline-busy-store.js'
 
 export type UseShellSessionListBridgeOptions = {
   filteredSessions: ChatSessionRow[]
@@ -250,6 +254,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
   // 与 Composer 停止按钮 / selectedTurnBusy 同源：isSessionExecuting 依赖这些 epoch。
   // ShellSessionListHost 被 memo，父级 epoch 变化若未进 props 不会重绘；必须在此订阅，
   // 否则右下角已停、左侧齿轮仍转。
+  // V4 timeline busy 单独一档：点停后 pin/Sync 清 busy 只 bump 此 epoch，不订就会侧栏假转。
   const executingListEpoch = useSyncExternalStore(
     subscribeExecutingListRuntime,
     getExecutingListRuntimeEpoch,
@@ -259,11 +264,16 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     getSessionExecutionProbeEpoch,
   )
   const goalStateEpoch = useSyncExternalStore(subscribeSessionGoalState, getSessionGoalStateEpoch)
+  const v4TimelineBusyEpoch = useSyncExternalStore(
+    subscribeV4TimelineBusy,
+    getV4TimelineBusyEpoch,
+  )
 
   const shellListProps = useMemo((): ShellSessionListProps => {
     void executingListEpoch
     void executionProbeEpoch
     void goalStateEpoch
+    void v4TimelineBusyEpoch
     void workspaceOrderTick
     const sel = String(selectedSessionKey || '').trim()
     const built = buildShellSidebarGroups({
@@ -363,6 +373,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     executingListEpoch,
     executionProbeEpoch,
     goalStateEpoch,
+    v4TimelineBusyEpoch,
   ])
 
   return { shellListProps }

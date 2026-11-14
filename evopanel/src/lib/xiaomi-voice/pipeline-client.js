@@ -1087,7 +1087,7 @@ async function _commitUserTurn(text) {
     _pendingTurns.push(t)
     voiceFeLog(
       '用户输入',
-      `思考中新句入队（等本轮播完再发，不打断）：「${t.slice(0, 60)}」`,
+      `处理中新句入队（等本轮播完再发，不打断）：「${t.slice(0, 60)}」`,
     )
     _refreshTray()
     return

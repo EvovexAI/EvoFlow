@@ -21,6 +21,7 @@ import {
   PanelRightIcon,
   PlusIcon,
   PuzzleIcon,
+  SquareTerminalIcon,
   UsersIcon,
   WorkflowIcon,
   XIcon,
@@ -89,6 +90,8 @@ const FORCE_MOUNT_KINDS = new Set([
   'browser',
   'file',
   'terminal',
+  // 交互式 PTY：切签保活，避免卸载 dispose shell
+  'interactive-terminal',
   // summary：chat 渲染面里恒返回 null（死载荷），失活不值得常驻——2026-11-05 收敛移除
   'write',
   'workspace-browse',
@@ -107,6 +110,7 @@ export type RightStageLauncherItemId =
   | 'employee-chat'
   | 'browser'
   | 'workspace'
+  | 'terminal'
   | 'workflow'
   | 'mind-map'
   | 'summary'
@@ -1127,6 +1131,8 @@ export function buildDefaultRightStageLauncherItems(handlers: {
   onOpenEmployeeChat?: () => void
   onOpenBrowser: () => void
   onOpenWorkspace: () => void
+  /** ZCode 对齐：打开交互式工作区终端。 */
+  onOpenTerminal?: () => void
   onOpenWorkflow: () => void
   onOpenMindMap?: () => void
   mindMapEnabled?: boolean
@@ -1170,14 +1176,23 @@ export function buildDefaultRightStageLauncherItems(handlers: {
       icon: FolderIcon,
       onOpen: handlers.onOpenWorkspace,
     },
-    {
-      id: 'workflow',
-      label: '工作流',
-      description: '下拉选 App / 运行',
-      icon: WorkflowIcon,
-      onOpen: handlers.onOpenWorkflow,
-    },
   )
+  if (handlers.onOpenTerminal) {
+    items.push({
+      id: 'terminal',
+      label: '终端',
+      description: '打开交互式终端',
+      icon: SquareTerminalIcon,
+      onOpen: handlers.onOpenTerminal,
+    })
+  }
+  items.push({
+    id: 'workflow',
+    label: '工作流',
+    description: '下拉选 App / 运行',
+    icon: WorkflowIcon,
+    onOpen: handlers.onOpenWorkflow,
+  })
   if (handlers.onOpenSummary) {
     items.push({
       id: 'summary',

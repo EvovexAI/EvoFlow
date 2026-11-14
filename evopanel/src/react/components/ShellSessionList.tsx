@@ -54,6 +54,7 @@ import {
   isProactiveSessionKey,
   isSpecialWorkspaceGroupKey,
   normalizeWorkspacePathKey,
+  employeeOwnerCodeFromSession,
   proactiveAgentCodeFromSessionKey,
   resolveShellGroupWorkspacePath,
   splitVisibleAndFoldedDutySessions,
@@ -79,6 +80,9 @@ import {
 import {
   deptChatSessionKey,
   deptIdFromSessionKey,
+  getCachedDeptList,
+  loadDeptChatList,
+  prefetchDeptChatList,
   getDeptChatMeta,
   isDeptChatSessionKey,
   rememberDeptChatMeta,
@@ -88,6 +92,18 @@ import {
   WorkspaceFolderContextMenuPortal,
   type WorkspaceFolderContextMenuState,
 } from './WorkspaceFolderContextMenuPortal.js'
+import {
+  EmployeeGroupContextMenuPortal,
+  type EmployeeGroupContextMenuState,
+} from './EmployeeGroupContextMenuPortal.js'
+import {
+  applyEmployeeGroupOrder,
+  compareEmployeeRoster,
+  employeeRosterOrderKeys,
+  loadEmployeeGroupOrder,
+  reorderEmployeeGroupKeys,
+  saveEmployeeGroupOrder,
+} from '../lib/session-list/employee-group-order-storage.js'
 
 /** 置顶区折叠阈值（对齐 zcode WorkspacePinnedTasksSection collapsedLimit=20） */
 const PINNED_COLLAPSED_LIMIT = 20
@@ -204,6 +220,8 @@ type EmployeeGroupSource = {
   agent_code?: string | null
   agent_name?: string | null
   role_name?: string | null
+  department?: string | null
+  status?: string | null
 }
 
 function resolveEmployeeGroupLabel(
@@ -229,7 +247,8 @@ type EmployeeSidebarGroup = {
   maxUpdatedAt: number
 }
 
-/** 员工 Tab：按 agent_code 折叠；花名册无会话也占一组 */
+/** 员工 Tab：按 agent_code 折叠；花名册无会话也占一组。
+ *  组头顺序 = 编制序（部门→启用态→名），不按会话活跃重排；组内会话仍按最近更新。 */
 function buildEmployeeSidebarGroups(
   sessionRows: ShellSidebarSyncRow[],
   roles: ReadonlyArray<EmployeeGroupSource> | null | undefined,
@@ -237,7 +256,8 @@ function buildEmployeeSidebarGroups(
 ): EmployeeSidebarGroup[] {
   const sessionsByCode = new Map<string, ShellSidebarSyncRow[]>()
   for (const row of sessionRows) {
-    const code = proactiveAgentCodeFromSessionKey(row.sessionKey)
+    // 归属看 agent_id（及 channel），不是只拆 session_key
+    const code = employeeOwnerCodeFromSession(row)
     if (!code) continue
     const lc = normalizeEmployeeCodeKey(code)
     const list = sessionsByCode.get(lc) || []
@@ -247,12 +267,13 @@ function buildEmployeeSidebarGroups(
 
   const out: EmployeeSidebarGroup[] = []
   const seen = new Set<string>()
-  const list = Array.isArray(roles) ? roles : []
+  const list = [...(Array.isArray(roles) ? roles : [])].sort(compareEmployeeRoster)
 
   const pushGroup = (code: string, labelHint = '') => {
     const lc = normalizeEmployeeCodeKey(code)
     if (!lc || seen.has(lc)) return
     seen.add(lc)
+    // 会话层：最近更新往上（置顶区在外层 pinnedRows 另算；值班折叠在 duty split）
     const sessions = [...(sessionsByCode.get(lc) || [])].sort((a, b) => {
       const byUpdated = Number(b.updatedAt || 0) - Number(a.updatedAt || 0)
       if (byUpdated !== 0) return byUpdated
@@ -272,19 +293,24 @@ function buildEmployeeSidebarGroups(
     if (!code) continue
     pushGroup(code, String(role.role_name || '').trim())
   }
+  // 花名册外孤儿会话：固定沉底，按显示名排，不因活跃插队
+  const orphans: { code: string; labelHint: string; label: string }[] = []
   for (const [lc, rowsForCode] of sessionsByCode) {
     if (seen.has(lc)) continue
-    const code = proactiveAgentCodeFromSessionKey(rowsForCode[0]?.sessionKey) || lc
+    const code = employeeOwnerCodeFromSession(rowsForCode[0]) || lc
     // workspaceLabel 对 proactive 会话恒为「智能体员工」，不能当岗位名传入
     const wsLabel = String(rowsForCode[0]?.workspaceLabel || '').trim()
-    pushGroup(code, isGenericEmployeeWorkspaceLabel(wsLabel) ? '' : wsLabel)
+    const labelHint = isGenericEmployeeWorkspaceLabel(wsLabel) ? '' : wsLabel
+    orphans.push({
+      code,
+      labelHint,
+      label: resolveEmployeeGroupLabel(code, roles, agents, labelHint),
+    })
   }
+  orphans.sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'))
+  for (const o of orphans) pushGroup(o.code, o.labelHint)
 
-  return out.sort((a, b) => {
-    const byUpdated = Number(b.maxUpdatedAt || 0) - Number(a.maxUpdatedAt || 0)
-    if (byUpdated !== 0) return byUpdated
-    return a.label.localeCompare(b.label, 'zh-CN')
-  })
+  return out
 }
 
 export function ShellSessionList({
@@ -341,8 +367,10 @@ export function ShellSessionList({
   const [viewMode, setViewMode] = useState<'grouped' | 'project' | 'depts'>(() =>
     loadShellSidebarViewMode(),
   )
-  const [deptRows, setDeptRows] = useState<DeptChatMeta[]>([])
+  const [deptRows, setDeptRows] = useState<DeptChatMeta[]>(() => getCachedDeptList() || [])
   const [deptLoading, setDeptLoading] = useState(false)
+  const deptRowsRef = useRef(deptRows)
+  deptRowsRef.current = deptRows
 
   // viewMode 和 listTab 联动；持久化跨刷新对齐上次关闭态
   useEffect(() => {
@@ -375,6 +403,12 @@ export function ShellSessionList({
   } | null>(null)
   const [workspaceContextMenu, setWorkspaceContextMenu] =
     useState<WorkspaceFolderContextMenuState | null>(null)
+  const [employeeContextMenu, setEmployeeContextMenu] =
+    useState<EmployeeGroupContextMenuState | null>(null)
+  /** BOT 分组手动排序（拖拽后 localStorage；未点名时回落到花名册编制序） */
+  const [employeeGroupOrder, setEmployeeGroupOrder] = useState<string[]>(() =>
+    loadEmployeeGroupOrder(),
+  )
   const [expandedWorkspaces, setExpandedWorkspaces] = useState<Set<string>>(() =>
     loadExpandedWorkspaceKeys(),
   )
@@ -409,93 +443,36 @@ export function ShellSessionList({
   const isEmployeesTab = listTab === 'employees'
   const isDeptsTab = listTab === 'depts'
 
-  const employeeRolesRef = useRef(employeeRoles)
-  employeeRolesRef.current = employeeRoles
+  /** 侧栏挂载后闲时预热部门列表，第一次点「部门」尽量不空转 */
+  useEffect(() => {
+    const t = window.setTimeout(() => prefetchDeptChatList(), 1200)
+    return () => window.clearTimeout(t)
+  }, [])
 
-  /** 部门 Tab：拉部门 + 角色，组装群聊入口（可复用已有花名册，失败重试，不清空旧数据） */
+  /**
+   * 部门 Tab：只打 `/proactive/departments`（已含 members）。
+   * 有缓存 / 旧列表时静默刷新，不再每次切 Tab 先亮「加载中…」再等 roles（Best-effort 易 503）。
+   */
   useEffect(() => {
     if (!isDeptsTab) return
     let cancelled = false
-    setDeptLoading(true)
-    ;(async () => {
-      const { api } = await import('../../lib/tauri-api.js')
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-      const fetchWithRetry = async <T,>(fn: () => Promise<T>, tries = 3): Promise<T> => {
-        let last: unknown
-        for (let i = 0; i < tries; i++) {
-          try {
-            return await fn()
-          } catch (e) {
-            last = e
-            // roles 在 Gateway Best-effort 车道，platform 忙时会 503 shed
-            if (i < tries - 1) await sleep(350 * (i + 1))
-          }
-        }
-        throw last
-      }
-      try {
-        const cachedRoles = employeeRolesRef.current
-        const hasCached = Array.isArray(cachedRoles) && cachedRoles.length > 0
-        const [deptRes, roleRes] = await Promise.all([
-          fetchWithRetry(() => api.proactiveListDepartments()),
-          hasCached
-            ? Promise.resolve({ roles: cachedRoles })
-            : fetchWithRetry(() => api.proactiveListRoles('active')),
-        ])
+    const warm = getCachedDeptList()
+    if (warm?.length && deptRowsRef.current.length === 0) {
+      setDeptRows(warm)
+    }
+    const showSpinner = deptRowsRef.current.length === 0 && !(warm && warm.length)
+    if (showSpinner) setDeptLoading(true)
+    void loadDeptChatList({ force: true })
+      .then((rows) => {
         if (cancelled) return
-        const departments = Array.isArray(deptRes?.departments)
-          ? deptRes.departments
-          : Array.isArray(deptRes)
-            ? deptRes
-            : []
-        const roles = Array.isArray(roleRes?.roles)
-          ? roleRes.roles
-          : Array.isArray(roleRes)
-            ? roleRes
-            : []
-        const byDept = new Map<string, DeptChatMeta['members']>()
-        for (const r of roles) {
-          const code = String(r?.agent_code || r?.code || '').trim()
-          if (!code || code === 'main') continue
-          const deptName = String(r?.department || r?.config?.department || '').trim()
-          if (!deptName) continue
-          if (!byDept.has(deptName)) byDept.set(deptName, [])
-          byDept.get(deptName)!.push({
-            agent_code: code,
-            role_name: String(r?.role_name || r?.display_name || code).trim() || code,
-            department: deptName,
-            reports_to: String(r?.reports_to || r?.config?.reports_to || '').trim(),
-            status: String(r?.status || 'active').trim() || 'active',
-            busy: false,
-          })
-        }
-        const accents = ['lead', 'commerce', 'content', 'opensource', 'knowledge', 'assistant']
-        const rows: DeptChatMeta[] = []
-        let ai = 0
-        for (const d of departments) {
-          const id = String(d?.id || '').trim()
-          const name = String(d?.name || '').trim()
-          if (!id || !name) continue
-          const members = byDept.get(name) || []
-          if (!members.length) continue
-          rows.push({
-            id,
-            name,
-            head_agent_code: String(d?.head_agent_code || '').trim(),
-            head_role_name: String(d?.head_role_name || '').trim(),
-            accent: accents[ai % accents.length],
-            members,
-          })
-          ai += 1
-        }
         setDeptRows(rows)
-      } catch (e) {
+      })
+      .catch((e) => {
         console.warn('[shell] dept tab load failed', e)
-        // 保留上一轮 rows，避免 503 时把列表刷成「暂无」
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setDeptLoading(false)
-      }
-    })()
+      })
     return () => {
       cancelled = true
     }
@@ -1193,7 +1170,7 @@ export function ShellSessionList({
     [onSelectSession],
   )
 
-  /** 员工 Tab：会话 ∪ 雇佣花名册 */
+  /** 员工 Tab：会话 ∪ 雇佣花名册；默认编制序，拖拽偏好覆盖 */
   const employeeGroups = useMemo(() => {
     if (!isEmployeesTab) return [] as EmployeeSidebarGroup[]
     const sessionOnly = nonArchivedRows.filter((r) => r.workspaceKey === WORKSPACE_GROUP_PROACTIVE)
@@ -1222,8 +1199,18 @@ export function ShellSessionList({
         })
         .filter((g): g is EmployeeSidebarGroup => !!g)
     }
-    return groups
-  }, [isEmployeesTab, nonArchivedRows, effectiveEmployeeRoles, sessionFilter])
+    return applyEmployeeGroupOrder(
+      groups.map((g) => ({ key: normalizeEmployeeCodeKey(g.agentCode), group: g })),
+      employeeGroupOrder,
+    ).map((x) => x.group)
+  }, [
+    isEmployeesTab,
+    nonArchivedRows,
+    effectiveEmployeeRoles,
+    agents,
+    sessionFilter,
+    employeeGroupOrder,
+  ])
 
   const focusedEmployeeGroup = useMemo(() => {
     if (!focusedEmployeeCode) return null
@@ -1369,23 +1356,28 @@ export function ShellSessionList({
       const byCode = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
       for (const row of recentVisibleRows) {
         const code =
-          proactiveAgentCodeFromSessionKey(row.sessionKey) ||
+          employeeOwnerCodeFromSession(row) ||
           String(row.workspaceKey || '').toLowerCase()
-        if (!code) continue
-        const entry = byCode.get(code) || { label: '', rows: [] }
+        if (!code || code === WORKSPACE_GROUP_PROACTIVE) continue
+        const lc = normalizeEmployeeCodeKey(code)
+        const entry = byCode.get(lc) || { label: '', rows: [], avatarAgentCode: code }
         if (!entry.label) {
           entry.label = resolveEmployeeGroupLabel(code, effectiveEmployeeRoles, agents)
         }
         entry.rows.push(row)
-        byCode.set(code, entry)
+        byCode.set(lc, entry)
       }
       if (byCode.size <= 1) return null
-      return Array.from(byCode.entries()).map(([key, value]) => ({
+      const sections = Array.from(byCode.entries()).map(([key, value]) => ({
         key,
         label: value.label || key,
         rows: value.rows,
-        avatarAgentCode: key,
+        avatarAgentCode: value.avatarAgentCode || key,
       }))
+      // 组头：编制序为底；有本机拖拽偏好则覆盖（会话仍按组内 updatedAt）
+      const rosterOrder = employeeRosterOrderKeys(effectiveEmployeeRoles)
+      const baseOrdered = applyEmployeeGroupOrder(sections, rosterOrder)
+      return applyEmployeeGroupOrder(baseOrdered, employeeGroupOrder)
     }
     if (focusedWorkspaceKey) return null
     // 已注册但暂无会话的工作区也要成组展示，避免新建工作空间后左侧看不到
@@ -1399,6 +1391,7 @@ export function ShellSessionList({
     effectiveEmployeeRoles,
     agents,
     isSearching,
+    employeeGroupOrder,
   ])
 
   /** 只有「空工作区分组」需要展示（尚无任何会话）——此时不能走「暂无会话」空态 */
@@ -1491,18 +1484,75 @@ export function ShellSessionList({
       ? !!focusedGroup?.loadingSessions
       : globalLoading
 
-  /** 工作区分组头拖拽换序（对齐 zcode 侧栏工作区拖拽；仅任务 Tab、非特殊组）。
-   *  与置顶行拖拽同款 pointer 拖拽：按下移动 >5px 视为拖拽，落到目标组头换序，
-   *  顺序由 bridge 持久化（localStorage），下次启动还原。 */
+  /** 工作区 / BOT 分组头拖拽换序。
+   *  与置顶行拖拽同款 pointer 拖拽：按下移动 >5px 视为拖拽，落到目标组头换序；
+   *  任务 Tab 走 bridge 持久化，BOT Tab 走本机 employeeGroupOrder。 */
   const wsGroupDragRef = useRef<{ key: string; dragging: boolean; startY: number } | null>(null)
 
   const handleWorkspaceGroupHeadPointerDown = useCallback(
     (sectionKey: string, e: ReactPointerEvent<HTMLDivElement>) => {
-      if (e.button !== 0 || isEmployeesTab) return
-      if (isSpecialWorkspaceGroupKey(sectionKey)) return
-      if (typeof onReorderWorkspaceGroups !== 'function') return
+      if (e.button !== 0) return
       const target = e.target as HTMLElement
       if (target.closest('button, input, a')) return
+
+      if (isEmployeesTab) {
+        const fromKey = normalizeEmployeeCodeKey(sectionKey)
+        if (!fromKey) return
+        const host = e.currentTarget
+        wsGroupDragRef.current = { key: fromKey, dragging: false, startY: e.clientY }
+        host.classList.add('react-chat-session-ws-head--dragging')
+        document.body.classList.add('react-chat-session-row-dragging')
+
+        const clearDragOver = () => {
+          document.querySelectorAll('.react-chat-session-ws-head--drag-over').forEach((n) => {
+            n.classList.remove('react-chat-session-ws-head--drag-over')
+          })
+        }
+
+        const onMove = (ev: PointerEvent) => {
+          const drag = wsGroupDragRef.current
+          if (!drag) return
+          if (Math.abs(ev.clientY - drag.startY) > 5) drag.dragging = true
+          clearDragOver()
+          if (!drag.dragging) return
+          const under = document.elementFromPoint(ev.clientX, ev.clientY)
+          const drop = under?.closest?.('[data-ws-group-head]') as HTMLElement | null
+          const dropKey = normalizeEmployeeCodeKey(String(drop?.dataset?.wsGroupHead || ''))
+          if (drop && drop !== host && dropKey && dropKey !== fromKey) {
+            drop.classList.add('react-chat-session-ws-head--drag-over')
+          }
+        }
+
+        const onUp = (ev: PointerEvent) => {
+          document.removeEventListener('pointermove', onMove)
+          document.removeEventListener('pointerup', onUp)
+          document.body.classList.remove('react-chat-session-row-dragging')
+          host.classList.remove('react-chat-session-ws-head--dragging')
+          clearDragOver()
+          const drag = wsGroupDragRef.current
+          wsGroupDragRef.current = null
+          if (!drag?.dragging) return
+          const under = document.elementFromPoint(ev.clientX, ev.clientY)
+          const drop = under?.closest?.('[data-ws-group-head]') as HTMLElement | null
+          const dropKey = normalizeEmployeeCodeKey(String(drop?.dataset?.wsGroupHead || ''))
+          if (!dropKey || dropKey === fromKey) return
+          setEmployeeGroupOrder((prev) => {
+            const present = (groupedRecentSections || []).map((s) =>
+              normalizeEmployeeCodeKey(s.key),
+            )
+            const next = reorderEmployeeGroupKeys(prev, fromKey, dropKey, present)
+            saveEmployeeGroupOrder(next)
+            return next
+          })
+        }
+
+        document.addEventListener('pointermove', onMove)
+        document.addEventListener('pointerup', onUp)
+        return
+      }
+
+      if (isSpecialWorkspaceGroupKey(sectionKey)) return
+      if (typeof onReorderWorkspaceGroups !== 'function') return
       const host = e.currentTarget
       wsGroupDragRef.current = { key: sectionKey, dragging: false, startY: e.clientY }
       host.classList.add('react-chat-session-ws-head--dragging')
@@ -1548,7 +1598,7 @@ export function ShellSessionList({
       document.addEventListener('pointermove', onMove)
       document.addEventListener('pointerup', onUp)
     },
-    [isEmployeesTab, onReorderWorkspaceGroups],
+    [isEmployeesTab, onReorderWorkspaceGroups, groupedRecentSections],
   )
 
   const handleNewSessionClick = useCallback(() => {
@@ -1618,15 +1668,8 @@ export function ShellSessionList({
               aria-selected={viewMode === 'depts'}
               className={`shell-view-tab${viewMode === 'depts' ? ' is-active' : ''}`}
               onPointerEnter={() => {
-                // 悬停预热：departments 很快；roles 常被 Best-effort 503，提前拉降低点进空转
-                void import('../../lib/tauri-api.js')
-                  .then(({ api }) =>
-                    Promise.all([
-                      api.proactiveListDepartments().catch(() => null),
-                      api.proactiveListRoles('active').catch(() => null),
-                    ]),
-                  )
-                  .catch(() => {})
+                // 悬停写入模块缓存，点进 Tab 可直接画列表
+                prefetchDeptChatList()
               }}
               onClick={() => setViewMode('depts')}
             >
@@ -2166,10 +2209,23 @@ export function ShellSessionList({
                                 onMouseDown={(e) => e.stopPropagation()}
                                 onClick={(e) => {
                                   e.stopPropagation()
+                                  const r = e.currentTarget.getBoundingClientRect()
+                                  if (isEmployeesTab) {
+                                    const code = String(
+                                      section.avatarAgentCode || section.key || '',
+                                    ).trim()
+                                    if (!code) return
+                                    setEmployeeContextMenu({
+                                      agentCode: code,
+                                      label: section.label,
+                                      x: r.left + r.width / 2,
+                                      y: r.bottom,
+                                    })
+                                    return
+                                  }
                                   const grp = groups.find((g) => g.workspaceKey === section.key)
                                   if (!grp) return
                                   // 对齐 zcode 工作区「…」菜单：打开文件夹 / 收藏 / 只看 / 删除
-                                  const r = e.currentTarget.getBoundingClientRect()
                                   setWorkspaceContextMenu({
                                     workspaceKey: section.key,
                                     x: r.left + r.width / 2,
@@ -2350,6 +2406,37 @@ export function ShellSessionList({
             }
             void onDeleteWorkspace?.(g)
           }
+        }}
+      />
+      <EmployeeGroupContextMenuPortal
+        menu={employeeContextMenu}
+        focused={
+          !!employeeContextMenu &&
+          !!focusedEmployeeCode &&
+          focusedEmployeeCode.toLowerCase() === employeeContextMenu.agentCode.toLowerCase()
+        }
+        onClose={() => setEmployeeContextMenu(null)}
+        onFocusOnly={() => {
+          const code = employeeContextMenu?.agentCode
+          setEmployeeContextMenu(null)
+          if (code) selectEmployeeFilter(code)
+        }}
+        onClearFocus={() => {
+          setEmployeeContextMenu(null)
+          selectEmployeeFilter(null)
+        }}
+        onNewChat={() => {
+          const code = employeeContextMenu?.agentCode
+          setEmployeeContextMenu(null)
+          if (code) {
+            if (!isChatHashRoute()) navigate('/chat')
+            openNewEmployeeChat(code)
+          }
+        }}
+        onOpenEmployeePage={() => {
+          const code = employeeContextMenu?.agentCode
+          setEmployeeContextMenu(null)
+          if (code) navigate(`/proactive/${encodeURIComponent(code)}`)
         }}
       />
     </>

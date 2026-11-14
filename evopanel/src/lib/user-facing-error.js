@@ -155,6 +155,20 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
     return facing
   }
 
+  // Bare AG-UI RUN_ERROR code / model disconnect — do not leave users with only "run_error".
+  if (
+    /^(run_error|error|unknown|failed|failure)$/i.test(msg) ||
+    (/RemoteProtocolError|Server disconnected|connection reset|connection aborted|broken pipe/i.test(
+      msg,
+    ) &&
+      !hasCjk(msg))
+  ) {
+    const facing =
+      '本轮生成失败：模型服务中断或本机负载过高，请稍后重试；超长对话建议开新会话'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   if (looksUserFriendly(msg)) return msg
   if (looksLikeStackTrace(msg) && !hasCjk(msg)) {
     logRawUserFacingError(raw, fallback)
@@ -196,6 +210,12 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
     facing = '对话整理失败，请稍后重试'
   } else if (/not found|404/.test(lower) && /优化|enhance|prompt/.test(lower)) {
     facing = '提示词优化功能暂不可用，请稍后重试'
+  } else if (
+    /not found|http 404|status.*404/.test(lower) &&
+    /\/api\/v4\/|conversation\/subscribe|v4 .*failed/.test(lower)
+  ) {
+    // 正式包冷启动：ready 已亮但 V4 路由尚未挂上时的常见误伤
+    facing = '会话服务正在启动，请稍后重试'
   } else if (/超时|timeout/.test(lower)) facing = '请求超时，请稍后重试'
   else if (/get live-run failed|live-run/.test(lower)) facing = '暂时无法加载对话，请刷新后重试'
   else if (/origin not allowed|not_paired|pairing_required|auth/.test(lower)) {

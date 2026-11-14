@@ -349,7 +349,7 @@ export async function openResourceManagerOverlay() {
         <div class="ef-rm-debug-row">
           <div class="ef-rm-debug-copy">
             <div class="ef-rm-debug-title">开启调试模式</div>
-            <div class="ef-rm-debug-hint">开启后对话摘要会出现可点击的「调试」信息</div>
+            <div class="ef-rm-debug-hint">开启后：摘要「调试」+ 流式专项日志 + 右下角实时 CPU/内存浮窗</div>
           </div>
           <button type="button" class="ef-rm-switch" data-rm-debug-toggle aria-pressed="false" title="开启调试模式">
             <i></i>
@@ -418,8 +418,8 @@ export async function openResourceManagerOverlay() {
           const { toast } = await import('../components/toast.js')
           toast(
             st.enabled
-              ? '调试模式已开启：对话摘要会出现可点击的「调试」'
-              : '调试模式已关闭',
+              ? '调试模式已开启：摘要「调试」+ 流式日志 + 右下角性能浮窗'
+              : '调试模式已关闭（流式专项日志与性能浮窗一并关掉）',
             'success',
           )
         } catch {

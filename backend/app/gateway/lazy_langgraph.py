@@ -79,36 +79,18 @@ def mount_langgraph_in_process() -> Starlette:
         log_multi_session_runtime_banner(source="langgraph_mount")
     except Exception:
         logger.debug("multi-session runtime banner skipped", exc_info=True)
-    os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
-    from evoflow.langgraph_runtime_env import _resolve_n_jobs_per_worker
+    from evoflow.langgraph_runtime_env import (
+        _resolve_n_jobs_per_worker,
+        apply_langgraph_file_persistence_policy,
+    )
 
     # Prefer env / Settings→通用 (langgraphMaxConcurrent); default 3 (RSS-safe).
     os.environ["N_JOBS_PER_WORKER"] = str(_resolve_n_jobs_per_worker())
     if checkpointer:
         os.environ.setdefault("LANGGRAPH_CHECKPOINTER", json.dumps(checkpointer))
-    # Durable EvoFlow checkpointer already persists graph state — keep the
-    # LangGraph inmem pickle store off so ~/.evoflow/.langgraph_api/*.pckl
-    # (often multi-GB) is not loaded into Gateway RSS on every start.
-    # Opt out with EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1.
-    try:
-        from evoflow.config.app_config import get_app_config
-
-        cp_cfg = getattr(get_app_config(), "checkpointer", None)
-        cp_type = str(getattr(cp_cfg, "type", "") or "").strip().lower()
-    except Exception:
-        cp_type = ""
-    keep_pckl = (os.getenv("EVOFLOW_KEEP_LG_FILE_PERSISTENCE") or "").strip().lower() in (
-        "1",
-        "true",
-        "yes",
-        "on",
-    )
-    if cp_type in ("sqlite", "postgres") and not keep_pckl:
-        os.environ["LANGGRAPH_DISABLE_FILE_PERSISTENCE"] = "true"
-        logger.info(
-            "LangGraph file persistence disabled (checkpointer.type=%s); set EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1 to keep .pckl store",
-            cp_type,
-        )
+    # Same policy as split ``--mode langgraph``: with durable checkpointer, do not
+    # load/write multi-GB ``~/.evoflow/.langgraph_api/*.pckl``.
+    apply_langgraph_file_persistence_policy()
     if not os.environ.get("MIGRATIONS_PATH"):
         os.environ.setdefault("MIGRATIONS_PATH", "__inmem")
 

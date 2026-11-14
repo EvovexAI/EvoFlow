@@ -190,6 +190,7 @@ export function AvatarCluster({
               className="size-4 shrink-0"
               avatarIndex={pill.avatarIndex}
               laneClass={pill.laneClass}
+              laneId={pill.lane.id}
               name={nameOf(pill)}
               status={pill.status}
             />

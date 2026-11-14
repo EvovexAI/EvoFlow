@@ -1192,6 +1192,7 @@ export default function KnowledgeOwnedPage() {
   const [settingsEmbRef, setSettingsEmbRef] = useState("");
   const [settingsRebind, setSettingsRebind] = useState(false);
   const [settingsSummary, setSettingsSummary] = useState(false);
+  const [settingsVectorEnabled, setSettingsVectorEnabled] = useState(true);
   const [syncPreviewOpen, setSyncPreviewOpen] = useState(false);
   const [syncPreviewLoading, setSyncPreviewLoading] = useState(false);
   const [syncPreview, setSyncPreview] = useState(null);
@@ -1759,6 +1760,11 @@ export default function KnowledgeOwnedPage() {
     return next !== prev;
   }, [settingsChatModel, kbGlobalSettings?.chatModel]);
 
+  const settingsVectorChanged = useMemo(() => {
+    if (!settingsBase) return false;
+    return settingsVectorEnabled !== Boolean(settingsBase.vectorEnabled !== false);
+  }, [settingsBase, settingsVectorEnabled]);
+
   const settingsDirty = useMemo(() => {
     if (!settingsBase) return false;
     const name = String(settingsName || "").trim();
@@ -1768,7 +1774,8 @@ export default function KnowledgeOwnedPage() {
       desc !== String(settingsBase.description || "").trim() ||
       settingsEmbChanged ||
       settingsChatChanged ||
-      settingsSummary !== Boolean(settingsBase.summaryEnabled)
+      settingsSummary !== Boolean(settingsBase.summaryEnabled) ||
+      settingsVectorChanged
     );
   }, [
     settingsBase,
@@ -1777,6 +1784,7 @@ export default function KnowledgeOwnedPage() {
     settingsEmbChanged,
     settingsChatChanged,
     settingsSummary,
+    settingsVectorChanged,
   ]);
 
   // Hub Insight → open first base in Ask mode (optional pending prompt)
@@ -2180,6 +2188,7 @@ export default function KnowledgeOwnedPage() {
     setSettingsEmbRef(current);
     setSettingsRebind(false);
     setSettingsSummary(Boolean(base.summaryEnabled));
+    setSettingsVectorEnabled(base.vectorEnabled !== false);
     setSettingsOpen(true);
     const global = await reloadKbGlobalSettings();
     setSettingsChatModel(String(global?.chatModel || "").trim());
@@ -2204,10 +2213,24 @@ export default function KnowledgeOwnedPage() {
     const nameChanged = name !== String(base?.name || "").trim();
     const descChanged = description !== String(base?.description || "").trim();
     const summaryChanged = settingsSummary !== Boolean(base?.summaryEnabled);
+    const prevVectorOn = base?.vectorEnabled !== false;
+    const vectorChanged = settingsVectorEnabled !== prevVectorOn;
 
     if (embChanged) {
       const ok = await showConfirm(
         `更换向量模型将清空现有向量并按「${next}」整库重建索引，是否继续？`,
+      );
+      if (!ok) return;
+    }
+    if (vectorChanged && !settingsVectorEnabled) {
+      const ok = await showConfirm(
+        "关闭语义向量后，本库将仅用关键词检索，并清空现有向量。失败文档会尝试降级为可检索。是否继续？",
+      );
+      if (!ok) return;
+    }
+    if (vectorChanged && settingsVectorEnabled) {
+      const ok = await showConfirm(
+        "开启语义向量后将按当前模型整库重建索引，是否继续？",
       );
       if (!ok) return;
     }
@@ -2223,13 +2246,15 @@ export default function KnowledgeOwnedPage() {
       if (nameChanged) metaPatch.name = name;
       if (descChanged) metaPatch.description = description;
       if (summaryChanged) metaPatch.summaryEnabled = settingsSummary;
+      if (vectorChanged) metaPatch.vectorEnabled = settingsVectorEnabled;
 
       // Only touch embedding binding when it actually changed; a metadata-only
       // save must never trigger a reindex. In-place rebuild is a separate action.
+      // Turning vector on/off intentionally queues reindex via the backend.
       if (Object.keys(metaPatch).length || embChanged) {
         res = await api.updateOwnedKnowledgeBase(kbId, {
           ...metaPatch,
-          ...(embChanged ? { embeddingModelRef: next } : {}),
+          ...(embChanged && settingsVectorEnabled ? { embeddingModelRef: next } : {}),
         });
       }
 
@@ -2238,7 +2263,11 @@ export default function KnowledgeOwnedPage() {
       await loadBases();
       await reloadKbGlobalSettings();
       if (res?.reindexQueued) {
-        notify(`正在向量化 ${res.reindexQueued} 篇文档…`);
+        notify(
+          settingsVectorEnabled
+            ? `正在重建索引 ${res.reindexQueued} 篇文档…`
+            : `正在按仅关键词修复 ${res.reindexQueued} 篇文档…`,
+        );
       } else {
         notify("知识库设置已保存");
       }
@@ -2797,16 +2826,30 @@ export default function KnowledgeOwnedPage() {
                     </button>
                     <button
                       className="ko-btn"
+                      title="清除本库失败台账；向量额度/模型失败的文档会降级为可关键词检索"
                       onClick={async () => {
+                        if (!selectedId) {
+                          notify("未选中知识库");
+                          return;
+                        }
                         try {
                           const res = await api.purgeOrphanOwnedJobs(selectedId);
                           const purged = Number(res?.purged ?? 0);
-                          notify(
-                            purged > 0
-                              ? `已清理 ${purged} 个失效任务`
-                              : "没有发现失效任务",
-                          );
+                          const healed = Number(res?.healed ?? 0);
+                          const dismissed = Number(res?.dismissed ?? 0);
                           await loadDocs(selectedId);
+                          if (purged > 0 || healed > 0) {
+                            const parts = [];
+                            if (dismissed > 0 || purged > 0) {
+                              parts.push(`已清理 ${purged || dismissed} 条失败记录`);
+                            }
+                            if (healed > 0) {
+                              parts.push(`${healed} 篇改为关键词可检索`);
+                            }
+                            notify(parts.join(" · ") || "已清理");
+                          } else {
+                            notify("没有可清理的失败任务");
+                          }
                         } catch (e) {
                           notify(e?.message || "清理失效任务失败");
                         }
@@ -4088,7 +4131,7 @@ export default function KnowledgeOwnedPage() {
                     <label className="ko-sheet__field">
                       <span>向量模型</span>
                       <select
-                        disabled={busy}
+                        disabled={busy || !settingsVectorEnabled}
                         onChange={(e) => setSettingsEmbRef(e.target.value)}
                         value={settingsEmbRef}
                       >
@@ -4122,6 +4165,26 @@ export default function KnowledgeOwnedPage() {
                   <p className="ko-sheet__hint is-warn">保存后将清空现有向量并整库重建。</p>
                 ) : null}
 
+                <label className={`ko-sheet__switch${settingsVectorEnabled ? " is-on" : ""}`}>
+                  <span className="ko-sheet__switch-copy">
+                    <strong>启用语义向量</strong>
+                    <small>
+                      关闭后本库仅关键词检索，不当作故障；向量模型异常时可先关掉，避免健康度一直报警
+                    </small>
+                  </span>
+                  <input
+                    checked={settingsVectorEnabled}
+                    disabled={busy}
+                    onChange={(e) => setSettingsVectorEnabled(e.target.checked)}
+                    type="checkbox"
+                  />
+                  <span aria-hidden="true" className="ko-sheet__switch-track" />
+                </label>
+
+                {!settingsVectorEnabled ? (
+                  <p className="ko-sheet__hint">当前为仅关键词模式；混合/语义检索会自动降级。</p>
+                ) : null}
+
                 <label className={`ko-sheet__switch${settingsSummary ? " is-on" : ""}`}>
                   <span className="ko-sheet__switch-copy">
                     <strong>自动解析摘要</strong>
@@ -4141,9 +4204,13 @@ export default function KnowledgeOwnedPage() {
             <footer className="ko-sheet__foot">
               <button
                 className="ko-btn"
-                disabled={busy || !settingsCurrentRef}
+                disabled={busy || !settingsCurrentRef || !settingsVectorEnabled}
                 onClick={rebuildVectors}
-                title="按当前绑定的向量模型整库重建索引（不更换模型）"
+                title={
+                  settingsVectorEnabled
+                    ? "按当前绑定的向量模型整库重建索引（不更换模型）"
+                    : "仅关键词模式下无需建立向量索引"
+                }
                 type="button"
               >
                 {settingsBase.embeddingDim ? "重建索引" : "建立索引"}

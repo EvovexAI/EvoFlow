@@ -7,10 +7,11 @@ import {
   getSessionRuntime,
   resetRuntimeStream,
 } from '../session-runtime-store.js'
-import { logStreamStop } from '../stream-stop-log.js'
+import { logStreamStop, markStreamStopTrace, streamStopSinceMs } from '../stream-stop-log.js'
 import { commitPriorTurnStripFromStreamTurn } from '../turn-text-isolation.js'
 import { beginSessionUserStop, finishSessionRunIdle } from './commands.js'
 import { sealSessionPartialTurnOnStop } from './seal-partial-turn.js'
+import { logChatRuntimeTurn, logChatRuntimeUserClick } from '../chat-runtime-log.js'
 import type { SessionStopHost, SessionStopSource, StopSessionOptions } from './types.js'
 
 const REATTACH_COOLDOWN_AFTER_USER_STOP_MS = 90_000
@@ -44,6 +45,7 @@ export async function stopSessionExecution(
 
   host.onUserStopStarted?.()
   const { runtime: rtAtStop, stopRunId: stopRunIdAtStop } = beginSessionUserStop(sk)
+  markStreamStopTrace({ sessionKey: sk, runId: stopRunIdAtStop, source })
   logStreamStop({
     sessionKey: sk,
     runId: stopRunIdAtStop,
@@ -56,7 +58,28 @@ export async function stopSessionExecution(
       turnPhase: rtAtStop.turnPhase,
       showToast: opts.showToast !== false,
       note: `主动停止路径：${whoZh}`,
+      sinceStopMs: 0,
     },
+  })
+  const stopAction =
+    source === 'shell_sidebar_stop'
+      ? 'sidebar_stop'
+      : source === 'interrupt_flush_queue' || source === 'interrupt_send_steers'
+        ? 'interrupt_flush'
+        : 'stop'
+  logChatRuntimeUserClick({
+    action: stopAction,
+    whoZh,
+    sessionKey: sk,
+    runId: stopRunIdAtStop,
+    detail: { source, turnPhase: rtAtStop.turnPhase },
+  })
+  logChatRuntimeTurn({
+    phase: 'stop_requested',
+    whoZh: `对话停止请求：${whoZh}`,
+    sessionKey: sk,
+    runId: stopRunIdAtStop,
+    detail: { source, turnPhase: rtAtStop.turnPhase },
   })
   commitPriorTurnStripFromStreamTurn(rtAtStop, rtAtStop.stream.turn)
 
@@ -69,6 +92,20 @@ export async function stopSessionExecution(
     // 本地 SSE wire abort（skipRunIdle：后端 execution/stop 统一写终态 run_status）
     await api.chatAbort(sk, undefined, { userInitiated: true, skipRunIdle: true })
     await api.stopSessionExecution(sk, { userInitiated: true })
+
+    logStreamStop({
+      sessionKey: sk,
+      runId: stopRunIdAtStop,
+      trigger: 'stop_api_done',
+      hasEndMarker: false,
+      fromUiStopButton: false,
+      skipDedupe: true,
+      detail: {
+        whoZh: '停止 API 已返回（chatAbort / execution/stop）',
+        note: '后端 stop 调用完成；页面齿轮可能仍亮，继续看 ui_idle_after_stop',
+        sinceStopMs: streamStopSinceMs({ sessionKey: sk }) ?? undefined,
+      },
+    })
 
     if (opts.showToast !== false) {
       host.toast?.('已停止执行', 'info')
@@ -86,6 +123,20 @@ export async function stopSessionExecution(
     finishSessionRunIdle(sk, {
       stopRunId: stopRunIdAtStop,
       reattachCooldownMs: REATTACH_COOLDOWN_AFTER_USER_STOP_MS,
+    })
+    logStreamStop({
+      sessionKey: sk,
+      runId: stopRunIdAtStop,
+      trigger: 'stop_runtime_idle',
+      hasEndMarker: false,
+      fromUiStopButton: false,
+      skipDedupe: true,
+      detail: {
+        whoZh: '前端 runtime 已置 idle（finishSessionRunIdle）',
+        note: '本地 run 状态已清；若齿轮仍亮，多半是 V4 timelineBusy 未收口',
+        sinceStopMs: streamStopSinceMs({ sessionKey: sk }) ?? undefined,
+        foreground: isForeground,
+      },
     })
     host.deleteLiveRunSnapshot?.(sk)
     host.onSessionRunEnded?.(sk, { terminalStatus: 'cancelled', reason: 'user_stop' })

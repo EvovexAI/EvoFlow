@@ -178,6 +178,8 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
         names: list[str],
         plugin_block: str,
         ctx: dict[str, Any],
+        *,
+        skill_body: str | None = None,
     ) -> ModelRequest:
         raw_messages = _messages_from_request(request)
         messages = _strip_injection_messages(raw_messages)
@@ -196,10 +198,12 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
 
         extra_messages: list[HumanMessage] = []
         if selected:
-            body = build_skill_injection_message(
-                selected,
-                prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
-            )
+            body = skill_body
+            if body is None:
+                body = build_skill_injection_message(
+                    selected,
+                    prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
+                )
             if body.strip():
                 extra_messages.append(HumanMessage(content=body.strip(), name=_SKILL_INJECTION_MESSAGE_NAME))
         if plugin_block.strip():
@@ -220,18 +224,23 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
     @override
     def wrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         selected, names, plugin_block, ctx = _resolve_turn_skills(request)
+        # Build the injection body once per model call (stat-cached in
+        # skills.injection) — previously assembled 2×/call (patch + modal).
+        skill_body = (
+            build_skill_injection_message(
+                selected,
+                prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
+            )
+            if selected
+            else ""
+        )
         token_skills = set_active_skills(names)
         try:
-            result = handler(self._patch_request(request, selected, names, plugin_block, ctx))
+            result = handler(self._patch_request(request, selected, names, plugin_block, ctx, skill_body=skill_body))
             # Also update the injected-sections ContextVar so the detail modal sees the content.
             merged = dict(get_injected_sections() or {})
-            if selected:
-                body = build_skill_injection_message(
-                    selected,
-                    prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
-                )
-                if body.strip():
-                    merged["skill_injection"] = body.strip()
+            if skill_body.strip():
+                merged["skill_injection"] = skill_body.strip()
             if plugin_block.strip():
                 merged["plugin_injection"] = plugin_block.strip()
             if len(merged) > len(get_injected_sections() or {}):
@@ -247,17 +256,20 @@ class SkillsInjectionMiddleware(AgentMiddleware[AgentState]):
     @override
     async def awrap_model_call(self, request: ModelRequest, handler) -> ModelCallResult:
         selected, names, plugin_block, ctx = _resolve_turn_skills(request)
+        skill_body = (
+            build_skill_injection_message(
+                selected,
+                prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
+            )
+            if selected
+            else ""
+        )
         token_skills = set_active_skills(names)
         try:
-            result = await handler(self._patch_request(request, selected, names, plugin_block, ctx))
+            result = await handler(self._patch_request(request, selected, names, plugin_block, ctx, skill_body=skill_body))
             merged = dict(get_injected_sections() or {})
-            if selected:
-                body = build_skill_injection_message(
-                    selected,
-                    prompt_language=str(ctx.get("prompt_language") or "").strip() or None,
-                )
-                if body.strip():
-                    merged["skill_injection"] = body.strip()
+            if skill_body.strip():
+                merged["skill_injection"] = skill_body.strip()
             if plugin_block.strip():
                 merged["plugin_injection"] = plugin_block.strip()
             if len(merged) > len(get_injected_sections() or {}):

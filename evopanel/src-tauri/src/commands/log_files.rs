@@ -34,8 +34,17 @@ pub fn env_flag_enabled(name: &str) -> bool {
 
 /// ``logs/{prefix}-YYYY-MM-DD.log`` (creates dir, prunes old files for this prefix).
 pub fn open_daily_log(log_dir: &Path, prefix: &str) -> Result<std::fs::File, String> {
+    open_daily_log_with_retention(log_dir, prefix, retention_days())
+}
+
+/// Same as ``open_daily_log`` but with an explicit retention window for this prefix.
+pub fn open_daily_log_with_retention(
+    log_dir: &Path,
+    prefix: &str,
+    keep_days: i64,
+) -> Result<std::fs::File, String> {
     fs::create_dir_all(log_dir).map_err(|e| format!("创建日志目录失败: {e}"))?;
-    let _ = prune_daily_logs(log_dir, prefix, retention_days());
+    let _ = prune_daily_logs(log_dir, prefix, keep_days.max(1));
     let date = Local::now().format("%Y-%m-%d");
     let path = log_dir.join(format!("{prefix}-{date}.log"));
     fs::OpenOptions::new()
@@ -139,10 +148,24 @@ pub fn latest_daily_log_path(log_dir: &Path, prefix: &str) -> Option<PathBuf> {
 }
 
 pub fn append_daily_log_line(log_dir: &Path, prefix: &str, line: &str) -> Result<(), String> {
-    let mut f = open_daily_log(log_dir, prefix)?;
+    append_daily_log_line_keep(log_dir, prefix, line, retention_days())
+}
+
+pub fn append_daily_log_line_keep(
+    log_dir: &Path,
+    prefix: &str,
+    line: &str,
+    keep_days: i64,
+) -> Result<(), String> {
+    let mut f = open_daily_log_with_retention(log_dir, prefix, keep_days)?;
     f.write_all(line.as_bytes())
         .map_err(|e| format!("写入日志失败: {e}"))
 }
+
+/// 对话运行时专项日志保留天数（左右 busy / 点停点发排查）。
+pub const CHAT_RUNTIME_RETENTION_DAYS: i64 = 7;
+/// 对话回合生命周期（点发送→首帧→流结束）专项日志保留天数。
+pub const CHAT_TURN_LIFECYCLE_RETENTION_DAYS: i64 = 7;
 
 /// Append one line to an arbitrary log file (creates parent dirs).
 pub fn append_log_file_line(path: &Path, line: &str) -> Result<(), String> {

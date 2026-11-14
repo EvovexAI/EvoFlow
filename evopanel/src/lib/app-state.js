@@ -269,6 +269,13 @@ async function _maybeHealLanggraphRuntime() {
     )
     await invoke('reload_langgraph_runtime')
     _lgConsecutiveDown = 0
+    // In-memory LG threads are gone — next chatSend must probe/remint before stream.
+    try {
+      const { markLangGraphThreadsStale } = await import('./ws-client.js')
+      markLangGraphThreadsStale('guardian_reload_langgraph')
+    } catch {
+      /* ignore */
+    }
   } catch (e) {
     console.warn('[gateway-guardian] reload_langgraph_runtime failed:', e)
   } finally {
@@ -411,6 +418,12 @@ async function _tryAutoRestart(options = {}) {
         _setGatewayRunning(true)
         _runningSince = Date.now()
         console.info('[gateway-guardian] Gateway recovered after reload (/health/ready)')
+        try {
+          const { markLangGraphThreadsStale } = await import('./ws-client.js')
+          markLangGraphThreadsStale('guardian_reload_gateway')
+        } catch {
+          /* ignore */
+        }
         return
       }
     }

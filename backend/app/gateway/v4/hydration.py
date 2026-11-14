@@ -15,7 +15,9 @@ session 时，把旧链路的 transcript（``evoflow_chat_messages``，与
 
 映射规则（v1）：
 - 按 ``run_id`` 分组 = turn（缺 run_id 的消息归入前一连续段）；每组先落
-  turnHeader（历史轮一律 completedSuccess，无运行中的轮）；
+  turnHeader（历史轮一律 completedSuccess；**当前 run 若 DB 仍在跑且新鲜
+  （``_probe_running_run``）→ 最后一轮保持 running，并写 running control
+  override——刷新/重连后 isRunning/停止键/轮尾 loading 恢复**）；
 - assistant.tool_calls 先建 toolCall 行（running），随后同 turn 的 tool 行按
   tool_call_id 回填 status/output；
 - tool 结果：与 live ``agui_mirror`` 对齐，从正文尾部
@@ -23,19 +25,30 @@ session 时，把旧链路的 transcript（``evoflow_chat_messages``，与
   ``output.display``（kind:"cua" + media），否则冷恢复后截图轮尾为空；
 - assistant.reasoning → reasoning 行；content 文本 → assistantText 行。
 
-幂等：仅当 session 全新（rows 空且 seq==0）才 hydrate；live 镜像先到则跳过。
+幂等：仅当 session 全新（rows 空）才 hydrate；live 镜像先到则跳过。
+网关重启后 stream 404 remint：须在重发前 ``rehydrate_after_thread_remint``，
+否则 note_user_input 先种 1–2 行会使 subscribe hydrate 跳过，历史整页消失。
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _HYDRATION_MAX_MESSAGES = 2000
+
+# 运行态恢复探测（生命周期四件套第 1 件 / Phase B）：DB run_status=running 且
+# updated_at 在此窗口内才信。超窗疑似 zombie，交 run_status_reconcile / zombie
+# sweeper 收尾——hydrate 保持纯读，绝不 cancel。
+_RUNNING_PROBE_MAX_AGE_MS = max(
+    30_000,
+    int(os.getenv("EVOFLOW_V4_HYDRATE_RUNNING_MAX_AGE_S", "120") or "120") * 1000,
+)
 
 # 与 chat_message_repositories._HIDDEN_CONTEXT_USER_NAMES 对齐（避免 raw 回落路径漏滤）。
 _HIDDEN_CONTEXT_USER_TOOL_NAMES = frozenset(
@@ -48,6 +61,9 @@ _HIDDEN_CONTEXT_USER_TOOL_NAMES = frozenset(
         "tool_approval_command",
         "proactive_duty_brief",
         "xiaomi_ui_context",
+        # 持久化给模型回灌，但不得进可见 userInput（刷新后曾把整段摘要当用户气泡）
+        "conversation_summary",
+        "tool_history",
     }
 )
 
@@ -74,6 +90,47 @@ def _is_hidden_duty_brief_text(text: str) -> bool:
     if "<proactive_duty_brief" in head:
         return True
     return False
+
+
+def _is_hidden_task_notification_text(text: str) -> bool:
+    """``<task-notification>`` 是模型唤醒载体，冷恢复不得落成可见 userInput。"""
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    return head.startswith("<task-notification>") or head.startswith(
+        "<subagent-notification>"
+    )
+
+
+def _is_hidden_context_compaction_text(text: str) -> bool:
+    """上下文压缩摘要 / tool history：给模型看，对齐旧面板 isContextCompactionContent。"""
+    head = str(text or "").lstrip()
+    if not head:
+        return False
+    lower = head.lower()
+    if lower.startswith("[context compaction"):
+        return True
+    if lower.startswith("here is a summary of the conversation to date"):
+        return True
+    if lower.startswith("here's a summary of the conversation to date"):
+        return True
+    return head.startswith(
+        (
+            "[上下文摘要",
+            "[深度压缩摘要",
+            "[tool:history]",
+            "[tool:summary]",
+        )
+    )
+
+
+def _is_hidden_task_notification_message_id(message_id: str | None) -> bool:
+    mid = str(message_id or "").strip()
+    if not mid:
+        return False
+    return mid.startswith("bash-task-notification:") or mid.startswith(
+        "subagent-task-notification:"
+    )
 
 
 def _text_from_message_content(content: Any) -> str:
@@ -455,6 +512,90 @@ def force_rehydrate_session_from_transcript(
     return loaded
 
 
+def rehydrate_after_thread_remint(thread_id: str) -> int:
+    """force_recreate / stream-404 remint 后：把已 remap 的 transcript 灌进新 thread 投影。
+
+    竞态：重发 stream 的 ``note_user_input`` 会先在新 session 上种 1–2 行；
+    随后 FE subscribe 走普通 hydrate，见 ``sess.rows`` 非空直接 return 0，
+    用户只看见本轮输入/回复，像「开启了新线程」。必须在重发前 force-rehydrate。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid or tid.startswith("v4-"):
+        return 0
+    try:
+        from app.gateway.v4.conversation import HUB
+
+        loaded = force_rehydrate_session_from_transcript(HUB, tid)
+        logger.info(
+            "[v4.hydration] remint rehydrate thread=%s rows=%s",
+            tid,
+            loaded,
+        )
+        return int(loaded or 0)
+    except Exception:
+        logger.exception("[v4.hydration] remint rehydrate failed thread=%s", tid)
+        return 0
+
+
+def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
+    """DB run_status 探测：running/pending 且 updated_at 新鲜 → 返回运行态摘要。
+
+    只读（read pool，hydrate 已在 to_thread 里），不做 cancel——zombie 交
+    run_status_reconcile / zombie sweeper。status 非活跃或超窗返回 None。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    try:
+        from evoflow.persistence.db import run_db_read
+
+        def _query(conn: Any) -> Any:
+            return conn.execute(
+                """
+                SELECT run_status, updated_at, current_run_id
+                FROM evoflow_chat_sessions
+                WHERE is_deleted = 0 AND thread_id = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (tid,),
+            ).fetchone()
+
+        row = run_db_read(_query)
+    except Exception:
+        logger.debug("[v4.hydration] run probe failed thread=%s", tid, exc_info=True)
+        return None
+    if not row:
+        return None
+    status = str(row[0] or "").strip().lower()
+    if status not in {"running", "pending"}:
+        return None
+    updated_ms = 0
+    raw_updated = str(row[1] or "").strip()
+    if raw_updated:
+        try:
+            from evoflow.persistence.timestamps import iso_z_to_ms
+
+            updated_ms = int(iso_z_to_ms(raw_updated) or 0)
+        except Exception:
+            updated_ms = 0
+    now_ms = int(time.time() * 1000)
+    if updated_ms <= 0 or now_ms - updated_ms > _RUNNING_PROBE_MAX_AGE_MS:
+        # running 但不新鲜：疑似 zombie，hydrate 维持「已完成」现状。
+        logger.debug(
+            "[v4.hydration] running probe stale thread=%s status=%s age_ms=%s",
+            tid,
+            status,
+            now_ms - updated_ms if updated_ms else -1,
+        )
+        return None
+    return {
+        "run_id": str(row[2] or "").strip(),
+        "status": status,
+        "updated_at_ms": updated_ms,
+    }
+
+
 def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
     """把 thread 的持久 transcript hydrate 成 v4 行。返回写入的行数（0=跳过/无历史）。
 
@@ -572,6 +713,15 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 if tool_name and _is_hidden_context_user_tool_name(tool_name):
                     continue
                 if text and _is_hidden_duty_brief_text(text) and not attachments:
+                    continue
+                # 后台任务续跑通知：给模型看；刷新后历史里也不该冒成用户气泡。
+                if not attachments and (
+                    (text and _is_hidden_task_notification_text(text))
+                    or _is_hidden_task_notification_message_id(msg_id)
+                ):
+                    continue
+                # 上下文压缩摘要：持久化供回灌，UI 只应看到 timeline compact 分隔线。
+                if text and _is_hidden_context_compaction_text(text) and not attachments:
                     continue
                 # 同轮连续相同正文（brief/beat 镜像 + transcript 双写）只留一条。
                 if (
@@ -784,6 +934,36 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
         seeded_rows.append(header_row)
         seeded_rows.extend(rows)
 
+    # ── 运行态恢复（生命周期四件套第 1 件 / Phase B）────────────────────────
+    # mirror 活跃时跳过（在线镜像才是真值；正常 mirror live ⇒ rows 非空早已
+    # return 0，这里是「探测与 RUN_STARTED 竞态」的守卫）。命中且探测 run_id
+    # 与最后一轮 turnId 一致 → 该轮 turnHeader 保持 running（不再一律盖
+    # completedSuccess）；run_id 不一致（run 刚起还没落任何消息）只恢复 control
+    # 不动历史轮——避免把上一轮错标成 running。
+    running_restore: dict[str, Any] | None = None
+    try:
+        from app.gateway.v4.agui_mirror import mirror_thread_is_live
+
+        mirror_live = bool(mirror_thread_is_live(tid))
+    except Exception:
+        mirror_live = False
+    if not mirror_live:
+        running_restore = _probe_running_run(tid)
+    if running_restore:
+        probe_run_id = str(running_restore.get("run_id") or "").strip()
+        last_header = next(
+            (r for r in reversed(seeded_rows) if r.get("kind") == "turnHeader"), None
+        )
+        matches_last_turn = bool(
+            last_header
+            and probe_run_id
+            and str(last_header.get("turnId") or "").strip() == probe_run_id
+        )
+        if matches_last_turn and last_header is not None:
+            last_header["state"] = "running"
+            last_header.pop("endedAt", None)
+        running_restore["_restore_header"] = bool(matches_last_turn)
+
     seed = getattr(hub, "author_seed_rows", None)
     if callable(seed):
         row_count = int(seed(tid, seeded_rows) or 0)
@@ -798,6 +978,31 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
     if sess_final is not None and row_count > 0:
         # 与 observer catchup 指纹对齐，避免首轮 catchup 无意义 force-wipe。
         sess_final.catchup_fp = transcript_fingerprint(messages)
+    if running_restore:
+        # running control override：刷新/重连后快照 control=running/canStop=true，
+        # 前端 isRunning/停止键全部恢复（snapshot 与增量同源，见 Phase A）。
+        try:
+            from app.gateway.v4.conversation import _minimal_control
+
+            started_at = 0
+            if running_restore.get("_restore_header"):
+                last_header = next(
+                    (r for r in reversed(seeded_rows) if r.get("kind") == "turnHeader"), None
+                )
+                started_at = int((last_header or {}).get("startedAt") or 0)
+            hub.set_control_override(
+                tid, _minimal_control("running", run_started_at=started_at or None)
+            )
+            logger.info(
+                "[v4.hydration] running run restored thread=%s run_id=%s header=%s",
+                tid,
+                running_restore.get("run_id"),
+                bool(running_restore.get("_restore_header")),
+            )
+        except Exception:
+            logger.debug(
+                "[v4.hydration] running control restore failed thread=%s", tid, exc_info=True
+            )
     logger.info(
         "[v4.hydration] thread=%s rows=%d messages=%d seq=%s",
         tid,

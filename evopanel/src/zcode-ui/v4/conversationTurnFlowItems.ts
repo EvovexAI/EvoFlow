@@ -19,6 +19,31 @@ function isUserInputRow(row: ConversationRow): row is UserInputRow {
   return row.kind === "userInput";
 }
 
+function isHiddenProviderContextUserInput(row: UserInputRow): boolean {
+  const text = String(row.text || "").trimStart();
+  if (!text) return false;
+  if (text.startsWith("<task-notification>") || text.startsWith("<subagent-notification>")) {
+    return true;
+  }
+  const lower = text.toLowerCase();
+  if (lower.startsWith("[context compaction")) return true;
+  if (lower.startsWith("here is a summary of the conversation to date")) return true;
+  if (lower.startsWith("here's a summary of the conversation to date")) return true;
+  if (
+    text.startsWith("[上下文摘要") ||
+    text.startsWith("[深度压缩摘要") ||
+    text.startsWith("[tool:history]") ||
+    text.startsWith("[tool:summary]")
+  ) {
+    return true;
+  }
+  const entityId = String(row.entityId || "").trim();
+  return (
+    entityId.startsWith("bash-task-notification:") ||
+    entityId.startsWith("subagent-task-notification:")
+  );
+}
+
 function isAssistantTextRow(row: ConversationRow): row is AssistantTextRow {
   return row.kind === "assistantText";
 }
@@ -58,6 +83,7 @@ export function buildConversationFlowItems(options: {
 
   for (const row of options.orderedRows) {
     if (isUserInputRow(row)) {
+      if (isHiddenProviderContextUserInput(row)) continue;
       // Live mirror + transcript 偶发同文连写两条；折叠头两侧会看起来像「开场说了两遍」。
       const prev = items.at(-1);
       if (

@@ -562,15 +562,20 @@ async function gatewayProxyOnce(method, path, body = null, query = null, options
 
     let proxied
     try {
+      const proxyRequest = {
+        method: String(method || 'GET').toUpperCase(),
+        path: apiPath,
+        body: body == null ? null : body,
+        query: queryMap,
+        // 必须是 map：Rust `headers: BTreeMap` 不接受 JSON null（任务中心等无 token 时会炸）
+        headers,
+      }
+      // 传给 Rust gateway_proxy：缩短 V4 subscribe 等关键路径的 90s 默认占槽。
+      if (Number.isFinite(timeoutMs) && timeoutMs > 0) {
+        proxyRequest.timeoutMs = Math.round(timeoutMs)
+      }
       proxied = await invoke('gateway_proxy', {
-        request: {
-          method: String(method || 'GET').toUpperCase(),
-          path: apiPath,
-          body: body == null ? null : body,
-          query: queryMap,
-          // 必须是 map：Rust `headers: BTreeMap` 不接受 JSON null（任务中心等无 token 时会炸）
-          headers,
-        },
+        request: proxyRequest,
       })
       if (preferGatewayHttp && !silent) {
         transportLog(
@@ -1752,6 +1757,12 @@ async function _hardReloadGatewayProcess(reason = 'hard_config') {
     /* ignore */
   }
   await invoke('reload_gateway')
+  try {
+    const { markLangGraphThreadsStale } = await import('./ws-client.js')
+    markLangGraphThreadsStale(reason || 'hard_reload_gateway')
+  } catch {
+    /* ignore */
+  }
 }
 
 function _debouncedReloadGateway({ hard = false } = {}) {
@@ -1847,7 +1858,16 @@ export const api = {
     await _hardReloadGatewayProcess('api_reload_gateway')
   },
   /** Restart Agent Runtime only (split process model); Control Plane stays up. */
-  reloadLanggraphRuntime: () => invoke('reload_langgraph_runtime'),
+  reloadLanggraphRuntime: async () => {
+    await invoke('reload_langgraph_runtime')
+    // Wipe FE thread-trust cache so the next send remints before stream (no 404 retry).
+    try {
+      const { markLangGraphThreadsStale } = await import('./ws-client.js')
+      markLangGraphThreadsStale('api_reload_langgraph')
+    } catch {
+      /* ignore */
+    }
+  },
   softReloadGateway: () => _softReloadGatewayCaches(),
   // 测试模型连接（轻量 /models/test，不走 /models/invoke，不强制应用配置）
   testModel: async (baseUrl, apiKey, modelId, apiType = null, configName = null) => {
@@ -2301,7 +2321,12 @@ export const api = {
     const q = new URLSearchParams({ path: normalizeWorkspaceReadPath(path, r) })
     if (r) q.set('root', r)
     if (t) q.set('thread_id', t)
-    return gatewayProxy('GET', `/workspaces/resolve-target?${q.toString()}`)
+    // Backend wall ~3.5s; client abort slightly above so we don't leave orphans hanging
+    // the Gateway DATA/best-effort slot (2026-11-10: 65s heal walked chat open to 34s).
+    return gatewayProxy('GET', `/workspaces/resolve-target?${q.toString()}`, null, null, {
+      timeoutMs: 4_500,
+      silent: true,
+    })
   },
   revealPathInFileManager: (absolutePath) => {
     // 桌面端走 Tauri；Web/Vite 开发态走 dev-api（本机 Node 开资源管理器）
@@ -3130,7 +3155,10 @@ export const api = {
     }),
   proactiveOrgTree: async (status = null) =>
     gatewayProxy('GET', '/proactive/org-tree', null, status ? { status } : null),
-  proactiveListDepartments: async () => gatewayProxy('GET', '/proactive/departments'),
+  proactiveListDepartments: async () =>
+    gatewayProxy('GET', '/proactive/departments', null, null, {
+      preferGatewayHttp: true,
+    }),
   proactiveListDeptAvatarPresets: async () => {
     const data = await gatewayProxy('GET', '/proactive/departments/avatar-presets')
     return Array.isArray(data?.presets) ? data.presets : []

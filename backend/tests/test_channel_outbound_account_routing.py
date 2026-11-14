@@ -239,3 +239,57 @@ async def test_bus_records_outbound_error_when_callback_raises(monkeypatch):
     assert recorded[0]["status"] == "error"
     assert recorded[0]["event"] == "send_failed"
     assert "feishu card patch failed" in (recorded[0].get("error") or "")
+
+
+@pytest.mark.asyncio
+async def test_weixin_reply_routes_when_inbound_stamps_bot_account_id():
+    """Regression: Weixin subscribes as weixin:<bot_id>; empty outbound was dropped."""
+    bus = MessageBus()
+    received: list[str] = []
+
+    async def on_weixin(msg: OutboundMessage) -> None:
+        received.append(msg.text)
+
+    bot_id = "a20c5a2a3092@im.bot"
+    bus.subscribe_outbound(on_weixin, channel_name="weixin", account_id=bot_id)
+
+    # Without account_id — the failure mode from 2026-11-13 gateway logs.
+    await bus.publish_outbound(
+        OutboundMessage(
+            channel_name="weixin",
+            chat_id="o9cq80yu@im.wechat",
+            thread_id="t1",
+            text="在呢，怎么了？",
+            is_final=True,
+            account_id="",
+        )
+    )
+    assert received == []
+
+    # With stamped bot account_id (inbound fix) — reply lands.
+    await bus.publish_outbound(
+        OutboundMessage(
+            channel_name="weixin",
+            chat_id="o9cq80yu@im.wechat",
+            thread_id="t1",
+            text="在呢，怎么了？",
+            is_final=True,
+            account_id=bot_id,
+        )
+    )
+    assert received == ["在呢，怎么了？"]
+
+
+def test_weixin_make_inbound_stamps_account_id():
+    bus = MessageBus()
+    ch = _DummyChannel(bus)
+    ch.name = "weixin"
+    inbound = ch._make_inbound(
+        chat_id="o9cq80yu@im.wechat",
+        user_id="o9cq80yu@im.wechat",
+        text="hi",
+        account_id="a20c5a2a3092@im.bot",
+        metadata={"chat_type": "dm"},
+    )
+    assert inbound.account_id == "a20c5a2a3092@im.bot"
+    assert ChannelManager._inbound_account_id(inbound) == "a20c5a2a3092@im.bot"
