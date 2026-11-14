@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.24] - 2026-11-14
+
+相对 **1.3.23**：会话冷启动/切会话恢复更稳；停止与忙碌态更准；微信渠道入站出站更可靠；语音/小 V 关思考时网关日志可核对。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.24.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **会话恢复与投影**：冷启动 / 切会话 hydrate 与投影窗口更稳
+- **停止与忙碌态**：停止会话与 Control 忙碌态对齐
+- **微信渠道**：入站多媒体与出站账号路由更可靠
+- **语音 / 小 V 关思考难排查**：关思考时网关打出可读 INFO，核对是否传到厂商
+
+### Changed
+
+- **部门会话列表**：缓存与列表刷新更稳
+- **宿主文件工具**：大文件读取分页与上限更清晰
+- **运行观测**：状态面板与日志能力补强
+
 ## [1.3.23] - 2026-11-14
 
 相对 **1.3.22**：模型订阅授权登录与流式回复恢复正常；渠道启动不再阻塞网关；超长工具结果不再占满上下文，错误信息不再被截断；审批放行后对应工具立即可用。

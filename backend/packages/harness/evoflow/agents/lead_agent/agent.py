@@ -1394,8 +1394,12 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         reasoning_effort = resolve_effective_reasoning_effort(reasoning_effort, model_config, thinking_enabled=True)
         cfg["reasoning_effort"] = reasoning_effort
 
-    logger.debug(
-        "Create Agent(%s) -> session_mode: %s, thinking_enabled: %s, reasoning_effort: %s, model_name: %s, is_plan_mode: %s, subagent_enabled: %s, max_concurrent_subagents: %s, include_search: %s",
+    _agent_log = (
+        "Create Agent(%s) -> session_mode: %s, thinking_enabled: %s, reasoning_effort: %s, "
+        "model_name: %s, is_plan_mode: %s, subagent_enabled: %s, max_concurrent_subagents: %s, "
+        "include_search: %s, voice_mode: %s, xiaomi_front_desk: %s, thinking_type: %s"
+    )
+    _agent_args = (
         agent_name or "default",
         session_mode or "-",
         thinking_enabled,
@@ -1405,7 +1409,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         subagent_enabled,
         max_concurrent_subagents,
         include_search,
+        voice_mode,
+        xiaomi_front_desk,
+        thinking_type or "-",
     )
+    # 语音/小V 关思考必须 INFO：否则用户对着「还在思考」查 gateway 像没日志。
+    if voice_mode or xiaomi_front_desk or (thinking_enabled is False and thinking_type == "disabled"):
+        logger.info(_agent_log, *_agent_args)
+    else:
+        logger.debug(_agent_log, *_agent_args)
 
     # Inject run metadata for LangSmith trace tagging
     if "metadata" not in effective_config:

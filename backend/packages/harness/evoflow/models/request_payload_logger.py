@@ -750,6 +750,29 @@ def log_model_request_payload(
             runtime_thinking = collect_runtime_thinking_context(model_instance)
             vendor_thinking = infer_thinking_from_vendor_payload(payload)
             record["evoflow_thinking"] = merge_thinking_context(runtime_thinking, vendor_thinking)
+            # 一眼能扫：关思考有没有打到厂商（语音/小V 排查用）
+            try:
+                te = getattr(model_instance, "_evoflow_thinking_enabled", None) if model_instance is not None else None
+                tt = getattr(model_instance, "_evoflow_thinking_type", None) if model_instance is not None else None
+                extra = payload.get("extra_body") if isinstance(payload.get("extra_body"), dict) else {}
+                thinking = extra.get("thinking") if isinstance(extra, dict) else None
+                thinking_type = thinking.get("type") if isinstance(thinking, dict) else payload.get("thinking")
+                if isinstance(thinking_type, dict):
+                    thinking_type = thinking_type.get("type")
+                logger.info(
+                    "[模型请求·思考] runtime_enabled=%s type=%s wire_enable_thinking=%s "
+                    "wire_thinking_type=%s wire_reasoning_effort=%s model=%s stage=%s",
+                    te,
+                    tt,
+                    extra.get("enable_thinking") if isinstance(extra, dict) else None,
+                    thinking_type,
+                    payload.get("reasoning_effort")
+                    or (extra.get("reasoning_effort") if isinstance(extra, dict) else None),
+                    model,
+                    stage,
+                )
+            except Exception:
+                pass
         except Exception:
             pass
         try:
