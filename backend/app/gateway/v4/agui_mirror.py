@@ -751,7 +751,11 @@ class V4Mirror:
         return st
 
     def _patch_control(self, tid: str, control: dict[str, Any]) -> None:
-        self._hub.author_state_patch(tid, {"control": control})
+        # 经 hub 唯一入口写 control：override 落会话态，快照重建（刷新重订阅 /
+        # recovery / 订阅者溢出转 snapshot）与在线 delta 同源——不再被
+        # _minimal_control(sess.phase) 重算覆盖（主聊 sess.phase 停在 draft，
+        # 刷新后 control 永远 draft+canStop:false 的根因）。
+        self._hub.set_control_override(tid, control)
 
     def _clear_api_retry(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
         """Drop retry banner while keeping the turn running (e.g. model resumed)."""
@@ -801,6 +805,43 @@ class V4Mirror:
                     "createdAt": st.turn_started_at_ms or now_ms,
                     "createdAtSeq": self._seq_now(tid),
                     "entityId": mid,
+                    "endedAt": now_ms,
+                },
+            )
+
+    def _seal_streaming_reasoning(
+        self, tid: str, st: _MirrorState, *, now_ms: int, state: str = "interrupted"
+    ) -> None:
+        """停/顶轮时封掉仍 streaming 的思考行，否则 timelineBusy 钉死、画面像卡住。"""
+        if not st.reasoning_row_ids:
+            return
+        seal = str(state or "interrupted").strip() or "interrupted"
+        for mid, rid in list(st.reasoning_row_ids.items()):
+            sess = self._hub.get_session(tid)
+            existing = sess.rows.get(int(rid)) if sess is not None else None
+            cur_state = (
+                str(existing.get("state") or "").strip()
+                if isinstance(existing, dict)
+                else ""
+            )
+            if cur_state and cur_state != "streaming":
+                continue
+            self._hub.author_upsert_row(
+                tid,
+                {
+                    "rowId": rid,
+                    "turnId": st.turn_id,
+                    "kind": "reasoning",
+                    "state": seal,
+                    "text": str(st.reasoning_acc.get(mid) or ""),
+                    "createdAt": (
+                        int(existing.get("createdAt") or 0)
+                        if isinstance(existing, dict)
+                        else now_ms
+                    )
+                    or now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                    "assistantResponseId": mid,
                     "endedAt": now_ms,
                 },
             )
@@ -1160,6 +1201,10 @@ class V4Mirror:
                     prev_turn_id,
                     new_turn_id,
                 )
+                # 先封未收口工具/流式正文/思考，再 reset ephemeral——否则行永久 running/streaming。
+                self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
+                self._mark_assistant_text_interrupted(tid, st, now_ms=now_ms)
+                self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="interrupted")
                 self._fail_open_turn_header(
                     tid,
                     st,
@@ -1634,6 +1679,7 @@ class V4Mirror:
                     last_error = None
                     st.sticky_run_error = None
                     self._mark_assistant_text_interrupted(tid, st, now_ms=now_ms)
+                    self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="interrupted")
                 else:
                     last_error = _run_error_info(ev, now_ms=now_ms)
                     st.sticky_run_error = dict(last_error)
@@ -1665,7 +1711,8 @@ class V4Mirror:
             if et == "RUN_FINISHED" and produced_text:
                 phase = "completedSuccess"
             ctrl = _minimal_control(phase)
-            ctrl["sessionEnded"] = True
+            # sessionEnded 由 _minimal_control 按终态派生（成功/中断=True；
+            # error 可重试=False，对齐 ZCode onTurnError 语义），不再无条件 True。
             ctrl["canStop"] = False
             ctrl["stopState"] = "idle"
             ctrl["activeWorks"] = []
@@ -1678,9 +1725,11 @@ class V4Mirror:
                 self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
             elif et == "RUN_ERROR":
                 self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="error")
+                self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="interrupted")
             else:
                 self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
                 self._seal_streaming_assistant_text(tid, st, now_ms=now_ms, state="complete")
+                self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="complete")
             # 重置：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return
@@ -2073,6 +2122,38 @@ def mirror_channel_sync_lg_messages(
         logger.debug("[v4-mirror] channel_sync_lg_messages skipped thread=%s", tid, exc_info=True)
 
 
+def mirror_seal_user_stop(thread_id: str) -> None:
+    """用户点停：在掐断 stream proxy 之前立刻封 V4 投影。
+
+    ``stop_session_execution`` 会先 ``unregister_active_stream_proxy``，若只靠
+    在途 AG-UI 的 RUN_ERROR 收口，事件常已断流 → 工具卡/思考永久 streaming，
+    下一轮糊糊在旧 turn 上（停后再发「显示错乱」）。
+    """
+    if _MIRROR_DISABLED:
+        return
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return
+    try:
+        mirror = _get_mirror()
+        st = mirror._states.get(tid)  # noqa: SLF001
+        if not st or not st.run_started:
+            return
+        mirror.feed_events(
+            tid,
+            [
+                {
+                    "type": "RUN_ERROR",
+                    "code": "USER_INTERRUPT",
+                    "message": "user_interrupt",
+                    "threadId": tid,
+                }
+            ],
+        )
+    except Exception:
+        logger.debug("[v4-mirror] seal_user_stop failed thread=%s", tid, exc_info=True)
+
+
 def mirror_channel_run_finished(thread_id: str, *, error: bool = False) -> None:
     """IM 流结束：结算 turnHeader。"""
     if _MIRROR_DISABLED:
@@ -2100,6 +2181,7 @@ __all__ = [
     "mirror_feed_agui_wire",
     "mirror_reset_thread",
     "mirror_thread_is_live",
+    "mirror_seal_user_stop",
     "mirror_channel_run_started",
     "mirror_channel_assistant_text",
     "mirror_channel_sync_lg_messages",

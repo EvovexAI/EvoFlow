@@ -205,11 +205,13 @@ async def v4_conversation_subscribe(body: dict[str, Any]) -> JSONResponse:
     session_id = _session_id_from_topic(topic)
     base = body.get("base") if isinstance(body.get("base"), dict) else None
     client_mode = str(body.get("clientMode") or "").strip() or None
+    intent = str(body.get("intent") or "").strip() or None
     result = await V4_CONVERSATION_HUB.subscribe(
         connection_id=connection_id,
         session_id=session_id,
         base=base,
         client_mode=client_mode,
+        intent=intent,
     )
     return JSONResponse(result)
 

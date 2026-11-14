@@ -135,9 +135,15 @@ class PatchedChatOpenAI(VendorRoundtripChatMixin, ChatOpenAI):
             model_instance=self,
         )
         # 该模型被观测到拒绝显式 thinking disable（厂商 400）→ 剥离全部
-        # thinking 参数，让厂商默认生效（见 thinking_disable_fallback 模块）。
+        # thinking 参数。若运行时仍要求关思考，再补 enable_thinking=false
+        # （避免「剥光后厂商默认开思考」把语音/小V 又打开）。
         if thinking_disable_unsupported(self):
             strip_thinking_params(payload)
+            if getattr(self, "_evoflow_thinking_enabled", None) is False:
+                extra = dict(payload.get("extra_body") or {})
+                extra["enable_thinking"] = False
+                payload["extra_body"] = extra
+                payload.pop("reasoning_effort", None)
 
         from evoflow.models.create_payload_sanitize import strip_non_vendor_create_keys
 

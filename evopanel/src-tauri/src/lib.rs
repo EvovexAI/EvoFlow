@@ -384,6 +384,8 @@ pub fn run() {
             logs::append_plugin_control_log,
             logs::append_stream_compare_log,
             logs::append_right_stage_log,
+            logs::append_chat_runtime_log,
+            logs::append_chat_turn_lifecycle_log,
             boot_cycle::boot_cycle_mark,
             boot_cycle::boot_cycle_info,
             mcp_market::mcp_market_search,

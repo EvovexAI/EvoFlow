@@ -322,18 +322,29 @@ async def create_langgraph_thread(session_key: str) -> str | None:
 
 
 async def langgraph_thread_state(thread_id: str) -> str:
-    """Return ``ok`` (usable), ``missing`` (404), or ``unknown``."""
+    """Return ``ok`` (usable), ``missing`` (404), or ``unknown``.
+
+    Prefer ``GET /threads/{id}`` (cheap existence check) over ``/runs?limit=1``.
+    """
     from evoflow.collab.thread_ids import is_langgraph_lead_thread_id
 
     tid = str(thread_id or "").strip()
     if not tid or not is_langgraph_lead_thread_id(tid):
         return "unknown"
-    resp = await _langgraph_request("GET", f"threads/{tid}/runs", params={"limit": 1})
+    resp = await _langgraph_request("GET", f"threads/{tid}")
     if resp is None:
         return "unknown"
     if resp.status_code == 200:
         return "ok"
     if resp.status_code == 404:
+        return "missing"
+    # Older/odd LG builds: fall back to runs listing.
+    resp2 = await _langgraph_request("GET", f"threads/{tid}/runs", params={"limit": 1})
+    if resp2 is None:
+        return "unknown"
+    if resp2.status_code == 200:
+        return "ok"
+    if resp2.status_code == 404:
         return "missing"
     return "unknown"
 
@@ -683,10 +694,9 @@ async def ensure_session_thread(
         except Exception:
             logger.debug("ensure_session_thread hosted pin failed sk=%s tid=%s", sk, tid, exc_info=True)
     _t_state = _time.perf_counter()
-    # Hot path: trust a persisted lead UUID. Probing GET /threads/{id}/runs via the
-    # same Gateway HTTP stack was 0.5–3s+ under load and dominated click→POST.
-    # Stale threads after LangGraph restart are recreated on stream 404
-    # (frontend ``_ensureThreadAfterLangGraphMissing``).
+    # Hot path: trust a persisted lead UUID. Probing LG was 0.5–3s+ under load and
+    # dominated click→POST. FE bumps a thread-epoch after Agent Runtime reload and
+    # calls force_recreate *before* stream; stream 404 remains the safety net.
     _probe_raw = (os.environ.get("EVOFLOW_ENSURE_THREAD_PROBE") or "").strip().lower()
     _probe = _probe_raw in ("1", "true", "yes", "on")
     if tid and not _probe and not force_recreate:

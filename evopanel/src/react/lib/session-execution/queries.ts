@@ -44,10 +44,6 @@ export function isSessionExecuting(
   const rt = getSessionRuntime(sk)
   if (isTurnBusy(rt)) return true
 
-  // Browser-owned POST /runs/stream still open: keep stop / list spinner /
-  // 「绘画」preview even if a mid-turn RUN_FINISHED left turnPhase idle.
-  if (isLivePostStreamOpen(rt)) return true
-
   // Local turn already settled (early RUN_FINISHED / abort). Stream buffer may
   // still hold visible text until SSE `final`, and DB/probe may stay `running`
   // through checkpoint — neither must revive the stop button.
@@ -55,10 +51,15 @@ export function isSessionExecuting(
     return isSessionGoalActive(sk)
   }
 
-  if (isSessionRuntimeLive(rt)) return true
-
-  // 用户停止后的 recovery 冷却：忽略 DB/probe / V4 残留 running（LangGraph 取消有延迟）
+  // 用户停止后的 recovery 冷却：必须先于 stream 残留 / live POST / V4 busy。
+  // 否则右下角已按冷却熄灭，左侧仍被 isSessionRuntimeLive（缓冲里还有字）钉转。
   if (isSessionRecoveryCooldownActive(sk)) return false
+
+  // Browser-owned POST /runs/stream still open: keep stop / list spinner /
+  // 「绘画」preview even if a mid-turn RUN_FINISHED left turnPhase idle.
+  if (isLivePostStreamOpen(rt)) return true
+
+  if (isSessionRuntimeLive(rt)) return true
 
   // V4 时间线仍有 streaming / running 工具（含后台 pin）：侧栏齿轮与 pin 集合同源。
   if (getV4TimelineBusy(sk)) return true

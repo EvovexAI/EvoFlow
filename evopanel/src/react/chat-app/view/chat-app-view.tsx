@@ -5,6 +5,7 @@
 import {
   useState,
   useEffect,
+  useLayoutEffect,
   type ReactNode,
   type MouseEvent as ReactMouseEvent,
 } from 'react'
@@ -15,8 +16,9 @@ import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js
 import { V4StreamRowsBridge, retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { ConversationCompactTipBanner } from '../../v4/ConversationCompactTipBanner.js'
-import { resolveLiveExecutionBusyFromSnapshot } from '../../../zcode-ui/v4/live-execution-busy.js'
-import { setV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
+import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
+import { getV4TimelineBusy, setV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
+import { isSessionRecoveryCooldownActive } from '../../lib/stream-reattach-cooldown.js'
 import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
 import { isXwVoiceMode, subscribeXwVoiceMode } from '../../../lib/xw-voice-mode.js'
 import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
@@ -30,6 +32,10 @@ import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
 import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { logV4Life } from '../../lib/v4-lifecycle-log.js'
+import { noteStreamStopUiIdle } from '../../lib/stream-stop-log.js'
+import { logChatRuntimeBusyFork } from '../../lib/chat-runtime-log.js'
+import { isSessionExecuting } from '../../lib/session-execution/index.js'
+import { getSessionRuntime } from '../../lib/session-runtime-store.js'
 import { SS_SHELL_EMPTY_DRAFT } from '../../components/ShellSessionList.js'
 import { DeptGroupChatMain } from '../../components/DeptGroupChatMain.js'
 import { isDeptChatSessionKey } from '../../lib/dept-chat-session.js'
@@ -76,13 +82,14 @@ function ClearPendingOptimisticOnV4Echo(props: {
 }
 
 /** 把 V4 snapshot「还有活」同步到 store，供 Composer 停止键并进 displayTurnBusy。
- * 切走会话时不要强制 false：后台 pin 仍可能在跑；由 pin busy 订阅 / 本会话再选中时覆写。 */
+ * 切走会话时不要强制 false：后台 pin 仍可能在跑；由 pin busy 订阅 / 本会话再选中时覆写。
+ * useLayoutEffect：赶在 paint 前写入，减少「对话区齿轮已转、右下角停止还没亮」的一帧分叉。 */
 function SyncV4TimelineBusy(props: {
   sessionKey: string | null | undefined
   busy: boolean
 }) {
   const { sessionKey, busy } = props
-  useEffect(() => {
+  useLayoutEffect(() => {
     setV4TimelineBusy(sessionKey, busy)
   }, [sessionKey, busy])
   return null
@@ -90,6 +97,9 @@ function SyncV4TimelineBusy(props: {
 
 /** render_state 日志签名去重（renderChatAppView 是普通函数，无 hooks；本视图单例）。 */
 let _v4RenderStateSig = ''
+/** 点停 → 页面真停：追踪上一帧 turnLive，1→0 时打 ui_idle_after_stop。 */
+let _v4PrevTurnLiveKey = ''
+let _v4PrevTurnLive = false
 
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
@@ -679,17 +689,58 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     !!v4Payload &&
                     String(v4Payload.sessionId || '').trim() ===
                       String(selectedThreadId || '').trim()
+                  // 用户刚停：冷却期内投影 canStop / phase=running 常滞后，勿再点亮停止钮与齿轮
+                  const stopRecovering = isSessionRecoveryCooldownActive(
+                    String(selectedSessionKey || '').trim(),
+                  )
                   const timelineBusy =
+                    !stopRecovering &&
                     v4SessionMatched &&
-                    resolveLiveExecutionBusyFromSnapshot(
-                      v4Payload?.snapshot,
-                      undefined,
-                      // 侧栏已 idle 时勿被 FINISHED 后陈旧 running 工具卡钉死画布齿轮
-                      { hostExecuting: selectedTurnBusy },
-                    )
+                    resolveSessionBusyFromControl(v4Payload?.snapshot, {
+                      // control-first（Phase A 后 control 与快照同源）：canStop 权威；
+                      // 侧栏已 idle 时 control 终态直接收口，勿被陈旧 running 卡钉死齿轮
+                      hostExecuting: !!selectedTurnBusy,
+                    })
                   // 齿轮/停止：wire busy ∪ 时间线仍 streaming/工具未收口（防 sse_final 早关）
-                  const uiBusy = !!(selectedTurnBusy || displayTurnBusy || timelineBusy)
+                  const uiBusy = !!(
+                    selectedTurnBusy ||
+                    (!stopRecovering && displayTurnBusy) ||
+                    timelineBusy
+                  )
                   const turnLive = uiBusy || selectedSessionLive
+                  // 对话运行时：右下角停止 vs 左侧列表 executing 分叉时单独落盘
+                  try {
+                    const sk = String(selectedSessionKey || '').trim()
+                    if (sk) {
+                      const sessionRow =
+                        (sessions || []).find(
+                          (s) => String(s?.sessionKey || '').trim() === sk,
+                        ) || null
+                      const rt = getSessionRuntime(sk)
+                      const listExecuting = isSessionExecuting(sk, {
+                        sessionRow,
+                      })
+                      logChatRuntimeBusyFork({
+                        sessionKey: sk,
+                        threadId: selectedThreadId || undefined,
+                        title: String(sessionRow?.title || '').trim() || undefined,
+                        busy: {
+                          selectedTurnBusy: !!selectedTurnBusy,
+                          displayTurnBusy: !!displayTurnBusy,
+                          timelineBusy: !!timelineBusy,
+                          uiBusy: !!uiBusy,
+                          listExecuting: !!listExecuting,
+                          v4TimelineBusy: getV4TimelineBusy(sk),
+                          recoveryCooldown: !!stopRecovering,
+                          uiTurnSettled: !!rt.uiTurnSettled,
+                          turnPhase: String(rt.turnPhase || ''),
+                          runStatus: String(sessionRow?.runStatus || ''),
+                        },
+                      })
+                    }
+                  } catch {
+                    /* best-effort */
+                  }
                   const pendingOpt = String(pendingOptimisticUserText || '').trim()
                   const v4Window = v4Payload?.snapshot?.rows?.window
                   const lastLocal =
@@ -742,6 +793,29 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     historyLoading ? 1 : 0,
                     Array.isArray(rows) ? rows.length : 0,
                   ].join('|')
+                  const turnLiveKey = String(selectedSessionKey || selectedThreadId || '')
+                  if (
+                    turnLiveKey &&
+                    _v4PrevTurnLiveKey === turnLiveKey &&
+                    _v4PrevTurnLive &&
+                    !turnLive
+                  ) {
+                    noteStreamStopUiIdle({
+                      sessionKey: selectedSessionKey,
+                      threadId: selectedThreadId || undefined,
+                      detail: {
+                        selectedTurnBusy,
+                        displayTurnBusy,
+                        timelineBusy,
+                        uiBusy,
+                        selectedSessionLive,
+                      },
+                    })
+                  }
+                  if (turnLiveKey) {
+                    _v4PrevTurnLiveKey = turnLiveKey
+                    _v4PrevTurnLive = !!turnLive
+                  }
                   if (_v4RenderStateSig !== v4RenderSig) {
                     _v4RenderStateSig = v4RenderSig
                     logV4Life({
@@ -1294,7 +1368,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
               onDraftChange={handleComposerDraftChange}
               onComposerWarmup={handleComposerWarmup}
               sending={displayTurnBusy}
-              // 停止按钮与左侧齿轮同一套：displayTurnBusy = wire ∪ V4 时间线仍活
+              // 与侧栏 executing / 对话区 sessionBusy 同源：wire ∪ V4 timeline busy
+              // （list 已订 v4TimelineBusyEpoch；点停冷却时两侧一起灭）
               streaming={displayTurnBusy}
               // @ts-expect-error handleSend has extra ctxFiles param
               onSend={handleSend}

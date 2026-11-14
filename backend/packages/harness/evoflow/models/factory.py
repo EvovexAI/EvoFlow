@@ -407,6 +407,33 @@ def _clamp_openai_compat_max_tokens(model_class: type, model_config: Any, model_
     )
 
 
+def _thinking_off_signal_in_settings(model_settings: dict[str, Any]) -> bool:
+    """True when kwargs already encode an explicit thinking-off (voice / 小V / flash)."""
+    effort = _normalize_reasoning_effort(model_settings.get("reasoning_effort"))
+    if effort in ("minimal", "none"):
+        return True
+    thinking = model_settings.get("thinking")
+    if isinstance(thinking, dict) and str(thinking.get("type") or "").strip().lower() in {
+        "disabled",
+        "off",
+        "none",
+    }:
+        return True
+    extra = model_settings.get("extra_body")
+    if isinstance(extra, dict):
+        et = extra.get("enable_thinking")
+        if et is False or str(et).lower() in ("false", "0", "no"):
+            return True
+        nested = extra.get("thinking")
+        if isinstance(nested, dict) and str(nested.get("type") or "").strip().lower() in {
+            "disabled",
+            "off",
+            "none",
+        }:
+            return True
+    return False
+
+
 def _sanitize_openai_compat_reasoning_effort(model_class: type, model_config: Any, model_settings: dict[str, Any]) -> None:
     if not issubclass(model_class, ChatOpenAI):
         return
@@ -422,7 +449,13 @@ def _sanitize_openai_compat_reasoning_effort(model_class: type, model_config: An
     if effort is None:
         model_settings.pop("reasoning_effort", None)
         return
-    mapped = {"minimal": "low", "xhigh": "high"}.get(effort, effort)
+    # CRITICAL: never map minimal/none → low. That re-enabled DeepSeek / OpenAI-compat
+    # reasoning on voice & 小V turns that had already forced thinking off
+    # (see voice logs: reasoning blocks despite thinking_enabled=false).
+    if effort in ("minimal", "none") or _thinking_off_signal_in_settings(model_settings):
+        model_settings.pop("reasoning_effort", None)
+        return
+    mapped = {"xhigh": "high"}.get(effort, effort)
     if mapped != model_settings.get("reasoning_effort"):
         model_settings["reasoning_effort"] = mapped
         logger.warning(
@@ -1050,6 +1083,18 @@ def create_chat_model(
     merged_kwargs = {**_strip_provider_internal_keys(kwargs), **model_settings_from_config}
     _nest_openai_compat_thinking_kwargs(model_class, merged_kwargs)
     _sanitize_openai_compat_reasoning_effort(model_class, model_config, merged_kwargs)
+    # Final off-guard: ChatOpenAI must not keep reasoning_effort=low/medium after a
+    # voice/小V/flash disable — LangChain would otherwise re-inject it every request.
+    if thinking_enabled is False and thinking_type_norm != "auto":
+        merged_kwargs.pop("reasoning_effort", None)
+        eb = merged_kwargs.get("extra_body")
+        if isinstance(eb, dict) and "reasoning_effort" in eb:
+            eb = dict(eb)
+            eb.pop("reasoning_effort", None)
+            if eb:
+                merged_kwargs["extra_body"] = eb
+            else:
+                merged_kwargs.pop("extra_body", None)
     _clamp_openai_compat_max_tokens(model_class, model_config, merged_kwargs)
     if omit_thinking_for_unsupported:
         # 最后一道闸：前面各 vendor 规整函数可能又补回 thinking / reasoning，

@@ -24,6 +24,8 @@ fn log_prefix_candidates(log_name: &str) -> &'static [&'static str] {
         "guardian-backup" => &["guardian-backup"],
         "startup" | "evopanel-startup" => &["evopanel-startup"],
         "right-stage" => &["right-stage"],
+        "chat-runtime" => &["chat-runtime"],
+        "chat-turn-lifecycle" => &["chat-turn-lifecycle"],
         "plugin-control" => &["plugin-control"],
         "boot-cycle" => &["boot-cycle"],
         "assistant-audit" => &["assistant-audit"],
@@ -405,4 +407,60 @@ fn append_right_stage_log_impl(message: String) -> Result<(), String> {
         .collect::<String>();
     let line = format!("[{ts}] {msg}\n");
     super::log_files::append_daily_log_line(&dir, "right-stage", &line)
+}
+
+/// 对话运行时专项日志：`logs/chat-runtime-YYYY-MM-DD.log`（默认保留 7 天）。
+/// 记录会话起停、用户点发/点停、停止是否收口、左右 busy 是否分叉。
+#[tauri::command]
+pub async fn append_chat_runtime_log(level: String, message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_chat_runtime_log_impl(level, message))
+        .await
+        .map_err(|e| format!("append_chat_runtime_log join failed: {e}"))?
+}
+
+fn append_chat_runtime_log_impl(level: String, message: String) -> Result<(), String> {
+    let dir = log_dir();
+    let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let lvl = level.trim().to_uppercase();
+    let msg = message
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .chars()
+        .take(16_000)
+        .collect::<String>();
+    let line = format!("[{ts}] [{lvl}] {msg}\n");
+    super::log_files::append_daily_log_line_keep(
+        &dir,
+        "chat-runtime",
+        &line,
+        super::log_files::CHAT_RUNTIME_RETENTION_DAYS,
+    )
+}
+
+/// 对话回合生命周期：`logs/chat-turn-lifecycle-YYYY-MM-DD.log`（默认保留 7 天）。
+/// 点发送 → 上线 → RUN_STARTED → 首帧 → 流结束（final / abort / stop）。
+#[tauri::command]
+pub async fn append_chat_turn_lifecycle_log(level: String, message: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || append_chat_turn_lifecycle_log_impl(level, message))
+        .await
+        .map_err(|e| format!("append_chat_turn_lifecycle_log join failed: {e}"))?
+}
+
+fn append_chat_turn_lifecycle_log_impl(level: String, message: String) -> Result<(), String> {
+    let dir = log_dir();
+    let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let lvl = level.trim().to_uppercase();
+    let msg = message
+        .replace('\r', " ")
+        .replace('\n', " ")
+        .chars()
+        .take(16_000)
+        .collect::<String>();
+    let line = format!("[{ts}] [{lvl}] {msg}\n");
+    super::log_files::append_daily_log_line_keep(
+        &dir,
+        "chat-turn-lifecycle",
+        &line,
+        super::log_files::CHAT_TURN_LIFECYCLE_RETENTION_DAYS,
+    )
 }

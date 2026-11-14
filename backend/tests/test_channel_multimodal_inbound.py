@@ -162,6 +162,192 @@ def test_build_human_input_feishu_captions_images(tmp_path: Path, monkeypatch):
     assert out["messages"][0]["additional_kwargs"]["context_files"][0]["path"] == str(img)
 
 
+def test_weixin_file_descriptor_feeds_context_files(tmp_path: Path):
+    """Regression: Weixin downloaded media but published files=[] (media=1, files=0)."""
+    from app.channels.message_bus import MessageBus
+    from app.channels.weixin import WeixinChannel
+
+    img = tmp_path / "weixin-media.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 64)
+    ch = WeixinChannel(
+        bus=MessageBus(),
+        config={"token": "test-token", "account_id": "a20c5a2a3092@im.bot"},
+    )
+    desc = ch._build_file_descriptor(str(img), "image/jpeg")
+    assert desc["kind"] == "image"
+    assert desc["path"] == str(img)
+    assert desc["mime"] == "image/jpeg"
+    assert desc["filename"] == "weixin-media.jpg"
+    assert desc["size"] == img.stat().st_size
+    assert desc["account_id"] == "a20c5a2a3092@im.bot"
+
+    out = _build_human_input(
+        InboundMessage(
+            channel_name="weixin",
+            chat_id="o9cq80yu@im.wechat",
+            user_id="o9cq80yu@im.wechat",
+            text="",
+            msg_type=InboundMessageType.CHAT,
+            files=[desc],
+            metadata={"chat_type": "dm", "_owned_temp_paths": [str(img)]},
+            account_id="a20c5a2a3092@im.bot",
+        )
+    )
+    msg = out["messages"][0]
+    assert "[渠道附件本地路径 · weixin]" in msg["content"]
+    assert f"Path: {img}" in msg["content"]
+    ctx = msg["additional_kwargs"]["context_files"]
+    assert len(ctx) == 1
+    assert ctx[0]["path"] == str(img)
+    assert ctx[0]["kind"] == "image"
+
+
+def test_weixin_release_owned_temp_paths_schedules_cleanup(monkeypatch):
+    from app.channels.message_bus import MessageBus
+    from app.channels.weixin import WeixinChannel
+
+    ch = WeixinChannel(
+        bus=MessageBus(),
+        config={"token": "test-token", "account_id": "bot@im.bot"},
+    )
+    scheduled: list[list[str]] = []
+
+    def _fake_create_task(coro):
+        scheduled.append(["scheduled"])
+        coro.close()
+        return None
+
+    monkeypatch.setattr("app.channels.weixin.asyncio.create_task", _fake_create_task)
+    ch.release_owned_temp_paths(["/tmp/a.jpg", "/tmp/b.png"])
+    assert scheduled == [["scheduled"]]
+    ch.release_owned_temp_paths([])
+    assert scheduled == [["scheduled"]]
+
+
+@pytest.mark.asyncio
+async def test_weixin_send_raises_when_all_text_chunks_fail(monkeypatch):
+    """Text send must raise so base Channel skips attachments + bus audits error."""
+    from app.channels.message_bus import MessageBus, OutboundMessage
+    from app.channels.weixin import WeixinChannel
+
+    ch = WeixinChannel(
+        bus=MessageBus(),
+        config={"token": "test-token", "account_id": "bot@im.bot"},
+    )
+    ch._session = object()
+    ch._token = "test-token"
+    ch._token_store = None
+
+    async def _fail_api(*_a, **_k):
+        return {"ret": -1, "errmsg": "boom"}
+
+    monkeypatch.setattr("app.channels.weixin._api_post", _fail_api)
+    with pytest.raises(RuntimeError, match="Weixin text send failed"):
+        await ch.send(
+            OutboundMessage(
+                channel_name="weixin",
+                chat_id="user@im.wechat",
+                thread_id="t1",
+                text="在呢",
+                is_final=True,
+                account_id="bot@im.bot",
+            )
+        )
+
+
+@pytest.mark.asyncio
+async def test_weixin_send_allows_empty_text_for_attachment_only():
+    """Attachment-only outbound: empty text must not raise before send_file."""
+    from app.channels.message_bus import MessageBus, OutboundMessage
+    from app.channels.weixin import WeixinChannel
+
+    ch = WeixinChannel(
+        bus=MessageBus(),
+        config={"token": "test-token", "account_id": "bot@im.bot"},
+    )
+    ch._session = object()
+    ch._token = "test-token"
+    await ch.send(
+        OutboundMessage(
+            channel_name="weixin",
+            chat_id="user@im.wechat",
+            thread_id="t1",
+            text="",
+            is_final=True,
+            account_id="bot@im.bot",
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_weixin_send_file_returns_false_when_sendmessage_fails(tmp_path: Path, monkeypatch):
+    from app.channels.message_bus import MessageBus, OutboundMessage, ResolvedAttachment
+    from app.channels.weixin import WeixinChannel
+
+    img = tmp_path / "out.jpg"
+    img.write_bytes(b"\xff\xd8\xff\xe0" + b"\x00" * 32)
+    ch = WeixinChannel(
+        bus=MessageBus(),
+        config={"token": "test-token", "account_id": "bot@im.bot"},
+    )
+    ch._session = object()
+    ch._token = "test-token"
+    ch._token_store = None
+
+    calls = {"n": 0}
+
+    async def _api(*_a, **_k):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"ret": 0, "upload_full_url": "https://cdn.example/upload"}
+        return {"ret": -1, "errmsg": "send failed"}
+
+    class _Resp:
+        status = 200
+        headers = {"x-encrypted-param": "enc-param"}
+
+        async def read(self):
+            return b""
+
+        async def text(self):
+            return ""
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_a):
+            return False
+
+    class _Session:
+        def post(self, *_a, **_k):
+            return _Resp()
+
+    ch._session = _Session()
+    monkeypatch.setattr("app.channels.weixin._api_post", _api)
+    monkeypatch.setattr("app.channels.weixin._aes128_ecb_encrypt", lambda data, _key: data)
+
+    ok = await ch.send_file(
+        OutboundMessage(
+            channel_name="weixin",
+            chat_id="user@im.wechat",
+            thread_id="t1",
+            text="",
+            is_final=True,
+            account_id="bot@im.bot",
+        ),
+        ResolvedAttachment(
+            virtual_path=str(img),
+            actual_path=img,
+            filename="out.jpg",
+            mime_type="image/jpeg",
+            size=img.stat().st_size,
+            is_image=True,
+        ),
+    )
+    assert ok is False
+    assert calls["n"] >= 2
+
+
 # ---------------------------------------------------------------------------
 # _release_channel_owned_paths
 # ---------------------------------------------------------------------------

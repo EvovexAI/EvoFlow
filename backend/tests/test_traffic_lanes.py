@@ -61,6 +61,19 @@ def test_v4_conversation_subscribe_is_control() -> None:
     assert classify_path("/api/v4/conversation/frames").lane == Lane.STREAM
 
 
+def test_live_run_is_best_effort_not_control() -> None:
+    """Background live-run upserts must shed under lag, not block subscribe."""
+    path = "/api/chat/sessions/proactive:x:chat:1/live-run"
+    assert classify_path(path, method="PUT").lane == Lane.BEST_EFFORT
+    assert classify_path(path, method="GET").lane == Lane.BEST_EFFORT
+    assert classify_path(path, method="DELETE").lane == Lane.BEST_EFFORT
+    # Other chat mutations stay CONTROL
+    assert (
+        classify_path("/api/chat/sessions/proactive:x:chat:1/context", method="PATCH").lane
+        == Lane.CONTROL
+    )
+
+
 def test_browser_log_is_best_effort() -> None:
     assert classify_path("/api/browser/log", method="POST").lane == Lane.BEST_EFFORT
     assert classify_path("/api/speech/log", method="POST").lane == Lane.BEST_EFFORT

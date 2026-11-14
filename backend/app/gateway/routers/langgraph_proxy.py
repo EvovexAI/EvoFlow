@@ -337,7 +337,12 @@ def _extract_messages_for_mission_bootstrap(body: bytes) -> list[dict[str, Any]]
             continue
         role = str(m.get("role") or m.get("type") or "").strip().lower()
         content = m.get("content")
-        out.append({"role": role, "content": content})
+        # 保留客户端消息 id（前端 chatSend 的 userMsgId 与 transcript append 同源）。
+        # 丢 id 会让 _extract_user_message_id_from_stream_body 永远拿空 → mirror
+        # note 无 message_id → RUN_STARTED 复用判定（entityId 路径）失效 →
+        # 404 remint 重发时同一条用户消息落两轮（hydrate 行 + mirror 行，2026-11-14 实锤）。
+        mid = str(m.get("id") or m.get("message_id") or m.get("messageId") or "").strip()
+        out.append({"role": role, "content": content, "id": mid})
     return out
 
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 from evoflow.skills.skill_uri import SKILL_URI_PREFIX
 from evoflow.skills.types import Skill
@@ -10,6 +11,16 @@ from evoflow.skills.types import Skill
 logger = logging.getLogger(__name__)
 
 _DEFAULT_MAX_CHARS = 48_000
+
+# stat-based body cache: SkillsInjectionMiddleware rebuilds the injection block
+# on every model call (2×/call — patch_request + injected-sections modal), and
+# SKILL.md files rarely change, so key on (mtime_ns, size) and skip the read
+# when unchanged. Same idea for the assembled block: identical selected skills
+# (+ files unchanged) + budget + language → reuse the previous concatenation.
+_SKILL_BODY_CACHE: dict[str, tuple[tuple[int, int], str]] = {}
+_SKILL_BODY_CACHE_MAX = 64
+_INJECTION_BODY_CACHE: dict[tuple, str] = {}
+_INJECTION_BODY_CACHE_MAX = 16
 
 _SKILL_EXECUTION_HINT_EN = (
     "Skill execution (dir may be outside the user workspace — use skill: URIs, do not search workspace):\n"
@@ -35,12 +46,31 @@ def skill_injection_execution_hint(*, prompt_language: str | None = None) -> str
     return _SKILL_EXECUTION_HINT_EN
 
 
-def _read_skill_body(skill: Skill) -> str:
+def _stat_signature(path: Path) -> tuple[int, int] | None:
     try:
-        return skill.skill_file.read_text(encoding="utf-8")
+        st = path.stat()
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size)
+
+
+def _read_skill_body(skill: Skill) -> str:
+    path = skill.skill_file
+    sig = _stat_signature(path)
+    cache_key = str(path)
+    cached = _SKILL_BODY_CACHE.get(cache_key)
+    if sig is not None and cached is not None and cached[0] == sig:
+        return cached[1]
+    try:
+        body = path.read_text(encoding="utf-8")
     except OSError as exc:
-        logger.warning("Failed to read skill %s at %s: %s", skill.name, skill.skill_file, exc)
-        return ""
+        logger.warning("Failed to read skill %s at %s: %s", skill.name, path, exc)
+        body = ""
+    if sig is not None:
+        if len(_SKILL_BODY_CACHE) >= _SKILL_BODY_CACHE_MAX:
+            _SKILL_BODY_CACHE.pop(next(iter(_SKILL_BODY_CACHE)), None)
+        _SKILL_BODY_CACHE[cache_key] = (sig, body)
+    return body
 
 
 def format_skill_injection_block(skill: Skill, *, contents: str | None = None) -> str:
@@ -58,6 +88,15 @@ def build_skill_injection_message(
     """Concatenate selected skill bodies; truncate tail if over budget."""
     if not skills:
         return ""
+
+    sig_parts: list[tuple] = []
+    for skill in skills:
+        stat = _stat_signature(skill.skill_file) or (0, 0)
+        sig_parts.append((skill.name, str(skill.skill_file), stat[0], stat[1]))
+    cache_key = (tuple(sig_parts), max_chars, str(prompt_language or "").strip().lower())
+    cached = _INJECTION_BODY_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
 
     parts: list[str] = []
     used = 0
@@ -80,4 +119,8 @@ def build_skill_injection_message(
         "Follow them for the current task. Do not call read() for SKILL.md unless a referenced file is needed.\n"
         f"{exec_hint}\n"
     )
-    return header + "\n\n".join(parts) + "\n</skill_injection>"
+    body = header + "\n\n".join(parts) + "\n</skill_injection>"
+    if len(_INJECTION_BODY_CACHE) >= _INJECTION_BODY_CACHE_MAX:
+        _INJECTION_BODY_CACHE.pop(next(iter(_INJECTION_BODY_CACHE)), None)
+    _INJECTION_BODY_CACHE[cache_key] = body
+    return body

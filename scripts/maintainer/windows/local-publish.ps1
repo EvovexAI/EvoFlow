@@ -1,4 +1,4 @@
-# Local Windows desktop release helper for THIS public repo (EvovexAI/EvoFlow).
+﻿# Local Windows desktop release helper for THIS public repo (EvovexAI/EvoFlow).
 # Mirrors (approximately):
 #   .github/workflows/release-windows-public.yml (build + checksums) -> -BuildDesktopInstaller
 #   then attach installer to a NEW GitHub Release on EvovexAI/EvoFlow -> -CreatePublicGhRelease

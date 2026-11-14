@@ -164,6 +164,16 @@ describe('session-execution', () => {
     ).toBe(false)
   })
 
+  it('isSessionExecuting ignores leftover stream preview during recovery cooldown', async () => {
+    const { markSessionRecoveryCooldown } = await import('../src/react/lib/stream-reattach-cooldown.js')
+    const sk = 'agent:main:test-recovery-stream-preview'
+    const rt = getSessionRuntime(sk)
+    rt.lastVisibleTextPreview = '上一轮残留正文'
+    markSessionRecoveryCooldown(sk)
+    // 冷却前 isSessionRuntimeLive 会因 preview 为 true；冷却必须盖掉，否则侧栏齿轮假转、停止钮已灭。
+    expect(isSessionExecuting(sk)).toBe(false)
+  })
+
   it('abortSessionTurnEnded sets turn phase idle', () => {
     const sk = 'agent:main:test-abort-end'
     markSessionSending(sk, true)

@@ -154,15 +154,17 @@ export function resolveLiveExecutionBusy(opts: {
   /**
    * 宿主侧栏执行态。false + phase 已终态：忽略陈旧 running 工具卡
    * （多会话切回后侧栏已停、画布仍转的根因）。
+   * false 时也不再单独信滞后 canStop（用户点停后投影常晚一拍，否则停止钮空转）。
    */
   hostExecuting?: boolean | null;
 }): boolean {
-  if (opts.canStop) return true;
+  const hostIdle = opts.hostExecuting === false;
+  // 宿主已 idle 时不信滞后 canStop；sse_final 早关仍靠 phase/工具行保活。
+  if (opts.canStop && !hostIdle) return true;
   if ((opts.runningBackgroundWorkCount || 0) > 0) return true;
   if (String(opts.phase || "") === "running") return true;
 
   const terminal = isTerminalControlPhase(opts.phase);
-  const hostIdle = opts.hostExecuting === false;
 
   // 侧栏已 idle 且控制相终态：只保留 streaming / 待审批；勿钉陈旧 running。
   if (hostIdle && terminal) {

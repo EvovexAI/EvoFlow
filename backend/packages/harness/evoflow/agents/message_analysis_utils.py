@@ -26,6 +26,7 @@ _SYNTHETIC_USER_NAMES = frozenset(
         "session_collab_live",
         "session_mission_state",
         "session_memory_recall",
+        "session_memory_live",
         "session_context_refs",
         "session_runtime_clock",
         "session_mind_map",

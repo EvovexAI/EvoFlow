@@ -167,6 +167,9 @@ def str_replace_hd(
         result = f"OK: Replaced {count} occurrence(s) in {path}{loc_hint} ({'+' if added >= 0 else ''}{added} chars)"
         if auto_read_healed:
             result += " (auto-read before edit: file was not in read state)"
+        # zcode freshness suffix: kills the confirmation re-Read round-trip
+        # after every successful edit.
+        result += " (file state is current in your context — no need to Read it back)"
 
         emit_write_progress(
             tool_call_id=tool_call_id,

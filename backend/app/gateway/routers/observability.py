@@ -256,6 +256,16 @@ def _build_runtime_status_payload() -> dict[str, Any]:
     except Exception as e:
         result["agent_activities"] = {"error": str(e)[:200], "total": 0, "active_count": 0, "agents": []}
 
+    try:
+        from evoflow.admin.persistence_pressure import build_persistence_pressure_snapshot
+
+        result["persistence_pressure"] = build_persistence_pressure_snapshot()
+    except Exception as e:
+        result["persistence_pressure"] = {"error": str(e)[:200]}
+
+    pp = result.get("persistence_pressure") or {}
+    pckl = pp.get("pckl") or {}
+    lg_proc = pp.get("langgraph_process") or {}
     result["summary"] = {
         "automation_running": result.get("automation_scheduler", {}).get("backend_loop_running", False),
         "task_queue_running": result.get("task_queue", {}).get("backend_loop_running", False),
@@ -264,6 +274,11 @@ def _build_runtime_status_payload() -> dict[str, Any]:
         "active_workers_count": result.get("background_workers", {}).get("active", 0),
         "channel_service_running": result.get("channel_service", {}).get("running", False),
         "active_agents_count": result.get("agent_activities", {}).get("active_count", 0),
+        "pckl_total_mb": pckl.get("total_mb", 0),
+        "langgraph_rss_gb": lg_proc.get("rss_gb"),
+        "persistence_warn": bool((pp.get("warnings") or {}).get("pckl_large"))
+        or bool((pp.get("warnings") or {}).get("langgraph_rss_high"))
+        or bool((pp.get("warnings") or {}).get("evoflow_wal_large")),
     }
 
     return result

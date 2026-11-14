@@ -28,6 +28,25 @@ describe('live-execution-busy', () => {
     ).toBe(false)
   })
 
+  it('ignores lagged canStop when host already idle', () => {
+    expect(
+      resolveLiveExecutionBusy({
+        canStop: true,
+        phase: 'running',
+        hostExecuting: false,
+        rows: [{ kind: 'toolCall', status: 'success' }],
+      }),
+    ).toBe(true) // phase still running → keep busy (sse_final early)
+    expect(
+      resolveLiveExecutionBusy({
+        canStop: true,
+        phase: 'completedSuccess',
+        hostExecuting: false,
+        rows: [{ kind: 'toolCall', status: 'success' }],
+      }),
+    ).toBe(false) // terminal + host idle：不信滞后 canStop
+  })
+
   it('keeps pendingApproval busy even when host idle on terminal phase', () => {
     expect(
       resolveLiveExecutionBusy({

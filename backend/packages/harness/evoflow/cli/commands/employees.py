@@ -21,6 +21,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(list_p)
     list_p.set_defaults(handler=_list)
 
+    depts_p = sub.add_parser(
+        "departments",
+        help="List department catalog (name, members, head)",
+        description=(
+            "Same source as Panel GET /api/proactive/departments and platform "
+            "employees.departments. Syncs labels from role.department on read."
+        ),
+    )
+    add_output_flags(depts_p)
+    depts_p.set_defaults(handler=_departments)
+
     get_p = sub.add_parser("get", help="Get one employee role + recent initiatives")
     get_p.add_argument("agent_code", help="Employee agent_code")
     get_p.add_argument("--recent", type=int, default=10, help="Recent initiatives limit")
@@ -195,6 +206,12 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 def _list(args: argparse.Namespace):
     status = str(getattr(args, "status", "") or "").strip() or None
     return employees_admin.list_roles(status=status)
+
+
+def _departments(_args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_departments
+
+    return employees_departments({})
 
 
 def _get(args: argparse.Namespace):

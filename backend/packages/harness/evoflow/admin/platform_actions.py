@@ -105,6 +105,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "title": "智能体员工岗位",
         "when": (
             "看名册汇总/跨岗看板/单岗近况（org_status、board_overview、brief）、"
+            "列部门目录（departments）、"
             "雇佣/暂停/恢复/唤醒/派新活/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
             "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
             "新目标用 employees.dispatch；已有 Task / 卡住用 employees.wake；"
@@ -625,9 +626,20 @@ def _build_registry() -> dict[str, PlatformAction]:
         # employees
         _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?", H.employees_list, "现在有哪些员工"),
         _A(
+            "employees.departments",
+            "employees",
+            "列出部门目录（名称、人数、负责人、成员 agent_code）",
+            "read",
+            "无",
+            H.employees_departments,
+            "现在有哪些部门",
+            "部门列表",
+            "组织架构有几个部门",
+        ),
+        _A(
             "employees.org_status",
             "employees",
-            "名册汇总：人数、忙闲、待审批（不含小V自身）",
+            "名册汇总：人数、忙闲、待审批（不含小V自身）；附带部门目录摘要",
             "read",
             "无",
             H.employees_org_status,

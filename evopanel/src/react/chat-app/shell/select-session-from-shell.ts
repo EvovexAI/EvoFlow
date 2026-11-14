@@ -6,6 +6,7 @@ import { flushSync } from 'react-dom'
 import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { skTail, ssLog } from '../../../lib/session-list-debug.js'
 import { logV4Life, markV4OpenTrace } from '../../lib/v4-lifecycle-log.js'
+import { logChatRuntimeUserClick } from '../../lib/chat-runtime-log.js'
 import { beginOpenTrace } from '@zcode/ui/lib/openTrace.js'
 
 export type SelectSessionFromShellCtx = {
@@ -38,6 +39,14 @@ export function selectSessionFromShell(
     zh: `用户点击侧栏会话，开始打开历史。session=${k}${from && from !== k ? `（从 ${from} 切过来）` : ''}（计时锚点已打，后续看 sinceClickMs）`,
     detail: { from: from || null },
     skipDedupe: true,
+  })
+  logChatRuntimeUserClick({
+    action: 'session_switch',
+    whoZh: from && from !== k
+      ? `用户点击侧栏切换会话（${skTail(from)} → ${skTail(k)}）`
+      : `用户点击侧栏打开会话（${skTail(k)}）`,
+    sessionKey: k,
+    detail: { from: from || null },
   })
   ctx.setShellSelectRevision((r) => r + 1)
   try {

@@ -110,8 +110,10 @@ class ClaudeChatModel(VendorRoundtripChatMixin, ChatAnthropic):
                 **(self.default_headers or {}),
                 "anthropic-beta": OAUTH_ANTHROPIC_BETAS,
             }
-            # OAuth tokens have a limit of 4 cache_control blocks — disable prompt caching
-            self.enable_prompt_caching = False
+            # OAuth keys share the API's 4 cache_control-block cap. The
+            # breakpoint layout in _apply_prompt_caching uses exactly 3, so
+            # caching stays enabled under OAuth too (was: blanket-disabled,
+            # which made every OAuth turn pay full price for the whole prefix).
             logger.info("OAuth token detected — will use Authorization: Bearer header")
         else:
             if current_key:
@@ -208,14 +210,29 @@ class ClaudeChatModel(VendorRoundtripChatMixin, ChatAnthropic):
             )
 
     def _apply_prompt_caching(self, payload: dict) -> None:
-        """Apply ephemeral cache_control to system and recent messages."""
-        # Cache system messages
+        """ZCode-style cache breakpoints: 3 stable/moving markers, ≤4-block cap.
+
+        Anthropic prompt caching is prefix-based — a breakpoint at the *tail* of
+        a section covers everything before it, so marking every block (old
+        behavior) wasted the 4-breakpoint budget and churning breakpoints on
+        older messages broke incremental cache reuse. Layout:
+
+          1. last system text block  → covers the whole system (stable per turn)
+          2. last tool definition    → covers the tools array
+          3. last message tail block → moves forward one turn at a time
+
+        ``prompt_cache_size`` is kept for config compatibility but no longer
+        widens the breakpoint set; extra markers only split the same prefix
+        without adding coverage.
+        """
+        # 1. Last system text block only.
         system = payload.get("system")
-        if system and isinstance(system, list):
-            for block in system:
+        if isinstance(system, list):
+            for block in reversed(system):
                 if isinstance(block, dict) and block.get("type") == "text":
                     block["cache_control"] = {"type": "ephemeral"}
-        elif system and isinstance(system, str):
+                    break
+        elif isinstance(system, str) and system:
             payload["system"] = [
                 {
                     "type": "text",
@@ -224,28 +241,27 @@ class ClaudeChatModel(VendorRoundtripChatMixin, ChatAnthropic):
                 }
             ]
 
-        # Cache recent messages
+        # 3. Last message tail block only.
         messages = payload.get("messages", [])
-        cache_start = max(0, len(messages) - self.prompt_cache_size)
-        for i in range(cache_start, len(messages)):
-            msg = messages[i]
-            if not isinstance(msg, dict):
-                continue
-            content = msg.get("content")
-            if isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict):
-                        block["cache_control"] = {"type": "ephemeral"}
-            elif isinstance(content, str) and content:
-                msg["content"] = [
-                    {
-                        "type": "text",
-                        "text": content,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ]
+        if messages:
+            msg = messages[-1]
+            if isinstance(msg, dict):
+                content = msg.get("content")
+                if isinstance(content, list):
+                    for block in reversed(content):
+                        if isinstance(block, dict):
+                            block["cache_control"] = {"type": "ephemeral"}
+                            break
+                elif isinstance(content, str) and content:
+                    msg["content"] = [
+                        {
+                            "type": "text",
+                            "text": content,
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ]
 
-        # Cache the last tool definition
+        # 2. Last tool definition.
         tools = payload.get("tools", [])
         if tools and isinstance(tools[-1], dict):
             tools[-1]["cache_control"] = {"type": "ephemeral"}

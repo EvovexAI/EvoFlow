@@ -41,7 +41,7 @@ import {
   refreshEvoflowV4Session,
 } from '../../v4/V4StreamRowsBridge.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
-import { resolveLiveExecutionBusyFromSnapshot } from '../../../zcode-ui/v4/live-execution-busy.js'
+import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
 import { toast } from '../../../components/toast.js'
 import { EmployeeStageAvatar } from '../../components/EmployeeStageAvatar.js'
 
@@ -429,7 +429,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       try {
         const snap = getSharedV4SessionDataLayer().peekStore(tid)?.getState()?.snapshot ?? null
         setV4LiveBusy(
-          resolveLiveExecutionBusyFromSnapshot(snap, undefined, { hostExecuting: hostHint }),
+          resolveSessionBusyFromControl(snap, { hostExecuting: hostHint }),
         )
       } catch {
         setV4LiveBusy(false)

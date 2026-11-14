@@ -80,6 +80,9 @@ import {
 import {
   deptChatSessionKey,
   deptIdFromSessionKey,
+  getCachedDeptList,
+  loadDeptChatList,
+  prefetchDeptChatList,
   getDeptChatMeta,
   isDeptChatSessionKey,
   rememberDeptChatMeta,
@@ -364,8 +367,10 @@ export function ShellSessionList({
   const [viewMode, setViewMode] = useState<'grouped' | 'project' | 'depts'>(() =>
     loadShellSidebarViewMode(),
   )
-  const [deptRows, setDeptRows] = useState<DeptChatMeta[]>([])
+  const [deptRows, setDeptRows] = useState<DeptChatMeta[]>(() => getCachedDeptList() || [])
   const [deptLoading, setDeptLoading] = useState(false)
+  const deptRowsRef = useRef(deptRows)
+  deptRowsRef.current = deptRows
 
   // viewMode 和 listTab 联动；持久化跨刷新对齐上次关闭态
   useEffect(() => {
@@ -438,93 +443,36 @@ export function ShellSessionList({
   const isEmployeesTab = listTab === 'employees'
   const isDeptsTab = listTab === 'depts'
 
-  const employeeRolesRef = useRef(employeeRoles)
-  employeeRolesRef.current = employeeRoles
+  /** 侧栏挂载后闲时预热部门列表，第一次点「部门」尽量不空转 */
+  useEffect(() => {
+    const t = window.setTimeout(() => prefetchDeptChatList(), 1200)
+    return () => window.clearTimeout(t)
+  }, [])
 
-  /** 部门 Tab：拉部门 + 角色，组装群聊入口（可复用已有花名册，失败重试，不清空旧数据） */
+  /**
+   * 部门 Tab：只打 `/proactive/departments`（已含 members）。
+   * 有缓存 / 旧列表时静默刷新，不再每次切 Tab 先亮「加载中…」再等 roles（Best-effort 易 503）。
+   */
   useEffect(() => {
     if (!isDeptsTab) return
     let cancelled = false
-    setDeptLoading(true)
-    ;(async () => {
-      const { api } = await import('../../lib/tauri-api.js')
-      const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-      const fetchWithRetry = async <T,>(fn: () => Promise<T>, tries = 3): Promise<T> => {
-        let last: unknown
-        for (let i = 0; i < tries; i++) {
-          try {
-            return await fn()
-          } catch (e) {
-            last = e
-            // roles 在 Gateway Best-effort 车道，platform 忙时会 503 shed
-            if (i < tries - 1) await sleep(350 * (i + 1))
-          }
-        }
-        throw last
-      }
-      try {
-        const cachedRoles = employeeRolesRef.current
-        const hasCached = Array.isArray(cachedRoles) && cachedRoles.length > 0
-        const [deptRes, roleRes] = await Promise.all([
-          fetchWithRetry(() => api.proactiveListDepartments()),
-          hasCached
-            ? Promise.resolve({ roles: cachedRoles })
-            : fetchWithRetry(() => api.proactiveListRoles('active')),
-        ])
+    const warm = getCachedDeptList()
+    if (warm?.length && deptRowsRef.current.length === 0) {
+      setDeptRows(warm)
+    }
+    const showSpinner = deptRowsRef.current.length === 0 && !(warm && warm.length)
+    if (showSpinner) setDeptLoading(true)
+    void loadDeptChatList({ force: true })
+      .then((rows) => {
         if (cancelled) return
-        const departments = Array.isArray(deptRes?.departments)
-          ? deptRes.departments
-          : Array.isArray(deptRes)
-            ? deptRes
-            : []
-        const roles = Array.isArray(roleRes?.roles)
-          ? roleRes.roles
-          : Array.isArray(roleRes)
-            ? roleRes
-            : []
-        const byDept = new Map<string, DeptChatMeta['members']>()
-        for (const r of roles) {
-          const code = String(r?.agent_code || r?.code || '').trim()
-          if (!code || code === 'main') continue
-          const deptName = String(r?.department || r?.config?.department || '').trim()
-          if (!deptName) continue
-          if (!byDept.has(deptName)) byDept.set(deptName, [])
-          byDept.get(deptName)!.push({
-            agent_code: code,
-            role_name: String(r?.role_name || r?.display_name || code).trim() || code,
-            department: deptName,
-            reports_to: String(r?.reports_to || r?.config?.reports_to || '').trim(),
-            status: String(r?.status || 'active').trim() || 'active',
-            busy: false,
-          })
-        }
-        const accents = ['lead', 'commerce', 'content', 'opensource', 'knowledge', 'assistant']
-        const rows: DeptChatMeta[] = []
-        let ai = 0
-        for (const d of departments) {
-          const id = String(d?.id || '').trim()
-          const name = String(d?.name || '').trim()
-          if (!id || !name) continue
-          const members = byDept.get(name) || []
-          if (!members.length) continue
-          rows.push({
-            id,
-            name,
-            head_agent_code: String(d?.head_agent_code || '').trim(),
-            head_role_name: String(d?.head_role_name || '').trim(),
-            accent: accents[ai % accents.length],
-            members,
-          })
-          ai += 1
-        }
         setDeptRows(rows)
-      } catch (e) {
+      })
+      .catch((e) => {
         console.warn('[shell] dept tab load failed', e)
-        // 保留上一轮 rows，避免 503 时把列表刷成「暂无」
-      } finally {
+      })
+      .finally(() => {
         if (!cancelled) setDeptLoading(false)
-      }
-    })()
+      })
     return () => {
       cancelled = true
     }
@@ -1720,15 +1668,8 @@ export function ShellSessionList({
               aria-selected={viewMode === 'depts'}
               className={`shell-view-tab${viewMode === 'depts' ? ' is-active' : ''}`}
               onPointerEnter={() => {
-                // 悬停预热：departments 很快；roles 常被 Best-effort 503，提前拉降低点进空转
-                void import('../../lib/tauri-api.js')
-                  .then(({ api }) =>
-                    Promise.all([
-                      api.proactiveListDepartments().catch(() => null),
-                      api.proactiveListRoles('active').catch(() => null),
-                    ]),
-                  )
-                  .catch(() => {})
+                // 悬停写入模块缓存，点进 Tab 可直接画列表
+                prefetchDeptChatList()
               }}
               onClick={() => setViewMode('depts')}
             >

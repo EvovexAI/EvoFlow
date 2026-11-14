@@ -195,6 +195,8 @@ export class EvoFlowV4Transport implements ConversationTransport {
       skipDedupe: true,
     });
     const httpStarted = Date.now();
+    const intent =
+      (params as { intent?: string }).intent === "prefetch" ? "prefetch" : "open";
     const result = await postJson<{ ack: V4ConversationSubscribeResult["ack"] }>(
       "/api/v4/conversation/subscribe",
       {
@@ -203,6 +205,8 @@ export class EvoFlowV4Transport implements ConversationTransport {
         ...(params.base ? { base: params.base } : {}),
         // 桌面面板走 continuous 档（30ms flush 窗）；web/手机消费方可传别的 clientMode。
         clientMode: "desktop-continuous",
+        // open = 用户点开会话（hydrate 高优先）；prefetch = 悬停预热（可被插队）。
+        intent,
       },
       { timeoutMs: V4_SUBSCRIBE_PROXY_TIMEOUT_MS },
     );

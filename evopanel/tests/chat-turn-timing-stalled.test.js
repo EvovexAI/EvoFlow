@@ -39,4 +39,30 @@ describe('describeStalledPriorSend', () => {
     mod.logChatTurnSendClick({ sessionKey: 's1', text: 'again' })
     expect(mod.describeStalledPriorSend('s1').stalled).toBe(false)
   })
+
+  it('stream_end closes the turn lifecycle once', async () => {
+    const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
+    mod.logChatTurnSendClick({ sessionKey: 's2', text: '哈喽' })
+    mod.logChatTurnRunStarted({ sessionKey: 's2', runId: 'run-1' })
+    vi.setSystemTime(new Date('2026-11-11T01:00:05.000Z'))
+    mod.logChatTurnFirstResponse({ sessionKey: 's2', kind: 'reasoning', preview: 'hi' })
+    vi.setSystemTime(new Date('2026-11-11T01:00:40.000Z'))
+    mod.logChatTurnStreamEnd({
+      sessionKey: 's2',
+      runId: 'run-1',
+      outcome: 'sse_aborted',
+      whoZh: '异常断流',
+      trigger: 'sse_aborted',
+      hasEndMarker: false,
+    })
+    // 第二次应被忽略（trace 已清）
+    mod.logChatTurnStreamEnd({
+      sessionKey: 's2',
+      runId: 'run-1',
+      outcome: 'sse_final',
+      trigger: 'sse_final',
+      hasEndMarker: true,
+    })
+    expect(mod.chatTurnSinceSendMs('s2')).toBeNull()
+  })
 })

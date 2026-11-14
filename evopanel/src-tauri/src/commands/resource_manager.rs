@@ -113,7 +113,17 @@ fn classify_process(name: &str, cmdline: &str) -> (&'static str, &'static str, &
     if lower.contains("msedgewebview") || lower.contains("webview") {
         return ("base", "renderer", "内嵌 WebView");
     }
+    // Split Agent Runtime (--mode langgraph) before generic gateway match.
+    if cmd.contains("--mode langgraph")
+        || cmd.contains("langgraph-port")
+        || (lower.contains("langgraph") && !lower.contains("evoflow-gateway"))
+    {
+        return ("base", "langgraph", "LangGraph");
+    }
     if lower.contains("evoflow-gateway") || lower.contains("gateway") {
+        if cmd.contains("--mode langgraph") || cmd.contains("langgraph-port") {
+            return ("base", "langgraph", "LangGraph");
+        }
         return ("base", "host", "Gateway");
     }
     if lower.contains("evoflow") || lower.contains("evopanel") {

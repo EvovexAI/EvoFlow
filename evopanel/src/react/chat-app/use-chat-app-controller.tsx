@@ -2361,10 +2361,16 @@ export function useChatAppController() {
     subscribeV4TimelineBusy,
     getV4TimelineBusyEpoch,
   )
-  const displayTurnBusy = useMemo(
-    () => selectedTurnBusy || getV4TimelineBusy(selectedSessionKey),
-    [selectedTurnBusy, selectedSessionKey, v4TimelineBusyEpoch],
-  )
+  const displayTurnBusy = useMemo(() => {
+    if (selectedTurnBusy) return true
+    const sk = String(selectedSessionKey || '').trim()
+    // 用户刚停：侧栏已灭（isSessionExecuting 尊重冷却），Composer 停止/齿轮必须同源熄灭，
+    // 不能再被滞后的 V4 canStop / running 工具卡钉住。
+    if (!sk || isSessionRecoveryCooldownActive(sk)) return false
+    const rt = getSessionRuntime(sk)
+    if (rt.uiTurnSettled) return false
+    return getV4TimelineBusy(sk)
+  }, [selectedTurnBusy, selectedSessionKey, v4TimelineBusyEpoch, executingListEpoch])
   const [memoryRecallRefreshKey, setMemoryRecallRefreshKey] = useState(0)
   const prevTurnBusyForRecallRef = useRef(false)
   useEffect(() => {
@@ -4422,7 +4428,7 @@ export function useChatAppController() {
     )
   }
 
-  /** F5 刷新页面：会话列表就绪后若 DB 仍 running，改为 history-watch（拉 messages）直至结束 */
+  /** 冷开/F5：列表就绪后若 DB 仍 running → 停止，禁止自动续跑打断过的交互回合 */
   useEffect(() => {
     runPageLoadResumeEffect({
       listLoading,

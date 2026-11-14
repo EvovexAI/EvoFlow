@@ -519,10 +519,41 @@ const _userStopSessionKeys = new Set()
 const _userStopSkipRunIdleKeys = new Set()
 /** LangGraph 已被判定不可用（所有 /api/langgraph/* 404），后续请求快速失败 */
 let _langGraphDead = false
+/**
+ * Bumped when Agent Runtime restarts (or a stream 404 proves in-memory threads wiped).
+ * ensure-thread TTL entries must match this epoch before we trust a local lead UUID —
+ * otherwise chatSend probes/remints *before* POST /runs/stream (avoids 404→retry「重复发送」).
+ */
+let _langgraphThreadEpoch = 0
 const ENSURE_THREAD_FAIL_BACKOFF_MS = 15000
 /** Soft cache of last successful ensure; local map trust covers most sends without POST. */
 const _ENSURE_THREAD_TTL_MS = 30 * 60 * 1000
 let _globalWorkspaceHistoryInflight = null
+
+/**
+ * Mark all cached LangGraph thread ids as unverified (in-memory LG state likely gone).
+ * Call after Agent Runtime reload / when a stream 404 proves a wiped thread.
+ */
+export function markLangGraphThreadsStale(reason = '') {
+  _langgraphThreadEpoch += 1
+  _ensureThreadCachedAt.clear()
+  _ensureThreadFailedAt.clear()
+  // Runtime may be coming back — clear the sticky dead flag so send can retry.
+  _langGraphDead = false
+  try {
+    console.warn('[evoflow] LangGraph threads marked stale', {
+      reason: String(reason || '').trim() || undefined,
+      epoch: _langgraphThreadEpoch,
+    })
+  } catch {
+    /* ignore */
+  }
+  return _langgraphThreadEpoch
+}
+
+export function getLangGraphThreadEpoch() {
+  return _langgraphThreadEpoch
+}
 
 /** 会话 / 全局工作空间历史（服务端 ``evoflow_workspaces`` + history 表） */
 let _sessionWsHistCache = {}
@@ -2033,6 +2064,16 @@ function notifySessionThreadRebound(sessionKey, oldThreadId, threadId, opts = {}
   const old = String(oldThreadId || '').trim()
   // 允许 old 为空：首条消息首次绑定 thread 时小V / 侧栏也要立刻拿到 sessionId 挂 V4
   if (!sk || !tid || old === tid) return
+  // force remint：尽量同步改挂 V4 投影（React 监听里也会再做一次），
+  // 避免 cold open 清空时间线（LG 重启后发消息假死）。
+  if (opts.force && old && typeof window !== 'undefined') {
+    try {
+      const fn = window.__evoflowRebindV4OnRemint
+      if (typeof fn === 'function') fn(old, tid)
+    } catch {
+      /* ignore */
+    }
+  }
   if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
     window.dispatchEvent(
       new CustomEvent('evopanel:session-thread-rebound', {
@@ -5710,17 +5751,37 @@ export class WsClient {
     // Truncate/edit rebinds lead UUID — must invalidate TTL cache or chatSend keeps
     // posting /runs/stream to the deleted previous thread (404 → force remint → V4 flash).
     _ensureThreadFailedAt.delete(key)
-    _ensureThreadCachedAt.set(key, { threadId: tid, ts: Date.now() })
+    _ensureThreadCachedAt.set(key, {
+      threadId: tid,
+      ts: Date.now(),
+      epoch: _langgraphThreadEpoch,
+    })
     return data
+  }
+
+  _stampEnsureThreadCache(sessionKey, threadId) {
+    const key = sessionKey || MAIN_SESSION_KEY
+    const tid = String(threadId || '').trim()
+    if (!key || !tid) return
+    _ensureThreadFailedAt.delete(key)
+    _ensureThreadCachedAt.set(key, {
+      threadId: tid,
+      ts: Date.now(),
+      epoch: _langgraphThreadEpoch,
+    })
   }
 
   async _ensureThread(sessionKey) {
     const key = sessionKey || MAIN_SESSION_KEY
     const ensureStarted = nowTs()
 
-    // 短 TTL 缓存：成功结果复用，避免每次 chatSend 都 POST
+    // 短 TTL 缓存：成功结果复用，避免每次 chatSend 都 POST（须同 epoch）
     const cached = _ensureThreadCachedAt.get(key)
-    if (cached && Date.now() - cached.ts < _ENSURE_THREAD_TTL_MS) {
+    if (
+      cached &&
+      cached.epoch === _langgraphThreadEpoch &&
+      Date.now() - cached.ts < _ENSURE_THREAD_TTL_MS
+    ) {
       this._lastEnsureThreadMeta = {
         sessionKey: key,
         cacheHit: true,
@@ -5729,11 +5790,47 @@ export class WsClient {
       return cached.threadId
     }
 
-    // 本地已有合法 lead thread：直接用（LangGraph 重启后的 stale 由 stream 404 重建）。
-    // 不再为「确认还在」阻塞发送——后端 GET /threads/.../runs 曾稳定吃掉 0.5–3s+。
     const localTid = resolveLanggraphLeadThreadId(String(this.getSessionThreadId(key) || '').trim())
+    // Agent Runtime 重启后 epoch 递增：本会话尚未对本 epoch 验证过 → 先 probe/remint，
+    // 再 POST /runs/stream，避免 404→retry 看起来像「重复发送」。
+    if (
+      localTid &&
+      isLanggraphLeadThreadId(localTid) &&
+      _langgraphThreadEpoch > 0 &&
+      (!cached || cached.epoch !== _langgraphThreadEpoch)
+    ) {
+      try {
+        const tid = await this._ensureThreadAfterLangGraphMissing(key)
+        this._lastEnsureThreadMeta = {
+          sessionKey: key,
+          cacheHit: false,
+          verifiedAfterStale: true,
+          reminted: !!(tid && tid !== localTid),
+          durationMs: Math.max(0, nowTs() - ensureStarted),
+        }
+        if (tid && tid !== localTid) {
+          try {
+            console.info('[evoflow] pre-send remint (stale thread after LG restart)', {
+              sessionKey: key,
+              oldThreadId: localTid,
+              threadId: tid,
+              epoch: _langgraphThreadEpoch,
+            })
+          } catch {
+            /* ignore */
+          }
+        }
+        return tid
+      } catch (e) {
+        console.warn('[evoflow] stale-epoch thread verify failed; falling back', key, e)
+        // Fall through — stream 404 safety net may still remint.
+      }
+    }
+
+    // 本地已有合法 lead thread：直接用（本 epoch 已验证或从未标记 stale）。
+    // 不再为「确认还在」阻塞发送——后端 GET /threads/.../runs 曾稳定吃掉 0.5–3s+。
     if (localTid && isLanggraphLeadThreadId(localTid)) {
-      _ensureThreadCachedAt.set(key, { threadId: localTid, ts: Date.now() })
+      this._stampEnsureThreadCache(key, localTid)
       this._lastEnsureThreadMeta = {
         sessionKey: key,
         cacheHit: true,
@@ -5762,8 +5859,7 @@ export class WsClient {
 
     inflight = this._ensureThreadOnce(key, { forceRecreate: false })
       .then((threadId) => {
-        _ensureThreadFailedAt.delete(key)
-        _ensureThreadCachedAt.set(key, { threadId, ts: Date.now() })
+        this._stampEnsureThreadCache(key, threadId)
         return threadId
       })
       .catch((err) => {
@@ -5802,7 +5898,9 @@ export class WsClient {
     _ensureThreadFailedAt.delete(key)
     _ensureThreadInflight.delete(key)
     _ensureThreadCachedAt.delete(key)
-    return this._ensureThreadOnce(key, { forceRecreate: true })
+    const tid = await this._ensureThreadOnce(key, { forceRecreate: true })
+    this._stampEnsureThreadCache(key, tid)
+    return tid
   }
 
   async _ensureThreadOnce(sessionKey, opts = {}) {
@@ -6321,6 +6419,8 @@ export class WsClient {
     const traceId = uuid()
     /** Thread 创建/解析超时保护：避免 LangGraph 不可达时整个发送链路卡死 */
     const THREAD_ENSURE_TIMEOUT_MS = 15000
+    // After LG restart, _ensureThread verifies/remints for the current epoch *before*
+    // stream POST — avoids mid-send 404→retry (duplicate-send feel).
     let threadId = await withTimeout(
       this._ensureThread(key),
       THREAD_ENSURE_TIMEOUT_MS,
@@ -7062,6 +7162,8 @@ export class WsClient {
             !controller.signal.aborted &&
             isLangGraphThreadOrAssistantMissing(streamStartErr)
           ) {
+            // Prove LG wiped threads so *other* sessions also verify before their next send.
+            markLangGraphThreadsStale('stream_404')
             activeThreadId = await withTimeout(
               this._ensureThreadAfterLangGraphMissing(key),
               THREAD_ENSURE_TIMEOUT_MS,
@@ -8389,6 +8491,7 @@ export class WsClient {
         isLangGraphThreadOrAssistantMissing(err)
       ) {
         try {
+          markLangGraphThreadsStale('stream_404_mid_send')
           const newTid = await withTimeout(
             this._ensureThreadAfterLangGraphMissing(key),
             THREAD_ENSURE_TIMEOUT_MS,

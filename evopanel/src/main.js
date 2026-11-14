@@ -540,6 +540,14 @@ async function boot() {
   } catch (e) {
     console.warn('[boot] resource-manager listener failed', e)
   }
+  // 运维观测/调试模式开启后右下角科技浮窗：实时 CPU / 内存 / LangGraph RSS
+  try {
+    void import('./lib/perf-hud-overlay.js')
+      .then((m) => m.installPerfHud())
+      .catch((e) => console.warn('[boot] perf HUD install failed', e))
+  } catch (e) {
+    console.warn('[boot] perf HUD install failed', e)
+  }
   // 早启动全局服务健康 banner（vanilla DOM；与 ChatApp banner 并存，UI 不冲突）
   try { installGlobalServiceBanner() } catch (e) {
     try { console.warn('[boot] install global service banner failed', e) } catch {}

@@ -133,6 +133,44 @@ def _apply_multi_session_concurrency_env() -> None:
         logger.debug("multi-session runtime banner skipped", exc_info=True)
 
 
+def apply_langgraph_file_persistence_policy() -> str:
+    """Decide whether LangGraph API may keep ``.langgraph_api/*.pckl`` on disk.
+
+    EvoFlow already persists graph state via ``checkpointer`` (sqlite/postgres).
+    The LG inmem file store is a *second* dump of the same runs — multi-GB
+    pickles that get mmap'd into RSS on every Agent Runtime start. When our
+    durable checkpointer is configured, turn that store off unless the operator
+    sets ``EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1``.
+
+    Returns the effective ``LANGGRAPH_DISABLE_FILE_PERSISTENCE`` value.
+    """
+    keep_pckl = (os.getenv("EVOFLOW_KEEP_LG_FILE_PERSISTENCE") or "").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+    cp_type = ""
+    try:
+        from evoflow.config.app_config import get_app_config
+
+        cp_cfg = getattr(get_app_config(), "checkpointer", None)
+        cp_type = str(getattr(cp_cfg, "type", "") or "").strip().lower()
+    except Exception:
+        logger.debug("read checkpointer.type for LG file-persistence policy failed", exc_info=True)
+
+    if cp_type in ("sqlite", "postgres") and not keep_pckl:
+        os.environ["LANGGRAPH_DISABLE_FILE_PERSISTENCE"] = "true"
+        logger.info(
+            "LangGraph file persistence disabled (checkpointer.type=%s); "
+            "set EVOFLOW_KEEP_LG_FILE_PERSISTENCE=1 to keep .pckl store",
+            cp_type,
+        )
+    else:
+        os.environ.setdefault("LANGGRAPH_DISABLE_FILE_PERSISTENCE", "false")
+    return os.environ.get("LANGGRAPH_DISABLE_FILE_PERSISTENCE") or "false"
+
+
 def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
     """Point LangGraph API at a sqlite file under ``EVOFLOW_HOME`` (not ``:memory:``).
 
@@ -150,6 +188,9 @@ def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
     data_dir = langgraph_api_data_dir(home)
     db_file = data_dir / "langgraph.db"
     db_uri = f"sqlite:///{db_file.as_posix()}"
+    # Default false, then policy may flip to true when EvoFlow sqlite/postgres
+    # checkpointer already owns durable state (split ``--mode langgraph`` used
+    # to skip that flip and reload multi-GB ``*.pckl`` every start).
     env_patch = {
         "DATABASE_URI": db_uri,
         "REDIS_URI": "fake",
@@ -158,11 +199,15 @@ def apply_langgraph_server_env(*, home: Path | None = None) -> dict[str, str]:
     }
     for k, v in env_patch.items():
         os.environ.setdefault(k, v)
+    disable_file = apply_langgraph_file_persistence_policy()
+    env_patch["LANGGRAPH_DISABLE_FILE_PERSISTENCE"] = disable_file
     logger.info(
-        "LangGraph runtime env: DATABASE_URI=%s data_dir=%s N_JOBS_PER_WORKER=%s",
+        "LangGraph runtime env: DATABASE_URI=%s data_dir=%s N_JOBS_PER_WORKER=%s "
+        "DISABLE_FILE_PERSISTENCE=%s",
         db_uri,
         data_dir,
         os.environ.get("N_JOBS_PER_WORKER"),
+        disable_file,
     )
     # NOTE: apply_langgraph_command_patch() is NOT called here.
     # It must run AFTER ``import langgraph_api.server`` (below) so that

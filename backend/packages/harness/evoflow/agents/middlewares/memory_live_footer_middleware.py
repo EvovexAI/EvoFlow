@@ -1,8 +1,12 @@
-"""Inject frozen standing memory into system; query recall as HumanMessage turn-tail.
+"""Inject frozen standing memory into system; live bits + query recall as turn-tail HumanMessages.
 
-Standing MEMORY/USER/workspace blocks are frozen per thread (prefix-cache stable).
-Pending ``_inbox/notes`` and user profile are appended **fresh each turn** so
-``assets note`` / profile edits take effect without waiting for Phase2 or a new session.
+Standing MEMORY/USER/workspace blocks are frozen per thread and stay on system
+(prefix-cache stable: they only rewrite system once, at thread freeze time).
+Pending ``_inbox/notes``, user profile and affect are **live** — they change per
+call, so appending them to system would invalidate the provider prefix cache
+from the top on every mutation (zcode: dynamic content rides the moving tail,
+never the stable prefix). They now ride a turn-tail HumanMessage
+(``session_memory_live``), stripped and re-appended each user-turn call.
 Person/craft archival recall is query-keyed and must not rewrite system mid-session.
 """
 
@@ -28,6 +32,8 @@ from evoflow.agents.message_analysis_utils import should_inject_turn_tail
 logger = logging.getLogger(__name__)
 
 _MEMORY_RECALL_MESSAGE_NAME = "session_memory_recall"
+_MEMORY_LIVE_MESSAGE_NAME = "session_memory_live"
+_MEMORY_TURN_TAIL_NAMES = {_MEMORY_RECALL_MESSAGE_NAME, _MEMORY_LIVE_MESSAGE_NAME}
 
 
 def _query_recall_enabled() -> bool:
@@ -40,37 +46,18 @@ def _query_recall_enabled() -> bool:
         return False
 
 
-def _is_memory_recall_message(msg: Any) -> bool:
-    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) == _MEMORY_RECALL_MESSAGE_NAME
+def _is_memory_turn_tail_message(msg: Any) -> bool:
+    return isinstance(msg, (SystemMessage, HumanMessage, ToolMessage)) and getattr(msg, "name", None) in _MEMORY_TURN_TAIL_NAMES
 
 
-def _strip_memory_recall_messages(messages: list[Any]) -> list[Any]:
-    return [m for m in messages if not _is_memory_recall_message(m)]
+def _strip_memory_turn_tail_messages(messages: list[Any]) -> list[Any]:
+    return [m for m in messages if not _is_memory_turn_tail_message(m)]
 
 
 def _messages_from_request(request: ModelRequest) -> list[BaseMessage]:
     from evoflow.agents.middlewares.model_request_messages import messages_from_model_request
 
     return messages_from_model_request(request)
-
-
-_MEMORY_ASSETS_CLOSE = "</memory_assets>"
-
-
-def _splice_before_memory_assets_close(standing: str, live: str) -> str:
-    """Insert ``live`` before ``</memory_assets>``; fall back to append if no wrapper."""
-    body = str(standing or "").rstrip()
-    extra = str(live or "").strip()
-    if not extra:
-        return body
-    if not body:
-        return extra
-    lower = body.lower()
-    close = _MEMORY_ASSETS_CLOSE
-    idx = lower.rfind(close)
-    if idx >= 0:
-        return f"{body[:idx].rstrip()}\n\n{extra}\n{body[idx:]}".strip()
-    return f"{body}\n\n{extra}".strip()
 
 
 def _latest_user_query(messages: list[Any]) -> str:
@@ -86,6 +73,7 @@ def _latest_user_query(messages: list[Any]) -> str:
         if role in {"human", "user"} and content.strip():
             if getattr(msg, "name", None) in {
                 _MEMORY_RECALL_MESSAGE_NAME,
+                _MEMORY_LIVE_MESSAGE_NAME,
                 "session_mission_state",
                 "session_runtime_clock",
                 "session_context_refs",
@@ -129,7 +117,7 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
         ctx = _merged_runtime_context(request)
         meta = _resolve_prompt_meta(ctx)
         tid = str(ctx.get("thread_id") or "").strip() or "_default"
-        messages = _strip_memory_recall_messages(_messages_from_request(request))
+        messages = _strip_memory_turn_tail_messages(_messages_from_request(request))
         keys = effective_activated_scenario_keys(request.runtime, messages)
         scen_list = ordered_scenario_keys_for_display(keys)
         intent = ",".join(scen_list) if scen_list else "chat"
@@ -186,14 +174,8 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             ).strip()
         except Exception:
             logger.debug("MemoryLiveFooter: pending inbox skipped", exc_info=True)
-        live_bits = [b for b in (profile_footer, pending_footer) if b]
-        if live_bits:
-            live = "\n\n".join(live_bits)
-            # Keep live bits inside ``<memory_assets>…</memory_assets>`` so the
-            # region still ends with a proper closing tag (not an orphaned tail).
-            standing = _splice_before_memory_assets_close(standing, live)
-        # strip_memory_xml_blocks also drops ``<affect>`` — re-append fresh from
-        # profile/affect.md each turn (same memory/assets gate; per-agent vault).
+        # strip_memory_xml_blocks also drops ``<affect>`` — ride it on the live
+        # turn-tail message, fresh from profile/affect.md (same gate; per-agent vault).
         affect_footer = ""
         try:
             from evoflow.agents.lead_agent.prompt import get_agent_affect_block
@@ -204,18 +186,22 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
             ).strip()
         except Exception:
             logger.debug("MemoryLiveFooter: affect inject skipped", exc_info=True)
+        # Live bits (profile/inbox/affect) mutate per call — they must NOT touch
+        # system, or every mutation invalidates the provider prefix cache from
+        # the top. System keeps only the frozen standing block; live bits ride
+        # the turn-tail HumanMessage below (the moving cache tail).
+        live_bits = [b for b in (profile_footer, pending_footer, affect_footer) if b]
         base = strip_memory_xml_blocks(str(getattr(sm, "content", "") or "")).rstrip()
-        chunks = [c for c in (base, standing, affect_footer) if c]
+        chunks = [c for c in (base, standing) if c]
         merged = "\n\n".join(chunks).strip()
 
         if merged != str(getattr(sm, "content", "") or "").strip():
             request = request.override(system_message=sm.model_copy(update={"content": merged}))
             logger.debug(
-                "MemoryLiveFooter: applied frozen standing memory agent=%s profile=%s chars=%d affect=%s",
+                "MemoryLiveFooter: applied frozen standing memory agent=%s profile=%s chars=%d",
                 agent_name,
                 mem_profile,
                 len(standing),
-                bool(affect_footer),
             )
 
         query = _latest_user_query(messages)
@@ -265,11 +251,18 @@ class MemoryLiveFooterMiddleware(AgentMiddleware[AgentState]):
                 pass
 
         recall = "\n\n".join(p for p in (hub_block, legacy_block) if str(p or "").strip()).strip()
-        # Only on the user-turn model call. Re-appending after ToolMessage makes the
-        # model re-read ASSET HUB / recall as fresh user speech mid tool loop.
+        # Turn-tail ephemerals ride the *moving* message tail — only on the
+        # user-turn model call, stripped before every request, so mid-tool-loop
+        # calls keep a byte-stable prefix (zcode: dynamic content never touches
+        # the cached prefix). Live first (current state), then query recall.
+        tail_hints: list[HumanMessage] = []
+        live_text = "\n\n".join(live_bits).strip()
+        if live_text and messages and should_inject_turn_tail(messages):
+            tail_hints.append(HumanMessage(content=live_text, name=_MEMORY_LIVE_MESSAGE_NAME))
         if recall and messages and should_inject_turn_tail(messages):
-            hint = HumanMessage(content=recall, name=_MEMORY_RECALL_MESSAGE_NAME)
-            return request.override(messages=[*messages, hint])
+            tail_hints.append(HumanMessage(content=recall, name=_MEMORY_RECALL_MESSAGE_NAME))
+        if tail_hints:
+            return request.override(messages=[*messages, *tail_hints])
 
         if len(messages) != len(_messages_from_request(request)):
             return request.override(messages=messages)

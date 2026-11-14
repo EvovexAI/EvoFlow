@@ -51,7 +51,10 @@ V4_WIRE_PROTOCOL_VERSION = 3
 # multi-second transcript rebuilds and starve subscribe/health (2026-11-10
 # 12:54: event_loop_lag 21s + subscribe 7–9s). Override with
 # EVOFLOW_V4_HYDRATE_CONCURRENCY (1–4).
-_hydrate_sem: asyncio.Semaphore | None = None
+#
+# Priority gate: user open (intent=open) jumps ahead of prefetch/hover warm
+# so "two chats running → click another stuck connecting" stops being FIFO.
+_hydrate_gate: "_HydratePriorityGate | None" = None
 
 
 def _hydrate_concurrency_limit() -> int:
@@ -63,11 +66,71 @@ def _hydrate_concurrency_limit() -> int:
     return max(1, min(n, 4))
 
 
-def _hydrate_semaphore() -> asyncio.Semaphore:
-    global _hydrate_sem
-    if _hydrate_sem is None:
-        _hydrate_sem = asyncio.Semaphore(_hydrate_concurrency_limit())
-    return _hydrate_sem
+class _HydratePriorityGate:
+    """Async hydrate slots with interactive-before-prefetch ordering."""
+
+    def __init__(self, limit: int) -> None:
+        self._limit = max(1, int(limit))
+        self._active = 0
+        self._hi: list[asyncio.Future[None]] = []
+        self._lo: list[asyncio.Future[None]] = []
+
+    def _pump(self) -> None:
+        while self._active < self._limit:
+            fut: asyncio.Future[None] | None = None
+            while self._hi and fut is None:
+                candidate = self._hi.pop(0)
+                if not candidate.done():
+                    fut = candidate
+            while fut is None and self._lo:
+                candidate = self._lo.pop(0)
+                if not candidate.done():
+                    fut = candidate
+            if fut is None:
+                return
+            self._active += 1
+            fut.set_result(None)
+
+    async def acquire(self, *, high_priority: bool) -> None:
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future[None] = loop.create_future()
+        bucket = self._hi if high_priority else self._lo
+        bucket.append(fut)
+        self._pump()
+        try:
+            await fut
+        except asyncio.CancelledError:
+            if fut in bucket:
+                bucket.remove(fut)
+            if not fut.done():
+                fut.cancel()
+            raise
+
+    def release(self) -> None:
+        self._active = max(0, self._active - 1)
+        self._pump()
+
+
+def _get_hydrate_gate() -> _HydratePriorityGate:
+    global _hydrate_gate
+    if _hydrate_gate is None:
+        _hydrate_gate = _HydratePriorityGate(_hydrate_concurrency_limit())
+    return _hydrate_gate
+
+
+class _hydrate_slot:
+    """Async context manager around the priority hydrate gate."""
+
+    def __init__(self, *, high_priority: bool) -> None:
+        self._high = high_priority
+        self._gate = _get_hydrate_gate()
+
+    async def __aenter__(self) -> "_hydrate_slot":
+        await self._gate.acquire(high_priority=self._high)
+        return self
+
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
+        self._gate.release()
 
 _PHASE_DRAFT = "draft"
 _PHASE_RUNNING = "running"
@@ -100,14 +163,24 @@ def _resolve_profile(client_mode: str | None) -> str:
 # ── 契约模板（zod 生成；键级整体替换，禁止深合并）───────────────────────────
 
 
-def _minimal_control(phase: str) -> dict[str, Any]:
+def _minimal_control(phase: str, *, run_started_at: int | None = None) -> dict[str, Any]:
+    """ZCode ``sessionControlSchema`` 语义的最小实现（键级整体替换）。
+
+    - sessionEnded 仅成功/中断终态为 True；error 可重试不算 ended
+      （对齐 ZCode product-projection onTurnComplete vs onTurnError 的差异）。
+    - running 时 activeWorks 携带 primaryTurn（startedAt 由调用方供给），
+      fallback 快照（无 override）也能驱动前端 control-first 判定。
+    """
+    running = phase == _PHASE_RUNNING
     return {
         "phase": phase,
-        "sessionEnded": False,
-        "canStop": phase == _PHASE_RUNNING,
-        "stopState": "stoppable" if phase == _PHASE_RUNNING else "idle",
+        "sessionEnded": phase in (_PHASE_COMPLETED, _PHASE_INTERRUPTED),
+        "canStop": running,
+        "stopState": "stoppable" if running else "idle",
         "stopTargetKind": "assistant",
-        "activeWorks": [],
+        "activeWorks": (
+            [{"kind": "primaryTurn", "startedAt": int(run_started_at or 0)}] if running else []
+        ),
         "lastError": None,
         "apiRetry": None,
     }
@@ -187,9 +260,20 @@ class _SessionState:
     # ZCode workflowRuns 投影（EvoFlow：由 collab 任务映射；进 snapshot / journal 查询）
     workflow_runs: list[dict[str, Any]] = field(default_factory=list)
     workflow_runs_revision: int = 0
+    # ── control 真值（ZCode 语义：snapshot 与增量同源）────────────────────────
+    control_override: dict[str, Any] | None = None
+    """mirror / hydrate 复原写入的权威 control（键级整体替换）。
+
+    只发增量不落态的旧实现会在快照重建（刷新重订阅 / recovery / 溢出转
+    snapshot）时被 ``_minimal_control(sess.phase)`` 重算覆盖——主聊 sess.phase
+    停在 draft，快照 control 永远 draft+canStop:false。存会话态后 ``_build_snapshot``
+    直接采用，任何订阅者看到的 control 与在线 delta 一致。
+    patch_phase（hub 自跑 turn 接管执行权）时清空：谁拥有当前执行，谁写 control。"""
+    run_started_at: int | None = None
+    """当前 primaryTurn startedAt（patch_phase(running) 记录；fallback activeWorks 用）。"""
 
     def control(self) -> dict[str, Any]:
-        return _minimal_control(self.phase)
+        return _minimal_control(self.phase, run_started_at=self.run_started_at)
 
     def turn_running(self) -> bool:
         return self.turn_task is not None and not self.turn_task.done()
@@ -458,6 +542,11 @@ class V4ConversationHub:
             sess.delta_log_floor = max(sess.delta_log_floor, sess.seq)
             sess.next_row_id = 1
             sess.catchup_fp = ""
+            # 陈旧 override 一并清：wipe 后 hydrate 重新探测 run 状态，仍 running
+            # 会重写（hydration._probe_running_run）；不clear 会把已终态的旧
+            # override 留给快照重建，前端停止键/齿轮被死钉。
+            sess.control_override = None
+            sess.run_started_at = None
             try:
                 sess.log_epoch = str(int(str(sess.log_epoch).strip() or "1") + 1)
             except ValueError:
@@ -613,6 +702,7 @@ class V4ConversationHub:
         session_id: str,
         base: dict[str, Any] | None = None,
         client_mode: str | None = None,
+        intent: str | None = None,
     ) -> dict[str, Any]:
         self._capture_loop()
         sess = self._get_or_create_session(session_id)
@@ -625,6 +715,8 @@ class V4ConversationHub:
             topic=topic,
             profile=_resolve_profile(client_mode),
         )
+        # prefetch = hover keep-warm；open/缺省 = 用户点开（插队）。
+        high_priority = str(intent or "open").strip().lower() != "prefetch"
 
         # Decide resume vs snapshot *before* heavy hydrate. Resume never needs DB.
         resume_ok = False
@@ -651,7 +743,7 @@ class V4ConversationHub:
                 from app.gateway.v4.hydration import hydrate_session_from_transcript
 
                 hydrate_started = time.perf_counter()
-                async with _hydrate_semaphore():
+                async with _hydrate_slot(high_priority=high_priority):
                     loaded = await asyncio.to_thread(
                         hydrate_session_from_transcript, self, sess.session_id
                     )
@@ -903,7 +995,31 @@ class V4ConversationHub:
     def patch_phase(self, session_id: str, phase: str) -> None:
         sess = self._get_or_create_session(session_id)
         sess.phase = phase
-        self.author_state_patch(session_id, {"control": _minimal_control(phase)})
+        # hub 自跑 turn 接管执行权：mirror/复原写入的 override 让位（谁拥有当前
+        # 执行，谁写 control）；running 时记 startedAt 供 fallback activeWorks。
+        sess.control_override = None
+        sess.run_started_at = int(time.time() * 1000) if phase == _PHASE_RUNNING else None
+        self.author_state_patch(
+            session_id,
+            {"control": _minimal_control(phase, run_started_at=sess.run_started_at)},
+        )
+
+    def set_control_override(self, session_id: str, control: dict[str, Any] | None) -> None:
+        """mirror / hydrate 复原路径写入权威 control 的唯一入口。
+
+        override 落会话态并发增量：在线订阅者收到 state.updated，快照重建
+        （刷新重订阅 / recovery / 订阅者溢出转 snapshot）从 override 产出——
+        两侧同源，消除 control 在快照路径被重算覆盖的不对称。
+        phase 同步派生，保 inputRouting / 侧栏相位与 control 同源。
+        """
+        if not isinstance(control, dict) or not control:
+            return
+        sess = self._get_or_create_session(session_id)
+        sess.control_override = dict(control)
+        phase = str(control.get("phase") or "").strip()
+        if phase:
+            sess.phase = phase
+        self.author_state_patch(session_id, {"control": dict(control)})
 
     def _workflow_runs_state(self, sess: _SessionState) -> dict[str, Any]:
         from app.gateway.v4.workflow_runs_projection import strip_internal_keys
@@ -1341,7 +1457,7 @@ class V4ConversationHub:
             "logEpoch": sess.log_epoch,
             "seq": sess.seq,
             "revision": sess.revision,
-            "control": sess.control(),
+            "control": dict(sess.control_override) if sess.control_override else sess.control(),
             "availability": self._session_availability(sess),
             "inputRouting": sess.input_routing(),
             "meta": {

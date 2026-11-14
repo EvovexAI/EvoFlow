@@ -1071,6 +1071,40 @@ def employees_list(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **data, "employees": roles, "items": roles}
 
 
+def employees_departments(_args: dict[str, Any]) -> dict[str, Any]:
+    """部门目录：名称、人数、负责人、成员（与 Panel GET /api/proactive/departments 同源）。"""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    DepartmentRepository.ensure_from_roles()
+    items = DepartmentRepository.list_departments(with_members=True)
+    slim: list[dict[str, Any]] = []
+    for d in items or []:
+        if not isinstance(d, dict):
+            continue
+        members = d.get("members") if isinstance(d.get("members"), list) else []
+        member_codes = [
+            str(m.get("agent_code") or "").strip()
+            for m in members
+            if isinstance(m, dict) and str(m.get("agent_code") or "").strip()
+        ]
+        slim.append(
+            {
+                "id": d.get("id"),
+                "name": d.get("name"),
+                "member_count": int(d.get("member_count") or len(member_codes) or 0),
+                "head_agent_code": str(d.get("head_agent_code") or "").strip(),
+                "head_name": str(d.get("head_name") or d.get("head_role_name") or "").strip(),
+                "members": member_codes,
+            }
+        )
+    return {
+        "ok": True,
+        "departments": slim,
+        "count": len(slim),
+        "hint": "雇佣/改岗时 department 填这里的 name；要看成员忙闲再用 employees.org_status / employees.list。",
+    }
+
+
 def employees_org_status(_args: dict[str, Any]) -> dict[str, Any]:
     """名册汇总：人数 / 忙闲 / 待审批（原 xiaomi_org_status）。"""
     from evoflow.admin.employee_front_desk import org_status

@@ -143,6 +143,9 @@ def write_file_hd(
         result = f"OK: {action} {total_bytes} bytes to {label}"
         if auto_read_healed:
             result += " (auto-read before write: file was not in read state)"
+        # zcode freshness suffix: kills the confirmation re-Read round-trip
+        # after every successful write.
+        result += " (file state is current in your context — no need to Read it back)"
 
         # Refresh read state so consecutive edits need no re-Read (zcode semantics).
         from evoflow.tools.zcode_port.read_file_state import note_write

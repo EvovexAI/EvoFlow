@@ -274,7 +274,7 @@ Key sections:
 
 Provider note:
 - `models[*].use` references provider classes by module path (for example `langchain_openai:ChatOpenAI`).
-- OpenAI-compatible `ChatOpenAI` providers clamp `max_tokens` to 65536, map non-standard `reasoning_effort` values (`minimal`/`xhigh`) to gateway-safe values, and ensure the final chat payload includes a user message for vLLM-compatible gateways.
+- OpenAI-compatible `ChatOpenAI` providers clamp `max_tokens` to 65536, map `xhigh`→`high` when thinking is on, and treat `minimal`/`none` as thinking-off (never map to `low` — that re-enabled DeepSeek reasoning on voice/小V). Ensure the final chat payload includes a user message for vLLM-compatible gateways.
 - If a provider module is missing, EvoFlow now returns an actionable error with install guidance (for example `uv add langchain-google-genai`).
 
 ### Extensions Configuration (`extensions_config.json`)

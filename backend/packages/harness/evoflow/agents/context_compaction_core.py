@@ -2539,21 +2539,32 @@ class ContextCompactionEngine:
         compaction_min_middle_tokens: int = 1500,
         compaction_trigger_message_count: int = 0,
         model_name: str | None = None,
+        skip_trigger_check: bool = False,
     ) -> tuple[list[BaseMessage], bool, Any | None]:
-        """Hot path: prune + fold middle with cached/stub summary; queue LLM refinement."""
+        """Hot path: prune + fold middle with cached/stub summary; queue LLM refinement.
+
+        ``skip_trigger_check`` mirrors ``compress_messages``: set when the caller
+        (middleware gate) has already decided compression must happen — skips the
+        internal ``should_compress`` cooldown re-check while keeping the
+        ``min_middle_tokens`` gate.
+        """
         from evoflow.context.context_compaction_queue import CompactionJob
 
-        if not force and not self.should_compress(
-            messages,
-            thread_id=thread_id,
-            context_length=context_length,
-            threshold_ratio=threshold_ratio,
-            aggressive_ratio=aggressive_ratio,
-            aggressive=aggressive,
-            compaction_cooldown_seconds=compaction_cooldown_seconds,
-            compaction_hysteresis_enabled=compaction_hysteresis_enabled,
-            compaction_release_ratio=compaction_release_ratio,
-            compaction_trigger_message_count=compaction_trigger_message_count,
+        if (
+            not force
+            and not skip_trigger_check
+            and not self.should_compress(
+                messages,
+                thread_id=thread_id,
+                context_length=context_length,
+                threshold_ratio=threshold_ratio,
+                aggressive_ratio=aggressive_ratio,
+                aggressive=aggressive,
+                compaction_cooldown_seconds=compaction_cooldown_seconds,
+                compaction_hysteresis_enabled=compaction_hysteresis_enabled,
+                compaction_release_ratio=compaction_release_ratio,
+                compaction_trigger_message_count=compaction_trigger_message_count,
+            )
         ):
             return messages, False, None
 

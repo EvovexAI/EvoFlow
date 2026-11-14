@@ -1757,6 +1757,12 @@ async function _hardReloadGatewayProcess(reason = 'hard_config') {
     /* ignore */
   }
   await invoke('reload_gateway')
+  try {
+    const { markLangGraphThreadsStale } = await import('./ws-client.js')
+    markLangGraphThreadsStale(reason || 'hard_reload_gateway')
+  } catch {
+    /* ignore */
+  }
 }
 
 function _debouncedReloadGateway({ hard = false } = {}) {
@@ -1852,7 +1858,16 @@ export const api = {
     await _hardReloadGatewayProcess('api_reload_gateway')
   },
   /** Restart Agent Runtime only (split process model); Control Plane stays up. */
-  reloadLanggraphRuntime: () => invoke('reload_langgraph_runtime'),
+  reloadLanggraphRuntime: async () => {
+    await invoke('reload_langgraph_runtime')
+    // Wipe FE thread-trust cache so the next send remints before stream (no 404 retry).
+    try {
+      const { markLangGraphThreadsStale } = await import('./ws-client.js')
+      markLangGraphThreadsStale('api_reload_langgraph')
+    } catch {
+      /* ignore */
+    }
+  },
   softReloadGateway: () => _softReloadGatewayCaches(),
   // 测试模型连接（轻量 /models/test，不走 /models/invoke，不强制应用配置）
   testModel: async (baseUrl, apiKey, modelId, apiType = null, configName = null) => {
@@ -3140,7 +3155,10 @@ export const api = {
     }),
   proactiveOrgTree: async (status = null) =>
     gatewayProxy('GET', '/proactive/org-tree', null, status ? { status } : null),
-  proactiveListDepartments: async () => gatewayProxy('GET', '/proactive/departments'),
+  proactiveListDepartments: async () =>
+    gatewayProxy('GET', '/proactive/departments', null, null, {
+      preferGatewayHttp: true,
+    }),
   proactiveListDeptAvatarPresets: async () => {
     const data = await gatewayProxy('GET', '/proactive/departments/avatar-presets')
     return Array.isArray(data?.presets) ? data.presets : []

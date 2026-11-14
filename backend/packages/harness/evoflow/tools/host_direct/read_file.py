@@ -6,7 +6,7 @@ from pathlib import Path
 from langchain.tools import ToolRuntime, tool
 from langgraph.types import Command
 
-from evoflow.tools.host_direct.read_logic import read_file_content
+from evoflow.tools.host_direct.read_logic import apply_whole_file_read_gate, read_file_content
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
 from evoflow.tools.host_direct.workspace_path_guard import (
     _is_absolute_path,
@@ -334,6 +334,13 @@ def read_file_hd(
     text = read_file_content(str(resolved), offset=offset, limit=limit, use_cache=True)
     if not str(text).startswith("Error:"):
         full_read = offset is None and limit is None
+        if full_read:
+            # zcode-style whole-file gate: cap big reads to a paginated partial
+            # view so one large file does not ride on every later request.
+            gated = apply_whole_file_read_gate(text, path=str(resolved))
+            if gated is not text:
+                text = gated
+                full_read = False
         # Hash only meaningful for full views; partial views never qualify for edit.
         content_hash = None
         if full_read:

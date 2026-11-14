@@ -7,7 +7,12 @@ from typing import Any
 import pytest
 
 from app.gateway.agui_stream_normalizer import AgUiEncoderState, RUN_ERROR, evf_payload_to_agui_events
-from app.gateway.v4.agui_mirror import V4Mirror, _is_user_interrupt_event, _run_error_info
+from app.gateway.v4.agui_mirror import (
+    V4Mirror,
+    _is_user_interrupt_event,
+    _run_error_info,
+    mirror_seal_user_stop,
+)
 from app.gateway.v4.conversation import HUB
 
 
@@ -201,3 +206,85 @@ def test_run_finished_seals_open_tool_calls(monkeypatch: pytest.MonkeyPatch) -> 
     assert tools[-1]["status"] == "cancelled"
     headers = [r for r in _rows(tid) if r.get("kind") == "turnHeader"]
     assert headers[-1]["state"] == "completedSuccess"
+
+
+def test_mirror_seal_user_stop_seals_tools_and_reasoning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """点停不经在途 RUN_ERROR：mirror_seal_user_stop 必须立刻封工具/思考。"""
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    tid = "mirror-seal-user-stop-live"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    # 走全局镜像入口（与 stop_session_execution 同路径）
+    import app.gateway.v4.agui_mirror as mirror_mod
+
+    mirror_mod._MIRROR = V4Mirror(HUB)  # noqa: SLF001
+    mirror = mirror_mod._MIRROR
+    mirror.note_user_input(tid, "改全屏")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-stop-live"},
+            {"type": "REASONING_MESSAGE_START", "messageId": "r1"},
+            {"type": "REASONING_MESSAGE_CONTENT", "messageId": "r1", "delta": "找源码"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-bash",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-bash"},
+            {
+                "type": "TEXT_MESSAGE_START",
+                "messageId": "a1",
+                "role": "assistant",
+            },
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "a1", "delta": "半截"},
+        ],
+    )
+    mirror_seal_user_stop(tid)
+    headers = [r for r in _rows(tid) if r.get("kind") == "turnHeader"]
+    assert headers[-1]["state"] == "completedInterrupted"
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert tools and tools[-1]["status"] == "cancelled"
+    reasoning = [r for r in _rows(tid) if r.get("kind") == "reasoning"]
+    assert reasoning and reasoning[-1]["state"] == "interrupted"
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert texts and texts[-1]["state"] == "interrupted"
+    st = mirror._states[tid]  # noqa: SLF001
+    assert st.run_started is False
+
+
+def test_run_started_after_open_prior_seals_orphan_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """上一轮漏 FINISHED 时，新 RUN_STARTED 也要封掉孤儿工具卡。"""
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    tid = "mirror-prior-reset-seal-tools"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "first")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-old"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-orphan",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-orphan"},
+        ],
+    )
+    mirror.note_user_input(tid, "second")
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-new"}],
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert tools
+    assert tools[0]["status"] == "cancelled"
+    headers = [r for r in _rows(tid) if r.get("kind") == "turnHeader"]
+    assert any(h.get("state") == "failed" for h in headers)
+    assert headers[-1]["state"] == "running"

@@ -20,7 +20,9 @@
  *
  * 每轮 RUN_STARTED 写入 `======== TURN n | run=... | dir=... ========` 分隔头。
  *
- * 正式包默认关闭。开启：localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '1')
+ * 正式包默认关闭。开启方式（任一）：
+ * - 顶栏 / 资源管理器「调试模式」开关（与 Gateway observability 同开同关）
+ * - localStorage.setItem('EVOFLOW_STREAM_COMPARE_LOG', '1')
  *
  * ui-display.log 含 [timeline]、[chunks/layout]、[agui-order]、[compacted] 等段，便于排查工具/思考顺序。
  */
@@ -44,7 +46,7 @@ const LS_KEY = 'EVOFLOW_STREAM_COMPARE_LOG'
 const MAX_LINE = 48_000
 const UI_SNAPSHOT_CLOSE_MS = 48
 
-/** 默认关闭（正式包友好）；localStorage='1'/'true' 时开启 */
+/** 默认关闭（正式包友好）；localStorage='1'/'true'/'on' 时开启 */
 export function isStreamCompareFileLogOn(): boolean {
   try {
     if (typeof localStorage === 'undefined') return false
@@ -53,6 +55,26 @@ export function isStreamCompareFileLogOn(): boolean {
     return v === '1' || v === 'true' || v === 'on'
   } catch {
     return false
+  }
+}
+
+/**
+ * 与「调试模式」对齐：开 → 落盘流式专项；关 → 关掉。
+ * 由 `setObsEnabled` / `fetchObsEnabledStatus` 调用，不单独依赖用户手写 LS。
+ */
+export function syncStreamCompareLogWithDebugMode(debugOn: boolean): void {
+  try {
+    if (typeof localStorage === 'undefined') return
+    const next = debugOn ? '1' : '0'
+    if (localStorage.getItem(LS_KEY) === next) return
+    localStorage.setItem(LS_KEY, next)
+    if (debugOn) {
+      console.info(
+        `[stream-compare] 已随调试模式开启 → ~/.evoflow/logs/stream-compare/{sessionKey}/{YYYYMMDDHHmmss}_{runId}/`,
+      )
+    }
+  } catch {
+    /* private mode / quota */
   }
 }
 
@@ -439,7 +461,7 @@ function showEnableBannerOnce(): void {
     : 'window.__evoflowStreamCompare.sessions（非 Tauri）'
 
   console.log(
-    `[stream-compare] 默认已关闭；开启：localStorage.setItem('${LS_KEY}','1') → ${home}`,
+    `[stream-compare] 已开启 → ${home}（调试模式开关或 localStorage ${LS_KEY}=1）`,
   )
 }
 

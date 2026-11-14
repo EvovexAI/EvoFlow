@@ -13,9 +13,37 @@ from typing import Any
 from evoflow.proactive.models import ProactiveRole
 
 
-def workspace_org_key(workspace_path: str | None) -> str:
+def _expand_workspace_placeholders(raw: str, *, agent_code: str = "") -> str:
+    """Expand lingering pack placeholders in a stored workspace_path.
+
+    Install should already have substituted ``${ORG_WORKSPACE}``; older/lowercase
+    ``${org_workspace}`` leaks still show up in prompts. When the token remains,
+    substitute ``agent_code`` so injection never prints a raw ``${…}`` variable.
+    """
+    text = str(raw or "").strip()
+    if not text or "${" not in text:
+        return text
+    code = str(agent_code or "").strip()
+    try:
+        from evoflow.organizations.manifest import apply_placeholders
+
+        # Use agent_code as stand-in for an unresolved org workspace token.
+        text = apply_placeholders(text, org_workspace=code, org_root="")
+    except Exception:
+        if code:
+            for form in ("${ORG_WORKSPACE}", "${org_workspace}"):
+                text = text.replace(form, code)
+    # Drop any still-unresolved tokens so prompts never show raw ${…}.
+    if "${" in text:
+        parts = text.replace("\\", "/").split("/")
+        parts = [p for p in parts if p and not (p.startswith("${") and p.endswith("}"))]
+        text = "/".join(parts)
+    return text
+
+
+def workspace_org_key(workspace_path: str | None, *, agent_code: str = "") -> str:
     """Normalize workspace path into a comparable org key (empty = unbound)."""
-    raw = str(workspace_path or "").strip()
+    raw = _expand_workspace_placeholders(str(workspace_path or "").strip(), agent_code=agent_code)
     if not raw:
         return ""
     try:
@@ -26,7 +54,24 @@ def workspace_org_key(workspace_path: str | None) -> str:
 
 
 def role_org_key(role: ProactiveRole) -> str:
-    return workspace_org_key(getattr(getattr(role, "config", None), "workspace_path", None))
+    code = str(getattr(role, "agent_code", "") or "").strip()
+    return workspace_org_key(
+        getattr(getattr(role, "config", None), "workspace_path", None),
+        agent_code=code,
+    )
+
+
+def role_workspace_display(role: ProactiveRole) -> str:
+    """Human path for prompts: expanded placeholders, forward slashes, no ${…}."""
+    code = str(getattr(role, "agent_code", "") or "").strip()
+    raw = str(getattr(getattr(role, "config", None), "workspace_path", None) or "").strip()
+    expanded = _expand_workspace_placeholders(raw, agent_code=code)
+    if not expanded:
+        return ""
+    try:
+        return str(Path(expanded).expanduser().resolve()).replace("\\", "/")
+    except Exception:
+        return expanded.replace("\\", "/")
 
 
 def filter_roster_same_org(

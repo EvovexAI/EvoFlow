@@ -423,6 +423,25 @@ async def _compress_once_async(
 ) -> tuple[list[BaseMessage], bool]:
     label = pass_label or ("pass2-aggressive" if aggressive else "pass1")
     set_compress_pass_label(label)
+    # Background-LLM mode (default): structural fold with the cached summary or a
+    # labelled stub — no LLM on the hot path, the request proceeds immediately.
+    # The queue debounces a background LLM refinement (compaction_background_
+    # debounce_seconds) and the next request upgrades to the real summary via
+    # refold-cached. The blocking full-LLM path stays available by setting
+    # compaction_background_llm=false (legacy behavior, sync compress here).
+    if _use_background_llm():
+        compressed, changed, job = _engine.compress_messages_fast(
+            messages,
+            thread_id=thread_id,
+            aggressive=aggressive,
+            force=force,
+            skip_trigger_check=True,
+            model_name=model_name,
+            **compress_policy,
+            **plan_kw,
+        )
+        _enqueue_compaction_job(job)
+        return compressed, changed
     # Hot path: sync compress LLM + immediate DB persist before main model continues.
     return await _engine.compress_messages(
         messages,
