@@ -1,15 +1,172 @@
-"""Re-invoke the lead agent after a background Bash exits (ZCode task-notification turn)."""
+"""Re-invoke the lead agent after a background task exits (ZCode task-notification turn).
+
+Reliability layer (aligned with ZCode's notification pipeline):
+
+- durable dedupe: every notification message_id is claimed in the persistent
+  ``evoflow_session_inject_receipts`` table before scheduling — the in-memory
+  LRU is only a fast path, so a gateway restart no longer lets duplicates through
+  (the old ``_DEDUP.clear()`` bug);
+- per-thread batching: notifications arriving within a short collection window
+  are merged into ONE follow-up turn (one synthetic message, multiple
+  <task-notification> blocks) instead of one turn per completion;
+- anti-misread prefix: the merged body is wrapped with a
+  ``[SYSTEM NOTIFICATION - NOT USER INPUT]`` preamble so the model never reads
+  the notification as user acknowledgement.
+"""
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import threading
+from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
-_DEDUP: set[str] = set()
+_NOTIFICATION_SOURCE_KIND = "task_notification_turn"
+
+# ── fast-path dedupe: bounded LRU (evict oldest, never wholesale-clear) ──────
+_DEDUP_MAX = 500
+_DEDUP: OrderedDict[str, None] = OrderedDict()
 _DEDUP_LOCK = threading.Lock()
+
+
+def _dedup_seen_or_add(mid: str) -> bool:
+    """True when ``mid`` was already seen; otherwise record it. Oldest entry evicted first."""
+    with _DEDUP_LOCK:
+        if mid in _DEDUP:
+            _DEDUP.move_to_end(mid)
+            return True
+        _DEDUP[mid] = None
+        while len(_DEDUP) > _DEDUP_MAX:
+            _DEDUP.popitem(last=False)
+        return False
+
+
+def _dedup_discard(mid: str) -> None:
+    with _DEDUP_LOCK:
+        _DEDUP.pop(mid, None)
+
+
+# ── durable ledger: claim-once in evoflow_session_inject_receipts ────────────
+# Fail-open on any DB problem: notifications are low-frequency, and blocking
+# every wake because the ledger is unavailable would strand finished work.
+# The in-memory LRU above still guards the hot path.
+
+
+def _ledger_claim(session_key: str, mid: str) -> bool:
+    """True = caller may proceed (first claim or ledger unavailable).
+
+    刻意不用 safe_try_claim_inject:它在 DB 故障时返回 False(fail-closed,
+    语义是"不要 inject"),对通知意味着账本一挂所有完成事件都被吞掉。
+    这里直接用 try_claim_inject 并自己 fail-open——账本不可用只损失
+    去重强度,不能弄丢已完成的工作;热路径仍有内存 LRU 兜底。
+    """
+    try:
+        from evoflow.persistence.session_runtime_repository import try_claim_inject
+
+        return bool(try_claim_inject(session_key, _NOTIFICATION_SOURCE_KIND, mid))
+    except Exception:
+        logger.debug("notification ledger claim failed mid=%s", mid, exc_info=True)
+        return True
+
+
+def _ledger_release(session_key: str, mid: str) -> None:
+    """Release a claim so a failed delivery can be retried by a later event."""
+    try:
+        from evoflow.persistence.session_runtime_repository import delete_inject_receipt
+
+        delete_inject_receipt(session_key, _NOTIFICATION_SOURCE_KIND, mid)
+    except Exception:
+        logger.debug("notification ledger release failed mid=%s", mid, exc_info=True)
+
+
+# ── per-thread batching: collect a short window, flush one merged turn ──────
+_BATCH_WINDOW_SECONDS = 2.5
+_BATCH_MAX_ITEMS = 20
+_BATCH_LOCK = threading.Lock()
+_PENDING: dict[str, list[tuple[str, str, str, str]]] = {}  # tid -> [(sk, src, text, mid)]
+_COLLECTORS: dict[str, threading.Timer] = {}
+
+_SYSTEM_NOTIFICATION_PREFIX = (
+    "[SYSTEM NOTIFICATION - NOT USER INPUT]\n"
+    "This is an automated background-task event, NOT a message from the user.\n"
+    "Do NOT interpret this as user acknowledgement, confirmation, or response to any pending question.\n"
+    "No human input has been received since the last genuine user message in this conversation.\n"
+    "Review the task result(s) below and continue the work or report to the user as appropriate."
+)
+
+
+def _merge_batch_text(texts: list[str]) -> str:
+    """ZCode-style: one synthetic message, prefix + one <task-notification> block each."""
+    return _SYSTEM_NOTIFICATION_PREFIX + "\n\n" + "\n\n".join(texts)
+
+
+def _batch_message_id(mids: list[str]) -> str:
+    digest = hashlib.sha1("\n".join(sorted(mids)).encode("utf-8")).hexdigest()[:16]
+    return f"task-notification-batch:{digest}"
+
+
+def _dispatch_notification_turn(
+    thread_id: str,
+    session_key: str,
+    notification_text: str,
+    message_id: str,
+    *,
+    source: str,
+) -> bool:
+    """Schedule the follow-up turn on the detached loop. True = accepted."""
+    from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
+
+    schedule_detached_poll(
+        _run_notification_turn(thread_id, session_key, notification_text, message_id, source=source),
+        name=f"{source}-{message_id[-24:]}",
+    )
+    return True
+
+
+def _flush_thread_batch(thread_id: str) -> None:
+    with _BATCH_LOCK:
+        _COLLECTORS.pop(thread_id, None)
+        items = _PENDING.pop(thread_id, [])
+    if not items:
+        return
+
+    session_key = items[0][0]
+    source = items[0][1]
+    texts = [it[2] for it in items]
+    mids = [it[3] for it in items]
+    merged_mid = _batch_message_id(mids)
+
+    try:
+        _dispatch_notification_turn(
+            thread_id,
+            session_key,
+            _merge_batch_text(texts),
+            merged_mid,
+            source=source,
+        )
+        logger.info(
+            "task-notification batch flushed thread=%s items=%d merged_mid=%s",
+            thread_id,
+            len(items),
+            merged_mid,
+        )
+    except Exception:
+        # Delivery failed before the turn was accepted — release the durable
+        # claims so a later duplicate event can re-notify instead of stranding
+        # the finished work. (At-least-once completion reconciliation arrives
+        # with the persisted task registry; see outputs/ architecture doc §五.)
+        for it in items:
+            _ledger_release(it[0], it[3])
+            _dedup_discard(it[3])
+        logger.warning(
+            "task-notification batch dispatch failed thread=%s items=%d — claims released",
+            thread_id,
+            len(items),
+            exc_info=True,
+        )
 
 
 def schedule_task_notification_turn(
@@ -20,43 +177,52 @@ def schedule_task_notification_turn(
     message_id: str,
     source: str = "task-notification",
 ) -> bool:
-    """Fire-and-forget: enqueue a new LangGraph turn with a notification body.
+    """Fire-and-forget: enqueue a follow-up LangGraph turn with a notification body.
 
     Used by background Bash and detached plain-chat subagents so the lead
     continues after the child finishes (``multitask_strategy=enqueue``).
+    Notifications for the same thread are batched within
+    ``_BATCH_WINDOW_SECONDS`` into one merged turn.
 
-    Returns True when the background poll was accepted (not when the turn
-    finishes). False = deduped or failed to schedule — caller may retry later.
+    Returns True when the notification was accepted (claimed + buffered — not
+    when the turn finishes). False = deduped or invalid input — caller may
+    retry later.
     """
     tid = str(thread_id or "").strip()
     text = str(notification_text or "").strip()
     mid = str(message_id or "").strip()
     if not tid or not text or not mid:
         return False
-    with _DEDUP_LOCK:
-        if mid in _DEDUP:
-            return False
-        _DEDUP.add(mid)
-        if len(_DEDUP) > 500:
-            _DEDUP.clear()
-            _DEDUP.add(mid)
-
     sk = str(session_key or "").strip()
     src = str(source or "task-notification").strip() or "task-notification"
 
-    try:
-        from evoflow.subagents.detached_poll_scheduler import schedule_detached_poll
-
-        schedule_detached_poll(
-            lambda: _run_notification_turn(tid, sk, text, mid, source=src),
-            name=f"{src}-{mid[-24:]}",
-        )
-        return True
-    except Exception:
-        with _DEDUP_LOCK:
-            _DEDUP.discard(mid)
-        logger.warning("schedule task-notification turn failed mid=%s", mid, exc_info=True)
+    if _dedup_seen_or_add(mid):
         return False
+    if not _ledger_claim(sk, mid):
+        # Durable ledger says this notification was already scheduled (possibly
+        # in a previous process) — drop it.
+        _dedup_discard(mid)
+        return False
+
+    flush_now = False
+    with _BATCH_LOCK:
+        buffer = _PENDING.setdefault(tid, [])
+        buffer.append((sk, src, text, mid))
+        if len(buffer) >= _BATCH_MAX_ITEMS:
+            flush_now = True
+        elif tid not in _COLLECTORS:
+            timer = threading.Timer(
+                _BATCH_WINDOW_SECONDS,
+                _flush_thread_batch,
+                args=(tid,),
+            )
+            timer.daemon = True
+            _COLLECTORS[tid] = timer
+            timer.start()
+
+    if flush_now:
+        _flush_thread_batch(tid)
+    return True
 
 
 def schedule_bash_task_notification_turn(
@@ -149,7 +315,7 @@ async def _run_notification_turn(
         if is_new:
             await worker.start()
             logger.info(
-                "bash task-notification turn started thread=%s message_id=%s",
+                "task-notification turn started thread=%s message_id=%s",
                 thread_id,
                 message_id,
             )
@@ -165,12 +331,12 @@ async def _run_notification_turn(
                     multitask_strategy="enqueue",
                 )
                 logger.info(
-                    "bash task-notification enqueued on busy thread=%s",
+                    "task-notification enqueued on busy thread=%s",
                     thread_id,
                 )
             except Exception:
                 logger.debug(
-                    "bash task-notification enqueue on busy thread failed tid=%s",
+                    "task-notification enqueue on busy thread failed tid=%s",
                     thread_id,
                     exc_info=True,
                 )
@@ -186,10 +352,10 @@ async def _run_notification_turn(
                 multitask_strategy="enqueue",
             ):
                 pass
-            logger.info("bash task-notification SDK stream finished thread=%s", thread_id)
+            logger.info("task-notification SDK stream finished thread=%s", thread_id)
         except Exception:
             logger.warning(
-                "bash task-notification turn failed thread=%s",
+                "task-notification turn failed thread=%s",
                 thread_id,
                 exc_info=True,
             )
