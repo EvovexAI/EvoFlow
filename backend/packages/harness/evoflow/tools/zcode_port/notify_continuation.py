@@ -273,6 +273,29 @@ async def _run_notification_turn(
     except Exception:
         logger.debug("ensure thread for task-notification failed tid=%s", thread_id, exc_info=True)
 
+    # Persist the wake input into the SSOT BEFORE posting the run.
+    # lead_agent 的 provider payload 从 evoflow_chat_messages 重建(checkpoint 被
+    # slim 中间件清空;hydrate 可能判 checkpoint 过期而改用 DB)——唤醒输入若只
+    # 存在于 run input,会非确定性地从 payload 里消失,模型看到一段以 assistant
+    # 结尾的历史,返回空(E2E 实测 output_tokens=0 + 空回退文案)。
+    # persist_user_message 与面板发送同一条统一入口,幂等带 message_id。
+    try:
+        from evoflow.persistence.chat_session_service import persist_user_message
+
+        persisted_tid = await persist_user_message(
+            session_key or "",
+            notification_text,
+            message_id=message_id,
+        )
+        if persisted_tid:
+            thread_id = persisted_tid
+    except Exception:
+        logger.debug(
+            "persist task-notification user message failed tid=%s",
+            thread_id,
+            exc_info=True,
+        )
+
     # langgraph 0.7+ 拒绝 configurable 与 context 并存(HTTP 400 "Cannot specify
     # both configurable and context")。此前 run_body 同时带两者,导致
     # StreamBackgroundWorker/SDK 路径的唤醒轮全部 400——通知被账本认领后搁浅,
