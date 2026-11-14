@@ -116,6 +116,25 @@ def flat_fields_from_context(
     return out
 
 
+def effective_session_model_override(
+    model_name: Any,
+    primary_model_name: Any = None,
+) -> str | None:
+    """Return a real user/session model pin, or ``None`` to follow agent → primary.
+
+    Older ``_default_session_context`` stamped the create-time resolved model into
+    both ``model_name`` and ``primary_model_name``. That pair is not a user pin —
+    treat it as unset so Agent / primary changes take effect.
+    """
+    mn = str(model_name or "").strip()
+    if not mn or mn.lower() == "default":
+        return None
+    pmn = str(primary_model_name or "").strip()
+    if pmn and mn == pmn:
+        return None
+    return mn
+
+
 def context_from_flat_row(row: dict[str, Any]) -> dict[str, Any]:
     """Rebuild ``context`` for EvoPanel from flat DB columns (+ legacy context_json extras).
 
@@ -130,12 +149,12 @@ def context_from_flat_row(row: dict[str, Any]) -> dict[str, Any]:
     uvp = row.get("use_virtual_paths")
     if uvp is not None:
         ctx["use_virtual_paths"] = _int_to_bool(uvp)
-    mn = row.get("model_name")
-    if mn:
-        ctx["model_name"] = str(mn)
     pmn = row.get("primary_model_name")
     if pmn:
         ctx["primary_model_name"] = str(pmn)
+    mn = effective_session_model_override(row.get("model_name"), pmn)
+    if mn:
+        ctx["model_name"] = mn
     sm = row.get("session_mode")
     if sm:
         ctx["session_mode"] = str(sm)

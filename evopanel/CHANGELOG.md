@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.25] - 2026-11-14
+
+相对 **1.3.24**：部门群可按员工配置朗读音色并排队播报；小 V 语音台展示关思考是否传到厂商；联网搜索可选 SpecStream（需 API Key）；会话标题不再被后续轮次覆盖。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.25.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **部门群语音**：群聊可按员工绑定音色，消息按队列朗读
+- **小 V 思考诊断**：语音台可见关思考是否写入厂商请求
+- **SpecStream 联网搜索**：设置中可选；填写 API Key 后可作为首选后端（不参与自动探测）
+
+### Fixed
+
+- **会话标题被覆盖**：生成标题后，后续轮次不再改写已有标题
+- **角色思考配置**：按员工角色应用关思考 / 思考强度，语音与前台一致
+- **会话模型覆盖**：覆盖模型时正确落库，避免切回默认模型
+
+### Changed
+
+- **会议 / Agent TTS**：音色与播报队列抽成共用模块
+- **运行观测**：补充思考链路环缓冲
+
 ## [1.3.24] - 2026-11-14
 
 相对 **1.3.23**：冷启动 / 切会话不再卡「加载中」或旧轮次抢显；停止后不再仍转圈；微信入站多媒体与出站按账号路由；语音 / 小 V 关思考时网关可核对是否传到厂商。

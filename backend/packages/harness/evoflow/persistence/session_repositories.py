@@ -10,6 +10,7 @@ from typing import Any
 from evoflow.persistence.db import db_connection_lock, get_db, run_db_with_retry
 from evoflow.persistence.session_context_fields import (
     context_from_flat_row,
+    effective_session_model_override,
     flat_fields_from_context,
     normalize_workspace_group_key,
     normalize_workspace_root_for_storage,
@@ -414,7 +415,7 @@ def _session_row_to_api(
         "context": ctx,
         "localWorkspaceRoot": str(d.get("local_workspace_root") or "").strip() or None,
         "useVirtualPaths": bool(int(d.get("use_virtual_paths") or 0)),
-        "modelName": str(d.get("model_name") or "").strip() or None,
+        "modelName": effective_session_model_override(d.get("model_name"), d.get("primary_model_name")),
         "primaryModelName": str(d.get("primary_model_name") or "").strip() or None,
         "sessionMode": str(d.get("session_mode") or "").strip() or None,
         "thinkingEnabled": bool(int(d.get("thinking_enabled") or 0)) if d.get("thinking_enabled") is not None else None,
@@ -746,7 +747,11 @@ def find_session_key_by_thread_id(thread_id: str) -> str | None:
 
 
 def get_model_name_for_session_key(session_key: str) -> str | None:
-    """Resolve persisted session ``model_name`` by sidebar session key."""
+    """Resolve persisted session ``model_name`` by sidebar session key.
+
+    Ignores create-time stamps where ``model_name == primary_model_name`` (not a
+    user pin — see :func:`effective_session_model_override`).
+    """
     sk = str(session_key or "").strip()
     if not sk:
         return None
@@ -754,7 +759,7 @@ def get_model_name_for_session_key(session_key: str) -> str | None:
         get_db()
         .execute(
             """
-        SELECT model_name FROM evoflow_chat_sessions
+        SELECT model_name, primary_model_name FROM evoflow_chat_sessions
         WHERE is_deleted = 0 AND session_key = ?
         LIMIT 1
         """,
@@ -763,9 +768,7 @@ def get_model_name_for_session_key(session_key: str) -> str | None:
         .fetchone()
     )
     if row:
-        name = str(row[0] or "").strip()
-        if name:
-            return name
+        return effective_session_model_override(row[0], row[1])
     return None
 
 
@@ -782,7 +785,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
         get_db()
         .execute(
             """
-        SELECT model_name FROM evoflow_chat_sessions
+        SELECT model_name, primary_model_name FROM evoflow_chat_sessions
         WHERE is_deleted = 0 AND thread_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
@@ -792,7 +795,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
         .fetchone()
     )
     if row:
-        name = str(row[0] or "").strip()
+        name = effective_session_model_override(row[0], row[1])
         if name:
             return name
     # Fallback: resolve via session_key from messages table
@@ -802,7 +805,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
             get_db()
             .execute(
                 """
-            SELECT model_name FROM evoflow_chat_sessions
+            SELECT model_name, primary_model_name FROM evoflow_chat_sessions
             WHERE is_deleted = 0 AND session_key = ?
             LIMIT 1
             """,
@@ -811,9 +814,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
             .fetchone()
         )
         if row:
-            name = str(row[0] or "").strip()
-            if name:
-                return name
+            return effective_session_model_override(row[0], row[1])
     return None
 
 

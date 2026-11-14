@@ -5,6 +5,11 @@ block into the employee system prompt. Group chat is the collaboration bus;
 colleagues are only woken when the reply body contains ``@角色名`` (frontend
 parses that) or when tools return ``handlers`` that the frontend mirrors.
 
+Background ``employees.dispatch`` / wake wakes private duty sessions — those
+replies never land on the group timeline. Steward rules therefore require
+``@角色名`` for any “speak / welcome / reply in-group” ask; dispatch alone
+is not a substitute.
+
 Static facts (dept name, steward role, roster, hard rules) live here in the
 system prompt. Per-turn group timeline snippets stay on the user message —
 they change every send and must not fight the cached system prompt.
@@ -15,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-DEPT_GROUP_IM_OPEN = '<dept_group_im version="2">'
+DEPT_GROUP_IM_OPEN = '<dept_group_im version="3">'
 DEPT_GROUP_IM_CLOSE = "</dept_group_im>"
 
 _RE_DEPT_GROUP_IM = re.compile(
@@ -87,15 +92,22 @@ def build_dept_group_im_block(
         lines.extend(
             [
                 "何时 @（自主判断，宁缺毋滥）：",
-                "· 用户要某人出面/干活/表态，或你答不了、必须专人接手时："
+                "· 用户要某人出面说话/表态/写欢迎词/在群里接话，或你答不了、必须专人接手时："
                 "在同一条回复写「@角色名 + 具体交代」（可一次 @ 多人，每人一段）。"
-                "系统只认正文 @（以及工具 handlers 经前端镜像）。",
+                "系统只认正文 @（以及工具 handlers 经前端镜像）——只有这样群时间线才会叫醒对方、"
+                "对方的回复才会出现在本群。",
                 "· 打招呼、问好、寒暄、你能直接说清的进度/协调/澄清：自己回完即可，不要 @。",
                 "· 已经 @ 过的人不要再重复点名催一轮；不要让用户自己去 @。",
                 "硬规则：",
                 "1. 直接口语回群；不要问「要不要转到这儿」。",
-                "2. 可用 tasks / handlers 做实质流转时，同一条回复里仍要 @，群里才看得见。",
-                "3. 禁止只报任务号/派单号却不 @。",
+                "2. 【群内出面优先 @，禁止用派发代替】"
+                "「让他们说说 / 欢迎一下 / 表个态 / 回一句」这类要人在群里开口的请求，"
+                "只许正文 @，禁止改用 employees.dispatch / employees.wake / employees.chat_send / "
+                "「智能体员工岗位·派发」等后台派单。"
+                "派发会把人叫醒到私有岗会话，本群看不到对方说话。",
+                "3. 改提示词、改配置、跑长任务等后台活可以用 platform / dispatch；"
+                "但若同时还要对方在群里开口，同一条回复里仍必须 @。"
+                "禁止只报任务号/派单号却不 @，也禁止说「已经派给他们了」就当群内对话完成。",
                 "4. 【称呼】@ 与用户可见正文一律用岗位/角色名（花名册里的名字）。"
                 "禁止在对用户可见的句子里写 agent_code / 内部编码"
                 "（如 dev-backend、dev-fullstack）；工具入参可用编码，说话必须用人名。",
@@ -128,7 +140,10 @@ def build_dept_group_im_block(
         "硬规则：",
         "1. 直接口语回群；不要问「要不要转到这儿」；禁止把群聊当私聊收件箱。",
         "2. 真有派活才 @；没有派活就不要为了「礼貌」或「完整流程」硬 @。",
-        "3. 用 tasks / handlers 做实质流转时，同一条回复里仍要 @，群里才看得见；"
+        "3. 要别人在本群接着说/表态时，正文 @；"
+        "禁止改用 employees.dispatch / wake / chat_send 等后台派单代替群内点名"
+        "（派发进私有岗，本群看不见）。"
+        "用 tasks / handlers 做实质流转时，同一条回复里仍要 @，群里才看得见；"
         "禁止只报任务号/派单号却不 @。",
         "4. 【称呼】@ 与用户可见正文一律用岗位/角色名。"
         "禁止对用户说 agent_code / 内部编码（如 dev-backend）；工具里可用编码，嘴上必须用人名。",

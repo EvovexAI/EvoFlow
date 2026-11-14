@@ -233,7 +233,12 @@ def prepare_frozen_process_stdio() -> None:
 
 
 def reconfigure_stdio_utf8() -> None:
-    """Re-wrap stdout/stderr as UTF-8 with replacement on unmappable characters."""
+    """Re-wrap stdout/stderr as UTF-8 with replacement on unmappable characters.
+
+    Must ``detach()`` the old TextIOWrapper before wrapping the same buffer —
+    otherwise the old wrapper's ``__del__`` closes the shared fd (Tauri/Start-Process
+    stderr tee → ``ValueError: I/O operation on closed file`` / ``lost sys.stderr``).
+    """
     if os.name != "nt" or getattr(sys, "frozen", False):
         return
     for name in ("stdout", "stderr"):
@@ -242,9 +247,17 @@ def reconfigure_stdio_utf8() -> None:
             continue
         if _is_colorama_wrapped(stream):
             continue
+        enc = (getattr(stream, "encoding", None) or "").lower().replace("-", "")
+        if enc in {"utf8", "utf_8"} and (getattr(stream, "errors", None) or "") == "replace":
+            continue
         try:
+            buf = stream.buffer
+            try:
+                stream.detach()
+            except Exception:
+                pass
             wrapped = io.TextIOWrapper(
-                stream.buffer,
+                buf,
                 encoding="utf-8",
                 errors="replace",
                 line_buffering=True,
@@ -252,6 +265,92 @@ def reconfigure_stdio_utf8() -> None:
             setattr(sys, name, wrapped)
         except Exception:
             pass
+
+
+class _UnclosableStdio:
+    """Proxy that ignores ``close()`` so logging.shutdown / StreamHandler.close
+    cannot kill Tauri/Start-Process redirected stderr (lost sys.stderr)."""
+
+    __slots__ = ("_inner",)
+
+    def __init__(self, inner: TextIO) -> None:
+        object.__setattr__(self, "_inner", inner)
+
+    def close(self) -> None:
+        try:
+            self._inner.flush()
+        except Exception:
+            pass
+
+    def __getattr__(self, name: str):
+        return getattr(object.__getattribute__(self, "_inner"), name)
+
+    @property
+    def closed(self) -> bool:
+        return bool(getattr(self._inner, "closed", False))
+
+
+_stream_handler_close_patched = False
+
+
+def _stream_is_stdio(stream: object) -> bool:
+    if stream is None:
+        return False
+    if stream is sys.stdout or stream is sys.stderr:
+        return True
+    inner = getattr(stream, "_inner", None)
+    if inner is not None and (inner is sys.stdout or inner is sys.stderr):
+        return True
+    # Pre-wrap handler may still hold the raw TextIO / file object for fd 1/2.
+    try:
+        fd = stream.fileno()  # type: ignore[attr-defined]
+        if fd in (1, 2):
+            return True
+    except Exception:
+        pass
+    return False
+
+
+def shield_stdio_from_handler_close() -> None:
+    """Keep Tauri/Start-Process stderr tee alive across logging.shutdown / dictConfig.
+
+    Split LangGraph tees stderr to ``langgraph-stderr-*.log``. Uvicorn/langgraph
+    ``dictConfig`` shuts down handlers; ``StreamHandler.close()`` closes the tee
+    fd even when ``sys.stderr`` was already reassigned — handlers keep the old
+    stream ref. That yields ``ValueError: I/O operation on closed file`` /
+    ``lost sys.stderr`` during MCP/warm.
+    """
+    global _stream_handler_close_patched
+
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        if stream is None or isinstance(stream, _UnclosableStdio):
+            continue
+        try:
+            setattr(sys, name, _UnclosableStdio(stream))
+        except Exception:
+            pass
+
+    if _stream_handler_close_patched:
+        return
+    _orig_close = logging.StreamHandler.close
+
+    def _safe_close(self: logging.StreamHandler) -> None:  # type: ignore[override]
+        if _stream_is_stdio(getattr(self, "stream", None)):
+            try:
+                self.acquire()
+                try:
+                    if self.stream:
+                        self.stream.flush()
+                finally:
+                    self.release()
+            except Exception:
+                pass
+            return
+        return _orig_close(self)
+
+    logging.StreamHandler.close = _safe_close  # type: ignore[method-assign]
+    _stream_handler_close_patched = True
 
 
 def apply_windows_stdio_fixes(*, reconfigure: bool = True) -> None:

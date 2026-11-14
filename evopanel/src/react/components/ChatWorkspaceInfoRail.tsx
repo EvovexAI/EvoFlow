@@ -29,6 +29,7 @@ import {
   type DeptMemberLivePhase,
 } from '../lib/dept-group-live.js'
 import { openShellPageInRightStage } from '../../lib/right-stage/open-shell-page-stage.js'
+import { DeptGroupVoiceSettings } from './dept-group/DeptGroupVoiceSettings.js'
 import {
   ArtifactContextMenuPortal,
   type ArtifactContextMenuState,
@@ -2199,6 +2200,10 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
               </button>
             ) : null}
           </div>
+          <DeptGroupVoiceSettings
+            agentCode={selected.agent_code}
+            roleName={selected.role_name}
+          />
         </div>
       ) : null}
     </div>

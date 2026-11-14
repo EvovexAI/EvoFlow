@@ -354,11 +354,16 @@ async def langgraph_thread_usable(thread_id: str) -> bool:
 
 
 def _default_session_context(agent_id: str = "main") -> dict[str, Any]:
-    """Build initial session context. Uses the centralized resolver so that
-    the employee's own model (from AgentConfig) takes priority over the global
-    primary_model when creating a new chat."""
-    from evoflow.models.resolver import resolve_run_model
+    """Build initial session context for a new chat.
 
+    Do **not** stamp ``model_name`` here. That field is the runtime override tier
+    in :func:`evoflow.models.resolver.resolve_run_model`; writing the resolved
+    agent/global default into it freezes the create-time model forever, so later
+    Agent / primary model changes never take effect on the session.
+
+    Only snapshot ``primary_model_name`` for display/legacy; each run re-resolves
+    via agent config → live primary when ``model_name`` is unset.
+    """
     ctx: dict[str, Any] = {
         "session_mode": "agent",
         "thinking_type": "auto",
@@ -370,20 +375,11 @@ def _default_session_context(agent_id: str = "main") -> dict[str, Any]:
         "use_virtual_paths": False,
         "collab_phase": "idle",
     }
-    try:
-        model_name = resolve_run_model(
-            agent_code=agent_id,
-            cfg={},
-            require_configured=False,
-        )
-        if model_name:
-            ctx["model_name"] = model_name
-            ctx["primary_model_name"] = model_name
-    except Exception:
-        # Fall back to global primary (preserve original behaviour on errors)
-        primary = resolve_primary_model_name()
-        if primary:
-            ctx["primary_model_name"] = primary
+    # agent_id retained for callers / future stamps; model follows agent at run time.
+    _ = agent_id
+    primary = resolve_primary_model_name()
+    if primary:
+        ctx["primary_model_name"] = primary
     return ctx
 
 

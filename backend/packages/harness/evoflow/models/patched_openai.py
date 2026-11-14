@@ -182,6 +182,12 @@ class PatchedChatOpenAI(VendorRoundtripChatMixin, ChatOpenAI):
             reasoning_delta = delta.get("reasoning_content")
             if not (isinstance(reasoning_delta, str) and reasoning_delta):
                 return gen
+            # 语音/小V 已强制关思考：厂商若仍吐 reasoning_content，直接丢弃，
+            # 避免 UI「还在思考」且拖慢 TTS 开口。
+            if getattr(self, "_evoflow_thinking_enabled", None) is False and not (
+                str(getattr(self, "_evoflow_thinking_type", "") or "").strip().lower() == "auto"
+            ):
+                return gen
             msg = gen.message
             if not isinstance(msg, AIMessageChunk):
                 return gen

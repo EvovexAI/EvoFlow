@@ -896,17 +896,20 @@ export async function handleSend(
         void setVoiceTrayState('idle')
         console.error('[ChatApp] send failed', e)
         toast(toUserFacingError((e as Error)?.message || e), 'error')
-        rtSend.rows = preSendRows
+        // Transcript append usually finishes before POST /runs/stream. Rolling back to
+        // preSendRows + clearing pendingOptimistic makes the user bubble vanish while
+        // evoflow_chat_messages already has the row (503 LG unreachable →「消息莫名消失」).
+        // Keep sentRows + optimistic until V4 echo / ClearPendingOptimisticOnV4Echo.
+        rtSend.rows = sentRows
         rtSend.stream = emptyStream()
         rtSend.priorTurnStrip = { body: '', reasoning: '', toolIds: [] }
         dispatchSessionTurnEvent(sessionKey, { type: 'SEND_FAILED' })
         dispatchSessionRunEnded(sessionKey)
         clearSessionExecutionStateForEnded(sessionKey)
-        setPendingOptimisticUserText?.('')
         if (String(sessionRef.current || '').trim() === sessionKey) {
           streamRef.current = rtSend.stream
           streamRefKeyRef.current = sessionKey
-          setRows([...preSendRows])
+          setRows([...sentRows])
           setSessions((prev) => patchSessionListRunEnded(prev, sessionKey, { terminalStatus: 'fail' }))
           setLiveTurnAssistantRunId(null)
           setStreamHealth(null)

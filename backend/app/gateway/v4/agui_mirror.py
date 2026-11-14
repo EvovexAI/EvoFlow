@@ -1880,6 +1880,89 @@ def mirror_note_user_input(
         logger.exception("[v4-mirror] note_user_input failed thread=%s", thread_id)
 
 
+def mirror_ensure_transcript_user_input(
+    thread_id: str,
+    text: str,
+    *,
+    message_id: str | None = None,
+    origin: str = "realUser",
+) -> bool:
+    """Transcript POST 已落库时，立刻在 V4 投影补一条可见 userInput。
+
+    正常流式会由 ``note_user_input`` + RUN_STARTED 落行；若 POST /runs/stream
+    在 RUN_STARTED 前 503（LG unreachable），投影永远没有气泡，前端再清乐观
+    行就会「消息消失」。本函数在 append 成功后兜底，按 message_id / 尾部同文
+    去重，避免与随后 RUN_STARTED 双写。
+    """
+    if _MIRROR_DISABLED:
+        return False
+    tid = str(thread_id or "").strip()
+    raw = str(text or "").strip()
+    mid = str(message_id or "").strip()
+    if not tid or not raw:
+        return False
+    if _is_hidden_tool_approval_user_text(raw):
+        return False
+    if _is_hidden_duty_brief_user_text(raw):
+        return False
+    if _is_hidden_task_notification_user_text(raw) or _is_hidden_task_notification_message_id(mid):
+        return False
+    if _is_hidden_context_compaction_user_text(raw):
+        return False
+    try:
+        mirror = _get_mirror()
+        # Seed pending so a later RUN_STARTED can reuse (message_id) instead of double-append.
+        mirror.note_user_input(tid, raw, message_id=mid or None, origin=origin)
+        reusable = mirror._find_reusable_user_input_row(  # noqa: SLF001 — same-module helper
+            tid,
+            user_mid=mid,
+            user_text=raw,
+            prev_turn_id="",
+        )
+        if reusable is None:
+            # Tail same-text check (prev_turn_id empty skips text match in reusable helper).
+            sess = mirror._hub.get_session(tid)  # noqa: SLF001
+            if sess is not None and sess.rows:
+                for row in sorted(
+                    (r for r in sess.rows.values() if isinstance(r, dict)),
+                    key=lambda r: int(r.get("rowId") or 0),
+                    reverse=True,
+                ):
+                    if str(row.get("kind") or "") != "userInput":
+                        continue
+                    if str(row.get("origin") or "") not in ("", "realUser", "goalContinuation"):
+                        continue
+                    if mid and str(row.get("entityId") or "").strip() == mid:
+                        reusable = row
+                        break
+                    if str(row.get("text") or "").strip() == raw:
+                        reusable = row
+                        break
+                    # Only scan recent tail userInputs.
+                    break
+        if reusable is not None:
+            return False
+        now_ms = int(time.time() * 1000)
+        user_origin = origin if origin in ("realUser", "goalContinuation") else "realUser"
+        user_row: dict[str, Any] = {
+            "rowId": mirror._next_row_id(tid),  # noqa: SLF001
+            "turnId": f"transcript-{now_ms}",
+            "kind": "userInput",
+            "text": raw,
+            "origin": user_origin,
+            "createdAt": now_ms,
+            "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+            "actions": {"canEdit": True},
+        }
+        if mid:
+            user_row["entityId"] = mid
+        mirror._hub.author_append_row(tid, user_row)  # noqa: SLF001
+        return True
+    except Exception:
+        logger.exception("[v4-mirror] ensure_transcript_user_input failed thread=%s", tid)
+        return False
+
+
 def mirror_feed_agui_wire(thread_id: str, frames: list[bytes] | list[str]) -> int:
     """生产路径入口：AG-UI wire 帧批量喂镜像。失败只记日志，绝不抛出。"""
     if _MIRROR_DISABLED or not frames:
@@ -2178,6 +2261,7 @@ def mirror_channel_run_finished(thread_id: str, *, error: bool = False) -> None:
 __all__ = [
     "V4Mirror",
     "mirror_note_user_input",
+    "mirror_ensure_transcript_user_input",
     "mirror_feed_agui_wire",
     "mirror_reset_thread",
     "mirror_thread_is_live",

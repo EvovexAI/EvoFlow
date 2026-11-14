@@ -648,6 +648,19 @@ async function _startXiaomiFramePipelineInner(opts = {}) {
         `打断汇总 reason=${reason || '-'} 播报进行 ${_localBargeSpeakSince ? Math.max(0, Date.now() - _localBargeSpeakSince) : 0} ms 被取消句数=${xiaomiFrameLastTeardownCount()}` +
           ` 正在播「${(xiaomiFrameLastPlayingText() || '').slice(0, 40)}」`,
       )
+      // 软打断探测期：force unmute 后后端 VAD 常把喇叭回声当抢话 → 5ms 内 vad_barge。
+      // 探测期内只认 ASR/口令确认，忽略 vad（否则「自己打断自己」）。
+      if (reason === 'vad_barge_in' && (_softBargeProbing || isXiaomiFrameSoftPaused())) {
+        voiceDecisionLog('ignore_vad_during_soft_probe', {
+          reason,
+          phase: getVoicePhase(),
+          softProbing: _softBargeProbing,
+          softPaused: isXiaomiFrameSoftPaused(),
+        })
+        voiceFeLog('打断', '软打断探测中忽略 vad_barge（等 ASR 确认，防回声自打断）')
+        _refreshTray()
+        return
+      }
       // 相位门控：非 speaking 的 vad_barge 一律忽略（思考/聆听误触不 abort）
       const phaseBlockVad =
         reason === 'vad_barge_in' && !canAcceptVadBarge()
@@ -1329,11 +1342,14 @@ const LISTEN_QUIET_PEAK = 0.045
 const LISTEN_QUIET_NEED = 2
 
 // ─── 播报期本地音量打断（PCM 上行 hold 时 VAD 听不见，改看麦峰） ───
-const LOCAL_BARGE_THRESHOLD = 0.09
-const LOCAL_BARGE_WARMUP_MS = 700
-const LOCAL_BARGE_ECHO_MARGIN = 0.035
-const LOCAL_BARGE_HARD_VOL = 0.2
-const LOCAL_DUCK_TRIGGER = 3
+// 旧值 0.09/0.2：喇叭回声常达 peak≈0.15 + prior≈0.72 → 假软打断 → force unmute → vad_barge 自打断
+const LOCAL_BARGE_THRESHOLD = 0.14
+const LOCAL_BARGE_WARMUP_MS = 900
+const LOCAL_BARGE_ECHO_MARGIN = 0.06
+const LOCAL_BARGE_HARD_VOL = 0.32
+/** 先验分须够高才认「人声」；喇叭回声常见 ~0.7 */
+const LOCAL_BARGE_PRIOR_MIN = 0.82
+const LOCAL_DUCK_TRIGGER = 4
 /** duck 后立刻软暂停（旧值 10 帧常因先验变冷卡在「音量变小但不停」） */
 const LOCAL_DUCK_SUSTAIN = 1
 const LOCAL_DUCK_DECAY = 6
@@ -1504,17 +1520,17 @@ function _onLocalBargePeak(peak) {
     return
   }
   if (!_localDuckActive) _learnEchoFloor(peak)
-  const priorHot = isSpeechPriorHot()
+  const prior = getSpeechPriorDebug()
+  const priorHot = isSpeechPriorHot() && prior.score >= LOCAL_BARGE_PRIOR_MIN
   const energyCand = _isLocalBargeCandidate(peak)
-  // 能量候选但先验未热：只学 floor，不 duck（抑拍手/键盘假阳）
+  // 能量候选但先验未热：只学 floor，不 duck（抑拍手/键盘/喇叭回声假阳）
   const cand = energyCand && priorHot
   if (!_localDuckActive) {
     if (cand) {
       if (++_localBargeFrames >= LOCAL_DUCK_TRIGGER) {
         _localBargeFrames = 0
-        const prior = getSpeechPriorDebug()
         // 旧路径：先 duck 再等 sustain → 常卡在「音量变小但不停」。
-        // 现：先验热 + 能量够 → 直接软暂停并放麦听口令/抢话。
+        // 现：先验热 + 能量够 → 软暂停；放麦仅听 ASR/口令，vad_barge 在探测期忽略。
         _localBargeBusy = true
         _resetLocalBarge()
         duckXiaomiFramePlayback(0.22)

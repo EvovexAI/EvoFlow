@@ -173,6 +173,93 @@ def is_proactive_session_key(session_key: str | None) -> bool:
     return str(session_key or "").strip().startswith("proactive:")
 
 
+def apply_role_thinking_to_run_cfg(cfg: dict[str, Any] | None) -> None:
+    """Fill ``thinking_*`` from the employee role when the session did not pin it.
+
+    The employee rail toggle writes ``role.config.thinking_enabled`` (岗位偏好).
+    Duty/patrol runs already inject it via ``proactive.engine``. Interactive
+    paths (1:1 sticky, **dept group** ``proactive:{code}:chat:dept-…``) often
+    omit ``thinking_enabled`` / ``thinking_type`` → model ``default_mode=enabled``
+    re-opens thinking and the rail switch looks broken.
+
+    Precedence: if the run already set ``thinking_enabled`` or ``thinking_type``,
+    leave it alone. Otherwise, when the role has an explicit bool, pin
+    ``thinking_type=manual`` so model defaults cannot override.
+    """
+    if not isinstance(cfg, dict):
+        return
+    if cfg.get("thinking_enabled") is not None:
+        return
+    if str(cfg.get("thinking_type") or "").strip():
+        return
+
+    code = str(
+        cfg.get("proactive_agent_code") or cfg.get("agent_id") or cfg.get("agent_name") or ""
+    ).strip()
+    sk = str(cfg.get("session_key") or "").strip()
+    if not code and sk and is_proactive_session_key(sk):
+        code = proactive_agent_code_from_session_key(sk)
+    if not code or is_non_employee_session_code(code):
+        return
+    try:
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        role = ProactiveRepository.get_role(code)
+    except Exception:
+        return
+    if role is None:
+        return
+    te = getattr(getattr(role, "config", None), "thinking_enabled", None)
+    if te is None:
+        return
+    on = bool(te)
+    cfg["thinking_enabled"] = on
+    cfg["thinking_type"] = "manual"
+    cfg["reasoning_effort"] = "medium" if on else "minimum"
+
+
+def apply_role_model_to_run_cfg(cfg: dict[str, Any] | None) -> None:
+    """Fill ``model_name`` from the employee role when the session did not pin it.
+
+    BOT 页「工作/执行模型」写在 ``role.config.model_name``。值班轮已由
+    ``proactive.engine`` 注入；交互会话（新开对话 / 群聊 sticky）常省略
+    ``model_name`` → 回落到智能体/全局默认，UI 与真跑模型都对不上岗位配置。
+
+    Precedence: existing ``model_name`` / ``model`` wins. Empty / ``default``
+    counts as unset (same as ``resolve_run_model``).
+    """
+    if not isinstance(cfg, dict):
+        return
+    for key in ("model_name", "model"):
+        raw = cfg.get(key)
+        if raw is None:
+            continue
+        text = str(raw).strip()
+        if text and text.lower() != "default":
+            return
+
+    code = str(
+        cfg.get("proactive_agent_code") or cfg.get("agent_id") or cfg.get("agent_name") or ""
+    ).strip()
+    sk = str(cfg.get("session_key") or "").strip()
+    if not code and sk and is_proactive_session_key(sk):
+        code = proactive_agent_code_from_session_key(sk)
+    if not code or is_non_employee_session_code(code):
+        return
+    try:
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        role = ProactiveRepository.get_role(code)
+    except Exception:
+        return
+    if role is None:
+        return
+    model = str(getattr(getattr(role, "config", None), "model_name", None) or "").strip()
+    if not model or model.lower() == "default":
+        return
+    cfg["model_name"] = model
+
+
 # Session keys owned by an IM channel instance look like ``agent:{code}:{channel}:{chat}``
 # (shared/primary bot) while employee-panel runs use ``proactive:{code}:...``.
 # Employee deletion must sweep BOTH, otherwise Feishu chats of a deleted employee

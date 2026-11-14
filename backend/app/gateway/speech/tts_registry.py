@@ -305,11 +305,13 @@ def synthesize_tts(
     speaker: str | None = None,
     preview: bool = False,
     creds: dict[str, Any] | None = None,
+    speech_rate: int | None = None,
 ) -> tuple[bytes, str]:
     """Synchronous (non-streaming) TTS — returns (audio_bytes, used_speaker).
 
     For streaming-capable providers this accumulates the stream.  For
     MiniMax/DashScope (non-streaming) it calls their native synthesize.
+    ``speech_rate`` only applies to volcengine/doubao.
     """
     prov = _resolve_provider(provider)
     creds = creds if creds is not None else _get_creds()
@@ -317,10 +319,14 @@ def synthesize_tts(
     voice = (speaker or "").strip()
 
     if prov in ("volcengine", "doubao"):
-        # Reuse existing volcengine implementation (unchanged signature).
         from app.gateway.speech.volcengine_speech import synthesize_speech_v3
 
-        audio, used = synthesize_speech_v3(text, speaker=voice or None, preview=preview)
+        audio, used = synthesize_speech_v3(
+            text,
+            speaker=voice or None,
+            preview=preview,
+            speech_rate=speech_rate,
+        )
         return audio, used
 
     if prov == "dashscope":

@@ -1326,6 +1326,48 @@ async def append_session_message(request: Request, session_key: str, body: Appen
         raise HTTPException(status_code=422, detail=str(e)) from e
     if result is None:
         return {"ok": True, "skipped": True, "messageCount": await run_db(msg_repo.count_messages, key)}
+    # User transcript landed before /runs/stream. Mirror a visible V4 userInput now so a
+    # subsequent LG 503 does not leave the timeline without the bubble (FE also keeps
+    # optimistic; this covers switch-away / refresh before RUN_STARTED).
+    if str(body.role or "").strip().lower() == "user":
+        try:
+            tid = str(body.threadId or (result or {}).get("threadId") or "").strip()
+            if not tid:
+                row = (await run_db(sess_repo.load_session_map) or {}).get(key) or {}
+                tid = str(row.get("threadId") or "").strip()
+            text = ""
+            if isinstance(body.content, str):
+                text = body.content.strip()
+            elif isinstance(body.contentJson, dict):
+                cj = body.contentJson
+                raw_c = cj.get("text")
+                if isinstance(raw_c, str) and raw_c.strip():
+                    text = raw_c.strip()
+                else:
+                    blocks = cj.get("content") if isinstance(cj.get("content"), list) else cj.get("blocks")
+                    if isinstance(blocks, list):
+                        parts = []
+                        for b in blocks:
+                            if isinstance(b, str) and b.strip():
+                                parts.append(b.strip())
+                            elif isinstance(b, dict):
+                                t = str(b.get("text") or "").strip()
+                                if t and str(b.get("type") or "text") in ("", "text"):
+                                    parts.append(t)
+                        text = "\n".join(parts).strip()
+                    elif isinstance(cj.get("content"), str):
+                        text = str(cj.get("content") or "").strip()
+            if tid and text:
+                from app.gateway.v4.agui_mirror import mirror_ensure_transcript_user_input
+
+                mirror_ensure_transcript_user_input(
+                    tid,
+                    text,
+                    message_id=str(body.messageId or (result or {}).get("messageId") or "").strip()
+                    or None,
+                )
+        except Exception:
+            logger.debug("append_session_message v4 userInput mirror skipped", exc_info=True)
     return {"ok": True, **result}
 
 

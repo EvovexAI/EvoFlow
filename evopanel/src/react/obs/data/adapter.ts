@@ -211,7 +211,7 @@ export function apiModelListRowToRequestRecord(row: Record<string, unknown>): Re
   const base = apiRecentToRequestRecord({
     id: String(row.id || ''),
     status: statusRaw as ObsRecentRequest['status'],
-    agent_label: String(row.invocation_kind || row.model || '主对话 Agent'),
+    agent_label: String(row.agent_label || row.invocation_kind || '主对话'),
     model: String(row.model || '—'),
     provider: displayProviderName(String(row.provider || '—'), String(row.model || '')),
     latency_ms: (row.latency_ms as number | null) ?? null,

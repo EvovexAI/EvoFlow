@@ -613,7 +613,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.agents_create,
             "建个文案助手用 capability_pack=writer",
         ),
-        _A("agents.update", "agents", "更新智能体配置", "write", "name + 要改的字段", H.agents_update, "给文案助手换模型"),
+        _A(
+            "agents.update",
+            "agents",
+            "更新智能体配置",
+            "write",
+            "name + 要改的字段（含 tts_speaker / tts_speech_rate 声线）",
+            H.agents_update,
+            "给文案助手换模型；或改 tts_speaker / tts_speech_rate",
+        ),
         _A(
             "agents.delete",
             "agents",

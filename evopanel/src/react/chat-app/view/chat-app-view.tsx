@@ -62,7 +62,7 @@ import { MemoryRecallChip } from '../../components/MemoryRecallChip.js'
 import { ImagePreviewModal, type ImagePreviewItem } from '../../components/ImagePreviewModal.js'
 import { TauriWindowControls } from '../../components/TauriWindowControls.js'
 import { HoverBubble, HoverBubbleProvider } from '../../components/HoverBubble.js'
-import { ChatHeaderHelpMenu } from './header-chrome.js'
+import { ChatHeaderHelpMenu, renderSessionHistoryRefreshButton } from './header-chrome.js'
 
 export type ChatAppViewCtx = Record<string, any>
 
@@ -104,6 +104,7 @@ let _v4PrevTurnLive = false
 export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
   /* 语音全屏模式：html[data-xw-voice='1'] 时由 CSS 接管整窗（左语音域/右标签区） */
   const [xwVoiceOn, setXwVoiceOn] = useState(() => isXwVoiceMode())
+  const [historyRefreshBusy, setHistoryRefreshBusy] = useState(false)
   useEffect(() => subscribeXwVoiceMode(setXwVoiceOn), [])
   const {
     activateRightStageTab,
@@ -425,6 +426,22 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     wsClient,
   ])
 
+  const sessionHistoryRefreshButton =
+    !isHomeSurface && !isDeptChatSurface && String(selectedSessionKey || '').trim()
+      ? renderSessionHistoryRefreshButton({
+          busy: historyRefreshBusy,
+          disabled: !String(selectedSessionKey || '').trim(),
+          onRefresh: () => {
+            const sk = String(selectedSessionKey || '').trim()
+            if (!sk || historyRefreshBusy) return
+            setHistoryRefreshBusy(true)
+            void Promise.resolve(onShellRefreshSession(sk))
+              .catch(() => {})
+              .finally(() => setHistoryRefreshBusy(false))
+          },
+        })
+      : null
+
   return (
     <HoverBubbleProvider>
     <div
@@ -493,6 +510,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   </span>
                 </div>
                 <div className="react-chat-header-right react-chat-header-right--mobile">
+                  {sessionHistoryRefreshButton}
                   {isDesktopTauriRuntime() ? (
                     <>
                       <span className="react-chat-header-win-sep" aria-hidden="true" />
@@ -541,6 +559,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     {workspaceFolderGroup}
                     <span className="react-chat-header-action-sep" aria-hidden />
                     <div className="react-chat-header-action-group react-chat-header-action-group--global">
+                      {sessionHistoryRefreshButton}
                       {browserToggleButton}
                       {infoRailHeaderToggle}
                       <ChatHeaderHelpMenu />
@@ -604,6 +623,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   </div>
                   <span className="react-chat-header-action-sep" aria-hidden />
                   <div className="react-chat-header-action-group react-chat-header-action-group--global">
+                  {sessionHistoryRefreshButton}
                   {browserToggleButton}
                   {workspaceFolderToggleButton}
                   <ChatHeaderHelpMenu />

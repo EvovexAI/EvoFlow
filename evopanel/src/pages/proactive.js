@@ -934,7 +934,7 @@ function renderModelField(models, selected = '') {
         </ul>
         <input type="hidden" data-name="model_name" value="${esc(cur)}">
       </div>
-      <p class="hire-chip-hint">仅作用于该岗位的自动巡检与执行；留空则跟随绑定智能体的默认模型</p>
+      <p class="hire-chip-hint">作用于该岗位对话与自动巡检；留空则跟随绑定智能体的默认模型</p>
     </div>`
 }
 

@@ -69,6 +69,56 @@ def _kind_to_agent_label(kind: str) -> str:
     return kind_map.get(kind, kind or "—")
 
 
+def _session_agent_label_for_thread(thread_id: str | None) -> str | None:
+    """Resolve the chat agent display name for a LangGraph thread (best-effort)."""
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    try:
+        from evoflow.persistence import session_repositories as sess_repo
+
+        sk = sess_repo.find_session_key_by_thread_id(tid)
+        if not sk:
+            return None
+        row = sess_repo.load_session_map().get(sk) or {}
+        ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
+        code = (
+            str(row.get("agentId") or row.get("agent_id") or "").strip()
+            or str(ctx.get("agent_id") or "").strip()
+            or str(ctx.get("agent_name") or "").strip()
+        )
+        if not code:
+            return None
+        code_l = code.lower()
+        if code_l == "xiaomi" or ctx.get("xiaomi_global_assistant") in (True, "true", 1, "1"):
+            return "小V"
+        if code_l == "main":
+            return "EvoFlow"
+        if code_l == "claude-code":
+            return "代码助手"
+        try:
+            from evoflow.config.agents_config import load_agent_config
+
+            agent = load_agent_config(code)
+            name = str(getattr(agent, "agent_name", None) or "").strip() if agent else ""
+            if name:
+                return name
+        except Exception:
+            pass
+        try:
+            from evoflow.proactive.employee_prompting.identity import load_role_for_code
+
+            role = load_role_for_code(code)
+            rn = str(getattr(role, "role_name", None) or "").strip() if role is not None else ""
+            if rn:
+                return rn
+        except Exception:
+            pass
+        return code
+    except Exception:
+        return None
+
+
 def fetch_agents_summary(
     *,
     since_hours: float | None = 168,
@@ -741,7 +791,11 @@ def enrich_recent_request_row(row: dict[str, Any]) -> dict[str, Any]:
     kind = str(row.get("invocation_kind") or "main").strip() or "main"
     model = str(row.get("model") or "").strip()
     provider = normalize_stored_provider(str(row.get("provider") or "").strip() or None, model=model)
-    agent_label = kind if kind != "main" else (model or "主对话 Agent")
+    # Agent column = who ran the turn (session agent / kind), never the model name.
+    if kind == "main":
+        agent_label = _session_agent_label_for_thread(row.get("thread_id")) or "主对话"
+    else:
+        agent_label = _kind_to_agent_label(kind)
     status = _infer_row_status(
         response_json=row.get("response_json"),
         latency_ms=float(latency) if latency is not None else None,

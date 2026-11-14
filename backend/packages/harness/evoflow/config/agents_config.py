@@ -528,6 +528,8 @@ class AgentConfig(BaseModel):
     avatar_meta: dict[str, Any] | None = None
     # Optional Volcengine TTS voice_type（会议室/语音播报；空则前端按 agent 哈希分配）
     tts_speaker: str | None = None
+    # Optional Volcengine audio_params.speech_rate（-50..100；空则用网关默认）
+    tts_speech_rate: int | None = None
 
     @model_validator(mode="before")
     @classmethod

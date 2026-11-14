@@ -70,6 +70,37 @@ export function renderInfoRailHeaderToggle(ctx: {
   )
 }
 
+/** 当前会话：从 DB 重拉历史（多轮错乱 / 误停后对账） */
+export function renderSessionHistoryRefreshButton(ctx: {
+  disabled?: boolean
+  busy?: boolean
+  onRefresh: () => void
+}): ReactNode {
+  const busy = !!ctx.busy
+  const title = busy ? '正在刷新对话…' : '刷新对话历史'
+  return (
+    <button
+      type="button"
+      className={`react-chat-header-icon-btn react-chat-header-history-refresh-btn${
+        busy ? ' is-refreshing' : ''
+      }`}
+      title={title}
+      aria-label={title}
+      disabled={!!ctx.disabled || busy}
+      data-tauri-no-drag=""
+      onClick={() => {
+        if (busy || ctx.disabled) return
+        ctx.onRefresh()
+      }}
+    >
+      <RefreshCw
+        className={`react-chat-header-icon${busy ? ' animate-spin' : ''}`}
+        aria-hidden
+      />
+    </button>
+  )
+}
+
 export function renderWorkspaceFolderToggleButton(ctx: {
   workspaceStageActive: boolean
   workspacePanelOpen: boolean

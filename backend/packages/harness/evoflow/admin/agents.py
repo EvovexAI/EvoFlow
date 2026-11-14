@@ -277,6 +277,8 @@ def _agent_row(
         "tags": _agent_tags(agent_cfg),
         "avatar": agent_cfg.avatar,
         "avatar_meta": agent_cfg.avatar_meta,
+        "tts_speaker": getattr(agent_cfg, "tts_speaker", None),
+        "tts_speech_rate": getattr(agent_cfg, "tts_speech_rate", None),
     }
     if is_main:
         row["tools_note"] = "tools 含配置白名单；lead(main) 运行时始终可用 platform"
@@ -866,6 +868,23 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
             config_data["avatar"] = _validate_avatar_value(data["avatar"])
         else:
             config_data["avatar"] = None
+    if "tts_speaker" in data:
+        raw_voice = data.get("tts_speaker")
+        config_data["tts_speaker"] = (
+            str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
+        )
+    if "tts_speech_rate" in data:
+        raw_rate = data.get("tts_speech_rate")
+        if raw_rate is None or raw_rate == "":
+            config_data["tts_speech_rate"] = None
+        else:
+            try:
+                rate = int(raw_rate)
+            except (TypeError, ValueError) as e:
+                raise ValidationError("tts_speech_rate must be an integer (-50..100)") from e
+            if rate < -50 or rate > 100:
+                raise ValidationError("tts_speech_rate must be in -50..100")
+            config_data["tts_speech_rate"] = rate
 
     save_agent_config(normalized, config_data)
     if "soul" in data and data["soul"] is not None:
@@ -1078,6 +1097,23 @@ def _update_main_agent(data: dict[str, Any]) -> dict[str, Any]:
                 existing[key] = val
     if "skills" in data:
         existing["skills"] = _validate_skills_list(data["skills"])
+    if "tts_speaker" in data:
+        raw_voice = data.get("tts_speaker")
+        existing["tts_speaker"] = (
+            str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
+        )
+    if "tts_speech_rate" in data:
+        raw_rate = data.get("tts_speech_rate")
+        if raw_rate is None or raw_rate == "":
+            existing["tts_speech_rate"] = None
+        else:
+            try:
+                rate = int(raw_rate)
+            except (TypeError, ValueError) as e:
+                raise ValidationError("tts_speech_rate must be an integer (-50..100)") from e
+            if rate < -50 or rate > 100:
+                raise ValidationError("tts_speech_rate must be in -50..100")
+            existing["tts_speech_rate"] = rate
 
     existing["agent_code"] = "main"
     # ``main`` is the lead session agent; keep its tag list empty.

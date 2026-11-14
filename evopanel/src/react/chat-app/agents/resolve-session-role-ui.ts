@@ -72,6 +72,10 @@ export function resolveCurrentRoleLabel(ctx: ResolveSessionRoleUiCtx): string {
 export function resolveAgentDefaultModelName(ctx: ResolveSessionRoleUiCtx): string {
   const code = String(ctx.currentRoleCodeForUi || '').trim().toLowerCase()
   if (!code) return ''
+  // 员工岗位「工作/执行模型」优先于绑定智能体默认（BOT 页改模型 → 新对话药丸应对上）
+  const roleModel = String(ctx.employeeRoleModelName || '').trim()
+  const roleCode = String(ctx.employeeRoleAgentCode || '').trim().toLowerCase()
+  if (roleModel && (!roleCode || roleCode === code)) return roleModel
   const row = ctx.agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code)
   return String(row?.model || '').trim()
 }

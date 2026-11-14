@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
-import { Loader2, Send, X } from 'lucide-react'
+import { Loader2, Send, Square, Volume2, VolumeX, X } from 'lucide-react'
 import { api, getGatewayBaseUrl } from '../../lib/tauri-api.js'
 import {
   ensureMeReady,
@@ -81,6 +81,17 @@ import {
 } from './HomeOrgCommandBoard.js'
 import { EmployeeStageAvatar } from './EmployeeStageAvatar.js'
 import { DeptAvatar } from './DeptAvatar.js'
+import {
+  enableDeptGroupTtsFromUserGesture,
+  isDeptGroupTtsMuted,
+  markDeptGroupTtsBaseline,
+  pauseDeptGroupTts,
+  stopDeptGroupTts,
+  subscribeDeptGroupTtsUtterance,
+  syncDeptGroupTts,
+  toggleDeptGroupTtsMuted,
+} from '../lib/dept-group-tts.js'
+import { DEPT_GROUP_TTS_AGENTS_CHANGED } from '../lib/dept-group-tts-agents.js'
 
 export type GroupChatMsg = {
   id: string
@@ -431,6 +442,15 @@ export function HomeDeptGroupChat({
   )
   /** 成员资料卡：点头像弹身份信息（过程/对话/编辑收进卡内动作） */
   const [profile, setProfile] = useState<{ person: HomeCmdPerson; x: number; y: number } | null>(null)
+  /** 群播报静音（localStorage）；默认开麦 */
+  const [ttsMuted, setTtsMuted] = useState(() => isDeptGroupTtsMuted())
+  const [ttsUtterance, setTtsUtterance] = useState<{ key: string; code: string; text: string } | null>(
+    null,
+  )
+  /** 历史基线已打上：才允许播「之后」的新定稿 */
+  const [ttsBaselineReady, setTtsBaselineReady] = useState(false)
+  /** agent 配置（音色/语速）供播报泵解析 */
+  const [ttsAgents, setTtsAgents] = useState<unknown[]>([])
   /** 与左下角账号芯片同源：displayName / 头像 */
   const [selfMe, setSelfMe] = useState<unknown>(() => getCachedMe())
   const [selfGatewayBase, setSelfGatewayBase] = useState('')
@@ -444,6 +464,75 @@ export function HomeDeptGroupChat({
   rosterRef.current = roster
   deptNameRef.current = dept.name
   msgsRef.current = msgs
+
+  useEffect(() => {
+    return subscribeDeptGroupTtsUtterance((u) => setTtsUtterance(u))
+  }, [])
+
+  const reloadTtsAgents = useCallback(async () => {
+    try {
+      const list = await api.listAgentsDetailed()
+      const agents = Array.isArray(list?.agents) ? list.agents : []
+      const normalized = agents.map((a: Record<string, unknown>) => ({
+        ...a,
+        agent_code: String(a.agent_code || a.name || '').trim(),
+      }))
+      setTtsAgents(normalized)
+      return normalized
+    } catch {
+      setTtsAgents([])
+      return []
+    }
+  }, [])
+
+  useEffect(() => {
+    void reloadTtsAgents()
+  }, [dept.id, reloadTtsAgents])
+
+  // 成员卡 / 平台改完声线 → 立刻重拉，下一句定稿用新配置
+  useEffect(() => {
+    const onChanged = () => {
+      void reloadTtsAgents()
+    }
+    window.addEventListener(DEPT_GROUP_TTS_AGENTS_CHANGED, onChanged)
+    const onVis = () => {
+      if (!document.hidden) void reloadTtsAgents()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    // 平台工具改配置时不一定有前端事件：开麦期间轻量轮询
+    const timer = window.setInterval(() => {
+      if (!isDeptGroupTtsMuted()) void reloadTtsAgents()
+    }, 20000)
+    return () => {
+      window.removeEventListener(DEPT_GROUP_TTS_AGENTS_CHANGED, onChanged)
+      document.removeEventListener('visibilitychange', onVis)
+      window.clearInterval(timer)
+    }
+  }, [reloadTtsAgents])
+
+  useEffect(() => {
+    void syncDeptGroupTts({
+      deptId: dept.id,
+      open: true,
+      messages: msgs.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        agentCode: m.agentCode,
+        text: m.text,
+        streaming: m.streaming,
+        error: m.error,
+        ts: m.ts,
+      })),
+      agents: ttsAgents as Array<{ agent_code?: string }>,
+    })
+  }, [dept.id, msgs, ttsAgents, ttsBaselineReady])
+
+  useEffect(() => {
+    return () => {
+      // 只停播，spoken 留在 sessionStorage，避免重进同群把历史再念一遍
+      pauseDeptGroupTts()
+    }
+  }, [dept.id])
 
   useEffect(() => {
     let cancelled = false
@@ -518,6 +607,7 @@ export function HomeDeptGroupChat({
     setDraft('')
     setThreadCode(null)
     setThreadLines([])
+    setTtsBaselineReady(false)
     const deptId = dept.id
     const deptName = dept.name
     let cancelled = false
@@ -554,9 +644,27 @@ export function HomeDeptGroupChat({
           const backfill = recovered.filter((m) => !localIds.has(m.id))
           return [...backfill, ...prev]
         })
+        // 历史打基线：只 seed DB 回填，不要把加载窗口内新定稿的本地气泡一并标成已播
+        markDeptGroupTtsBaseline(
+          recovered.map((m) => ({
+            id: m.id,
+            kind: m.kind,
+            agentCode: m.agentCode,
+            text: m.text,
+            streaming: m.streaming,
+            error: m.error,
+            ts: m.ts,
+          })),
+          deptId,
+        )
+        if (!cancelled && aliveRef.current) setTtsBaselineReady(true)
       })
       .catch(() => {
-        /* keep empty */
+        // 历史失败也要开基线，否则永远不播新消息
+        if (!cancelled && aliveRef.current) {
+          markDeptGroupTtsBaseline([], deptId)
+          setTtsBaselineReady(true)
+        }
       })
     void loadDeptGroupAuditTrail(deptId, { limit: 200, deptName })
       .then((trail) => {
@@ -1463,6 +1571,18 @@ export function HomeDeptGroupChat({
   const handleSend = async () => {
     const text = draft.trim()
     if (!text || sending) return
+    enableDeptGroupTtsFromUserGesture(
+      msgsRef.current.map((m) => ({
+        id: m.id,
+        kind: m.kind,
+        agentCode: m.agentCode,
+        text: m.text,
+        streaming: m.streaming,
+        error: m.error,
+        ts: m.ts,
+      })),
+    )
+    setTtsMuted(isDeptGroupTtsMuted())
     const mentioned = parseMentions(text, roster)
     const goal = stripLeadingMentions(text, mentioned)
     const { targets, viaSteward } = resolveDeptGroupWakeTargets(mentioned, dept.name)
@@ -1642,8 +1762,64 @@ export function HomeDeptGroupChat({
               </div>
               <p className="dept-im__sub">
                 {dept.head_role_name ? `负责人 ${dept.head_role_name}` : '部门群聊'}
+                {!ttsMuted && ttsUtterance?.code ? (
+                  <>
+                    {' · '}
+                    <span className="dept-im__tts-hint">
+                      正在播 ·{' '}
+                      {roster.find((p) => p.agent_code === ttsUtterance.code)?.role_name ||
+                        ttsUtterance.code}
+                    </span>
+                  </>
+                ) : null}
               </p>
             </div>
+            {ttsUtterance && !ttsMuted ? (
+              <button
+                type="button"
+                className="dept-im__tts-btn is-on"
+                title="停止当前播报"
+                aria-label="停止当前播报"
+                onClick={() => {
+                  stopDeptGroupTts()
+                  setTtsUtterance(null)
+                }}
+              >
+                <Square size={16} strokeWidth={2} fill="currentColor" />
+              </button>
+            ) : null}
+            <button
+              type="button"
+              className={`dept-im__tts-btn${!ttsMuted ? ' is-on' : ''}`}
+              title={ttsMuted ? '开启语音播报' : '静音语音播报（停播且不自动续播）'}
+              aria-pressed={!ttsMuted}
+              aria-label={ttsMuted ? '开启语音播报' : '静音语音播报'}
+              onClick={() => {
+                const snapshot = msgsRef.current.map((m) => ({
+                  id: m.id,
+                  kind: m.kind,
+                  agentCode: m.agentCode,
+                  text: m.text,
+                  streaming: m.streaming,
+                  error: m.error,
+                  ts: m.ts,
+                }))
+                const nextMuted = toggleDeptGroupTtsMuted(snapshot)
+                setTtsMuted(nextMuted)
+                if (!nextMuted) {
+                  void reloadTtsAgents().then((agents) => {
+                    void syncDeptGroupTts({
+                      deptId: dept.id,
+                      open: true,
+                      messages: snapshot,
+                      agents: agents as Array<{ agent_code?: string }>,
+                    })
+                  })
+                }
+              }}
+            >
+              {ttsMuted ? <VolumeX size={18} strokeWidth={1.75} /> : <Volume2 size={18} strokeWidth={1.75} />}
+            </button>
           </header>
         ) : (
           <>

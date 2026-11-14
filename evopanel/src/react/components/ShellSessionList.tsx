@@ -71,6 +71,7 @@ import {
   ShellChevronIcon,
   ShellFolderPlusIcon,
   ShellRefreshIcon,
+  ShellStopIcon,
   ShellWorkspaceIcon,
   ShellHashIcon,
   ShellFolderIcon,
@@ -355,6 +356,8 @@ export function ShellSessionList({
   const [titleEditKey, setTitleEditKey] = useState('')
   /** 点击「刷新会话列表」按钮后的刷新中状态（列表未变化时给可见反馈） */
   const [refreshing, setRefreshing] = useState(false)
+  /** 员工组头「刷新」进行中的 agent_code（小写） */
+  const [employeeRefreshingLc, setEmployeeRefreshingLc] = useState('')
   const [wsMenuOpen, setWsMenuOpen] = useState(false)
   /** chats = 普通对话；employees = 智能体员工；depts = 部门群聊 */
   const [listTab, setListTab] = useState<'chats' | 'employees' | 'depts'>(() => {
@@ -1081,8 +1084,15 @@ export function ShellSessionList({
     if (archivedKeys.size === 0) return [] as ShellSidebarSyncRow[]
     return rows
       .filter((r) => archivedKeys.has(String(r.sessionKey || '')))
+      // 任务 Tab 归档区同样不掺部门群 / 员工岗（BOT Tab 用 employeeSessionRows，不走这里）
+      .filter((r) => {
+        if (isEmployeesTab) return true
+        if (r.workspaceKey === WORKSPACE_GROUP_PROACTIVE) return false
+        if (isDeptChatSessionKey(r.sessionKey)) return false
+        return true
+      })
       .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
-  }, [rows, archivedKeys])
+  }, [rows, archivedKeys, isEmployeesTab])
 
   /** 「移到顶部」排序位次：sessionKey → 标记顺序 */
   const toppedRankMap = useMemo(() => {
@@ -1168,6 +1178,54 @@ export function ShellSessionList({
       onSelectSession(sk)
     },
     [onSelectSession],
+  )
+
+  /** 刷新某员工：花名册 + 会话列表；若当前正打开其会话则一并刷历史 */
+  const refreshEmployeeGroup = useCallback(
+    async (agentCode: string, rows: ShellSidebarSyncRow[]) => {
+      const code = String(agentCode || '').trim()
+      if (!code) return
+      const lc = code.toLowerCase()
+      if (employeeRefreshingLc === lc) return
+      setEmployeeRefreshingLc(lc)
+      try {
+        await Promise.all([
+          Promise.resolve(onRefreshEmployeeRoles?.()).catch(() => {}),
+          Promise.resolve(onRefreshSessionList()).catch(() => {}),
+        ])
+        const selected = String(selectedSessionKey || '').trim()
+        if (!selected) return
+        const ownsSelected =
+          rows.some((r) => String(r.sessionKey || '') === selected) ||
+          employeeOwnerCodeFromSession({ sessionKey: selected } as ShellSidebarSyncRow)
+            .toLowerCase() === lc ||
+          proactiveAgentCodeFromSessionKey(selected).toLowerCase() === lc
+        if (ownsSelected) onRefreshSession(selected)
+      } finally {
+        setEmployeeRefreshingLc((prev) => (prev === lc ? '' : prev))
+      }
+    },
+    [
+      employeeRefreshingLc,
+      onRefreshEmployeeRoles,
+      onRefreshSessionList,
+      onRefreshSession,
+      selectedSessionKey,
+    ],
+  )
+
+  const stopEmployeeGroup = useCallback(
+    (rows: ShellSidebarSyncRow[]) => {
+      const keys = new Set<string>()
+      for (const row of rows) {
+        const sk = String(row.sessionKey || '').trim()
+        if (!sk) continue
+        if (row.executing || runningSessionMap?.[sk]) keys.add(sk)
+      }
+      for (const sk of keys) onStopSession(sk)
+      if (keys.size) toast(`已请求停止 ${keys.size} 个会话`, 'info')
+    },
+    [onStopSession, runningSessionMap],
   )
 
   /** 员工 Tab：会话 ∪ 雇佣花名册；默认编制序，拖拽偏好覆盖 */
@@ -1275,6 +1333,13 @@ export function ShellSessionList({
     return employeeGroups.flatMap((g) => g.sessions)
   }, [isEmployeesTab, employeeGroups, focusedEmployeeCode])
 
+  /** 「任务」Tab 不展示员工岗 / 部门群（后两者各自有 BOT、部门 Tab） */
+  const isChatsTabListRow = useCallback((r: ShellSidebarSyncRow) => {
+    if (r.workspaceKey === WORKSPACE_GROUP_PROACTIVE) return false
+    if (isDeptChatSessionKey(r.sessionKey)) return false
+    return true
+  }, [])
+
   const pinnedRows = useMemo(() => {
     if (isEmployeesTab) {
       return employeeSessionRows
@@ -1292,13 +1357,19 @@ export function ShellSessionList({
         if (po !== 0) return po
         return Number(b.updatedAt || 0) - Number(a.updatedAt || 0)
       })
-    list = list.filter((r) => r.workspaceKey !== WORKSPACE_GROUP_PROACTIVE)
+    list = list.filter(isChatsTabListRow)
     if (focusedWorkspaceKey) {
       const nk = normalizePinKey(focusedWorkspaceKey)
       list = list.filter((r) => normalizePinKey(r.workspaceKey) === nk)
     }
     return list
-  }, [nonArchivedRows, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows])
+  }, [
+    nonArchivedRows,
+    focusedWorkspaceKey,
+    isEmployeesTab,
+    employeeSessionRows,
+    isChatsTabListRow,
+  ])
 
   const pinnedKeySet = useMemo(
     () => new Set(pinnedRows.map((r) => String(r.sessionKey || ''))),
@@ -1316,13 +1387,21 @@ export function ShellSessionList({
       )
     }
     let list = nonArchivedRows.filter((r) => !pinnedKeySet.has(String(r.sessionKey || '')))
-    list = list.filter((r) => r.workspaceKey !== WORKSPACE_GROUP_PROACTIVE)
+    list = list.filter(isChatsTabListRow)
     if (focusedWorkspaceKey) {
       const nk = normalizePinKey(focusedWorkspaceKey)
       list = list.filter((r) => normalizePinKey(r.workspaceKey) === nk)
     }
     return [...list].sort(byToppedThenUpdated)
-  }, [nonArchivedRows, pinnedKeySet, focusedWorkspaceKey, isEmployeesTab, employeeSessionRows, byToppedThenUpdated])
+  }, [
+    nonArchivedRows,
+    pinnedKeySet,
+    focusedWorkspaceKey,
+    isEmployeesTab,
+    employeeSessionRows,
+    byToppedThenUpdated,
+    isChatsTabListRow,
+  ])
 
   const selectEmployeeFilter = useCallback((code: string | null) => {
     const next = code ? String(code).trim() || null : null
@@ -1353,7 +1432,10 @@ export function ShellSessionList({
     if (isEmployeesTab && focusedEmployeeCode) return null
     if (isEmployeesTab) {
       // 员工 tab：按 agent_code 分组，组头 = 员工头像 + 员工名
-      const byCode = new Map<string, { label: string; rows: ShellSidebarSyncRow[] }>()
+      const byCode = new Map<
+        string,
+        { label: string; rows: ShellSidebarSyncRow[]; avatarAgentCode: string }
+      >()
       for (const row of recentVisibleRows) {
         const code =
           employeeOwnerCodeFromSession(row) ||
@@ -2172,6 +2254,61 @@ export function ShellSessionList({
                               {section.label}
                             </span>
                             <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
+                              {isEmployeesTab ? (
+                                <>
+                                  {(() => {
+                                    const empCode = String(
+                                      section.avatarAgentCode || section.key || '',
+                                    ).trim()
+                                    const empLc = empCode.toLowerCase()
+                                    const empRefreshing = employeeRefreshingLc === empLc
+                                    const empBusy = section.rows.some(
+                                      (r) =>
+                                        !!r.executing ||
+                                        !!runningSessionMap?.[String(r.sessionKey || '')],
+                                    )
+                                    return (
+                                      <>
+                                        <button
+                                          type="button"
+                                          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground${
+                                            empRefreshing ? ' is-refreshing' : ''
+                                          }`}
+                                          title={empRefreshing ? '正在刷新…' : '刷新此 BOT 会话'}
+                                          aria-label={empRefreshing ? '正在刷新…' : '刷新此 BOT 会话'}
+                                          disabled={empRefreshing || !empCode}
+                                          onMouseDown={(e) => e.stopPropagation()}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            if (!empCode) return
+                                            void refreshEmployeeGroup(empCode, section.rows)
+                                          }}
+                                        >
+                                          <ShellRefreshIcon
+                                            size={12}
+                                            className={empRefreshing ? 'animate-spin' : undefined}
+                                          />
+                                        </button>
+                                        {empBusy ? (
+                                          <button
+                                            type="button"
+                                            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground"
+                                            title="停止此 BOT 执行中的会话"
+                                            aria-label="停止此 BOT 执行中的会话"
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              stopEmployeeGroup(section.rows)
+                                            }}
+                                          >
+                                            <ShellStopIcon size={11} />
+                                          </button>
+                                        ) : null}
+                                      </>
+                                    )
+                                  })()}
+                                </>
+                              ) : null}
                               <button
                                 type='button'
                                 className='flex h-5 w-5 shrink-0 items-center justify-center rounded-md border-transparent bg-transparent text-foreground-subtle transition-colors hover:bg-surface-hover hover:text-foreground'
@@ -2415,6 +2552,17 @@ export function ShellSessionList({
           !!focusedEmployeeCode &&
           focusedEmployeeCode.toLowerCase() === employeeContextMenu.agentCode.toLowerCase()
         }
+        canStop={(() => {
+          const code = String(employeeContextMenu?.agentCode || '')
+            .trim()
+            .toLowerCase()
+          if (!code) return false
+          const g = employeeGroups.find((x) => x.agentCode.toLowerCase() === code)
+          const rows = g?.sessions || []
+          return rows.some(
+            (r) => !!r.executing || !!runningSessionMap?.[String(r.sessionKey || '')],
+          )
+        })()}
         onClose={() => setEmployeeContextMenu(null)}
         onFocusOnly={() => {
           const code = employeeContextMenu?.agentCode
@@ -2432,6 +2580,24 @@ export function ShellSessionList({
             if (!isChatHashRoute()) navigate('/chat')
             openNewEmployeeChat(code)
           }
+        }}
+        onRefresh={() => {
+          const code = employeeContextMenu?.agentCode
+          setEmployeeContextMenu(null)
+          if (!code) return
+          const g = employeeGroups.find(
+            (x) => x.agentCode.toLowerCase() === code.toLowerCase(),
+          )
+          void refreshEmployeeGroup(code, g?.sessions || [])
+        }}
+        onStop={() => {
+          const code = employeeContextMenu?.agentCode
+          setEmployeeContextMenu(null)
+          if (!code) return
+          const g = employeeGroups.find(
+            (x) => x.agentCode.toLowerCase() === code.toLowerCase(),
+          )
+          stopEmployeeGroup(g?.sessions || [])
         }}
         onOpenEmployeePage={() => {
           const code = employeeContextMenu?.agentCode

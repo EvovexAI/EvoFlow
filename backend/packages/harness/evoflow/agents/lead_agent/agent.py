@@ -1051,6 +1051,18 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     except Exception:
         pass
     _inject_goal_mode_into_cfg(cfg)
+    # Create-time stamp used to set model_name == primary_model_name; that is not a
+    # user pin — drop it so resolve_run_model can follow agent → live primary.
+    try:
+        from evoflow.persistence.session_context_fields import effective_session_model_override
+
+        _pinned = effective_session_model_override(cfg.get("model_name"), cfg.get("primary_model_name"))
+        if not _pinned:
+            cfg.pop("model_name", None)
+            if str(cfg.get("model") or "").strip() == str(cfg.get("primary_model_name") or "").strip():
+                cfg.pop("model", None)
+    except Exception:
+        pass
     effective_config: RunnableConfig = {**config, "configurable": cfg}
 
     session_mode = str(cfg.get("session_mode") or "").strip().lower()
@@ -1092,6 +1104,19 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # Voice mode: lower temperature for more concise, deterministic output
     _voice_temp = 0.35 if voice_mode else None
 
+    # Employee rail「思考」/ BOT「工作模型」写岗位 config；群聊/新开对话常不带。
+    # 未 pin 时从岗位回填，避免跟全局默认、思考被模型 default_mode 重新打开。
+    try:
+        from evoflow.proactive.chat_session import (
+            apply_role_model_to_run_cfg,
+            apply_role_thinking_to_run_cfg,
+        )
+
+        apply_role_model_to_run_cfg(cfg)
+        apply_role_thinking_to_run_cfg(cfg)
+    except Exception:
+        pass
+
     thinking_type: str | None = str(cfg.get("thinking_type") or "").strip().lower() or None
     # Missing thinking_enabled must NOT default ON — Auto means omit vendor params.
     _te_raw = cfg.get("thinking_enabled", None)
@@ -1107,13 +1132,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         thinking_enabled = False
         reasoning_effort = "minimal"
     # Voice turns: force non-thinking — long reasoning adds latency and TTS noise.
+    # Do NOT leave reasoning_effort="minimal": older factory mapped minimal→low and
+    # re-enabled DeepSeek reasoning. Prefer omit + thinking_type=disabled.
     if voice_mode:
         thinking_enabled = False
-        reasoning_effort = "minimal"
+        reasoning_effort = None
         thinking_type = "disabled"
         cfg["thinking_enabled"] = False
         cfg["thinking_type"] = "disabled"
-        cfg["reasoning_effort"] = "minimal"
+        cfg.pop("reasoning_effort", None)
         # Fast path (native-style backend executor): skip plan middleware unless mid-collab.
         _voice_phase = str(collab_phase or "").strip().lower()
         if _voice_phase in ("", "idle", "done"):
@@ -1122,11 +1149,11 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     # 小V 前台：接待/分诊要快回，永不开思考（含模型 default_mode=enabled）。
     if xiaomi_front_desk:
         thinking_enabled = False
-        reasoning_effort = "minimal"
+        reasoning_effort = None
         thinking_type = "disabled"
         cfg["thinking_enabled"] = False
         cfg["thinking_type"] = "disabled"
-        cfg["reasoning_effort"] = "minimal"
+        cfg.pop("reasoning_effort", None)
     auto_thinking_active = (
         session_mode != "flash"
         and not voice_mode

@@ -759,18 +759,38 @@ def log_model_request_payload(
                 thinking_type = thinking.get("type") if isinstance(thinking, dict) else payload.get("thinking")
                 if isinstance(thinking_type, dict):
                     thinking_type = thinking_type.get("type")
+                wire_et = extra.get("enable_thinking") if isinstance(extra, dict) else None
+                wire_re = payload.get("reasoning_effort") or (
+                    extra.get("reasoning_effort") if isinstance(extra, dict) else None
+                )
                 logger.info(
                     "[模型请求·思考] runtime_enabled=%s type=%s wire_enable_thinking=%s "
                     "wire_thinking_type=%s wire_reasoning_effort=%s model=%s stage=%s",
                     te,
                     tt,
-                    extra.get("enable_thinking") if isinstance(extra, dict) else None,
+                    wire_et,
                     thinking_type,
-                    payload.get("reasoning_effort")
-                    or (extra.get("reasoning_effort") if isinstance(extra, dict) else None),
+                    wire_re,
                     model,
                     stage,
                 )
+                try:
+                    from evoflow.observability.thinking_wire_ring import record_thinking_wire
+
+                    record_thinking_wire(
+                        {
+                            "runtime_enabled": te,
+                            "thinking_type": tt,
+                            "wire_enable_thinking": wire_et,
+                            "wire_thinking_type": thinking_type,
+                            "wire_reasoning_effort": wire_re,
+                            "model": model,
+                            "stage": stage,
+                            "thread_id": tid,
+                        }
+                    )
+                except Exception:
+                    pass
             except Exception:
                 pass
         except Exception:

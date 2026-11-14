@@ -1,6 +1,7 @@
 /**
- * 左侧「部门」群聊：用合成 sessionKey，主区复用同一套壳，不另开路由。
- * key 形如 ``dept:{deptId}:chat``。
+ * 左侧「部门」Tab 群聊：用合成 sessionKey，主区复用同一套壳，不另开路由。
+ * key 形如 ``dept:{deptId}:chat``（会 ensure 进 sessions 表做时间线落库，
+ * 但不在「任务」Tab 列表展示——入口只在「部门」Tab）。
  */
 
 export const DEPT_CHAT_SESSION_PREFIX = 'dept:'

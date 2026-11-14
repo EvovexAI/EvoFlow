@@ -231,10 +231,17 @@ def _reset_logging_before_server() -> None:
       Uvicorn/LangGraph reconfigure logging via dictConfig, which calls shutdown() on
     existing handlers. In frozen builds some StreamHandlers lack ``lock`` and crash with:
       AttributeError: 'StreamHandler' object has no attribute 'lock'
+
+    Never ``close()`` handlers bound to ``sys.stdout`` / ``sys.stderr``: Tauri redirects
+    LG stderr to a daily log file; closing that StreamHandler closes the fd and later
+    logging (MCP/warm) dies with "I/O operation on closed file" / lost sys.stderr.
     """
     root = logging.getLogger()
     for handler in list(root.handlers):
         root.removeHandler(handler)
+        stream = getattr(handler, "stream", None)
+        if stream is sys.stdout or stream is sys.stderr:
+            continue
         if not hasattr(handler, "lock"):
             handler.lock = threading.RLock()
         try:
@@ -308,7 +315,11 @@ def _run_langgraph(port: int) -> None:
     from app.gateway.logging_setup import configure_gateway_file_logging
     from langgraph_api.cli import run_server
 
+    from evoflow.desktop_stdio import shield_stdio_from_handler_close
     from evoflow.langgraph_runtime_env import run_server_kwargs
+
+    # Before file logging / run_server dictConfig: keep Tauri stderr tee open.
+    shield_stdio_from_handler_close()
 
     # Whole process is Agent Runtime → daily ``langgraph-YYYY-MM-DD.log`` (+ Tauri stderr tee).
     configure_gateway_file_logging(log_name="langgraph.log", force=True)
@@ -364,7 +375,10 @@ def main() -> None:
     _ensure_runtime_env()
 
     if args.mode == "langgraph":
-        _reset_logging_before_server()
+        # Do not _reset_logging_before_server() here: closing/removing handlers that
+        # still reference pre-reconfigure stderr races with Tauri's stderr tee and
+        # can kill the process after Welcome (lost sys.stderr). File logging is
+        # reconfigured inside _run_langgraph via configure_gateway_file_logging.
         _run_langgraph(args.langgraph_port)
         return
 

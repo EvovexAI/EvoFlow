@@ -62,7 +62,7 @@ export function useXiaomiChatActions(sessionKey: string): XiaomiChatActions {
     ) => {
       const tid = readXiaomiThreadId(sk)
       if (!tid) {
-        toast('会话线程未就绪，请稍后再试', 'warning')
+        toast('还没准备好，请稍后再试', 'warning')
         return
       }
       try {

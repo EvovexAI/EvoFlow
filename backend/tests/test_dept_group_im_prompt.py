@@ -70,8 +70,16 @@ def test_build_dept_group_im_steward_block():
     assert "本群可点名：技术总监、测试工程师、全栈工程师" in block
     assert "【群近期】" in block
     assert "agent_code" in block or "内部编码" in block
+    assert "employees.dispatch" in block
+    assert "禁止用派发代替" in block or "优先 @" in block
     assert "被点名" not in block
     assert not any(line.lstrip().startswith("# ") for line in block.splitlines())
+
+
+def test_build_dept_group_im_member_block_forbids_dispatch_instead_of_at():
+    block = build_dept_group_im_block(dept_name="氛围部")
+    assert "employees.dispatch" in block
+    assert "私有岗" in block or "本群看不见" in block
 
 
 def test_build_dept_group_im_steward_empty_roster():

@@ -1119,6 +1119,111 @@ html[data-xw-voice='1'] .react-chat-main-body {
   color: var(--xws-txt);
   border-color: color-mix(in srgb, var(--xws-txt) 30%, transparent);
 }
+.xws-clean .xws-thinking-btn.is-warn {
+  color: #b45309;
+  border-color: color-mix(in srgb, #b45309 45%, transparent);
+}
+.xws-clean .xws-session-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin: 0 0 8px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--xws-line);
+  background: color-mix(in srgb, var(--xws-solid) 55%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--xws-sub);
+  max-width: 100%;
+}
+.xws-clean .xws-session-meta.is-warn {
+  border-color: color-mix(in srgb, #b45309 50%, transparent);
+  color: #b45309;
+}
+.xws-clean .xws-session-meta-k {
+  font-weight: 650;
+  color: var(--xws-txt);
+}
+.xws-clean .xws-session-meta-v {
+  color: inherit;
+  word-break: break-all;
+}
+.xws-clean .xws-session-meta-v.is-warn {
+  font-weight: 650;
+  color: #b45309;
+}
+.xws-clean .xws-session-meta-sep {
+  opacity: 0.45;
+}
+.xws-clean .xws-think-chip {
+  margin-left: 10px;
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--xws-sub);
+  opacity: 0.92;
+}
+.xws-clean .xws-think-chip.is-off {
+  color: #15803d;
+}
+.xws-clean .xws-think-chip.is-on {
+  color: #b45309;
+  font-weight: 600;
+}
+.xws-clean .xws-thinking-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--xws-sub);
+  line-height: 1.45;
+}
+.xws-clean .xws-thinking-grid {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.xws-clean .xws-thinking-grid > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.xws-clean .xws-thinking-k {
+  color: var(--xws-sub);
+}
+.xws-clean .xws-thinking-ok {
+  color: #15803d;
+  font-weight: 600;
+}
+.xws-clean .xws-thinking-bad {
+  color: #b45309;
+  font-weight: 600;
+}
+.xws-clean .xws-thinking-path {
+  margin: 0 0 8px;
+  font-size: 10px;
+  color: var(--xws-sub);
+  word-break: break-all;
+  opacity: 0.85;
+}
+.xws-clean .xws-thinking-last {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--xws-line);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--xws-txt);
+}
+.xws-clean .xws-thinking-list {
+  margin: 0;
+  padding: 0 0 8px 16px;
+  font-size: 10px;
+  color: var(--xws-sub);
+}
+.xws-clean .xws-thinking-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
 
 .xws-clean .xws-playback {
   position: absolute;

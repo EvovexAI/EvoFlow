@@ -202,6 +202,12 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
                     ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
                     if str(ctx.get("source") or "").strip() == "automation":
                         return True  # automation session — skip but treat as "done"
+                    existing_title = str(row.get("title") or "").strip()
+                    # Race: title gen often schedules before session↔thread bind; by
+                    # persist time the row may already have a real title (e.g. 小V ·
+                    # 全局助手). Never overwrite non-replaceable titles.
+                    if existing_title and not sess_repo.is_replaceable_session_title(existing_title):
+                        return True
                     sess_repo.upsert_session_row(sk, title=title)
                     return True
             except Exception as exc:

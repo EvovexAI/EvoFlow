@@ -3133,57 +3133,6 @@ export function useChatAppController() {
     [currentRoleCodeForUi, agents],
   )
 
-  /** 当前会话绑定智能体的默认模型（空 = 跟全局 primary） */
-  const agentDefaultModelName = useMemo(
-    () =>
-      resolveAgentDefaultModelName({
-        currentRoleCodeForUi,
-        agents,
-      }),
-    [currentRoleCodeForUi, agents],
-  )
-
-  const {
-    modelCatalog,
-    primaryModelName,
-    modelName,
-    setModelName,
-    modelsLoading,
-    modelConnNameMap,
-    loadModelCatalog,
-    followResolvedModelName,
-    effectiveModelName,
-    modelPillLabel,
-    syncModelSessionPrevKeyRef,
-  } = useComposerModelCatalog({
-    selectedSessionKey,
-    sessions,
-    listLoading,
-    agentDefaultModelName,
-    roleUiNonce,
-    bottomModelOpen,
-    setSessions,
-    sessionsRef,
-  })
-  setModelNameRef.current = setModelName
-
-  const currentRoleAgent = useMemo(() => {
-    const code = currentRoleCodeForUi
-    return agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code) ?? { agent_code: code }
-  }, [currentRoleCodeForUi, agents])
-
-  const currentAgentCapabilities = useMemo(
-    () =>
-      resolveCurrentAgentCapabilities({
-        agentCapabilitySummary,
-        currentRoleAgent,
-        selectedSkills,
-      }),
-    [currentRoleAgent, selectedSkills],
-  )
-
-  const [capabilityPatchBusy, setCapabilityPatchBusy] = useState(false)
-
   /** 智能体员工会话：侧栏选会话；底栏与普通对话一致 */
   const isProactiveEmployeeSession = useMemo(
     () => isProactiveSessionKey(selectedSessionKey),
@@ -3226,6 +3175,59 @@ export function useChatAppController() {
       setMemoryEnabled,
     })
   }, [employeeSessionAgentCode, selectedSessionAgentId, selectedSessionKey, roleUiNonce])
+
+  /** 当前会话默认模型：员工岗位 model_name 优先，否则绑定智能体，空 = 跟全局 primary */
+  const agentDefaultModelName = useMemo(
+    () =>
+      resolveAgentDefaultModelName({
+        currentRoleCodeForUi,
+        agents,
+        employeeRoleModelName: employeeRoleDetail?.modelName,
+        employeeRoleAgentCode: employeeRoleDetail?.agentCode,
+      }),
+    [currentRoleCodeForUi, agents, employeeRoleDetail?.modelName, employeeRoleDetail?.agentCode],
+  )
+
+  const {
+    modelCatalog,
+    primaryModelName,
+    modelName,
+    setModelName,
+    modelsLoading,
+    modelConnNameMap,
+    loadModelCatalog,
+    followResolvedModelName,
+    effectiveModelName,
+    modelPillLabel,
+    syncModelSessionPrevKeyRef,
+  } = useComposerModelCatalog({
+    selectedSessionKey,
+    sessions,
+    listLoading,
+    agentDefaultModelName,
+    roleUiNonce,
+    bottomModelOpen,
+    setSessions,
+    sessionsRef,
+  })
+  setModelNameRef.current = setModelName
+
+  const currentRoleAgent = useMemo(() => {
+    const code = currentRoleCodeForUi
+    return agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code) ?? { agent_code: code }
+  }, [currentRoleCodeForUi, agents])
+
+  const currentAgentCapabilities = useMemo(
+    () =>
+      resolveCurrentAgentCapabilities({
+        agentCapabilitySummary,
+        currentRoleAgent,
+        selectedSkills,
+      }),
+    [currentRoleAgent, selectedSkills],
+  )
+
+  const [capabilityPatchBusy, setCapabilityPatchBusy] = useState(false)
 
   /** 进入员工会话时按 session_key 同步 workspace_kind，不再用底栏「只聊天/派任务」模式条 */
   useEffect(() => {

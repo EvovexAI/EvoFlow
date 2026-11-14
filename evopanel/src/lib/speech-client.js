@@ -317,13 +317,17 @@ const _ttsInflight = new Map()
 
 /**
  * @param {string} text
- * @param {{ speaker?: string, httpOnly?: boolean }} [opts]
+ * @param {{ speaker?: string, speechRate?: number, httpOnly?: boolean }} [opts]
  */
 async function _fetchSentenceAudio(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return null
   const speaker = String(opts.speaker || _queueSpeaker || '').trim()
-  const inflightKey = `${opts.httpOnly ? 'h' : 's'}::${speaker}::${plain}`
+  const rateKey =
+    opts.speechRate === null || opts.speechRate === undefined || opts.speechRate === ''
+      ? ''
+      : String(Math.round(Number(opts.speechRate)))
+  const inflightKey = `${opts.httpOnly ? 'h' : 's'}::${speaker}::r${rateKey}::${plain}`
   const hit = _ttsInflight.get(inflightKey)
   if (hit) return hit
 
@@ -337,7 +341,7 @@ async function _fetchSentenceAudio(text, opts = {}) {
 /**
  * @param {string} plain
  * @param {string} speaker
- * @param {{ speaker?: string, httpOnly?: boolean }} [opts]
+ * @param {{ speaker?: string, speechRate?: number, httpOnly?: boolean }} [opts]
  */
 async function _fetchSentenceAudioUniq(plain, speaker, opts = {}) {
   // P1 会话 WS 流式通道：未连接/超时/MSE 不可用 → 逐句自动回退 HTTP
@@ -402,9 +406,17 @@ async function _fetchSentenceAudioUniq(plain, speaker, opts = {}) {
     JSON.stringify(plain.slice(0, 40)),
     speaker ? `speaker=${speaker}` : 'speaker=default',
   )
-  /** @type {Record<string, string>} */
+  /** @type {Record<string, unknown>} */
   const body = { text: plain }
   if (speaker) body.speaker = speaker
+  if (
+    opts.speechRate !== null &&
+    opts.speechRate !== undefined &&
+    opts.speechRate !== '' &&
+    Number.isFinite(Number(opts.speechRate))
+  ) {
+    body.speech_rate = Math.max(-50, Math.min(100, Math.round(Number(opts.speechRate))))
+  }
   try {
     const { getVoiceTrace } = await import('./xiaomi-voice/voice-file-log.js')
     const tid = getVoiceTrace()
@@ -1052,20 +1064,24 @@ const _speechQueue = {
 /** @type {Map<string, Promise<{ objectUrl: string, audio: HTMLAudioElement } | null>>} */
 const _oneshotPrefetch = new Map()
 
-function _oneshotCacheKey(text, speaker) {
-  return `${String(speaker || '').trim()}::${plainTextForSpeech(text)}`
+function _oneshotCacheKey(text, speaker, speechRate) {
+  const rate =
+    speechRate === null || speechRate === undefined || speechRate === ''
+      ? ''
+      : String(Math.round(Number(speechRate)))
+  return `${String(speaker || '').trim()}::r${rate}::${plainTextForSpeech(text)}`
 }
 
 /**
  * 预取 TTS 音频（不播放）。会议室可在上一位播报时生成下一位。
  * @param {string} text
- * @param {{ speaker?: string }} [opts]
+ * @param {{ speaker?: string, speechRate?: number }} [opts]
  * @returns {Promise<{ objectUrl: string, audio: HTMLAudioElement } | null>}
  */
 export function prefetchAssistantSpeech(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return Promise.resolve(null)
-  const key = _oneshotCacheKey(plain, opts.speaker)
+  const key = _oneshotCacheKey(plain, opts.speaker, opts.speechRate)
   const hit = _oneshotPrefetch.get(key)
   if (hit) return hit
   const p = _fetchSentenceAudio(plain, opts).catch((e) => {
@@ -1074,65 +1090,58 @@ export function prefetchAssistantSpeech(text, opts = {}) {
     return null
   })
   _oneshotPrefetch.set(key, p)
-  // 防止缓存无限涨
+  // 防止缓存无限涨；淘汰也不立刻 revoke（与 clearAssistantSpeechPrefetch 同因）
   if (_oneshotPrefetch.size > 12) {
     const first = _oneshotPrefetch.keys().next().value
     if (first && first !== key) {
-      const old = _oneshotPrefetch.get(first)
       _oneshotPrefetch.delete(first)
-      void Promise.resolve(old).then((pack) => {
-        if (pack?.objectUrl) {
-          try {
-            URL.revokeObjectURL(pack.objectUrl)
-          } catch {
-            /* ignore */
-          }
-        }
-      })
     }
   }
   return p
 }
 
 export function clearAssistantSpeechPrefetch() {
-  for (const p of _oneshotPrefetch.values()) {
-    void Promise.resolve(p).then((pack) => {
-      if (pack?.objectUrl) {
-        try {
-          URL.revokeObjectURL(pack.objectUrl)
-        } catch {
-          /* ignore */
-        }
-      }
-    })
-  }
+  // 只清 map，不要立刻 revoke：stopAll 常与即将 play 的 oneshot 抢跑，
+  // 提前 revoke → NotSupportedError: The element has no supported sources。
+  // blob URL 由 _playPreparedAudio finally / 过期淘汰释放；此处丢引用即可。
   _oneshotPrefetch.clear()
+}
+
+function _isNoSupportedSourcesError(e) {
+  const name = String(e?.name || '')
+  const msg = String(e?.message || e || '')
+  return name === 'NotSupportedError' || /no supported sources/i.test(msg)
 }
 
 /**
  * @param {string} text
- * @param {{ speaker?: string }} [opts]
+ * @param {{ speaker?: string, speechRate?: number }} [opts]
  */
 async function _playSentenceInternal(text, opts = {}) {
   const plain = plainTextForSpeech(text)
   if (!plain) return
-  const key = _oneshotCacheKey(plain, opts.speaker)
-  let prepared
-  const cached = _oneshotPrefetch.get(key)
-  if (cached) {
-    _oneshotPrefetch.delete(key)
-    prepared = await cached
-    // 预取得到的 Audio 可能已绑定过时状态；用 objectUrl 新建更稳
-    if (prepared?.objectUrl) {
-      prepared = {
-        objectUrl: prepared.objectUrl,
-        audio: new Audio(prepared.objectUrl),
-        text: prepared.text || plain,
+  const key = _oneshotCacheKey(plain, opts.speaker, opts.speechRate)
+
+  /** @returns {Promise<{ objectUrl: string, audio: HTMLAudioElement, text?: string } | null | undefined>} */
+  const takePrepared = async (allowCache) => {
+    if (allowCache) {
+      const cached = _oneshotPrefetch.get(key)
+      if (cached) {
+        _oneshotPrefetch.delete(key)
+        const prepared = await cached
+        if (prepared?.objectUrl) {
+          return {
+            objectUrl: prepared.objectUrl,
+            audio: new Audio(prepared.objectUrl),
+            text: prepared.text || plain,
+          }
+        }
       }
     }
-  } else {
-    prepared = await _fetchSentenceAudio(plain, opts)
+    return _fetchSentenceAudio(plain, opts)
   }
+
+  let prepared = await takePrepared(true)
   if (!prepared) return
   stopAssistantSpeech()
   try {
@@ -1140,6 +1149,22 @@ async function _playSentenceInternal(text, opts = {}) {
   } catch (e) {
     if (e && typeof e === 'object' && /** @type {{ name?: string }} */ (e).name === 'NotAllowedError') {
       throw new Error('浏览器阻止自动播放，请再点一次麦克风或发送按钮后重试', { cause: e })
+    }
+    // 预取 blob 被 clear/淘汰 revoke 后：丢弃缓存，重新拉一次再播
+    if (_isNoSupportedSourcesError(e)) {
+      _oneshotPrefetch.delete(key)
+      if (prepared?.objectUrl) {
+        try {
+          URL.revokeObjectURL(prepared.objectUrl)
+        } catch {
+          /* ignore */
+        }
+      }
+      prepared = await takePrepared(false)
+      if (!prepared) throw e
+      stopAssistantSpeech()
+      await _playPreparedAudio({ ...prepared, text: prepared.text || plain })
+      return
     }
     throw e
   }
@@ -1388,7 +1413,7 @@ export async function previewSpeechTts(text, speaker, opts = {}) {
 
 /**
  * @param {string} text
- * @param {{ speaker?: string }} [opts]
+ * @param {{ speaker?: string, speechRate?: number }} [opts]
  * @returns {Promise<void>}
  */
 export async function playAssistantSpeech(text, opts = {}) {

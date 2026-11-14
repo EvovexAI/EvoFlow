@@ -2122,7 +2122,7 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
         },
         Err(_) => false,
     };
-    let langgraph_running = match langgraph_child_slot().lock() {
+    let child_alive = match langgraph_child_slot().lock() {
         Ok(mut guard) => match guard.as_mut() {
             Some(child) => matches!(child.try_wait(), Ok(None)),
             None => false,
@@ -2138,6 +2138,12 @@ pub fn workspace_runtime_info() -> Result<serde_json::Value, String> {
         .and_then(|v| v.get("langgraphPort"))
         .and_then(|v| v.as_u64())
         .and_then(|p| u16::try_from(p).ok());
+    // Child slot can be empty after hot-reload / manual heal while /ok still serves.
+    // Guardian must not treat that as "down" or it kill_gateway_port + death-loops.
+    let langgraph_running = child_alive
+        || langgraph_port
+            .map(port_is_listening)
+            .unwrap_or(false);
     let langgraph_pid = runtime_json
         .as_ref()
         .and_then(|v| v.get("langgraphPid"))

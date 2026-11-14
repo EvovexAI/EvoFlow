@@ -437,7 +437,8 @@ export function resolveSessionReselectAfterRefresh(opts: {
     return { type: 'none', reason: 'home-draft' }
   }
 
-  // 部门群聊是合成 key，不在 sessions API 列表里；刷新绝不能清掉/改选。
+  // 部门群聊 key 虽会 ensure 进 sessions 表（时间线落库），侧栏「任务」已过滤；
+  // 刷新仍不能清掉/改选当前选中的部门群表面。
   if (isDeptChatSessionKey(selectedAfter) || isDeptChatSessionKey(curSelectable)) {
     ssLog('refresh.skip', {
       refreshId,

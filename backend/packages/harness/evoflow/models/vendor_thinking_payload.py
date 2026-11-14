@@ -123,8 +123,10 @@ def _apply_dashscope_thinking_payload(payload: dict[str, Any], *, model_instance
         if effort and effort not in ("minimal", "none"):
             extra["thinking_budget"] = _EFFORT_THINKING_BUDGET.get(effort, _EFFORT_THINKING_BUDGET["medium"])
     else:
+        # Aliyun Qwen3：仅 enable_thinking=false 有时仍吐 reasoning_content；
+        # 显式 budget=0 再钉死（语音/小V 关思考硬需求）。
         extra["enable_thinking"] = False
-        extra.pop("thinking_budget", None)
+        extra["thinking_budget"] = 0
         extra.pop("thinkingBudget", None)
 
     for key in ("thinking", "reasoning"):

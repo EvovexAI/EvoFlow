@@ -34,13 +34,30 @@ DEFAULT_ASR_RESOURCE_ID = "volc.bigasr.auc_turbo"
 DEFAULT_AGENT_PLAN_ASR_RESOURCE_ID = "volc.seedasr.sauc.duration"
 
 
-def _tts_audio_params(tone: dict | None = None) -> dict:
+def _clamp_speech_rate(rate: int | None) -> int | None:
+    if rate is None:
+        return None
+    try:
+        n = int(rate)
+    except (TypeError, ValueError):
+        return None
+    return max(-50, min(100, n))
+
+
+def _tts_audio_params(tone: dict | None = None, *, speech_rate: int | None = None) -> dict:
     from app.gateway.speech.runtime.emotion import tone_speech_rate
 
+    # 显式 speech_rate 优先（用户按岗配置），不再叠 emotion，以免难调
+    explicit = _clamp_speech_rate(speech_rate)
+    rate = (
+        explicit
+        if explicit is not None
+        else tone_speech_rate(DEFAULT_TTS_SPEECH_RATE, tone)
+    )
     return {
         "format": "mp3",
         "sample_rate": 24000,
-        "speech_rate": tone_speech_rate(DEFAULT_TTS_SPEECH_RATE, tone),
+        "speech_rate": rate,
     }
 
 SPEECH_CONSOLE_URL = "https://console.volcengine.com/speech/service/8"
@@ -323,7 +340,13 @@ def _resolve_tts_resource_id(speaker: str, configured: str) -> str:
     return fallback
 
 
-def synthesize_speech_v3(text: str, *, speaker: str | None = None, preview: bool = False) -> tuple[bytes, str]:
+def synthesize_speech_v3(
+    text: str,
+    *,
+    speaker: str | None = None,
+    preview: bool = False,
+    speech_rate: int | None = None,
+) -> tuple[bytes, str]:
     api_key, configured_resource, default_speaker, _, agent_plan = _require_credentials()
     explicit_speaker = bool(str(speaker or "").strip())
     use_speaker = str(speaker or "").strip() or default_speaker
@@ -331,7 +354,7 @@ def synthesize_speech_v3(text: str, *, speaker: str | None = None, preview: bool
     req_params: dict = {
         "text": text[:4000],
         "speaker": use_speaker,
-        "audio_params": _tts_audio_params(),
+        "audio_params": _tts_audio_params(speech_rate=speech_rate),
     }
     if preview:
         req_params["additions"] = json.dumps(

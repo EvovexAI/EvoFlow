@@ -12,20 +12,27 @@ export type EmployeeGroupContextMenuState = {
 type EmployeeGroupContextMenuPortalProps = {
   menu: EmployeeGroupContextMenuState | null
   focused?: boolean
+  /** 该员工下是否有正在执行的会话 */
+  canStop?: boolean
   onClose: () => void
   onFocusOnly: () => void
   onClearFocus?: () => void
   onNewChat: () => void
+  onRefresh?: () => void
+  onStop?: () => void
   onOpenEmployeePage: () => void
 }
 
 export function EmployeeGroupContextMenuPortal({
   menu,
   focused = false,
+  canStop = false,
   onClose,
   onFocusOnly,
   onClearFocus,
   onNewChat,
+  onRefresh,
+  onStop,
   onOpenEmployeePage,
 }: EmployeeGroupContextMenuPortalProps) {
   const menuRef = useRef<HTMLDivElement>(null)
@@ -93,6 +100,24 @@ export function EmployeeGroupContextMenuPortal({
       >
         新开对话
       </button>
+      {onRefresh ? (
+        <button
+          type="button"
+          className="react-chat-workspace-context-menu-item"
+          onClick={() => onRefresh()}
+        >
+          刷新会话
+        </button>
+      ) : null}
+      {canStop && onStop ? (
+        <button
+          type="button"
+          className="react-chat-workspace-context-menu-item react-chat-workspace-context-menu-item--danger"
+          onClick={() => onStop()}
+        >
+          停止执行
+        </button>
+      ) : null}
       <button
         type="button"
         className="react-chat-workspace-context-menu-item"

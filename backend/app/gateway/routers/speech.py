@@ -46,6 +46,8 @@ class SpeechTtsRequest(BaseModel):
     provider: str | None = None
     # 与前端语音播报日志对齐的 TRACE（一轮提问→播报）
     trace_id: str | None = Field(default=None, max_length=64)
+    # 火山 audio_params.speech_rate（-50..100）；显式传入时覆盖默认，不叠 emotion
+    speech_rate: int | None = Field(default=None, ge=-50, le=100)
 
 
 @router.get("/status", response_model=SpeechStatusResponse)
@@ -171,6 +173,83 @@ async def speech_playback_recent(limit: int = 50) -> dict:
         "count": len(rows),
         "items": rows,
         "db": str(voice_playback_db_path()),
+    }
+
+
+@router.get("/thinking-debug")
+async def speech_thinking_debug(limit: int = 12, model: str = "") -> dict:
+    """Voice HUD: is thinking-off guard loaded + last wire snapshots.
+
+    Distinguishes UI phase「处理中」from real model reasoning (wire enable_thinking).
+    Optional ``model=`` resolves catalog row (display name / default_mode / can disable).
+    """
+    from evoflow.observability.thinking_wire_ring import recent_thinking_wire, thinking_fix_probe
+
+    probe = thinking_fix_probe()
+    items = recent_thinking_wire(limit=max(1, min(int(limit or 12), 24)))
+    last = items[0] if items else None
+    # Heuristic: off when runtime_enabled is False AND wire not explicitly on
+    wire_on = None
+    if isinstance(last, dict):
+        et = last.get("wire_enable_thinking")
+        tt = str(last.get("wire_thinking_type") or "").strip().lower()
+        re = str(last.get("wire_reasoning_effort") or "").strip().lower()
+        if et is False or tt in ("disabled", "none", "off"):
+            wire_on = False
+        elif et is True or tt in ("enabled", "auto", "dynamic") or re in ("low", "medium", "high", "xhigh"):
+            wire_on = True
+        elif last.get("runtime_enabled") is False:
+            wire_on = False
+
+    model_id = str(model or "").strip()
+    if not model_id and isinstance(last, dict):
+        model_id = str(last.get("model") or "").strip()
+    model_info: dict = {}
+    if model_id:
+        try:
+            from evoflow.config.app_config import get_app_config
+            from evoflow.models.factory import resolve_model_default_thinking_mode
+
+            cfg = get_app_config().get_model_config(model_id)
+            if cfg is None:
+                # wire may log vendor model id (qwen3.8-flash); try match by .model field
+                for m in get_app_config().models or []:
+                    if str(getattr(m, "model", "") or "").strip() == model_id or str(
+                        getattr(m, "name", "") or ""
+                    ).strip() == model_id:
+                        cfg = m
+                        break
+            if cfg is not None:
+                mode = resolve_model_default_thinking_mode(cfg)
+                model_info = {
+                    "id": str(getattr(cfg, "name", "") or model_id),
+                    "vendor_model": str(getattr(cfg, "model", "") or ""),
+                    "display_name": str(getattr(cfg, "display_name", "") or getattr(cfg, "name", "") or model_id),
+                    "vendor": str(getattr(cfg, "vendor", "") or ""),
+                    "supports_thinking": bool(getattr(cfg, "supports_thinking", False)),
+                    "thinking_default_mode": mode,
+                    # GLM-5.3 等：default_mode=enabled → 厂商拒绝关思考
+                    "thinking_always_on": mode == "enabled",
+                    "can_disable_thinking": bool(getattr(cfg, "supports_thinking", False)) and mode != "enabled",
+                }
+        except Exception as e:  # noqa: BLE001
+            model_info = {"id": model_id, "error": str(e)}
+
+    note = "舞台「生成中」= 等模型出字，不等于设置里的「思考模式」"
+    if model_info.get("thinking_always_on"):
+        note = (
+            f"当前模型 {model_info.get('display_name') or model_id} 默认强制开思考"
+            "（default_mode=enabled，厂商通常拒绝关闭）——语音关思考对此模型无效，请换可关思考的模型"
+        )
+
+    return {
+        "ok": True,
+        "probe": probe,
+        "last": last,
+        "items": items,
+        "model_thinking_on": wire_on,
+        "model": model_info or None,
+        "ui_note": note,
     }
 
 
@@ -386,12 +465,17 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
             trace=body.trace_id,
         )
         t0 = time.perf_counter()
+        speech_rate = body.speech_rate
         if provider == "volcengine":
             # Native volcengine path (keeps exact prior behavior for volcengine).
             # Both providers do sync HTTP (up to 120s timeout) — must not run on
             # the gateway event loop.
             audio_bytes, used_speaker = await asyncio.to_thread(
-                synthesize_speech_v3, text, speaker=speaker, preview=body.preview
+                synthesize_speech_v3,
+                text,
+                speaker=speaker,
+                preview=body.preview,
+                speech_rate=speech_rate,
             )
         else:
             from app.gateway.speech.tts_registry import synthesize_tts
@@ -402,6 +486,7 @@ async def speech_tts(body: SpeechTtsRequest) -> Response:
                 provider=provider,
                 speaker=speaker,
                 preview=body.preview,
+                speech_rate=speech_rate,
             )
         ms = (time.perf_counter() - t0) * 1000
         digest = hashlib.md5(audio_bytes).hexdigest()[:12]

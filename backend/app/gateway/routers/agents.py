@@ -205,6 +205,7 @@ def _main_agent_to_response(include_soul: bool = False) -> AgentResponse:
         avatar=agent_cfg.avatar if agent_cfg else None,
         avatar_meta=agent_cfg.avatar_meta if agent_cfg else None,
         tts_speaker=getattr(agent_cfg, "tts_speaker", None) if agent_cfg else None,
+        tts_speech_rate=getattr(agent_cfg, "tts_speech_rate", None) if agent_cfg else None,
         has_avatar_file=has_local_avatar_file("main"),
         avatar_rev=avatar_revision_for("main"),
     )
@@ -267,6 +268,12 @@ class AgentResponse(BaseModel):
         default=None,
         description="Optional Volcengine TTS voice_type for meeting / voice playback",
     )
+    tts_speech_rate: int | None = Field(
+        default=None,
+        description="Optional Volcengine TTS speech_rate (-50..100); null = gateway default",
+        ge=-50,
+        le=100,
+    )
     has_avatar_file: bool = Field(
         default=False,
         description="True when a custom image file exists at GET /api/agents/{code}/avatar",
@@ -303,6 +310,12 @@ class AgentCreateRequest(BaseModel):
     avatar: str | None = Field(default=None, description="UI avatar preset / emoji / image")
     avatar_meta: dict[str, Any] | None = Field(default=None, description="Image avatar crop metadata")
     tts_speaker: str | None = Field(default=None, description="Optional Volcengine TTS voice_type")
+    tts_speech_rate: int | None = Field(
+        default=None,
+        description="Optional Volcengine TTS speech_rate (-50..100)",
+        ge=-50,
+        le=100,
+    )
     platform_scope: PlatformScope | None = Field(
         default=None,
         description=(
@@ -383,6 +396,12 @@ class AgentUpdateRequest(BaseModel):
     avatar: str | None = Field(default=None, description="Updated UI avatar")
     avatar_meta: dict[str, Any] | None = Field(default=None, description="Updated image avatar metadata")
     tts_speaker: str | None = Field(default=None, description="Updated Volcengine TTS voice_type")
+    tts_speech_rate: int | None = Field(
+        default=None,
+        description="Updated Volcengine TTS speech_rate (-50..100); null clears to gateway default",
+        ge=-50,
+        le=100,
+    )
     platform_scope: PlatformScope | None = Field(
         default=None,
         description=(
@@ -485,6 +504,7 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
         avatar=getattr(agent_cfg, "avatar", None),
         avatar_meta=getattr(agent_cfg, "avatar_meta", None),
         tts_speaker=getattr(agent_cfg, "tts_speaker", None),
+        tts_speech_rate=getattr(agent_cfg, "tts_speech_rate", None),
         platform_scope=getattr(agent_cfg, "platform_scope", None),
         has_avatar_file=has_local_avatar_file(code),
         avatar_rev=avatar_revision_for(code),
@@ -798,6 +818,8 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             config_data["avatar_meta"] = request.avatar_meta
         if request.tts_speaker is not None and str(request.tts_speaker).strip():
             config_data["tts_speaker"] = str(request.tts_speaker).strip()
+        if request.tts_speech_rate is not None:
+            config_data["tts_speech_rate"] = int(request.tts_speech_rate)
         if request.platform_scope is not None:
             config_data["platform_scope"] = request.platform_scope
 
@@ -894,6 +916,9 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
         if "tts_speaker" in request_dict:
             raw_voice = request.tts_speaker
             updates["tts_speaker"] = str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
+        if "tts_speech_rate" in request_dict:
+            raw_rate = request.tts_speech_rate
+            updates["tts_speech_rate"] = int(raw_rate) if raw_rate is not None else None
         if "platform_scope" in request_dict:
             updates["platform_scope"] = request.platform_scope
 
@@ -936,6 +961,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             "avatar",
             "avatar_meta",
             "tts_speaker",
+            "tts_speech_rate",
             "platform_scope",
         )
         config_changed = any(k in request_set for k in config_field_names)
@@ -1039,6 +1065,12 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
                 updated["tts_speaker"] = str(raw_voice).strip() if raw_voice is not None and str(raw_voice).strip() else None
             elif getattr(agent_cfg, "tts_speaker", None):
                 updated["tts_speaker"] = agent_cfg.tts_speaker
+
+            if "tts_speech_rate" in request_set:
+                raw_rate = request.tts_speech_rate
+                updated["tts_speech_rate"] = int(raw_rate) if raw_rate is not None else None
+            elif getattr(agent_cfg, "tts_speech_rate", None) is not None:
+                updated["tts_speech_rate"] = agent_cfg.tts_speech_rate
 
             save_agent_config(name, updated)
             # Keep extra_json vault mirror in sync (middleware prefers it; removals must stick).

@@ -1305,6 +1305,22 @@ def list_model_invocations(
                     str(row.get("provider") or "").strip() or None,
                     model=str(row.get("model") or "").strip() or None,
                 )
+            # Agent column: session agent for main turns; friendly kind label otherwise.
+            # Never fall back to model name (that confused 请求记录 with sticky session titles).
+            try:
+                from evoflow.observability.summaries import (
+                    _kind_to_agent_label,
+                    _session_agent_label_for_thread,
+                )
+
+                kind = str(row.get("invocation_kind") or "main").strip() or "main"
+                if kind == "main":
+                    row["agent_label"] = _session_agent_label_for_thread(row.get("thread_id")) or "主对话"
+                else:
+                    row["agent_label"] = _kind_to_agent_label(kind)
+            except Exception:
+                kind = str(row.get("invocation_kind") or "main").strip() or "main"
+                row["agent_label"] = "主对话" if kind == "main" else kind
             # Never ship blobs on the list wire (omit_columns already skipped SELECT).
             row.pop("request_json", None)
             row.pop("response_json", None)

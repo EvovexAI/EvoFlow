@@ -21,6 +21,7 @@ import {
   Plus,
   RefreshCw,
   Search,
+  Square,
   Star,
   Users,
   Building2,
@@ -243,6 +244,17 @@ export function ShellRefreshIcon({
   className?: string
 }) {
   return <ShellIcon icon={RefreshCw} size={size} className={className} />
+}
+
+/** 停止执行 */
+export function ShellStopIcon({
+  size = 13,
+  className,
+}: {
+  size?: number
+  className?: string
+}) {
+  return <ShellIcon icon={Square} size={size} className={className} fill="currentColor" />
 }
 
 /** 收起全部 */

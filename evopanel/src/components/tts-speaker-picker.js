@@ -253,14 +253,18 @@ function bindPreviewButtons(root, presets) {
   })
 }
 
-function openTtsSpeakerPicker({ presets, currentValue, onSelect }) {
+/**
+ * 全屏音色弹窗（可搜索 + 行内试听）。供设置页与 React 部门群声线共用。
+ * @param {{ presets: { value: string, label: string }[], currentValue?: string, onSelect: (value: string) => void, title?: string }} opts
+ */
+export function openTtsSpeakerPicker({ presets, currentValue, onSelect, title }) {
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay media-tts-speaker-overlay'
   overlay.innerHTML = `
     <div class="modal models-edit-modal media-tts-speaker-modal" role="dialog" aria-modal="true" aria-labelledby="tts-speaker-modal-title">
       <div class="models-edit-modal-header">
         <div class="models-edit-modal-title-row">
-          <h2 class="models-edit-modal-title" id="tts-speaker-modal-title">选择 TTS 音色</h2>
+          <h2 class="models-edit-modal-title" id="tts-speaker-modal-title">${escHtml(title || '选择 TTS 音色')}</h2>
           <span class="models-edit-modal-subtitle">豆包语音合成 2.0 · seed-tts-2.0</span>
         </div>
         <button type="button" class="models-edit-modal-close" data-tts-speaker-close title="关闭">&times;</button>
@@ -398,6 +402,20 @@ export function bindTtsSpeakerFields(root, presets) {
   root.querySelectorAll('[data-media-tts-speaker-group]').forEach((group) => {
     bindOneTtsSpeakerField(group, presets)
   })
+}
+
+/**
+ * 在线试听某个 voice_type（与弹窗行内 ▶ 同一套）。
+ * @param {string} voiceType
+ * @param {{ value: string, label: string }[]} [presets]
+ * @param {HTMLElement | null} [btn]
+ */
+export function previewTtsSpeaker(voiceType, presets = [], btn = null) {
+  return playSpeakerPreview(voiceType, btn, presets)
+}
+
+export function stopTtsSpeakerPreview() {
+  stopPreview()
 }
 
 /** @param {HTMLElement} panel */

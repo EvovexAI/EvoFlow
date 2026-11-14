@@ -733,19 +733,12 @@ async function _gatewayAuthFetch(url, options = {}) {
 }
 
 /**
- * stale thread 404 → force_recreate 重建成功后的用户提示。
- * 重建期间 UI 停在「发送中」数秒无任何反馈，最像「卡死/发丢了」；一句话说明
- * 消除中断感。同一会话 60s 只提示一次（连续多轮 remint 不刷屏）。
+ * stale thread 404 → force_recreate 成功后的内部记录。
+ * 不向用户 toast：「线程失效 / 网关重启」是运维细节，自动重建应静默完成。
  */
-const _threadRemintToastedAt = new Map()
 function _toastThreadReminted(key) {
   try {
-    const last = _threadRemintToastedAt.get(key) || 0
-    if (Date.now() - last < 60_000) return
-    _threadRemintToastedAt.set(key, Date.now())
-    import('../components/toast.js')
-      .then(({ toast }) => toast('会话线程已失效（网关可能重启过），已自动重建并重发', 'info'))
-      .catch(() => {})
+    console.info('[evoflow] thread reminted (silent)', { key: String(key || '').slice(0, 48) })
   } catch {
     /* ignore */
   }
@@ -6738,7 +6731,6 @@ export class WsClient {
               channel: 'voice',
               thinking_enabled: false,
               thinking_type: 'disabled',
-              reasoning_effort: 'minimal',
             }
           : {}),
       },
@@ -6778,7 +6770,7 @@ export class WsClient {
       runContext.xiaomi_global_assistant = true
       runContext.thinking_enabled = false
       runContext.thinking_type = 'disabled'
-      runContext.reasoning_effort = 'minimal'
+      delete runContext.reasoning_effort
     }
     const agentIdLc = String(
       runContext.agent_id || runContext.agent_name || sessionContext.agent_id || sessionContext.agent_name || '',
@@ -6798,13 +6790,13 @@ export class WsClient {
       // 小V 前台：永不开思考（与后端 agent.py hard guard 对齐）
       runContext.thinking_enabled = false
       runContext.thinking_type = 'disabled'
-      runContext.reasoning_effort = 'minimal'
+      delete runContext.reasoning_effort
       runContext.agent_name = runContext.agent_name || 'xiaomi'
       runContext.agent_id = runContext.agent_id || 'xiaomi'
       runContext.xiaomi_global_assistant = true
     } else if (mode === 'flash' || voiceTurn) {
       runContext.thinking_enabled = false
-      runContext.reasoning_effort = 'minimal'
+      delete runContext.reasoning_effort
       if (voiceTurn) {
         runContext.thinking_type = 'disabled'
         runContext.is_voice_channel = true
@@ -7108,6 +7100,13 @@ export class WsClient {
             const text = await resp.text?.().catch(() => '') ?? ''
             const httpErr = new Error(text || `HTTP ${resp.status}`)
             httpErr.status = resp.status
+            // LG dead/restarting → next send must probe/remint before stream (not 404→retry).
+            if (
+              resp.status === 503 ||
+              /LangGraph upstream unreachable|upstream unreachable/i.test(text)
+            ) {
+              markLangGraphThreadsStale('stream_503_upstream')
+            }
             throw httpErr
           }
           threadId = activeThreadId
@@ -8535,7 +8534,7 @@ export class WsClient {
       const friendlyMsg = (() => {
         if (/前端流超时|stream read timeout/i.test(errMsg)) return errMsg
         if (isLangGraphThreadOrAssistantMissing(err)) {
-          return '会话线程已失效（服务重启后常见），请再发一条消息重试'
+          return '刚才没发出去，请再发一次'
         }
         // 优先用网络错误分类，确保 502 与 Failed to fetch 文案区分
         if (netCode) {
