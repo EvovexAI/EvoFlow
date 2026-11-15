@@ -85,6 +85,42 @@ function Test-GatewayHealthy {
   } catch { return $false }
 }
 
+# 【fullstack-dev · 2026-11-15 · 第16轮】新增"投递面"探测，因为 /health 判不了 wake 能不能投出去
+# 第15轮真机实测：13:37:56 三条件就绪 + 13:38:00 名册在册 + 13:38:04 wake 却拿 HTTP 503。
+# 根因：/health 在 startup_gate 的 _STARTUP_EXEMPT_PREFIXES 里（永不被拦），而 wake 走的
+# /api/proactive 在 _EXTENDED_ROUTE_PREFIXES 里，extended_routers_registered 要到 app.py:280
+# 那个 post-ready 后台任务才置 True —— 所以"客户端已就绪"与"投递面可通"之间有一段确定性空窗。
+# 判据必须探真正被闸门管的端点，不能只借 /health 代替。返回 @{code; body}，body 用于认错误码。
+function Get-DeliveryGateStatus {
+  param([string] $BaseUrl)
+  if ([string]::IsNullOrWhiteSpace($BaseUrl)) { return @{ code = 0; body = '' } }
+  try {
+    $resp = Invoke-WebRequest -Uri "$($BaseUrl.TrimEnd('/'))/api/proactive/status" -UseBasicParsing -TimeoutSec 4 -ErrorAction Stop
+    return @{ code = [int]$resp.StatusCode; body = '' }
+  } catch {
+    # PS 5.1 对非 2xx 抛异常。取状态码从 Exception.Response；取响应体**必须**先读 ErrorDetails.Message ——
+    # 实测（第16轮探针 probe-body.ps1）$res.GetResponseStream() 此时已被 PowerShell 消耗、ReadToEnd 返空串，
+    # 只有 ErrorDetails.Message 里才是真体 {"error":"loading_extended",...}。连接被拒时 Response 为 null，
+    # 走 code=0 分支（探测异常，继续等），不会被误判成"闸门放行"。
+    $sc = 0
+    $body = ''
+    $res = $null
+    try { $res = $_.Exception.Response } catch { $res = $null }
+    if ($null -ne $res) {
+      try { $sc = [int]$res.StatusCode } catch { $sc = 0 }
+      try { $body = [string]$_.ErrorDetails.Message } catch { $body = '' }
+      if ([string]::IsNullOrWhiteSpace($body)) {
+        try {
+          $sr = New-Object System.IO.StreamReader($res.GetResponseStream())
+          $body = [string]$sr.ReadToEnd()
+          $sr.Dispose()
+        } catch { $body = '' }
+      }
+    }
+    return @{ code = $sc; body = $body }
+  }
+}
+
 # ── 0. 读 state ────────────────────────────────────────────────────────────
 $state = Read-JsonFile $StateFile
 if (-not $state) {
@@ -111,8 +147,15 @@ $OldGeneration  = $state.oldGeneration
 Write-Log "===== 看门狗启动 pid=$PID repo=$RepoRoot dryrun=$($DryRun.IsPresent) ====="
 Write-Log "安装目录=$InstallDir 安装包=$SetupExe 岗位=$AgentCode Task=$TaskId"
 
+# 【fullstack-dev · 2026-11-15 · 第15轮】必须在 try 之前定：finally 靠它决定"要不要删计划任务"，
+# 若在 try 内才赋值，一旦在安装前抛错（如安装包缺失），finally 读到 null 就当自己是真跑，
+# 会把尚未触发的真安装任务 EvoFlow-SelfVerify-Watchdog 删掉。state 与命令行开关取并集。
+$skipInstall = [bool]$SkipInstall -or [bool]$state.skipInstall
+$skipLaunch  = [bool]$SkipLaunch  -or [bool]$state.skipLaunch
+
 $exitCode = 0
 $stage = "init"
+$wakeOutcome = "not-attempted"
 try {
   if (-not (Test-Path -LiteralPath $SetupExe)) { throw "安装包不存在: $SetupExe" }
   if ([string]::IsNullOrWhiteSpace($InstallDir) -or -not (Test-Path -LiteralPath $InstallDir)) { throw "安装目录不存在: $InstallDir" }
@@ -122,6 +165,10 @@ try {
   $stage = "install"
   if ($DryRun) {
     Write-Log "[dryrun] 跳过实际安装: $SetupExe $($InstallArgs -join ' ')" "WARN"
+  } elseif ($skipInstall) {
+    # 【fullstack-dev · 2026-11-15 · 第15轮】自检模式：用户已重启客户端时，再装一次只为验 wake
+    # 不划算且会二次断线。此路径只验后半段（就绪/名册/wake），不销毁现场。
+    Write-Log "[selftest] skipInstall=1，跳过安装（仅验就绪/名册/wake）" "WARN"
   } else {
     Write-Log "开始静默安装（超时 ${InstallTimeout}s）: $SetupExe $($InstallArgs -join ' ')"
     $p = Start-Process -FilePath $SetupExe -ArgumentList $InstallArgs -PassThru -Wait
@@ -147,6 +194,9 @@ try {
   }
   if ($DryRun) {
     Write-Log "[dryrun] 跳过拉起: $installedExe" "WARN"
+  } elseif ($skipLaunch) {
+    # 自检模式下客户端已由用户在跑，再 Start-Process 会双开并抢 sidecar.lock。
+    Write-Log "[selftest] skipLaunch=1，跳过拉起（沿用当前实例）" "WARN"
   } else {
     Write-Log "拉起客户端: $installedExe"
     Start-Process -FilePath $installedExe -WorkingDirectory (Split-Path -Parent $installedExe) | Out-Null
@@ -231,6 +281,39 @@ try {
   }
   if (-not $rosterOk) { throw "岗位名册在 ${rosterTimeout}s 内未载入 $AgentCode —— 未做 wake，请检查 gateway 启动日志" }
 
+  # 【fullstack-dev · 2026-11-15 · 第16轮】新增 4c：wake 前等"投递面"通（第15轮实测的 503 空窗）
+  # 名册在册只证明 CLI 读对了库，不证明 Gateway 的 /api/proactive 已挂载完；503 是可重试态，
+  # 但原逻辑把它当"非名册类错误"立即止损，等于把一段几百毫秒的加载窗口判成永久失败。
+  $stage = "wait-delivery-gate"
+  $gateTimeout = [int]$state.deliveryGateTimeoutSec; if ($gateTimeout -le 0) { $gateTimeout = 120 }
+  $gateOk = $false
+  $gd = (Get-Date).AddSeconds($gateTimeout)
+  while ((Get-Date) -lt $gd) {
+    if ($DryRun) { $gateOk = $true; break }
+    $g = Get-DeliveryGateStatus $baseUrl
+    if ($g.code -ge 200 -and $g.code -lt 300) { $gateOk = $true; Write-Log "投递面已就绪（/api/proactive/status=$($g.code)）"; break }
+    if ($g.code -eq 503) {
+      # 体是 {"error":"loading_extended"|"starting_up"|"warming_up",...}；解析失败只降级成 unknown，
+      # 绝不为多打一行日志把闸门本身弄崩（body 可能是空串，ConvertFrom-Json 会抛）
+      $gateCode = 'unknown'
+      try {
+        if (-not [string]::IsNullOrWhiteSpace($g.body)) {
+          $bj = $g.body | ConvertFrom-Json
+          if ($bj.error) { $gateCode = [string]$bj.error }
+        }
+      } catch { $gateCode = 'unparsed' }
+      Write-Log "投递面仍在加载（503 error=$gateCode），5s 后重探" "WARN"
+    } elseif ($g.code -eq 0) {
+      Write-Log "投递面探测异常（无响应/连接失败），5s 后重探" "WARN"
+    } else {
+      Write-Log "投递面返回非预期码=$($g.code)，不再等待，交给 wake 自己判" "WARN"
+      $gateOk = $true
+      break
+    }
+    Start-Sleep -Seconds 5
+  }
+  if (-not $gateOk) { throw "投递面在 ${gateTimeout}s 内未就绪（/api/proactive/status 持续 503）—— 未做 wake，扩展路由可能加载失败，请查 gateway 日志" }
+
   $stage = "wake"
   $ok = $false
   $backoff = 10
@@ -240,11 +323,30 @@ try {
     try {
       $out = & $Cli @wakeArgs 2>&1 | Out-String
       Add-Content -LiteralPath $LogFile -Value $out -Encoding UTF8
-      if ($LASTEXITCODE -eq 0) { $ok = $true; Write-Log "wake 成功"; break }
-      # 名册竞态类错误值得再等；参数/权限类错误重投百次也不会好，立即止损。
-      if ($out -match "No employee matching|not found|not active") {
-        Write-Log "wake 命中名册/状态类错误，${backoff}s 后重试" "WARN"
+      # 【fullstack-dev · 2026-11-15 · 第15轮】exit=0 ≠ 真被叫醒，必须分型，否则静默假阳性：
+      #   skipped=true → 所引 Task 已结案，done-guard 直接跳过（什么都没投递，却 exit=0）
+      #   busy         → 岗位寻址成功、请求已到达，只是当轮在忙 —— 接线算通，投递未证
+      if ($LASTEXITCODE -eq 0) {
+        if ($out -match '"skipped"\s*:\s*true') {
+          $wakeOutcome = "skipped-already-done"
+          Write-Log "wake 返回 skipped=true（所引 Task 已结案，未真正投递）—— 判 inconclusive，勿记成功" "WARN"; break
+        }
+        $wakeOutcome = "delivered"; $ok = $true; Write-Log "wake 成功（已投递）"; break
+      }
+      if ($out -match "busy") {
+        # 自检场景下本岗正在跑，busy 是预期结果；它证明 名册→寻址→dispatch 全通。
+        $wakeOutcome = "busy-wiring-proven"
+        Write-Log "wake 命中 busy（岗位已寻到、请求已到达；本岗正在跑，属预期）—— 接线判通" "WARN"; break
+      }
+      # 只有真·名册类错误才值得重试；其余（参数/权限/读错库）重投百次也不会好，立即止损。
+      # 【fullstack-dev · 2026-11-15 · 第16轮】503 加入可重试集：上面的投递面闸门已能挡掉绝大多数，
+      # 这里兜的是闸门通过后才开始加载、或加载面抖动回 503 的残差。真机实测 503 是可自愈态。
+      if ($out -match "No employee matching") {
+        Write-Log "wake 报查无此岗，${backoff}s 后重试（若持续 = 数据目录仍指错库）" "WARN"
+      } elseif ($out -match "HTTP 50[234]|loading_extended|starting_up|warming_up|retry") {
+        Write-Log "wake 命中 Gateway 可重试态（503/加载窗口），${backoff}s 后重试" "WARN"
       } else {
+        $wakeOutcome = "failed"
         Write-Log "wake 返回 exit=$LASTEXITCODE（非名册类，重试无意义）" "ERROR"; break
       }
     } catch {
@@ -266,11 +368,15 @@ finally {
     Set-Content -LiteralPath $ResultFile -Value $summary -Encoding UTF8
   } catch { }
   # ── 5. 自删计划任务，不留残余 ────────────────────────────────────────
-  if ($TaskName) {
+  # 【fullstack-dev · 2026-11-15 · 第15轮】自检模式下绝不能走这段：任务名与真跑共用
+  # EvoFlow-SelfVerify-Watchdog，一次 selftest 就会把尚未触发的真安装任务删掉。
+  if ($TaskName -and -not ($skipInstall -or $skipLaunch)) {
     try {
       schtasks.exe /Delete /TN $TaskName /F 2>&1 | Out-Null
       Write-Log "已删除计划任务: $TaskName"
     } catch { Write-Log "删除计划任务失败（可手动 schtasks /Delete /TN `"$TaskName`" /F）" "WARN" }
+  } elseif ($TaskName) {
+    Write-Log "[selftest] 保留计划任务 $TaskName（自检不删任务）"
   }
   Write-Log "===== 看门狗结束 exit=$exitCode stage=$stage ====="
 }
