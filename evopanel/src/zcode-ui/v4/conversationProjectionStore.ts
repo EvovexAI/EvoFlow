@@ -28,8 +28,9 @@ import { markOpenStage } from "@/lib/openTrace.js";
 import {
   PROJECTION_WINDOW_SHARE_CAP,
   PROJECTION_WINDOW_SOFT_CAP,
-  capProjectionWindow,
+  capAndLightenProjectionWindow,
   countRealUserQueries,
+  resolveProjectionWindowSoftCap,
 } from "@/v4/projectionWindowCap.js";
 
 /**
@@ -297,21 +298,21 @@ function mergeOlderRows(
   const older = fetched.filter((row) => row.rowId < firstRowId);
   if (older.length === 0) return null;
   const merged = [...older, ...window];
-  const softCap = opts?.softCap ?? PROJECTION_WINDOW_SOFT_CAP;
+  const softCap = opts?.softCap ?? resolveProjectionWindowSoftCap();
   const prefer = opts?.prefer ?? "head";
-  const capped = capProjectionWindow(merged, softCap, prefer);
+  const capped = capAndLightenProjectionWindow(merged, { softCap, prefer });
   return capped === merged ? merged : [...capped];
 }
 
-/** snapshot / delta 应用后裁尾窗，避免长流式把 window 撑到上千行。 */
+/** snapshot / delta 应用后裁尾窗 + 瘦旧工具卡，避免多轮撑爆 WebView2。 */
 function applySoftCapToSnapshot(
   snapshot: ConversationSnapshot,
   prefer: "tail" | "head" = "tail",
-  softCap: number = PROJECTION_WINDOW_SOFT_CAP,
+  softCap: number = resolveProjectionWindowSoftCap(),
 ): ConversationSnapshot {
   const prev = snapshot.rows.window;
-  const next = capProjectionWindow(prev, softCap, prefer);
-  if (next === prev || next.length === prev.length) return snapshot;
+  const next = capAndLightenProjectionWindow(prev, { softCap, prefer });
+  if (next === prev) return snapshot;
   if (next.length < prev.length) {
     logger.info("[v4-store] projection window soft-capped", {
       from: prev.length,
@@ -983,8 +984,12 @@ export class ConversationProjectionStore {
     }
     const applied = applyConversationDeltas(current, frame.payload.deltas);
     // seq 是快照对齐水位，delta 帧应用完推进到帧右端点。
-    // 长流式回合会把 window 从 ~60 撑到上千：裁掉最旧行，保住直播尾部。
-    const next = applySoftCapToSnapshot({ ...applied, seq: frame.toSeq }, "tail");
+    // delta 帧不做软顶裁切/瘦身（2026-11-15 回撤，对齐 ZCode）：直播窗口只增不减、
+    // 行引用保持稳定（行级 memo 的前提），历史行被裁掉后 rows/range 游标救不回来
+    // （「最新用户消息/前面轮次看不到」实锤）。内存安全网改为：行内重载荷在服务端
+    // mirror/hydrate 出口截断（agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX）+ 快照
+    // apply / loadOlder 合并这两条一次性路径上的 cap+lighten。
+    const next = { ...applied, seq: frame.toSeq };
     logSubagentProjectionTransition(this.topic, current, next, "deltas");
     const removedFromRowId = frame.payload.deltas.reduce<number | null>(
       (earliest, delta) =>
@@ -1298,9 +1303,11 @@ export class ConversationProjectionStore {
       // 在途期间游标失效（row.removed 截断 / snapshot resync 整体替换）→ 结果作废，
       // 防止把权威侧已移除的历史行复活；下次触发按新窗口重新拉。
       if (current.rows.window[0]?.rowId !== beforeRowId) return;
-      // 上滚意图：prefer head，丢掉窗口尾部较新行，滑动到更早历史。
+      // 上滚意图：prefer head，滑动到更早历史。软顶放大到 1200（行内重载荷已在
+      // 服务端截断）：400 会在长回合/大会话里把流式尾部裁掉（行被裁后 rows/range
+      // 游标救不回来）——「正流着突然只剩一点点」的另一实锤。
       const window = mergeOlderRows(current.rows.window, result.rows, {
-        softCap: PROJECTION_WINDOW_SOFT_CAP,
+        softCap: Math.max(resolveProjectionWindowSoftCap(), 1_200),
         prefer: "head",
       });
       if (window === null) return;
@@ -1314,6 +1321,66 @@ export class ConversationProjectionStore {
       );
     } finally {
       if (!this.closed) this.setState({ loadingOlder: false });
+    }
+  }
+
+  /**
+   * 快照自动补拉（恢复可视性，对齐 ZCode SessionPane 冷快照自动补拉语义）。
+   *
+   * fresh subscribe / resync 后 window 只有服务端尾窗——长回合中途 resubscribe 时
+   * 最新 realUser 行和前面轮次都被截在窗口之外。逐页 loadOlder 直到：
+   * ① 窗口首行所在轮补到 turnHeader；② 直播中窗口里出现 realUser 行；
+   * ③ 没有更早行 / 首行不再前进 / 达到页数上限（有界，不做全量）。
+   * 合并软顶放大到 1200（行内重载荷已在服务端截断），prefer head 只保历史页——
+   * 页数上限 × 页大小 < 软顶，不会裁到流式尾部。
+   */
+  async autoBackfillForRestore(maxPages: number = 8): Promise<void> {
+    if (this.closed || this.state.loadingOlder) return;
+    for (let page = 0; page < Math.max(1, maxPages); page += 1) {
+      const snapshot = this.state.snapshot;
+      if (!snapshot || !hasOlderRows(snapshot)) return;
+      const window = snapshot.rows.window;
+      if (!Array.isArray(window) || window.length === 0) return;
+      const leadingIncomplete = !window.some(
+        (r) => r.turnId === window[0]?.turnId && r.kind === "turnHeader",
+      );
+      const turnLive = snapshot.control?.canStop === true;
+      const userMissing = turnLive && !window.some(
+        (r) => r.kind === "userInput" && r.origin === "realUser",
+      );
+      if (!leadingIncomplete && !userMissing) return;
+      const beforeFirstRowId = window[0]?.rowId;
+      this.setState({ loadingOlder: true });
+      try {
+        const sessionId = parseConversationTopic(this.topic);
+        if (!sessionId) return;
+        const result = await this.transport.rowsRange({
+          sessionId,
+          beforeRowId: beforeFirstRowId,
+          limit: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
+        });
+        if (this.closed) return;
+        const current = this.state.snapshot;
+        if (!current || result.atLogEpoch !== current.logEpoch) return;
+        if (current.rows.window[0]?.rowId !== beforeFirstRowId) return;
+        const merged = mergeOlderRows(current.rows.window, result.rows, {
+          softCap: 1_200,
+          prefer: "head",
+        });
+        if (merged === null) return; // 没有更早行 → 到顶
+        this.setState({
+          snapshot: { ...current, rows: { ...current.rows, window: merged } },
+        });
+        // 首行没前进（服务端没有更早行）→ 停，防空转。
+        if (this.state.snapshot?.rows.window[0]?.rowId === beforeFirstRowId) return;
+      } catch (error) {
+        logger.warn(
+          `[v4-store] autoBackfill ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return;
+      } finally {
+        if (!this.closed) this.setState({ loadingOlder: false });
+      }
     }
   }
 
@@ -1349,7 +1416,9 @@ export class ConversationProjectionStore {
     const initialBeforeRowId = snapshot.rows.window[0]?.rowId;
     if (!sessionId || initialBeforeRowId === undefined) return stale(snapshot.logEpoch);
 
-    const softCap = opts?.forShare ? PROJECTION_WINDOW_SHARE_CAP : PROJECTION_WINDOW_SOFT_CAP;
+    const softCap = opts?.forShare
+      ? PROJECTION_WINDOW_SHARE_CAP
+      : resolveProjectionWindowSoftCap();
     // 已在软顶且窗口内已有 ≥2 条 query：不必再为 rail 拉全量历史。
     if (
       !opts?.forShare &&

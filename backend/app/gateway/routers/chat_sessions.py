@@ -89,6 +89,9 @@ class SessionRowResponse(BaseModel):
     inputTokens: int = 0
     outputTokens: int = 0
     totalTokens: int = 0
+    cacheReadTokens: int = 0
+    cacheCreationTokens: int = 0
+    cacheMissTokens: int = 0
     isPinned: bool = False
     pinOrder: int = 0
     hiddenFromList: bool = False

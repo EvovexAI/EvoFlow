@@ -201,6 +201,9 @@ export const sessionUsageStateSchema = z.object({
     outputTokens: z.number(),
     cacheReadTokens: z.number(),
     cacheWriteTokens: z.number(),
+    // EvoFlow 扩展（additive optional）：会话总计面板要总 token 与未命中数算命中率。
+    totalTokens: z.number().optional(),
+    cacheMissTokens: z.number().optional(),
   }),
 });
 export type SessionUsageState = z.infer<typeof sessionUsageStateSchema>;

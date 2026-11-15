@@ -773,6 +773,20 @@ def save_craft_note(
         updated = resolve_entity_file(entity, upd).is_file()
         rel = upd
     else:
+        # 【fullstack-dev · 2026-11-15 · 第13轮增量二】改：新建时展示标题优先取**正文首个标题行**
+        # （与 ad_hoc_note.title_from_body 同一口径）。为什么：note 路径把 path stem 当 title、
+        # 正文首行是用户写的「## 小节名」，两者字面不同文 → craft.py 的同文去重判据永远不命中，
+        # 实测落盘三层重复（# stem → ## 解决方案 → ## 小节名）。文件名仍用 stem（不动命名规则），
+        # 只把渲染/比对用的标题对齐到正文。
+        body_first_heading = ""
+        for _ln in body.splitlines():
+            _s = _ln.strip()
+            if _s.startswith("#"):
+                body_first_heading = _s.lstrip("#").strip()
+                break
+            if _s:
+                break
+        t = body_first_heading or t
         # New craft: unique name if slug taken (do not silently clobber another craft).
         slug = _slug_cjk(t, fallback="craft")
         rel = _unique_rel_name(entity, "craft", slug)
@@ -801,6 +815,12 @@ def save_craft_note(
                 if len(blocks) >= 3:
                     head, old_body = blocks[0] + "---" + blocks[1] + "---\n", blocks[2].lstrip("\n")
             stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
+            # 【第13轮增量二】补：追加路径同样会带进与文件 H1 同文的标题行（assets note 的
+            # content 习惯以标题起笔）。这里只对**本次新增的 body**剥一次同名标题，
+            # 不动 old_body —— 那是存量数据，订正属另一回事。
+            from evoflow.assets.craft import strip_duplicate_leading_heading
+
+            body = strip_duplicate_leading_heading(body, old_body)
             merged = (old_body.rstrip() + f"\n\n## 补充（{stamp}）\n\n{body}\n") if old_body else f"{body}\n"
             atomic_write_text(target, (head.rstrip("\n") + "\n\n" + merged).rstrip() + "\n")
         data = read_text_file(e, rel)
@@ -809,7 +829,15 @@ def save_craft_note(
         {
             "title": t,
             "description": desc,
-            "solution": body or t,
+            # 【fullstack-dev · 2026-11-15 · 第14轮】改：note 路径显式走 ``body_md``（verbatim 通道），
+            #   不再复用 ``solution`` 字段。为什么：craft.py 上一版靠「solution 非空就当整篇正文」猜
+            #   note 路径，把所有结构化调用方一起卷进 verbatim，读侧分节预览全空；verbatim 入口
+            #   收窄为只认 body_md 后，本处必须自己传对，否则 note 落回分节拼装、双标题又回来。
+            # 边界：空正文时仍传 title 兜底（保持原 ``body or t`` 语义，避免落盘空文件）。
+            # 【fullstack-dev · 2026-11-15 · 第14轮】补：显式带 ``note_body=True``——craft 侧
+            #   据此走 verbatim；solution 复用通道已删，结构化调用方不再被误伤。
+            "body_md": body or t,
+            "note_body": True,
             "origin": "manual",
             "entity_type": e.entity_type,
             "entity_id": e.entity_id,

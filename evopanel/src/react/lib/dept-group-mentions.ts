@@ -11,13 +11,17 @@ export type DeptMentionMember = {
 /** 旧称呼 / 简称 → 用花名册里「角色名包含该关键字」的人接住 */
 const MENTION_ALIASES: Array<{ alias: string; roleIncludes: string[] }> = [
   { alias: '测试', roleIncludes: ['测试'] },
-  { alias: '后端开发', roleIncludes: ['全栈', '后端'] },
-  { alias: '前端开发', roleIncludes: ['全栈', '前端'] },
-  { alias: '后端', roleIncludes: ['全栈', '后端'] },
-  { alias: '前端', roleIncludes: ['全栈', '前端'] },
-  { alias: '全站工程师', roleIncludes: ['全栈工程师'] },
-  { alias: '全站开发', roleIncludes: ['全栈开发'] },
-  { alias: '全站', roleIncludes: ['全栈'] },
+  { alias: '自我进化BOT', roleIncludes: ['自我进化'] },
+  { alias: '自我进化', roleIncludes: ['自我进化'] },
+  // 旧称「全栈开发工程师」已改码为 self-evolution-bot / 自我进化BOT
+  { alias: '全栈开发工程师', roleIncludes: ['自我进化'] },
+  { alias: '后端开发', roleIncludes: ['自我进化', '全栈', '后端'] },
+  { alias: '前端开发', roleIncludes: ['自我进化', '全栈', '前端'] },
+  { alias: '后端', roleIncludes: ['自我进化', '全栈', '后端'] },
+  { alias: '前端', roleIncludes: ['自我进化', '全栈', '前端'] },
+  { alias: '全站工程师', roleIncludes: ['自我进化', '全栈工程师'] },
+  { alias: '全站开发', roleIncludes: ['自我进化', '全栈开发'] },
+  { alias: '全站', roleIncludes: ['自我进化', '全栈'] },
 ]
 
 function escapeReg(s: string): string {

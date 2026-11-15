@@ -72,6 +72,11 @@ export function employeeRosterOrderKeys(
   return out
 }
 
+/** 本机拖拽序里的旧岗位码 → 现码（改名后不丢手排位置） */
+const EMPLOYEE_GROUP_ORDER_ALIASES: Record<string, string> = {
+  'fullstack-dev': 'self-evolution-bot',
+}
+
 export function loadEmployeeGroupOrder(): string[] {
   try {
     const raw = localStorage.getItem(SS_EMPLOYEE_GROUP_ORDER)
@@ -80,13 +85,26 @@ export function loadEmployeeGroupOrder(): string[] {
     if (!Array.isArray(parsed)) return []
     const seen = new Set<string>()
     const out: string[] = []
+    let rewritten = false
     for (const v of parsed) {
-      const k = String(v || '')
+      let k = String(v || '')
         .trim()
         .toLowerCase()
+      const mapped = EMPLOYEE_GROUP_ORDER_ALIASES[k]
+      if (mapped) {
+        k = mapped
+        rewritten = true
+      }
       if (!k || seen.has(k)) continue
       seen.add(k)
       out.push(k)
+    }
+    if (rewritten) {
+      try {
+        localStorage.setItem(SS_EMPLOYEE_GROUP_ORDER, JSON.stringify(out))
+      } catch {
+        /* ignore */
+      }
     }
     return out
   } catch {

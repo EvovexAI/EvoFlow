@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  PROJECTION_HEAVY_HORIZON,
   PROJECTION_WINDOW_SOFT_CAP,
+  capAndLightenProjectionWindow,
   capProjectionWindow,
   countRealUserQueries,
+  lightenProjectionRowsForMemory,
 } from '../src/zcode-ui/v4/projectionWindowCap.ts'
 import type { ConversationRow } from '../src/zcode-shared/zcode-protocol-v4/index.ts'
 
@@ -16,6 +19,20 @@ function row(
     turnId: `t-${Math.floor(rowId / 10)}`,
     kind,
     ...(kind === 'userInput' ? { origin: origin ?? 'realUser', text: `q${rowId}` } : {}),
+  } as ConversationRow
+}
+
+function heavyTool(rowId: number): ConversationRow {
+  return {
+    rowId,
+    turnId: `t-${Math.floor(rowId / 10)}`,
+    kind: 'toolCall',
+    toolCallId: `tc-${rowId}`,
+    name: 'platform',
+    output: {
+      text: 'x'.repeat(8_000),
+      display: { kind: 'platform', title: `heavy-${rowId}` },
+    },
   } as ConversationRow
 }
 
@@ -36,10 +53,7 @@ describe('capProjectionWindow', () => {
     expect(capped.length).toBeLessThanOrEqual(160)
     expect(capped.length).toBeGreaterThanOrEqual(80)
     expect(capped[capped.length - 1]?.rowId).toBe(500)
-    expect(
-      capped[0]?.kind === 'turnHeader' ||
-        (capped[0]?.kind === 'userInput' && capped[0]?.origin === 'realUser'),
-    ).toBe(true)
+    expect(capped[0]?.kind).toBe('turnHeader')
   })
 
   it('keeps head when prefer=head (scroll-up)', () => {
@@ -47,6 +61,54 @@ describe('capProjectionWindow', () => {
     const capped = capProjectionWindow(rows, 100, 'head')
     expect(capped[0]?.rowId).toBe(1)
     expect(capped.length).toBeLessThanOrEqual(140)
+  })
+
+  it('under softCap never evicts history (2026-11-15 回撤焦点窗重建)', () => {
+    // 用户距底 118 行是长回合直播的自然形态：ZCode 契约 = store 持有全会话行，
+    // 客户端绝不按埋深重建窗口把前面轮次丢掉（「历史记录看不到了」的实锤）。
+    const rows: ConversationRow[] = []
+    rows.push(row(1, 'turnHeader'))
+    rows.push(row(2, 'userInput', 'realUser'))
+    for (let i = 3; i <= 120; i += 1) rows.push(row(i, 'toolCall'))
+    const capped = capProjectionWindow(rows, 220, 'tail')
+    expect(capped).toBe(rows)
+    expect(capped[0]?.kind).toBe('turnHeader')
+    expect(capped.some((r) => r.kind === 'userInput')).toBe(true)
+  })
+
+  it('over softCap trims at turn boundary without rebuilding (tail kept)', () => {
+    const rows: ConversationRow[] = []
+    rows.push(row(1, 'turnHeader'))
+    rows.push(row(2, 'userInput', 'realUser'))
+    rows.push({
+      rowId: 3,
+      turnId: 't-live',
+      kind: 'assistantText',
+      text: '先流出的一段',
+      state: 'complete',
+      createdAt: 3,
+      createdAtSeq: 3,
+    } as ConversationRow)
+    for (let i = 4; i <= 200; i += 1) {
+      rows.push(row(i, 'toolCall'))
+    }
+    rows.push({
+      rowId: 201,
+      turnId: 't-live',
+      kind: 'assistantText',
+      text: '轮尾最新',
+      state: 'streaming',
+      createdAt: 201,
+      createdAtSeq: 201,
+    } as ConversationRow)
+    for (const r of rows) {
+      ;(r as { turnId: string }).turnId = 't-live'
+    }
+    const capped = capProjectionWindow(rows, 80, 'tail')
+    // 单一超长轮（无近界 turnHeader）→ 硬切，但尾部原样保留，绝不重建焦点窗
+    expect(capped[capped.length - 1]?.rowId).toBe(201)
+    expect(capped.length).toBeLessThanOrEqual(120)
+    expect(capped.length).toBeGreaterThanOrEqual(40)
   })
 })
 
@@ -59,5 +121,53 @@ describe('countRealUserQueries', () => {
     ]
     expect(countRealUserQueries(rows)).toBe(2)
     expect(PROJECTION_WINDOW_SOFT_CAP).toBeGreaterThan(100)
+  })
+})
+
+describe('lightenProjectionRowsForMemory', () => {
+  it('trims old tool payloads outside heavy horizon, keeps display', () => {
+    const rows: ConversationRow[] = []
+    for (let i = 1; i <= 100; i += 1) {
+      rows.push(i <= 40 ? heavyTool(i) : row(i))
+    }
+    const light = lightenProjectionRowsForMemory(rows, 60)
+    const early = light[0] as { output?: { text?: string; display?: unknown } }
+    const late = light[90] as { kind?: string }
+    expect(early.output?.text?.includes('[trimmed for memory]')).toBe(true)
+    // display（截图/文件 diff/媒体卡）是历史的一部分，必须保留
+    expect(early.output?.display).toEqual({ kind: 'platform', title: 'heavy-1' })
+    expect(late.kind).toBe('assistantMessage')
+    expect(light).not.toBe(rows)
+  })
+
+  it('returns same reference when nothing to lighten', () => {
+    const rows = [row(1), row(2), heavyTool(3)]
+    expect(lightenProjectionRowsForMemory(rows, 60)).toBe(rows)
+  })
+})
+
+describe('capAndLightenProjectionWindow', () => {
+  it('caps then lightens under a tight softCap', () => {
+    const rows: ConversationRow[] = []
+    for (let i = 1; i <= 200; i += 1) {
+      rows.push(i % 5 === 0 ? heavyTool(i) : row(i))
+    }
+    const next = capAndLightenProjectionWindow(rows, {
+      softCap: 80,
+      prefer: 'tail',
+      heavyHorizon: 40,
+    })
+    expect(next.length).toBeLessThanOrEqual(120)
+    expect(next[next.length - 1]?.rowId).toBe(200)
+    const oldHeavy = next.find(
+      (r) =>
+        r.kind === 'toolCall' &&
+        typeof (r as { output?: { text?: string } }).output?.text === 'string' &&
+        String((r as { output?: { text?: string } }).output?.text).includes(
+          '[trimmed for memory]',
+        ),
+    )
+    expect(oldHeavy).toBeTruthy()
+    expect(PROJECTION_HEAVY_HORIZON).toBeGreaterThan(20)
   })
 })

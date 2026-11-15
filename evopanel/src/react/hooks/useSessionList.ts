@@ -14,7 +14,11 @@ import { isTauri } from '../../lib/panel-login.js'
 import { skTail, ssLog } from '../../lib/session-list-debug.js'
 import { wsClient } from '../../lib/ws-client.js'
 import type { ChatSessionRow } from '../chat-types.js'
-import { SESSION_LIST_PAGE_SIZE, GLOBAL_RECENT_PAGINATION_KEY } from '../lib/session-list/constants.js'
+import {
+  SESSION_LIST_PAGE_SIZE,
+  GLOBAL_RECENT_PAGINATION_KEY,
+  sessionListPageSizeForWorkspace,
+} from '../lib/session-list/constants.js'
 import { loadExpandedWorkspaceKeys } from '../lib/session-list/expanded-workspaces-storage.js'
 import type { WorkspaceGroupSummary } from '../lib/session-list/types.js'
 import {
@@ -378,14 +382,15 @@ export function useSessionList(opts: UseSessionListOptions) {
             try {
               const pag = workspacePaginationRef.current[key] || defaultWorkspacePagination()
               const offset = soft || opt?.reset ? 0 : pag.offset
-              const data = await api.chatSessionsList(SESSION_LIST_PAGE_SIZE, offset, key)
+              const pageSize = sessionListPageSizeForWorkspace(key)
+              const data = await api.chatSessionsList(pageSize, offset, key)
               const apiRows = (data?.sessions || []) as ChatSessionRow[]
               const pageRows = stripDefaultMainSessionRows(apiRows)
               pages[idx] = {
                 key,
                 pageRows,
                 nextOffset: offset + apiRows.length,
-                hasMore: apiRows.length >= SESSION_LIST_PAGE_SIZE,
+                hasMore: apiRows.length >= pageSize,
                 ok: true,
               }
             } catch (e) {
@@ -515,6 +520,7 @@ export function useSessionList(opts: UseSessionListOptions) {
 
       const soft = !!(opt?.soft || (opt?.silent && opt?.reset))
       const offset = soft || opt?.reset ? 0 : pag.offset
+      const pageSize = sessionListPageSizeForWorkspace(key)
       if (soft) {
         if (softReloadInflightRef.current.has(key)) return
         softReloadInflightRef.current.add(key)
@@ -524,11 +530,11 @@ export function useSessionList(opts: UseSessionListOptions) {
       }
       try {
         const { api } = await import('../../lib/tauri-api.js')
-        const data = await api.chatSessionsList(SESSION_LIST_PAGE_SIZE, offset, key)
+        const data = await api.chatSessionsList(pageSize, offset, key)
         const apiRows = (data?.sessions || []) as ChatSessionRow[]
         const pageRows = stripDefaultMainSessionRows(apiRows)
         const nextOffset = offset + apiRows.length
-        const hasMore = apiRows.length >= SESSION_LIST_PAGE_SIZE
+        const hasMore = apiRows.length >= pageSize
 
         const curAtMerge = String(sessionRef.current || '').trim()
         let mergedForStorage: ChatSessionRow[] = []

@@ -49,6 +49,11 @@ import {
   type ConversationTurnRenderUnit,
 } from "@/v4/conversationTurnRenderUnits.js";
 import {
+  inspectConversationTurnFoldHealth,
+  summarizeFoldHealthFindings,
+} from "@/v4/conversationTurnFoldHealth.js";
+import { logV4Life } from "../../react/lib/v4-lifecycle-log.js";
+import {
   resolveConversationTurnNavigatorActiveQueryRowId,
   resolveConversationTurnNavigatorHydrationRetryDelayMs,
   shouldHydrateConversationTurnNavigatorDirectory,
@@ -460,6 +465,29 @@ function ConversationTimelineImpl({
     () => splitConversationTimelineLiveTail(renderUnits),
     [renderUnits],
   );
+  // 「已工作」折叠乱套时打 fold_anomaly，避免再靠截图肉眼猜。
+  const foldHealthSigRef = useRef("");
+  useEffect(() => {
+    const report = inspectConversationTurnFoldHealth(renderUnits);
+    if (report.ok) {
+      foldHealthSigRef.current = "";
+      return;
+    }
+    if (foldHealthSigRef.current === report.signature) return;
+    foldHealthSigRef.current = report.signature;
+    logV4Life({
+      event: "fold_anomaly",
+      level: "warn",
+      threadId: rowContext.sessionId,
+      zh: `时间线折叠异常：${summarizeFoldHealthFindings(report.findings)}`,
+      detail: {
+        findings: report.findings,
+        unitCount: renderUnits.length,
+        running: renderUnits.some((u) => u.isRunning),
+      },
+      skipDedupe: true,
+    });
+  }, [renderUnits, rowContext.sessionId]);
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
   const turnNavigatorQueryRowIds = useMemo(
     () =>

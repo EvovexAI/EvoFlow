@@ -1524,6 +1524,11 @@ def employees_bind_channel_poll(args: dict[str, Any]) -> dict[str, Any]:
                 val = getattr(session, key, None)
                 if val:
                     out[key] = val
+        elif channel == "weixin":
+            for key in ("account_id",):
+                val = getattr(session, key, None)
+                if val:
+                    out[key] = val
     if status in {"failed", "expired"}:
         out["error"] = getattr(session, "error", None) or status
         out["ok"] = False
@@ -1537,7 +1542,7 @@ def _employee_bind_apply_via_gateway(agent_code: str, channel: str, session_id: 
     from evoflow.admin.proactive_http import resolve_proactive_api_base
 
     ch = channel.strip().lower()
-    if ch not in {"feishu", "wecom"}:
+    if ch not in {"feishu", "wecom", "weixin"}:
         raise ValidationError(f"unsupported employee bind channel via Gateway: {channel}")
     base = resolve_proactive_api_base().rstrip("/")
     url = f"{base}/roles/{agent_code}/{ch}/registration/{session_id}/apply"
@@ -1605,7 +1610,7 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
                     open_id=open_id,
                 )
             )
-        else:
+        elif channel == "wecom":
             bot_id = str(getattr(session, "bot_id", None) or "").strip()
             secret = str(getattr(session, "secret", None) or "").strip()
             if not bot_id or not secret:
@@ -1619,6 +1624,23 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
                     secret=secret,
                 )
             )
+        elif channel == "weixin":
+            account_id = str(getattr(session, "account_id", None) or "").strip()
+            token = str(getattr(session, "token", None) or "").strip()
+            if not account_id or not token:
+                raise ValidationError("Registration completed but WeChat credentials are missing")
+            from evoflow.proactive.weixin_binding import apply_registration_to_role
+
+            data = _run_coro_sync(
+                apply_registration_to_role(
+                    code,
+                    account_id=account_id,
+                    token=token,
+                    base_url=str(getattr(session, "confirmed_base_url", "") or ""),
+                )
+            )
+        else:
+            raise ValidationError(f"unsupported employee bind channel: {channel}")
 
     out = {
         "ok": True,
@@ -1627,11 +1649,15 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
         "role_name": role_name,
         "channel": channel,
         "session_id": session_id,
-        "hint": f"已绑定本岗 AI 员工到{('飞书' if channel == 'feishu' else '企微')}；拉进群即可 @{role_name}",
+        "hint": (
+            f"已绑定本岗 AI 员工到{('飞书' if channel == 'feishu' else '企微' if channel == 'wecom' else '微信')}；"
+            f"拉进群即可 @{role_name}"
+        ),
         "assistant_guide": {
             "status": "bind_applied",
             "say_to_user": (
-                f"「{role_name}」本岗 AI 员工已绑定{('飞书' if channel == 'feishu' else '企微')}。"
+                f"「{role_name}」本岗 AI 员工已绑定"
+                f"{('飞书' if channel == 'feishu' else '企微' if channel == 'wecom' else '微信')}。"
                 f"把他拉进同事所在群，@{role_name} 即可协作。"
             ),
             "next_steps": ["把 say_to_user 告诉用户", "可选：employees.get 确认 binding 状态"],

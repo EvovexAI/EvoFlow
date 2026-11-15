@@ -222,6 +222,10 @@ CREATE INDEX IF NOT EXISTS idx_evo_obs_model_latency
     ON {ObservabilityTable.MODEL_INVOCATIONS}(latency_ms);
 CREATE INDEX IF NOT EXISTS idx_evo_obs_model_kind_time
     ON {ObservabilityTable.MODEL_INVOCATIONS}(invocation_kind, requested_at);
+/* 【self-evolution-bot · 2026-11-15 · 第18轮】撤销：本轮曾在此加 idx_evo_obs_model_started，
+   复算证明冗余——started_at 与 requested_at 全表 17458/17458 逐字相同、无 NULL，
+   而 requested_at 已有索引；对同一份数据建第二把索引只增加写入成本（本表随每次模型调用增长）。
+   按「没被证实有效的代码不留进仓库」当场撤回。读侧若要走索引，改用 requested_at 过滤即可。 */
 
 CREATE TABLE IF NOT EXISTS {ObservabilityTable.TOOL_INVOCATIONS} (
     id TEXT PRIMARY KEY,

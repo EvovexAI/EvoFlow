@@ -1172,6 +1172,22 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         logger.exception("Workflow reconciler failed (non-fatal)")
 
     try:
+        from app.gateway.v4.run_settle_reconciler import (
+            run_settle_reconciler_enabled,
+            run_v4_run_settle_scheduler,
+        )
+
+        if run_settle_reconciler_enabled():
+            stop_ev = asyncio.Event()
+            task = asyncio.create_task(run_v4_run_settle_scheduler(stop_ev))
+            app.state.startup_background_tasks.append(task)
+            if not hasattr(app.state, "v4_run_settle_stop"):
+                app.state.v4_run_settle_stop = stop_ev
+            logger.info("V4 run-settle reconciler spawned (post-ready)")
+    except Exception:
+        logger.exception("V4 run-settle reconciler failed (non-fatal)")
+
+    try:
         from evoflow.config.paths import get_paths
         from evoflow.persistence.db import run_deferred_full_preflight
 

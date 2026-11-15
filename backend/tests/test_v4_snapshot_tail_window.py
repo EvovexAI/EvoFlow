@@ -132,3 +132,164 @@ def test_byte_budget_within_limit_keeps_tail_rows():
     window = hub._build_snapshot(sess)["rows"]["window"]
 
     assert len(window) == conv._SNAPSHOT_TAIL_ROWS
+
+
+def test_snapshot_tail_aligns_to_turn_boundary():
+    """尾窗不得从上一轮半截 assistantText 开头——否则窗顶会挂旧结论。"""
+    hub = V4ConversationHub()
+    rows: list[dict] = []
+    # 旧轮：header + user + 若干正文；新轮完整。
+    rows.append({"rowId": 1, "kind": "turnHeader", "turnId": "old", "origin": "userInput"})
+    rows.append(
+        {
+            "rowId": 2,
+            "kind": "userInput",
+            "turnId": "old",
+            "text": "旧问",
+            "origin": "realUser",
+        }
+    )
+    for rid in range(3, 50):
+        rows.append(
+            {
+                "rowId": rid,
+                "kind": "assistantText",
+                "turnId": "old",
+                "text": f"old-{rid}",
+                "state": "complete",
+            }
+        )
+    rows.append({"rowId": 50, "kind": "turnHeader", "turnId": "new", "origin": "userInput"})
+    rows.append(
+        {
+            "rowId": 51,
+            "kind": "userInput",
+            "turnId": "new",
+            "text": "新问",
+            "origin": "realUser",
+        }
+    )
+    for rid in range(52, 52 + conv._SNAPSHOT_TAIL_ROWS):
+        rows.append(
+            {
+                "rowId": rid,
+                "kind": "toolCall",
+                "turnId": "new",
+                "toolName": f"t-{rid}",
+            }
+        )
+    # 裸截断会落在 old 轮中部；对齐后必须从 turnHeader/new 起。
+    window = V4ConversationHub._snapshot_tail_window(rows, pin_live_turn=False)
+    assert window[0]["kind"] == "turnHeader"
+    assert window[0]["turnId"] == "new"
+    assert all(r.get("turnId") == "new" for r in window)
+
+
+def test_live_turn_pin_keeps_early_assistant_text():
+    """直播轮被尾窗截断时，不能只钉 header+user而丢掉已流出的 assistantText。"""
+    hub = V4ConversationHub()
+    rows: list[dict] = []
+    rows.append({"rowId": 1, "kind": "turnHeader", "turnId": "live", "origin": "userInput"})
+    rows.append(
+        {
+            "rowId": 2,
+            "kind": "userInput",
+            "turnId": "live",
+            "text": "请继续",
+            "origin": "realUser",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 3,
+            "kind": "assistantText",
+            "turnId": "live",
+            "text": "先说一半",
+            "state": "complete",
+        }
+    )
+    for rid in range(4, 4 + conv._SNAPSHOT_TAIL_ROWS + 30):
+        rows.append({"rowId": rid, "kind": "toolCall", "turnId": "live", "toolName": f"t{rid}"})
+    rows.append(
+        {
+            "rowId": 1000,
+            "kind": "assistantText",
+            "turnId": "live",
+            "text": "轮尾",
+            "state": "streaming",
+        }
+    )
+    # 模拟已被裁成「只剩工具尾」的窗口
+    raw_tail = rows[-(conv._SNAPSHOT_TAIL_ROWS) :]
+    pinned = V4ConversationHub._pin_live_turn_into_window(
+        rows, raw_tail, soft_cap=conv._SNAPSHOT_TAIL_ROWS
+    )
+    texts = [str(r.get("text") or "") for r in pinned if r.get("kind") == "assistantText"]
+    kinds = [str(r.get("kind") or "") for r in pinned]
+    assert "userInput" in kinds
+    assert "请继续" in [str(r.get("text") or "") for r in pinned]
+    assert "轮尾" in texts
+    # 头+尾模式下中段「先说一半」可能被挤掉；用户与轮尾不能丢
+    assert pinned[0]["kind"] == "turnHeader"
+
+
+def test_live_turn_pins_user_input_squeezed_out_of_tail():
+    """流式长回合把 userInput 挤出尾窗后，切会话重订阅仍须看见本轮用户气泡。
+
+    turnHeader 须落在对齐回看窗（40 行）之外，否则 idle 对齐也会把整轮头带回来——
+    那是预期；本用例专测 pin_live_turn 在「头已被裁掉」时的钉回。
+    """
+    hub = V4ConversationHub()
+    sess = hub._get_or_create_session("s-live-pin")
+    # header/user 之后铺足够多工具，使 raw 尾窗与对齐回看都够不着它们。
+    sess.rows[1] = {
+        "rowId": 1,
+        "kind": "turnHeader",
+        "turnId": "turn-live",
+        "origin": "userInput",
+    }
+    sess.rows[2] = {
+        "rowId": 2,
+        "kind": "userInput",
+        "turnId": "turn-live",
+        "text": "请继续排查切换丢气泡",
+        "origin": "realUser",
+    }
+    tool_start = 3
+    tool_end = tool_start + conv._SNAPSHOT_TAIL_ROWS + 50
+    for rid in range(tool_start, tool_end):
+        sess.rows[rid] = {
+            "rowId": rid,
+            "kind": "toolCall",
+            "turnId": "turn-live",
+            "toolName": f"tool-{rid}",
+        }
+    sess.phase = "running"
+    sess.control_override = {
+        "phase": "running",
+        "sessionEnded": False,
+        "canStop": True,
+        "stopState": "stoppable",
+        "stopTargetKind": "assistant",
+        "activeWorks": [{"kind": "primaryTurn", "startedAt": 1}],
+        "lastError": None,
+        "apiRetry": None,
+    }
+
+    window = hub._build_snapshot(sess)["rows"]["window"]
+    kinds = [str(r.get("kind") or "") for r in window]
+    texts = [str(r.get("text") or "") for r in window if str(r.get("kind") or "") == "userInput"]
+
+    assert "userInput" in kinds
+    assert "请继续排查切换丢气泡" in texts
+    # idle：头已在对齐回看之外 → 不得靠 pin 留下用户气泡
+    sess.phase = "completed"
+    sess.control_override = None
+    idle_window = hub._build_snapshot(sess)["rows"]["window"]
+    idle_texts = [
+        str(r.get("text") or "")
+        for r in idle_window
+        if str(r.get("kind") or "") == "userInput"
+    ]
+    assert "请继续排查切换丢气泡" not in idle_texts
+    assert idle_window[0]["kind"] != "turnHeader" or idle_window[0].get("rowId") != 1

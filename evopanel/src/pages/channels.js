@@ -590,10 +590,12 @@ function renderChannels(page, data) {
   html += '<div class="im-tips">' + tips + '</div>'
 
   // Form
-  // Tab bar: 基础设置 / 岗位机器人名册（名册仅含多岗位机器人能力的平台显示，当前为飞书）
-  html += '<div class="im-tabs" id="im-tabs-bar"' + (selName === 'feishu' || selName === 'wecom' ? '' : ' style="display:none"') + '>'
+  // Tab bar: 基础设置 / 名册（飞书·企微=岗位机器人名册；微信=账号绑定）
+  const supportsRoster = selName === 'feishu' || selName === 'wecom' || selName === 'weixin'
+  const bindingsTabLabel = selName === 'weixin' ? '\u8d26\u53f7\u7ed1\u5b9a' : '\u5c97\u4f4d\u673a\u5668\u4eba\u540d\u518c'
+  html += '<div class="im-tabs" id="im-tabs-bar"' + (supportsRoster ? '' : ' style="display:none"') + '>'
   html += '<button type="button" class="im-tab im-tab--active" data-im-tab="base">\u57fa\u7840\u8bbe\u7f6e</button>'
-  html += '<button type="button" class="im-tab" data-im-tab="bindings"' + (selName === 'feishu' || selName === 'wecom' ? '' : ' style="display:none"') + '>\u5c97\u4f4d\u673a\u5668\u4eba\u540d\u518c</button>'
+  html += '<button type="button" class="im-tab" data-im-tab="bindings"' + (supportsRoster ? '' : ' style="display:none"') + '>' + bindingsTabLabel + '</button>'
   html += '</div>'
 
   html += '<form class="im-form" id="im-config-form" data-channel="' + esc(selName) + '">'
@@ -630,6 +632,19 @@ function renderChannels(page, data) {
   html +=
     '<p class="im-field-hint" style="margin:0">\u53f3\u4e0a\u89d2\u300c\u626b\u7801\u7ed1\u5b9a\u300d= \u4e2a\u4eba\u52a9\u7406\u4e3b\u673a\u5668\u4eba\uff08\u4f01\u4e1a\u5fae\u4fe1\u9ed8\u8ba4\u5165\u53e3\uff09\u3002\u4e0b\u65b9\u540d\u518c = \u5404\u5c97\u4f4d\u4e13\u5c5e AI Bot\uff0c\u6bcf\u5458\u5de5\u72ec\u7acb\u3002\u62c9\u5230\u4e0d\u540c\u4f01\u4e1a\u5fae\u4fe1\u7fa4\u91cc\u5c31\u80fd\u8ba9\u5bf9\u5e94\u5c97\u4f4d\u5904\u7406\u3002</p>'
   html += '<div id="wecom-bindings-body" class="im-bindings-body" aria-live="polite">\u2014</div>'
+  html += '</div>'
+  // 微信多账号绑定面板（增删改查）；每个微信号独立扫码，默认接主智能体，可改绑员工。
+  html += '<div class="im-field-group im-feishu-bindings" id="weixin-accounts-panel">'
+  html += '<div class="im-bindings-head">'
+  html += '<label class="im-label" style="margin:0">\u5fae\u4fe1\u8d26\u53f7\u7ed1\u5b9a\uff08\u591a\u8d26\u53f7\uff09</label>'
+  html += '<div style="display:flex;gap:8px">'
+  html += '<button type="button" class="btn btn-sm btn-outline" id="weixin-accounts-add">\ud83d\udcf1 \u6dfb\u52a0\u5fae\u4fe1\u8d26\u53f7</button>'
+  html += '<button type="button" class="btn btn-sm btn-outline" id="weixin-accounts-refresh">\u5237\u65b0</button>'
+  html += '</div>'
+  html += '</div>'
+  html +=
+    '<p class="im-field-hint" style="margin:0">\u6bcf\u4e2a\u5fae\u4fe1\u53f7\u72ec\u7acb\u626b\u7801\u7ed1\u5b9a\u4e00\u4e2a\u673a\u5668\u4eba\uff1b\u9ed8\u8ba4\u5168\u90e8\u63a5\u5165\u4e3b\u667a\u80fd\u4f53\uff0c\u4e5f\u53ef\u628a\u67d0\u4e2a\u8d26\u53f7\u6539\u7ed1\u7ed9\u6307\u5b9a AI \u5458\u5de5\u3002\u89e3\u7ed1\u53ea\u505c\u6b62 EvoFlow \u54cd\u5e94\uff0c\u5fae\u4fe1 App \u91cc\u7684\u673a\u5668\u4eba\u9700\u81ea\u884c\u5220\u9664\u3002</p>'
+  html += '<div id="weixin-accounts-body" class="im-bindings-body" aria-live="polite">\u2014</div>'
   html += '</div>'
   html += '</div>'
   html += '</main></div>'
@@ -679,15 +694,19 @@ function renderChannels(page, data) {
   syncImCredentialUi(selName)
   loadChannelConfig(selName)
   void refreshFeishuInboundChatIdUi(selName)
-  // 名册：每个有员工绑定能力的 channel 都画自己的 panel（feishu / wecom）。
-  // panel 显隐：当前 selName 对应的 panel 显示，另一个 panel 隐藏（避免「在飞书 tab 看见 wecom」）。
-  const showPanel = document.getElementById(`${selName}-bindings-panel`)
-  const hidePanel = document.getElementById(`${selName === 'wecom' ? 'feishu' : 'wecom'}-bindings-panel`)
-  if (showPanel) showPanel.style.display = ''
-  if (hidePanel) hidePanel.style.display = 'none'
+  // 名册/账号面板：每个有员工绑定或多账号能力的 channel 都画自己的 panel
+  // （feishu / wecom 名册、weixin 账号绑定）。panel 显隐：当前 selName 对应的
+  // panel 显示，其余隐藏（避免「在飞书 tab 看见 wecom」）。
+  const panelIds = { feishu: 'feishu-bindings-panel', wecom: 'wecom-bindings-panel', weixin: 'weixin-accounts-panel' }
+  for (const [ch, pid] of Object.entries(panelIds)) {
+    const panelEl = document.getElementById(pid)
+    if (!panelEl) continue
+    panelEl.style.display = ch === selName ? '' : 'none'
+  }
   // 两侧都刷：用户后续切 tab / 切渠道都能立即看到最新数据。
   void refreshIMBindingsUi('feishu')
   void refreshIMBindingsUi('wecom')
+  void refreshWeixinAccountsUi()
 
   contentEl.querySelector('#feishu-bindings-refresh')?.addEventListener('click', () => {
     void refreshIMBindingsUi('feishu')
@@ -695,8 +714,14 @@ function renderChannels(page, data) {
   contentEl.querySelector('#wecom-bindings-refresh')?.addEventListener('click', () => {
     void refreshIMBindingsUi('wecom')
   })
+  contentEl.querySelector('#weixin-accounts-refresh')?.addEventListener('click', () => {
+    void refreshWeixinAccountsUi()
+  })
+  contentEl.querySelector('#weixin-accounts-add')?.addEventListener('click', () => {
+    startWeixinScan(page, configForm)
+  })
 
-  // Tab 切换：基础设置 / 岗位机器人名册
+  // Tab 切换：基础设置 / 名册（或微信账号绑定）
   contentEl.querySelectorAll('#im-tabs-bar .im-tab').forEach(tab => {
     tab.addEventListener('click', () => {
       const target = tab.getAttribute('data-im-tab')
@@ -709,7 +734,8 @@ function renderChannels(page, data) {
         if (f) f.style.display = 'none'
         if (pane) pane.style.display = ''
         // 进入名册 tab 时刷新当前渠道的内容
-        if (selName === 'wecom') void refreshIMBindingsUi('wecom')
+        if (selName === 'weixin') void refreshWeixinAccountsUi()
+        else if (selName === 'wecom') void refreshIMBindingsUi('wecom')
         else void refreshIMBindingsUi('feishu')
       } else {
         if (f) f.style.display = ''
@@ -1147,6 +1173,7 @@ async function pollWeixinScan(page, configForm) {
         const applyResult = await api.applyWeixinRegistration(sid, true)
         if (applyResult.success) {
           toast(applyResult.message + (applyResult.channel_running ? '\uff0c\u6e20\u9053\u5df2\u542f\u52a8' : '\uff0c\u91cd\u542f\u540e\u751f\u6548'), 'success')
+          void refreshWeixinAccountsUi()
           setTimeout(() => loadChannels(page), 1000)
         } else {
           toast('\u4fdd\u5b58\u5931\u8d25: ' + applyResult.message, 'error')
@@ -1162,6 +1189,7 @@ async function pollWeixinScan(page, configForm) {
           })
           await api.restartChannel('weixin')
           toast('\u914d\u7f6e\u5df2\u4fdd\u5b58\u5e76\u542f\u52a8', 'success')
+          void refreshWeixinAccountsUi()
           setTimeout(() => loadChannels(page), 1000)
         } catch (e2) {
           toast('\u4fdd\u5b58\u5931\u8d25: ' + e2, 'error')
@@ -1520,6 +1548,144 @@ function closeDingtalkScanModal(contentEl) {
   if (modal) modal.setAttribute('hidden', '')
 }
 
+/**
+ * 微信多账号绑定列表（增删改查之「查」+ 行内改/删）。
+ * 数据源 = GET /channels/weixin/accounts（合并 evoflow_bot_bindings 行 + 运行态）。
+ * 复用「岗位机器人名册」的表格组件（im-bindings-table / badge），避免手搓行布局互相挤压。
+ */
+async function refreshWeixinAccountsUi() {
+  const body = document.getElementById('weixin-accounts-body')
+  if (!body) return
+  body.innerHTML = '<p class="im-field-hint" style="margin:0">加载中…</p>'
+  try {
+    const [accountsData, rolesData] = await Promise.all([
+      api.listWeixinAccounts(),
+      api.proactiveListRoles().catch(() => null),
+    ])
+    const accounts = Array.isArray(accountsData?.accounts) ? accountsData.accounts : []
+    const roles = Array.isArray(rolesData?.roles) ? rolesData.roles : []
+    const roleOptions = roles.filter((r) => {
+      const code = String(r?.agent_code || '').trim()
+      return code && String(r?.status || '').toLowerCase() !== 'archived'
+    })
+
+    if (!accounts.length) {
+      body.innerHTML =
+        '<p class="im-field-hint" style="margin:0">还没有绑定微信账号。点击右上角「添加微信账号」扫码绑定第一个。</p>'
+      return
+    }
+
+    const rebindOptions = (currentCode) =>
+      ['<option value="">主智能体</option>']
+        .concat(
+          roleOptions.map((r) => {
+            const code = String(r.agent_code || '')
+            const selected = code === String(currentCode || '') ? ' selected' : ''
+            return `<option value="${esc(code)}"${selected}>${esc(String(r.role_name || code))}</option>`
+          }),
+        )
+        .join('')
+
+    let html = '<div class="im-bindings-table-wrap"><table class="im-bindings-table weixin-accounts-table">'
+    html += '<thead><tr><th>微信账号</th><th>状态</th><th>绑定目标</th><th>绑定时间</th><th>操作</th></tr></thead><tbody>'
+    for (const acc of accounts) {
+      const accountId = String(acc.account_id || '')
+      const name =
+        String(acc.display_name || '').trim() ||
+        `微信机器人 ${acc.bot_id_suffix || '…' + accountId.slice(-4)}`
+      const running = !!acc.running && acc.enabled
+      const statusBadge = !acc.enabled
+        ? '<span class="im-bindings-badge im-bindings-badge--warn">已停用</span>'
+        : running
+          ? '<span class="im-bindings-badge im-bindings-badge--ok">运行中</span>'
+          : '<span class="im-bindings-badge im-bindings-badge--warn">未连接</span>'
+      const targetHtml = acc.is_main_agent
+        ? '<span class="im-bindings-badge im-bindings-badge--ok">主智能体</span>'
+        : `<span class="im-bindings-badge" title="${esc(String(acc.agent_code || ''))}">员工 · ${esc(String(acc.role_name || acc.agent_code || ''))}</span>`
+      const boundAt = esc(String(acc.bound_at || '').replace('T', ' ').slice(0, 16))
+      const actions =
+        '<div class="im-bindings-actions" style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">'
+        + `<select class="im-input weixin-rebind" data-account="${esc(accountId)}" data-current="${esc(String(acc.agent_code || ''))}" title="改绑目标（主智能体 / 员工）" aria-label="改绑目标">${rebindOptions(acc.agent_code)}</select>`
+        + `<button type="button" class="btn btn-sm btn-outline" data-weixin-act="rename" data-account="${esc(accountId)}">改名</button>`
+        + `<button type="button" class="btn btn-sm btn-outline" data-weixin-act="toggle" data-account="${esc(accountId)}" data-enabled="${acc.enabled ? '1' : '0'}">${acc.enabled ? '停用' : '启用'}</button>`
+        + `<button type="button" class="btn btn-sm btn-outline" data-weixin-act="delete" data-account="${esc(accountId)}">解绑</button>`
+        + '</div>'
+      html += '<tr>'
+      html += `<td><div class="im-bindings-name">${esc(name)}</div>`
+      // 显示完整 account_id（word-break 换行），否则多个绑定分不清谁是谁。
+      html += `<div class="im-bindings-code"><code title="${esc(accountId)}">${esc(accountId || '—')}</code></div></td>`
+      html += `<td>${statusBadge}</td>`
+      html += `<td>${targetHtml}</td>`
+      html += `<td><code>${boundAt || '—'}</code></td>`
+      html += `<td class="im-bindings-actions-cell">${actions}</td>`
+      html += '</tr>'
+    }
+    html += '</tbody></table></div>'
+    body.innerHTML = html
+
+    // 行内操作（改/删）——事件委托，重渲染无需重复绑定
+    body.querySelectorAll('select.weixin-rebind').forEach((sel) => {
+      sel.addEventListener('change', async () => {
+        const accountId = sel.dataset.account
+        const code = String(sel.value || '')
+        try {
+          await api.patchWeixinAccount(accountId, { agent_code: code })
+          toast(code ? '已改绑到员工，重启渠道后生效' : '已改绑到主智能体，重启渠道后生效', 'success')
+        } catch (err) {
+          toast('改绑失败: ' + (err?.message || err), 'error')
+        }
+        void refreshWeixinAccountsUi()
+      })
+    })
+    body.querySelectorAll('button[data-weixin-act]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const act = btn.dataset.weixinAct
+        const accountId = btn.dataset.account
+        if (act === 'rename') {
+          const acc = accounts.find((a) => String(a.account_id) === accountId)
+          const name = window.prompt('给这个微信账号起个名字（留空 = 使用默认名）', acc?.display_name || '')
+          if (name === null) return
+          try {
+            await api.patchWeixinAccount(accountId, { display_name: name })
+            toast('已更新名称', 'success')
+          } catch (err) {
+            toast('改名失败: ' + (err?.message || err), 'error')
+          }
+          void refreshWeixinAccountsUi()
+          return
+        }
+        if (act === 'toggle') {
+          const enabled = btn.dataset.enabled !== '1'
+          try {
+            await api.patchWeixinAccount(accountId, { enabled })
+            toast(enabled ? '已启用，重启渠道后生效' : '已停用', 'success')
+          } catch (err) {
+            toast('操作失败: ' + (err?.message || err), 'error')
+          }
+          void refreshWeixinAccountsUi()
+          return
+        }
+        if (act === 'delete') {
+          const ok = await showConfirm(
+            '确定解绑这个微信账号（…' + accountId.slice(-8) + '）？\n\n'
+            + '解绑后 EvoFlow 不再响应这个微信机器人；微信 App 里的机器人需自行删除/拉黑。',
+          )
+          if (!ok) return
+          try {
+            await api.deleteWeixinAccount(accountId)
+            toast('已解绑', 'success')
+          } catch (err) {
+            toast('解绑失败: ' + (err?.message || err), 'error')
+          }
+          void refreshWeixinAccountsUi()
+        }
+      })
+    })
+  } catch (e) {
+    body.innerHTML = '<p class="im-field-hint" style="margin:0">加载失败: ' + esc(String(e?.message || e)) + '</p>'
+  }
+}
+
 function updateRightPanel(name, label, icon, status) {
   cancelFeishuScan()
   cancelWeixinScan()
@@ -1558,28 +1724,32 @@ function updateRightPanel(name, label, icon, status) {
   }
 
   syncImCredentialUi(name)
-  // 名册（多岗位机器人列表）支持飞书 + 企业微信。切频道时重置到「基础设置」tab：
-  // 名册支持的渠道显示 tab 栏与「岗位机器人名册」按钮；其他渠道隐藏整个 tab 栏。
-  const supportsRoster = name === 'feishu' || name === 'wecom'
+  // 名册/账号面板支持飞书 + 企业微信 + 微信（多账号）。切频道时重置到「基础设置」tab：
+  // 支持的渠道显示 tab 栏（微信的 bindings tab 叫「账号绑定」）；其他渠道隐藏整个 tab 栏。
+  const supportsRoster = name === 'feishu' || name === 'wecom' || name === 'weixin'
   const tabBar = main.querySelector('#im-tabs-bar')
   if (tabBar) {
     tabBar.style.display = supportsRoster ? '' : 'none'
     tabBar.querySelectorAll('.im-tab').forEach((tb) => {
       const isBindings = tb.getAttribute('data-im-tab') === 'bindings'
       tb.classList.toggle('im-tab--active', !isBindings)
-      if (isBindings) tb.style.display = supportsRoster ? '' : 'none'
-      else tb.style.display = ''
+      if (isBindings) {
+        tb.style.display = supportsRoster ? '' : 'none'
+        tb.textContent = name === 'weixin' ? '账号绑定' : '岗位机器人名册'
+      } else tb.style.display = ''
     })
   }
   const cfgFormEl = main.querySelector('#im-config-form')
   if (cfgFormEl) cfgFormEl.style.display = ''
   const bindingsPane = main.querySelector('#im-bindings-pane')
   if (bindingsPane) bindingsPane.style.display = 'none'
-  // 切换名册 panel 显示：当前渠道的 panel 显示，另一个隐藏（避免「在企微 tab 看见飞书」）。
-  const showPanel = main.querySelector(`#${name}-bindings-panel`)
-  const hidePanel = main.querySelector(`#${name === 'wecom' ? 'feishu' : 'wecom'}-bindings-panel`)
-  if (showPanel) showPanel.style.display = ''
-  if (hidePanel) hidePanel.style.display = 'none'
+  // 切换名册/账号 panel 显示：当前渠道的 panel 显示，其余隐藏（避免「在企微 tab 看见飞书」）。
+  const rosterPanelIds = { feishu: 'feishu-bindings-panel', wecom: 'wecom-bindings-panel', weixin: 'weixin-accounts-panel' }
+  for (const [ch, pid] of Object.entries(rosterPanelIds)) {
+    const panelEl = main.querySelector(`#${pid}`)
+    if (!panelEl) continue
+    panelEl.style.display = ch === name ? '' : 'none'
+  }
   main.querySelector('#im-app-id').value = ''
   main.querySelector('#im-app-secret').value = ''
   loadChannelConfig(name)
@@ -1587,6 +1757,7 @@ function updateRightPanel(name, label, icon, status) {
   // 切频道时同时刷新两侧名册数据，避免用户切 tab 才看到旧数据。
   void refreshIMBindingsUi('feishu')
   void refreshIMBindingsUi('wecom')
+  void refreshWeixinAccountsUi()
 }
 
 async function loadChannelConfig(name) {

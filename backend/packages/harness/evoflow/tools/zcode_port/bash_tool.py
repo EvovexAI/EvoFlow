@@ -656,6 +656,54 @@ _POWERSHELL_CMDLET_RE = re.compile(
 )
 
 
+def _strip_quoted_text(command: str) -> str:
+    """把引号**内部**的字符抹掉（保留引号本身），只留 shell 层语法给路由器看。
+
+    【self-evolution-bot · 2026-11-15 · 第17轮】为什么加：方言路由器原来拿**原始命令文本**去匹配
+    cmdlet 名，于是引号里的内容也算数。2026-11-15 我一天内被这个咬了 3 次，都是同一条 POSIX 命令
+    被整条改交给 PowerShell 5.1 执行、然后报「'&&' 不是此版本中的有效运算符」：
+      1) ``grep -n "watchdog-result\\|ConvertTo-Json" x.ps1`` —— grep 的**模式串**里那个
+         ``\\|ConvertTo-Json`` 前面正好是 ``|``，命中 ``[;&|\\n]\\s*(ConvertTo-Json)\\b``；
+      2) ``powershell -NoProfile -Command "$j=Get-Content ... | Set-Content ..."`` —— cmdlet 在
+         传给 powershell 的**字符串参数**里，而 ``; Set-Content`` 同样命中；
+      3) 同型一次 ``Write-Output`` 在引号内。
+    判据本来只该问「这条命令在 shell 层是不是 PowerShell」，引号里的文字是**数据**不是语法。
+    抹掉内容后引号变 ``""``／``''``，紧贴引号外面的 cmdlet 仍能被看见（``"" Get-Process``），
+    所以真 PowerShell 命令的路由不受影响。
+    """
+    out: list[str] = []
+    quote: str | None = None
+    i, n = 0, len(command)
+    while i < n:
+        ch = command[i]
+        if quote is None:
+            if ch in ("'", '"'):
+                quote = ch
+            out.append(ch)
+        else:
+            # 双引号内允许反斜杠转义（POSIX 与 PS 都是），跳过被转义的下一个字符
+            if quote == '"' and ch == "\\" and i + 1 < n:
+                out.append("  ")
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+                out.append(ch)
+            # 引号内的字符一律不进入判据；换行保留成空格以免粘连成别的 token
+            elif ch != "\n":
+                out.append(" ")
+        i += 1
+    return "".join(out)
+
+
+# 【self-evolution-bot · 2026-11-15 · 第17轮】shell 层出现这些标记 = 这条命令**只可能**是给
+# POSIX shell 写的：``&&``/``||`` 在 PowerShell 5.1（本工具唯一使用的 powershell.exe）里是
+# **解析期**硬错误，``/dev/null`` 在 PS 里不是有效重定向目标。既然交给 PS 必然失败，那就没有
+# 任何理由因为"文中提到过一个 cmdlet 名"而把它路由过去 —— 反向偏置比正向猜测安全。
+# 注意判据要跑在 _strip_quoted_text 的结果上，否则引号里的 ``&&`` 又会误伤真 PS 命令。
+_BASH_ONLY_MARKERS_RE = re.compile(r"&&|\|\||/dev/null")
+
+
 def _powershell_executable() -> str:
     found = shutil.which("powershell") or shutil.which("powershell.exe")
     return found or "powershell"
@@ -666,7 +714,17 @@ def _powershell_argv(command: str, cwd: str) -> list[str] | None:
     if sys.platform != "win32":
         return None
     stripped = command.strip()
-    if not stripped or not _POWERSHELL_CMDLET_RE.search(stripped):
+    if not stripped:
+        return None
+    # 【self-evolution-bot · 2026-11-15 · 第17轮】两条新前置，都是为堵"把 POSIX 命令错交给 PS"：
+    # ① 含 && / || / /dev/null 的一律走 bash —— 这些在 PS 5.1 里必炸，路由过去只是制造一条
+    #    看不懂的 GBK 报错再让我多绕一轮（当天实测 3 次）；
+    # ② cmdlet 判据只看 shell 层，引号内的文字算数据不算语法（原来 grep 模式串里的
+    #    ``|ConvertTo-Json`` 就能把整条命令抢走）。见 _strip_quoted_text 的实测记录。
+    shell_view = _strip_quoted_text(stripped)
+    if _BASH_ONLY_MARKERS_RE.search(shell_view):
+        return None
+    if not _POWERSHELL_CMDLET_RE.search(shell_view):
         return None
     if re.match(r"(?i)^(powershell|pwsh)(\.exe)?\b", stripped):
         return None

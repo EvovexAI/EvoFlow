@@ -4159,6 +4159,58 @@ html.dark .shell-account-menu {
   transition: height var(--dur-base) ease-out;
 }
 
+/* 侧栏可见「加载更多对话」——分组树改造后不能只靠 height:0 sentinel */
+.react-chat-session-workspace-load-more {
+  list-style: none;
+  margin: 6px 8px 10px;
+  padding: 0;
+}
+
+.react-chat-session-workspace-load-more-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--shell-border, #e8eaf1) 80%, transparent);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--shell-text-muted, #6b7280);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color var(--dur-fast) ease-out, color var(--dur-fast) ease-out,
+    border-color var(--dur-fast) ease-out;
+}
+
+.react-chat-session-workspace-load-more-btn:hover:not(:disabled) {
+  background: var(--shell-hover, rgba(0, 0, 0, 0.04));
+  color: var(--shell-text, #171a2b);
+  border-color: var(--shell-border, #e8eaf1);
+}
+
+.react-chat-session-workspace-load-more-btn:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+
+.react-chat-session-ws-group-count {
+  flex-shrink: 0;
+  min-width: 1.25rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--shell-border, #e8eaf1) 55%, transparent);
+  color: var(--shell-text-muted, #6b7280);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .react-chat-session-workspace-load-spinner {
   display: inline-block;
   width: 13px;

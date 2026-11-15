@@ -101,6 +101,46 @@ def resolve_db(kind: str, explicit: str = "") -> Path | None:
     return resolve_app_db(explicit) if kind == "app" else resolve_db_path(explicit)
 
 
+_TIME_COLS = r"(?:started_at|ended_at|requested_at|occurred_at|finished_at|created_at|updated_at)"
+# 坑 1：ISO 文本列（实测 100% 形如 2026-11-15T21:49:33.343000+08:00）直接跟
+# datetime('now',…) 出的 "2026-11-14 13:49:55"（UTC、空格分隔）做字典序比较。
+# 'T'(0x54) > ' '(0x20) ⇒ 边界那一整天全被放进来，且**不报错**。
+# 现网实测：错写法 5843 行 / 正确窗口 3943 行（虚高 1.48 倍）。
+_STR_VS_UTC_RE = re.compile(rf"{_TIME_COLS}\s*(?:>=|<=|>|<)\s*datetime\(\s*'now'", re.I)
+# 坑 2：strftime('%s',…) 返回 **TEXT**，跟裸整数比时 SQLite 恒判「文本 > 整数」
+# ⇒ 条件永真，返回全表。现网实测：17963 行 = 全表行数（该 agent 同期窗口只有 3943）。
+_TEXT_VS_INT_RE = re.compile(r"strftime\(\s*'%s'\s*,\s*[\w.]+\s*\)\s*(?:>=|<=|>|<)\s*(?!cast)(\d+)", re.I)
+
+
+def window_lint(sql: str) -> list[str]:
+    """检出两种「静默把窗口算错」的 SQL 写法，返回给 stderr 的提示（不改结果、不拦停）。
+
+    【self-evolution-bot · 2026-11-15 · 第18轮】新建。
+    为什么要拦在这里：这两种写法**都不报错**，只是数悄悄变多。我本轮先拿
+    ``started_at > datetime('now','-1 day')`` 对银泰报了「近 24h」的一整套数
+    （5843 行口径），实际窗口约 32 小时；随后想用 ``strftime('%s')`` 做"正确"对照，
+    又因为 TEXT vs INTEGER 恒真而得到"真 24h = 17963 行"= 全表。
+    两个假数同源、都指向我自己定的唯一观测入口，所以补在入口而不是只写进配方——
+    配方要靠人记得查，提示是每次跑都躲不掉。
+    """
+    warns: list[str] = []
+    if _STR_VS_UTC_RE.search(sql):
+        warns.append(
+            "时间列是带 +08:00 的 ISO 文本（如 2026-11-15T21:49:33.343000+08:00），"
+            "而 datetime('now',…) 出的是 UTC 空格格式（2026-11-14 13:49:55）。"
+            "字典序里 'T' > ' ' ⇒ 边界那一整天会被全部纳入，窗口悄悄变宽且不报错。\n"
+            "  ↳ 改用：replace(substr(<col>,1,19),'T',' ') >= datetime('now','-1 day','+8 hours')"
+            "  （现网对照：错写法 5843 行 / 该写法 3943 行）"
+        )
+    if _TEXT_VS_INT_RE.search(sql):
+        warns.append(
+            "strftime('%s',…) 返回 TEXT，跟裸整数比较时 SQLite 判「文本 > 整数」⇒ 条件恒真、返回全表。\n"
+            "  ↳ 改用：CAST(strftime('%s',<col>) AS INTEGER) >= CAST(strftime('%s','now') AS INTEGER) - 86400"
+            "  （现网对照：漏 CAST 17963 行=全表 / 补 CAST 3943 行，与上一种正确写法同值）"
+        )
+    return warns
+
+
 def _connect(db: Path) -> sqlite3.Connection:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -149,6 +189,8 @@ def run_sql(db: Path, sql: str, limit: int, as_json: bool) -> int:
         # 只读工具就只管只读：报错文案给替代路径，别让人以为"再加个开关就能写"。
         print("[obs_query] 只接受 SELECT / WITH / EXPLAIN 开头的语句（本工具以 mode=ro 打开，写数据请走正经接口）", file=sys.stderr)
         return 2
+    for _w in window_lint(stmt):
+        print(f"[obs_query] ⚠ 窗口可能算错（结果照出，不拦停）：{_w}", file=sys.stderr)
     # 外层套 LIMIT：防止一次 SELECT * 把几十万行灌进上下文（观测库实测 2GB）。
     wrapped = f"SELECT * FROM ({stmt}) LIMIT {int(limit)}" if _HEAD_RE.match(stmt) and not stmt.lower().startswith("explain") else stmt
     con = _connect(db)

@@ -21,7 +21,10 @@ param(
   [switch] $InstallNpmDeps,
   [string] $SetupExe = "",
   [string] $InstallDir = "D:\app\EvoFlow",
-  [string] $AgentCode = "fullstack-dev",
+  # 【fullstack-dev · 2026-11-15 · 第15轮】本岗 agent_code 已于 16:01 改名（见
+  # craft/soul与系统提示词的四处存储与生效时机.md），旧码在名册里查无此岗；默认值不跟着改，
+  # 每轮闭环都会在第 4 步 wake 静默失败 —— 第13轮六连败就是这个原因。
+  [string] $AgentCode = "self-evolution-bot",
   [string] $TaskId = "",
   [string] $RoundId = "",
   [string] $Goal = "",
@@ -101,13 +104,49 @@ if ([string]::IsNullOrWhiteSpace($CliExe) -or -not (Test-Path -LiteralPath $CliE
 }
 Say "CLI: $CliExe"
 
-# ── 4. 抓旧 Gateway 指纹（就绪判据要对比"是否换了新进程"）──────────────────
-$oldPid = $null; $oldGen = $null; $runtimeHome = $env:EVOFLOW_HOME
-$rtCandidates = @()
-if ($runtimeHome) { $rtCandidates += (Join-Path $runtimeHome "backend-runtime.json") }
+# ── 4. 用名册实证挑 CLI 数据目录，再抓旧 Gateway 指纹 ─────────────────────
+# 【self-evolution-bot · 2026-11-15 · 第16轮】真因收口：不再盲信继承来的 EVOFLOW_HOME。
+# 为什么：本机**用户级**持久 EVOFLOW_HOME=C:\Users\admin\.evoflow-dev（实测 Machine 级为空），
+# 计划任务继承注册表里那份用户级值，而该库只有 17 个岗位、不含本岗 —— 这就是第13轮 wake 六连败
+# "No employee matching 'fullstack-dev'" 的一半机制。
+# 本轮矩阵实测（outputs\selfverify\probe-home-matrix.ps1，同一 CLI 同一时刻，只换 EVOFLOW_HOME）：
+#   HOME=.evoflow-dev      → n=17  self-evolution-bot=False
+#   HOME=profiles\default  → n=23  self-evolution-bot=True
+#   不设 HOME（CLI 默认）   → n=23  self-evolution-bot=True
+# 另一半机制：fullstack-dev 在**两个库里都不存在**（本岗 16:01 改名 self-evolution-bot；名册里另
+# 有个不相干的 case-fullstack-dev），所以旧报错是"错库 + 错岗位码"两层叠加。第14轮那句"真因是
+# 名册装载延迟"、以及"另一份库有 22 个含 fullstack-dev"均已被本轮证伪，勿再照抄。
+# 因此判据不写死路径：改成拿 employees list 实证"哪个库认这个 agent_code"，挑中才写进 state
+# 交给看门狗 —— 换机器 / 换 profile / 再次改岗名都不用改脚本。
+# 附带证伪一条：evoflow CLI **没有 --profile 参数**（全局只有 --config，见 evoflow --help），
+# 任何 "employees list --compact --profile default" 都会被 argparse 判为 unrecognized arguments
+# 而返回空名册 —— 用这种方式做的"名册校验"永远查不到，等于没校验。
+$oldPid = $null; $oldGen = $null
+$runtimeHome = $env:EVOFLOW_HOME
 $cfg = if ($env:EVOFLOW_CONFIG_DIR) { $env:EVOFLOW_CONFIG_DIR } else { Join-Path $env:USERPROFILE ".evoflow" }
 $prof = if ($env:EVOFLOW_PROFILE) { $env:EVOFLOW_PROFILE } else { "default" }
 if (-not $runtimeHome) { $runtimeHome = Join-Path $cfg "profiles\$prof" }
+$homeCandidates = @($runtimeHome, (Join-Path $cfg "profiles\$prof")) | Where-Object { $_ } | Select-Object -Unique
+$needle = 'agent_code":"' + $AgentCode + '"'
+$homeVerified = ""
+foreach ($hp in $homeCandidates) {
+  if (-not (Test-Path -LiteralPath $hp)) { continue }
+  try {
+    $env:EVOFLOW_HOME = $hp
+    $ls = & $CliExe employees list --compact 2>&1 | Out-String
+    if ($ls -like "*$needle*") { $homeVerified = $hp; break }
+    Say "该库名册里没有 $AgentCode，换下一个候选: $hp" "Yellow"
+  } catch { Say "查名册失败（$hp）: $($_.Exception.Message)" "Yellow" }
+}
+if (-not $homeVerified) {
+  throw "候选数据目录的名册里都查不到岗位 $AgentCode：$($homeCandidates -join ' | ')。请先确认该岗位已雇佣（evoflow employees list），否则看门狗 wake 必定失败。"
+}
+if ($homeVerified -ne $runtimeHome) { Say "数据目录改用 $homeVerified（继承值 $runtimeHome 不认这个岗）" "Green" }
+$runtimeHome = $homeVerified
+$env:EVOFLOW_HOME = $runtimeHome
+Say "CLI 数据目录: $runtimeHome（名册已实证含 $AgentCode）"
+$rtCandidates = @()
+if ($runtimeHome) { $rtCandidates += (Join-Path $runtimeHome "backend-runtime.json") }
 $rtCandidates += (Join-Path $cfg "profiles\$prof\backend-runtime.json")
 foreach ($rp in $rtCandidates) {
   if (-not (Test-Path -LiteralPath $rp)) { continue }

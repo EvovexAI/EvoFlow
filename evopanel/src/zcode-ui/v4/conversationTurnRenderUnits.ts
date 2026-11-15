@@ -361,15 +361,14 @@ function materializeDraftUnit(
   // 尾窗缺 header 时才回退 session phase，desktop continuous 与 mobile replayable 共用此边界。
   const forceOpenHistory = shouldForceOpenAbnormalHistory(draft.header, options.sessionPhase);
 
-  // product turn 的最终正文仍是唯一 action target；视觉工作段只改变折叠边界。
+  // 折叠边界以「段/轮末正文」为准；fork/retry 只挂在真正带 actions 的那条上，
+  // 但绝不能让中间带 canFork 的答复冒充 latest，否则后续工具会掉到折叠外。
   const assistantTextRows = flowRows.filter(isAssistantTextRow);
   const actionAssistantTextRow = assistantTextRows.find(
     (row) => row.actions?.canFork === true || row.actions?.canRetry === true,
   );
-  const lastFlowRow = flowRows.at(-1);
-  const latestAssistantTextRow =
-    actionAssistantTextRow ??
-    (!isRunning && lastFlowRow && isAssistantTextRow(lastFlowRow) ? lastFlowRow : undefined);
+  const lastAssistantTextRow = assistantTextRows.at(-1);
+  const latestAssistantTextRow = lastAssistantTextRow ?? actionAssistantTextRow;
   const fallbackStartedAt =
     draft.header?.startedAt ??
     draft.userInputs[0]?.createdAt ??

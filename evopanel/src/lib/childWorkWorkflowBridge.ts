@@ -79,10 +79,41 @@ export function projectActiveWorkflowChildWorks(
   return out;
 }
 
+/** childWorks（execution/state，3s 新鲜）里 workflow 项的 runId(taskId) → 原始状态。 */
+export function childWorkStatusById(
+  works: readonly SessionChildWorkItem[] | null | undefined,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const work of works ?? []) {
+    if (String(work.kind || "").trim() !== "workflow") continue;
+    const taskId = readExtraTaskId(work);
+    const status = String(work.status || "").trim().toLowerCase();
+    if (!taskId || !status || map.has(taskId)) continue;
+    map.set(taskId, status);
+  }
+  return map;
+}
+
+const CHILD_WORK_TERMINAL_RUN_STATUS: Record<string, WorkflowRunState["status"]> = {
+  completed: "completed",
+  success: "completed",
+  done: "completed",
+  failed: "errored",
+  fail: "errored",
+  error: "errored",
+  errored: "errored",
+  timeout: "errored",
+  cancelled: "stopped",
+  canceled: "stopped",
+  stopped: "stopped",
+  interrupted: "stopped",
+};
+
 /** 把 childWorks 投影合并进 snapshot.workflowRuns（同 runId 以 snapshot 为准）。 */
 export function mergeWorkflowRunsWithChildWorks(
   snapshotRuns: readonly WorkflowRunState[] | undefined,
   childProjections: readonly ChildWorkWorkflowProjection[],
+  childWorkStatuses?: ReadonlyMap<string, string>,
 ): WorkflowRunState[] {
   const byId = new Map<string, WorkflowRunState>();
   for (const run of snapshotRuns ?? []) {
@@ -92,6 +123,21 @@ export function mergeWorkflowRunsWithChildWorks(
   for (const row of childProjections) {
     if (byId.has(row.runId)) continue;
     byId.set(row.runId, row.run);
+  }
+  if (childWorkStatuses && childWorkStatuses.size > 0) {
+    // execution/state 已判终态的 run 压过陈旧 running 快照：无 mirror 喂流的
+    // 后台 run 终态不会进 hub 投影（终态收口在服务端 catchup/reconcile 里），
+    // 卡片不能拿着冻结的 running 一直转（2026-11-15 员工任务实锤）。
+    // 反方向（快照已终态、轮询还说 running）保持 snapshot 权威，避免抖动。
+    for (const [runId, workStatus] of childWorkStatuses) {
+      const run = byId.get(runId);
+      if (!run) continue;
+      const status = String(run.status || "").trim().toLowerCase();
+      if (status !== "pending" && status !== "running") continue;
+      const terminal = CHILD_WORK_TERMINAL_RUN_STATUS[workStatus];
+      if (!terminal) continue;
+      byId.set(runId, { ...run, status: terminal });
+    }
   }
   return [...byId.values()];
 }

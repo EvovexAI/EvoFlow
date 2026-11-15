@@ -138,6 +138,23 @@ _PHASE_COMPLETED = "completedSuccess"
 _PHASE_ERROR = "error"
 _PHASE_INTERRUPTED = "completedInterrupted"
 
+# DB run_status（session_run_state 终态集合）→ hub phase。running/pending/未知
+# 一律映射为空串 = 「不收口」（证据不足时保守维持现状）。
+_RUN_STATUS_TO_PHASE: dict[str, str] = {
+    "done": _PHASE_COMPLETED,
+    "success": _PHASE_COMPLETED,
+    "completed": _PHASE_COMPLETED,
+    "idle": _PHASE_COMPLETED,
+    "fail": _PHASE_ERROR,
+    "error": _PHASE_ERROR,
+    "cancelled": _PHASE_INTERRUPTED,
+    "stopped": _PHASE_INTERRUPTED,
+}
+
+
+def _phase_for_run_status(status: str) -> str:
+    return _RUN_STATUS_TO_PHASE.get(str(status or "").strip().lower(), "")
+
 # ZCode PROTOCOL_V4_LIMITS（shared/zcode-protocol-v4/core.ts）对齐项。
 _DELTA_RETENTION_MAX = 2000
 _SUBSCRIBER_BUFFER_MAX_OPS = 500
@@ -260,6 +277,8 @@ class _SessionState:
     # ZCode workflowRuns 投影（EvoFlow：由 collab 任务映射；进 snapshot / journal 查询）
     workflow_runs: list[dict[str, Any]] = field(default_factory=list)
     workflow_runs_revision: int = 0
+    # 会话用量（快照路径从 DB rollup 建；mirror 轮末在此基础上累加并发 usage 增量）。
+    usage_state: dict[str, Any] | None = None
     # ── control 真值（ZCode 语义：snapshot 与增量同源）────────────────────────
     control_override: dict[str, Any] | None = None
     """mirror / hydrate 复原写入的权威 control（键级整体替换）。
@@ -271,6 +290,11 @@ class _SessionState:
     patch_phase（hub 自跑 turn 接管执行权）时清空：谁拥有当前执行，谁写 control。"""
     run_started_at: int | None = None
     """当前 primaryTurn startedAt（patch_phase(running) 记录；fallback activeWorks 用）。"""
+    last_author_at_ms: float = 0.0
+    """最近一次本会话被写（行/增量/state patch）的墙钟。
+
+    catchup / 终态收口用「静默期」判定当前是否仍有活写手（live 流/镜像写行很
+    频繁）；没有 mirror 标志的后台写手（attach 喂流除外）也会经过 author_deltas。"""
 
     def control(self) -> dict[str, Any]:
         return _minimal_control(self.phase, run_started_at=self.run_started_at)
@@ -564,6 +588,7 @@ class V4ConversationHub:
         try:
             from app.gateway.v4.hydration import (
                 force_rehydrate_session_from_transcript,
+                read_run_status_row,
                 transcript_fingerprint_for_thread,
             )
             from app.gateway.v4.agui_mirror import mirror_thread_is_live
@@ -578,12 +603,42 @@ class V4ConversationHub:
             logger.exception("[v4.catchup] fingerprint failed session=%s", tid)
             return {"ok": False, "changed": False, "reason": "fingerprint-failed"}
 
+        # ── 活写手判定 + 陈旧 running 收口 ────────────────────────────────
+        # mirror 标志是「有活写手」的权威信号，必须先判：mirror 活着 = 本轮
+        # 真有流在喂投影，phase/收口都归它管，下面一切修复都不许碰。
+        mirror_live = mirror_thread_is_live(tid)
+
+        # 员工/后台 run 无 mirror 喂流：run 终态后没有任何组件写 control/phase，
+        # 投影被死钉在 running（2026-11-15 实锤：任务 12:26 已 finalize，用户
+        # 13:28 还在对它点停止）。唯一可靠证据是 DB run_status；「running 且
+        # 超窗疑似 zombie」在这条路径上不收口，交 zombie sweeper。
+        settled_phase = ""
+        if not mirror_live and _PHASE_RUNNING in (
+            str(sess.phase or ""),
+            str((sess.control_override or {}).get("phase") or ""),
+        ):
+            run_status = str((read_run_status_row(tid) or {}).get("status") or "").strip().lower()
+            mapped = _phase_for_run_status(run_status)
+            if mapped:
+                self.patch_phase(tid, mapped)
+                settled_phase = mapped
+                logger.info(
+                    "[v4.catchup] stale running settled session=%s db_status=%s phase=%s",
+                    tid,
+                    run_status,
+                    mapped,
+                )
+            # run_status 仍 running/pending：后台 run 真在跑且无 mirror——DB
+            # transcript 是唯一真源，继续放行下面的 rehydrate（否则「盯着看」
+            # 也冻结）。status 空/未知：不动 control，由 shrink 守卫兜底。
+
         if fp and sess.catchup_fp == fp and sess.rows:
             return {
                 "ok": True,
                 "changed": False,
                 "reason": "fingerprint-unchanged",
                 "rows": len(sess.rows),
+                "settledPhase": settled_phase or None,
                 "logEpoch": sess.log_epoch,
                 "fingerprint": fp,
             }
@@ -605,27 +660,36 @@ class V4ConversationHub:
                     "changed": False,
                     "reason": "tail-growing",
                     "rows": len(sess.rows),
+                    "settledPhase": settled_phase or None,
                     "logEpoch": sess.log_epoch,
                     "fingerprint": fp,
                 }
 
         # Live channel/AG-UI mirror owns the projection for this turn — wiping
         # replaces a rich live snapshot with a lagging DB hydrate (UI jitter).
-        if mirror_thread_is_live(tid) or str(sess.phase or "") == "running":
+        # phase==running 不再单独拒绝：后台 run 的 phase 只能由本函数收口，
+        # 拿它拒客会把自己锁死（死锁闭环的另一半）。
+        if mirror_live:
             return {
                 "ok": True,
                 "changed": False,
-                "reason": "live-mirror" if mirror_thread_is_live(tid) else "phase-running",
+                "reason": "live-mirror",
                 "rows": len(sess.rows),
                 "logEpoch": sess.log_epoch,
                 "fingerprint": fp,
             }
 
         prev_rows = len(sess.rows)
-        # Panel already subscribed: live SSE / channel mirror owns updates.
-        # Catchup wipe (DB ~190) fighting live (~350) → recovery thrash + raw JSON flash.
+        # Panel already subscribed **且有活写手**（hub 自跑 turn，或最近 3s 有
+        # 行/增量写入）→ live 拥有更新权，catchup wipe 会与 live 对打（DB ~190
+        # vs live ~350 → recovery thrash + raw JSON flash）。
+        # 无活写手（后台 run 的典型态：无 mirror、无 hub turn、写手早已收工）
+        # → 放行；否则「切走再切回」永远拿到冻结快照，且 run 期间行不增长。
         sub_n = sum(1 for s in self._subscriptions.values() if s.session_id == tid)
-        if prev_rows > 0 and sub_n > 0:
+        hub_live_writing = sess.turn_running() or (
+            time.time() * 1000 - sess.last_author_at_ms < 3000
+        )
+        if prev_rows > 0 and sub_n > 0 and hub_live_writing and not settled_phase:
             sess.catchup_fp = fp
             return {
                 "ok": True,
@@ -689,9 +753,59 @@ class V4ConversationHub:
             "reason": "rehydrated",
             "rows": loaded,
             "notified": notified,
+            "settledPhase": settled_phase or None,
             "logEpoch": sess.log_epoch,
             "fingerprint": fp,
         }
+
+    def reconcile_stale_running(self) -> dict[str, int]:
+        """周期收口：陈旧 running 投影 + DB 已终态 → settle + rehydrate + 广播。
+
+        员工/后台 run 无 mirror 喂流，run 终态后投影永远停在「进行中」；不能
+        依赖前端来问（所有补拉轮询在 run 终态那一刻恰好全部退出）。这里主动扫
+        hub 内 running 相位的会话，DB 终态则借 ``catchup_from_transcript`` 收口
+        （settle control + 终态行 rehydrate + recovery 广播给在线订阅者）。
+
+        只在 to_thread 里跑（SQLite 读）；候选集天然很小（正常会话不处于
+        running 相位）。静默期/turn_task/mirror 三重守卫防误伤活写手。
+        """
+        try:
+            from app.gateway.v4.agui_mirror import mirror_thread_is_live
+        except Exception:
+            logger.exception("[v4.settle] import failed")
+            return {"candidates": 0, "settled": 0}
+
+        now_ms = time.time() * 1000
+        candidates: list[str] = []
+        with self._write_lock:
+            for sess in self._sessions.values():
+                if sess.turn_running():
+                    continue
+                if _PHASE_RUNNING not in (
+                    str(sess.phase or ""),
+                    str((sess.control_override or {}).get("phase") or ""),
+                ):
+                    continue
+                if not sess.rows:
+                    continue
+                # 有活写手（最近 5s 有行/增量写入）→ 不是孤儿 run，跳过。
+                if now_ms - sess.last_author_at_ms < 5000:
+                    continue
+                candidates.append(sess.session_id)
+
+        settled = 0
+        for tid in candidates:
+            try:
+                if mirror_thread_is_live(tid):
+                    continue
+                out = self.catchup_from_transcript(tid)
+                if out.get("changed") or out.get("settledPhase"):
+                    settled += 1
+            except Exception:
+                logger.exception("[v4.settle] reconcile failed session=%s", tid)
+        if settled:
+            logger.info("[v4.settle] reconciled stale running sessions=%d", settled)
+        return {"candidates": len(candidates), "settled": settled}
 
     # -- 订阅 ---------------------------------------------------------------
 
@@ -896,6 +1010,7 @@ class V4ConversationHub:
         sizes = [len(json.dumps(d, ensure_ascii=False)) for d in deltas]
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
+            sess.last_author_at_ms = time.time() * 1000
             subs = [s for s in self._subscriptions.values() if s.session_id == sess.session_id]
             for delta, encoded in zip(deltas, sizes):
                 sess.seq += 1
@@ -943,6 +1058,7 @@ class V4ConversationHub:
         flush_subs: list[_Subscription] = []
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
+            sess.last_author_at_ms = time.time() * 1000
             if sess.rows:
                 return 0
             max_rid = 0
@@ -1448,9 +1564,96 @@ class V4ConversationHub:
             logger.debug("[v4-conversation] availability read failed session=%s", sess.session_id, exc_info=True)
         return availability
 
+    def _build_session_usage(self, sess: _SessionState) -> dict[str, Any]:
+        """真实会话用量（快照路径）：DB 累计 rollup + 持久化 context_usage。
+
+        ``_minimal_usage()`` 全 0 会让 composer 上下文表 / 会话总计面板永远空转。
+        结果同时记到 ``sess.usage_state``，作为 mirror 轮末增量累加的基线。
+        读不到（非主聊 thread / 库异常）回退全 0 形状，行为与旧版一致。
+        """
+        usage: dict[str, Any] = {
+            "contextWindow": None,
+            "cumulative": {
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheWriteTokens": 0,
+            },
+        }
+        try:
+            from evoflow.persistence import session_repositories as sess_repo
+
+            sk = str(sess_repo.find_session_key_by_thread_id(sess.session_id) or "").strip()
+            if sk:
+                from evoflow.persistence.db import get_db
+
+                row = get_db().execute(
+                    "SELECT input_tokens, output_tokens, total_tokens, cache_read_tokens,"
+                    " cache_creation_tokens, cache_miss_tokens"
+                    " FROM evoflow_chat_sessions WHERE session_key = ?",
+                    (sk,),
+                ).fetchone()
+                if row is not None:
+                    keys = (
+                        "input_tokens",
+                        "output_tokens",
+                        "total_tokens",
+                        "cache_read_tokens",
+                        "cache_creation_tokens",
+                        "cache_miss_tokens",
+                    )
+                    values = dict(zip(keys, [int(v or 0) for v in tuple(row)]))
+                    usage["cumulative"] = {
+                        "inputTokens": values["input_tokens"],
+                        "outputTokens": values["output_tokens"],
+                        "cacheReadTokens": values["cache_read_tokens"],
+                        "cacheWriteTokens": values["cache_creation_tokens"],
+                        "totalTokens": values["total_tokens"],
+                        "cacheMissTokens": values["cache_miss_tokens"],
+                    }
+                from evoflow.persistence.session_context_usage import load_session_context_usage
+
+                ctx = load_session_context_usage(sk)
+                # cache 字段不透传：持久化形状是 {hitRate}，与协议 strict cache schema 不符。
+                if isinstance(ctx, dict) and ctx.get("window_tokens"):
+                    usage["contextWindow"] = {
+                        "usedTokens": max(0, int(ctx.get("used_tokens") or 0)),
+                        "maxTokens": max(1, int(ctx.get("window_tokens") or 1)),
+                        "autoCompactThresholdTokens": None,
+                    }
+        except Exception:
+            logger.debug(
+                "[v4-conversation] session usage build failed session=%s",
+                sess.session_id,
+                exc_info=True,
+            )
+        sess.usage_state = usage
+        return usage
+
+    def _session_turn_is_live(self, sess: _SessionState) -> bool:
+        """True when a turn is still running — snapshot must keep that turn's userInput."""
+        try:
+            ctrl = dict(sess.control_override) if sess.control_override else sess.control()
+            if bool(ctrl.get("canStop")) or str(ctrl.get("phase") or "") == "running":
+                return True
+        except Exception:
+            pass
+        if str(getattr(sess, "phase", "") or "") == "running":
+            return True
+        try:
+            from app.gateway.v4.agui_mirror import mirror_thread_is_live
+
+            if mirror_thread_is_live(str(sess.session_id or "")):
+                return True
+        except Exception:
+            pass
+        return False
+
     def _build_snapshot(self, sess: _SessionState) -> dict[str, Any]:
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
-        window = self._snapshot_tail_window(rows)
+        # 流式进行中：尾窗截断会把本轮 userInput 挤出；多会话切回时只剩工具/助手尾巴，
+        # 用户气泡「没了」但 AI 还在回（2026-11-15 实锤）。live 时把本轮锚点钉进窗口。
+        window = self._snapshot_tail_window(rows, pin_live_turn=self._session_turn_is_live(sess))
         return {
             "protocolVersion": 1,
             "sessionId": sess.session_id,
@@ -1466,7 +1669,7 @@ class V4ConversationHub:
             },
             "config": _minimal_config(sess.followup_mode),
             "modelTransition": None,
-            "usage": _minimal_usage(),
+            "usage": self._build_session_usage(sess),
             "queue": sess.queue_state(),
             "pendingInteractions": [],
             "pendingCommands": [],
@@ -1484,32 +1687,131 @@ class V4ConversationHub:
         }
 
     @staticmethod
-    def _snapshot_tail_window(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _is_snapshot_turn_boundary(row: dict[str, Any] | None) -> bool:
+        """尾窗对齐只认 turnHeader——落在 userInput 会裁掉紧前 header，折叠轮界丢了。"""
+        return bool(row) and str(row.get("kind") or "") == "turnHeader"
+
+    @staticmethod
+    def _align_snapshot_window_start(
+        rows: list[dict[str, Any]],
+        start: int,
+        *,
+        min_keep: int = _SNAPSHOT_MIN_TAIL_ROWS,
+    ) -> int:
+        """把尾窗起点对齐到 turnHeader，避免半截旧轮结论挂在窗顶。
+
+        先向后最多 40 行找 header；找不到再向前丢弃孤儿头，直到下一轮 header。
+        """
+        n = len(rows)
+        if start <= 0 or start >= n:
+            return max(0, min(start, n))
+        back_floor = max(0, start - 40)
+        i = start
+        while i > back_floor:
+            if V4ConversationHub._is_snapshot_turn_boundary(rows[i]):
+                return i
+            i -= 1
+        if V4ConversationHub._is_snapshot_turn_boundary(rows[start]):
+            return start
+        i = start
+        while i < n - min_keep:
+            if V4ConversationHub._is_snapshot_turn_boundary(rows[i]):
+                return i
+            i += 1
+        return start
+
+    @staticmethod
+    def _live_turn_span(rows: list[dict[str, Any]]) -> tuple[int, int] | None:
+        """Latest non-empty realUser 的 (turnStartIdx, userIdx)。turnStart 含紧前 turnHeader。"""
+        last_ui_idx: int | None = None
+        for i in range(len(rows) - 1, -1, -1):
+            if str(rows[i].get("kind") or "") != "userInput":
+                continue
+            if not str(rows[i].get("text") or "").strip():
+                continue
+            last_ui_idx = i
+            break
+        if last_ui_idx is None:
+            return None
+        turn_start = last_ui_idx
+        if last_ui_idx > 0 and str(rows[last_ui_idx - 1].get("kind") or "") == "turnHeader":
+            turn_start = last_ui_idx - 1
+        return turn_start, last_ui_idx
+
+    @staticmethod
+    def _pin_live_turn_into_window(
+        rows: list[dict[str, Any]],
+        window: list[dict[str, Any]],
+        *,
+        soft_cap: int,
+    ) -> list[dict[str, Any]]:
+        """软顶裁掉直播轮时：保住 turnHeader+user+轮尾，避免已流出正文蒸发。"""
+        span = V4ConversationHub._live_turn_span(rows)
+        if span is None:
+            return window
+        turn_start, user_idx = span
+        present = {int(r.get("rowId") or 0) for r in window}
+        live_turn = rows[turn_start:]
+        if all(int(r.get("rowId") or 0) in present for r in live_turn):
+            return window
+        cap = max(_SNAPSHOT_MIN_TAIL_ROWS, int(soft_cap))
+        if len(live_turn) <= cap:
+            older_budget = max(0, cap - len(live_turn))
+            older_start = max(0, turn_start - older_budget)
+            return rows[older_start:]
+        head = rows[turn_start : user_idx + 1]
+        after_user = rows[user_idx + 1 :]
+        tail_budget = max(0, cap - len(head))
+        tail = after_user[-tail_budget:] if tail_budget else []
+        return [*head, *tail]
+
+    @staticmethod
+    def _snapshot_tail_window(
+        rows: list[dict[str, Any]],
+        *,
+        pin_live_turn: bool = False,
+    ) -> list[dict[str, Any]]:
         """快照 rows.window 截断：尾部 _SNAPSHOT_TAIL_ROWS 行，字节超限再对半收缩。
 
         字节只量 rows（快照壳为固定 KB 级）；预算收缩到下限后即使仍超限也照发——
         客户端 hasOlderRows/滚动补拉不依赖帧大小，单行爆帧只在日志暴露。
+
+        截断后起点对齐 turn 边界，避免窗顶挂着上一轮半截 assistantText。
+
+        ``pin_live_turn``：本轮仍在跑时钉住直播轮（header+user+轮尾），不能只钉
+        两个锚点——否则中间已显示的 assistantText 会从 snapshot 里蒸发。
         """
         if len(rows) <= _SNAPSHOT_TAIL_ROWS:
-            return rows
-        take = _SNAPSHOT_TAIL_ROWS
-        while True:
-            window = rows[-take:]
-            try:
-                window_bytes = len(
-                    json.dumps(window, ensure_ascii=False, separators=(",", ":"))
-                )
-            except (TypeError, ValueError):  # pragma: no cover - 行数据不可序列化
-                return window
-            if window_bytes <= _SNAPSHOT_MAX_BYTES or take <= _SNAPSHOT_MIN_TAIL_ROWS:
-                if take < _SNAPSHOT_TAIL_ROWS:
-                    logger.info(
-                        "[v4.snapshot] byte-budget shrink window=%d rows=%.1fKB",
-                        take,
-                        window_bytes / 1024.0,
+            window = rows
+        else:
+            take = _SNAPSHOT_TAIL_ROWS
+            while True:
+                start = len(rows) - take
+                start = V4ConversationHub._align_snapshot_window_start(rows, start)
+                window = rows[start:]
+                try:
+                    window_bytes = len(
+                        json.dumps(window, ensure_ascii=False, separators=(",", ":"))
                     )
-                return window
-            take = max(_SNAPSHOT_MIN_TAIL_ROWS, take // 2)
+                except (TypeError, ValueError):  # pragma: no cover - 行数据不可序列化
+                    break
+                if window_bytes <= _SNAPSHOT_MAX_BYTES or take <= _SNAPSHOT_MIN_TAIL_ROWS:
+                    if take < _SNAPSHOT_TAIL_ROWS or start != len(rows) - take:
+                        logger.info(
+                            "[v4.snapshot] window rows=%d start=%d bytes=%.1fKB",
+                            len(window),
+                            start,
+                            window_bytes / 1024.0,
+                        )
+                    break
+                take = max(_SNAPSHOT_MIN_TAIL_ROWS, take // 2)
+
+        if not pin_live_turn or not rows:
+            return window
+
+        return V4ConversationHub._pin_live_turn_into_window(
+            rows, window, soft_cap=max(len(window), _SNAPSHOT_TAIL_ROWS)
+        )
 
     def _enqueue_prebuilt_snapshot_locked(
         self,

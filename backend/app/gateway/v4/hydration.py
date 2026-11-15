@@ -270,11 +270,50 @@ def _build_hydrated_tool_output(
     input_text: str = "",
     thread_id: str = "",
 ) -> dict[str, Any]:
-    """Build ``output = {text, display?}`` for a hydrated tool row.
+    """Build ``output = {text, display?}`` for a hydrated tool row（出口处截断预览）。
 
     Live 路径由 ``agui_mirror`` 把 CUA 标记剥成 ``output.display``；冷恢复必须
     用同一逻辑，否则刷新后轮尾截图/应用徽标消失（正文仍在，面板无图）。
+
+    行内 ``output.text`` 只留预览（与 live agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX
+    同阈值）：transcript 里的巨型工具结果（视频生成 base64 等，实测单条 10MB）不进
+    投影行——快照字节预算收缩与 renderer OOM 的根因；全文走 /tool-results 按需拉取。
+    截断只作用在最终 text：display 构建（platform 出码 / CUA / 截图 JSON 解析）
+    全程使用全文。
     """
+    output = _build_hydrated_tool_output_full(
+        tool_name=tool_name,
+        out_text=out_text,
+        status=status,
+        payload=payload,
+        msg=msg,
+        input_text=input_text,
+        thread_id=thread_id,
+    )
+    row_text = output.get("text")
+    if isinstance(row_text, str) and len(row_text) > _TOOL_OUTPUT_ROW_PREVIEW_MAX_LOCAL:
+        output["text"] = (
+            row_text[:_TOOL_OUTPUT_ROW_PREVIEW_MAX_LOCAL]
+            + "\n…（已截断，完整内容点开工具卡查看）"
+        )
+    return output
+
+
+# 与 live agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX 同阈值；本地常量避免循环 import。
+_TOOL_OUTPUT_ROW_PREVIEW_MAX_LOCAL = 12_000
+
+
+def _build_hydrated_tool_output_full(
+    *,
+    tool_name: str,
+    out_text: str,
+    status: str,
+    payload: dict[str, Any] | None = None,
+    msg: dict[str, Any] | None = None,
+    input_text: str = "",
+    thread_id: str = "",
+) -> dict[str, Any]:
+    """同 {@link _build_hydrated_tool_output}，但 output.text 不截断（内部实现）。"""
     from app.gateway.v4.agui_mirror import (
         _cua_display_block,
         _extract_diff_texts_from_args_dict,
@@ -581,11 +620,14 @@ def rehydrate_after_thread_remint(thread_id: str) -> int:
         return 0
 
 
-def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
-    """DB run_status 探测：running/pending 且 updated_at 新鲜 → 返回运行态摘要。
+def read_run_status_row(thread_id: str) -> dict[str, Any] | None:
+    """读原始 run_status 行（**不做**新鲜窗判定）。
 
-    只读（read pool，hydrate 已在 to_thread 里），不做 cancel——zombie 交
-    run_status_reconcile / zombie sweeper。status 非活跃或超窗返回 None。
+    ``_probe_running_run`` 用于「恢复 running」——超窗宁可当作已完成；
+    终态收口（catchup / reconcile）需要相反方向的证据：只要 DB 明确给出
+    终态（done/success/fail/cancelled/…）就允许把陈旧 running control
+    settle 掉。running 且超窗在这条路径上**不**当终态（疑似 zombie，
+    交 zombie sweeper），返回原值让调用方保守处理。
     """
     tid = str(thread_id or "").strip()
     if not tid:
@@ -607,12 +649,9 @@ def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
 
         row = run_db_read(_query)
     except Exception:
-        logger.debug("[v4.hydration] run probe failed thread=%s", tid, exc_info=True)
+        logger.debug("[v4.hydration] run status read failed thread=%s", tid, exc_info=True)
         return None
     if not row:
-        return None
-    status = str(row[0] or "").strip().lower()
-    if status not in {"running", "pending"}:
         return None
     updated_ms = 0
     raw_updated = str(row[1] or "").strip()
@@ -623,6 +662,29 @@ def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
             updated_ms = int(iso_z_to_ms(raw_updated) or 0)
         except Exception:
             updated_ms = 0
+    return {
+        "status": str(row[0] or "").strip().lower(),
+        "updated_at_ms": updated_ms,
+        "run_id": str(row[2] or "").strip(),
+    }
+
+
+def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
+    """DB run_status 探测：running/pending 且 updated_at 新鲜 → 返回运行态摘要。
+
+    只读（read pool，hydrate 已在 to_thread 里），不做 cancel——zombie 交
+    run_status_reconcile / zombie sweeper。status 非活跃或超窗返回 None。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    row = read_run_status_row(tid)
+    if not row:
+        return None
+    status = str(row.get("status") or "").strip().lower()
+    if status not in {"running", "pending"}:
+        return None
+    updated_ms = int(row.get("updated_at_ms") or 0)
     now_ms = int(time.time() * 1000)
     if updated_ms <= 0 or now_ms - updated_ms > _RUNNING_PROBE_MAX_AGE_MS:
         # running 但不新鲜：疑似 zombie，hydrate 维持「已完成」现状。
@@ -634,7 +696,7 @@ def _probe_running_run(thread_id: str) -> dict[str, Any] | None:
         )
         return None
     return {
-        "run_id": str(row[2] or "").strip(),
+        "run_id": str(row.get("run_id") or "").strip(),
         "status": status,
         "updated_at_ms": updated_ms,
     }
@@ -726,10 +788,24 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
     #    禁止逐行 author_append_row：会对全局 _write_lock + delta_log 打 N 次，
     #    与 live AG-UI 抢锁把 Gateway 事件循环拖死（多会话卡机）。
     #    turnHeader 最后写入（携带真实起止 + fileChanges 聚合），rowId 先分配保排序。
+    #
+    #    createdAt 必须吃消息真实时间并跨轮单调——旧逻辑整轮盖 now_ms，而
+    #    turnHeader.createdAt=turn_start，软窗里会出现
+    #    assistantText@now → 下一轮 turnHeader@更早，前端 display_order_anomaly。
     seeded_rows: list[dict[str, Any]] = []
+    seed_clock_ms = 0
     for turn in turns:
         turn_id = str(turn["run_id"])
-        created_at = now_ms
+        msg_times = [t for t in (_msg_timestamp_ms(m) for m in turn["messages"]) if t]
+        turn_start = min(msg_times) if msg_times else now_ms
+        turn_end = max(msg_times) if msg_times else now_ms
+        for msg in turn["messages"]:
+            started = _msg_timestamp_ms(msg)
+            dur = msg.get("turn_duration_ms")
+            if started and isinstance(dur, (int, float)) and dur > 0:
+                turn_end = max(turn_end, int(started + dur))
+        header_created_at = max(int(turn_start), seed_clock_ms)
+        seed_clock_ms = header_created_at
         header_row_id = next_row_id()
         rows: list[dict[str, Any]] = []
         tool_row_by_call_id: dict[str, dict[str, Any]] = {}
@@ -741,6 +817,9 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             role = str(msg.get("role") or "")
             msg_id = str(msg.get("id") or msg.get("message_id") or "")
             payload = parse_content(msg)
+            msg_ts = _msg_timestamp_ms(msg) or turn_start or now_ms
+            created_at = max(int(msg_ts), seed_clock_ms)
+            seed_clock_ms = created_at
 
             if role == "user":
                 text = _text_from_message_content(payload)
@@ -936,17 +1015,6 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     row["error"] = {"code": "tool_error", "message": err_text[:2000]}
                 rows.append(row)
 
-        # 真实轮起止：display 路径用 turn_started_at/turn_duration_ms，raw 路径用
-        # created_at（ISO）；都没有则退化为同一时刻（工时 0）。
-        starts = [t for t in (_msg_timestamp_ms(m) for m in turn["messages"]) if t]
-        turn_start = min(starts) if starts else created_at
-        turn_end = max(starts) if starts else created_at
-        for msg in turn["messages"]:
-            started = _msg_timestamp_ms(msg)
-            dur = msg.get("turn_duration_ms")
-            if started and isinstance(dur, (int, float)) and dur > 0:
-                turn_end = max(turn_end, int(started + dur))
-
         # 轮级文件变更聚合（ZCode「N 个文件已更改 +A/-D」卡片 = turnHeader.fileChanges）。
         file_agg: dict[str, dict[str, int]] = {}
         for row in rows:
@@ -975,9 +1043,11 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             "state": "completedSuccess",
             "startedAt": turn_start,
             "endedAt": turn_end,
-            "createdAt": turn_start,
+            "createdAt": header_created_at,
             "createdAtSeq": 0,
         }
+        if rows:
+            seed_clock_ms = max(seed_clock_ms, int(rows[-1].get("createdAt") or seed_clock_ms))
         if file_agg:
             header_row["fileChanges"] = {
                 "additions": sum(v["additions"] for v in file_agg.values()),
@@ -1070,6 +1140,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
 __all__ = [
     "hydrate_session_from_transcript",
     "force_rehydrate_session_from_transcript",
+    "read_run_status_row",
     "transcript_fingerprint",
     "transcript_fingerprint_for_thread",
 ]

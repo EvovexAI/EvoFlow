@@ -26,7 +26,13 @@
 [CmdletBinding()]
 param(
   [string] $StateFile = "",
-  [switch] $DryRun
+  [switch] $DryRun,
+  # 【self-evolution-bot · 2026-11-15 · 第16轮】补声明：第15轮写自检模式时只加了下面的
+  # 使用点（$skipInstall/$skipLaunch 共 5 处）却没加 param，导致命令行传 -SkipInstall 直接报
+  # 「找不到参数」、脚本里 [bool]$SkipInstall 恒为 False —— 自检模式实际只能靠手改 state.json
+  # 才进得去，等于第15轮宣称的"一键自检"从未真机可用（本轮 grep param 块才发现）。
+  [switch] $SkipInstall,
+  [switch] $SkipLaunch
 )
 
 $ErrorActionPreference = "Stop"
@@ -234,17 +240,21 @@ try {
   # 为什么：employees list / wake 读的是**本地 SQLite**（ProactiveRepository.list_roles →
   # get_db()），根本不走 Gateway HTTP —— 所以「/health 通了」和「名册查得到」是两回事，
   # 第13轮 wake 连败 6 次报 "No employee matching 'fullstack-dev'" 就是这么来的。
-  # 真因（第14轮只读实测证死，非推测）：本机**用户级持久**环境变量
-  #   [Environment]::GetEnvironmentVariable('EVOFLOW_HOME','User') = C:\Users\admin\.evoflow-dev
-  # 而计划任务（Task Scheduler）继承的正是注册表里的用户级值，不是我 dev shell 里那份
-  # 进程级 EVOFLOW_HOME=…\profiles\default。两个库内容不同：
-  #   .evoflow-dev/data/app/evoflow.db        → 17 个岗位，**无 fullstack-dev**
-  #   profiles/default/data/app/evoflow.db    → 22 个岗位，含 fullstack-dev
-  # 故看门狗在计划任务下跑 CLI 时读到 .evoflow-dev 那份旧库，名册里查无此岗；
-  # 我事后在 dev shell 里跑同一条命令自然查得到 22 个岗位 —— 当时那个矛盾就是这么产生的。
-  # 对照实验（同一 CLI，只换 EVOFLOW_HOME）：指向 .evoflow-dev → grep -c fullstack-dev = 0；
-  # 指向 profiles\default → ≥1。修法即用登记端从 backend-runtime.json 同目录读到的权威
-  # evoflowHome 显式覆盖，不给继承值留机会。
+  # 真因是**两层叠加**（第14轮只归对第一层，第16轮复算补齐；勿再照抄旧注释）：
+  # ① 本机**用户级持久**环境变量（实测 Machine 级为空）
+  #     [Environment]::GetEnvironmentVariable('EVOFLOW_HOME','User') = C:\Users\admin\.evoflow-dev
+  #   计划任务继承的正是注册表里这份用户级值，不是我 dev shell 里的进程级 profiles\default。
+  #   第16轮矩阵复算（同一 CLI 同一时刻只换 HOME，见 evoflow-home-probe.ps1）：
+  #     .evoflow-dev   → n=17，不含本岗
+  #     profiles\default → n=23，含 self-evolution-bot
+  #     不设 HOME（CLI 默认）→ n=23，同上
+  #     %USERPROFILE%\.evoflow（裸目录）→ n=1，另一份近空库（新发现的陷阱，本次故障非它引起）
+  #   （更正：本注释原写"22 岗位含 fullstack-dev"，数与岗位名都不对。）
+  # ② 旧码 fullstack-dev 在**两个库里都不存在**——本岗 11-15 16:01 改名 self-evolution-bot，
+  #   名册里那个 case-fullstack-dev 是另一个不相干的岗。所以只钉 home 不改岗位码，照样六连败。
+  # 故"事后在 dev shell 跑同一条命令查得到"并不矛盾：两个进程读的不是同一个库。
+  # 修法：用登记端**实证挑库**后写进 state 的 evoflowHome 显式覆盖，不给继承值留机会；
+  #   登记端挑不到认这个岗的库就直接拒绝登记，不等 30 秒后让看门狗白跑。
   if (-not [string]::IsNullOrWhiteSpace($RuntimeHome)) {
     $env:EVOFLOW_HOME = $RuntimeHome
     Write-Log "CLI 数据目录钉为 EVOFLOW_HOME=$RuntimeHome"
@@ -254,8 +264,10 @@ try {
   # CommandLine 匹配连带杀掉承载它的 python.exe，故此处剥掉安装目录字串。
   $safeGoal = $Goal
   if ($safeGoal -and $InstallDir) { $safeGoal = $safeGoal.Replace($InstallDir, "<install-dir>") }
-  $wakeArgs = @("employees", "wake", $AgentCode, "--from", "user", "--priority", "high", "--resume-round")
-  if ($TaskId)    { $wakeArgs += @("--task-id", $TaskId) }
+  # 【fullstack-dev · 2026-11-15 · 第15轮】--resume-round 只在真有 TaskId 时带：无 task 可续时
+  # 它是空转参数，且会把"续哪一轮"的判定推给一个不存在的单据（本次实跑就不带 task-id）。
+  $wakeArgs = @("employees", "wake", $AgentCode, "--from", "user", "--priority", "high")
+  if ($TaskId)    { $wakeArgs += @("--task-id", $TaskId, "--resume-round") }
   if ($safeGoal)  { $wakeArgs += @("--goal", $safeGoal) }
   if ($RoundId)   { $wakeArgs += @("--round-id", $RoundId) }
   # 【fullstack-dev · 2026-11-15 · 第14轮】wake 前先等目标岗位真的在册，再投 wake；失败按递增退避重试。
@@ -318,7 +330,10 @@ try {
   $ok = $false
   $backoff = 10
   for ($i = 1; $i -le $WakeAttempts; $i++) {
-    if ($DryRun) { Write-Log "[dryrun] $Cli $($wakeArgs -join ' ')" "WARN"; $ok = $true; break }
+    # 【self-evolution-bot · 2026-11-15 · 第16轮】dryrun 也要把分型写清楚：原先只置 $ok=$true、
+    # 让 wakeOutcome 停在初值 not-attempted，读的人还得自己猜。改成显式 "dryrun-not-attempted"，
+    # 与真投递的 delivered / busy-wiring-proven / skipped-already-done 一眼区分。
+    if ($DryRun) { Write-Log "[dryrun] $Cli $($wakeArgs -join ' ')" "WARN"; $wakeOutcome = "dryrun-not-attempted"; $ok = $true; break }
     Write-Log "wake 第 $i/$WakeAttempts 次: $Cli $($wakeArgs -join ' ')"
     try {
       $out = & $Cli @wakeArgs 2>&1 | Out-String
@@ -355,14 +370,24 @@ try {
     Start-Sleep -Seconds $backoff
     if ($backoff -lt 60) { $backoff = $backoff + 15 }
   }
-  if (-not $ok) { throw "wake 连续 $WakeAttempts 次失败，请手动执行: $Cli employees wake $AgentCode --task-id $TaskId --resume-round" }
+  # 【self-evolution-bot · 2026-11-15 · 第16轮】报错文案要照分型说，别一律"连续 N 次失败"：
+  # 本轮实测 skipped-already-done 走 break 只跑了 1 次，却打出"失败 6 次"，把"锚点是已结案的单"
+  # 这个真因盖掉了，误导排查方向。
+  $why = if ($wakeOutcome -eq "skipped-already-done") { "所引 Task 已结案 → done-guard 跳过，未投递（换一个未结案的任务 id）" }
+         elseif ($wakeOutcome -eq "failed") { "非名册类错误，重投无意义（看 watchdog.log 尾部原文）" }
+         else { "连续 $WakeAttempts 次未通" }
+  if (-not $ok) { throw "wake 未成功（outcome=$wakeOutcome）：$why。可手动执行: $Cli employees wake $AgentCode --task-id $TaskId --resume-round" }
 }
 catch {
   $exitCode = 1
   Write-Log "[$stage] 失败: $_" "ERROR"
 }
 finally {
-  $summary = @{ stage = $stage; ok = ($exitCode -eq 0); exitCode = $exitCode; baseUrl = $baseUrl; agentCode = $AgentCode; taskId = $TaskId; at = (Get-Date).ToString("o") } | ConvertTo-Json -Compress
+  # 【self-evolution-bot · 2026-11-15 · 第16轮】补接线：第15轮加了 $wakeOutcome 分型（5 处赋值）
+  # 却没写进本文件，被叫醒的岗位读 result 仍只看到 ok=true，分不清是 delivered / busy / skipped ——
+  # 正是我记过的「只测函数不测接线」同类漏项。另加 selftest：让读的人一眼知道这轮 ok=true 只证明
+  # 了后半段（就绪/名册/投递面/wake），没证明静默安装与拉起。
+  $summary = @{ stage = $stage; ok = ($exitCode -eq 0); exitCode = $exitCode; baseUrl = $baseUrl; agentCode = $AgentCode; taskId = $TaskId; wakeOutcome = $wakeOutcome; selftest = [bool]($skipInstall -or $skipLaunch); at = (Get-Date).ToString("o") } | ConvertTo-Json -Compress
   try {
     if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
     Set-Content -LiteralPath $ResultFile -Value $summary -Encoding UTF8

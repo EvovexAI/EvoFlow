@@ -10,10 +10,10 @@ import type { DisplayRow } from '../chat-types.js'
 import { STREAM_ASSISTANT_BODY_CAP, capStreamTailText } from './stream-turn-engine.js'
 
 /** Rows retained per session runtime (count cap; oldest dropped). */
-export const SESSION_ROWS_MAX = 500
+export const SESSION_ROWS_MAX = 300
 
 /** Rows (counted from the newest end) that keep heavy live snapshots. */
-export const SESSION_ROWS_HEAVY_HORIZON = 30
+export const SESSION_ROWS_HEAVY_HORIZON = 24
 
 /** Persisted per-tool output text cap (display layer truncates at 16KB; this guards retention). */
 export const PERSIST_TOOL_OUTPUT_CAP = 65_536

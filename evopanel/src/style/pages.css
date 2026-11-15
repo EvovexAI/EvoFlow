@@ -12040,6 +12040,19 @@ html.dark .settings-modal-root .settings-layout--hub .settings-hub-main {
   border-color: color-mix(in srgb, #b42318 30%, transparent);
 }
 
+/* 微信多账号绑定表：改绑下拉。覆盖 .im-input 的 width:100%，防止在表格单元里被压瘪。 */
+.weixin-accounts-table select.weixin-rebind {
+  width: 150px;
+  max-width: 150px;
+  flex: 0 0 auto;
+  padding: 4px 8px;
+}
+
+/* 操作列允许换行堆叠（改名/启停/解绑 + 下拉），不与相邻列挤压。 */
+.weixin-accounts-table td.im-bindings-actions-cell .im-bindings-actions {
+  white-space: normal;
+}
+
 .im-secret-wrap {
   position: relative;
 }

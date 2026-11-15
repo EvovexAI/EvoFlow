@@ -1466,8 +1466,21 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
   const usageTitle = formatAssistantUsageTitle(usage);
   return (
     <MessageActions>
-      {/* 悬停显现只包图标动作组；时间戳 + token 用量常显（对齐旧版 meta 行体验）。
-          调用方传入的 group-hover class 原来罩整行，现在只作用到图标组。 */}
+      {/* token 用量 + 时间戳在最左（常显）；图标动作组在行尾悬停显现。
+          原实现图标组在最左，隐形时仍占位把用量挤到中间——用户反馈很怪。 */}
+      {usageLabel ? (
+        <span
+          title={usageTitle ?? undefined}
+          className="select-none text-ui-sm text-foreground-subtlest tabular-nums"
+        >
+          {usageLabel}
+        </span>
+      ) : null}
+      {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
+          时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
+      {timeLabel ? (
+        <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
+      ) : null}
       <div className={cn("flex items-center gap-1", className)}>
         <CopyRowAction
           text={text}
@@ -1530,20 +1543,6 @@ export const ConversationAssistantTextActions = memo(function ConversationAssist
           <ConversationHookDetailsAction rows={hookInvocations} turnId={turnId} />
         ) : null}
       </div>
-      {/* 旧 conversation surface 删除后，V4 动作栏漏掉了消息创建时间；
-          时间是 row.createdAt 的只读派生展示，不新增 renderer 状态。 */}
-      {timeLabel ? (
-        <span className="select-none text-ui-sm text-foreground-subtlest">{timeLabel}</span>
-      ) : null}
-      {/* 轮累计 token 用量（网关盖在轮尾正文行上）；无 usage 的行/老会话不渲染。 */}
-      {usageLabel ? (
-        <span
-          title={usageTitle ?? undefined}
-          className="select-none text-ui-sm text-foreground-subtlest tabular-nums"
-        >
-          {usageLabel}
-        </span>
-      ) : null}
     </MessageActions>
   );
 });

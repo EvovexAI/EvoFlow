@@ -177,3 +177,91 @@ def test_next_turn_resets_usage_context(clean_hub) -> None:
     texts2 = _texts(tid, "run-2")
     assert texts1 and texts1[0].get("usage") is None
     assert texts2 and texts2[0]["usage"]["inputTokens"] == 1200
+
+
+def test_session_usage_state_bumped_on_turn_finish(clean_hub) -> None:
+    """快照基线存在时，成功轮的累计 usage 并入会话 usage_state 并发增量。"""
+    tid = clean_hub("bump")
+    mirror = V4Mirror(HUB)
+    mirror.feed_events(tid, [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"}])
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    sess.usage_state = {
+        "contextWindow": None,
+        "cumulative": {
+            "inputTokens": 1000,
+            "outputTokens": 100,
+            "cacheReadTokens": 500,
+            "cacheWriteTokens": 10,
+            "totalTokens": 1100,
+            "cacheMissTokens": 400,
+        },
+    }
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "答"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "CUSTOM", "name": "usage", "value": {"type": "usage", "usage": _USAGE}},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
+        ],
+    )
+    cum = sess.usage_state["cumulative"]
+    assert cum["inputTokens"] == 1000 + 1200
+    assert cum["outputTokens"] == 100 + 340
+    assert cum["totalTokens"] == 1100 + 1540
+    assert cum["cacheReadTokens"] == 500 + 890
+    assert cum["cacheMissTokens"] == 400 + 298
+
+
+def test_session_usage_state_no_double_count_on_late_duplicate(clean_hub) -> None:
+    """早封路径（FINISHED 先到、usage 后到）补并入一次；再迟到的重复帧不得双计。"""
+    tid = clean_hub("late-bump")
+    mirror = V4Mirror(HUB)
+    mirror.feed_events(tid, [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"}])
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    sess.usage_state = {
+        "contextWindow": None,
+        "cumulative": {
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheWriteTokens": 0,
+        },
+    }
+    late_usage = {"type": "CUSTOM", "name": "usage", "value": {"type": "usage", "usage": _USAGE}}
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "答"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
+            late_usage,
+            late_usage,
+        ],
+    )
+    cum = sess.usage_state["cumulative"]
+    assert cum["inputTokens"] == 1200, "同一轮的累计 usage 只允许并入一次"
+
+
+def test_session_usage_state_skipped_without_baseline(clean_hub) -> None:
+    """本进程没建过快照（usage_state=None）→ 跳过并入，不报错。"""
+    tid = clean_hub("no-base")
+    mirror = V4Mirror(HUB)
+    mirror.feed_events(tid, [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"}])
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "答"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "CUSTOM", "name": "usage", "value": {"type": "usage", "usage": _USAGE}},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
+        ],
+    )
+    assert sess.usage_state is None

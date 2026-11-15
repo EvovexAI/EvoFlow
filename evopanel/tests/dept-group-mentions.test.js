@@ -53,4 +53,17 @@ describe('dept-group-mentions', () => {
     expect(hasUnresolvedAtMentions('@产品经理 看看', roster)).toBe(true)
     expect(hasUnresolvedAtMentions('@全栈工程师 看看', roster)).toBe(false)
   })
+
+  it('resolves 自我进化BOT and legacy 全栈开发工程师 to renamed code', () => {
+    const renamed = [
+      ...roster,
+      { agent_code: 'self-evolution-bot', role_name: '自我进化BOT' },
+    ]
+    expect(parseMentions('@自我进化BOT 看一下', renamed).map((h) => h.agent_code)).toEqual([
+      'self-evolution-bot',
+    ])
+    expect(parseMentions('@全栈开发工程师 也看看', renamed).map((h) => h.agent_code)).toEqual([
+      'self-evolution-bot',
+    ])
+  })
 })

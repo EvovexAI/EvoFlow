@@ -93,6 +93,8 @@ export default defineConfig({
       'tests/plan-task-status.test.js',
       'tests/plan-from-api.test.js',
       'tests/collab-subtasks-from-api.test.js',
+      'tests/child-work-workflow-bridge.test.js',
+      'tests/use-collab-subtasks-error-resilience.test.tsx',
       'tests/collab-thread-ids.test.js',
       'tests/subtask-live-preview.test.js',
       'tests/workflow-node-activity.test.ts',
@@ -271,6 +273,10 @@ export default defineConfig({
       'tests/langgraph-thread-stale-epoch.test.ts',
       // 超大会话渲染层尾窗软顶（防 loadAllOlder / 长流式撑爆 window）
       'tests/projection-window-cap.test.ts',
+      'tests/v4-userinput-visible-in-tail.test.ts',
+      'tests/v4-fold-health.test.ts',
+      'tests/v4-display-order-health.test.ts',
+      'tests/v4-running-text-interleave.test.ts',
       // 点停 → API → UI idle 的 sinceStopMs 闭环
       'tests/stream-stop-log.test.ts',
       'tests/run-page-load-resume.test.ts',

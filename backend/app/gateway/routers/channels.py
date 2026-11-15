@@ -108,12 +108,69 @@ class WeixinRegistrationPollResponse(BaseModel):
 
 class WeixinRegistrationApplyRequest(BaseModel):
     enabled: bool = Field(default=True, description="Whether to enable the Weixin channel after applying credentials")
+    agent_code: str = Field(
+        default="",
+        max_length=64,
+        description=(
+            "If set, the WeChat bot is bound to this proactive employee agent and its messages "
+            "route to that agent. Empty string (default) binds it to the channel-wide main "
+            "agent (lead_agent) — 多账号默认都接主智能体."
+        ),
+    )
+    display_name: str = Field(
+        default="",
+        max_length=64,
+        description="Optional human-friendly label for this WeChat binding (shown in the accounts list).",
+    )
 
 
 class WeixinRegistrationApplyResponse(BaseModel):
     success: bool
     message: str
     channel_running: bool = False
+
+
+class WeixinAccountOut(BaseModel):
+    """One WeChat (iLink) bot binding in the multi-account list."""
+
+    account_id: str = Field(..., description="iLink bot id — the weixin account slot key")
+    agent_code: str = ""
+    is_main_agent: bool = Field(default=True, description="True when agent_code is empty (routes to the main agent)")
+    display_name: str = ""
+    bot_id_suffix: str = ""
+    enabled: bool = True
+    bound_at: str = ""
+    base_url: str = ""
+    running: bool = Field(default=False, description="Whether the ``weixin:<account_id>`` channel instance is live")
+    role_name: str = Field(default="", description="Employee role_name when agent_code is set")
+
+
+class WeixinAccountsResponse(BaseModel):
+    success: bool = True
+    accounts: list[WeixinAccountOut]
+
+
+class WeixinAccountPatchRequest(BaseModel):
+    """Partial update of one WeChat binding (rename / enable / 改绑 employee)."""
+
+    display_name: str | None = Field(default=None, max_length=64)
+    enabled: bool | None = None
+    agent_code: str | None = Field(
+        default=None,
+        max_length=64,
+        description="New employee binding. ``\"\"`` re-routes the bot to the main agent.",
+    )
+
+
+class WeixinAccountPatchResponse(BaseModel):
+    success: bool
+    message: str
+    account: WeixinAccountOut | None = None
+
+
+class WeixinAccountDeleteResponse(BaseModel):
+    success: bool
+    message: str
 
 
 class WecomRegistrationBeginResponse(BaseModel):
@@ -681,7 +738,12 @@ async def weixin_registration_apply(
     session_id: str,
     body: WeixinRegistrationApplyRequest = WeixinRegistrationApplyRequest(),
 ) -> WeixinRegistrationApplyResponse:
-    """Save Weixin credentials to disk and ``config.yaml``, then start or restart the channel."""
+    """Save WeChat bot credentials as ONE account binding and (re)start the channel.
+
+    Multi-account: every scan creates/updates its own ``evoflow_bot_bindings`` row
+    (``platform="weixin"``, slot = iLink account_id). ``agent_code`` empty binds the
+    bot to the main agent (主智能体); set it to route the bot to an employee.
+    """
     require_org_admin(request)
     from app.channels.service import get_channel_service
     from app.channels.weixin_registration import get_weixin_registration_client
@@ -702,6 +764,8 @@ async def weixin_registration_apply(
     if not session.account_id or not session.token:
         raise HTTPException(status_code=500, detail="Registration completed but credentials are missing")
 
+    agent_code = str(body.agent_code or "").strip()
+    display_name = str(body.display_name or "").strip()
     base_url = (session.confirmed_base_url or session.init_base_url or "").rstrip("/")
     save_weixin_credentials(
         account_id=session.account_id,
@@ -710,12 +774,40 @@ async def weixin_registration_apply(
         user_id=str(session.user_id or ""),
     )
 
-    payload = {
+    # One row per WeChat bot (1 bot ⇄ 1 binding; one employee ⇄ at most one bot).
+    from evoflow.proactive.weixin_binding import sync_weixin_account_binding
+
+    try:
+        binding = sync_weixin_account_binding(
+            session.account_id,
+            token=session.token,
+            agent_code=agent_code,
+            display_name=display_name,
+            base_url=base_url,
+            enabled=body.enabled,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    # Mirror the accounts dict into the persisted channel config so the generic
+    # GET /channels/weixin/config shape and channels.js stay coherent.
+    session_block: dict[str, Any] = {"base_url": base_url}
+    if display_name:
+        session_block["display_name"] = display_name
+    if agent_code:
+        session_block["assistant_id"] = agent_code
+    accounts = await _current_weixin_accounts_mirror()
+    accounts[session.account_id] = {
+        **accounts.get(session.account_id, {}),
+        "bot_id": session.account_id,
         "account_id": session.account_id,
         "token": session.token,
         "base_url": base_url,
+        "agent_code": agent_code,
         "enabled": body.enabled,
+        "session": session_block,
     }
+    payload = {"enabled": body.enabled, "accounts": accounts}
 
     service = get_channel_service()
     if service is not None:
@@ -732,11 +824,88 @@ async def weixin_registration_apply(
             logger.warning("Failed to persist Weixin config to SQLite database", exc_info=True)
 
         _, _, running = service.get_channel_config("weixin")
+        target = f"employee {agent_code}" if agent_code else "main agent"
         return WeixinRegistrationApplyResponse(
             success=True,
-            message="Weixin credentials saved and channel started",
+            message=f"WeChat account {binding.get('bot_id_suffix')} bound to {target}",
             channel_running=running,
         )
+
+    from evoflow.config.app_config import get_app_config, update_channels_section_and_save
+
+    cfg = get_app_config()
+    channels = _channels_section_from_app_config(cfg) or {}
+    weixin_cfg = dict(channels.get("weixin", {}))
+    weixin_cfg["accounts"] = accounts
+    weixin_cfg["enabled"] = body.enabled
+    channels["weixin"] = weixin_cfg
+    update_channels_section_and_save(channels)
+
+    return WeixinRegistrationApplyResponse(
+        success=True,
+        message="WeChat account bound. Restart the Gateway to activate the channel.",
+        channel_running=False,
+    )
+
+
+async def _current_weixin_accounts_mirror() -> dict[str, Any]:
+    """Current ``channels.weixin.accounts`` dict from the live service or SQLite."""
+    from app.channels.service import get_channel_service
+
+    service = get_channel_service()
+    if service is not None:
+        cfg = service._config.get("weixin")
+        if isinstance(cfg, dict) and isinstance(cfg.get("accounts"), dict):
+            return dict(cfg["accounts"])
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        return dict((cfg_repo.get_channel_config("weixin") or {}).get("accounts") or {})
+    except Exception:
+        return {}
+
+
+def _weixin_accounts_mirror_payload() -> dict[str, Any]:
+    """Build the ``accounts`` dict from evoflow_bot_bindings (single source of truth)."""
+    from evoflow.persistence.config_repositories import list_bot_bindings
+
+    accounts: dict[str, Any] = {}
+    for row in list_bot_bindings("weixin", enabled_only=False):
+        session = dict(row.get("session_config") or {})
+        accounts[str(row["bot_id"])] = {
+            "bot_id": row["bot_id"],
+            "account_id": row["bot_id"],
+            "token": row["bot_secret"],
+            "base_url": str(session.get("base_url") or ""),
+            "agent_code": str(row.get("agent_code") or ""),
+            "enabled": bool(row.get("enabled", True)),
+            "session": session,
+        }
+    return accounts
+
+
+async def _persist_weixin_accounts_mirror_and_restart() -> bool:
+    """Sync the accounts mirror from bindings and restart the weixin channel family.
+
+    Returns True when the channel service handled it (restart scheduled); False
+    means only the YAML/SQLite mirror was updated and the caller should tell the
+    user to restart the Gateway.
+    """
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    payload = {"accounts": _weixin_accounts_mirror_payload()}
+    from app.channels.service import get_channel_service
+
+    service = get_channel_service()
+    if service is not None:
+        ok = await service.update_channel_config("weixin", payload)
+        if not ok:
+            raise HTTPException(status_code=500, detail="Failed to persist Weixin accounts")
+        try:
+            cfg_repo.upsert_channel_config("weixin", payload)
+        except Exception:
+            logger.warning("Failed to persist Weixin config to SQLite database", exc_info=True)
+        return True
 
     from evoflow.config.app_config import get_app_config, update_channels_section_and_save
 
@@ -746,11 +915,169 @@ async def weixin_registration_apply(
     weixin_cfg.update(payload)
     channels["weixin"] = weixin_cfg
     update_channels_section_and_save(channels)
+    return False
 
-    return WeixinRegistrationApplyResponse(
+
+@router.get("/weixin/accounts", response_model=WeixinAccountsResponse)
+async def list_weixin_accounts(request: Request) -> WeixinAccountsResponse:
+    """List all bound WeChat (iLink) accounts: bindings + runtime state (增删改查之「查」)."""
+    require_org_admin(request)
+    from evoflow.persistence.config_repositories import list_bot_bindings
+    from evoflow.proactive.weixin_binding import weixin_binding_public
+
+    rows = list_bot_bindings("weixin", enabled_only=False)
+    running_ids: set[str] = set()
+    from app.channels.service import get_channel_service
+
+    service = get_channel_service()
+    if service is not None:
+        entry = service.get_status().get("channels", {}).get("weixin", {})
+        running_ids = {str(a) for a in (entry.get("bound_accounts") or [])}
+
+    accounts: list[WeixinAccountOut] = []
+    for row in rows:
+        pub = weixin_binding_public(row)
+        role_name = ""
+        code = pub.get("agent_code") or ""
+        if code:
+            try:
+                from evoflow.proactive.repositories import ProactiveRepository
+
+                role = ProactiveRepository.get_role(code)
+                role_name = str(getattr(role, "role_name", "") or "") if role else ""
+            except Exception:
+                role_name = ""
+        # Legacy/absorbed bindings carry an empty bound_at — fall back to the
+        # credential file's saved_at so the UI can show when the account was bound.
+        bound_at = str(pub.get("bound_at") or "")
+        if not bound_at:
+            try:
+                from app.channels.weixin_setup import load_weixin_credentials
+
+                creds = load_weixin_credentials(str(row.get("bot_id") or ""))
+                bound_at = str((creds or {}).get("saved_at") or "")
+            except Exception:
+                bound_at = ""
+        accounts.append(
+            WeixinAccountOut(
+                account_id=pub.get("account_id") or str(row.get("bot_id") or ""),
+                agent_code=code,
+                is_main_agent=not code,
+                display_name=pub.get("display_name") or "",
+                bot_id_suffix=pub.get("bot_id_suffix") or "",
+                enabled=bool(pub.get("enabled", True)),
+                bound_at=bound_at,
+                base_url=pub.get("base_url") or "",
+                running=str(row.get("bot_id") or "") in running_ids,
+                role_name=role_name,
+            )
+        )
+    return WeixinAccountsResponse(success=True, accounts=accounts)
+
+
+@router.patch("/weixin/accounts/{account_id}", response_model=WeixinAccountPatchResponse)
+async def patch_weixin_account(
+    request: Request,
+    account_id: str,
+    body: WeixinAccountPatchRequest,
+) -> WeixinAccountPatchResponse:
+    """Rename / enable / re-bind one WeChat account (增删改查之「改」).
+
+    ``agent_code`` swap takes effect after the channel family restart (scheduled
+    off the request path by ``update_channel_config``).
+    """
+    require_org_admin(request)
+    from evoflow.persistence.config_repositories import get_bot_binding
+    from evoflow.proactive.weixin_binding import update_weixin_account_binding
+
+    if get_bot_binding("weixin", account_id) is None:
+        raise HTTPException(status_code=404, detail="WeChat account binding not found")
+
+    try:
+        binding = update_weixin_account_binding(
+            account_id,
+            agent_code=body.agent_code,
+            display_name=body.display_name,
+            enabled=body.enabled,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    await _persist_weixin_accounts_mirror_and_restart()
+    account = WeixinAccountOut(
+        account_id=binding.get("account_id") or account_id,
+        agent_code=binding.get("agent_code") or "",
+        is_main_agent=not (binding.get("agent_code") or ""),
+        display_name=binding.get("display_name") or "",
+        bot_id_suffix=binding.get("bot_id_suffix") or "",
+        enabled=bool(binding.get("enabled", True)),
+        bound_at=binding.get("bound_at") or "",
+        base_url=binding.get("base_url") or "",
+    )
+    return WeixinAccountPatchResponse(success=True, message="WeChat account updated", account=account)
+
+
+@router.delete("/weixin/accounts/{account_id}", response_model=WeixinAccountDeleteResponse)
+async def delete_weixin_account(request: Request, account_id: str) -> WeixinAccountDeleteResponse:
+    """Unbind and remove one WeChat account binding (增删改查之「删」).
+
+    Stops the ``weixin:<account_id>`` instance, deletes the binding row and the
+    local credential file. The WeChat-side bot itself must be removed in the
+    WeChat app — this only stops EvoFlow from answering it.
+    """
+    require_org_admin(request)
+    from evoflow.persistence.config_repositories import get_bot_binding
+    from evoflow.proactive.weixin_binding import remove_weixin_account_binding
+
+    binding = get_bot_binding("weixin", account_id)
+    if binding is None:
+        raise HTTPException(status_code=404, detail="WeChat account binding not found")
+
+    # If the bot was bound to an employee, clear that role's weixin fields too.
+    role_code = str(binding.get("agent_code") or "").strip()
+    if role_code:
+        try:
+            from evoflow.proactive.repositories import ProactiveRepository
+
+            role = ProactiveRepository.get_role(role_code)
+            if role is not None and str(getattr(role.config, "weixin_account_id", "") or "").strip() == account_id:
+                cfg = role.config
+                cfg.weixin_account_id = ""
+                cfg.weixin_bound_at = ""
+                role.config = cfg
+                ProactiveRepository.save_role(role)
+        except Exception:
+            logger.warning("weixin account delete: role cleanup failed agent=%s", role_code, exc_info=True)
+
+    from app.channels.service import get_channel_service
+
+    service = get_channel_service()
+    stopped = False
+    if service is not None:
+        stopped = await service.stop_account_instance("weixin", account_id)
+
+    deleted = remove_weixin_account_binding(account_id)
+    if not deleted and not stopped:
+        raise HTTPException(status_code=404, detail="WeChat account binding not found")
+
+    # Best-effort: drop the persisted credential file (sync/context-token files
+    # are kept so re-binding the same bot resumes its cursor).
+    try:
+        from app.channels.weixin_setup import _weixin_home
+
+        cred_path = _weixin_home() / f"{account_id}.json"
+        if cred_path.exists():
+            cred_path.unlink()
+    except Exception:
+        logger.warning("weixin account delete: credential file cleanup failed", exc_info=True)
+
+    await _persist_weixin_accounts_mirror_and_restart()
+    logger.info("WeChat account unbound: account=%s role=%s stopped=%s", account_id, role_code or "-", stopped)
+    return WeixinAccountDeleteResponse(
         success=True,
-        message="Weixin credentials saved. Restart the Gateway to activate the channel.",
-        channel_running=False,
+        message="WeChat account unbound. Remove the bot inside the WeChat app if you no longer want it there.",
     )
 
 

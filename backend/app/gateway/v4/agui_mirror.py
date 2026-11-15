@@ -158,6 +158,11 @@ _WRITE_TOOL_NAMES = {
     "replace", "str_replace", "replace_in_file", "multi_edit", "apply_patch",
 }
 
+# toolCall 行 output.text 预览上限（字符）：对齐旧链路 chat-normalize._UI_TOOL_OUTPUT_MAX。
+# 巨型工具结果（视频生成 base64 等）不进投影行——快照字节预算收缩与 renderer OOM 的根因；
+# 全文走 /tool-results 按需拉取（hydration 同阈值）。
+_TOOL_OUTPUT_ROW_PREVIEW_MAX = 12_000
+
 _DIFF_MAX_LINES = 800
 
 # 微信工具 → 简洁摘要（对齐旧链路 formatToolOutputForUserDisplay 的微信分支）。
@@ -720,6 +725,9 @@ class _MirrorState:
     usage 盖章目标：轮累计只盖轮尾正文行（V4 面板在轮尾动作行显示）。"""
     last_turn_success: bool = False
     """最近一轮是否成功收尾（RUN_FINISHED=True / RUN_ERROR=False）。failed 轮不盖 usage。"""
+    usage_bumped: bool = False
+    """本轮累计 usage 是否已并入会话级 usage_state。usage 事件是轮累计（非增量），
+    RUN_FINISHED 与迟到事件只允许并入一次，防双计。"""
 
 
 def _running_control(
@@ -943,6 +951,37 @@ class V4Mirror:
                     "endedAt": now_ms,
                 },
             )
+
+    def _bump_session_usage_state(self, tid: str, st: _MirrorState) -> None:
+        """把本轮累计 usage 并入会话级 usage_state，并发 usage state 增量。
+
+        基线 = 快照路径（``_build_session_usage``）写的 ``sess.usage_state``（DB
+        rollup 真值）；本进程还没建过快照就跳过，下个快照自带真值。usage 事件是
+        轮累计（非逐次增量），RUN_FINISHED 与迟到事件靠 ``usage_bumped`` 只并一次。
+        DB 累计由 transcript 落库路径（add_session_token_usage）另行维护，不在这里读库。
+        """
+        usage = st.turn_usage
+        if not usage or st.usage_bumped:
+            return
+        sess = self._hub.get_session(tid)
+        base = getattr(sess, "usage_state", None) if sess is not None else None
+        if not isinstance(base, dict) or not isinstance(base.get("cumulative"), dict):
+            return
+        cum = dict(base["cumulative"])
+
+        def _add(key: str, raw: str) -> None:
+            cum[key] = int(cum.get(key) or 0) + int(usage.get(raw) or 0)
+
+        _add("inputTokens", "input_tokens")
+        _add("outputTokens", "output_tokens")
+        _add("cacheReadTokens", "cache_read_tokens")
+        _add("cacheWriteTokens", "cache_creation_tokens")
+        _add("totalTokens", "total_tokens")
+        _add("cacheMissTokens", "cache_miss_tokens")
+        patched = {**base, "cumulative": cum}
+        sess.usage_state = patched
+        st.usage_bumped = True
+        self._hub.author_state_patch(tid, {"usage": patched})
 
     def _stamp_turn_usage(self, tid: str, st: _MirrorState) -> None:
         """把轮累计 usage 盖到最近一条 assistantText 行上（V4 轮尾动作行显示）。
@@ -1262,6 +1301,7 @@ class V4Mirror:
             st.turn_usage = None
             st.last_text_row_id = 0
             st.last_turn_success = False
+            st.usage_bumped = False
             rid = self._next_row_id(tid)
             st.turn_header_row_id = rid
             self._hub.author_append_row(
@@ -1556,7 +1596,17 @@ class V4Mirror:
                 wechat_brief = _wechat_summary(content)
                 if wechat_brief:
                     content = wechat_brief
-            tool_output: dict[str, Any] = {"text": content}
+            # 行内 output.text 只留预览（对齐旧链路 _UI_TOOL_OUTPUT_MAX=12000）：
+            # 视频生成等工具结果曾单条 10MB 进投影行，快照字节预算被压到 20 行
+            # （「前面轮次/最新用户消息看不到」实锤），也是 WebView2 OOM 主因。
+            # 全文不丢——工具卡展开走 /tool-results 按需拉取。
+            output_text = content
+            if len(output_text) > _TOOL_OUTPUT_ROW_PREVIEW_MAX:
+                output_text = (
+                    output_text[:_TOOL_OUTPUT_ROW_PREVIEW_MAX]
+                    + "\n…（已截断，完整内容点开工具卡查看）"
+                )
+            tool_output: dict[str, Any] = {"text": output_text}
             # platform_ui（绑渠道二维码等）：与 cua_display 同级上浮，供 V4 PlatformToolCallBlock 出码。
             platform_ui_block: dict[str, Any] | None = None
             raw_platform_ui = ev.get("platform_ui")
@@ -1782,6 +1832,9 @@ class V4Mirror:
             st.last_turn_success = et == "RUN_FINISHED"
             if et == "RUN_FINISHED" and produced_text:
                 self._stamp_turn_usage(tid, st)
+            # 会话总计：成功轮的用量并入 sess.usage_state 并发 usage 增量（面板总计条）。
+            if et == "RUN_FINISHED":
+                self._bump_session_usage_state(tid, st)
             # 重置：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return
@@ -1819,6 +1872,9 @@ class V4Mirror:
         st.turn_usage = triplet
         if not st.run_started and st.last_turn_success:
             self._stamp_turn_usage(tid, st)
+            # 早封路径：RUN_FINISHED 先到（当时 turn_usage 还是 None，没并入过）
+            # → 迟到的这份累计就是本轮终值，在此补并入会话总计（usage_bumped 防双计）。
+            self._bump_session_usage_state(tid, st)
 
     # -- task_*（subagent）事件 → subagent 行 ---------------------------------
     #

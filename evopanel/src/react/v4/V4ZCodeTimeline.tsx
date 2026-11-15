@@ -72,8 +72,14 @@ import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
 import { mergeOptimisticUserInputRow } from "./optimisticUserInput.js";
 import { V4QueuePanelBridge } from "./V4QueuePanelBridge.js";
 import { logV4Life } from "../lib/v4-lifecycle-log.js";
+import {
+  inspectConversationDisplayOrder,
+  repairConversationRowsOrder,
+  summarizeDisplayOrderReport,
+} from "../../zcode-ui/v4/conversationDisplayOrderHealth.js";
 import { logWorkflowProgress } from "../../lib/workflow-progress-debug-log.js";
 import {
+  childWorkStatusById as childWorkStatusMap,
   mergeWorkflowRunsWithChildWorks,
   projectActiveWorkflowChildWorks,
 } from "../../lib/childWorkWorkflowBridge.js";
@@ -1397,6 +1403,8 @@ export function V4ZCodeTimeline(props: {
     () => mergeOptimisticUserInputRow(authoritativeRows, optimisticUserText),
     [authoritativeRows, optimisticUserText],
   );
+  // 历史/直播统一：rowId/时间回退时按协议重排再渲染，避免「新消息上面却是旧结语」。
+  const displayRows = useMemo(() => repairConversationRowsOrder(rows).rows, [rows]);
   const optimisticRowInjected = rows.length > authoritativeRows.length;
   const displayTotalCount =
     (snapshot?.rows.totalCount ?? authoritativeRows.length) + (optimisticRowInjected ? 1 : 0);
@@ -1405,7 +1413,9 @@ export function V4ZCodeTimeline(props: {
   // 「用户输入跑到最新回复下面」类问题直接看这里：每行带窗口下标（0=窗口顶）。
   // optimistic 注入恒在尾部（mergeOptimisticUserInputRow append），若投影里当前轮
   // userInput 缺失/文案不匹配，就会出现「回复在上、输入在下」——digest 会直接显示。
+  // 另：display_order 明确打「最新用户距底几行」；刚发却看不见 → display_order_anomaly。
   const tailDigestSigRef = useRef("");
+  const displayOrderSigRef = useRef("");
   useEffect(() => {
     const sig = `${timelineSessionKey}|${displayTotalCount}|${optimisticRowInjected ? 1 : 0}`;
     if (tailDigestSigRef.current === sig) return;
@@ -1425,10 +1435,15 @@ export function V4ZCodeTimeline(props: {
     const tailText = tail
       .map((t) => `#${t.i} ${t.kind}${t.origin ? `/${t.origin}` : ""}${t.text ? `「${t.text}」` : ""}`)
       .join(" → ");
+    // displayRows = 权威窗 + 乐观气泡（必要时已按 rowId/时间重排）
+    const order = inspectConversationDisplayOrder(displayRows, {
+      expectedUserText: optimisticUserText,
+      turnLive: sessionBusy || optimisticRowInjected,
+    });
     logV4Life({
       event: "tail_digest",
       threadId: sessionId,
-      zh: `时间线尾部行序（窗口下标 0=顶）：${tailText}${optimisticRowInjected ? "；尾部另挂乐观 userInput" : ""}`,
+      zh: `时间线尾部行序（窗口下标 0=顶）：${tailText}${optimisticRowInjected ? "；尾部另挂乐观 userInput" : ""}；${summarizeDisplayOrderReport(order)}`,
       detail: {
         sessionKey: timelineSessionKey,
         authoritativeRows: n,
@@ -1436,10 +1451,71 @@ export function V4ZCodeTimeline(props: {
         optimisticInjected: optimisticRowInjected,
         optimisticText: String(optimisticUserText || "").slice(0, 24) || null,
         tail,
+        displayOrder: order,
+        repaired: displayRows !== rows,
       },
       skipDedupe: true,
     });
-  }, [timelineSessionKey, displayTotalCount, optimisticRowInjected, authoritativeRows, optimisticUserText, sessionId]);
+    if (!order.ok && displayOrderSigRef.current !== order.signature) {
+      displayOrderSigRef.current = order.signature;
+      logV4Life({
+        event: "display_order_anomaly",
+        level: "warn",
+        threadId: sessionId,
+        zh: summarizeDisplayOrderReport(order),
+        detail: {
+          sessionKey: timelineSessionKey,
+          findings: order.findings,
+          latestUser: order.latestUser,
+          windowRows: order.windowRows,
+          lastRowKind: order.lastRowKind,
+          lastRowTurnId: order.lastRowTurnId,
+          expectedUserText: String(optimisticUserText || "").slice(0, 48) || null,
+          repaired: displayRows !== rows,
+        },
+        skipDedupe: true,
+      });
+    }
+  }, [
+    timelineSessionKey,
+    displayTotalCount,
+    optimisticRowInjected,
+    authoritativeRows,
+    optimisticUserText,
+    sessionId,
+    rows,
+    displayRows,
+    sessionBusy,
+  ]);
+
+  // 快照自动补拉（对齐 ZCode SessionPane 冷快照自动补拉）：
+  // fresh subscribe / resync / recovery 后 rows.window 只有服务端尾窗（~60 行，
+  // 巨型工具行曾把字节预算压到 20 行）——「前面轮次 / 最新用户消息看不到」的主因。
+  // 触发：① 窗口首行所在轮缺 turnHeader（leading turn 被截断）；
+  //       ② 直播中（canStop）窗口里没有任何 realUser 行（被长回合挤出尾窗）。
+  // 有界：store.autoBackfillForRestore 逐页补拉，条件满足/到顶/页数上限即停。
+  const autoBackfillSigRef = useRef("");
+  useEffect(() => {
+    const snapshotRef = snapshot;
+    if (!snapshotRef || !sessionId) return;
+    if (payload?.loadingOlder) return;
+    if (!hasOlderRows(snapshotRef)) return;
+    const window = snapshotRef.rows.window;
+    if (!Array.isArray(window) || window.length === 0) return;
+    const leadingIncomplete = !window.some(
+      (r) => r.turnId === window[0]?.turnId && r.kind === "turnHeader",
+    );
+    const turnLive = snapshotRef.control?.canStop === true;
+    const hasRealUserInWindow = window.some(
+      (r) => r.kind === "userInput" && r.origin === "realUser",
+    );
+    const need = leadingIncomplete || (turnLive && !hasRealUserInWindow);
+    if (!need) return;
+    const sig = `${sessionId}|${window[0]?.rowId ?? 0}`;
+    if (autoBackfillSigRef.current === sig) return;
+    autoBackfillSigRef.current = sig;
+    void Promise.resolve(payload?.onAutoBackfill?.()).catch(() => {});
+  }, [snapshot, sessionId, payload?.loadingOlder, payload?.onAutoBackfill]);
 
   type PendingApprovalItem = {
     toolCallId: string;
@@ -1905,13 +1981,18 @@ export function V4ZCodeTimeline(props: {
 
   // collab→workflowRuns 投影：与 ZCode SessionPane 同款 join；并入 active childWorks，
   // 避免「图标已亮、snapshot.workflowRuns 仍空 → 对话无卡」。
+  const childWorkStatusById = useMemo(
+    () => childWorkStatusMap(sessionChildWorks),
+    [sessionChildWorks],
+  );
   const workflowRunsLive = useMemo(
     () =>
       mergeWorkflowRunsWithChildWorks(
         snapshot?.workflowRuns?.runs,
         childWorkWorkflowProjections,
+        childWorkStatusById,
       ),
-    [childWorkWorkflowProjections, snapshot?.workflowRuns?.runs],
+    [childWorkWorkflowProjections, childWorkStatusById, snapshot?.workflowRuns?.runs],
   );
   // childWorks 熄灭后 live 投影会丢掉仅靠 bridge 活着的 run → 尾轮卡随对话结束消失。
   // 会话内保留见过的 run，join / sticky 摘要才能在结束后继续画。
@@ -2260,7 +2341,7 @@ export function V4ZCodeTimeline(props: {
               </div>
             ) : null}
             <ConversationTimeline
-              rows={rows}
+              rows={displayRows}
               totalCount={displayTotalCount}
               // 嵌入态用 evoflowSessionKey，避免 threadId 晚到时 sessionKey 从 draft→uuid 整树 remount
               sessionKey={timelineSessionKey}

@@ -162,35 +162,34 @@ export function buildConversationTurnWorkSegments(options: {
     const segmentAssistantRows = segment.orderedRows.filter(isAssistantWorkRow);
     const segmentTailRows = segmentAssistantRows.filter((row) => tailRowIds.has(row.rowId));
     const segmentFlowRows = segmentAssistantRows.filter((row) => !tailRowIds.has(row.rowId));
-    const lastSegmentFlowRow = segmentFlowRows.at(-1);
-    const segmentCompleted = segmentIndex < visualDrafts.length - 1 || !options.isRunning;
-    const productLatestAssistantTextRow = options.latestAssistantTextRow
-      ? segmentFlowRows.find((row) => row.rowId === options.latestAssistantTextRow?.rowId)
-      : undefined;
-    const visibleAssistantTextRow =
-      productLatestAssistantTextRow && isAssistantTextRow(productLatestAssistantTextRow)
-        ? productLatestAssistantTextRow
-        : segmentCompleted && lastSegmentFlowRow && isAssistantTextRow(lastSegmentFlowRow)
-          ? lastSegmentFlowRow
-          : undefined;
+    const segmentRunning = segmentIndex === visualDrafts.length - 1 && options.isRunning;
+    // ZCode 语义：每个 visual segment 只把「当前段末正文」留在折叠外；
+    // 更早的 complete 正文进「已工作」历史。以前用 turn 级 latest（canFork 锚点）
+    // 或 running 全量 interleave，会把中间答复+usage 永久摊在外面，看起来像
+    // 多段「已工作」叠罗汉。
+    const segmentTextRows = segmentFlowRows.filter(isAssistantTextRow);
+    const lastSegmentText = segmentTextRows.at(-1);
+    const streamingSegmentText = [...segmentTextRows]
+      .reverse()
+      .find((row) => row.state === "streaming");
+    // 折叠外正文：结束态只留段末；运行中跟当前流式（没有流式则段末）。
+    // 运行中若强行要求「流式==段末」，长工具轮里先流出的 complete 会被提前
+    // 折进 history，配合 stick-to-bottom 看起来像「回复闪一下没了」。
+    const visibleAssistantTextRow = options.timelineOnly
+      ? undefined
+      : segmentRunning
+        ? (streamingSegmentText ?? lastSegmentText)
+        : lastSegmentText;
     const visibleAssistantIndex = visibleAssistantTextRow
       ? segmentFlowRows.findIndex((row) => row.rowId === visibleAssistantTextRow.rowId)
       : -1;
-    // 运行中且尚未选出「最终正文」时：不要把 assistantText 塞进 history 工具链。
-    // 否则 TEXT_MESSAGE_START 的空行不占位，界面先连环铺工具，等 CONTENT 晚到才
-    // 在工具中间「突然冒出」正文。把正文提成独立 flow 项后，流式字一到就落在工具之间。
-    const runningInterleaveAssistantText =
-      options.isRunning && !options.timelineOnly && visibleAssistantIndex < 0;
     const segmentHistoryRows = options.timelineOnly
       ? []
       : visibleAssistantIndex < 0
-        ? runningInterleaveAssistantText
-          ? segmentFlowRows.filter((row) => !isAssistantTextRow(row))
-          : segmentFlowRows
+        ? segmentFlowRows
         : segmentFlowRows.slice(0, visibleAssistantIndex);
     const segmentFollowingRows =
       visibleAssistantIndex < 0 ? [] : segmentFlowRows.slice(visibleAssistantIndex + 1);
-    const segmentRunning = segmentIndex === visualDrafts.length - 1 && options.isRunning;
     const segmentUserStartedAt = segment.orderedRows.find(isUserInputRow)?.createdAt;
     const segmentDurationMs = resolveSegmentDurationMs({
       header: options.header,

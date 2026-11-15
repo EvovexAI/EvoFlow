@@ -6,7 +6,7 @@ import type { Dispatch, MutableRefObject, SetStateAction } from 'react'
 import { toast } from '../../../components/toast.js'
 import { showConfirm } from '../../../components/modal.js'
 import { toUserFacingError } from '../../../lib/user-facing-error.js'
-import { SESSION_LIST_PAGE_SIZE } from '../../lib/session-list/constants.js'
+import { sessionListPageSizeForWorkspace } from '../../lib/session-list/constants.js'
 import {
   loadExpandedWorkspaceKeys,
   saveExpandedWorkspaceKeys,
@@ -109,15 +109,16 @@ export async function handleDeleteWorkspaceGroup(
     }
 
     let offset = 0
+    const pageSize = sessionListPageSizeForWorkspace(workspaceKey)
     for (;;) {
-      const data = await api.chatSessionsList(SESSION_LIST_PAGE_SIZE, offset, workspaceKey)
+      const data = await api.chatSessionsList(pageSize, offset, workspaceKey)
       const apiRows = (data?.sessions || []) as ChatSessionRow[]
       for (const s of stripDefaultMainSessionRows(apiRows)) {
         if (!sessionBelongsToWorkspace(s, workspaceKey)) continue
         const k = String(s.sessionKey || '').trim()
         if (k) keySet.add(k)
       }
-      if (apiRows.length < SESSION_LIST_PAGE_SIZE) break
+      if (apiRows.length < pageSize) break
       offset += apiRows.length
     }
 

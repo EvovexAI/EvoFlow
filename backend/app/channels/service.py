@@ -437,6 +437,10 @@ class ChannelService:
             return ""
         if platform == "feishu":
             return str(acc.get("app_id") or acc.get("bot_id") or "").strip()
+        if platform == "weixin":
+            # weixin slots are keyed by the iLink account_id; both spellings occur
+            # (table rows use bot_id, legacy JSON uses account_id).
+            return str(acc.get("bot_id") or acc.get("account_id") or "").strip()
         return str(acc.get("bot_id") or acc.get("app_id") or "").strip()
 
     @staticmethod
@@ -445,6 +449,8 @@ class ChannelService:
             return ""
         if platform == "feishu":
             return str(acc.get("app_secret") or acc.get("secret") or "").strip()
+        if platform == "weixin":
+            return str(acc.get("token") or acc.get("bot_token") or acc.get("secret") or "").strip()
         return str(acc.get("secret") or acc.get("app_secret") or "").strip()
 
     def _dedupe_accounts_by_bot_id(
@@ -521,6 +527,44 @@ class ChannelService:
             # live bots if the proactive DB is momentarily unavailable.
             return True
 
+    def _absorb_weixin_flat_account(self, config: dict[str, Any]) -> None:
+        """One-time migration: weixin flat credentials → ``evoflow_bot_bindings`` row.
+
+        Pre-multi-account installs stored the single binding as flat keys
+        (``account_id`` / ``token`` / ``base_url``) at ``channels.weixin`` top
+        level. Absorb them as the first account (empty ``agent_code`` = 主智能体,
+        preserving the existing routing). Idempotent: skipped when the bot_id
+        already has a binding row.
+        """
+        try:
+            if not isinstance(config, dict):
+                return
+            bid = str(config.get("account_id") or "").strip()
+            token = str(config.get("token") or config.get("bot_token") or "").strip()
+            if not bid or not token:
+                return
+            from evoflow.persistence.config_repositories import get_bot_binding, upsert_bot_binding
+
+            if get_bot_binding("weixin", bid) is not None:
+                return
+            base_url = str(config.get("base_url") or "").strip()
+            upsert_bot_binding(
+                platform="weixin",
+                bot_id=bid,
+                agent_code="",
+                bot_secret=token,
+                workspace_root="",
+                session_config=({"base_url": base_url} if base_url else {}),
+                enabled=True,
+                bound_at="",
+            )
+            logger.info(
+                "[ChannelService] weixin: absorbed legacy flat binding account=%s into evoflow_bot_bindings",
+                bid,
+            )
+        except Exception:
+            logger.exception("[ChannelService] weixin: failed to absorb legacy flat binding")
+
     def _migrate_legacy_accounts_to_table(self, platform: str, legacy_accounts: dict[str, Any]) -> None:
         """One-time migration: copy legacy JSON accounts → evoflow_bot_bindings table.
 
@@ -547,6 +591,10 @@ class ChannelService:
                 if not isinstance(acc, dict):
                     continue
                 code = str(agent_code or "").strip()
+                if platform == "weixin":
+                    # weixin accounts are keyed by iLink account_id; the employee
+                    # code (may be empty = 主智能体) rides inside the entry.
+                    code = str(acc.get("agent_code") or "").strip()
                 bid = self._account_bot_id(platform, acc)
                 secret = self._account_bot_secret(platform, acc)
                 if not bid or bid in existing_bot_ids:
@@ -623,6 +671,15 @@ class ChannelService:
         if name in PER_EMPLOYEE_ACCOUNT_CHANNELS:
             from evoflow.persistence.config_repositories import list_bot_bindings
 
+            if name == "weixin":
+                # weixin stores its legacy single binding as flat keys
+                # (account_id/token/base_url) at the channel top level. Absorb it
+                # as the first account so the generic table path starts one
+                # ``weixin:<account_id>`` instance. There is deliberately NO
+                # separate primary instance for weixin — every iLink bot has a
+                # non-empty account_id, and starting both would double-poll the
+                # same token.
+                self._absorb_weixin_flat_account(config)
             table_bindings = list_bot_bindings(name)
             seen_codes: set[str] = set()
             seen_bot_ids: set[str] = set()
@@ -630,14 +687,28 @@ class ChannelService:
                 for row in table_bindings:
                     code = str(row.get("agent_code") or "").strip()
                     bid = str(row.get("bot_id") or "").strip()
-                    accounts.append((code, {
-                        "bot_id": row["bot_id"],
-                        "secret": row["bot_secret"],
-                        "app_id": row["bot_id"] if name == "feishu" else "",
-                        "app_secret": row["bot_secret"] if name == "feishu" else "",
-                        "enabled": row["enabled"],
-                        "session": row.get("session_config") or {},
-                    }))
+                    if name == "weixin":
+                        # Slot key = iLink account_id: many rows may share the
+                        # empty agent_code (= 主智能体), so agent_code cannot be
+                        # the slot key here (unlike feishu/wecom).
+                        accounts.append((bid, {
+                            "bot_id": row["bot_id"],
+                            "account_id": row["bot_id"],
+                            "token": row["bot_secret"],
+                            "base_url": str((row.get("session_config") or {}).get("base_url") or ""),
+                            "agent_code": code,
+                            "enabled": row["enabled"],
+                            "session": row.get("session_config") or {},
+                        }))
+                    else:
+                        accounts.append((code, {
+                            "bot_id": row["bot_id"],
+                            "secret": row["bot_secret"],
+                            "app_id": row["bot_id"] if name == "feishu" else "",
+                            "app_secret": row["bot_secret"] if name == "feishu" else "",
+                            "enabled": row["enabled"],
+                            "session": row.get("session_config") or {},
+                        }))
                     if code:
                         seen_codes.add(code)
                     if bid:
@@ -657,7 +728,9 @@ class ChannelService:
                         continue
                     # Drop JSON slots for employees that no longer exist so
                     # restart cannot rehydrate zombies into bot_bindings.
-                    if not self._employee_role_exists(aid_str):
+                    # weixin slots are iLink account ids, not employee codes —
+                    # the role-exists check would scrub every live binding.
+                    if name != "weixin" and not self._employee_role_exists(aid_str):
                         scrubbed_accounts.pop(aid_str, None)
                         dropped_orphan += 1
                         continue
@@ -703,13 +776,31 @@ class ChannelService:
             # QR bind left stale JSON / table rows) would load-balance events across
             # employees and look like 串台 with empty bot_id in ops.
             accounts = self._dedupe_accounts_by_bot_id(name, accounts)
-            # Also start the primary bot if it has credentials.
-            if _channel_has_primary_credentials(name, config):
+            # Also start the primary bot if it has credentials. weixin never starts
+            # a primary instance (its flat credentials were absorbed into the
+            # account list above); only if absorption produced nothing do we fall
+            # back to the legacy single-instance start.
+            if _channel_has_primary_credentials(name, config) and (name != "weixin" or not accounts):
                 await self._start_channel_instance(name, channel_cls, config, account_id="", instance_key=name)
+            # An account claiming the channel-wide primary bot's own id must not
+            # start a second instance on the same token (double long-poll / WS).
+            # weixin is exempt: it has no primary instance — its flat legacy
+            # keys describe the SAME account that was absorbed into ``accounts``.
+            primary_bid = "" if name == "weixin" else self._account_bot_id(name, config)
             for aid, acc_cfg in accounts:
                 merged_cfg = _merge_account_config(name, config, acc_cfg)
-                if not _channel_has_primary_credentials(name, merged_cfg):
+                acc_bid = self._account_bot_id(name, acc_cfg)
+                # An account entry without its OWN bot id must never inherit the
+                # channel-wide credentials: it would start a second instance on
+                # the primary bot's token (double long-poll / double WS).
+                if not _channel_has_primary_credentials(name, merged_cfg) or not acc_bid:
                     logger.warning("Account %s on channel %s has missing credentials, skipping", aid, name)
+                    continue
+                if primary_bid and acc_bid == primary_bid:
+                    logger.warning(
+                        "Account %s on channel %s shares the primary bot id (%s), skipping",
+                        aid, name, primary_bid,
+                    )
                     continue
                 await self._start_channel_instance(name, channel_cls, merged_cfg, account_id=aid, instance_key=f"{name}:{aid}")
             return True
@@ -730,7 +821,10 @@ class ChannelService:
             # Start one instance per account.
             for aid, acc_cfg in accounts:
                 merged_cfg = _merge_account_config(name, config, acc_cfg)
-                if not _channel_has_primary_credentials(name, merged_cfg):
+                # Same own-bot-id guard as the per-employee branch above — an
+                # account entry without its own bot id must not inherit the
+                # channel-wide credentials (double instance on one token).
+                if not _channel_has_primary_credentials(name, merged_cfg) or not self._account_bot_id(name, acc_cfg):
                     logger.warning("Account %s on channel %s has missing credentials, skipping", aid, name)
                     continue
                 await self._start_channel_instance(name, channel_cls, merged_cfg, account_id=aid, instance_key=f"{name}:{aid}")

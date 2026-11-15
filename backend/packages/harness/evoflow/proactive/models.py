@@ -265,6 +265,14 @@ class ProactiveRoleConfig:
     wecom_bound_at: str = ""
     wecom_intro_sent_at: str = ""
 
+    # ── Per-employee Weixin (personal WeChat, iLink bot) binding (QR scan) ──
+    # Multi-account: account_id = iLink bot id; the binding row lives in
+    # evoflow_bot_bindings and weixin channel slots are keyed by account_id
+    # (many 主智能体 bindings share the empty agent_code). Synced to
+    # channels.weixin.accounts via :mod:`evoflow.proactive.weixin_binding`.
+    weixin_account_id: str = ""
+    weixin_bound_at: str = ""
+
     # ── Memory gate (canonical) ──────────────────────────────────
     # When True (default): inject ``<memory_assets>`` + bind ``assets`` tool for duty
     # and as the default for employee chat sessions (session column may override).

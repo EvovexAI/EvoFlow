@@ -650,6 +650,11 @@ class WecomChannel(Channel):
             account_id=self._account_id,
             metadata={
                 "chat_type": "group" if is_group else "dm",
+                # Mirror the top-level account_id into metadata (same contract as
+                # ``Channel._make_inbound``): diag logs and the tail of
+                # wecom-diag.log must tell which bot received the callback even
+                # when only the metadata dict is carried downstream.
+                "account_id": self._account_id,
                 # manager calls ``release_owned_temp_paths`` after the agent
                 # finishes so the file is alive when ContextFilesMiddleware
                 # reads it.  Without this, ``_cleanup_temp_paths`` would

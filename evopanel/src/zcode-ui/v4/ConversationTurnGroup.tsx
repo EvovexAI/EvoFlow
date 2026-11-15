@@ -970,6 +970,7 @@ function ConversationWorkSegmentFlow({
   canRetryLatestAssistant,
   shareSelectionToggle,
   shareSelectionRowId,
+  pinLiveUserInput,
 }: {
   segment: ConversationTurnWorkSegment;
   context: ConversationRowRenderContext;
@@ -986,6 +987,8 @@ function ConversationWorkSegmentFlow({
   canRetryLatestAssistant: boolean;
   shareSelectionToggle?: ReactNode;
   shareSelectionRowId?: number;
+  /** 末轮 running：user气泡 sticky，避免 stick-to-bottom 把用户消息滚出视口。 */
+  pinLiveUserInput?: boolean;
 }) {
   const [historyOpen, setHistoryOpen] = useState(segment.assistantHistoryDefaultOpen);
   useEffect(() => {
@@ -998,6 +1001,16 @@ function ConversationWorkSegmentFlow({
   );
   let historyChunkIndex = 0;
   const open = segment.assistantHistoryDefaultOpen ? true : historyOpen;
+  // 只钉本段最后一条 userInput（刚发的那句）；更早的 steer 仍正常滚走。
+  let lastUserInputIndex = -1;
+  if (pinLiveUserInput) {
+    for (let i = segment.flowItems.length - 1; i >= 0; i -= 1) {
+      if (segment.flowItems[i]?.kind === "userInput") {
+        lastUserInputIndex = i;
+        break;
+      }
+    }
+  }
 
   return (
     <Collapsible
@@ -1029,7 +1042,7 @@ function ConversationWorkSegmentFlow({
               editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
             />
           );
-          content =
+          const rowBody =
             shareSelectionToggle && item.row.rowId === shareSelectionRowId ? (
               <div className="relative">
                 {shareSelectionToggle}
@@ -1037,6 +1050,20 @@ function ConversationWorkSegmentFlow({
               </div>
             ) : (
               userRow
+            );
+          // 直播末轮 stick-to-bottom 会跟着工具卡往下滚，用户气泡被顶出视口——
+          // sticky 只钉气泡本身：不要全宽磨砂底/padding，否则一行字也会拖出
+          // 三四行高的半透明条，像多了一块阴影悬浮层。
+          content =
+            pinLiveUserInput && index === lastUserInputIndex ? (
+              <div
+                data-v4-live-user-input-pin="true"
+                className="sticky top-0 z-[11] flex w-full justify-end bg-transparent"
+              >
+                {rowBody}
+              </div>
+            ) : (
+              rowBody
             );
         } else if (item.kind === "cuaGroup") {
           const group = <ConversationCuaGroupRow item={item} context={context} />;
@@ -1141,6 +1168,7 @@ function ConversationTurnFlow({
   shareSelectionToggle?: ReactNode;
   shareSelectionRowId?: number;
 }) {
+  const pinLiveUserInput = unit.isLastTurn && unit.isRunning;
   // 产品语义：可见正文或工具不代表主轮已经结束；ChatLoading 跟随最后一轮
   // running 生命周期，但等待用户回答/授权时由交互 UI 独占进度反馈。
   const showLoading = shouldShowTurnChatLoading({
@@ -1219,9 +1247,10 @@ function ConversationTurnFlow({
 
   // 即使恢复了 guide 的 row 全序，也不能让所有 history chunk 共享同一个
   // Collapsible。accepted guide 现在由 CLI workSegments 定界，每段组件自行维护折叠状态。
+  const lastSegmentIndex = workSegments.length - 1;
   return (
     <div className="flex flex-col gap-5">
-      {workSegments.map((segment) => (
+      {workSegments.map((segment, segmentIndex) => (
         <ConversationWorkSegmentFlow
           key={segment.key}
           segment={segment}
@@ -1239,6 +1268,7 @@ function ConversationTurnFlow({
           canRetryLatestAssistant={canRetryLatestAssistant}
           shareSelectionToggle={shareSelectionToggle}
           shareSelectionRowId={shareSelectionRowId}
+          pinLiveUserInput={pinLiveUserInput && segmentIndex === lastSegmentIndex}
         />
       ))}
       <TurnChatLoadingSlot apiRetry={apiRetry} eligible={showLoading} />

@@ -394,6 +394,8 @@ export function ShellSessionList({
   /** 部门下拉内的模糊搜索词 */
   const [deptMenuQuery, setDeptMenuQuery] = useState('')
   const [dutyFoldOpen, setDutyFoldOpen] = useState(false)
+  /** 分组模式下：按员工展开「更早值班」；扁平/单人筛选仍用 dutyFoldOpen */
+  const [dutyFoldOpenKeys, setDutyFoldOpenKeys] = useState<Set<string>>(() => new Set())
   const [pinnedWorkspaceKeys, setPinnedWorkspaceKeys] = useState<string[]>(() =>
     loadPinnedWorkspaceKeys(),
   )
@@ -1410,6 +1412,7 @@ export function ShellSessionList({
     setEmpMenuQuery('')
     setEmpMenuOpen(false)
     setDutyFoldOpen(false)
+    setDutyFoldOpenKeys(new Set())
   }, [])
 
   const employeeDutySplit = useMemo(() => {
@@ -1424,6 +1427,21 @@ export function ShellSessionList({
     : recentRows
   const foldedDutyRows = employeeDutySplit.folded
   const showDutyFold = isEmployeesTab && !isSearching && foldedDutyRows.length > 0
+
+  /** 分组树内按员工挂「更早值班」，避免整表底部一条「还有 N 条」对不上名字 */
+  const foldedDutyByEmployee = useMemo(() => {
+    const map = new Map<string, ShellSidebarSyncRow[]>()
+    for (const row of foldedDutyRows) {
+      const code = normalizeEmployeeCodeKey(
+        employeeOwnerCodeFromSession(row) || proactiveAgentCodeFromSessionKey(row.sessionKey),
+      )
+      if (!code) continue
+      const list = map.get(code) || []
+      list.push(row)
+      map.set(code, list)
+    }
+    return map
+  }, [foldedDutyRows])
 
   // 工作区分组树（对齐 ZCode WorkspaceSidebar）：多工作区时 recent 列表按组折叠显示，
   // 组头 = 图标 + 组名（员工 tab 用头像 + 员工名）+ 会话数；单组/聚焦组不折叠（保持原行为）。
@@ -1475,6 +1493,23 @@ export function ShellSessionList({
     isSearching,
     employeeGroupOrder,
   ])
+
+  const loadMoreWorkspaceKey = isEmployeesTab
+    ? WORKSPACE_GROUP_PROACTIVE
+    : focusedWorkspaceKey
+      ? focusedGroup?.workspaceKey || focusedWorkspaceKey
+      : '__global__'
+
+  const toggleEmployeeDutyFold = useCallback((employeeKey: string) => {
+    const key = normalizeEmployeeCodeKey(employeeKey)
+    if (!key) return
+    setDutyFoldOpenKeys((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }, [])
 
   /** 只有「空工作区分组」需要展示（尚无任何会话）——此时不能走「暂无会话」空态 */
   const showEmptyWorkspaceSections = !!groupedRecentSections && recentVisibleRows.length === 0
@@ -1565,6 +1600,16 @@ export function ShellSessionList({
     : focusedWorkspaceKey
       ? !!focusedGroup?.loadingSessions
       : globalLoading
+
+  /**
+   * BOT Tab：有更多 `__proactive__` 页时主动翻页（不靠滚动）。
+   * 多人成组后列表往往不够高、sentinel 进不了视口；若不翻页，每人只剩首页那一条。
+   */
+  useEffect(() => {
+    if (!isEmployeesTab) return
+    if (!flatHasMore || flatLoading) return
+    triggerLoadMore(WORKSPACE_GROUP_PROACTIVE)
+  }, [isEmployeesTab, flatHasMore, flatLoading, triggerLoadMore])
 
   /** 工作区 / BOT 分组头拖拽换序。
    *  与置顶行拖拽同款 pointer 拖拽：按下移动 >5px 视为拖拽，落到目标组头换序；
@@ -2253,6 +2298,27 @@ export function ShellSessionList({
                             <span className='react-chat-session-ws-group-label min-w-0 flex-1 truncate'>
                               {section.label}
                             </span>
+                            {(() => {
+                              const foldedN =
+                                isEmployeesTab
+                                  ? foldedDutyByEmployee.get(normalizeEmployeeCodeKey(section.key))
+                                      ?.length || 0
+                                  : 0
+                              const totalN = section.rows.length + foldedN
+                              if (totalN <= 0) return null
+                              return (
+                                <span
+                                  className="react-chat-session-ws-group-count"
+                                  title={
+                                    foldedN > 0
+                                      ? `${section.rows.length} 条可见 · ${foldedN} 条更早值班`
+                                      : `${totalN} 条对话`
+                                  }
+                                >
+                                  {totalN}
+                                </span>
+                              )
+                            })()}
                             <span className='hidden shrink-0 items-center gap-1 group-hover/ws:flex'>
                               {isEmployeesTab ? (
                                 <>
@@ -2383,64 +2449,106 @@ export function ShellSessionList({
                                     暂无会话
                                   </li>
                                 )}
+                                {(() => {
+                                  if (!isEmployeesTab) return null
+                                  const empKey = normalizeEmployeeCodeKey(section.key)
+                                  const folded = foldedDutyByEmployee.get(empKey) || []
+                                  if (!folded.length) return null
+                                  const open = dutyFoldOpenKeys.has(empKey)
+                                  return (
+                                    <>
+                                      <li className="react-chat-session-duty-fold" key={`duty-fold-${empKey}`}>
+                                        <button
+                                          type="button"
+                                          className={`react-chat-session-duty-fold-btn${open ? ' is-open' : ''}`}
+                                          aria-expanded={open}
+                                          onClick={() => toggleEmployeeDutyFold(empKey)}
+                                        >
+                                          <ShellChevronIcon
+                                            size={12}
+                                            className={`react-chat-session-duty-fold-chevron${open ? ' is-open' : ''}`}
+                                          />
+                                          <span>
+                                            {open
+                                              ? '收起更早的值班记录'
+                                              : `值班记录 · 还有 ${folded.length} 条`}
+                                          </span>
+                                        </button>
+                                      </li>
+                                      {open
+                                        ? folded.map((row) => (
+                                            <Fragment key={`duty-${row.sessionKey}`}>
+                                              {renderSessionRow(row)}
+                                            </Fragment>
+                                          ))
+                                        : null}
+                                    </>
+                                  )
+                                })()}
                               </ul>
                             ) : null}
                         </li>
                       )
                     })
-                  : [
-                        recentVisibleRows.map((row) => renderSessionRow(row)),
-                        showDutyFold ? (
-                          <li className="react-chat-session-duty-fold" key="duty-fold">
-                            <button
-                              type="button"
-                              className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
-                              aria-expanded={dutyFoldOpen}
-                              onClick={() => setDutyFoldOpen((v) => !v)}
-                            >
-                              <ShellChevronIcon
-                                size={12}
-                                className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
-                              />
-                              <span>
-                                {dutyFoldOpen
-                                  ? '收起更早的值班记录'
-                                  : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
-                              </span>
-                            </button>
-                          </li>
-                        ) : null,
-                        showDutyFold && dutyFoldOpen
-                          ? foldedDutyRows.map((row) => (
-                              <Fragment key={`duty-${row.sessionKey}`}>
-                                {renderSessionRow(row)}
-                              </Fragment>
-                            ))
-                          : null,
-                        flatLoading && !flatHasMore ? (
-                          <li className="react-chat-muted react-chat-session-workspace-loading" key="loading">
-                            加载中…
-                          </li>
-                        ) : null,
-                        flatHasMore ? (
-                          <li
-                            className="react-chat-session-workspace-load-more-sentinel"
-                            key="load-more"
-                            data-load-more-sentinel=""
-                            data-workspace-key={
-                              isEmployeesTab
-                                ? WORKSPACE_GROUP_PROACTIVE
-                                : focusedWorkspaceKey
-                                  ? focusedGroup?.workspaceKey || focusedWorkspaceKey
-                                  : '__global__'
-                            }
-                          >
-                            {flatLoading ? (
-                              <span className="react-chat-session-workspace-load-spinner" />
-                            ) : null}
-                          </li>
-                        ) : null,
-                      ]}
+                  : recentVisibleRows.map((row) => renderSessionRow(row))}
+                {/* 扁平/单人筛选：值班折叠挂在列表底部（分组模式已按员工挂在组内） */}
+                {!groupedRecentSections && showDutyFold ? (
+                  <li className="react-chat-session-duty-fold" key="duty-fold">
+                    <button
+                      type="button"
+                      className={`react-chat-session-duty-fold-btn${dutyFoldOpen ? ' is-open' : ''}`}
+                      aria-expanded={dutyFoldOpen}
+                      onClick={() => setDutyFoldOpen((v) => !v)}
+                    >
+                      <ShellChevronIcon
+                        size={12}
+                        className={`react-chat-session-duty-fold-chevron${dutyFoldOpen ? ' is-open' : ''}`}
+                      />
+                      <span>
+                        {dutyFoldOpen
+                          ? '收起更早的值班记录'
+                          : `值班记录 · 还有 ${foldedDutyRows.length} 条`}
+                      </span>
+                    </button>
+                  </li>
+                ) : null}
+                {!groupedRecentSections && showDutyFold && dutyFoldOpen
+                  ? foldedDutyRows.map((row) => (
+                      <Fragment key={`duty-${row.sessionKey}`}>
+                        {renderSessionRow(row)}
+                      </Fragment>
+                    ))
+                  : null}
+                {flatLoading && !flatHasMore ? (
+                  <li className="react-chat-muted react-chat-session-workspace-loading" key="loading">
+                    加载中…
+                  </li>
+                ) : null}
+                {/* 可见「加载更多」：改造后曾只留 height:0 sentinel，分组树里还一度没挂 → 用户看不到入口 */}
+                {flatHasMore ? (
+                  <li
+                    className="react-chat-session-workspace-load-more"
+                    key="load-more"
+                    data-load-more-sentinel=""
+                    data-workspace-key={loadMoreWorkspaceKey}
+                  >
+                    <button
+                      type="button"
+                      className="react-chat-session-workspace-load-more-btn"
+                      disabled={flatLoading}
+                      onClick={() => triggerLoadMore(loadMoreWorkspaceKey)}
+                    >
+                      {flatLoading ? (
+                        <>
+                          <span className="react-chat-session-workspace-load-spinner" />
+                          <span>加载中…</span>
+                        </>
+                      ) : (
+                        <span>加载更多对话</span>
+                      )}
+                    </button>
+                  </li>
+                ) : null}
               </ul>
             </li>
           ) : null}

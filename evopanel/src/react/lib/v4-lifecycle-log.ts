@@ -8,6 +8,8 @@
  * 3. 若 stream-compare 开着：同会话 `…/pending/v4-recv.log`（或当前 active run）
  * 4. 环形缓冲：`window.__evoflowV4Life` / localStorage `EVOFLOW_V4_LIFE_RING`
  *
+ * 「已工作」折叠乱套：过滤 `fold_anomaly`（见 conversationTurnFoldHealth）。
+ *
  * 关闭：localStorage.setItem('EVOFLOW_V4_LIFE_LOG', '0')
  *
  * 日志行优先带中文 `zh` 字段；打开链路还会带 `sinceClickMs`（距侧栏点击的毫秒），
@@ -44,6 +46,9 @@ export type V4LifeEvent =
   | 'connecting_stuck'
   | 'wire_parse_failed'
   | 'dispatch_failed'
+  | 'tail_digest'
+  | 'fold_anomaly'
+  | 'display_order_anomaly'
 
 /** 一次「点开历史」的计时锚点（下一次点击会覆盖）。 */
 type V4OpenTrace = {

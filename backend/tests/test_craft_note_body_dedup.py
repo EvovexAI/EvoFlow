@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import re
+
 from evoflow.assets.craft import _sections_from_body, experience_to_skill_body
 
 
@@ -19,8 +21,14 @@ def _h1_count(body: str) -> int:
 
 
 def test_duplicate_h1_matching_title_is_dropped() -> None:
-    """正文首行与标题同文 → 去掉那一行，只留一个 H1。"""
-    body = experience_to_skill_body({"title": "ci-local 门禁配方", "solution": "# ci-local 门禁配方\n\n**起因**：本机无 make。\n"})
+    """正文首行与标题同文 → 去掉那一行，只留一个 H1。
+
+    【fullstack-dev · 2026-11-15 · 第14轮】改：入参从 solution 换成 body_md。
+    为什么：驳回意见方向①「限定 verbatim 入口只对 note 路径生效（hub 显式传 body_md 而非复用
+    solution 字段）」——去重逻辑只活在 verbatim 通道里，测试契约必须跟着走同一条通道，
+    否则测的是已删除的旧兜底路径。
+    """
+    body = experience_to_skill_body({"title": "ci-local 门禁配方", "body_md": "# ci-local 门禁配方\n\n**起因**：本机无 make。\n"})
     assert _h1_count(body) == 1, body
     assert "**起因**：本机无 make。" in body
 
@@ -32,8 +40,12 @@ def test_different_leading_heading_is_preserved() -> None:
 
 
 def test_solution_section_still_extracts_for_list_preview() -> None:
-    """读侧依赖：去重后 ``## 解决方案`` 仍取得到内容（否则 craft 列表/详情预览会变空）。"""
-    body = experience_to_skill_body({"title": "配方", "solution": "# 配方\n\n步骤一\n"})
+    """读侧依赖：去重后 ``## 解决方案`` 仍取得到内容（否则 craft 列表/详情预览会变空）。
+
+    【fullstack-dev · 2026-11-15 · 第14轮】改：入参换 body_md——verbatim 入口收窄后，
+    note 形态调用一律走 body_md（hub.save_craft_note 已接线），本用例钉的是同一条通道。
+    """
+    body = experience_to_skill_body({"title": "配方", "body_md": "# 配方\n\n步骤一\n"})
     sections = _sections_from_body(body)
     assert sections["solution"].strip() == "步骤一", sections
 
@@ -46,7 +58,7 @@ def test_slug_punctuation_variant_is_dropped() -> None:
     body = experience_to_skill_body(
         {
             "title": "会话通知面板-状态中文化与压缩",
-            "solution": "# 会话通知面板：状态中文化 + 压缩\n\n记录时间：2026-11-06\n",
+            "body_md": "# 会话通知面板：状态中文化 + 压缩\n\n记录时间：2026-11-06\n",
         }
     )
     assert _h1_count(body) == 1, body
@@ -58,7 +70,7 @@ def test_truncated_title_prefix_is_dropped() -> None:
 
     long_heading = "ci-local 门禁：本机可用命令与档位（2026-11-15 实测：quick 与全量两档的差别与坑位说明）"
     body = experience_to_skill_body(
-        {"title": long_heading[:60], "solution": f"# {long_heading}\n\n正文\n"}
+        {"title": long_heading[:60], "body_md": f"# {long_heading}\n\n正文\n"}
     )
     assert _h1_count(body) == 1, body
     assert long_heading in body  # 截断前的完整措辞仍以正文形式保留
@@ -91,3 +103,32 @@ def test_structured_caller_unchanged() -> None:
     for marker in ("## 问题", "## 解决方案", "## 结果"):
         assert marker in body, body
     assert "# 配方" in body and _h1_count(body) == 1
+
+# ── 第13轮补：H2 起笔的正文（现网探针实测到的残留面）──────────────────────
+
+
+def _any_heading_count(body: str) -> int:
+    return sum(1 for line in body.splitlines() if re.match(r"^#{1,6}\s", line))
+
+
+def test_duplicate_h2_matching_title_is_dropped() -> None:
+    """assets note 的正文习惯是「## 小节名」起笔，不是「# 标题」。
+    第11/12轮判据写死 startswith("# ")，这类正文整段跳过 → 现网探针实测出三层重复标题。"""
+    title = "探针第一段（第13轮验收）"
+    # 【fullstack-dev · 2026-11-15 · 第14轮】改：入参换 body_md（verbatim 入口收窄后测试契约同步）。
+    body = experience_to_skill_body({"title": title, "body_md": f"## {title}\n\n证据行 ALPHA。\n"})
+    assert body.count("探针第一段（第13轮验收）") == 1, body
+    assert "## 解决方案" in body and "证据行 ALPHA。" in body, body
+
+
+def test_section_name_heading_is_preserved() -> None:
+    """``## 问题``/``## 方案`` 这类段落名与 title 不同文，放宽判据后仍不许被误删。"""
+    body = experience_to_skill_body({"title": "外层标题", "solution": "## 问题\n\n真问题正文\n"})
+    assert "## 问题" in body and "真问题正文" in body, body
+
+
+def test_heading_only_body_is_not_emptied() -> None:
+    """正文只有一行标题时，去重会让 solution 变空 → 读侧预览字段被清空，故不删。"""
+    body = experience_to_skill_body({"title": "配方", "solution": "## 配方"})
+    assert "配方" in body, body
+    assert _any_heading_count(body) >= 1, body

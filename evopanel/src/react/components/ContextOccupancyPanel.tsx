@@ -76,6 +76,11 @@ export function ContextOccupancyPanel({
     tokenTotals != null && Number.isFinite(Number(tokenTotals.output))
       ? Math.max(0, Math.round(Number(tokenTotals.output)))
       : null
+  // 本会话总共产生的 token（输入 + 输出）；与 Prompt/Completion 并列展示。
+  const totalTokens =
+    tokenTotals != null && Number.isFinite(Number(tokenTotals.total))
+      ? Math.max(0, Math.round(Number(tokenTotals.total)))
+      : null
   // Sub-rows under the system-prompt bar segment (only shown when backend sends them).
   const systemSubRows: { key: string; label: string; tokens: number }[] = []
   if (breakdown?.systemSkillsTokens != null) {
@@ -212,8 +217,14 @@ export function ContextOccupancyPanel({
           ) : (
             <p className="react-chat-ctx-meter-hint">跑一轮对话后显示系统 / 工具 / 消息拆分</p>
           )}
-          {promptTokens != null || completionTokens != null ? (
+          {promptTokens != null || completionTokens != null || totalTokens != null ? (
             <dl className="react-chat-ctx-meter-rows">
+              {totalTokens != null ? (
+                <div className="react-chat-ctx-meter-row">
+                  <dt>Total Tokens</dt>
+                  <dd>{formatTokenCountDisplay(totalTokens)}</dd>
+                </div>
+              ) : null}
               {promptTokens != null ? (
                 <div className="react-chat-ctx-meter-row">
                   <dt>Prompt Tokens</dt>

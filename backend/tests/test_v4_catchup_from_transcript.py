@@ -252,3 +252,143 @@ def test_remint_live_seed_blocks_hydrate_unless_forced() -> None:
         assert len(hub.get_session(remint_tid).rows) == loaded
     finally:
         conv_mod.HUB = prev_hub
+
+
+# ── 员工/后台 run 终态收口（2026-11-15 死锁闭环修复）────────────────────────
+
+
+def _seed_running_projection(hub: V4ConversationHub, thread: str, msgs=MESSAGES_V1) -> None:
+    """模拟「hydrate 时 run 在跑 → 写了 running control → 之后无人收口」。"""
+    from app.gateway.v4.conversation import _minimal_control
+
+    with _msgs(msgs):
+        hub.catchup_from_transcript(thread)
+    sess = hub.get_session(thread)
+    assert sess is not None and sess.rows
+    sess.phase = "running"
+    sess.control_override = _minimal_control("running", run_started_at=1)
+    # hydrate 灌行会盖 last_author_at_ms；陈旧场景写手早已收工。
+    sess.last_author_at_ms = 0.0
+
+
+def test_catchup_settles_stale_running_when_db_terminal() -> None:
+    """DB run_status 已终态 + 投影死钉 running → settle control 并 rehydrate 终态行。"""
+    thread = "settle-thread-001"
+    hub = V4ConversationHub()
+    _seed_running_projection(hub, thread)
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={"status": "done", "updated_at_ms": 1, "run_id": "run-2"},
+        ),
+    ):
+        out = hub.catchup_from_transcript(thread)
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out["settledPhase"] == "completedSuccess"
+    sess = hub.get_session(thread)
+    assert sess.phase == "completedSuccess"
+    assert sess.control_override is None
+    texts = [str(r.get("text") or "") for r in sess.rows.values() if r.get("kind") == "assistantText"]
+    assert any("第二版更新" in t for t in texts), "终态回复必须进投影"
+
+
+def test_catchup_keeps_running_control_while_run_active() -> None:
+    """DB run_status 仍 running（后台 run 真在跑、无 mirror 喂流）→ 不收口，
+    且 DB transcript 是唯一真源，行照常 rehydrate（修「盯着看也冻结」）。"""
+    import time as _time
+
+    thread = "settle-thread-002"
+    hub = V4ConversationHub()
+    _seed_running_projection(hub, thread)
+    fresh_ms = int(_time.time() * 1000)
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={"status": "running", "updated_at_ms": fresh_ms, "run_id": "run-2"},
+        ),
+    ):
+        out = hub.catchup_from_transcript(thread)
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert not out.get("settledPhase")
+    sess = hub.get_session(thread)
+    assert sess.phase == "running"
+    assert (sess.control_override or {}).get("phase") == "running"
+    texts = [str(r.get("text") or "") for r in sess.rows.values() if r.get("kind") == "assistantText"]
+    assert any("第二版更新" in t for t in texts)
+
+
+def test_reconcile_stale_running_settles_and_broadcasts() -> None:
+    """周期收口：候选命中 running 投影，settle 后 phase 归位、行刷新。"""
+    thread = "settle-thread-003"
+    hub = V4ConversationHub()
+    _seed_running_projection(hub, thread)
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={"status": "fail", "updated_at_ms": 1, "run_id": "run-2"},
+        ),
+    ):
+        stats = hub.reconcile_stale_running()
+    assert stats["candidates"] == 1
+    assert stats["settled"] == 1
+    sess = hub.get_session(thread)
+    assert sess.phase == "error"
+
+
+def test_reconcile_skips_freshly_authored_sessions() -> None:
+    """最近 5s 内有活写手的 running 会话不是孤儿 run，不得收口。"""
+    import time as _time
+
+    thread = "settle-thread-004"
+    hub = V4ConversationHub()
+    _seed_running_projection(hub, thread)
+    hub.get_session(thread).last_author_at_ms = _time.time() * 1000
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={"status": "done", "updated_at_ms": 1, "run_id": "run-2"},
+        ),
+    ):
+        stats = hub.reconcile_stale_running()
+    assert stats["candidates"] == 0
+    assert hub.get_session(thread).phase == "running"
+
+
+def test_catchup_still_refuses_while_hub_turn_running() -> None:
+    """hub 自跑 turn（主聊）拥有执行权：订阅 + 活 turn → catchup 仍不得对打。"""
+    import asyncio as _asyncio
+
+    from app.gateway.v4.conversation import _Subscription
+
+    thread = "settle-thread-005"
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(thread)
+    prev = len(hub.get_session(thread).rows)
+    hub._subscriptions["sub-test"] = _Subscription(  # noqa: SLF001
+        subscription_id="sub-test",
+        session_id=thread,
+        connection_id="c1",
+        topic=f"conversation/{thread}",
+    )
+    loop = _asyncio.new_event_loop()
+    turn = None
+    try:
+        turn = loop.create_task(_asyncio.sleep(0))
+        hub.get_session(thread).turn_task = turn  # noqa: SLF001 — 测试直填
+        with _msgs(MESSAGES_V2):
+            out = hub.catchup_from_transcript(thread)
+        assert out["changed"] is False
+        assert out.get("reason") == "hub-subscribed"
+        assert len(hub.get_session(thread).rows) == prev
+    finally:
+        if turn is not None:
+            turn.cancel()
+        loop.run_until_complete(_asyncio.gather(turn, return_exceptions=True)) if turn else None
+        loop.close()

@@ -394,6 +394,11 @@ class WeixinChannel(Channel):
     Uses HTTP long-polling for inbound messages — no public IP or webhook needed.
     Media files are transferred through an AES-128-ECB encrypted CDN.
 
+    Supports **multi-account binding** via ``account_id`` (same pattern as
+    ``WecomChannel``): each WeChat iLink bot is one account, and every account
+    talks to the same main agent unless its ``evoflow_bot_bindings`` row carries
+    an ``agent_code`` (then the manager routes it to that employee).
+
     Configuration keys (in ``config.yaml`` under ``channels.weixin``):
         - ``account_id``: iLink Bot account ID (required, or auto-loaded from disk).
         - ``token``: iLink Bot token (required, or auto-loaded from disk).
@@ -410,7 +415,13 @@ class WeixinChannel(Channel):
 
     MAX_MESSAGE_LENGTH = 2000
 
-    def __init__(self, bus: MessageBus, config: dict[str, Any]) -> None:
+    def __init__(
+        self,
+        bus: MessageBus,
+        config: dict[str, Any],
+        *,
+        account_id: str = "",
+    ) -> None:
         super().__init__(name="weixin", bus=bus, config=config)
         self._thread: asyncio.Task | None = None
         self._session: Any = None  # aiohttp.ClientSession
@@ -420,9 +431,17 @@ class WeixinChannel(Channel):
         self._recent_outbound_fingerprint: dict[str, tuple[str, float]] = {}
         self._temp_media_paths: set[str] = set()
 
-        # Resolve credentials: config > env > persisted file
+        # Resolve credentials: ctor > config > env > persisted per-account file.
+        # ``account_id == ""`` keeps the legacy single-binding behaviour (the
+        # channel resolves its own account from config/env/first credential
+        # file), so old callers passing only ``(bus, config)`` are unaffected.
         extra = config.get("extra", {}) if isinstance(config.get("extra"), dict) else {}
-        self._account_id = str(extra.get("account_id") or config.get("account_id") or os.getenv("WEIXIN_ACCOUNT_ID", "")).strip()
+        self._account_id = str(
+            account_id
+            or extra.get("account_id")
+            or config.get("account_id")
+            or os.getenv("WEIXIN_ACCOUNT_ID", "")
+        ).strip()
         self._token = str(extra.get("token") or config.get("token") or os.getenv("WEIXIN_TOKEN", "")).strip()
         self._base_url = str(extra.get("base_url") or config.get("base_url") or os.getenv("WEIXIN_BASE_URL", ILINK_BASE_URL)).strip().rstrip("/")
         self._cdn_base_url = str(extra.get("cdn_base_url") or config.get("cdn_base_url") or os.getenv("WEIXIN_CDN_BASE_URL", WEIXIN_CDN_BASE_URL)).strip().rstrip("/")
@@ -437,23 +456,31 @@ class WeixinChannel(Channel):
         self._group_allow_from = self._coerce_list(group_allow_from)
 
         # Try loading persisted credentials if not configured
-        if not self._token or not self._account_id:
-            from app.channels.weixin_setup import load_first_weixin_credentials
+        if self._account_id and not self._token:
+            # Dedicated account instance: load ONLY this account's credential
+            # file — first-wins would risk binding another account's token to
+            # this slot once several accounts exist on disk.
+            from app.channels.weixin_setup import load_weixin_credentials
+
+            creds = load_weixin_credentials(self._account_id)
+            if creds:
+                self._token = str(creds.get("token") or "").strip()
+                if not self._base_url or self._base_url == ILINK_BASE_URL:
+                    self._base_url = str(creds.get("base_url") or "").strip().rstrip("/")
+        elif not self._account_id:
+            from app.channels.weixin_setup import _weixin_home, load_first_weixin_credentials
 
             creds = load_first_weixin_credentials()
             if creds:
-                if not self._account_id:
-                    # Use the first account filename as account_id
-                    from app.channels.weixin_setup import _weixin_home
-
-                    home = _weixin_home()
-                    for p in sorted(home.glob("*.json")):
-                        self._account_id = p.stem
-                        break
+                # Use the first account filename as account_id
+                home = _weixin_home()
+                for p in sorted(home.glob("*.json")):
+                    self._account_id = p.stem
+                    break
                 if not self._token:
-                    self._token = creds.get("token", "")
+                    self._token = str(creds.get("token") or "").strip()
                 if not self._base_url or self._base_url == ILINK_BASE_URL:
-                    self._base_url = creds.get("base_url", self._base_url)
+                    self._base_url = str(creds.get("base_url") or "").strip().rstrip("/")
 
         # Init token store
         data_dir = self._data_dir()

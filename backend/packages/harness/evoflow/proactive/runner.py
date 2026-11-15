@@ -1649,6 +1649,9 @@ class ProactiveRunner:
         scheduled: bool = False,
         trigger_reason: str = "",
         trigger_source: str = "",
+        # 【fullstack-dev · 2026-11-15 · 第17轮】把本轮投回指定真人会话（自验证闭环续跑本屏）；
+        # 空 = 原行为（task/duty 自动分桶）。所有权在 normalize_pinned_session_key 里校验。
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Think + act for a single role (within concurrency semaphore).
 
@@ -1900,7 +1903,13 @@ class ProactiveRunner:
                 from evoflow.proactive.chat_session import resolve_work_session_key
                 from evoflow.proactive.duty_runs import update_duty_run
 
-                duty_session_key = resolve_work_session_key(
+                # 【fullstack-dev · 2026-11-15 · 第17轮】调用方钉了真人会话键 → 本轮所有
+                # 记账（duty_run.session_key / 通知跳转）都跟着指向那一屏，别再写 duty 桶；
+                # 否则 engine 实际落在 chat 会话、duty_run 却指向不存在的值班会话，面板「工作轨迹」对不上。
+                from evoflow.proactive.chat_session import normalize_pinned_session_key
+
+                pinned_session = normalize_pinned_session_key(code, pinned_session_key)
+                duty_session_key = pinned_session or resolve_work_session_key(
                     agent_code=code,
                     kind="duty",
                     round_id=pinned_round,
@@ -1917,6 +1926,8 @@ class ProactiveRunner:
                     role,
                     environment_context=env_context,
                     round_id=pinned_round,
+                    # 第17轮：把钉住的真人会话键交给 engine（键与线程都在那儿复用）
+                    pinned_session_key=pinned_session,
                 )
 
                 for task_id in getattr(result, "created_task_ids", None) or []:
@@ -1963,12 +1974,16 @@ class ProactiveRunner:
                     related_tid = related_tid[len("task:") :].strip()
                 if not related_tid and primary_tid:
                     related_tid = primary_tid
-                final_session_key = resolve_work_session_key(
-                    agent_code=code,
-                    kind="task" if related_tid else "duty",
-                    round_id=result_round,
-                    task_id=related_tid or None,
-                )
+                # 第17轮：钉了真人会话就直接用它记账，别再算一个指向不存在的 duty/task 桶
+                if pinned_session:
+                    final_session_key = pinned_session
+                else:
+                    final_session_key = resolve_work_session_key(
+                        agent_code=code,
+                        kind="task" if related_tid else "duty",
+                        round_id=result_round,
+                        task_id=related_tid or None,
+                    )
                 run_err = str(getattr(result, "run_error", "") or "").strip()
                 _finish_duty_run(
                     duty_run_id,
@@ -2709,6 +2724,8 @@ class ProactiveRunner:
         skip_done_guard: bool = False,
         resolved_round_id: str = "",
         resolved_resumed: bool | None = None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】透传给 _process_role，钉回真人会话
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Dispatch a user-specified task to an employee.
 
@@ -2982,6 +2999,8 @@ class ProactiveRunner:
             role_lock_held=role_lock_held,
             trigger_reason=(f"任务派发触发巡检：{goal_s[:80]}" + (f"…（共{len(goal_s)}字）" if len(goal_s) > 80 else "")),
             trigger_source=f"dispatch.{source_s}",
+            # 第17轮：透传，派发方能指定投回哪一屏
+            pinned_session_key=str(pinned_session_key or ""),
         )
         if report.get("busy"):
             return report
@@ -3085,6 +3104,8 @@ class ProactiveRunner:
         skip_done_guard: bool = False,
         resolved_round_id: str = "",
         resolved_resumed: bool | None = None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】透传：钉回指定真人会话
+        pinned_session_key: str = "",
     ) -> None:
         """Background wrapper for :meth:`dispatch_task` -- swallows exceptions so
         the fire-and-forget caller never sees a dangling task error."""
@@ -3108,6 +3129,8 @@ class ProactiveRunner:
                 skip_done_guard=skip_done_guard,
                 resolved_round_id=resolved_round_id,
                 resolved_resumed=resolved_resumed,
+                # 第17轮：透传钉回会话
+                pinned_session_key=str(pinned_session_key or ""),
             )
             if isinstance(report, dict) and report.get("dispatched_at"):
                 need_release = False
@@ -3162,6 +3185,8 @@ class ProactiveRunner:
         fresh_round: bool = False,
         skip_done_guard: bool = False,
         interrupt: bool = False,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】把本轮投回指定真人会话（装完机回到同一屏）
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Fire-and-forget dispatch: validate synchronously, run think in background.
 

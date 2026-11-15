@@ -3392,7 +3392,35 @@ export const api = {
       silent: true,
       skipRetry: true,
     }),
-  applyWeixinRegistration: async (sessionId, enabled = true) => gatewayProxy('POST', `/channels/weixin/registration/${sessionId}/apply`, { enabled }),
+  // 多账号：apply 可带 agent_code（空 = 主智能体）与 display_name（改绑在 PATCH 里做）
+  applyWeixinRegistration: async (sessionId, enabled = true, agentCode = '', displayName = '') =>
+    gatewayProxy('POST', `/channels/weixin/registration/${sessionId}/apply`, {
+      enabled,
+      agent_code: String(agentCode || ''),
+      display_name: String(displayName || ''),
+    }),
+
+  // 微信多账号绑定管理（增删改查）
+  listWeixinAccounts: async () => gatewayProxy('GET', '/channels/weixin/accounts'),
+  patchWeixinAccount: async (accountId, patch = {}) =>
+    gatewayProxy('PATCH', `/channels/weixin/accounts/${encodeURIComponent(String(accountId || ''))}`, {
+      display_name: patch.display_name ?? null,
+      enabled: patch.enabled ?? null,
+      agent_code: patch.agent_code ?? null,
+    }),
+  deleteWeixinAccount: async (accountId) =>
+    gatewayProxy('DELETE', `/channels/weixin/accounts/${encodeURIComponent(String(accountId || ''))}`),
+
+  // 智能体员工 · 微信 iLink 绑定（复用 begin/poll，apply 写入岗位）
+  applyRoleWeixinRegistration: async (agentCode, sessionId) =>
+    gatewayProxy(
+      'POST',
+      `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/weixin/registration/${encodeURIComponent(String(sessionId || ''))}/apply`,
+    ),
+  unbindRoleWeixin: async (agentCode) =>
+    gatewayProxy('DELETE', `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/weixin/binding`),
+  getRoleWeixinBinding: async (agentCode) =>
+    gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(agentCode || ''))}/weixin/binding`),
   beginWecomRegistration: async () => gatewayProxy('POST', '/channels/wecom/registration/begin'),
   pollWecomRegistration: async (sessionId) =>
     gatewayProxy('GET', `/channels/wecom/registration/${sessionId}/poll`, null, null, {

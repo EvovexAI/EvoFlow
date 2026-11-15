@@ -29,11 +29,11 @@ function toolRow(rowId: number, toolCallId: string): ConversationRow {
   }
 }
 
-describe('V4 running turn: assistantText interleaves outside tool history', () => {
-  it('运行中：正文不进 history，作为独立 assistantText flow 项夹在工具之间', () => {
+describe('V4 turn fold: ZCode-style one visible closing text per segment', () => {
+  it('运行中：只把当前流式/段末正文留在折叠外，更早 complete 正文进 history', () => {
     const orderedRows: ConversationRow[] = [
       toolRow(1, 't1'),
-      textRow(2, '先说一句'),
+      textRow(2, '先说一句', 'complete'),
       toolRow(3, 't2'),
       textRow(4, '再说一句', 'streaming'),
     ]
@@ -48,18 +48,37 @@ describe('V4 running turn: assistantText interleaves outside tool history', () =
       timelineOnly: false,
     })
     expect(segment).toBeTruthy()
-    expect(segment!.assistantHistoryRows.map((r) => r.rowId)).toEqual([1, 3])
-    expect(segment!.flowItems.map((item) => item.kind)).toEqual([
-      'assistantHistory',
-      'assistantText',
-      'assistantHistory',
-      'assistantText',
-    ])
-    const texts = segment!.flowItems.filter((item) => item.kind === 'assistantText')
-    expect(texts.map((item) => (item.kind === 'assistantText' ? item.row.text : ''))).toEqual([
-      '先说一句',
-      '再说一句',
-    ])
+    // 中间 complete 正文折进 history，避免「已工作」外摊多段答复+usage
+    expect(segment!.assistantHistoryRows.map((r) => r.rowId)).toEqual([1, 2, 3])
+    const visible = segment!.flowItems.filter((item) => item.kind === 'assistantText')
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.kind === 'assistantText' && visible[0].row.text).toBe('再说一句')
+  })
+
+  it('运行中且段末已是 complete、后面还有工具：段末正文可见，更早正文仍在 history', () => {
+    const orderedRows: ConversationRow[] = [
+      toolRow(1, 't1'),
+      textRow(2, '中间话', 'complete'),
+      toolRow(3, 't2'),
+      textRow(4, '最新完整句', 'complete'),
+      toolRow(5, 't3'),
+    ]
+    const [segment] = buildConversationTurnWorkSegments({
+      key: 'turn-1',
+      orderedRows,
+      assistantTailRows: [],
+      isRunning: true,
+      isLastTurn: true,
+      isInterrupted: false,
+      forceOpenHistory: false,
+      timelineOnly: false,
+    })
+    expect(segment).toBeTruthy()
+    expect(segment!.assistantHistoryRows.map((r) => r.rowId)).toEqual([1, 2, 3])
+    const visible = segment!.flowItems.find((item) => item.kind === 'assistantText')
+    expect(visible?.kind === 'assistantText' && visible.row.text).toBe('最新完整句')
+    // 段末正文之后的工具跟在折叠外（跟随条），不再被当成又一段「已工作」
+    expect(segment!.assistantFollowingRows.map((r) => r.rowId)).toEqual([5])
   })
 
   it('结束后：末段正文仍提升为可见项，中间正文留在 history（既有折叠语义）', () => {
@@ -83,5 +102,26 @@ describe('V4 running turn: assistantText interleaves outside tool history', () =
     expect(segment!.assistantHistoryRows.map((r) => r.rowId)).toEqual([1, 2, 3])
     const visible = segment!.flowItems.find((item) => item.kind === 'assistantText')
     expect(visible?.kind === 'assistantText' && visible.row.text).toBe('最终答复')
+  })
+
+  it('运行中优先跟流式正文（即使后面已有 complete），避免先流出的字闪没', () => {
+    const orderedRows: ConversationRow[] = [
+      textRow(1, '正在流', 'streaming'),
+      toolRow(2, 't1'),
+      textRow(3, '后到的 complete', 'complete'),
+    ]
+    const [segment] = buildConversationTurnWorkSegments({
+      key: 'turn-1',
+      orderedRows,
+      assistantTailRows: [],
+      isRunning: true,
+      isLastTurn: true,
+      isInterrupted: false,
+      forceOpenHistory: false,
+      timelineOnly: false,
+    })
+    const visible = segment!.flowItems.filter((item) => item.kind === 'assistantText')
+    expect(visible).toHaveLength(1)
+    expect(visible[0]?.kind === 'assistantText' && visible[0].row.text).toBe('正在流')
   })
 })

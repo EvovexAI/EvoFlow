@@ -92,12 +92,9 @@ export function useCollabSubtasksFromApi(opts: UseCollabSubtasksFromApiOpts): Co
         if (stillActive && !stillActive()) return
         setBundle({ subtasks: fetched.subtasks, mainTask: fetched.mainTask })
       } catch {
-        if (!cancelled) {
-          const stillActive = isStillActiveRef.current
-          if (!stillActive || stillActive()) {
-            setBundle({ subtasks: [], mainTask: null })
-          }
-        }
+        // 拉取失败保留上一次 bundle：清空会让 workflowLooksActive 翻 false →
+        // 轮询永久自杀（pollTick 不再递增），进度卡冻结在最后状态。
+        // 下一轮 pollTick 到来时 bundle 仍是旧值，照常重试。
       }
     })()
     return () => {

@@ -23,8 +23,22 @@ import {
   buildOwnerSidebarGroups,
   looksLikeImChannelToken,
 } from '../src/react/lib/session-list/session-identity.js'
+import {
+  SESSION_LIST_PAGE_SIZE,
+  SESSION_LIST_PROACTIVE_PAGE_SIZE,
+  sessionListPageSizeForWorkspace,
+} from '../src/react/lib/session-list/constants.js'
 
 describe('proactive employee session grouping', () => {
+  it('BOT workspace uses a larger page size than global recent', () => {
+    expect(sessionListPageSizeForWorkspace(WORKSPACE_GROUP_PROACTIVE)).toBe(
+      SESSION_LIST_PROACTIVE_PAGE_SIZE,
+    )
+    expect(SESSION_LIST_PROACTIVE_PAGE_SIZE).toBeGreaterThan(SESSION_LIST_PAGE_SIZE)
+    expect(sessionListPageSizeForWorkspace(null)).toBe(SESSION_LIST_PAGE_SIZE)
+    expect(sessionListPageSizeForWorkspace('C:/ws')).toBe(SESSION_LIST_PAGE_SIZE)
+  })
+
   it('isProactiveSession detects key prefix and context.source', () => {
     expect(isProactiveSession({ sessionKey: 'proactive:fe', context: {} })).toBe(true)
     expect(

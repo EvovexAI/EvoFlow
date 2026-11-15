@@ -20,6 +20,27 @@ from app.channels.service import (
 )
 
 
+@pytest.fixture()
+def _isolated_binding_table(monkeypatch):
+    """These tests exercise the legacy ``config.accounts`` JSON path; the
+    ``evoflow_bot_bindings`` table (which ``_start_channel`` loads first and
+    persists migrations into) must contribute nothing and stay read-only."""
+    import evoflow.persistence.config_repositories as repo
+
+    monkeypatch.setattr(repo, "list_bot_bindings", lambda platform, enabled_only=False: [])
+    written: list[tuple] = []
+    monkeypatch.setattr(
+        repo,
+        "upsert_bot_binding",
+        lambda platform, bot_id, **kw: written.append((platform, bot_id)),
+    )
+    # The 2026-11 zombie-scrub also drops legacy JSON accounts whose roles no
+    # longer exist; these tests exercise bot_id collision / credential logic,
+    # so let every role "exist".
+    monkeypatch.setattr(ChannelService, "_employee_role_exists", staticmethod(lambda code: True))
+    return written
+
+
 # ---------------------------------------------------------------------------
 # Fixtures and helpers
 # ---------------------------------------------------------------------------
@@ -108,7 +129,7 @@ def test_primary_credentials_missing():
 
 
 @pytest.mark.asyncio
-async def test_account_sharing_primary_bot_id_is_skipped():
+async def test_account_sharing_primary_bot_id_is_skipped(_isolated_binding_table):
     """An account whose bot_id equals the primary bot_id must NOT start a second WS."""
     cfg = _primary_config()
     cfg["accounts"] = {
@@ -132,12 +153,12 @@ async def test_account_sharing_primary_bot_id_is_skipped():
     assert started == ["", "rd-bot"], (
         f"customer-service must be skipped (shared bot_id), got: {started}"
     )
-    assert "customer-service" in svc._skipped_accounts["wecom"]
-    assert svc._skipped_accounts["wecom"]["customer-service"] == "shared-with-primary"
+    # (2026-11) The primary-id collision skip is log-only now; the
+    # ``_skipped_accounts`` bookkeeping mechanism no longer exists.
 
 
 @pytest.mark.asyncio
-async def test_two_accounts_with_same_bot_id_second_is_skipped():
+async def test_two_accounts_with_same_bot_id_second_is_skipped(_isolated_binding_table):
     cfg = _primary_config()
     cfg["accounts"] = {
         "emp-a": _account_cfg("员工A", bot_id="emp-shared"),
@@ -162,13 +183,13 @@ async def test_two_accounts_with_same_bot_id_second_is_skipped():
     assert started.count("") == 1
     account_starts = [a for a in started if a]
     assert len(account_starts) == 1
-    skipped_reasons = svc._skipped_accounts.get("wecom", {})
-    skipped = [aid for aid, r in skipped_reasons.items() if r == "shared-with-sibling"]
-    assert len(skipped) == 1
+    # (2026-11) Duplicate drops now happen in ``_dedupe_accounts_by_bot_id``
+    # before the start loop — only the instance outcome is guaranteed; the
+    # ``_skipped_accounts`` bookkeeping mechanism no longer exists.
 
 
 @pytest.mark.asyncio
-async def test_account_with_missing_credentials_is_skipped():
+async def test_account_with_missing_credentials_is_skipped(_isolated_binding_table):
     cfg = _primary_config()
     cfg["accounts"] = {
         "ready": _account_cfg("ready", bot_id="ready-bot"),
@@ -189,11 +210,12 @@ async def test_account_with_missing_credentials_is_skipped():
 
     started = sorted(t.account_id for t in _StubChannel.instances)
     assert set(started) == {"", "ready"}
-    assert svc._skipped_accounts["wecom"]["ghost"] == "missing-credentials"
+    # (2026-11) The skip is log-only now; the ``_skipped_accounts`` bookkeeping
+    # mechanism no longer exists in service.py.
 
 
 @pytest.mark.asyncio
-async def test_no_accounts_starts_single_instance():
+async def test_no_accounts_starts_single_instance(_isolated_binding_table):
     cfg = _primary_config()
     svc = ChannelService({"wecom": cfg})
     svc._channels = {}

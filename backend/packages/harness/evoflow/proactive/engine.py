@@ -178,6 +178,7 @@ class ProactiveEngine:
         environment_context: str = "",
         memory: ProactiveMemory | None = None,
         round_id: str | None = None,
+        pinned_session_key: str | None = None,
     ) -> ThinkResult:
         """Run a full think cycle for the given role.
 
@@ -187,6 +188,12 @@ class ProactiveEngine:
         ``round_id`` (e.g. human dispatch ``dispatch:…``) stamps chat
         transcripts and work items with the same id the Panel uses to open
         the work trail.
+
+        【fullstack-dev · 2026-11-15 · 第17轮】新增 ``pinned_session_key``：调用方显式
+        指定本轮落在哪个会话（自验证闭环装完机要回到**用户正看着的那一屏**续聊）。
+        为什么需要：会话键原先只由 ``related_task_id`` 的有无决定（task/duty 两支），
+        ``proactive:{code}:chat:{stamp}`` 这种真人对话键永远选不到 → 唤醒另起新会话，
+        用户看不到、上下文也接不上。所有权校验在 runner 侧做，这里只兜底丢弃。
         """
         if role.config.think_mode == "agent_loop":
             return await self._run_agent_loop(
@@ -194,12 +201,14 @@ class ProactiveEngine:
                 memory=memory,
                 environment_context=environment_context,
                 round_id=round_id,
+                pinned_session_key=pinned_session_key,
             )
         return await self._run_prompt_only(
             role,
             memory=memory,
             environment_context=environment_context,
             round_id=round_id,
+            pinned_session_key=pinned_session_key,
         )
 
     async def execute_initiative(self, initiative: Initiative) -> str:
@@ -245,6 +254,8 @@ class ProactiveEngine:
         memory: ProactiveMemory | None = None,
         environment_context: str = "",
         round_id: str | None = None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】真人对话键（自验证闭环 wake 续跑本屏）
+        pinned_session_key: str | None = None,
     ) -> ThinkResult:
         """Think via a full LangGraph agent run with tool access."""
         from evoflow.proactive.repositories import ProactiveMemoryRepository
@@ -299,11 +310,27 @@ class ProactiveEngine:
                     break
         if related_task_id.startswith("task:"):
             related_task_id = related_task_id[len("task:") :].strip()
-        session_key = resolve_work_session_key(
-            agent_code=role.agent_code,
-            kind="task" if related_task_id else "duty",
-            round_id=round_id,
-            task_id=related_task_id or None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】pinned 优先于 task/duty 自动分桶
+        # 真机后果：第15轮闭环装完机 wake 投出去，run 落在 duty 桶 → 用户那一屏一个字都没多，
+        # 我这边"已经在新进程跑了"他看不见（判据：会话键只由 related_task_id 决定，
+        # 永远选不到 proactive:{code}:chat:{stamp}）。校验不过（别人的会话/老键/平台 ambient 键）
+        # 一律退回原逻辑，绝不因为一个错键把值班轮投进别人的对话。
+        from evoflow.proactive.chat_session import (
+            normalize_pinned_session_key,
+            pinned_session_thread_id,
+        )
+
+        pinned_session = normalize_pinned_session_key(role.agent_code, pinned_session_key)
+        # 钉回真人会话时复用该会话现有线程；取不到才新建（见 _run_langgraph_agent）
+        pinned_thread = pinned_session_thread_id(pinned_session) if pinned_session else ""
+        session_key = (
+            pinned_session
+            or resolve_work_session_key(
+                agent_code=role.agent_code,
+                kind="task" if related_task_id else "duty",
+                round_id=round_id,
+                task_id=related_task_id or None,
+            )
         )
 
         # 3. Build prompts
@@ -324,6 +351,9 @@ class ProactiveEngine:
             session_key=session_key,
             round_id=round_id,
             task_id=related_task_id or None,
+            # 第17轮：钉回真人会话 → 复用其线程，别把 session 的 thread_id 覆写成空线程
+            pinned_thread_id=pinned_thread,
+            pinned_session_key=pinned_session,
         )
 
         # 5. Collect any legacy/round journals for this round (usually empty on Task-only path)
@@ -600,6 +630,9 @@ class ProactiveEngine:
         session_key: str,
         round_id: str,
         task_id: str | None = None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】钉回真人会话时复用其现有线程（见下方 _reuse_tid）
+        pinned_thread_id: str = "",
+        pinned_session_key: str = "",
     ) -> str | None:
         """Launch a LangGraph agent run; work state is Task + CLI (no submit_work journal).
 
@@ -626,16 +659,30 @@ class ProactiveEngine:
 
         client = self._get_client()
 
-        thread = await create_langgraph_thread(
-            client,
-            metadata={
-                "session_key": session_key,
-                "round_id": round_id,
-                "proactive_role": role.agent_code,
-                "source": "proactive_think",
-            },
-        )
-        thread_id = thread["thread_id"]
+        # 【fullstack-dev · 2026-11-15 · 第17轮】pinned_thread_id 非空 = 本轮钉回真人那一屏，
+        # 必须**复用该会话已有线程**：新建会把 evoflow_chat_sessions.thread_id 覆写成只含
+        # 值班提示词的空线程（run_input 只有一条 user_prompt），用户下一句就丢了本对话上下文。
+        # 取不到线程（老键被清/首轮）时退回新建，行为与改动前完全一致。
+        _reuse_tid = str(pinned_thread_id or "").strip()
+        _pinned_session = bool(str(pinned_session_key or "").strip())
+        if _reuse_tid:
+            thread_id = _reuse_tid
+            logger.info(
+                "proactive.think.reuse_pinned_thread session_key=%s thread_id=%s",
+                session_key,
+                thread_id,
+            )
+        else:
+            thread = await create_langgraph_thread(
+                client,
+                metadata={
+                    "session_key": session_key,
+                    "round_id": round_id,
+                    "proactive_role": role.agent_code,
+                    "source": "proactive_think",
+                },
+            )
+            thread_id = thread["thread_id"]
 
         related_task = str(task_id or "").strip() or None
         task_title = ""
@@ -658,8 +705,10 @@ class ProactiveEngine:
             session_key=session_key,
             task_id=related_task,
             task_title=task_title or None,
-            workspace_kind="task" if related_task else "duty",
+            # 第17轮：钉回真人会话 → 不覆写用户标题，workspace_kind 按 chat 记（别标成值班）
+            workspace_kind="chat" if _pinned_session else ("task" if related_task else "duty"),
             workspace_root=role.config.workspace_path,
+            preserve_title=_pinned_session,
         )
 
         # Graph system_prompt comes from lead_agent templates + agent config; inject
@@ -979,6 +1028,10 @@ class ProactiveEngine:
         memory: ProactiveMemory | None = None,
         environment_context: str = "",
         round_id: str | None = None,
+        # 【fullstack-dev · 2026-11-15 · 第17轮】签名与 think 对齐（本路径单发调模型、
+        # 不建会话也不落 transcript，钉键在此无效果）；显式收下而不是 **kwargs 吞掉，
+        # 免得将来给 prompt_only 加会话写入时把 pinned 静默丢掉。
+        pinned_session_key: str | None = None,
     ) -> ThinkResult:
         """Legacy single-LLM-call think path (Phase 1 behaviour)."""
         from evoflow.proactive.repositories import ProactiveMemoryRepository
