@@ -417,8 +417,16 @@ def _terminal_focus_segment(cmd: str) -> str:
         # 【fullstack-dev · 2026-11-15 · 第12轮】补：尾巴上的 echo/printf 不算"跑的东西"。
         # 为什么：我常在门禁后接 ``&& echo SH_OK`` 确认成功，旧写法把焦点落在 echo 上 ——
         # 同一条 ``bash -n x.sh`` 加不加尾巴就是两个指纹，拦与不拦变随机。
+        # 【fullstack-dev · 2026-11-15 · 第17轮】扩：date/true/: 同属"纯打点"尾巴。
+        # 为什么：本岗习惯在门禁尾巴接 ``echo "===NOW $(date +%H:%M:%S)==="`` 记时间。引号里的
+        #   ``$(date…)`` 让该段以 echo 起头→被跳过；一旦写成 ``; date +%H:%M:%S``（不套 echo），
+        #   末段焦点就落到 date 上，指纹变 ``terminal:date +%h:%m:%s`` —— obs 近 2 天 701 次拦截里
+        #   这一桶占 **111 次（最大桶，16%）**，pytest / obs_query / ruff 等完全不同的真目标全被
+        #   并进同一个键（9 条不同命令 → 焦点段只剩 1 个），第 3 次不同调用即被误拦。
+        #   判据与 echo 一致：只含格式化/打点、不产生工作副作用的段，不配当"跑的东西"。
+        # 边界：跳过的是**末段打点**；若整条命令就只有 date（真在查时间），兜底仍返回末段，检测不丢。
         stripped = _strip_env_assignments(low.split())
-        if stripped and stripped[0] in {"echo", "printf"}:
+        if stripped and stripped[0] in {"echo", "printf", "date", "true", ":"}:
             continue
         if _strip_env_assignments(seg.strip().split()):
             return seg.strip()
@@ -462,6 +470,80 @@ def _terminal_positional_token(token: str) -> str | None:
     return base[:48] if base and base not in {"-c"} else None
 
 
+# 【fullstack-dev · 2026-11-15 · 第17轮】新建。
+# 哪些 flag 的**值本身就是「这次到底在算什么」**：把紧跟该 flag 的那**一个** token 做短摘要进指纹
+# （不是"取到段尾"—— 段尾会混进 ``--limit`` 这类选择器，同型于第12轮"随机拦与不拦"那个坑）。
+# 真实现场（本轮我自己被撞）：``python .../obs_query.py --db obs --sql "SELECT a FROM t"``
+# 与 ``… --sql "SELECT b FROM u"`` 两条不同查询都归一成 ``terminal:python:obs_query.py``，
+# 第 3 次起被判「重复探索」拦掉 —— obs_query.py 是第13轮为「别每轮现写 python -c 探针」
+# 固化的只读查询入口，结果它的**每一个新查询**都被当成重复探索，等于固化了个用不了的工具。
+# 近 2 天该拦截共 701 次（obs 直查）：release-engineer 486 / 本岗 113 / xiaomi 87 / 总监 14 / main 2。
+# 边界：只列「值即工作对象」的 flag；``--db``/``--limit``/``-q``/``--tb=short`` 这类选择器、
+# 以及 ``python -c "…"`` 内联代码一律**不**进指纹（第12轮刻意排除 -c，让改写探针仍算同一目标）。
+_PAYLOAD_VALUE_FLAGS = ("--sql", "--query", "--expr", "--schema")
+
+
+def _split_shell_tokens(cmd: str) -> list[str]:
+    """引号感知的切分：``--sql "SELECT a, b" --limit 80`` → 3 个 token。
+
+    【fullstack-dev · 2026-11-15 · 第17轮】新建。
+    为什么不用 ``shlex.split``：它在引号不闭合时抛 ``ValueError``，而本函数跑在**每次工具调用
+    前的指纹路径**上，一条写坏的命令行不该把整轮炸挂；这里只取「引号内不切分」这一条语义，
+    反斜杠按普通字符处理（Windows 路径居多），且永不抛。
+    """
+    out: list[str] = []
+    buf: list[str] = []
+    quote = ""
+    seen = False  # 区分「空引号 token」与「什么都没有」
+    for ch in str(cmd or ""):
+        if quote:
+            if ch == quote:
+                quote = ""
+            else:
+                buf.append(ch)
+            continue
+        if ch in {"'", '"'}:
+            quote = ch
+            seen = True
+            continue
+        if ch.isspace():
+            if seen or buf:
+                out.append("".join(buf))
+                buf = []
+                seen = False
+            continue
+        buf.append(ch)
+    if seen or buf:
+        out.append("".join(buf))
+    return out
+
+
+def _fingerprint_payload_tag(focus: str) -> str:
+    """值即目标的 flag → 追加其**那一个 token** 的短摘要；无则空串（不改原指纹）。
+
+    【fullstack-dev · 2026-11-15 · 第17轮】新建（同日二次修正）。
+    第一版取「flag 到行尾」整段做摘要，被我自己新加的回归测出一半错：
+    ``--sql "SELECT 1" --limit 80`` 与 ``…--limit 20`` 只是换个行数上限、**查的是同一样东西**，
+    却因为尾巴上的 ``--limit`` 进了摘要而算成两个目标 —— 那等于把检测削空（同型于第12轮
+    「随机拦与不拦」那个坑）。故改为**只取该 flag 紧跟的一个 token**，选择器类尾巴天然排除。
+    """
+    tokens = _split_shell_tokens(focus)
+    lowered = [t.lower() for t in tokens]
+    for i, tok in enumerate(lowered):
+        if tok in _PAYLOAD_VALUE_FLAGS and i + 1 < len(tokens):
+            val = tokens[i + 1].strip()
+            if not val:
+                return ""
+            return "|h:" + hashlib.md5(val.encode()).hexdigest()[:8]
+        # ``--sql=VALUE`` 等号写法
+        for flag in _PAYLOAD_VALUE_FLAGS:
+            if tok.startswith(flag + "="):
+                val = tokens[i][len(flag) + 1 :].strip()
+                if val:
+                    return "|h:" + hashlib.md5(val.encode()).hexdigest()[:8]
+    return ""
+
+
 def _terminal_command_fingerprint(args: dict) -> str | None:
     """Normalize terminal command for loop detection (verb/script, not cwd-only).
 
@@ -480,10 +562,26 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
     # 旧逻辑取「前 2 个 token」当兜底指纹，而这 2 个 token 恰好是 ``PYTHONPATH=… python`` ——
     # 被测文件根本不进指纹，于是"跑 A 测试""跑 B 测试""跑 A+B"三个不同调用撞成同一指纹，
     # 第 3 次起被判重复探索直接拦截（本轮实拦 3 次，每次都要我换写法绕，白烧一轮）。
-    parts = _strip_env_assignments(focus.split())
+    # 【fullstack-dev · 2026-11-15 · 第17轮】改：切 token 改用引号感知的 _split_shell_tokens。
+    # 为什么：``focus.split()`` 把 ``grep -n "def | return" file`` 炸成 ``"def`` / ``|`` / ``return"``，
+    #   而 _terminal_positional_token 又会 strip 引号 → 指纹只剩 ``terminal:grep -n def``，
+    #   于是"查 def""查 visible""查 -e def"这些**不同检索目标**各自塌成 20/10/10 条不同命令同指纹
+    #   （obs 近 2 天 701 次拦截里 grep 族占约 40 条），第 3 次不同检索就被误拦。
+    #   同一条命令换引号写法还会指纹漂移（拦与不拦变随机），与第12轮那个坑同型。
+    # 边界：只换切分方式，各分支语义不变；env 前缀、解释器、PowerShell 分支行为已由 36 条回归护栏覆盖。
+    parts = _strip_env_assignments(_split_shell_tokens(focus))
     if not parts:
         return None
     first = parts[0].lower()
+    # 【fullstack-dev · 2026-11-15 · 第17轮】新增：``uv run`` 这类 runner 前缀先剥掉。
+    # 为什么：``uv run python scripts/a.py`` 与 ``… b.py`` 原都被兜底分支截成
+    # ``terminal:uv run python`` —— 真正被跑的东西（脚本/测试文件）完全不进指纹。
+    # 近 2 天该桶塌了 24 条不同命令；release-engineer 被拦 486 次（其门禁惯例正是
+    # ``PYTHONPATH=. uv run pytest …``），第 3 次不同调用起被判「重复探索」误拦。
+    # 边界：只剥 ``uv run``（npx/pip 已在解释器表内）；剥完后按内层命令原语义走。
+    if first == "uv" and len(parts) >= 3 and parts[1].lower() == "run":
+        parts = parts[2:]
+        first = parts[0].lower()
     # PowerShell cmdlets: use cmdlet name only (ignores paths/filters)
     if any(first.startswith(pfx) for pfx in ("get-", "set-", "new-", "copy-", "remove-", "test-", "select-")):
         return f"terminal:{first}"
@@ -512,7 +610,10 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
                 sub = _terminal_subcommand_token(rest[1])
                 if sub:
                     tokens.append(sub)
-        return f"terminal:{':'.join(tokens)}"
+        # 【fullstack-dev · 2026-11-15 · 第17轮】改：解释器分支追加 payload 摘要。
+        # 为什么：``obs_query.py --sql "A"`` 与 ``--sql "B"`` 原都归一成
+        # ``terminal:python:obs_query.py``，两条不同查询撞指纹、第 3 次起被拦。
+        return f"terminal:{':'.join(tokens)}{_fingerprint_payload_tag(focus)}"
     if first in {"cd", "chdir"}:
         # Bare cd (no useful following segment) — weak fingerprint on target only
         target = parts[1].lower() if len(parts) >= 2 else ""
@@ -522,14 +623,26 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
     # 为什么：旧写法只取前 2 token，``bash -n scripts/a.sh`` 与 ``bash -n scripts/b.sh`` 同为
     # ``terminal:bash -n`` —— 与被拦的 pytest 那条是**同一个缺陷的另一半**：校验对象不同却被判成重复调用。
     # 边界：flags 一律忽略，位置参数最多 2 个，避免长命令行把指纹撑得谁都不撞（那会削弱检测）。
+    # 【fullstack-dev · 2026-11-15 · 第17轮】改：预算改为"位置参数 2 个 / flags 至多 2 个"分开计。
+    # 为什么：上面注释写着"flags 一律忽略"，但代码把非位置 token（含 flags）**也塞进同一个
+    #   ``len(tokens) >= 3`` 预算**，于是 flags 能把真正被操作的对象挤出去 ——
+    #   ``ls -l --time-style=+%H:%M:%S round6-xxx.md`` 指纹停在 ``ls -l --time-style``（目标文件没了），
+    #   obs 近 2 天该桶塌了 **137 次 / 全部不同文件**（改 date 尾巴前是 111 次 date 桶，
+    #   同一个 bug 的两个面具）。注释与实现相反 = 第12轮"flags 一律忽略"其实从未生效。
+    # 边界：flags 仍保留 2 个（``bash -n x.sh`` 的 ``-n`` 是有意义的模式位，第12轮已固化为契约）；
+    #   总 token 数上界从 3 提到 5，仍远小于"整行进指纹"，检测力不空。
     tokens = [first]
+    n_pos = 0
+    n_flag = 0
     for tok in parts[1:]:
         pos = _terminal_positional_token(tok)
         if pos:
             tokens.append(pos)
-        else:
+            n_pos += 1
+        elif n_flag < 2:
             tokens.append(tok.lower().rstrip("&|;"))
-        if len(tokens) >= 3:
+            n_flag += 1
+        if n_pos >= 2:
             break
     return f"terminal:{' '.join(tokens)}"
 

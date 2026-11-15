@@ -460,6 +460,111 @@ class TestErrorRepeat:
             seen.add(_terminal_command_fingerprint(call["args"]))
         assert len(seen) == 4, seen
 
+    def test_obs_query_different_sql_do_not_share_fingerprint(self):
+        """【fullstack-dev · 2026-11-15 · 第17轮】新建。
+
+        真实现场：本轮我连发两条 ``obs_query.py --sql "…不同查询…"``, 两条都被
+        「重复探索·已拦截」挡下 —— 旧指纹只到 ``terminal:python:obs_query.py``，
+        flag 值（即「这次到底在算什么」）完全不进键。obs_query.py 是第13轮为
+        「别每轮现写 python -c 探针」固化的只读入口，若每个新查询都算重复探索，
+        等于固化了个用不了的工具。近 2 天该拦截共 700 次。
+        """
+        base = (
+            "cd /d/dev/github/EvoFlow/backend && "
+            "PYTHONPATH=packages/harness:. python packages/harness/scripts/obs_query.py --db obs "
+        )
+        cmd_a = base + '--sql "SELECT tool_name, count(*) FROM t GROUP BY tool_name"'
+        cmd_b = base + '--sql "SELECT substr(input_json,1,100) FROM t WHERE agent_code=\'x\'"'
+        cmd_c = base + '--sql "SELECT tool_name, count(*) FROM t GROUP BY tool_name"'  # 与 A 同一条
+        fa = _terminal_command_fingerprint({"command": cmd_a})
+        fb = _terminal_command_fingerprint({"command": cmd_b})
+        fc = _terminal_command_fingerprint({"command": cmd_c})
+        assert fa != fb, (fa, fb)
+        assert fa == fc, (fa, fc)
+        # 不含 payload flag 的调用仍按脚本名归并（不削弱原有检测）
+        f_list = _terminal_command_fingerprint(
+            {"command": "cd /b && PYTHONPATH=packages/harness:. python scripts/obs_query.py --list-tables"}
+        )
+        assert f_list == "terminal:python:obs_query.py", f_list
+
+    def test_uv_run_prefix_does_not_collapse_every_script(self):
+        """【fullstack-dev · 2026-11-15 · 第17轮】新建。
+
+        真实现场：近 2 天「重复探索·已拦截」共 701 次（release-engineer 486 / 本岗 113），
+        最大误拦桶是 ``terminal:uv run python`` —— 同一指纹下塌了 **24 条不同命令**。
+        本仓后端门禁惯例是 ``PYTHONPATH=. uv run pytest tests/x.py``，旧逻辑只截到
+        ``uv run python`` 三个 token，真正被跑的脚本/测试文件完全不进指纹，
+        于是"跑 a 脚本""跑 b 脚本""换文件再跑"三次不同调用撞成同一目标被拦。
+        """
+        seen = set()
+        for cmd in (
+            "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=. uv run python scripts/verify_a.py",
+            "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=. uv run python scripts/verify_b.py",
+            "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=. uv run pytest tests/test_x.py -q",
+            "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=. uv run python -m pytest tests/test_y.py -q",
+        ):
+            fp = _terminal_command_fingerprint({"command": cmd})
+            assert fp is not None, cmd
+            seen.add(fp)
+        assert len(seen) == 4, seen
+        # 同一门禁重复跑仍算同一目标（不得因剥前缀而失去检测力）
+        again = _terminal_command_fingerprint(
+            {"command": "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=. uv run pytest tests/test_x.py -q"}
+        )
+        assert again in seen, again
+
+    def test_flags_do_not_eat_the_positional_target(self):
+        """【fullstack-dev · 2026-11-15 · 第17轮】新建。
+
+        真实现场：obs 近 2 天最大误拦桶 ``terminal:ls -l --time-style=+%h:%m:%s`` = **137 次**，
+        全是**不同文件**的目录列举 —— 因为兜底分支把 flags 也算进 ``len(tokens) >= 3`` 预算，
+        ``-l`` 与 ``--time-style=…`` 两个 flag 就吃满配额，真正被看的文件**进不了指纹**。
+        函数注释写着"flags 一律忽略"，实现却没忽略 —— 注释与实现相反（第12轮那次没修干净）。
+        """
+        a = _terminal_command_fingerprint({"command": "ls -l --time-style=+%H:%M:%S round6-review.md"})
+        b = _terminal_command_fingerprint({"command": "ls -l --time-style=+%H:%M:%S round7-closeout.md"})
+        assert a != b, (a, b)
+        assert "round6-review.md" in a, a
+        # 短横 flag 仍进指纹（bash -n / pytest -q 之类模式位有意义，第12轮已固化为契约）
+        assert "bash -n" in _terminal_command_fingerprint({"command": "bash -n scripts/a.sh"}), "flag lost"
+
+    def test_timestamp_tail_does_not_hijack_focus(self):
+        """【fullstack-dev · 2026-11-15 · 第17轮】新建。
+
+        真实现场：obs 近 2 天 701 次「重复探索·已拦截」里**最大桶**是
+        ``terminal:date +%h:%m:%s`` —— 111 次（16%），9 条完全不同的真目标命令
+        （跑 pytest / 跑 obs_query / ruff check …）因为尾巴都接了个 ``; date +%H:%M:%S``
+        打点，焦点段被 date 抢走，全部塌进同一个键，第 3 次不同调用即被误拦。
+        第12轮已把 echo/printf 当打点跳过，但 ``date`` 漏了 —— 同一缺陷的另一半。
+        """
+        pytest_cmd = (
+            "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=packages/harness:. "
+            "python -m pytest tests/test_craft_note_body_dedup.py 2>&1 | tail -3; date +%H:%M:%S"
+        )
+        obs_cmd = (
+            "cd /d/dev/github/EvoFlow && python backend/packages/harness/scripts/obs_query.py "
+            "--list-tables 2>&1 | tail -10; date +%H:%M:%S"
+        )
+        f1 = _terminal_command_fingerprint({"command": pytest_cmd})
+        f2 = _terminal_command_fingerprint({"command": obs_cmd})
+        assert "date" not in f1, f1
+        assert "date" not in f2, f2
+        assert f1 != f2, (f1, f2)
+        # 同一条命令（含同样的 date 尾巴）重复跑，仍须算同一目标 —— 检测力不得丢
+        assert _terminal_command_fingerprint({"command": pytest_cmd}) == f1
+        # 整条只查时间时，date 本身就是目标，不能被跳成空指纹
+        assert _terminal_command_fingerprint({"command": "date +%H:%M:%S"}) is not None
+
+    def test_payload_tag_does_not_leak_into_non_payload_flags(self):
+        """``--db``/``--limit`` 这类选择器不得进指纹：同一查询换个 limit 仍算同一目标。"""
+        a = _terminal_command_fingerprint(
+            {"command": "cd /b && python scripts/obs_query.py --db obs --limit 80 --sql \"SELECT 1 FROM t\""}
+        )
+        b = _terminal_command_fingerprint(
+            {"command": "cd /b && python scripts/obs_query.py --db obs --limit 20 --sql \"SELECT 1 FROM t\""}
+        )
+        assert a == b, (a, b)
+
     def test_echo_tail_does_not_replace_real_focus(self):
         """``bash -n x.sh && echo SH_OK`` 的指纹必须落在 x.sh 上，尾巴 echo 不算"跑的东西"。"""
         a = _terminal_command_fingerprint({"command": "cd /d/repo && bash -n scripts/a.sh && echo SH_OK"})
