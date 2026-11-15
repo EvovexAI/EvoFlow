@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.28] - 2026-11-15
+
+相对 **1.3.27**：顶栏显示正在跑的子任务/工作流数量；任务通知续写不再漏唤醒或串读前缀；会话可选模型落库；助手轮次用量可在对话里看到；修 V4 busy 同步导致的整页空白。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.28.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **子任务运行中角标**：顶栏显示当前会话正在跑的子任务 / 工作流数量
+- **助手轮次用量**：对话行展示本轮用量标签
+
+### Fixed
+
+- **任务通知续写**：去重与批量投递落库；唤醒输入写入 SSOT 后再跑；防误读前缀改到提供层
+- **子任务完成后唤醒派发会话**：协作拆出的子任务结束后唤醒原对话
+- **唤醒轮次 400 / 404 remint**：可配置上下文校验；路径失效时改写并回环重派
+- **会话模型覆盖**：选中的模型写入会话，不再切回默认
+- **整页空白（React #185）**：V4 busy 同步改出 layout 阶段，停止按钮与对话忙碌态不再互锁刷屏
+
+### Changed
+
+- **数据保留 / live-run 快照**：vacuum 加守卫；同线程快照单飞
+
 ## [1.3.27] - 2026-11-14
 
 相对 **1.3.26**：修复正式包 arch-guard（核心层不得直接 import Gateway）；小 V 多轮 ASR 不再粘上一句；用户点停时先封 V4 投影再掐流。
