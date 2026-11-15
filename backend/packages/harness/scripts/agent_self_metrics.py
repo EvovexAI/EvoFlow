@@ -27,7 +27,7 @@ duration_ms / status / error_type / error_message），而是**拿这些数据�
 
 用法
 ----
-    python backend/packages/harness/scripts/agent_self_metrics.py                 # 默认 fullstack-dev，近 7 天，对半切
+    python backend/packages/harness/scripts/agent_self_metrics.py                 # 默认本岗新旧两码并集，近 7 天，对半切
     python backend/packages/harness/scripts/agent_self_metrics.py --agent main --days 14
     python backend/packages/harness/scripts/agent_self_metrics.py --bucket day --days 14   # 逐日趋势（数据少时先看这个）
     python backend/packages/harness/scripts/agent_self_metrics.py --bucket week --days 30  # 周环比（需跨过至少 1 个自然周一）
@@ -50,7 +50,12 @@ from typing import Any
 
 CST = timezone(timedelta(hours=8))  # 库里 started_at 带 +08:00，对齐本地日界
 OBS_DB_REL = Path("data") / "observability" / "evoflow_observability.db"
-DEFAULT_AGENT = "fullstack-dev"
+# 【self-evolution-bot · 2026-11-15 · 第18轮】改：显示名/岗位码由 fullstack-dev 改名为
+#   self-evolution-bot（2026-11-15 16:01 重启后生效），但观测库按 agent_code 记账、
+#   历史行不会跟着改码 —— 实测重启前 fullstack-dev 3158 行、新码仅 6 行。
+#   默认值若只跟着换成新码，本脚本会「查不到历史」而显得一切正常，前后半期对比失效。
+#   所以默认取「新旧两码并集」；--agent 支持逗号分隔多码（见 _agent_codes_from_arg）。
+DEFAULT_AGENT = "self-evolution-bot,fullstack-dev"
 DEFAULT_SLOW_MS = 3000.0  # 与 EVOFLOW_TOOL_OBS_SLOW_MS 默认值保持一致
 
 # 时间窗口一律在 Python 侧过滤（见 _in_window）：两表 started_at 都是 ISO 文本，
@@ -59,14 +64,29 @@ DEFAULT_SLOW_MS = 3000.0  # 与 EVOFLOW_TOOL_OBS_SLOW_MS 默认值保持一致
 _TOOL_ROWS_SQL = """
     SELECT tool_name, status, error_type, error_message, duration_ms, queue_wait_ms, started_at
     FROM evoflow_obs_tool_invocations
-    WHERE agent_code = ?
+    WHERE agent_code IN ({placeholders})
 """
 
 _MODEL_ROWS_SQL = """
     SELECT latency_ms, first_token_latency_ms, cache_read_tokens, usage_json, started_at
     FROM evoflow_obs_model_invocations
-    WHERE agent_code = ? AND invocation_kind = 'main'
+    WHERE agent_code IN ({placeholders}) AND invocation_kind = 'main'
 """
+
+
+def _agent_codes_from_arg(raw: str) -> list[str]:
+    """【self-evolution-bot · 2026-11-15 · 第18轮】新建：把 --agent 拆成 code 列表。
+
+    岗位改名后观测库仍按**旧 agent_code** 存历史行，单码查询会看不到改名前的一切，
+    于是「重复踩坑 / 已消失」两栏会被当成空数据误读。所以这里支持逗号分隔多码，
+    默认值就是新旧并集。空串/纯空白返回 []（调用方按「无过滤」处理或直接报错）。
+    """
+    codes = [str(x).strip() for x in str(raw or "").split(",")]
+    out: list[str] = []
+    for code in codes:
+        if code and code not in out:
+            out.append(code)
+    return out
 
 
 def resolve_db_path(explicit: str = "") -> Path | None:
@@ -500,8 +520,15 @@ def main() -> int:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
     try:
-        tool_rows = [dict(r) for r in con.execute(_TOOL_ROWS_SQL, (args.agent,))]
-        model_rows = [dict(r) for r in con.execute(_MODEL_ROWS_SQL, (args.agent,))]
+        # 【self-evolution-bot · 2026-11-15 · 第18轮】改：单码 = 参数 → IN 多码并集，
+        # 否则改名后本脚本只看得到新码的几行，前后半期对比会凭空「无数据」。
+        codes = _agent_codes_from_arg(args.agent)
+        if not codes:
+            print("[metrics] --agent 为空；给 agent_code（改名过的岗用逗号分隔新旧两码，默认已并好）")
+            return 1
+        ph = ",".join("?" * len(codes))
+        tool_rows = [dict(r) for r in con.execute(_TOOL_ROWS_SQL.format(placeholders=ph), codes)]
+        model_rows = [dict(r) for r in con.execute(_MODEL_ROWS_SQL.format(placeholders=ph), codes)]
     finally:
         con.close()
 
