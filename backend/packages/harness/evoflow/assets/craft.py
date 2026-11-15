@@ -14,6 +14,52 @@ logger = logging.getLogger(__name__)
 
 _SLUG_RE = re.compile(r"[^a-z0-9_\u4e00-\u9fff-]+")
 
+# 【fullstack-dev · 2026-11-15 · 第12轮】新建：标题同文判据要用到的归一化。
+_H1_KEEP_RE = re.compile(r"[^0-9a-z\u4e00-\u9fff]+")
+_H1_MARK_RE = re.compile(r"^#+\s*")
+# 连接词与分隔符：title 与正文 H1 常常只差这些（slug 化会丢标点、并把连接处换成"与"）。
+_H1_CONNECTOR_RE = re.compile(r"[-_·—…+/与和及或而、]+")
+
+
+def _h1_norm(line: str) -> str:
+    """把一行标题折成可比较的骨架：去 ``#``、去尾 ``.md``、只留汉字与字母数字。
+
+    为什么：第11轮用字面相等判"重复标题"，但 hub 侧的 title 经过了 slug（``+``/``：`` 变 ``-``、
+    标点丢失）和 ``title_from_body`` 的 60 字截断，正文 H1 是原话，两者只差标点或长度 → 判不出同文。
+    实测最脏一例：title ``会话通知面板-状态中文化与压缩`` vs 正文 ``# 会话通知面板：状态中文化 + 压缩``
+    —— slug 把 ``+`` 写成 ``-``，又把连接处补成 ``与``，第11轮的字面相等与前缀判断全都不命中。
+    故这里连单字连接词一起吃掉：只用于"是不是同一句标题"的判断，不产出任何写入文本。
+    边界：实词不同的仍不相等，不会被误删。
+    """
+    raw = str(line or "").strip()
+    raw = _H1_MARK_RE.sub("", raw)
+    if raw.lower().endswith(".md"):
+        raw = raw[:-3]
+    raw = _H1_CONNECTOR_RE.sub("", raw)
+    return _H1_KEEP_RE.sub("", raw.lower())
+
+
+def _title_text(data: dict[str, Any]) -> str:
+    """取展示用标题：一律去掉模型粘来的 ``.md`` 后缀。
+
+    【fullstack-dev · 2026-11-15 · 第12轮】新建。
+    为什么：``strip_md_ext`` 此前只接在 ``_slug``（craft.py:19）上，文件名是干净了，
+    **标题本身的渲染路径没接** —— 存量 ``craft/信息条类需求先确认面板归属.md`` 的第 13 行
+    就是 ``# 信息条类需求先确认面板归属.md``，把人写的文件名当标题显示。同一条规则的读写两侧
+    只修一侧，等于没修（这是本岗第 N 次撞"改一处漏一处"，见 standing）。
+    """
+    from evoflow.assets.ad_hoc_note import strip_md_ext
+
+    return strip_md_ext(str(data.get("title") or "").strip())
+
+
+def _same_heading(a: str, b: str) -> bool:
+    """两个归一化标题是否视为同一句：短侧是长侧前缀，且短侧 ≥12 字符（防短公共前缀误判）。"""
+    if not a or not b:
+        return False
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 12 and long_.startswith(short)
+
 
 def _slug(name: str, *, max_len: int = 48) -> str:
     from evoflow.assets.ad_hoc_note import strip_md_ext
@@ -102,7 +148,8 @@ def experience_to_skill_body(data: dict[str, Any]) -> str:
     # instead of nesting it under a generated heading.
     raw_body = str(data.get("body_md") or "").strip()
     if raw_body:
-        title = str(data.get("title") or "").strip()
+        # 【fullstack-dev · 2026-11-15 · 第12轮】改：两个分支的标题取值统一走 _title_text（顺带去 .md 后缀）。
+        title = _title_text(data)
         if not raw_body.startswith("# "):
             head = f"# {title or '专长'}"
             return f"{head}\n\n{raw_body}\n"
@@ -111,12 +158,30 @@ def experience_to_skill_body(data: dict[str, Any]) -> str:
     ctx = data.get("context") if isinstance(data.get("context"), dict) else {}
     problem = str(data.get("problem") or ctx.get("problem") or "").strip()
     solution = str(data.get("solution") or ctx.get("solution") or "").strip()
+    # 【fullstack-dev · 2026-11-15 · 第11轮】改：正文首行若是与标题同文的 H1，去掉这一行重复标题。
+    # 为什么：assets note(kind=experience) 走 hub.py:784 把**整篇正文**当 solution 传进来，而正文首行本身就是
+    # ``# 标题``，于是套出「# 标题 … ## 解决方案 … # 标题 …」的双份标题（实测 craft/ 31 个文件里 5 个中招，
+    # 其中就有我本轮刚写的 ci-local 配方）—— 白占注入篇幅，读起来像两份文档粘在一起。
+    # 【fullstack-dev · 2026-11-15 · 第12轮】改：判据从「与 title 完全同文」换成**归一化同文 + 截断前缀**。
+    # 为什么：第11轮那条只在字面完全相等时生效，实测 5 个中招文件里 **2 个根本不命中**——
+    #   · ``会话通知面板-状态中文化与压缩`` vs 正文 ``# 会话通知面板：状态中文化 + 压缩``（标点/空格被 slug 化过）
+    #   · title 是 ``title_from_body`` 截到 60 字的版本，正文 H1 更长（前缀相同、字面不等）
+    # 即"同一句话被换了分隔符/截了尾"，第11轮的等值判断把它们放过了，等于没修好。
+    # 边界：归一化只去掉空白与中英标点，**词不同的仍是两个标题**，不删（宁可留重复也不吞措辞）；
+    #   前缀匹配要求短的一侧归一化后 ≥ 12 字，避免把「某某面板」这类短公共前缀误判成同文。
+    # 不动 ``## 解决方案`` 这个段落名本身：craft.py:270/392 按它取列表/详情的 solution 字段，
+    # 若改成传 body_md（verbatim 分支）虽去掉重复，却会让那两处的预览变空 —— 那是更坏的取舍。
+    if solution.startswith("# "):
+        _first = _h1_norm(solution.splitlines()[0])
+        _want = _h1_norm(str(data.get("title") or ""))
+        if _first and _want and (_first == _want or _same_heading(_first, _want)):
+            solution = "\n".join(solution.splitlines()[1:]).strip()
     outcome = str(data.get("outcome") or ctx.get("outcome") or "").strip()
     applicable = str(data.get("applicable_to") or ctx.get("applicable_to") or "").strip()
     steps = data.get("steps") or []
     if not isinstance(steps, list):
         steps = []
-    parts: list[str] = [f"# {str(data.get('title') or '专长').strip()}\n"]
+    parts: list[str] = [f"# {_title_text(data) or '专长'}\n"]
     if applicable:
         parts.append(f"\n## 适用场景\n{applicable}\n")
     if problem:
@@ -133,7 +198,9 @@ def experience_to_skill_body(data: dict[str, Any]) -> str:
 
 
 def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
-    title = str(data.get("title") or "").strip()
+    # 【fullstack-dev · 2026-11-15 · 第12轮】改：入口标题先去 .md 后缀，frontmatter 的 name/description
+    # 与正文 H1 才会一致（此前只有文件名干净，标题带着 .md 显示）。
+    title = _title_text(data)
     if not title:
         raise ValueError("title is required")
     entity = _entity_from_data(data)
