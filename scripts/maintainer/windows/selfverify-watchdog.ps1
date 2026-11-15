@@ -180,6 +180,18 @@ try {
   if (-not (Test-Path -LiteralPath $Cli)) { throw "CLI 不存在: $Cli" }
   $env:EVOFLOW_GATEWAY_URL = $baseUrl
   $env:EVOFLOW_GATEWAY_PORT = ([int](([Uri]$baseUrl).Port))
+  # 【fullstack-dev · 2026-11-15 · 第14轮】钉死 CLI 的数据目录。
+  # 为什么：employees list / wake 读的是**本地 SQLite**（ProactiveRepository.list_roles → get_db()），
+  # 不是走 Gateway HTTP。计划任务的干净环境里 HOME/EVOFLOW_HOME 皆无，paths.py 要按
+  # $HOME/.evoflow/profiles/<active> → cwd/.evoflow → $HOME/.evoflow 逐级猜；猜偏就落到
+  # 裸 ~/.evoflow/evoflow.db（本机该文件为 0 字节），名册于是恒空 —— 这正是第13轮实测
+  # 07:48:26→07:49:57 wake 连败 6 次报 "No employee matching 'fullstack-dev'"、
+  # 而事后同一条命令能列出 22 个岗位的原因。evoflowHome 是登记端从 backend-runtime.json
+  # 同目录读到的权威值，直接用它，不留给运行时去猜。
+  if (-not [string]::IsNullOrWhiteSpace($RuntimeHome)) {
+    $env:EVOFLOW_HOME = $RuntimeHome
+    Write-Log "CLI 数据目录钉为 EVOFLOW_HOME=$RuntimeHome"
+  }
   # 【fullstack-dev · 2026-11-15 · 第13轮】修两处：① 原先传了不存在的 --state-file 开关
   # （照抄会直接 exit≠0）；② goal 若含安装目录路径，会被 kill-install-orphans 的
   # CommandLine 匹配连带杀掉承载它的 python.exe，故此处剥掉安装目录字串。
