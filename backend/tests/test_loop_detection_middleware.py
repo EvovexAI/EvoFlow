@@ -25,6 +25,7 @@ from evoflow.agents.middlewares.loop_detection_middleware import (
     LoopDetectionMiddleware,
     _hash_tool_calls,
     _single_tool_fingerprint,
+    _terminal_command_fingerprint,
 )
 
 
@@ -437,6 +438,34 @@ class TestErrorRepeat:
         assert isinstance(blocked, ToolMessage)
         assert _ERROR_BLOCK_MSG == blocked.content
         assert not executed["v"]
+
+    def test_gate_commands_on_different_tests_dont_share_fingerprint(self):
+        """【fullstack-dev · 2026-11-15 · 第12轮】新建。
+
+        真实现场：本岗门禁一律写 ``cd X && PYTHONPATH=… python -m pytest tests/a.py -q``。
+        旧逻辑先看末段、再取"前 2 token"兜底，于是 ``tests/a.py`` / ``tests/b.py`` / ``tests/a+b``
+        三种**真在跑不同东西**的调用撞成同一指纹，第 3 次起被拦 —— 我本轮被拦 3 次。
+        """
+        mw = LoopDetectionMiddleware()
+        seen = set()
+        for cmd in (
+            "cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest tests/a.py -q",
+            "cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest tests/b.py -q",
+            "cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest tests/a.py tests/b.py -q",
+            "cd /d/repo && ruff check x.py && cd backend && PYTHONPATH=packages/harness python -m pytest tests/c.py -q",
+        ):
+            call = _bash_call(cmd, call_id=f"c_{len(seen)}")
+            out = mw._check_explore_loops("gate-thread", [call])
+            assert out is None, f"{cmd} tripped at #{len(seen)}: {out}"
+            seen.add(_terminal_command_fingerprint(call["args"]))
+        assert len(seen) == 4, seen
+
+    def test_echo_tail_does_not_replace_real_focus(self):
+        """``bash -n x.sh && echo SH_OK`` 的指纹必须落在 x.sh 上，尾巴 echo 不算"跑的东西"。"""
+        a = _terminal_command_fingerprint({"command": "cd /d/repo && bash -n scripts/a.sh && echo SH_OK"})
+        b = _terminal_command_fingerprint({"command": "cd /d/repo && bash -n scripts/b.sh && echo SH_OK"})
+        assert a == "terminal:bash -n a.sh", a
+        assert a != b, (a, b)
 
     def test_success_results_not_tracked(self):
         mw = LoopDetectionMiddleware()

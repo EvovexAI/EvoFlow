@@ -9,6 +9,7 @@ the graph.
 import hashlib
 import json
 import logging
+import re  # 【fullstack-dev · 2026-11-15 · 第12轮】新增：_strip_env_assignments 要识别 VAR= 前缀
 import threading
 import time
 from collections import OrderedDict, defaultdict
@@ -384,16 +385,43 @@ def _split_shell_segments(cmd: str) -> list[str]:
     return [s for s in segments if s]
 
 
+def _strip_env_assignments(tokens: list[str]) -> list[str]:
+    """Drop leading ``VAR=value`` shells so the interpreter becomes ``parts[0]``.
+
+    【fullstack-dev · 2026-11-15 · 第12轮】新建。
+    只剥**行首连续**的赋值（``FOO=1 BAR=2 python -m pytest`` → ``python -m pytest``）；
+    命令中途的 ``K=V``（``pytest -k "foo"`` 之类）原样保留，避免误吞参数。
+    """
+    out = list(tokens)
+    while out and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", out[0]):
+        out.pop(0)
+    return out
+
+
 def _terminal_focus_segment(cmd: str) -> str:
-    """Prefer the last non-``cd`` segment so ``cd X; node script …`` fingerprints the script."""
+    """Prefer the last substantive segment so ``cd X; python -m pytest tests/y.py`` fingerprints the test.
+
+    【fullstack-dev · 2026-11-15 · 第12轮】改：从"最后一段非 cd"改为"最后一段既非 cd、也非纯 cd+&& 前缀"，
+    并把 ``VAR=value`` 前缀视作噪音 —— 取**最后一段真正跑东西的**命令。
+    为什么：本岗门禁一律是 ``cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest tests/x.py``；
+    旧写法只看末段，而带 ``; echo`` / 管道尾巴的写法会把焦点段带到 ``echo`` 上，同一门禁的不同次跑
+    反而指纹不同（拦与不拦变成随机），与上一条缺陷一样都会让我白绕一步。
+    """
     segments = _split_shell_segments(cmd)
     if not segments:
         return cmd.strip()
     for seg in reversed(segments):
         low = seg.strip().lower()
-        if low == "cd" or low.startswith("cd ") or low.startswith("chdir "):
+        if not low or low == "cd" or low.startswith("cd ") or low.startswith("chdir "):
             continue
-        return seg.strip()
+        # 【fullstack-dev · 2026-11-15 · 第12轮】补：尾巴上的 echo/printf 不算"跑的东西"。
+        # 为什么：我常在门禁后接 ``&& echo SH_OK`` 确认成功，旧写法把焦点落在 echo 上 ——
+        # 同一条 ``bash -n x.sh`` 加不加尾巴就是两个指纹，拦与不拦变随机。
+        stripped = _strip_env_assignments(low.split())
+        if stripped and stripped[0] in {"echo", "printf"}:
+            continue
+        if _strip_env_assignments(seg.strip().split()):
+            return seg.strip()
     return segments[-1].strip()
 
 
@@ -417,6 +445,23 @@ def _terminal_subcommand_token(token: str) -> str | None:
     return raw.lower()
 
 
+def _terminal_positional_token(token: str) -> str | None:
+    """Positional arg of an interpreter command worth fingerprinting (test file / dir / expr).
+
+    与 ``_terminal_subcommand_token`` 的区别：这里**允许带路径**，但只取 basename，
+    这样 ``pytest tests/a.py`` 与 ``pytest tests/b.py`` 不同指纹（真在跑不同的东西），
+    而 ``cd`` 到别的目录再跑同一文件仍算同一目标。flags（``-q``/``--tb=short``）一律忽略。
+    """
+    raw = str(token or "").strip().strip("'\"")
+    if not raw or raw.startswith("-"):
+        return None
+    if raw.startswith("{") or raw.startswith("["):
+        return None
+    base = _script_basename(raw).rstrip("/")
+    # 解释器的 ``-c "…`` 内联代码不配当指纹后缀（整段代码进 tokens 会让每次改写都算"不同目标"）。
+    return base[:48] if base and base not in {"-c"} else None
+
+
 def _terminal_command_fingerprint(args: dict) -> str | None:
     """Normalize terminal command for loop detection (verb/script, not cwd-only).
 
@@ -430,7 +475,12 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
     if not cmd:
         return None
     focus = _terminal_focus_segment(cmd)
-    parts = focus.split()
+    # 【fullstack-dev · 2026-11-15 · 第12轮】改：先剥掉行首 ``VAR=value``，再看是不是解释器。
+    # 为什么：本岗门禁一律写成 ``PYTHONPATH=packages/harness:. python -m pytest tests/x.py``，
+    # 旧逻辑取「前 2 个 token」当兜底指纹，而这 2 个 token 恰好是 ``PYTHONPATH=… python`` ——
+    # 被测文件根本不进指纹，于是"跑 A 测试""跑 B 测试""跑 A+B"三个不同调用撞成同一指纹，
+    # 第 3 次起被判重复探索直接拦截（本轮实拦 3 次，每次都要我换写法绕，白烧一轮）。
+    parts = _strip_env_assignments(focus.split())
     if not parts:
         return None
     first = parts[0].lower()
@@ -440,21 +490,48 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
     # Interpreters: program + script basename + optional subcommand
     if first in {"npx", "node", "npm", "python", "python3", "pip", "pip3"}:
         tokens = [first]
-        if len(parts) >= 2:
-            script = _script_basename(parts[1])
-            if script:
-                tokens.append(script)
-        if len(parts) >= 3:
-            sub = _terminal_subcommand_token(parts[2])
-            if sub:
-                tokens.append(sub)
+        rest = parts[1:]
+        # 【fullstack-dev · 2026-11-15 · 第12轮】改：``-m 模块`` 也当作"被跑的东西"，并把后续位置参数
+        # （测试文件/目录）取前 3 个进指纹；旧写法只看前 3 个 token，于是
+        # ``python -m pytest tests/a.py`` 与 ``python -m pytest tests/b.py`` 指纹相同 ——
+        # 换个文件再跑照样被判"重复探索"，这是本轮拦 3 次的直接原因。
+        if rest and rest[0] == "-m" and len(rest) >= 2:
+            tokens.append(f"m:{_script_basename(rest[1])}")
+            for tok in rest[2:]:
+                pos = _terminal_positional_token(tok)
+                if pos:
+                    tokens.append(pos)
+                if len(tokens) >= 5:
+                    break
+        else:
+            if rest:
+                script = _script_basename(rest[0])
+                if script:
+                    tokens.append(script)
+            if len(rest) >= 2:
+                sub = _terminal_subcommand_token(rest[1])
+                if sub:
+                    tokens.append(sub)
         return f"terminal:{':'.join(tokens)}"
     if first in {"cd", "chdir"}:
         # Bare cd (no useful following segment) — weak fingerprint on target only
         target = parts[1].lower() if len(parts) >= 2 else ""
         return f"terminal:cd:{target}" if target else "terminal:cd"
-    # Default: first 2 tokens
-    return f"terminal:{' '.join(parts[:2]).lower()}"
+    # Default: first 2 tokens + positional target.
+    # 【fullstack-dev · 2026-11-15 · 第12轮】改：追加位置参数（取 basename）。
+    # 为什么：旧写法只取前 2 token，``bash -n scripts/a.sh`` 与 ``bash -n scripts/b.sh`` 同为
+    # ``terminal:bash -n`` —— 与被拦的 pytest 那条是**同一个缺陷的另一半**：校验对象不同却被判成重复调用。
+    # 边界：flags 一律忽略，位置参数最多 2 个，避免长命令行把指纹撑得谁都不撞（那会削弱检测）。
+    tokens = [first]
+    for tok in parts[1:]:
+        pos = _terminal_positional_token(tok)
+        if pos:
+            tokens.append(pos)
+        else:
+            tokens.append(tok.lower().rstrip("&|;"))
+        if len(tokens) >= 3:
+            break
+    return f"terminal:{' '.join(tokens)}"
 
 
 def _terminal_tool_fingerprint(tool_call: dict) -> str | None:

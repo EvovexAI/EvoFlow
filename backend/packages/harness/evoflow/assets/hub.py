@@ -756,8 +756,9 @@ def save_craft_note(
     content: str = "",
     description: str = "",
     update_path: str = "",
+    mode: str = "",
 ) -> dict[str, Any]:
-    """Write ``craft/{slug}.md``. Pass ``update_path`` to overwrite a model-chosen file."""
+    """Write ``craft/{slug}.md``. ``update_path`` now **appends**; pass ``mode=replace`` to overwrite."""
     from evoflow.assets.craft import save_craft_from_experience
 
     t = str(title or "").strip()
@@ -777,6 +778,33 @@ def save_craft_note(
         rel = _unique_rel_name(entity, "craft", slug)
         skill_name = Path(rel).stem
         updated = False
+    # 【fullstack-dev · 2026-11-15 · 第12轮】改：update_path 命中已有文件时，从"整篇重建覆盖"改为追加一节。
+    # 为什么：我按工具自己写的规矩（``note`` 默认追加、``write`` 才要 mode=replace）用 note 更新 craft 配方，
+    # 结果 ``save_craft_from_experience`` 把文件**整份重写**，上一轮写的两段分析直接没了，回执还是 ``ok:true``
+    # —— 这就是本岗判据里的"静默丢数据还说成功"，比双标题严重得多（双标题只多占篇幅，这个吞内容）。
+    # 边界：只有显式 ``mode=replace`` 才走整篇重建（保留原行为）；新建（无 update_path / 文件不存在）仍整篇写。
+    # 追加时不动 frontmatter 的 description/experience_id：那是列表预览与外部引用用的，不该被每次追加改写。
+    if updated and str(mode or "").strip().lower() != "replace":
+        from datetime import datetime
+
+        target = resolve_entity_file(e, rel)
+        with lock_for(target):
+            try:
+                existing = target.read_text(encoding="utf-8") if target.is_file() else ""
+            except OSError:
+                existing = ""
+            # frontmatter 原样保留（name/description/experience_id 是列表预览与外部引用键，
+            # 不该被每次追加改写），只在正文尾部接一节 —— 与 write_journal 的追加写法同一口径。
+            head, old_body = existing, ""
+            if existing.startswith("---"):
+                blocks = existing.split("---", 2)
+                if len(blocks) >= 3:
+                    head, old_body = blocks[0] + "---" + blocks[1] + "---\n", blocks[2].lstrip("\n")
+            stamp = datetime.now(UTC).astimezone().strftime("%H:%M")
+            merged = (old_body.rstrip() + f"\n\n## 补充（{stamp}）\n\n{body}\n") if old_body else f"{body}\n"
+            atomic_write_text(target, (head.rstrip("\n") + "\n\n" + merged).rstrip() + "\n")
+        data = read_text_file(e, rel)
+        return {**data, "updated": True, "path": rel, "appended": True}
     data = save_craft_from_experience(
         {
             "title": t,

@@ -324,12 +324,16 @@ def write_ad_hoc_note(
         data = append_standing_long_term(entity, body)
         return {**data, "kind": "standing", "tag": tag, "source": source, "updated": False}
     if tag == "experience":
+        # 【fullstack-dev · 2026-11-15 · 第12轮】改：把 mode 透传给 save_craft_note。
+        # 为什么：此前 mode 只被 preference 分支（standing 覆盖）使用，experience 分支直接丢掉，
+        # 于是 craft 的 update_path 永远走"整篇重建"，与工具说明里"note 默认追加"相反。
         data = save_craft_note(
             entity,
             title=hint or "经验",
             content=body,
             description=hint[:30],
             update_path=upd if upd.startswith("craft/") else "",
+            mode=mode_l,
         )
         return {**data, "kind": "craft", "tag": tag, "source": source}
     if tag == "reflection":

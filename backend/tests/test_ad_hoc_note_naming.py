@@ -129,7 +129,15 @@ def test_process_update_path_overwrites(asset_home: Path) -> None:
     assert len(list((entity_root(entity) / "memory" / "episodic").glob("*.md"))) == 1
 
 
-def test_craft_update_path_overwrites(asset_home: Path) -> None:
+def test_craft_update_path_appends_not_overwrites(asset_home: Path) -> None:
+    """【fullstack-dev · 2026-11-15 · 第12轮】改（原名 test_craft_update_path_overwrites）。
+
+    为什么改名并加断言：note 更新 craft 此前是**整篇重建** —— 我按提示词里「往已有文件上追加一段」
+    的规矩用它更新配方，上一轮写的两段分析被静默吞掉，回执还是 ok:true。
+    现改为追加一节（``mode=replace`` 才整篇覆盖，见 test_craft_note_append_not_overwrite.py）。
+    同型的「update_path 覆盖」在 episodic / journal 两处仍存在，本岗有意**未一并改**：
+    那条「Runtime must not auto-merge by title」是他人钉住的意图，要动得先由总监确认。
+    """
     entity = EntityRef("employee", "ops")
     first = write_ad_hoc_note(
         entity,
@@ -146,7 +154,9 @@ def test_craft_update_path_overwrites(asset_home: Path) -> None:
     )
     assert second.get("updated") is True
     assert str(second.get("path") or "").replace("\\", "/") == rel
-    assert "本地缓存" in (entity_root(entity) / rel).read_text(encoding="utf-8")
+    text = (entity_root(entity) / rel).read_text(encoding="utf-8")
+    assert "本地缓存" in text
+    assert "旧：直接失败。" in text, text  # 追加语义：旧内容必须在
 
 
 def test_preference_appends_without_replace(asset_home: Path) -> None:
