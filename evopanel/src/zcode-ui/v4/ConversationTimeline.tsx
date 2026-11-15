@@ -1703,6 +1703,10 @@ function ConversationTimelineImpl({
   // terminal 会同时迁移 live tail、自动折叠历史并
   // 触发 virtualizer 多阶段测高；这些 scrollTop 回退属于布局，必须保持 following。
   // 若同帧有用户向上滚动，capture handler 会先登记 awayFromBottom，本 effect 必须让位。
+  //
+  // 依赖用 rowWindowKey（窗缘 rowId）+ totalSize，禁止绑 rows 数组引用：
+  // 投影每帧都是新 window 数组，layout 里再 setState（following / viewport）会与
+  // 侧栏开合 / 切会话叠成 React #185（Maximum update depth）。流式长高靠 totalSize。
   useLayoutEffect(() => {
     const element = scrollRef.current;
     markLayoutScrollGuard();
@@ -1733,7 +1737,7 @@ function ConversationTimelineImpl({
     headerSlotHeight,
     pendingGuideKey,
     rowCount,
-    rows,
+    rowWindowKey,
     scrollToBottom,
     totalSize,
   ]);

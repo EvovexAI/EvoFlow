@@ -646,12 +646,12 @@ def get_knowledge_stats(days: int = 7) -> dict[str, Any]:
     sample_hit = False
     sample_detail = ""
 
-    # Vault configs via admin/store
+    # Owned knowledge bases via admin/store (legacy vault API removed 知识库归一)
     try:
         from evoflow.admin import knowledge as knowledge_admin
 
-        listed = knowledge_admin.list_vaults()
-        items = listed.get("vaults") or listed.get("items") or []
+        listed = knowledge_admin.list_bases()
+        items = listed.get("items") or listed.get("vaults") or []
         vaults = int(listed.get("count") or len(items) or 0)
         # Count notes in first few vaults (list API name varies)
         for v in items[:5]:

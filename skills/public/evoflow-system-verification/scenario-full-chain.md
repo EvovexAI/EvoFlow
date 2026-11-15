@@ -137,11 +137,11 @@
 
 | 序 | API | 真实怎么做 | 产出/验收 |
 |----|-----|------------|-----------|
-| D1 | knowledge.list | 选库 | **vaultId** |
-| D2 | knowledge.create | 无合适库则建 `verify-content-ops` | vaultId |
-| D3 | knowledge.enable | enabled=true | ok |
+| D1 | knowledge.list | 选库 | **vaultId** / **kbId** |
+| D2 | knowledge.create | 无合适库则建 `verify-content-ops` | kbId |
+| D3 | （原 knowledge.enable） | **skipped** — Obsidian Vault 遗留 API 已退役；自有库无需启用 | — |
 | D4 | knowledge.ingest | 正文含 item 标题 + run 摘要 | **notePath** |
-| D5 | knowledge.notes | vaultId | 含新笔记 |
+| D5 | knowledge.notes | kbId | 含新笔记 |
 | D6 | knowledge.note_get | path | 关键词命中 |
 | D7 | knowledge.search | `AI工具提效` | hits 相关 |
 | D8 | assets craft（对话 `assets` 工具） | 引用 itemId/runId 写 craft；`experience.*` / `memory.*` 已退役 | **craft 条目或 skipped** |

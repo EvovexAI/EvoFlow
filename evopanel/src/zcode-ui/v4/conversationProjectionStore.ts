@@ -1331,56 +1331,95 @@ export class ConversationProjectionStore {
    * 最新 realUser 行和前面轮次都被截在窗口之外。逐页 loadOlder 直到：
    * ① 窗口首行所在轮补到 turnHeader；② 直播中窗口里出现 realUser 行；
    * ③ 没有更早行 / 首行不再前进 / 达到页数上限（有界，不做全量）。
+   *
+   * **批量拉取、一次性提交**（对齐 loadAllOlder 的纪律「等全部页成功后只换一次
+   * snapshot」）：逐页 commit 会让 timeline 每页重建 render units + virtualizer
+   * 并重新锚定——大会话打开时表现为「从上滚到下再滚一遍」（2026-11-16 用户实锤）。
    * 合并软顶放大到 1200（行内重载荷已在服务端截断），prefer head 只保历史页——
    * 页数上限 × 页大小 < 软顶，不会裁到流式尾部。
    */
   async autoBackfillForRestore(maxPages: number = 8): Promise<void> {
     if (this.closed || this.state.loadingOlder) return;
-    for (let page = 0; page < Math.max(1, maxPages); page += 1) {
-      const snapshot = this.state.snapshot;
-      if (!snapshot || !hasOlderRows(snapshot)) return;
-      const window = snapshot.rows.window;
-      if (!Array.isArray(window) || window.length === 0) return;
-      const leadingIncomplete = !window.some(
-        (r) => r.turnId === window[0]?.turnId && r.kind === "turnHeader",
-      );
-      const turnLive = snapshot.control?.canStop === true;
-      const userMissing = turnLive && !window.some(
-        (r) => r.kind === "userInput" && r.origin === "realUser",
-      );
-      if (!leadingIncomplete && !userMissing) return;
-      const beforeFirstRowId = window[0]?.rowId;
-      this.setState({ loadingOlder: true });
-      try {
-        const sessionId = parseConversationTopic(this.topic);
-        if (!sessionId) return;
+    const startSnapshot = this.state.snapshot;
+    if (!startSnapshot || !hasOlderRows(startSnapshot)) return;
+    const startWindow = startSnapshot.rows.window;
+    if (!Array.isArray(startWindow) || startWindow.length === 0) return;
+    const sessionId = parseConversationTopic(this.topic);
+    if (!sessionId) return;
+    const startEpoch = startSnapshot.logEpoch;
+    const startFirstRowId = startWindow[0]?.rowId;
+    // 触发条件在起点快照上判定（拉取期间窗口首行不变，尾部 delta 追加不影响）。
+    const leadingIncomplete = !startWindow.some(
+      (r) => r.turnId === startWindow[0]?.turnId && r.kind === "turnHeader",
+    );
+    const turnLive = startSnapshot.control?.canStop === true;
+    const userMissing =
+      turnLive &&
+      !startWindow.some((r) => r.kind === "userInput" && r.origin === "realUser");
+    if (!leadingIncomplete && !userMissing) return;
+
+    this.setState({ loadingOlder: true });
+    try {
+      let beforeRowId = startFirstRowId;
+      const combined: ConversationRow[] = [];
+      for (let page = 0; page < Math.max(1, maxPages); page += 1) {
         const result = await this.transport.rowsRange({
           sessionId,
-          beforeRowId: beforeFirstRowId,
+          beforeRowId,
           limit: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
         });
         if (this.closed) return;
         const current = this.state.snapshot;
-        if (!current || result.atLogEpoch !== current.logEpoch) return;
-        if (current.rows.window[0]?.rowId !== beforeFirstRowId) return;
-        const merged = mergeOlderRows(current.rows.window, result.rows, {
-          softCap: 1_200,
-          prefer: "head",
-        });
-        if (merged === null) return; // 没有更早行 → 到顶
-        this.setState({
-          snapshot: { ...current, rows: { ...current.rows, window: merged } },
-        });
-        // 首行没前进（服务端没有更早行）→ 停，防空转。
-        if (this.state.snapshot?.rows.window[0]?.rowId === beforeFirstRowId) return;
-      } catch (error) {
-        logger.warn(
-          `[v4-store] autoBackfill ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+        if (
+          !current ||
+          result.atLogEpoch !== startEpoch ||
+          current.logEpoch !== startEpoch ||
+          current.rows.window[0]?.rowId !== startFirstRowId
+        ) {
+          return; // 代际/游标失效：本次补拉作废，下次触发按新窗口重来
+        }
+        const known = new Set(combined.map((r) => r.rowId));
+        const older = result.rows.filter(
+          (r) => r.rowId < (beforeRowId ?? Number.POSITIVE_INFINITY) && !known.has(r.rowId),
         );
-        return;
-      } finally {
-        if (!this.closed) this.setState({ loadingOlder: false });
+        if (older.length === 0) break; // 没有更早行 → 到顶
+        combined.unshift(...older); // rows/range 升序返回，头插保持整体升序
+        beforeRowId = older[0]?.rowId;
+        // 停止条件按「已拉到的行 + 原窗口」预判，满足即不再翻页：
+        const projectedLeading = combined[0]?.turnId;
+        const leadingSettled =
+          projectedLeading != null &&
+          combined.some((r) => r.turnId === projectedLeading && r.kind === "turnHeader");
+        const userSettled =
+          !turnLive ||
+          combined.some((r) => r.kind === "userInput" && r.origin === "realUser");
+        if ((leadingIncomplete && leadingSettled) || (userMissing && userSettled)) break;
+        if (result.rows.length < PROTOCOL_V4_LIMITS.snapshotTailWindowRows) break; // 到顶
       }
+      if (combined.length === 0) return;
+      const current = this.state.snapshot;
+      if (
+        !current ||
+        current.logEpoch !== startEpoch ||
+        current.rows.window[0]?.rowId !== startFirstRowId
+      ) {
+        return;
+      }
+      // 一次性提交：单次重排 + 单次锚定
+      const merged = mergeOlderRows(current.rows.window, combined, {
+        softCap: Math.max(resolveProjectionWindowSoftCap(), 1_200),
+        prefer: "head",
+      });
+      if (merged === null) return;
+      this.setState({
+        snapshot: { ...current, rows: { ...current.rows, window: merged } },
+      });
+    } catch (error) {
+      logger.warn(
+        `[v4-store] autoBackfill ${this.topic} 失败: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    } finally {
+      if (!this.closed) this.setState({ loadingOlder: false });
     }
   }
 

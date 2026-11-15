@@ -202,6 +202,82 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(migrate_p)
     migrate_p.set_defaults(handler=_migrate_work_items)
 
+    org_p = sub.add_parser(
+        "org-status",
+        help="Roster summary: counts / busy / pending approvals (platform: employees.org_status)",
+    )
+    add_output_flags(org_p)
+    org_p.set_defaults(handler=_org_status)
+
+    board_p = sub.add_parser(
+        "board",
+        help="Cross-role open-task board (platform: employees.board_overview)",
+    )
+    board_p.add_argument("--limit", type=int, default=8, help="Limit per role")
+    add_output_flags(board_p)
+    board_p.set_defaults(handler=_board)
+
+    brief_p = sub.add_parser(
+        "brief",
+        help="Single-role brief (platform: employees.brief)",
+    )
+    brief_p.add_argument("agent_code", help="agent_code or role_name")
+    brief_p.add_argument("--task-limit", type=int, default=8)
+    brief_p.add_argument("--no-trail", action="store_true", help="Omit execution trail")
+    add_output_flags(brief_p)
+    brief_p.set_defaults(handler=_brief)
+
+    chat_p = sub.add_parser(
+        "chat",
+        help="Queue a chat message to an employee (platform: employees.chat_send)",
+    )
+    chat_p.add_argument("agent_code", help="agent_code or role_name")
+    chat_p.add_argument("--message", "-m", required=True, help="Message text")
+    chat_p.add_argument("--session-key", default="", help="Optional session key")
+    chat_p.add_argument("--task-id", default="", help="Optional related task id")
+    chat_p.add_argument("--source", default="", help="Optional source label")
+    add_output_flags(chat_p)
+    chat_p.set_defaults(handler=_chat)
+
+    msgs_p = sub.add_parser(
+        "messages",
+        help="Read recent employee chat messages (platform: employees.messages)",
+    )
+    msgs_p.add_argument("agent_code", help="agent_code or role_name")
+    msgs_p.add_argument("--session-key", default="", help="Optional session key")
+    msgs_p.add_argument("--limit", type=int, default=20)
+    add_output_flags(msgs_p)
+    msgs_p.set_defaults(handler=_messages)
+
+    bind_begin = sub.add_parser(
+        "bind-channel-begin",
+        help="Start IM QR binding (platform: employees.bind_channel_begin)",
+    )
+    bind_begin.add_argument("agent_code")
+    bind_begin.add_argument("--channel", default="feishu", help="feishu|wecom|…")
+    add_output_flags(bind_begin)
+    bind_begin.set_defaults(handler=_bind_begin)
+
+    bind_poll = sub.add_parser(
+        "bind-channel-poll",
+        help="Poll IM QR binding (platform: employees.bind_channel_poll)",
+    )
+    bind_poll.add_argument("agent_code")
+    bind_poll.add_argument("--session-id", required=True)
+    bind_poll.add_argument("--channel", default="feishu")
+    add_output_flags(bind_poll)
+    bind_poll.set_defaults(handler=_bind_poll)
+
+    bind_apply = sub.add_parser(
+        "bind-channel-apply",
+        help="Apply completed IM binding (platform: employees.bind_channel_apply)",
+    )
+    bind_apply.add_argument("agent_code")
+    bind_apply.add_argument("--session-id", required=True)
+    bind_apply.add_argument("--channel", default="feishu")
+    add_output_flags(bind_apply)
+    bind_apply.set_defaults(handler=_bind_apply)
+
 
 def _list(args: argparse.Namespace):
     status = str(getattr(args, "status", "") or "").strip() or None
@@ -301,6 +377,94 @@ def _wake(args: argparse.Namespace):
         round_id=str(getattr(args, "round_id", "") or ""),
         resume_round=bool(getattr(args, "resume_round", False)),
         fresh_round=bool(getattr(args, "fresh_round", False)),
+    )
+
+
+def _org_status(_args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_org_status
+
+    return employees_org_status({})
+
+
+def _board(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_board_overview
+
+    return employees_board_overview({"limit": int(getattr(args, "limit", 8) or 8)})
+
+
+def _brief(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_brief
+
+    return employees_brief(
+        {
+            "agent_code": args.agent_code,
+            "task_limit": int(getattr(args, "task_limit", 8) or 8),
+            "include_trail": not bool(getattr(args, "no_trail", False)),
+        }
+    )
+
+
+def _chat(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_chat_send
+
+    body: dict = {
+        "agent_code": args.agent_code,
+        "message": args.message,
+    }
+    sk = str(getattr(args, "session_key", "") or "").strip()
+    tid = str(getattr(args, "task_id", "") or "").strip()
+    src = str(getattr(args, "source", "") or "").strip()
+    if sk:
+        body["session_key"] = sk
+    if tid:
+        body["task_id"] = tid
+    if src:
+        body["source"] = src
+    return employees_chat_send(body)
+
+
+def _messages(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_messages
+
+    body: dict = {
+        "agent_code": args.agent_code,
+        "limit": int(getattr(args, "limit", 20) or 20),
+    }
+    sk = str(getattr(args, "session_key", "") or "").strip()
+    if sk:
+        body["session_key"] = sk
+    return employees_messages(body)
+
+
+def _bind_begin(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_bind_channel_begin
+
+    return employees_bind_channel_begin(
+        {"agent_code": args.agent_code, "channel": str(getattr(args, "channel", "feishu") or "feishu")}
+    )
+
+
+def _bind_poll(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_bind_channel_poll
+
+    return employees_bind_channel_poll(
+        {
+            "agent_code": args.agent_code,
+            "session_id": args.session_id,
+            "channel": str(getattr(args, "channel", "feishu") or "feishu"),
+        }
+    )
+
+
+def _bind_apply(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_bind_channel_apply
+
+    return employees_bind_channel_apply(
+        {
+            "agent_code": args.agent_code,
+            "session_id": args.session_id,
+            "channel": str(getattr(args, "channel", "feishu") or "feishu"),
+        }
     )
 
 

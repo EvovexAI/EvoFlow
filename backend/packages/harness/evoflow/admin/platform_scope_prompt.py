@@ -82,7 +82,8 @@ def build_capability_profile_text(
     # mode == "custom"
     from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
-    allowed = set(allowed_action_names(scope, get_registry().values()))
+    allowed_list = allowed_action_names(scope, get_registry().values()) or []
+    allowed = set(allowed_list)
     by_domain: dict[str, list[str]] = {}
     confirm_by_name: dict[str, bool] = {}
     for entry in get_registry().values():

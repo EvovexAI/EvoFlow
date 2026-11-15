@@ -23,6 +23,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(get_parser)
     get_parser.set_defaults(handler=_get)
 
+    bindings_parser = agents_sub.add_parser(
+        "bindings",
+        help="List assignable tools/skills/MCP (platform: agents.bindings)",
+    )
+    bindings_parser.add_argument(
+        "--include-disabled-skills",
+        action="store_true",
+        help="Include disabled skills in the catalog",
+    )
+    add_output_flags(bindings_parser)
+    bindings_parser.set_defaults(handler=_bindings)
+
     check_parser = agents_sub.add_parser("check", help="Check if agent name is available")
     check_parser.add_argument("name")
     add_output_flags(check_parser)
@@ -78,6 +90,14 @@ def _list(args: argparse.Namespace):
 
 def _get(args: argparse.Namespace):
     return agents_admin.get_agent(args.name)
+
+
+def _bindings(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import agents_bindings
+
+    return agents_bindings(
+        {"include_disabled_skills": bool(getattr(args, "include_disabled_skills", False))}
+    )
 
 
 def _check(args: argparse.Namespace):

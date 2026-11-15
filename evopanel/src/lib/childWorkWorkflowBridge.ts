@@ -109,6 +109,8 @@ const CHILD_WORK_TERMINAL_RUN_STATUS: Record<string, WorkflowRunState["status"]>
   interrupted: "stopped",
 };
 
+const EMPTY_WORKFLOW_RUNS: WorkflowRunState[] = [];
+
 /** 把 childWorks 投影合并进 snapshot.workflowRuns（同 runId 以 snapshot 为准）。 */
 export function mergeWorkflowRunsWithChildWorks(
   snapshotRuns: readonly WorkflowRunState[] | undefined,
@@ -139,6 +141,7 @@ export function mergeWorkflowRunsWithChildWorks(
       byId.set(runId, { ...run, status: terminal });
     }
   }
+  if (byId.size === 0) return EMPTY_WORKFLOW_RUNS;
   return [...byId.values()];
 }
 

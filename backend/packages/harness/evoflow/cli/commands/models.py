@@ -117,6 +117,36 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(remote_parser)
     remote_parser.set_defaults(handler=_list_remote)
 
+    # Web search settings live under platform settings.* — exposed here so ops
+    # have one models/settings surface without a separate `evoflow settings` cmd.
+    ws_get = models_sub.add_parser(
+        "web-search-get",
+        help="Get web-search settings (platform: settings.get_web_search)",
+    )
+    add_output_flags(ws_get)
+    ws_get.set_defaults(handler=_web_search_get)
+
+    ws_patch = models_sub.add_parser(
+        "web-search-patch",
+        help="Patch web-search settings (platform: settings.patch_web_search)",
+        description="JSON via --file/--stdin: preferredBackend?, doubaoApiKey?, bochaApiKey?, …",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    add_json_input_flags(ws_patch)
+    add_output_flags(ws_patch)
+    ws_patch.set_defaults(handler=_web_search_patch)
+
+    ws_test = models_sub.add_parser(
+        "web-search-test",
+        help="Probe web-search backends (platform: settings.test_web_search)",
+    )
+    ws_test.add_argument("--query", default="", help="Optional probe query")
+    ws_test.add_argument("--engines", default="", help="Comma/space-separated engine ids")
+    ws_test.add_argument("--max-results", type=int, default=5)
+    ws_test.add_argument("--adopt-recommended", action="store_true")
+    add_output_flags(ws_test)
+    ws_test.set_defaults(handler=_web_search_test)
+
 
 def _list(args: argparse.Namespace):
     return models_admin.list_models()
@@ -171,3 +201,32 @@ def _list_remote(args: argparse.Namespace):
     if payload is None:
         raise ValidationError("Provide JSON via --file or --stdin")
     return models_admin.list_remote_models(payload)
+
+
+def _web_search_get(_args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import settings_get_web_search
+
+    return settings_get_web_search({})
+
+
+def _web_search_patch(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import settings_patch_web_search
+
+    payload = load_json_payload(args)
+    if not isinstance(payload, dict):
+        raise ValidationError("Provide JSON via --file or --stdin")
+    return settings_patch_web_search(payload)
+
+
+def _web_search_test(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import settings_test_web_search
+
+    engines = str(getattr(args, "engines", "") or "").strip() or None
+    return settings_test_web_search(
+        {
+            "query": str(getattr(args, "query", "") or "").strip() or None,
+            "engines": engines,
+            "max_results": int(getattr(args, "max_results", 5) or 5),
+            "adopt_recommended": bool(getattr(args, "adopt_recommended", False)),
+        }
+    )

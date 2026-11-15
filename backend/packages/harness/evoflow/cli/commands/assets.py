@@ -10,7 +10,7 @@ from evoflow.assets.migrate import (
     migrate_memory_namespaces,
     migrate_slim_atoms,
 )
-from evoflow.cli.common import add_output_flags
+from evoflow.cli.common import add_json_input_flags, add_output_flags, load_json_payload
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
@@ -20,6 +20,26 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     init_p = sub.add_parser("init", help="Ensure assets tree + builtin vault")
     add_output_flags(init_p)
     init_p.set_defaults(handler=_init)
+
+    profile_get = sub.add_parser(
+        "get-profile",
+        help="Read user profile (platform: assets.get_profile)",
+    )
+    add_output_flags(profile_get)
+    profile_get.set_defaults(handler=_get_profile)
+
+    profile_upd = sub.add_parser(
+        "update-profile",
+        help="Update user profile dimension (platform: assets.update_profile)",
+        description="JSON via --file/--stdin: path/dimension?, content (required), mode?=append|replace",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    profile_upd.add_argument("--path", default="", help="Dimension path (default USER.md)")
+    profile_upd.add_argument("--content", default="", help="Content text (or pass via JSON)")
+    profile_upd.add_argument("--mode", default="append", help="append|replace")
+    add_json_input_flags(profile_upd)
+    add_output_flags(profile_upd)
+    profile_upd.set_defaults(handler=_update_profile)
 
     mig_p = sub.add_parser("migrate", help="Migrate legacy SQLite data into asset files")
     mig_p.add_argument("--dry-run", action="store_true", help="Report only, do not write")
@@ -49,10 +69,32 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _init(_args: argparse.Namespace):
-    from evoflow.assets.hub import ensure_assets_tree, list_entities
+    from evoflow.admin.platform_handlers import assets_init
 
-    root = ensure_assets_tree()
-    return {"ok": True, "root": str(root.resolve()), "entities": list_entities()}
+    return assets_init({})
+
+
+def _get_profile(_args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import assets_get_profile
+
+    return assets_get_profile({})
+
+
+def _update_profile(args: argparse.Namespace):
+    from evoflow.admin.errors import ValidationError
+    from evoflow.admin.platform_handlers import assets_update_profile
+
+    payload = load_json_payload(args)
+    data = dict(payload) if isinstance(payload, dict) else {}
+    path = str(args.path or data.get("path") or data.get("dimension") or data.get("dim") or "").strip()
+    content = args.content or data.get("content") or data.get("text") or data.get("profile")
+    mode = str(args.mode or data.get("mode") or "append").strip() or "append"
+    if content is None or not str(content).strip():
+        raise ValidationError("content is required (--content or JSON.content)")
+    body: dict = {"content": content, "mode": mode}
+    if path:
+        body["path"] = path
+    return assets_update_profile(body)
 
 
 def _migrate(args: argparse.Namespace):

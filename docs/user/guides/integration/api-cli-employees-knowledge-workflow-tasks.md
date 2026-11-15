@@ -176,15 +176,14 @@ curl -s -X POST http://127.0.0.1:8001/api/knowledge/owned/bases/<kbId>/search \
 
 | action / CLI | 风险 | 主要入参 | 出参要点 |
 |--------------|------|----------|----------|
-| `knowledge.list` · `evoflow knowledge list` | read | 无；CLI 可 `--vault` / `--prefix` | 自有库列表 |
+| `knowledge.list` · `evoflow knowledge bases` | read | 无 | 自有库列表 |
 | `knowledge.create` · `… create --name` | write | `name`；`description?`，`embeddingModelRef?` | 新建 `kb_…`；需已配置向量模型 |
-| `knowledge.ingest` · CLI `remember` | write | `title`，`content`/`knowledge`；`vaultId?`/`kbId?`，`tags?` | 写入一篇笔记并进入索引队列 |
-| `knowledge.search` · CLI `recall` | read | `query`；`vaultId?`/`kbId?`，`top_k?`，`mode?=hybrid\|semantic\|keyword` | 命中片段列表（默认多库 hybrid） |
-| `knowledge.notes` / `note_get` / `note_delete` | read / destructive | `path`；`vaultId?`/`kbId?` | 笔记列表 / 正文 / 删除结果 |
-| `knowledge.reindex` | write | `kbId`；`embeddingModelRef?`，`force?`（默认 false） | 整库重建向量；`force=true` 强制全量 |
-| `knowledge.requeue` | write | `kbId?`，`limit?` | 重排队卡住的索引任务 |
-| `knowledge.delete` | destructive | `kbId` | 软删；内置库不可删 |
-| `knowledge.enable` | write | `vaultId`，`enabled` | 仅遗留 Obsidian Vault |
+| `knowledge.ingest` · CLI `remember` | write | `title`，`content`/`knowledge`；`vaultId?`/`kbId?`，`inboxPath?` | 写入一篇笔记并进入索引队列 |
+| `knowledge.search` · CLI `recall` | read | `query`；`vaultId?`/`kbId?`，`top_k?`，`mode?=hybrid\|semantic\|keyword`，`category?` | 命中片段列表（默认多库 hybrid） |
+| `knowledge.notes` · CLI `list` / `note_get` · `get` / `note_delete` · `delete` | read / destructive | `path`；`vaultId?`/`kbId?` | 笔记列表 / 正文 / 删除结果 |
+| `knowledge.reindex` · CLI `reindex` | write | `kbId`；`embeddingModelRef?`，`force?`（默认 false） | 整库重建向量；`force=true` 强制全量 |
+| `knowledge.requeue` · CLI `requeue` | write | `kbId?`，`limit?` | 重排队卡住的索引任务 |
+| `knowledge.delete` · CLI `delete-base` | destructive | `kbId` | 软删；内置库不可删（`knowledge.enable` 已随 Obsidian 遗留 API 退役） |
 
 上传 PDF/Office、文件夹导入、问 AI：用 REST `/api/knowledge/owned/bases/{id}/documents`、`…/ask` 等（面板同款），platform 侧重笔记与检索行政操作。
 

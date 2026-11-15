@@ -25,19 +25,35 @@ export function useSessionChildWorks(sessionKey: string | null | undefined) {
 
   const refresh = useCallback(async () => {
     if (!sk) {
-      setWorks([])
+      setWorks((prev) => (prev.length === 0 ? prev : []))
       setOpenCount(0)
       return
     }
     try {
       const st = await fetchSessionExecutionState(sk, { bypassCache: true })
       const list = Array.isArray(st?.childWorks) ? st!.childWorks! : []
-      setWorks(list)
+      // 签名相同不换数组：3s 轮询否则每拍新引用 → workflowRunsRetained / rowContext 空转，
+      // 切会话叠侧栏时易把时间线 layout 推进 React #185。
+      const sig = list
+        .map(
+          (w) =>
+            `${String(w.workId || '')}:${String(w.kind || '')}:${String(w.status || '')}:${String(w.refId || '')}`,
+        )
+        .join('|')
+      setWorks((prev) => {
+        const prevSig = prev
+          .map(
+            (w) =>
+              `${String(w.workId || '')}:${String(w.kind || '')}:${String(w.status || '')}:${String(w.refId || '')}`,
+          )
+          .join('|')
+        return prevSig === sig ? prev : list
+      })
       const n =
         typeof st?.openChildWorkCount === 'number'
           ? st.openChildWorkCount
           : list.filter((w) => isChildWorkActive(w.status)).length
-      setOpenCount(n)
+      setOpenCount((prev) => (prev === n ? prev : n))
       logSessionChildWorksDiff(sk, list)
     } catch {
       /* best-effort */
@@ -46,7 +62,7 @@ export function useSessionChildWorks(sessionKey: string | null | undefined) {
 
   useEffect(() => {
     if (!sk) {
-      setWorks([])
+      setWorks((prev) => (prev.length === 0 ? prev : []))
       setOpenCount(0)
       resetSessionChildWorkLog()
       return

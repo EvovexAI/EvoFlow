@@ -1,4 +1,12 @@
-"""evoflow knowledge — owned knowledge bases (Obsidian vaults are legacy)."""
+"""evoflow knowledge — owned knowledge bases (legacy Obsidian vaults removed).
+
+对齐 platform knowledge.*：``bases``=knowledge.list（列库）、``list``=knowledge.notes
+（列笔记）、``recall``=knowledge.search、``remember``=knowledge.ingest、
+``get``=knowledge.note_get、``delete``=knowledge.note_delete、``create``=knowledge.create、
+``delete-base``=knowledge.delete、``requeue``=knowledge.requeue、``reindex``=knowledge.reindex。
+遗留 Obsidian Vault API（list_vaults/set_vault_enabled/create_managed_vault）已随
+「知识库归一」移除，对应 CLI 死链子命令一并删除。
+"""
 
 from __future__ import annotations
 
@@ -12,26 +20,25 @@ from evoflow.cli.common import add_json_input_flags, add_output_flags, load_json
 def register(subparsers: argparse._SubParsersAction) -> None:
     parser = subparsers.add_parser(
         "knowledge",
-        help="Search / browse owned knowledge bases (Obsidian vaults are legacy)",
+        help="Search / browse platform-owned knowledge bases",
         description=(
-            "Default: self-owned knowledge bases (knowledge.primary=owned).\n"
+            "Platform-owned knowledge bases (kb_…).\n"
             "Omit --vault to search/list across all owned bases; pass --vault kb_… for one base.\n"
-            "Legacy Obsidian vaults: set knowledge.primary=vault, or use `knowledge vaults`."
+            "Subcommands mirror platform knowledge.* (bases/list/recall/remember/get/delete/create)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     sub = parser.add_subparsers(dest="knowledge_cmd", required=True)
 
-    vaults_p = sub.add_parser("vaults", help="List configured Obsidian Knowledge Vaults (legacy)")
-    add_output_flags(vaults_p)
-    vaults_p.set_defaults(handler=_vaults)
+    bases_p = sub.add_parser("bases", help="List owned knowledge bases (platform: knowledge.list)")
+    add_output_flags(bases_p)
+    bases_p.set_defaults(handler=_bases)
 
     create_p = sub.add_parser(
         "create",
-        help="Create a platform-owned knowledge base (default)",
+        help="Create a platform-owned knowledge base (platform: knowledge.create)",
         description=(
-            "Default: create an owned knowledge base (kb_…), same as platform knowledge.create.\n"
-            "Legacy Obsidian vault: pass --legacy-vault (optional --path under EVOFLOW_HOME).\n"
+            "Create an owned knowledge base (kb_…), same as platform knowledge.create.\n"
             "JSON optional via --file/--stdin: name?, description?, embeddingModelRef?"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -44,36 +51,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default="",
         help="Optional embedding model registry ref",
     )
-    create_p.add_argument(
-        "--legacy-vault",
-        action="store_true",
-        help="Create Obsidian vault connection instead of owned KB",
-    )
-    create_p.add_argument("--path", "--vault-path", dest="vault_path", default="", help="Legacy vault directory")
-    create_p.add_argument("--access-mode", default="read_write", help="Legacy vault: read_write|read_only")
-    create_p.add_argument("--disabled", action="store_true", help="Legacy vault: create as disabled")
     add_json_input_flags(create_p)
     add_output_flags(create_p)
     create_p.set_defaults(handler=_create)
 
-    enable_p = sub.add_parser("enable", help="Enable a vault (platform: knowledge.enable)")
-    enable_p.add_argument("vault_id")
-    add_output_flags(enable_p)
-    enable_p.set_defaults(handler=_enable)
-
-    disable_p = sub.add_parser("disable", help="Disable a vault")
-    disable_p.add_argument("vault_id")
-    add_output_flags(disable_p)
-    disable_p.set_defaults(handler=_disable)
-
-    list_p = sub.add_parser("list", help="List documents in owned KB (or vault notes if primary=vault)")
-    list_p.add_argument("--vault", help="Owned kb_… id, or legacy vault id when primary=vault")
+    list_p = sub.add_parser("list", help="List notes in owned KB (platform: knowledge.notes)")
+    list_p.add_argument("--vault", help="Owned kb_… id (optional)")
     list_p.add_argument("--prefix", default="", help="Only notes under this path prefix")
     list_p.add_argument("--limit", type=int, default=80)
     add_output_flags(list_p)
     list_p.set_defaults(handler=_list)
 
-    get_p = sub.add_parser("get", help="Read one document (docId / path) from owned KB")
+    get_p = sub.add_parser("get", help="Read one note (platform: knowledge.note_get)")
     get_p.add_argument("path", help="docId or relative path, e.g. guides/foo.md")
     get_p.add_argument("--vault", help="Owned kb_… id (optional; searches all if omitted)")
     add_output_flags(get_p)
@@ -81,42 +70,82 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     remember_p = sub.add_parser(
         "remember",
-        help="Ingest a note into a read_write vault inbox",
+        help="Ingest a note into an owned KB inbox (platform: knowledge.ingest)",
         description="JSON payload fields:\n"
         "  title (required)               Note title\n"
         "  knowledge|content (required)   Note body\n"
-        "  tags                           Optional tag list\n"
-        "  vaultId                        Optional vault id (or use --vault)\n"
+        "  vaultId                        Optional kb_… id (or use --vault)\n"
         "  inboxPath                      Optional inbox folder (default 00-Inbox)\n",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    remember_p.add_argument("--vault", help="Vault id (must be read_write)")
+    remember_p.add_argument("--vault", help="Owned kb_… id")
     add_json_input_flags(remember_p)
     add_output_flags(remember_p)
     remember_p.set_defaults(handler=_remember)
 
-    recall_p = sub.add_parser("recall", help="Search owned knowledge bases (hybrid by default via owned)")
+    recall_p = sub.add_parser("recall", help="Search owned knowledge bases (platform: knowledge.search)")
     recall_p.add_argument("query")
     recall_p.add_argument("--vault", help="Owned kb_… id (omit = all owned bases)")
     recall_p.add_argument(
         "--mode",
         default="hybrid",
-        help="hybrid|semantic|keyword|title (owned); legacy vault also supports fulltext",
+        help="hybrid|semantic|keyword|title",
     )
     recall_p.add_argument("--category", help="Optional tag filter")
     recall_p.add_argument("--limit", type=int, default=8)
     add_output_flags(recall_p)
     recall_p.set_defaults(handler=_recall)
 
-    del_p = sub.add_parser("delete", help="Delete a note path in a read_write vault")
-    del_p.add_argument("path", help="Vault-relative note path")
-    del_p.add_argument("--vault", help="Vault id")
+    del_p = sub.add_parser("delete", help="Delete a note (platform: knowledge.note_delete)")
+    del_p.add_argument("path", help="KB-relative note path")
+    del_p.add_argument("--vault", help="Owned kb_… id")
     add_output_flags(del_p)
     del_p.set_defaults(handler=_delete)
 
+    delete_base_p = sub.add_parser(
+        "delete-base",
+        help="Delete an owned knowledge base (platform: knowledge.delete)",
+    )
+    delete_base_p.add_argument("kb_id", help="Owned kb_… id")
+    delete_base_p.add_argument(
+        "--yes",
+        "-y",
+        action="store_true",
+        help="Skip interactive confirm (required in non-TTY / agent duty)",
+    )
+    add_output_flags(delete_base_p)
+    delete_base_p.set_defaults(handler=_delete_base)
 
-def _vaults(args: argparse.Namespace):
-    return knowledge_admin.list_vaults()
+    requeue_p = sub.add_parser(
+        "requeue",
+        help="Requeue stuck index jobs (platform: knowledge.requeue)",
+    )
+    requeue_p.add_argument("--vault", "--kb", dest="vault", default="", help="Owned kb_… id (optional)")
+    requeue_p.add_argument("--limit", type=int, default=200)
+    add_output_flags(requeue_p)
+    requeue_p.set_defaults(handler=_requeue)
+
+    reindex_p = sub.add_parser(
+        "reindex",
+        help="Reindex an owned knowledge base (platform: knowledge.reindex)",
+    )
+    reindex_p.add_argument("kb_id", help="Owned kb_… id")
+    reindex_p.add_argument(
+        "--embedding-model-ref",
+        default="",
+        help="Optional embedding model registry ref",
+    )
+    reindex_p.add_argument(
+        "--force",
+        action="store_true",
+        help="Force full rebuild (default: incremental)",
+    )
+    add_output_flags(reindex_p)
+    reindex_p.set_defaults(handler=_reindex)
+
+
+def _bases(args: argparse.Namespace):
+    return knowledge_admin.list_bases()
 
 
 def _create(args: argparse.Namespace):
@@ -125,22 +154,6 @@ def _create(args: argparse.Namespace):
     name = str(args.name or data.get("name") or data.get("title") or "").strip()
     if not name:
         raise ValidationError("name is required (--name or JSON.name)")
-
-    if getattr(args, "legacy_vault", False) or data.get("legacyVault") or data.get("legacy_vault"):
-        path = str(args.vault_path or data.get("vaultPath") or data.get("vault_path") or "").strip() or None
-        access = str(args.access_mode or data.get("accessMode") or data.get("access_mode") or "read_write").strip()
-        enabled = True
-        if args.disabled:
-            enabled = False
-        elif "enabled" in data:
-            enabled = bool(data.get("enabled"))
-        return knowledge_admin.create_managed_vault(
-            name=name,
-            vault_path=path,
-            enabled=enabled,
-            access_mode=access,
-        )
-
     description = str(args.description or data.get("description") or data.get("desc") or "").strip()
     emb_ref = str(args.embedding_model_ref or data.get("embeddingModelRef") or data.get("embedding_model_ref") or "").strip() or None
     return knowledge_admin.create_owned_base(
@@ -148,14 +161,6 @@ def _create(args: argparse.Namespace):
         description=description,
         embedding_model_ref=emb_ref,
     )
-
-
-def _enable(args: argparse.Namespace):
-    return knowledge_admin.set_vault_enabled(args.vault_id, True)
-
-
-def _disable(args: argparse.Namespace):
-    return knowledge_admin.set_vault_enabled(args.vault_id, False)
 
 
 def _list(args: argparse.Namespace):
@@ -189,3 +194,34 @@ def _recall(args: argparse.Namespace):
 
 def _delete(args: argparse.Namespace):
     return knowledge_admin.delete_knowledge(args.path, vault_id=args.vault)
+
+
+def _delete_base(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import knowledge_delete
+
+    if not getattr(args, "yes", False):
+        raise ValidationError("Refusing to delete knowledge base without --yes (irreversible soft-delete)")
+    return knowledge_delete({"kbId": args.kb_id})
+
+
+def _requeue(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import knowledge_requeue
+
+    return knowledge_requeue(
+        {
+            "kbId": str(getattr(args, "vault", "") or "").strip() or None,
+            "limit": int(getattr(args, "limit", 200) or 200),
+        }
+    )
+
+
+def _reindex(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import knowledge_reindex
+
+    return knowledge_reindex(
+        {
+            "kbId": args.kb_id,
+            "embeddingModelRef": str(getattr(args, "embedding_model_ref", "") or "").strip() or None,
+            "force": bool(getattr(args, "force", False)),
+        }
+    )

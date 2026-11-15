@@ -52,10 +52,15 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(runs_p)
     runs_p.set_defaults(handler=_runs)
 
-    show_p = sub.add_parser("show", help="Show one run detail")
+    show_p = sub.add_parser("show", help="Show one run detail (platform: eval.get)")
     show_p.add_argument("run_id")
     add_output_flags(show_p)
     show_p.set_defaults(handler=_show)
+
+    prog_p = sub.add_parser("progress", help="Show run progress (platform: eval.progress)")
+    prog_p.add_argument("run_id")
+    add_output_flags(prog_p)
+    prog_p.set_defaults(handler=_progress)
 
 
 def _run(args: argparse.Namespace):
@@ -100,8 +105,12 @@ def _runs(args: argparse.Namespace):
 
 
 def _show(args: argparse.Namespace):
-    from evoflow.eval import eval_engine as engine
-    from evoflow.persistence.db import get_db
+    from evoflow.admin.platform_handlers import eval_get
 
-    get_db()
-    return engine.get_eval_run(str(args.run_id))
+    return eval_get({"run_id": str(args.run_id)})
+
+
+def _progress(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import eval_progress
+
+    return eval_progress({"run_id": str(args.run_id)})

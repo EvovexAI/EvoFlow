@@ -1297,7 +1297,7 @@ export function V4ZCodeTimeline(props: {
     const prevKey = timelineKeyRef.current;
     timelineKeyRef.current = timelineSessionKey;
     if (!timelineSessionKey || timelineSessionKey === "draft") {
-      setSessionSwitchHold(false);
+      setSessionSwitchHold((h) => (h ? false : h));
       return;
     }
     // 仅当「本会话 props 已带窗口行」才跳过遮罩。layer peek 有行但 Bridge 尚未
@@ -1306,7 +1306,7 @@ export function V4ZCodeTimeline(props: {
       ? payload.snapshot?.rows?.window?.length ?? 0
       : 0;
     if (propRows > 0) {
-      setSessionSwitchHold(false);
+      setSessionSwitchHold((h) => (h ? false : h));
       logV4Life({
         event: "switch_hold_skip",
         threadId: sessionId,
@@ -1317,7 +1317,7 @@ export function V4ZCodeTimeline(props: {
       return;
     }
     switchHoldStartedAtRef.current = Date.now();
-    setSessionSwitchHold(true);
+    setSessionSwitchHold((h) => (h ? h : true));
     // 空白开诊断：hold 从此刻开始盖住时间线，release 行给出持有时长与释放原因。
     logV4Life({
       event: "switch_hold",
@@ -1330,7 +1330,7 @@ export function V4ZCodeTimeline(props: {
   useLayoutEffect(() => {
     if (!sessionSwitchHold) return;
     const releaseHold = (why: string) => {
-      setSessionSwitchHold(false);
+      setSessionSwitchHold((h) => (h ? false : h));
       logV4Life({
         event: "switch_hold_release",
         threadId: sessionId,
@@ -1383,7 +1383,14 @@ export function V4ZCodeTimeline(props: {
       cancelAnimationFrame(raf1);
       if (raf2) cancelAnimationFrame(raf2);
     };
-  }, [sessionSwitchHold, connecting, snapshot?.seq, snapshot?.rows.totalCount, sessionId]);
+  }, [
+    sessionSwitchHold,
+    connecting,
+    snapshot?.seq,
+    snapshot?.rows.totalCount,
+    snapshot?.rows.window?.length,
+    sessionId,
+  ]);
 
   // 宿主保证引用稳定（ConversationRowView/MessageResponse 的 memo 依赖 context 引用）。
   // fetchFileChanges 闭包经 ref 读最新快照水位；待授权列表变时才允许 rowContext 换引用。
@@ -2023,6 +2030,18 @@ export function V4ZCodeTimeline(props: {
       }
       const next = [...byId.values()];
       if (next.length > 32) next.splice(32);
+      // 同引用合并结果勿换新数组——否则每帧投影 / childWorks 轮询都会
+      // setState → rowContext 换代 → 与时间线 layout 叠进 #185。
+      if (next.length === prev.length) {
+        let same = true;
+        for (let i = 0; i < next.length; i += 1) {
+          if (next[i] !== prev[i]) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return prev;
+      }
       return next;
     });
   }, [sessionId, workflowRunsLive]);

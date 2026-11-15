@@ -53,7 +53,7 @@ PLATFORM_DOMAINS = (
 DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "knowledge": {
         "title": "知识库",
-        "when": "查/建/管平台自有知识库、语义检索文档、读写或删除笔记时（Obsidian Vault 为遗留接入）",
+        "when": "查/建/管平台自有知识库、语义检索文档、读写或删除笔记时",
         "not": "对话内临时 checklist 用 todo；岗位开单推进用 tasks 工具",
     },
     "workflow": {
@@ -309,10 +309,9 @@ def _build_registry() -> dict[str, PlatformAction]:
     items: list[PlatformAction] = [
         # knowledge
         _A("knowledge.list", "knowledge", "列出平台自有知识库", "read", "无", H.knowledge_list, "有哪些知识库"),
-        _A("knowledge.search", "knowledge", "检索自有知识库（默认 hybrid 多库扇出）", "read", "query, vaultId?/kbId?, top_k?, mode?", H.knowledge_search, "怎么配置 MCP"),
+        _A("knowledge.search", "knowledge", "检索自有知识库（默认 hybrid 多库扇出）", "read", "query, vaultId?/kbId?, top_k?, mode?, category?", H.knowledge_search, "怎么配置 MCP"),
         _A("knowledge.create", "knowledge", "新建平台自有知识库", "write", "name, description?, embeddingModelRef?", H.knowledge_create, "建个英语单词库"),
-        _A("knowledge.enable", "knowledge", "启用/停用 Obsidian Vault（遗留）", "write", "vaultId, enabled", H.knowledge_enable, "关掉某 Vault"),
-        _A("knowledge.ingest", "knowledge", "写入一篇笔记", "write", "title, content, vaultId?/kbId?, summary?, tags?", H.knowledge_ingest, "把大纲写进库"),
+        _A("knowledge.ingest", "knowledge", "写入一篇笔记", "write", "title, content, vaultId?/kbId?, inboxPath?", H.knowledge_ingest, "把大纲写进库"),
         _A("knowledge.notes", "knowledge", "列出库内笔记", "read", "vaultId?/kbId?, prefix?, limit?", H.knowledge_notes, "英语库里有哪些笔记"),
         _A("knowledge.note_get", "knowledge", "读取一篇笔记", "read", "path, vaultId?/kbId?", H.knowledge_note_get, "打开某篇笔记"),
         _A("knowledge.note_delete", "knowledge", "删除一篇笔记", "destructive", "path, vaultId?/kbId?", H.knowledge_note_delete, "删掉这篇笔记"),
@@ -349,7 +348,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("workflow.delete", "workflow", "删除工作流", "destructive", "appId", H.workflow_delete, "删掉这个应用"),
         _A("workflow.revisions", "workflow", "查看历史版本", "read", "appId, limit?", H.workflow_revisions, "这个应用改过几版"),
         _A("workflow.restore_revision", "workflow", "从历史版本恢复", "write", "appId, version, as_draft?", H.workflow_restore_revision, "恢复到上一版"),
-        _A("workflow.run", "workflow", "启动一次运行", "write", "appId, parameters?", H.workflow_run, "跑一下拆解流程"),
+        _A("workflow.run", "workflow", "启动一次运行", "write", "appId, parameters?, run_kind?", H.workflow_run, "跑一下拆解流程"),
         _A("workflow.stop", "workflow", "取消或暂停运行", "write", "runId, reason?, pause?", H.workflow_stop, "停掉刚才的运行"),
         _A("workflow.resume", "workflow", "恢复已暂停运行", "write", "runId", H.workflow_resume, "继续刚才暂停的运行"),
         _A(
@@ -812,7 +811,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "tasks",
             "列出协作 Task 台账（行政视角；默认不含子任务，limit 默认 50、上限 200）",
             "read",
-            "status?, assignee?, role?, source?, limit?, offset?, include_subtasks?",
+            "status?, assignee?, role?, source?, main_task_id?, limit?, offset?, include_subtasks?",
             H.tasks_list,
             "未结任务有哪些",
             "最近 5 条主任务",
@@ -832,7 +831,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "tasks",
             "行政侧创建 Task（值班开单/progress/handlers 结案优先用专用工具 tasks）",
             "write",
-            "name, description?, assignee?, role?…",
+            "name, description?, assignee?, role?/assigned_role?, main_task_id?, status?, source?, source_ref?, raised_by?, risk_level?, action_type?, round_id?, parent_task_id?",
             H.tasks_create,
             "建个待办给前端岗",
         ),
@@ -841,7 +840,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "tasks",
             "行政侧变更 Task 状态（合法流转：pending→executing→completed 等；非法时错误含 next_states）",
             "write",
-            "task_id, state=pending|planned|executing|waiting_user|awaiting_close|completed|failed|cancelled|…, summary?",
+            "task_id, state=pending|planned|executing|waiting_user|awaiting_close|completed|failed|cancelled|…, summary?, outputs?, handlers?, handlers_empty_reason?, subtask_id?",
             H.tasks_set_state,
             "把这单标完成",
             "先改成 executing 再 completed",

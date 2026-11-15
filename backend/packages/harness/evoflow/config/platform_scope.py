@@ -119,14 +119,26 @@ def action_allowed(scope: PlatformScope | None, action: str, risk: str) -> tuple
     return True, None
 
 
-def allowed_action_names(scope: PlatformScope | None, registry_values: Iterable[Any]) -> list[str]:
+def allowed_action_names(scope: PlatformScope | None, registry_values: Iterable[Any]) -> list[str] | None:
     """按 scope 过滤注册表动作名（元素只需有 ``.name`` / ``.risk`` 属性）。
 
-    ``scope is None`` 或 mode="all"（无上限差异）时返回 ``[]`` 表示"不过滤"——
-    调用方以空列表为哨兵跳过过滤，避免 180 项全量拷贝。
+    哨兵语义（与 ``build_catalog(allowed=...)`` 对齐，探索面即能力面）：
+
+    - ``None`` = 不过滤（``scope is None``，或 mode="all" 且上限=destructive
+      ——天花板已放行全部，无需拷贝 180 项）；
+    - list（可为空）= 允许清单：空列表 = 全拒（mode="none"）；mode="all" 带
+      read/write 上限时返回上限内的动作，catalog 只展示真正可调用的子集。
     """
-    if scope is None or scope.mode == "all":
-        return []
+    if scope is None:
+        return None
+    if scope.mode == "all":
+        if scope.max_risk == "destructive":
+            return None
+        return [
+            getattr(entry, "name", "")
+            for entry in registry_values
+            if action_allowed(scope, getattr(entry, "name", ""), getattr(entry, "risk", "read"))[0]
+        ]
     return [
         getattr(entry, "name", "")
         for entry in registry_values

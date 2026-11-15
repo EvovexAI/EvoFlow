@@ -214,7 +214,6 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "agents.update": f"已更新智能体「{name}」配置",
         "agents.delete": f"已删除智能体「{name}」",
         "knowledge.create": f"已创建知识库「{name}」",
-        "knowledge.enable": f"知识库「{name}」已{'启用' if _arg_enabled(args, result) else '停用'}",
         "knowledge.ingest": f"已向知识库写入笔记「{name}」",
         "knowledge.note_delete": f"已删除笔记「{name}」",
         "knowledge.delete": f"已删除知识库「{name}」",

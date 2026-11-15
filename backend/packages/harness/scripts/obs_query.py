@@ -107,9 +107,28 @@ _TIME_COLS = r"(?:started_at|ended_at|requested_at|occurred_at|finished_at|creat
 # 'T'(0x54) > ' '(0x20) ⇒ 边界那一整天全被放进来，且**不报错**。
 # 现网实测：错写法 5843 行 / 正确窗口 3943 行（虚高 1.48 倍）。
 _STR_VS_UTC_RE = re.compile(rf"{_TIME_COLS}\s*(?:>=|<=|>|<)\s*datetime\(\s*'now'", re.I)
-# 坑 2：strftime('%s',…) 返回 **TEXT**，跟裸整数比时 SQLite 恒判「文本 > 整数」
-# ⇒ 条件永真，返回全表。现网实测：17963 行 = 全表行数（该 agent 同期窗口只有 3943）。
-_TEXT_VS_INT_RE = re.compile(r"strftime\(\s*'%s'\s*,\s*[\w.]+\s*\)\s*(?:>=|<=|>|<)\s*(?!cast)(\d+)", re.I)
+# 坑 2：strftime('%s',…) 返回 **TEXT**，跟 INTEGER 比时 SQLite 恒判「文本 > 整数」
+# ⇒ 条件永真，返回全表。现网实测：17963 行 = 全表行数（同一窗口正确写法只有 3943）。
+# 触发形态有两种，都算：右边是裸整数，或右边是 ``strftime(…) ± 整数``
+# （算术先把 TEXT  coercing 成 INTEGER，于是又落进同一条恒真判据）。
+# 而 ``strftime(…) > strftime(…)``（两边都是 10 位等长 epoch 文本）字典序与数值同序，属合法，不报。
+_TEXT_VS_INT_RE = re.compile(
+    r"strftime\(\s*'%s'\s*,\s*[^)]{1,60}\)\s*(?:>=|<=|>|<)\s*(?!cast)"
+    r"(?:(?:\d+)|(?:strftime\(\s*'%s'\s*,[^)]*\)\s*[-+]\s*\d+))",
+    re.I,
+)
+_LINE_COMMENT_RE = re.compile(r"--[^\n]*")
+_BLOCK_COMMENT_RE = re.compile(r"/\*.*?\*/", re.S)
+
+
+def strip_sql_comments(sql: str) -> str:
+    """剥掉 ``--`` 行注释与 ``/* */`` 块注释，供 lint 只看真代码。
+
+    【self-evolution-bot · 2026-11-15 · 第18轮】新建。反证逼出来的：判据第一版会把
+    SQL 注释里提一句 ``started_at > datetime('now',…)`` 也当命中并报警 ——
+    「注释里写过这个坑」不等于「这句在踩这个坑」，误报会让人开始不信提示，等于没有提示。
+    """
+    return _LINE_COMMENT_RE.sub(" ", _BLOCK_COMMENT_RE.sub(" ", sql))
 
 
 def window_lint(sql: str) -> list[str]:
@@ -123,8 +142,9 @@ def window_lint(sql: str) -> list[str]:
     两个假数同源、都指向我自己定的唯一观测入口，所以补在入口而不是只写进配方——
     配方要靠人记得查，提示是每次跑都躲不掉。
     """
+    code = strip_sql_comments(sql)
     warns: list[str] = []
-    if _STR_VS_UTC_RE.search(sql):
+    if _STR_VS_UTC_RE.search(code):
         warns.append(
             "时间列是带 +08:00 的 ISO 文本（如 2026-11-15T21:49:33.343000+08:00），"
             "而 datetime('now',…) 出的是 UTC 空格格式（2026-11-14 13:49:55）。"
@@ -132,7 +152,7 @@ def window_lint(sql: str) -> list[str]:
             "  ↳ 改用：replace(substr(<col>,1,19),'T',' ') >= datetime('now','-1 day','+8 hours')"
             "  （现网对照：错写法 5843 行 / 该写法 3943 行）"
         )
-    if _TEXT_VS_INT_RE.search(sql):
+    if _TEXT_VS_INT_RE.search(code):
         warns.append(
             "strftime('%s',…) 返回 TEXT，跟裸整数比较时 SQLite 判「文本 > 整数」⇒ 条件恒真、返回全表。\n"
             "  ↳ 改用：CAST(strftime('%s',<col>) AS INTEGER) >= CAST(strftime('%s','now') AS INTEGER) - 86400"

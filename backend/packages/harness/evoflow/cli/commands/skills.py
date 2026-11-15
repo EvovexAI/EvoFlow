@@ -47,6 +47,18 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     add_output_flags(delete_parser)
     delete_parser.set_defaults(handler=_delete)
 
+    orphans_parser = skills_sub.add_parser(
+        "import-orphans",
+        help="Import orphan custom skills (platform: skills.import_orphans)",
+    )
+    orphans_parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="Actually copy into active skills root (default: dry-run)",
+    )
+    add_output_flags(orphans_parser)
+    orphans_parser.set_defaults(handler=_import_orphans)
+
 
 def _list(args: argparse.Namespace):
     return skills_admin.list_skills(enabled_only=args.enabled_only)
@@ -74,3 +86,10 @@ def _install_market(args: argparse.Namespace):
 
 def _delete(args: argparse.Namespace):
     return skills_admin.delete_skill(args.name)
+
+
+def _import_orphans(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import skills_import_orphans
+
+    # Platform path uses confirm gate; CLI uses --execute (dry_run inverted).
+    return skills_import_orphans({"dry_run": not bool(getattr(args, "execute", False))})

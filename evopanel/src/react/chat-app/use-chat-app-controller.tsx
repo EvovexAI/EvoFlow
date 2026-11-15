@@ -4536,7 +4536,8 @@ export function useChatAppController() {
       refreshSessions: false,
       observerCatchup: true,
     })
-  }, [listLoading, selectedSessionKey, sessions, executingSessionKeys])
+    // executingPinSig：与 V4 pin sync 同源，避免 Set 新引用每拍重跑 gate。
+  }, [listLoading, selectedSessionKey, sessions, executingPinSig])
 
   /**
    * visibilitychange / online: 后台切回前台或网络恢复后自动 reattach 活跃 run。

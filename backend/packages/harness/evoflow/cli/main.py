@@ -38,6 +38,14 @@ _COMMAND_MODULES: dict[str, str] = {
     "eval": "eval_cmd",
     "logs": "logs",
     "doctor": "doctor",
+    # P2 domains — thin wrappers over platform_handlers
+    "channels": "channels",
+    "plugins": "plugins",
+    "extensions": "extensions",
+    "media": "media",
+    "ui": "ui",
+    "verification": "verification",
+    "appearance": "appearance",
 }
 
 
@@ -64,7 +72,10 @@ def build_parser(commands: list[str] | None = None) -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(
         prog="evoflow",
-        description=("EvoFlow admin CLI — models, skills, agents, employees, workflow, items, knowledge, assets, automation, eval, …"),
+        description=(
+            "EvoFlow admin CLI — models, skills, agents, employees, workflow, items, "
+            "knowledge, assets, channels, plugins, extensions, media, verification, …"
+        ),
     )
     parser.add_argument(
         "--config",

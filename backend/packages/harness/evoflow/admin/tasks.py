@@ -1660,6 +1660,29 @@ def _enforce_round_initiative_quota(
         logger.debug("admin.tasks: round quota check failed code=%s", actor_code, exc_info=True)
 
 
+def resolve_role_assignee(role_name: str) -> tuple[str, str]:
+    """Resolve a duty role display name → ``(canonical_role_name, agent_code)``.
+
+    Shared by CLI ``tasks create --role`` and platform ``tasks.create`` so both
+    surfaces stamp the same assignee/assigned_role pair.
+    """
+    from evoflow.proactive.repositories import ProactiveRepository
+
+    want = str(role_name or "").strip().lower()
+    if not want:
+        raise ValidationError("role must be a non-empty role_name")
+    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want]
+    if not matches:
+        raise ValidationError(
+            f"no active role found with name '{role_name}'. Run `evoflow employees list` to see available role_name values."
+        )
+    role = matches[0]
+    code = str(role.agent_code or "").strip()
+    if not code:
+        raise ValidationError(f"role '{role_name}' has empty agent_code")
+    return str(role.role_name or "").strip() or role_name, code
+
+
 def create_task(
     *,
     name: str,

@@ -103,9 +103,19 @@ def test_mode_custom_respects_ceiling():
 
 
 def test_allowed_action_names_none_is_no_filter_sentinel():
-    reg = [SimpleNamespace(name="a.list", risk="read"), SimpleNamespace(name="b.op", risk="write")]
-    assert allowed_action_names(None, reg) == []
-    assert allowed_action_names(PlatformScope(mode="all"), reg) == []
+    reg = [
+        SimpleNamespace(name="a.list", risk="read"),
+        SimpleNamespace(name="b.op", risk="write"),
+        SimpleNamespace(name="c.drop", risk="destructive"),
+    ]
+    # None scope / mode=all+destructive 上限 → None 哨兵（不过滤，catalog 全量）。
+    assert allowed_action_names(None, reg) is None
+    assert allowed_action_names(PlatformScope(mode="all", max_risk="destructive"), reg) is None
+    # mode=all 带 write 上限 → 过滤清单（探索面即能力面，只展示真可调用的）。
+    assert allowed_action_names(PlatformScope(mode="all", max_risk="write"), reg) == ["a.list", "b.op"]
+    assert allowed_action_names(PlatformScope(mode="all", max_risk="read"), reg) == ["a.list"]
+    # mode=none → 空清单（全拒）。
+    assert allowed_action_names(PlatformScope(mode="none"), reg) == []
 
 
 def test_allowed_action_names_filters_by_scope():

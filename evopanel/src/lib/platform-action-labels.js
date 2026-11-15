@@ -110,7 +110,6 @@ export const PLATFORM_ACTION_ZH = {
   'items.update': '更新用户事项',
   'knowledge.create': '新建平台自有知识库',
   'knowledge.delete': '删除平台自有知识库（软删；内置库不可删）',
-  'knowledge.enable': '启用/停用 Obsidian Vault（遗留）',
   'knowledge.ingest': '写入一篇笔记',
   'knowledge.list': '列出平台自有知识库',
   'knowledge.note_delete': '删除一篇笔记',

@@ -20,10 +20,19 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     sub = parser.add_subparsers(dest="tasks_cmd", required=True)
 
     # ── list ──────────────────────────────────────────────────────
-    list_p = sub.add_parser("list", help="List tasks / subtasks")
+    list_p = sub.add_parser(
+        "list",
+        help="List tasks (platform: tasks.list; default main-only, limit 50)",
+    )
     list_p.add_argument("--status", default="", help="Filter by status")
     list_p.add_argument("--main-task-id", default="", help="Scope to one main task bundle")
-    list_p.add_argument("--subtasks-only", action="store_true", help="List subtasks only")
+    list_p.add_argument(
+        "--include-subtasks",
+        action="store_true",
+        help="Include subtasks (default: main tasks only — same as platform tasks.list)",
+    )
+    # Deprecated misnamed alias: historically flipped polarity; now = include-subtasks.
+    list_p.add_argument("--subtasks-only", action="store_true", help=argparse.SUPPRESS)
     _assignee_group = list_p.add_mutually_exclusive_group()
     _assignee_group.add_argument(
         "--assignee",
@@ -43,8 +52,8 @@ def register(subparsers: argparse._SubParsersAction) -> None:
     list_p.add_argument(
         "--limit",
         type=int,
-        default=0,
-        help="Max rows to return (0 = all; newest updated_at first)",
+        default=50,
+        help="Max rows (default 50, same as platform; 0 = all; newest updated_at first)",
     )
     list_p.add_argument(
         "--offset",
@@ -119,8 +128,24 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         ),
     )
     state_p.add_argument("--subtask-id", default="", help="Set a subtask state instead of main task")
+    state_p.add_argument(
+        "--handlers-empty-reason",
+        default="",
+        help="Why handlers is empty when completing without downstream (platform: handlers_empty_reason)",
+    )
     add_output_flags(state_p)
     state_p.set_defaults(handler=_state)
+
+    # ── trail ────────────────────────────────────────────────────
+    trail_p = sub.add_parser(
+        "trail",
+        help="Execution trail for a task session (platform: tasks.execution_trail)",
+    )
+    trail_p.add_argument("task_id", help="Main task id")
+    trail_p.add_argument("--subtask-id", default="", help="Subtask id (optional)")
+    trail_p.add_argument("--max-steps", type=int, default=80, help="Max tool steps to return")
+    add_output_flags(trail_p)
+    trail_p.set_defaults(handler=_trail)
 
     # ── delete ───────────────────────────────────────────────────
     del_p = sub.add_parser(
@@ -268,17 +293,34 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
 
 def _list(args: argparse.Namespace):
-    lim = int(getattr(args, "limit", 0) or 0)
+    from evoflow.admin.platform_handlers import tasks_list
+
+    lim = int(getattr(args, "limit", 50) or 0)
     off = int(getattr(args, "offset", 0) or 0)
-    return tasks_admin.list_tasks(
-        assignee=args.assignee or None,
-        role=args.role or None,
-        status=args.status or None,
-        source=str(getattr(args, "source", "") or "").strip() or None,
-        main_task_id=args.main_task_id or None,
-        include_subtasks=not args.subtasks_only,
-        limit=lim if lim > 0 else None,
-        offset=max(0, off),
+    include = bool(getattr(args, "include_subtasks", False) or getattr(args, "subtasks_only", False))
+    # --limit 0：运维全量逃生舱（绕过 platform 200 硬顶）；默认 50 与 platform 对齐。
+    if lim <= 0:
+        return tasks_admin.list_tasks(
+            assignee=args.assignee or None,
+            role=args.role or None,
+            status=args.status or None,
+            source=str(getattr(args, "source", "") or "").strip() or None,
+            main_task_id=args.main_task_id or None,
+            include_subtasks=include,
+            limit=None,
+            offset=max(0, off),
+        )
+    return tasks_list(
+        {
+            "assignee": args.assignee or None,
+            "role": args.role or None,
+            "status": args.status or None,
+            "source": str(getattr(args, "source", "") or "").strip() or None,
+            "main_task_id": args.main_task_id or None,
+            "include_subtasks": include,
+            "limit": lim,
+            "offset": max(0, off),
+        }
     )
 
 
@@ -296,20 +338,35 @@ def _progress(args: argparse.Namespace):
 
 
 def _state(args: argparse.Namespace):
-    from evoflow.collab.task_handlers import normalize_task_handlers
-    from evoflow.collab.task_outputs import normalize_task_outputs
+    from evoflow.admin.platform_handlers import tasks_set_state
 
+    payload: dict = {
+        "task_id": args.task_id,
+        "state": args.status,
+        "subtask_id": args.subtask_id or None,
+        "summary": str(getattr(args, "summary", "") or "").strip() or None,
+    }
     outputs_raw = str(getattr(args, "outputs", "") or "").strip()
-    outputs = normalize_task_outputs(outputs_raw) if outputs_raw else None
     handlers_raw = str(getattr(args, "handlers", "") or "").strip()
-    handlers = normalize_task_handlers(handlers_raw) if handlers_raw else None
-    return tasks_admin.set_task_state(
-        args.task_id,
-        args.status,
-        subtask_id=args.subtask_id or None,
-        summary=str(getattr(args, "summary", "") or "").strip() or None,
-        outputs=outputs,
-        handlers=handlers,
+    if outputs_raw:
+        payload["outputs"] = outputs_raw
+    if handlers_raw:
+        payload["handlers"] = handlers_raw
+    empty_reason = str(getattr(args, "handlers_empty_reason", "") or "").strip()
+    if empty_reason:
+        payload["handlers_empty_reason"] = empty_reason
+    return tasks_set_state(payload)
+
+
+def _trail(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import tasks_execution_trail
+
+    return tasks_execution_trail(
+        {
+            "task_id": args.task_id,
+            "subtask_id": args.subtask_id or None,
+            "max_steps": int(getattr(args, "max_steps", 80) or 80),
+        }
     )
 
 
@@ -343,54 +400,32 @@ def _reclaim_zombies(args: argparse.Namespace):
 
 
 def _resolve_role_assignee(role_name: str) -> tuple[str, str]:
-    """Return (role_name_canonical, agent_code) for an active employee role."""
-    from evoflow.admin.errors import ValidationError
-    from evoflow.proactive.repositories import ProactiveRepository
-
-    want = str(role_name or "").strip().lower()
-    if not want:
-        raise ValidationError("role must be a non-empty role_name")
-    matches = [r for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == want]
-    if not matches:
-        raise ValidationError(f"no active role found with name '{role_name}'. Run `evoflow employees list` to see available role_name values.")
-    role = matches[0]
-    code = str(role.agent_code or "").strip()
-    if not code:
-        raise ValidationError(f"role '{role_name}' has empty agent_code")
-    return str(role.role_name or "").strip() or role_name, code
+    """Shared with platform tasks.create — lives in admin.tasks (single source)."""
+    return tasks_admin.resolve_role_assignee(role_name)
 
 
 def _create(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import tasks_create
     from evoflow.collab.task_source import TASK_SOURCE_CHAT, TASK_SOURCE_ROLE
 
-    assignee = str(args.assignee or "").strip() or None
     role_name = str(getattr(args, "role", "") or "").strip() or None
-    if role_name:
-        canonical, code = _resolve_role_assignee(role_name)
-        role_name = canonical
-        if not assignee:
-            assignee = code
     src = str(getattr(args, "source", "") or "").strip() or None
     if not src:
         src = TASK_SOURCE_ROLE if role_name else TASK_SOURCE_CHAT
-    raised = str(getattr(args, "raised_by", "") or "").strip() or "user"
-    source_ref = str(getattr(args, "source_ref", "") or "").strip() or None
-    round_id = str(getattr(args, "round_id", "") or "").strip() or None
-    risk = str(getattr(args, "risk_level", "") or "").strip() or None
-    action = str(getattr(args, "action_type", "") or "").strip() or None
-    parent = str(getattr(args, "parent_task_id", "") or "").strip() or None
-    return tasks_admin.create_task(
-        name=args.name,
-        description=args.description,
-        assignee=assignee,
-        assigned_role=role_name,
-        main_task_id=args.main_task_id or None,
-        initial_status=args.status or "pending",
-        source=src,
-        source_ref=source_ref,
-        raised_by=raised,
-        risk_level=risk,
-        action_type=action,
-        round_id=round_id,
-        parent_task_id=parent,
+    return tasks_create(
+        {
+            "name": args.name,
+            "description": args.description,
+            "assignee": str(args.assignee or "").strip() or None,
+            "role": role_name,
+            "main_task_id": args.main_task_id or None,
+            "status": args.status or "pending",
+            "source": src,
+            "source_ref": str(getattr(args, "source_ref", "") or "").strip() or None,
+            "raised_by": str(getattr(args, "raised_by", "") or "").strip() or "user",
+            "risk_level": str(getattr(args, "risk_level", "") or "").strip() or None,
+            "action_type": str(getattr(args, "action_type", "") or "").strip() or None,
+            "round_id": str(getattr(args, "round_id", "") or "").strip() or None,
+            "parent_task_id": str(getattr(args, "parent_task_id", "") or "").strip() or None,
+        }
     )

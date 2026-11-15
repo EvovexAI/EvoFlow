@@ -9,7 +9,8 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
 # Keep in sync with 04-http-platform.md / defect-registry scale line.
 # Prior stale 153/21; now includes media(5) + openai(3) + settings.invoke_model + other drifts → 179 / 24 domains;
-# 2026-11: + channels.send_message → 180.
+# 2026-11: + channels.send_message → 180; + employees.departments → 181;
+# - knowledge.enable（遗留 Obsidian Vault API 已随知识库归一移除）→ 180.
 EXPECTED_PLATFORM_ACTION_COUNT = 180
 
 
@@ -46,6 +47,7 @@ def test_registry_has_no_retired_actions() -> None:
         "memory.get",
         "memory.clear",
         "memory.delete_fact",
+        "knowledge.enable",
         "verification.list",
         "appearance.get",
     ):
@@ -61,6 +63,7 @@ def test_registry_has_no_retired_actions() -> None:
         "memory_get",
         "memory_clear",
         "memory_delete_fact",
+        "knowledge_enable",
     ):
         assert not hasattr(H, attr), f"retired handler still present: {attr}"
 

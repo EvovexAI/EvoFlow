@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.29] - 2026-11-16
+
+相对 **1.3.28**：命令行可管外观/渠道/媒体/插件/界面与系统自检；平台作用域提示与设置页对齐；对话子任务/工作流时间线投影与角标跟跑状态一致。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.29.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **CLI 子命令**：`appearance` / `channels` / `media` / `plugins` / `ui` / `extensions` / `verification`
+- **工作流 / 任务 CLI**：列表与操作参数补齐
+
+### Fixed
+
+- **子任务时间线**：会话内子任务/工作流投影与顶栏角标跟当前运行态
+- **平台作用域**：提示与设置页可选范围对齐
+
+### Changed
+
+- **观测查询**：`obs_query` 窗口参数校验
+- **系统自检剧本**：全链路场景说明同步
+
 ## [1.3.28] - 2026-11-16
 
 相对 **1.3.27**：一个微信渠道可绑多个账号并按账号独立收发；协作拆出的员工任务不再停在「运行中」；长对话不再把渲染进程撑到 Out of Memory；命令在 PowerShell 下不再被当成 bash 方言执行；顶栏显示正在跑的子任务/工作流数量；助手轮次用量可在对话里看到。

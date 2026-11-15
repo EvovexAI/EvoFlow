@@ -41,7 +41,9 @@ export function platformRiskCountsText(counts) {
  */
 export function renderPlatformScopePanel(domainsMeta, scope) {
   const isCustom = scope?.mode === 'custom'
-  const maxRisk = scope?.max_risk || 'write'
+  // null scope（不设限）用「含破坏性」上限展示——与 readPlatformScopeFromEditor 的
+  // all+destructive→null 往返对齐，避免编辑保存把存量岗位静默降级成 write 上限。
+  const maxRisk = scope?.max_risk || 'destructive'
   const domSet = new Set((scope?.domains || []).map((d) => String(d).toLowerCase()))
   const actAllow = new Set((scope?.actions || []).filter((a) => !String(a).startsWith('-')).map((a) => String(a).toLowerCase()))
   const actDeny = new Set((scope?.actions || []).filter((a) => String(a).startsWith('-')).map((a) => String(a).slice(1).toLowerCase()))
@@ -78,31 +80,48 @@ export function renderPlatformScopePanel(domainsMeta, scope) {
   return `<div class="re-platform-scope" data-platform-scope hidden>
     <div class="re-ps-head">
       <strong>平台能力清单</strong>
-      <span class="re-ps-head-hint">模型会在系统提示里看到这份清单；「全部动作」= 不设限（存量行为）</span>
+      <span class="re-ps-head-hint">模型会在系统提示里看到这份清单；不勾选 platform = 不设限（存量行为）；「全部动作」仍受风险上限约束</span>
     </div>
     <div class="re-ps-modes">
       <label class="re-ps-mode"><input type="radio" name="platform_mode" value="all" ${isCustom ? '' : 'checked'}> 全部动作</label>
       <label class="re-ps-mode"><input type="radio" name="platform_mode" value="custom" ${isCustom ? 'checked' : ''}> 自定义范围</label>
     </div>
+    <div class="re-ps-risk">
+      <span>风险上限：</span>
+      ${['read', 'write', 'destructive']
+        .map(
+          (r) => `<label class="re-ps-mode"><input type="radio" name="platform_max_risk" value="${r}" ${maxRisk === r ? 'checked' : ''}> ${PLATFORM_MAX_RISK_ZH[r]}</label>`,
+        )
+        .join('')}
+    </div>
     <div class="re-ps-custom" ${isCustom ? '' : 'hidden'}>
-      <div class="re-ps-risk">
-        <span>风险上限：</span>
-        ${['read', 'write', 'destructive']
-          .map(
-            (r) => `<label class="re-ps-mode"><input type="radio" name="platform_max_risk" value="${r}" ${maxRisk === r ? 'checked' : ''}> ${PLATFORM_MAX_RISK_ZH[r]}</label>`,
-          )
-          .join('')}
-      </div>
       <div class="re-ps-domains">${domainRows || '<div class="re-empty">平台动作目录不可用（元数据未加载）</div>'}</div>
       <div class="re-ps-summary-line">已授权 <em class="re-ps-dom-count">0</em> 域 / <em class="re-ps-act-count">0</em> 动作</div>
     </div>
   </div>`
 }
 
+const PLATFORM_RISK_ORDER = { read: 0, write: 1, destructive: 2 }
+
 export function platformScopeAllowedCount(domainsMeta, scope) {
-  if (!scope || scope.mode !== 'custom') {
+  if (!scope) {
     const total = domainsMeta.reduce((acc, d) => acc + d.actions.length, 0)
     return { domains: domainsMeta.length, actions: total }
+  }
+  if (scope.mode === 'all') {
+    // 全部动作：仍受风险上限约束，只数上限内的动作（与 backend action_allowed 对齐）。
+    const ceiling = PLATFORM_RISK_ORDER[scope.max_risk] ?? 1
+    if (ceiling >= PLATFORM_RISK_ORDER.destructive) {
+      const total = domainsMeta.reduce((acc, d) => acc + d.actions.length, 0)
+      return { domains: domainsMeta.length, actions: total }
+    }
+    let actions = 0
+    for (const d of domainsMeta) {
+      for (const a of d.actions) {
+        if ((PLATFORM_RISK_ORDER[a.risk] ?? 0) <= ceiling) actions += 1
+      }
+    }
+    return { domains: domainsMeta.length, actions }
   }
   const allow = new Set((scope.actions || []).filter((a) => !String(a).startsWith('-')).map((a) => String(a).toLowerCase()))
   const deny = new Set((scope.actions || []).filter((a) => String(a).startsWith('-')).map((a) => String(a).slice(1).toLowerCase()))
@@ -122,17 +141,32 @@ export function platformScopeAllowedCount(domainsMeta, scope) {
 
 export function platformScopeSummaryText(domainsMeta, scope) {
   const { domains, actions } = platformScopeAllowedCount(domainsMeta, scope)
-  if (!scope || scope.mode !== 'custom') return `全部 ${domains} 域 / ${actions} 动作`
+  if (!scope) return `全部 ${domains} 域 / ${actions} 动作`
+  if (scope.mode !== 'custom') {
+    const ceiling = PLATFORM_RISK_ORDER[scope.max_risk] ?? 1
+    return ceiling >= PLATFORM_RISK_ORDER.destructive
+      ? `全部 ${domains} 域 / ${actions} 动作`
+      : `全部 ${domains} 域 / ${actions} 动作（上限 ${PLATFORM_MAX_RISK_ZH[scope.max_risk] || scope.max_risk}）`
+  }
   return `${domains} 域 / ${actions} 动作（上限 ${PLATFORM_MAX_RISK_ZH[scope.max_risk] || scope.max_risk}）`
 }
 
-/** 从编辑器读出 platform_scope；未勾选 platform 或选择「全部动作」→ null（存量语义）。 */
+/** 从编辑器读出 platform_scope。
+ *
+ * - 未勾选 platform（面板隐藏）→ null（存量语义 = 不设限）；
+ * - 「全部动作」+ 上限「含破坏性」→ null：与不设限等价（null 岗位编辑保存不降级）；
+ * - 「全部动作」+ 只读/可写上限 → ``{mode:'all', max_risk}``：全量目录但受上限
+ *   约束（observer 等模板的只读天花板必须能保存回去，塌成 null 会静默放大成全权）。
+ */
 export function readPlatformScopeFromEditor(overlay) {
   const panel = overlay.querySelector('[data-platform-scope]')
   if (!panel || panel.hidden) return null
+  const max_risk = panel.querySelector('input[name=platform_max_risk]:checked')?.value || 'destructive'
   const mode = panel.querySelector('input[name=platform_mode]:checked')?.value || 'all'
-  if (mode !== 'custom') return null
-  const max_risk = panel.querySelector('input[name=platform_max_risk]:checked')?.value || 'write'
+  if (mode !== 'custom') {
+    if (max_risk === 'destructive') return null
+    return { mode: 'all', domains: [], actions: [], max_risk }
+  }
   const domains = []
   const actions = []
   panel.querySelectorAll('.re-ps-domain').forEach((row) => {
@@ -240,7 +274,7 @@ export function setPlatformScopeState(overlay, scope) {
   panel.querySelectorAll('input[name=platform_actions]').forEach((cb) => {
     cb.checked = false
   })
-  const risk = scope?.max_risk || 'write'
+  const risk = scope?.max_risk || 'destructive'
   panel.querySelectorAll('input[name=platform_max_risk]').forEach((r) => {
     r.checked = r.value === risk
   })

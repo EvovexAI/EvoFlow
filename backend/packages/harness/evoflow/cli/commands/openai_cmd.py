@@ -145,9 +145,10 @@ def _models(args: argparse.Namespace) -> Any:
     base = _gateway_base(args)
     if base:
         return _http_json("GET", f"{base}/openai/v1/models", token=_bearer(args))
-    from evoflow.models.openai_compat_invoke import list_configured_models_openai
+    # In-process: same handler as platform openai.models
+    from evoflow.admin.platform_handlers import openai_models
 
-    return list_configured_models_openai()
+    return openai_models({})
 
 
 def _emit_completion(result: dict[str, Any], *, as_json: bool, compact: bool) -> Any:
