@@ -240,10 +240,47 @@ _BASENAME_LOOKUP_DIRS: tuple[str, ...] = (
 )
 
 
+# The prompt catalog prints kind headings as ``journal`` / ``episodic`` / ``facts``
+# (kind names), but on disk those live under ``memory/``. Copy-pasting the heading
+# prefix — or trusting a search hit shown as ``memory/journal/x.md`` while the
+# catalog lists ``journal/x.md`` — used to 404 with a bare ``not_found``.
+# Accept the kind-name form and canonicalize it to the real directory.
+# 【fullstack-dev · 2026-11-14 · 第2轮】新增：assets 寻址接受 kind 名前缀（本会话连撞两次 not_found）。
+# 【fullstack-dev · 2026-11-14 · 第3轮】补存在性感知兜底：alias 表命中 ≠ 问题解决，ghost 路径此前仍 404。
+_KIND_ALIAS_DIRS: dict[str, str] = {
+    "journal": "memory/journal",
+    "episodic": "memory/episodic",
+    "facts": "memory/facts",
+    "standing": "memory",
+    "notes": "memory/_inbox/notes",
+}
+
+
+# 【fullstack-dev · 2026-11-14 · 第7轮】新增公开入口：catalog/搜索把资产显示成 ``journal/x.md``
+# 这类短名，模型照着短名回传写入侧时必须能认（读侧第2轮已修，写侧当时漏了 → 静默新建副本）。
+def canonicalize_asset_rel(rel: str) -> str:
+    """把 catalog 短名（``journal/x.md``）规范成真实目录前缀（``memory/journal/x.md``）；已正确的原样返回。"""
+    cleaned = str(rel or "").strip().replace("\\", "/").lstrip("/")
+    return _canonicalize_kind_prefix(cleaned) if cleaned else cleaned
+
+
+# 【fullstack-dev · 2026-11-14 · 第2轮】新增函数（幂等：已是 memory/… 原样返回）。
+def _canonicalize_kind_prefix(rel: str) -> str:
+    """``journal/foo.md`` → ``memory/journal/foo.md``（已正确的路径原样返回）。"""
+    head, _, rest = rel.partition("/")
+    if not rest:
+        return rel
+    target = _KIND_ALIAS_DIRS.get(head.lower())
+    if not target:
+        return rel
+    return f"{target}/{rest}"
+
+
 def resolve_asset_rel(entity: EntityRef, path: str) -> str:
     """Normalize an asset path; bare filenames resolve under known entity dirs.
 
     Accepts full relative paths (``craft/foo.md``), inbox shortcuts (``_inbox/…``),
+    kind-heading shortcuts (``journal/foo.md`` → ``memory/journal/foo.md``),
     or catalog basenames (``foo.md`` / ``MEMORY.md``). Returns the entity-relative
     path used by ``resolve_entity_file`` / ``read_text_file``.
     """
@@ -253,6 +290,29 @@ def resolve_asset_rel(entity: EntityRef, path: str) -> str:
     if rel.startswith("_inbox/") or rel == "_inbox":
         rel = f"memory/{rel}"
     if "/" in rel:
+        rel = _canonicalize_kind_prefix(rel)
+        # ``journal`` / ``episodic`` / … are catalog *kind headings*, not vault
+        # roots. A model that writes ``journal/x.md`` means the journal entry —
+        # so when the literal (non-memory) path is absent but the canonical
+        # ``memory/journal/x.md`` exists, resolve to the real file instead of
+        # returning a path that guarantees ``not_found``. Already-correct
+        # ``memory/…`` paths are untouched; ambiguity (both exist) keeps the
+        # literal path.
+        if not rel.startswith("memory/"):
+            e0 = entity.normalized()
+            cand = entity_root(e0) / rel
+            try:
+                missing = not cand.is_file()
+            except OSError:
+                missing = True
+            if missing:
+                alt = _canonicalize_kind_prefix(f"memory/{rel}")
+                if alt != rel:
+                    try:
+                        if (entity_root(e0) / alt).is_file():
+                            return alt
+                    except OSError:
+                        pass
         return rel
 
     name = rel

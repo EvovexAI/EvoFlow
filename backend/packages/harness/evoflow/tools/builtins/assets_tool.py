@@ -190,6 +190,35 @@ def _resolve_write_mode(mode: str = "", query: str = "") -> str:
     return "append"
 
 
+# 【fullstack-dev · 2026-11-14 · 第7轮】新增：kind 缺失时按 path 前缀推断去向。
+# 目录本身就写明了落点（与系统提示「落点表」一致），再逼调用方补一次 kind 只是白烧一轮。
+# 与 normalize_note_kind 的别名表（standing→preference / craft→experience …）保持同一口径。
+_PATH_KIND_PREFIXES: tuple[tuple[str, str], ...] = (
+    ("memory/standing", "preference"),
+    ("standing.md", "preference"),
+    # 【fullstack-dev · 2026-11-14 · 第8轮】摘掉 ("handbook/", "experience")：
+    # handbook 只是 search scope（search.py → memory/MEMORY.md + memory/facts/），
+    # 并非 note 的可写目录；留着会让 handbook/x.md 推断成 experience 后落到
+    # craft/handbook-x.md 并报 ignoredPath —— 「免 kind」有效、「按 path 落位」无效。
+    # 摘掉后该前缀回空串，走原 kind_required 分支并给出映射表 hint，不再静默改址。
+    ("craft/", "experience"),
+    ("memory/journal/", "reflection"),
+    ("journal/", "reflection"),
+    ("memory/episodic/", "process"),
+    ("episodic/", "process"),
+)
+
+
+def _note_kind_from_path(raw_path: str) -> str:
+    p = str(raw_path or "").strip().lower()
+    if not p:
+        return ""
+    for prefix, kind in _PATH_KIND_PREFIXES:
+        if p == prefix or p.startswith(prefix):
+            return kind
+    return ""
+
+
 @tool("assets", parse_docstring=True)
 def assets_tool(
     action: str,
@@ -379,7 +408,16 @@ def assets_tool(
 
             note_kind = normalize_note_kind(kind)
             write_mode = _resolve_write_mode(mode, query)
-            raw_path = str(path or "").strip().replace("\\", "/").lstrip("/")
+            # 【fullstack-dev · 2026-11-14 · 第7轮】修：path 原先只做字面切反斜杠，
+            # 而 catalog/搜索返回的是 ``journal/x.md`` 这类短名 —— 读侧第2轮已能认，写侧不认，
+            # 于是「更新已有文件」会静默新建一份副本（比报错更坏，没人会发现重复了）。
+            # 现在与读侧共用 :func:`canonicalize_asset_rel`，两侧寻址口径必须一致。
+            try:
+                from evoflow.assets.paths import canonicalize_asset_rel
+
+                raw_path = canonicalize_asset_rel(path)
+            except Exception:
+                raw_path = str(path or "").strip().replace("\\", "/").lstrip("/")
             update_path = ""
             slug_hint = ""
             if raw_path and (
@@ -396,14 +434,25 @@ def assets_tool(
             if not note_kind and not re.match(
                 r"^\[(preference|process|experience|reflection|project)\]", text, re.I
             ):
-                return json.dumps(
-                    {
-                        "ok": False,
-                        "error": "kind_required",
-                        "hint": "Set kind=preference|process|experience|reflection",
-                    },
-                    ensure_ascii=False,
-                )
+                # 【fullstack-dev · 2026-11-14 · 第7轮】修：本会话照着「note 必须带 kind」的说明
+                # 传了 path=memory/standing.md 却没带 kind，被这里连弹 4 次 —— 每次都是白烧一轮，
+                # 而且报错只让我"重试"，不给我任何落盘。path 前缀本身已经写明了去向，
+                # 就该按目录推断 kind 直接落；只有真的一处线索都没有时才回错。
+                note_kind = _note_kind_from_path(raw_path)
+                if not note_kind:
+                    return json.dumps(
+                        {
+                            "ok": False,
+                            "error": "kind_required",
+                            "hint": (
+                                "Set kind=preference|process|experience|reflection, or pass path with a "
+                                "known prefix (memory/standing.md→preference, craft/→experience, "
+                                "memory/journal/→reflection, memory/episodic/→process)."
+                            ),
+                            "receivedPath": str(path or ""),
+                        },
+                        ensure_ascii=False,
+                    )
 
             data = write_ad_hoc_note(
                 note_entity,
@@ -453,6 +502,17 @@ def assets_tool(
                 "updated": bool(data.get("updated")),
                 "hint": hint,
             }
+            # 【fullstack-dev · 2026-11-14 · 第7轮】修：正文超 4000 字时 ad_hoc_note 会砍尾
+            # （``text[:3999] + "…"``），但返回体照旧 ok:true —— 我以为整份存进去了，实际少了后半段。
+            # 这类「静默改我的数据还报成功」比报错危害大：没有任何信号会让我回头查。
+            # 刻意放独立字段，下面 path_ignored 覆写 hint 时也丢不掉这条告警。
+            if len(text) > 4000:
+                payload["truncated"] = (
+                    f"正文 {len(text)} 字，已截到 4000（尾部 {len(text) - 4000} 字未落盘）；"
+                    "长内容请分段 note，或改用 action=write（整份写文件）。"
+                )
+                hint += " ⚠ 正文超长已截断，见 truncated 字段。"
+                payload["hint"] = hint
             if path_ignored:
                 payload["ignoredPath"] = raw_path
                 payload["hint"] = (

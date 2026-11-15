@@ -3,13 +3,22 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
 import urllib.request
 from collections import Counter, defaultdict
 from pathlib import Path
 
-BASE = "http://localhost:1521/api/observability/tools"
+# 【fullstack-dev · 2026-11-15 · 第10轮】改：端口不再硬编码 1521。
+# 为什么：网关端口每次启动随 EVOFLOW_GATEWAY_PORT 动态分配（本次实测 8382），写死 1521 时脚本
+# 只会一路 "warn fetch …: Connection refused" 然后拿空样本出报告 —— 看起来在跑，其实什么都没测到。
+# 口径同 scripts/check_logging.py（env 优先，缺省才退回旧默认口）。
+_GATEWAY = (
+    os.getenv("EVOFLOW_GATEWAY_URL", "").strip().rstrip("/")
+    or f"http://127.0.0.1:{(os.getenv('EVOFLOW_GATEWAY_PORT') or '1521').strip()}"
+)
+BASE = f"{_GATEWAY}/api/observability/tools"
 
 MEDIA_TOOLS = frozenset(
     {
