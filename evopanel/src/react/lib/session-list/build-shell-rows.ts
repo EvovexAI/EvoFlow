@@ -84,6 +84,13 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
     const channel = String(ctx?.channel || ctx?.channel_name || '')
       .trim()
       .toLowerCase()
+    const deptGroupId = String(ctx?.dept_group_id || '').trim()
+    const deptGroupImRaw = ctx?.dept_group_im
+    const deptGroupIm =
+      deptGroupImRaw === true ||
+      deptGroupImRaw === 1 ||
+      ['1', 'true', 'yes'].includes(String(deptGroupImRaw || '').trim().toLowerCase()) ||
+      Boolean(deptGroupId)
 
     return {
       sessionKey,
@@ -106,6 +113,8 @@ export function buildShellSidebarRows(input: BuildShellSidebarRowsInput): ShellS
       workspaceLabel: ws.label,
       agentId: agentId || undefined,
       channel: channel || undefined,
+      deptGroupId: deptGroupId || undefined,
+      deptGroupIm: deptGroupIm || undefined,
     }
   })
 }

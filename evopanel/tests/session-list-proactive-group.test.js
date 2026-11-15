@@ -239,6 +239,17 @@ describe('session list identity (Owner × Trigger)', () => {
     expect(resolveSessionListIdentity('proactive:aigc:task:tid-9')).toMatchObject({
       trigger: 'task',
     })
+    expect(resolveSessionListIdentity('proactive:aigc:chat:dept-marketing')).toMatchObject({
+      ownerKey: 'aigc',
+      ownerKind: 'agent',
+      trigger: 'dept',
+    })
+    expect(
+      resolveSessionListIdentity('proactive:aigc:chat:2026-01-01', {
+        dept_group_id: 'marketing',
+        dept_group_im: true,
+      }),
+    ).toMatchObject({ trigger: 'dept' })
     expect(resolveSessionListIdentity('automation:task1:sticky')).toMatchObject({
       ownerKey: 'main',
       trigger: 'schedule',
@@ -258,7 +269,7 @@ describe('session list identity (Owner × Trigger)', () => {
     expect(sessionTriggerLabel('channel')).toBe('渠道')
     expect(sessionTriggerLabel('schedule')).toBe('定时')
     expect(sessionTriggerLabel('task')).toBe('任务')
-    expect(sessionTriggerLabel('dept')).toBe('部门')
+    expect(sessionTriggerLabel('dept')).toBe('群聊')
     expect(looksLikeImChannelToken('feishu')).toBe(true)
     expect(looksLikeImChannelToken('wecom:acct')).toBe(true)
     expect(looksLikeImChannelToken('2026-01-01T00-00-00')).toBe(false)

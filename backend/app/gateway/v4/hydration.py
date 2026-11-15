@@ -383,7 +383,9 @@ def _load_raw_messages_by_thread(thread_id: str) -> list[dict[str, Any]]:
     cursor = con.execute(
         """
         SELECT id, role, message_id, content_json, tool_call_id, tool_name,
-               run_id, thread_id, created_at
+               run_id, thread_id, created_at,
+               input_tokens, output_tokens, total_tokens,
+               cache_read_tokens, cache_creation_tokens, cache_miss_tokens
         FROM evoflow_chat_messages
         WHERE thread_id = ?
         ORDER BY seq ASC
@@ -409,6 +411,48 @@ def _coerce_messages_run_ids(messages: list[dict[str, Any]]) -> list[dict[str, A
     except Exception:
         logger.debug("[v4.hydration] enrich_run_ids skipped", exc_info=True)
         return list(messages or [])
+
+
+# evoflow_chat_messages 六个 token 列（harness transcript 每条 assistant 行带
+# 自己那次模型调用的 per-call usage；normalize_usage_counts 已归一化各家缓存字段）。
+_USAGE_SUM_KEYS = (
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "cache_read_tokens",
+    "cache_creation_tokens",
+    "cache_miss_tokens",
+)
+
+
+def _turn_usage_from_messages(messages: list[dict[str, Any]]) -> dict[str, int] | None:
+    """该轮 assistant 消息的 token 六字段求和 → assistantTextRow.usage（camelCase）。
+
+    per-call 求和即轮累计，与 live mirror 消费的 CUSTOM(name="usage")（同样是各次
+    模型调用累计，sse_ui_normalize._cumulative_usage_triplet）同口径；Anthropic 风格
+    per-call input 已含 cache_read/write，直接累加不重不漏。全 0 / 无值返回 None
+    （老会话没有 usage 列值 → 该轮不显示）。
+    """
+    sums = {key: 0 for key in _USAGE_SUM_KEYS}
+    for msg in messages:
+        if str(msg.get("role") or "") != "assistant":
+            continue
+        for key in _USAGE_SUM_KEYS:
+            value = msg.get(key)
+            if isinstance(value, (int, float)) and value > 0:
+                sums[key] += int(value)
+    if sums["input_tokens"] <= 0 and sums["output_tokens"] <= 0 and sums["total_tokens"] <= 0:
+        return None
+    usage: dict[str, int] = {
+        "inputTokens": sums["input_tokens"],
+        "outputTokens": sums["output_tokens"],
+        "totalTokens": sums["total_tokens"],
+    }
+    if sums["cache_read_tokens"] > 0:
+        usage["cacheReadTokens"] = sums["cache_read_tokens"]
+    if sums["cache_creation_tokens"] > 0:
+        usage["cacheWriteTokens"] = sums["cache_creation_tokens"]
+    return usage
 
 
 def _load_messages(thread_id: str) -> list[dict[str, Any]]:
@@ -911,6 +955,16 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 agg = file_agg.setdefault(str(display.get("filePath")), {"additions": 0, "deletions": 0})
                 agg["additions"] += int(display.get("additions") or 0)
                 agg["deletions"] += int(display.get("deletions") or 0)
+
+        # 轮累计 token 用量盖轮尾正文行（V4 动作行显示；live 轮由 mirror 的
+        # CUSTOM(name="usage") 盖章，两侧口径一致）。正在跑的最后一轮也先盖——
+        # mirror 接管后终态帧会以同形状覆盖。
+        turn_usage_row = _turn_usage_from_messages(turn["messages"])
+        if turn_usage_row is not None:
+            for row in reversed(rows):
+                if row.get("kind") == "assistantText":
+                    row["usage"] = turn_usage_row
+                    break
 
         header_row: dict[str, Any] = {
             "rowId": header_row_id,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from datetime import UTC, datetime
@@ -127,7 +128,6 @@ async def _heal_sticky_running_against_langgraph(
         return False
     try:
         from evoflow.runtime.ports import is_thread_run_active
-        from evoflow.session_execution.lifecycle import force_end_session_turn
 
         async with httpx.AsyncClient(timeout=_HEAL_PROBE_TIMEOUT) as client:
             active = await is_thread_run_active(client, tid, run_id=run_id)
@@ -141,7 +141,12 @@ async def _heal_sticky_running_against_langgraph(
         return False
     if active is not False:
         return False
-    marked = force_end_session_turn(
+    from evoflow.session_execution.lifecycle import force_end_session_turn
+
+    # force_end writes SQLite — never on the Gateway event loop (VACUUM / writers
+    # can hold ``_lock`` for minutes and freeze every HTTP accept).
+    marked = await _run_db(
+        force_end_session_turn,
         session_key=sk,
         thread_id=tid,
         source="execution_state_heal",
@@ -158,17 +163,52 @@ async def _heal_sticky_running_against_langgraph(
     return bool(marked)
 
 
-async def build_session_execution_state(session_key: str) -> dict[str, Any]:
-    """Return session run fields; heal sticky SQLite running vs LangGraph truth."""
+async def _run_db[T](fn: Any, /, *args: Any, **kwargs: Any) -> T:
+    """Offload sync SQLite work; prefer Gateway DB pool when mounted."""
+    try:
+        from app.gateway.db_async import run_db as gateway_run_db
+    except ImportError:
+        return await asyncio.to_thread(fn, *args, **kwargs)
+    return await gateway_run_db(fn, *args, **kwargs)
+
+
+def _load_execution_state_db(session_key: str) -> dict[str, Any]:
+    """All SQLite reads for execution/state (must run off the event loop)."""
     key = str(session_key or "").strip()
     if not key:
         raise ValueError("session_key required")
     if sess_repo.is_session_deleted(key):
         raise ValueError("session not found")
-
     db_row = _read_chat_session_run_row(key)
     if not db_row:
         raise ValueError("session not found")
+    try:
+        db_path = str(resolve_evolflow_db_path().resolve())
+    except Exception:
+        db_path = ""
+    child_works: list[dict[str, Any]] = []
+    try:
+        from evoflow.persistence.session_runtime_repository import child_works_for_execution_state
+
+        child_works = child_works_for_execution_state(key)
+    except Exception:
+        logger.debug("execution_state: child_works lookup failed session=%s", key, exc_info=True)
+    return {"key": key, "db_row": db_row, "db_path": db_path, "child_works": child_works}
+
+
+async def build_session_execution_state(session_key: str) -> dict[str, Any]:
+    """Return session run fields; heal sticky SQLite running vs LangGraph truth.
+
+    Hot path for FE history-watch / gear poll. Must not call ``get_db()`` on the
+    asyncio thread: during VACUUM or long writers the process ``_lock`` is held
+    across SQLite busy-waits and a sync ``get_db()`` freezes the whole Gateway
+    (2026-11-15 hang: execution/state waited 298s → new chat first_token_dead).
+    """
+    loaded = await _run_db(_load_execution_state_db, session_key)
+    key = loaded["key"]
+    db_row = loaded["db_row"]
+    db_path = loaded["db_path"]
+    child_works = loaded["child_works"]
 
     thread_id = db_row["thread_id"]
     run_status_raw = db_row["run_status"] or ""
@@ -184,7 +224,10 @@ async def build_session_execution_state(session_key: str) -> dict[str, Any]:
             run_id=run_id,
         )
         if healed:
-            db_row = _read_chat_session_run_row(key) or db_row
+            reloaded = await _run_db(_load_execution_state_db, key)
+            db_row = reloaded["db_row"]
+            child_works = reloaded["child_works"]
+            db_path = reloaded["db_path"] or db_path
             thread_id = db_row["thread_id"]
             run_status_raw = db_row["run_status"] or ""
             run_id = db_row["current_run_id"]
@@ -208,19 +251,6 @@ async def build_session_execution_state(session_key: str) -> dict[str, Any]:
             run_id=run_id,
             turn_ended=turn_ended,
         )
-
-    try:
-        db_path = str(resolve_evolflow_db_path().resolve())
-    except Exception:
-        db_path = ""
-
-    child_works: list[dict[str, Any]] = []
-    try:
-        from evoflow.persistence.session_runtime_repository import child_works_for_execution_state
-
-        child_works = child_works_for_execution_state(key)
-    except Exception:
-        logger.debug("execution_state: child_works lookup failed session=%s", key, exc_info=True)
 
     return {
         "ok": True,

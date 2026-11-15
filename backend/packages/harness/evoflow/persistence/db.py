@@ -11,6 +11,7 @@ Multi-statement batches (loop + single ``commit``) must run inside
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import queue as _queue
@@ -43,8 +44,42 @@ _LAZY_BACKFILL_DONE: bool = False
 _DEFAULT_BUSY_TIMEOUT_MS = max(1000, int(os.getenv("EVOFLOW_SQLITE_BUSY_TIMEOUT_MS", "10000") or "10000"))
 _DEFAULT_CONNECT_TIMEOUT_S = max(1.0, float(os.getenv("EVOFLOW_SQLITE_CONNECT_TIMEOUT_S", "5") or "5"))
 _DEFAULT_MAX_ATTEMPTS = max(1, int(os.getenv("EVOFLOW_SQLITE_MAX_ATTEMPTS", "8") or "8"))
+# Sync get_db/execute on the asyncio thread must not wait forever while VACUUM
+# or a writer holds ``_lock`` (2026-11-15: execution/state froze Gateway 298s).
+_ASYNCIO_LOCK_TIMEOUT_S = max(
+    0.05, float(os.getenv("EVOFLOW_DB_ASYNCIO_LOCK_TIMEOUT_S", "0.5") or "0.5")
+)
 
 T = TypeVar("T")
+
+
+def _on_asyncio_loop_thread() -> bool:
+    """True when called from the thread that owns a running asyncio event loop."""
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return False
+    return True
+
+
+def _acquire_process_db_lock() -> bool:
+    """Acquire ``_lock``. Returns True if this call acquired (caller must release).
+
+    On the asyncio event-loop thread, fail fast with ``sqlite3.OperationalError``
+    instead of blocking HTTP accept / LG proxy for the duration of VACUUM.
+    Worker threads (``evoflow-db``, retention) still block normally.
+    """
+    already_held = _lock._is_owned()  # type: ignore[attr-defined]
+    if already_held:
+        return False
+    if _on_asyncio_loop_thread():
+        if not _lock.acquire(timeout=_ASYNCIO_LOCK_TIMEOUT_S):
+            raise sqlite3.OperationalError(
+                f"database is locked (asyncio thread waited {_ASYNCIO_LOCK_TIMEOUT_S:.2f}s for process lock)"
+            )
+        return True
+    _lock.acquire()
+    return True
 
 
 def _is_stale_cursor_error(exc: BaseException) -> bool:
@@ -187,9 +222,7 @@ class _LockedConnection:
         )
 
         global _LAZY_BACKFILL_DONE
-        already_held = _lock._is_owned()  # type: ignore[attr-defined]
-        if not already_held:
-            _lock.acquire()
+        acquired_here = _acquire_process_db_lock()
         try:
             try:
                 cur = self._conn.execute(sql, parameters)
@@ -226,7 +259,7 @@ class _LockedConnection:
                 lastrowid=cur.lastrowid,
             )
         finally:
-            if not already_held and _lock._is_owned():  # type: ignore[attr-defined]
+            if acquired_here and _lock._is_owned():  # type: ignore[attr-defined]
                 _lock.release()
 
     def executemany(self, sql: str, parameters: Any) -> Any:
@@ -704,10 +737,15 @@ def reset_read_pool_for_tests() -> None:
 
 
 def get_db(*, storage_sqlite_path: str | None = None) -> _LockedConnection:
-    """Shared locked connection; safe under FastAPI thread pool + background tasks."""
+    """Shared locked connection; safe under FastAPI thread pool + background tasks.
+
+    On the asyncio thread, acquiring the process lock times out quickly so a
+    VACUUM / long writer cannot freeze the Gateway event loop.
+    """
     global _shared_conn, _shared_conn_path, _shared_wrapper
     path = resolve_evolflow_db_path(storage_sqlite_path=storage_sqlite_path)
-    with _lock:
+    acquired_here = _acquire_process_db_lock()
+    try:
         if _shared_conn is not None and _shared_conn_path == path and _shared_wrapper is not None:
             return _shared_wrapper
         if _shared_conn is not None:
@@ -719,6 +757,9 @@ def get_db(*, storage_sqlite_path: str | None = None) -> _LockedConnection:
         _shared_conn_path = path
         _shared_wrapper = _LockedConnection(_shared_conn)
         return _shared_wrapper
+    finally:
+        if acquired_here and _lock._is_owned():  # type: ignore[attr-defined]
+            _lock.release()
 
 
 def reset_db_for_tests() -> None:

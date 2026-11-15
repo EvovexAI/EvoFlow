@@ -206,17 +206,31 @@ export function useComposerModelCatalog(opts: {
     return defaultModelFromCatalog(modelCatalog, primaryModelName) || String(primaryModelName || '').trim()
   }, [agentDefaultModelName, modelCatalog, primaryModelName])
 
-  /** 会话是否已钉死 model_name（覆盖智能体默认） */
+  /** 会话是否已钉死 model_name（覆盖智能体默认）。三值语义见 docs/design/model-resolution.md */
   const sessionModelOverride = useMemo(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return ''
     const row = sessions.find((s) => String(s.sessionKey || '') === sk)
     const rowModel = String(row?.modelName || '').trim()
-    const ctxRaw = String(wsClient.getSessionContext(sk)?.model_name ?? '').trim()
+    const sessCtx = wsClient.getSessionContext(sk) as
+      | { model_name?: unknown; model_pinned?: unknown }
+      | undefined
+    const ctxRaw = String(sessCtx?.model_name ?? '').trim()
+    // model_pinned 显式存在时它是唯一权威：true=用户钉死；false=配置类回填（如群聊岗位模型），
+    // 绝不当作覆盖。旧行（flag 缺省）沿用 ctx 原值 / 后端已过滤的 row.modelName。
+    if (sessCtx && sessCtx.model_pinned != null) {
+      return sessCtx.model_pinned ? ctxRaw : ''
+    }
     return ctxRaw || rowModel
     // modelHydrateTick / roleUiNonce：hydrate 与切角色后重读 context
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedSessionKey, sessions, modelHydrateTick, roleUiNonce])
+
+  /** 药丸是否处于「已钉死」状态（override 非空 = pin，空 = 跟随岗位/智能体/全局） */
+  const sessionModelPinned = useMemo(
+    () => !!String(sessionModelOverride || '').trim(),
+    [sessionModelOverride],
+  )
 
   useEffect(() => {
     if (modelsLoading || !modelCatalog.length) return
@@ -354,6 +368,7 @@ export function useComposerModelCatalog(opts: {
     loadModelCatalog,
     followResolvedModelName,
     sessionModelOverride,
+    sessionModelPinned,
     effectiveModelName,
     modelPillLabel,
     syncModelSessionPrevKeyRef,

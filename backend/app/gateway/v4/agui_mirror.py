@@ -710,6 +710,16 @@ class _MirrorState:
 
     终态帧通常不带这些字段，而 v4 upsert 是整行替换——不记账会把 Agent 卡上的
     类型徽标清成 general、摘要清空。"""
+    turn_usage: dict[str, int] | None = None
+    """最近一轮的累计 token usage（CUSTOM name="usage" 的六字段 wire 三元组）。
+
+    跨轮保留——早封路径（thread_state/usage 先于 run_end）里 RUN_FINISHED 先到、
+    usage 事件同批后到，reset 后仍要盖到轮尾正文行上；RUN_STARTED 开新轮时清零。"""
+    last_text_row_id: int = 0
+    """最近一条 assistantText 行 rowId（TEXT_MESSAGE_START 记录，跨轮保留）。
+    usage 盖章目标：轮累计只盖轮尾正文行（V4 面板在轮尾动作行显示）。"""
+    last_turn_success: bool = False
+    """最近一轮是否成功收尾（RUN_FINISHED=True / RUN_ERROR=False）。failed 轮不盖 usage。"""
 
 
 def _running_control(
@@ -933,6 +943,37 @@ class V4Mirror:
                     "endedAt": now_ms,
                 },
             )
+
+    def _stamp_turn_usage(self, tid: str, st: _MirrorState) -> None:
+        """把轮累计 usage 盖到最近一条 assistantText 行上（V4 轮尾动作行显示）。
+
+        author_upsert_row 是整行替换：必须从 sess.rows 取现值带全量字段，只追加
+        usage 键。行仍在 streaming / 已被换 kind 时不盖（终态帧会再盖）。
+        """
+        usage = st.turn_usage
+        rid = int(st.last_text_row_id or 0)
+        if not usage or rid <= 0:
+            return
+        sess = self._hub.get_session(tid)
+        existing = sess.rows.get(rid) if sess is not None else None
+        if not isinstance(existing, dict) or str(existing.get("kind") or "") != "assistantText":
+            return
+        if str(existing.get("state") or "") != "complete":
+            return
+        row_usage: dict[str, int] = {
+            "inputTokens": int(usage.get("input_tokens") or 0),
+            "outputTokens": int(usage.get("output_tokens") or 0),
+            "totalTokens": int(usage.get("total_tokens") or 0),
+        }
+        cache_read = int(usage.get("cache_read_tokens") or 0)
+        cache_write = int(usage.get("cache_creation_tokens") or 0)
+        if cache_read > 0:
+            row_usage["cacheReadTokens"] = cache_read
+        if cache_write > 0:
+            row_usage["cacheWriteTokens"] = cache_write
+        if not any(row_usage.values()):
+            return
+        self._hub.author_upsert_row(tid, {**existing, "usage": row_usage})
 
     def _on_activity_snapshot(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
         """Project ACTIVITY_SNAPSHOT retrying/model_error into V4 control + optional text."""
@@ -1217,6 +1258,10 @@ class V4Mirror:
             st.last_turn_id = new_turn_id
             st.turn_started_at_ms = now_ms
             st.turn_file_changes = {}
+            # 新一轮：上一轮的 usage 盖章上下文作废（上一轮若已盖完就定格在原行）。
+            st.turn_usage = None
+            st.last_text_row_id = 0
+            st.last_turn_success = False
             rid = self._next_row_id(tid)
             st.turn_header_row_id = rid
             self._hub.author_append_row(
@@ -1317,6 +1362,8 @@ class V4Mirror:
             rid = self._next_row_id(tid)
             st.text_row_ids[mid] = rid
             st.text_acc[mid] = ""
+            # 轮尾正文行记账：usage 盖章目标（同轮多次模型调用时自然是最后一条）。
+            st.last_text_row_id = rid
             self._hub.author_append_row(
                 tid,
                 {
@@ -1730,6 +1777,11 @@ class V4Mirror:
                 self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
                 self._seal_streaming_assistant_text(tid, st, now_ms=now_ms, state="complete")
                 self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="complete")
+            # 轮累计 usage 盖轮尾正文行：必须在 seal 之后（行已 complete，否则被整行替换清掉）。
+            # failed / 用户停止轮不盖（V4 动作行只渲染 complete 正文，轮尾也不展示失败用量）。
+            st.last_turn_success = et == "RUN_FINISHED"
+            if et == "RUN_FINISHED" and produced_text:
+                self._stamp_turn_usage(tid, st)
             # 重置：允许下一轮 RUN_STARTED 再开 running turnHeader。
             self._reset_turn_ephemeral(st)
             return
@@ -1739,6 +1791,34 @@ class V4Mirror:
             return
 
         # 其余事件不投影——ACTIVITY_SNAPSHOT / CUSTOM 已在上方处理。
+
+    def _on_usage_custom(self, tid: str, st: _MirrorState, value: Any) -> None:
+        """CUSTOM(name="usage") → 轮累计 token usage 并盖到轮尾正文行。
+
+        事件形态（两种同构）：sse_ui_normalize 的 ``{"type":"usage","usage":六字段}``
+        与 _seal_agui_run 的终态包层。早封路径里它跟 RUN_FINISHED 同批但排在其后
+        （agui_stream_normalizer 先 seal 再 append usage）——轮已 reset，靠跨轮保留的
+        last_text_row_id / last_turn_success 兜住这次迟到盖章；轮进行中只记账不盖章
+        （正文行还是 streaming，盖了也会被 TEXT_MESSAGE_END 整行替换清掉）。
+        """
+        payload = value if isinstance(value, dict) else {}
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else payload
+        triplet = {
+            key: int(usage.get(key) or 0)
+            for key in (
+                "input_tokens",
+                "output_tokens",
+                "total_tokens",
+                "cache_read_tokens",
+                "cache_creation_tokens",
+                "cache_miss_tokens",
+            )
+        }
+        if not any(triplet.values()):
+            return
+        st.turn_usage = triplet
+        if not st.run_started and st.last_turn_success:
+            self._stamp_turn_usage(tid, st)
 
     # -- task_*（subagent）事件 → subagent 行 ---------------------------------
     #
@@ -1758,6 +1838,9 @@ class V4Mirror:
     def _on_custom(self, tid: str, st: _MirrorState, ev: dict[str, Any], *, now_ms: int) -> None:
         name = str(ev.get("name") or "").strip()
         value = ev.get("value")
+        if name == "usage":
+            self._on_usage_custom(tid, st, value)
+            return
         if name != "custom" or not isinstance(value, dict):
             return
         chunk = value.get("chunk") if isinstance(value.get("chunk"), dict) else value

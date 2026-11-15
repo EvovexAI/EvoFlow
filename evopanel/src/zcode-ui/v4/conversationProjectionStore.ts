@@ -334,15 +334,33 @@ function applySoftCapToSnapshot(
  * 外部 store（useSyncExternalStore 兼容：subscribe + getState 返回稳定引用）。
  * 生命周期由 SessionDataLayer 管（引用计数 + keep-warm），组件不直接 new。
  */
-// 内存诊断计数器：统计存活 store 数与其 rows.window 行数之和，
+/**
+ * 内存诊断：单行近似字节（JSON 序列化长度）。
+ * 行数软顶（400）不约束字节——大 tool output 行会让窗口撑到远超预期，
+ * 渲染进程内存定罪需要字节维度（2026-11-15 renderer 1.7GB 悬案）。
+ */
+export function estimateConversationRowBytes(row: ConversationRow): number {
+  try {
+    return JSON.stringify(row)?.length ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+// 内存诊断计数器：统计存活 store 数与其 rows.window 行数/字节之和，
 // 用于观察窗口数据的内存增长。构造时加入、close() 时移除。
 const liveProjectionStores = new Set<ConversationProjectionStore>();
 uiMemoryDiagnosticsRegistry.register("projection", () => {
   let rows = 0;
+  let windowBytes = 0;
+  let maxRowBytes = 0;
   for (const store of liveProjectionStores) {
     rows += store.countProjectionRows();
+    const est = store.estimateProjectionWindowBytes();
+    windowBytes += est.windowBytes;
+    if (est.maxRowBytes > maxRowBytes) maxRowBytes = est.maxRowBytes;
   }
-  return { stores: liveProjectionStores.size, rows };
+  return { stores: liveProjectionStores.size, rows, windowBytes, maxRowBytes };
 });
 
 export class ConversationProjectionStore {
@@ -1647,6 +1665,19 @@ export class ConversationProjectionStore {
   /** 内存诊断：当前 rows.window 行数；只读。 */
   countProjectionRows(): number {
     return this.state.snapshot?.rows.window.length ?? 0;
+  }
+
+  /** 内存诊断：当前 rows.window 近似字节与最大单行字节；只读。 */
+  estimateProjectionWindowBytes(): { windowBytes: number; maxRowBytes: number } {
+    const window = this.state.snapshot?.rows.window ?? [];
+    let windowBytes = 0;
+    let maxRowBytes = 0;
+    for (const row of window) {
+      const bytes = estimateConversationRowBytes(row);
+      windowBytes += bytes;
+      if (bytes > maxRowBytes) maxRowBytes = bytes;
+    }
+    return { windowBytes, maxRowBytes };
   }
 
   /** 退订并终结本 store（仅 SessionDataLayer 调用）。 */

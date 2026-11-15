@@ -1843,6 +1843,7 @@ function mergeSessionContextFromApiRow(s, prevContext) {
   if (s?.localWorkspaceRoot) ctx.local_workspace_root = String(s.localWorkspaceRoot).trim()
   if (s?.useVirtualPaths != null) ctx.use_virtual_paths = !!s.useVirtualPaths
   if (s?.modelName) ctx.model_name = String(s.modelName).trim()
+  if (s?.modelPinned != null) ctx.model_pinned = !!s.modelPinned
   if (s?.primaryModelName) ctx.primary_model_name = String(s.primaryModelName).trim()
   if (s?.sessionMode) ctx.session_mode = String(s.sessionMode).trim()
   if (s?.thinkingEnabled != null) ctx.thinking_enabled = !!s.thinkingEnabled
@@ -1950,6 +1951,7 @@ function flatSessionFieldsFromContext(ctx) {
     localWorkspaceRoot: (c.local_workspace_root || '').toString().trim() || null,
     useVirtualPaths: c.use_virtual_paths != null ? !!c.use_virtual_paths : null,
     modelName: (c.model_name || '').toString().trim() || null,
+    modelPinned: c.model_pinned != null ? !!c.model_pinned : null,
     primaryModelName: (c.primary_model_name || '').toString().trim() || null,
     sessionMode: (c.session_mode || '').toString().trim() || null,
     thinkingEnabled: c.thinking_enabled != null ? !!c.thinking_enabled : null,

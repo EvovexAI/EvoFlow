@@ -58,6 +58,25 @@ if (import.meta.env.DEV) {
 // 缓冲无上限——流式会话高频重渲染下内存以 GB/h 增长；扫/清 5万+ 条本身也会造成 ~1s longtask。
 // 仅 dev：过滤 React 埋点 + 低频廉价清空（生产构建无此插桩，不受影响）。
 if (import.meta.env.DEV) startUserTimingGuard()
+
+// renderer 内存瞭望：60s 采样 JS 堆 + DOM 节点数 + 各诊断计数器（V4 投影窗口
+// 行数/字节、sessionStore、terminal 等，见 uiMemoryDiagnosticsRegistry 各 register）。
+// 门控只在 heap 变化>5% / 计数器变化 / 5min 心跳时写一行，不会刷屏。
+// EvoFlow 壳没有 zcode 日志桥（zcode-ui App.tsx 的采样器在这里不挂），write 直接走
+// console → installConsoleFileLog 落 frontend-*.log；正式包需 efFileLog=1 开关才落盘。
+// 2026-11-15 renderer 1.7GB 悬案：下次内存暴涨时用这条曲线 + projection.windowBytes 定罪。
+import('./zcode-ui/lib/memoryDiagnostics.js')
+  .then(({ uiMemoryDiagnosticsRegistry, startMemoryDiagnosticsLogger }) => {
+    if (typeof document !== 'undefined') {
+      uiMemoryDiagnosticsRegistry.register('dom', () => ({
+        nodes: document.getElementsByTagName('*').length,
+      }))
+    }
+    startMemoryDiagnosticsLogger({ write: (line) => console.info(line) })
+  })
+  .catch(() => {
+    /* 诊断缺席只影响下次内存排查，不影响启动 */
+  })
 bootMark('main module eval')
 if (isTauri) initDesktopNotifications()
 if (isTauri) initDesktopContextMenu()

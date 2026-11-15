@@ -1080,6 +1080,10 @@ def create_chat_model(
     _apply_native_web_search(model_config, model_settings_from_config, kwargs)
 
     kwargs.pop("_evoflow_reasoning_effort", None)
+    # Caller-explicit temperature beats the model row: voice/小V passes 0.35 and must not
+    # be silently overridden by a temperature saved on the model row in Settings → Models.
+    if kwargs.get("temperature") is not None:
+        model_settings_from_config.pop("temperature", None)
     merged_kwargs = {**_strip_provider_internal_keys(kwargs), **model_settings_from_config}
     _nest_openai_compat_thinking_kwargs(model_class, merged_kwargs)
     _sanitize_openai_compat_reasoning_effort(model_class, model_config, merged_kwargs)

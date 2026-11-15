@@ -142,8 +142,8 @@ export function XiaomiVoiceStage() {
         ).trim()
         if (!mid) {
           try {
-            const { getPanelSettings } = await import('../../../lib/panel-settings.js')
-            const ps = getPanelSettings?.() || {}
+            const { getPanelSettingsSync } = await import('../../../lib/panel-settings.js')
+            const ps = getPanelSettingsSync?.() || {}
             mid = String(
               (ps as { lastSelectedModel?: string }).lastSelectedModel || '',
             ).trim()

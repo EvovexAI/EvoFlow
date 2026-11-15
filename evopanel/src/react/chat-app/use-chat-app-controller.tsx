@@ -3211,6 +3211,7 @@ export function useChatAppController() {
     modelConnNameMap,
     loadModelCatalog,
     followResolvedModelName,
+    sessionModelPinned,
     effectiveModelName,
     modelPillLabel,
     syncModelSessionPrevKeyRef,
@@ -3225,6 +3226,45 @@ export function useChatAppController() {
     sessionsRef,
   })
   setModelNameRef.current = setModelName
+
+  /** 药丸菜单「跟随中」来源说明：岗位工作模型 > 智能体默认 > 全局主模型（与 docs/design/model-resolution.md 阶梯一致） */
+  const followSourceLabel = useMemo(() => {
+    const roleModel = String(employeeRoleDetail?.modelName || '').trim()
+    const roleCode = String(employeeRoleDetail?.agentCode || '').trim().toLowerCase()
+    if (roleModel && (!roleCode || roleCode === String(currentRoleCodeForUi || '').trim().toLowerCase())) {
+      return `岗位工作模型 · ${roleModel}`
+    }
+    const code = String(currentRoleCodeForUi || '').trim().toLowerCase()
+    const agentRow = agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code)
+    const agentModel = String(agentRow?.model || '').trim()
+    if (agentModel) return `智能体默认 · ${agentModel}`
+    return primaryModelName ? `全局主模型 · ${primaryModelName}` : ''
+  }, [employeeRoleDetail?.modelName, employeeRoleDetail?.agentCode, currentRoleCodeForUi, agents, primaryModelName])
+
+  /** 恢复跟随：清会话 pin（model_name + model_pinned 一并清），UI 回到跟随展示 */
+  const handleFollowAgentModel = useCallback(async () => {
+    const sk = String(selectedSessionKey || sessionRef.current || '').trim()
+    if (!sk) return
+    try {
+      await wsClient.updateSessionContext(sk, { model_name: '', model_pinned: false })
+      setSessions((prev) =>
+        prev.map((s) =>
+          String(s.sessionKey || '') === sk ? { ...s, modelName: '', modelPinned: false } : s,
+        ),
+      )
+      setRoleUiNonce((n) => n + 1)
+      setRows((prev) => [
+        ...(Array.isArray(prev) ? prev : []),
+        {
+          role: 'system' as const,
+          text: '已恢复跟随智能体默认模型',
+          timestamp: Date.now(),
+        } as DisplayRow,
+      ])
+    } catch {
+      /* ignore */
+    }
+  }, [selectedSessionKey, setSessions, setRoleUiNonce, setRows])
 
   const currentRoleAgent = useMemo(() => {
     const code = currentRoleCodeForUi
@@ -6697,6 +6737,9 @@ export function useChatAppController() {
     modelConnNameMap,
     modelPillLabel,
     modelsLoading,
+    followSourceLabel,
+    handleFollowAgentModel,
+    sessionModelPinned,
     modeMenuOpen,
     moreMenuKey,
     moreSubOpen,

@@ -21,6 +21,12 @@ export type ModelCatalogMenuProps = {
   connNameMap?: Record<string, string>
   selectedModel: string
   pillLabel: string
+  /** 会话是否已钉死模型（用户显式选择过）；缺省 = 不显示状态行 */
+  pinned?: boolean
+  /** 跟随中时的来源说明（岗位工作模型 / 智能体默认 / 全局主模型） */
+  followSourceLabel?: string
+  /** 恢复跟随（清除会话 pin）；仅在 pinned 时展示 */
+  onFollowAgent?: () => void
   loading?: boolean
   disabled?: boolean
   /** 选择模型（仅 name）；关闭菜单由组件内部处理 */
@@ -55,6 +61,9 @@ export function ModelCatalogMenu({
   connNameMap,
   selectedModel,
   pillLabel,
+  pinned,
+  followSourceLabel,
+  onFollowAgent,
   loading = false,
   disabled = false,
   onSelect,
@@ -303,6 +312,33 @@ export function ModelCatalogMenu({
         data-above-native-embed=""
         style={portalFixed ? portalStyle || { display: 'none' } : undefined}
       >
+        {(pinned || followSourceLabel) && (
+          <div className="react-chat-model-follow-row" role="group" aria-label="模型来源状态">
+            <span
+              className="react-chat-model-follow-label"
+              title={
+                pinned
+                  ? '会话已固定此模型：智能体 / 全局默认变更不再影响本会话'
+                  : '本会话跟随该配置：上游改模型下一轮立即生效'
+              }
+            >
+              {pinned ? `会话固定：${selectedModel}` : `跟随中：${followSourceLabel || '智能体默认'}`}
+            </span>
+            {pinned && onFollowAgent ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="react-chat-model-follow-action"
+                onClick={() => {
+                  onFollowAgent()
+                  onOpenChange(false)
+                }}
+              >
+                恢复跟随
+              </button>
+            ) : null}
+          </div>
+        )}
         {catalog.length > 0 ? (
           groupModelCatalogByVendor(catalog, connNameMap).map((group) => (
             <div

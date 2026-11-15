@@ -29,6 +29,7 @@ _FLAT_KEYS: tuple[str, ...] = (
     "local_workspace_root",
     "use_virtual_paths",
     "model_name",
+    "model_pinned",
     "primary_model_name",
     "session_mode",
     "thinking_enabled",
@@ -93,6 +94,7 @@ def flat_fields_from_context(
         ),
         "use_virtual_paths": _bool_to_int(ctx.get("use_virtual_paths")),
         "model_name": str(ctx.get("model_name") or "").strip() or None,
+        "model_pinned": _bool_to_int(ctx.get("model_pinned")),
         "primary_model_name": str(ctx.get("primary_model_name") or primary_model_name or "").strip() or None,
         "session_mode": str(ctx.get("session_mode") or "").strip() or None,
         "thinking_enabled": _bool_to_int(ctx.get("thinking_enabled")),
@@ -119,16 +121,37 @@ def flat_fields_from_context(
 def effective_session_model_override(
     model_name: Any,
     primary_model_name: Any = None,
+    model_pinned: Any = None,
 ) -> str | None:
     """Return a real user/session model pin, or ``None`` to follow agent → primary.
 
-    Older ``_default_session_context`` stamped the create-time resolved model into
-    both ``model_name`` and ``primary_model_name``. That pair is not a user pin —
-    treat it as unset so Agent / primary changes take effect.
+    Two regimes:
+
+    - **Explicit pin** (``model_pinned`` truthy): ``model_name`` wins as-is whenever it
+      is a usable name. Users may legitimately pin the model that currently equals the
+      global primary — the old heuristic would silently un-pin it, so the flag exists.
+    - **Legacy rows** (flag absent): older ``_default_session_context`` stamped the
+      create-time resolved model into both ``model_name`` and ``primary_model_name``.
+      That pair is not a user pin — treat it as unset so Agent / primary changes take
+      effect. New writers must always pass ``model_pinned`` (see
+      docs/design/model-resolution.md「写入纪律」).
     """
     mn = str(model_name or "").strip()
     if not mn or mn.lower() == "default":
         return None
+    pinned = False
+    if model_pinned is not None:
+        if isinstance(model_pinned, bool):
+            pinned = model_pinned
+        elif isinstance(model_pinned, (int, float)):
+            pinned = int(model_pinned) != 0
+        else:
+            pinned = str(model_pinned).strip().lower() in {"1", "true", "yes"}
+        # Three-valued: flag present → it is the authority. ``model_pinned=0`` marks
+        # config-class writes (e.g. dept-group role backfill) that must never count
+        # as a pin even when the name differs from the primary snapshot.
+        return mn if pinned else None
+    # Legacy rows: infer from the ==primary-snapshot heuristic.
     pmn = str(primary_model_name or "").strip()
     if pmn and mn == pmn:
         return None
@@ -152,9 +175,14 @@ def context_from_flat_row(row: dict[str, Any]) -> dict[str, Any]:
     pmn = row.get("primary_model_name")
     if pmn:
         ctx["primary_model_name"] = str(pmn)
-    mn = effective_session_model_override(row.get("model_name"), pmn)
+    mp = _int_to_bool(row.get("model_pinned"))
+    mn = effective_session_model_override(row.get("model_name"), pmn, mp)
     if mn:
         ctx["model_name"] = mn
+    # Emit even when False so clients can tell "explicitly following" (flag present)
+    # apart from "legacy row without a flag" — see docs/design/model-resolution.md.
+    if mp is not None:
+        ctx["model_pinned"] = mp
     sm = row.get("session_mode")
     if sm:
         ctx["session_mode"] = str(sm)
@@ -231,6 +259,7 @@ def migrate_session_context_json_to_flat(conn: Any) -> None:
                 local_workspace_root = COALESCE(?, local_workspace_root),
                 use_virtual_paths = COALESCE(?, use_virtual_paths),
                 model_name = COALESCE(?, model_name),
+                model_pinned = COALESCE(?, model_pinned),
                 primary_model_name = COALESCE(?, primary_model_name),
                 session_mode = COALESCE(?, session_mode),
                 thinking_enabled = COALESCE(?, thinking_enabled),
@@ -250,6 +279,7 @@ def migrate_session_context_json_to_flat(conn: Any) -> None:
                 flat.get("local_workspace_root"),
                 flat.get("use_virtual_paths"),
                 flat.get("model_name"),
+                flat.get("model_pinned"),
                 flat.get("primary_model_name"),
                 flat.get("session_mode"),
                 flat.get("thinking_enabled"),

@@ -137,7 +137,7 @@ def resolve_session_title_for_upsert(
 
 _SESSION_SELECT_BASE = """
     session_key, thread_id, title, created_at, updated_at, message_count, context_json,
-    local_workspace_root, use_virtual_paths, model_name, primary_model_name, session_mode,
+    local_workspace_root, use_virtual_paths, model_name, model_pinned, primary_model_name, session_mode,
     thinking_enabled, reasoning_effort, is_plan_mode, subagent_enabled, include_search,
     memory_enabled, use_claude_code_chat, collab_phase, collab_task_id, agent_id,
     session_status, tool_approval_policy, permission_preset,
@@ -415,7 +415,10 @@ def _session_row_to_api(
         "context": ctx,
         "localWorkspaceRoot": str(d.get("local_workspace_root") or "").strip() or None,
         "useVirtualPaths": bool(int(d.get("use_virtual_paths") or 0)),
-        "modelName": effective_session_model_override(d.get("model_name"), d.get("primary_model_name")),
+        "modelName": effective_session_model_override(
+            d.get("model_name"), d.get("primary_model_name"), d.get("model_pinned")
+        ),
+        "modelPinned": bool(int(d.get("model_pinned") or 0)) if d.get("model_pinned") is not None else None,
         "primaryModelName": str(d.get("primary_model_name") or "").strip() or None,
         "sessionMode": str(d.get("session_mode") or "").strip() or None,
         "thinkingEnabled": bool(int(d.get("thinking_enabled") or 0)) if d.get("thinking_enabled") is not None else None,
@@ -759,7 +762,7 @@ def get_model_name_for_session_key(session_key: str) -> str | None:
         get_db()
         .execute(
             """
-        SELECT model_name, primary_model_name FROM evoflow_chat_sessions
+        SELECT model_name, model_pinned, primary_model_name FROM evoflow_chat_sessions
         WHERE is_deleted = 0 AND session_key = ?
         LIMIT 1
         """,
@@ -768,7 +771,7 @@ def get_model_name_for_session_key(session_key: str) -> str | None:
         .fetchone()
     )
     if row:
-        return effective_session_model_override(row[0], row[1])
+        return effective_session_model_override(row[0], row[2], row[1])
     return None
 
 
@@ -785,7 +788,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
         get_db()
         .execute(
             """
-        SELECT model_name, primary_model_name FROM evoflow_chat_sessions
+        SELECT model_name, model_pinned, primary_model_name FROM evoflow_chat_sessions
         WHERE is_deleted = 0 AND thread_id = ?
         ORDER BY updated_at DESC
         LIMIT 1
@@ -795,7 +798,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
         .fetchone()
     )
     if row:
-        name = effective_session_model_override(row[0], row[1])
+        name = effective_session_model_override(row[0], row[2], row[1])
         if name:
             return name
     # Fallback: resolve via session_key from messages table
@@ -805,7 +808,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
             get_db()
             .execute(
                 """
-            SELECT model_name, primary_model_name FROM evoflow_chat_sessions
+            SELECT model_name, model_pinned, primary_model_name FROM evoflow_chat_sessions
             WHERE is_deleted = 0 AND session_key = ?
             LIMIT 1
             """,
@@ -814,7 +817,7 @@ def get_model_name_for_thread(thread_id: str) -> str | None:
             .fetchone()
         )
         if row:
-            return effective_session_model_override(row[0], row[1])
+            return effective_session_model_override(row[0], row[2], row[1])
     return None
 
 
@@ -962,6 +965,8 @@ def _upsert_session_row_impl(
             flat[fk] = fv
     if clear_model_name:
         flat["model_name"] = None
+        # 恢复跟随：清名字必须连带清 pin，否则残留 model_pinned=1 会让后续写入歧义。
+        flat["model_pinned"] = 0
 
     ctx_json = residual_context_json(merged_ctx)
     title_for_row = resolve_session_title_for_upsert(
@@ -1010,12 +1015,12 @@ def _upsert_session_row_impl(
         INSERT INTO evoflow_chat_sessions (
             session_key, thread_id, title, created_at, updated_at,
             message_count, context_json, is_deleted,
-            local_workspace_root, use_virtual_paths, model_name, primary_model_name,
+            local_workspace_root, use_virtual_paths, model_name, model_pinned, primary_model_name,
             session_mode, thinking_enabled, reasoning_effort, is_plan_mode,
             subagent_enabled, include_search, memory_enabled, use_claude_code_chat,
             collab_phase, collab_task_id, agent_id, session_status,
             tool_approval_policy, permission_preset
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(session_key) DO UPDATE SET
             thread_id = COALESCE(excluded.thread_id, evoflow_chat_sessions.thread_id),
             title = CASE
@@ -1042,6 +1047,7 @@ def _upsert_session_row_impl(
                 WHEN ? = 1 THEN NULL
                 ELSE COALESCE(NULLIF(excluded.model_name, ''), evoflow_chat_sessions.model_name)
             END,
+            model_pinned = COALESCE(excluded.model_pinned, evoflow_chat_sessions.model_pinned),
             primary_model_name = COALESCE(NULLIF(excluded.primary_model_name, ''), evoflow_chat_sessions.primary_model_name),
             session_mode = COALESCE(NULLIF(excluded.session_mode, ''), evoflow_chat_sessions.session_mode),
             thinking_enabled = COALESCE(excluded.thinking_enabled, evoflow_chat_sessions.thinking_enabled),
@@ -1080,6 +1086,7 @@ def _upsert_session_row_impl(
             flat.get("local_workspace_root"),
             int(flat.get("use_virtual_paths") or 0),
             flat.get("model_name"),
+            flat.get("model_pinned"),
             flat.get("primary_model_name"),
             flat.get("session_mode"),
             flat.get("thinking_enabled"),

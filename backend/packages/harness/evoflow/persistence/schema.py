@@ -463,6 +463,7 @@ CREATE TABLE IF NOT EXISTS "evoflow_chat_sessions" (
             local_workspace_root TEXT,
             use_virtual_paths INTEGER NOT NULL DEFAULT 0,
             model_name TEXT,
+            model_pinned INTEGER,
             primary_model_name TEXT,
             session_mode TEXT,
             thinking_enabled INTEGER,
@@ -2141,6 +2142,9 @@ _LEGACY_COLUMN_BACKFILL: dict[str, tuple[tuple[str, str], ...]] = {
         ("org_id", "TEXT"),
         ("scope_id", "TEXT"),
         ("created_by", "TEXT"),
+        # Three-valued on purpose, no DEFAULT: NULL = legacy row (infer pin from the
+        # ==primary-snapshot heuristic), 0 = explicitly following, 1 = user pinned.
+        ("model_pinned", "INTEGER"),
     ),
     "evoflow_chat_messages": (
         ("turn_started_at", "TEXT"),

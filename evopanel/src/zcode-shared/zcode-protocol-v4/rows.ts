@@ -149,6 +149,17 @@ export const userInputRowSchema = z.object({
 });
 export type UserInputRow = z.infer<typeof userInputRowSchema>;
 
+// assistantText 行的模型 token 用量（一轮的累计，网关在轮尾正文行上盖章；
+// 历史轮 = 该轮 assistant 消息六字段求和，命名对齐 snapshot 的 sessionUsageState）。
+export const assistantUsageSchema = z.object({
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  totalTokens: z.number(),
+  cacheReadTokens: z.number().optional(),
+  cacheWriteTokens: z.number().optional(),
+});
+export type AssistantUsage = z.infer<typeof assistantUsageSchema>;
+
 // assistantText / reasoning。
 // 不变量：追加只能进 state="streaming" 的行；普通新 response 必然新 rowId。唯一例外是
 // ProductProjection 已由 length/zero-tool 事实确认的 output-token Continue，会重新打开同 turn
@@ -162,6 +173,8 @@ export const assistantTextRowSchema = z.object({
   state: z.enum(["streaming", "complete", "interrupted", "failed"]),
   model: z.string().optional(),
   feedback: z.enum(["like", "dislike"]).optional(),
+  // 轮累计 token 用量；只盖在轮尾正文行上，旧客户端按未知键剥离（schema 非 strict）。
+  usage: assistantUsageSchema.optional(),
 });
 export type AssistantTextRow = z.infer<typeof assistantTextRowSchema>;
 

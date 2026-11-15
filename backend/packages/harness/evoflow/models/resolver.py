@@ -128,6 +128,11 @@ _SOURCE_NAMES = {
 }
 
 
+def source_name(source: int) -> str:
+    """Human-readable tier label for observability (see ``SOURCE_*`` constants)."""
+    return _SOURCE_NAMES.get(source, f"source#{source}")
+
+
 def resolve_run_model_with_source(
     *,
     agent_code: str | None = None,

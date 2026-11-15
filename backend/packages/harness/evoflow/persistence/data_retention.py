@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -714,13 +715,49 @@ def _vacuum_paths(paths: list[Path]) -> list[str]:
     return done
 
 
+def _maybe_vacuum_sqlite(
+    *,
+    cfg: DataRetentionConfig,
+    base_dir: Path,
+    deleted_total: int,
+    vacuum_path_guard: Callable[[], bool] | None = None,
+) -> list[str]:
+    """VACUUM 收尾决策（独占锁库，大库上会堵死所有 DB 访问，见 runner 的 guard）。
+
+    返回 vacuumed 路径列表。三种跳过：未启用 / 删除量不足 min_deleted / guard
+    探测到系统繁忙（调用方让路，本轮不补——下轮 retention 再来）。
+    """
+    min_deleted = int(getattr(cfg, "vacuum_min_deleted_rows", 1) or 0)
+    if not cfg.vacuum_sqlite or deleted_total < min_deleted:
+        if cfg.vacuum_sqlite:
+            logger.info(
+                "data retention: skip VACUUM (deleted_total=%d < vacuum_min_deleted_rows=%d)",
+                deleted_total,
+                min_deleted,
+            )
+        return []
+    if vacuum_path_guard is not None and not vacuum_path_guard():
+        logger.info("data retention: skip VACUUM (vacuum_path_guard busy)")
+        return []
+    app_path = resolve_evolflow_db_path()
+    obs_path = observability_db_path(base_dir)
+    cp_path = checkpoints_db_path(base_dir)
+    return _vacuum_paths([p for p in (app_path, obs_path, cp_path) if p.is_file()])
+
+
 def run_data_retention(
     cfg: DataRetentionConfig,
     *,
     base_dir: Path,
     logs_dir: Path | None = None,
+    vacuum_path_guard: Callable[[], bool] | None = None,
 ) -> RetentionRunResult:
-    """Execute one retention pass (safe to call periodically)."""
+    """Execute one retention pass (safe to call periodically).
+
+    ``vacuum_path_guard``：返回 False 则本轮跳过 VACUUM（调用方探测系统繁忙时
+    让路——VACUUM 独占锁库，大库上会把 authz/live_run_snapshot 等所有 DB 访问
+    堵到它结束，事件循环连带卡死；见 2026-11-15 01:10 hang dump）。
+    """
     from evoflow.config.app_config import get_app_config
     from evoflow.config.data_paths import resolve_observability_db_config_path
 
@@ -867,23 +904,17 @@ def run_data_retention(
         + result.writes_rows_deleted
     )
     # VACUUM takes an exclusive lock and can stall chat for minutes on large DBs
-    # (observability alone may be multi-GB). Only compact after real deletes unless
-    # vacuum_min_deleted_rows=0 (always vacuum when enabled).
-    min_deleted = int(getattr(cfg, "vacuum_min_deleted_rows", 1) or 0)
-    if cfg.vacuum_sqlite and deleted_total >= min_deleted:
-        try:
-            app_path = resolve_evolflow_db_path()
-            obs_path = observability_db_path(base_dir)
-            cp_path = checkpoints_db_path(base_dir)
-            result.vacuumed = _vacuum_paths([p for p in (app_path, obs_path, cp_path) if p.is_file()])
-        except Exception as exc:
-            result.errors.append(f"vacuum: {exc}")
-    elif cfg.vacuum_sqlite:
-        logger.info(
-            "data retention: skip VACUUM (deleted_total=%d < vacuum_min_deleted_rows=%d)",
-            deleted_total,
-            min_deleted,
+    # (observability alone may be multi-GB). Skip conditions (enabled / min-deleted /
+    # busy guard) live in _maybe_vacuum_sqlite.
+    try:
+        result.vacuumed = _maybe_vacuum_sqlite(
+            cfg=cfg,
+            base_dir=base_dir,
+            deleted_total=deleted_total,
+            vacuum_path_guard=vacuum_path_guard,
         )
+    except Exception as exc:
+        result.errors.append(f"vacuum: {exc}")
 
     logger.info(
         "data retention: logs=%d obs=%d stream=%d status=%d automation=%d msgs=%d cp_threads=%d cp_rows=%d cp_history=%d writes=%d vacuum=%s errors=%d",

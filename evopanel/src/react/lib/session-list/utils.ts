@@ -134,6 +134,11 @@ export function sessionRowFromApi(
       (row.context && typeof row.context === 'object'
         ? String((row.context as { model_name?: string }).model_name || '').trim() || null
         : null),
+    modelPinned:
+      row.modelPinned ??
+      (row.context && typeof row.context === 'object'
+        ? ((row.context as { model_pinned?: boolean }).model_pinned ?? null)
+        : null),
     sessionMode:
       row.sessionMode ??
       (row.context && typeof row.context === 'object'

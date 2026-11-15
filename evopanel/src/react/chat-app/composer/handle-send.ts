@@ -697,16 +697,25 @@ export async function handleSend(
           memory_enabled: memoryEnabled,
         }
         if (!preserveCollabOnSend) {
-          const ctxModelRaw = wsClient.getSessionContext(sessionKey)?.model_name
-          const hasOverride = typeof ctxModelRaw === 'string' && !!ctxModelRaw.trim()
+          const sessCtx = wsClient.getSessionContext(sessionKey) as
+            | { model_name?: unknown; model_pinned?: unknown }
+            | undefined
+          const ctxModelRaw = String(sessCtx?.model_name ?? '').trim()
+          // 仅「真 pin」算覆盖：flag 显式 false（配置类回填）不算，旧行（无 flag）沿用原推断
+          const ctxPinned = sessCtx?.model_pinned
+          const hasOverride =
+            !!ctxModelRaw && (ctxPinned === undefined || ctxPinned === true || ctxPinned === 1)
           // 跟随智能体：不要用药丸展示值写回 model_name，否则会把智能体默认钉死成会话覆盖。
-          // 仅当会话已有覆盖、或用户药丸相对跟随值是显式选择时才同步。
+          // 仅当会话已有覆盖、或用户药丸相对跟随值是显式选择时才同步；两处都写 model_pinned=true
+          //（写入纪律见 docs/design/model-resolution.md）。
           const rawPill = (modelName || '').trim()
           const pillInCatalog = !!rawPill && modelCatalog.some((m) => m.name === rawPill)
           if (hasOverride && pillInCatalog) {
             contextPatch.model_name = rawPill
+            contextPatch.model_pinned = true
           } else if (!hasOverride && pillInCatalog && rawPill !== followResolvedModelName) {
             contextPatch.model_name = rawPill
+            contextPatch.model_pinned = true
           }
         }
         // 本地先合并：chatSend 读 map 用本地值；无变更则连后台 PATCH 也省掉

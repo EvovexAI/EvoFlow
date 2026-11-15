@@ -227,6 +227,8 @@ def require_agent_visible(request: Request | None, agent_code: str) -> None:
 
 
 def require_session_visible(request: Request | None, session_key: str) -> None:
+    import sqlite3
+
     from evoflow.authz.session_ownership import session_visible_to_principal
     from evoflow.persistence.db import get_db
 
@@ -240,20 +242,26 @@ def require_session_visible(request: Request | None, session_key: str) -> None:
     if not str(principal.get("principal_id") or "").strip():
         # No principal resolved (odd) — allow local/legacy rather than lock out
         return
-    cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_chat_sessions)").fetchall()}
-    if "created_by" not in cols:
-        return
-    fields = ["created_by"]
-    if "scope_id" in cols:
-        fields.append("scope_id")
-    row = (
-        get_db()
-        .execute(
-            f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
-            (sk,),
+    try:
+        cols = {str(r[1]) for r in get_db().execute("PRAGMA table_info(evoflow_chat_sessions)").fetchall()}
+        if "created_by" not in cols:
+            return
+        fields = ["created_by"]
+        if "scope_id" in cols:
+            fields.append("scope_id")
+        row = (
+            get_db()
+            .execute(
+                f"SELECT {', '.join(fields)} FROM evoflow_chat_sessions WHERE session_key = ? AND COALESCE(is_deleted, 0) = 0",
+                (sk,),
+            )
+            .fetchone()
         )
-        .fetchone()
-    )
+    except sqlite3.OperationalError as exc:
+        # Prefer 503 over freezing the Gateway event loop on VACUUM / writer lock.
+        if "database is locked" in str(exc).lower():
+            raise HTTPException(status_code=503, detail="database busy, retry") from exc
+        raise
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     data = dict(zip(fields, row, strict=False))

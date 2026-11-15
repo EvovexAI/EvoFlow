@@ -13,6 +13,10 @@ _FLUSH_INTERVAL_MS = max(1000, int(float(__import__("os").getenv("EVOFLOW_LIVE_R
 _last_flush_ms: dict[str, float] = {}
 _session_key_cache: dict[str, str | None] = {}
 _pending_snapshot_tasks: set[asyncio.Task[None]] = set()
+# 单飞：同一 thread 已有快照写入在途时不重复调度（2026-11-15 01:10 hang dump：
+# VACUUM 锁库期间十几个 worker 全堵在 get_live_run_snapshot+upsert 上排队）。
+# 仅 loop 线程读写（调度侧 add / done callback discard），set 操作 GIL 原子。
+_inflight_threads: set[str] = set()
 
 
 def _resolve_session_key(thread_id: str) -> str | None:
@@ -182,6 +186,18 @@ def _track_snapshot_task(task: asyncio.Task[None]) -> None:
 
 
 def schedule_snapshot_from_normalizer(thread_id: str, normalizer: Any, *, force: bool = False) -> None:
+    tid = str(thread_id or "").strip()
+
+    # 节流门与单飞都提到 loop 调度侧：原实现每帧都先全量构建 payload（拼接全部
+    # display segments，长回复 O(N²)）再 spawn to_thread，进去才撞 3s 节流门——
+    # 高频帧下白干 + VACUUM 锁库时十几个 worker 排羊群。
+    if not force:
+        now_ms = int(time.time() * 1000)
+        if now_ms - _last_flush_ms.get(tid, 0) < _FLUSH_INTERVAL_MS:
+            return
+        if tid in _inflight_threads:
+            return
+
     payload = snapshot_from_normalizer_payload(thread_id, normalizer)
     if not payload:
         return
@@ -195,21 +211,28 @@ def schedule_snapshot_from_normalizer(thread_id: str, normalizer: Any, *, force:
         snapshot_from_normalizer(thread_id, normalizer, force=force)
         return
 
+    if not force:
+        _inflight_threads.add(tid)
+
     async def runner() -> None:
-        await asyncio.to_thread(
-            maybe_upsert_gateway_live_snapshot,
-            payload["thread_id"],
-            partial_text=payload["partial_text"],
-            partial_tools=payload["partial_tools"],
-            partial_display_segments=payload.get("partial_display_segments"),
-            force=force,
-        )
+        try:
+            await asyncio.to_thread(
+                maybe_upsert_gateway_live_snapshot,
+                payload["thread_id"],
+                partial_text=payload["partial_text"],
+                partial_tools=payload["partial_tools"],
+                partial_display_segments=payload.get("partial_display_segments"),
+                force=force,
+            )
+        finally:
+            _inflight_threads.discard(tid)
 
     coro = runner()
     try:
         task = loop.create_task(coro)
     except Exception:
         coro.close()
+        _inflight_threads.discard(tid)
         snapshot_from_normalizer(thread_id, normalizer, force=force)
         return
     _track_snapshot_task(task)

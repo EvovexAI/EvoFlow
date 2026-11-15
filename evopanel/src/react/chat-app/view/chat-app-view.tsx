@@ -233,6 +233,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     modelConnNameMap,
     modelPillLabel,
     modelsLoading,
+    followSourceLabel,
+    handleFollowAgentModel,
+    sessionModelPinned,
     modeMenuOpen,
     moreMenuKey,
     moreSubOpen,
@@ -1442,8 +1445,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     const sk = (selectedSessionKey || sessionRef.current || '').trim() || (await ensureChatSessionKeyRef.current?.()) || ''
                     if (!sk) return
                     try {
-                      await wsClient.updateSessionContext(sk, { model_name: name })
-                      setSessions((prev) => prev.map((s) => String(s.sessionKey || '') === sk ? { ...s, modelName: name } : s))
+                      // 显式选择 = 会话级 pin（L1）：model_pinned 一并写，后端据此豁免 ==primary 推断
+                      await wsClient.updateSessionContext(sk, { model_name: name, model_pinned: true })
+                      setSessions((prev) => prev.map((s) => String(s.sessionKey || '') === sk ? { ...s, modelName: name, modelPinned: true } : s))
                       setRoleUiNonce((n) => n + 1)
                     } catch { /* ignore */ }
                     const sepText = `已切换至 ${name} 模型`
@@ -1454,6 +1458,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   <ModelCatalogMenu open={bottomModelOpen} onOpenChange={setBottomModelOpen}
                     catalog={modelCatalog} connNameMap={modelConnNameMap}
                     selectedModel={effectiveModelName} pillLabel={modelPillLabel}
+                    pinned={sessionModelPinned} followSourceLabel={followSourceLabel}
+                    onFollowAgent={handleFollowAgentModel}
                     loading={modelsLoading} disabled={modelDisabled} manageDismiss={false}
                     portalFixed portalStack={isMobileChat} rootRef={bottomModelRootRef}
                     onBeforeOpen={() => { setModeMenuOpen(false); setBottomPermissionOpen(false); setBottomMoreOpen(false); setBottomWorkspaceOpen(false); setBottomRoleOpen(false) }}

@@ -4355,7 +4355,7 @@ html[data-theme='dark'] .react-chat-history-item.active {
   gap: 6px;
 }
 
-/* Owner 分组下标清触发方式：对话 / 渠道 / 定时 / 任务 / 部门 */
+/* Owner 分组下标清触发方式：对话 / 渠道 / 定时 / 任务 / 群聊 */
 .react-chat-session-trigger-chip {
   flex: 0 0 auto;
   max-width: 3.5em;
@@ -14471,6 +14471,39 @@ html.dark .react-chat-icon-stop-btn:hover {
   min-width: 150px;
   max-width: 220px;
   overflow: visible;
+}
+
+/* 模型菜单状态行：跟随中（岗位/智能体/全局）或会话固定 + 恢复跟随（docs/design/model-resolution.md） */
+.react-chat-model-follow-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 11px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
+}
+.react-chat-model-follow-label {
+  font-size: 11px;
+  color: var(--text-secondary, #656b73);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 16px;
+}
+.react-chat-model-follow-action {
+  flex: none;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  color: var(--accent, #2563eb);
+  transition: background var(--dur-fast, 140ms);
+}
+.react-chat-model-follow-action:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.05));
 }
 
 /* 模型级联菜单：厂商列表项容器 */

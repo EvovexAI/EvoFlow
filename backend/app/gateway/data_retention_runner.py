@@ -84,6 +84,58 @@ def _effective_startup_delay_seconds() -> int:
     return _startup_delay_seconds()
 
 
+def _vacuum_busy_guard() -> bool:
+    """True = 允许本轮 VACUUM。聊天 REST / 流式 / 事件循环过载时让路。
+
+    VACUUM 独占 SQLite 锁：大库上可达数十秒～数分钟。进程内 ``_lock`` 会在
+    writer 等待 SQLite 时一直持有；若此时事件循环线程再同步 ``get_db()``
+    （例如旧版 ``execution/state``），整条 Gateway 卡死，表现为
+    ``[LG-ROUTE] 等待 LangGraph 接受`` + 新对话 ``first_token_dead``
+    （2026-11-15 hang：execution/state / messages / context 等 298s）。
+
+    探测纯内存（流注册表 + hang lag / inflight），不触库；
+    ``EVOFLOW_VACUUM_BUSY_GUARD=0`` 关闭回退旧行为；探测异常 fail-open。
+    """
+    raw = (os.getenv("EVOFLOW_VACUUM_BUSY_GUARD") or "").strip().lower()
+    if raw in ("0", "false", "no", "off"):
+        return True
+    try:
+        from app.gateway.routers.langgraph_proxy import list_active_stream_proxies
+
+        active = len(list_active_stream_proxies())
+    except Exception:
+        active = 0
+    if active > 0:
+        logger.info("vacuum guard: %d active stream proxy(ies) — skipping VACUUM this pass", active)
+        return False
+    try:
+        from app.gateway.hang_diagnostics import (
+            get_event_loop_lag_seconds,
+            snapshot_inflight_requests,
+        )
+
+        lag = float(get_event_loop_lag_seconds() or 0.0)
+        if lag >= 2.0:
+            logger.info("vacuum guard: event-loop lag=%.1fs — skipping VACUUM this pass", lag)
+            return False
+        snap = snapshot_inflight_requests() or {}
+        inflight = list(snap.get("all") or snap.get("long_waiting") or [])
+        chatish = 0
+        for req in inflight:
+            path = str(req.get("path") or "")
+            if "/api/chat/" in path or "/api/langgraph/" in path:
+                chatish += 1
+        if chatish > 0:
+            logger.info(
+                "vacuum guard: %d chat/langgraph inflight request(s) — skipping VACUUM this pass",
+                chatish,
+            )
+            return False
+    except Exception:
+        pass
+    return True
+
+
 def run_retention_once() -> dict[str, Any]:
     from evoflow.config.app_config import get_app_config
     from evoflow.config.data_paths import logs_dir, resolve_data_base_dir
@@ -94,7 +146,12 @@ def run_retention_once() -> dict[str, Any]:
     base = get_paths().base_dir
     ensure_data_layout(base)
     cfg = get_app_config().data_retention
-    result = run_data_retention(cfg, base_dir=base, logs_dir=logs_dir(resolve_data_base_dir()))
+    result = run_data_retention(
+        cfg,
+        base_dir=base,
+        logs_dir=logs_dir(resolve_data_base_dir()),
+        vacuum_path_guard=_vacuum_busy_guard,
+    )
     return {
         "logs_removed": result.logs_removed,
         "obs_rows_deleted": result.obs_rows_deleted,

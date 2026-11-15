@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from evoflow.config import get_app_config
 from evoflow.config.model_config import ModelConfig
@@ -11,6 +12,26 @@ logger = logging.getLogger(__name__)
 
 # Fallback when a model row has no context_length (should be set in Settings → Models).
 DEFAULT_CONTEXT_LENGTH = 256_000
+
+# Absolute compaction-trigger cap (TTFT budget). For large-window models the
+# 0.9x ratio defers compaction far beyond reasonable prefill latency —
+# production 2026-11-13 saw a session reach 334K ctx / 10.9s avg TTFT before
+# the ratio threshold ever fired. Cap the *non-aggressive* threshold at this
+# floor; ``EVOFLOW_COMPACT_ABSOLUTE_TOKENS`` overrides (floor 20K).
+_ABSOLUTE_COMPACT_CAP_DEFAULT = 150_000
+_ABSOLUTE_COMPACT_CAP: int | None = None
+
+
+def absolute_compact_cap() -> int:
+    global _ABSOLUTE_COMPACT_CAP
+    if _ABSOLUTE_COMPACT_CAP is None:
+        raw = os.getenv("EVOFLOW_COMPACT_ABSOLUTE_TOKENS", "").strip()
+        try:
+            value = int(raw) if raw else _ABSOLUTE_COMPACT_CAP_DEFAULT
+        except ValueError:
+            value = _ABSOLUTE_COMPACT_CAP_DEFAULT
+        _ABSOLUTE_COMPACT_CAP = max(20_000, value)
+    return _ABSOLUTE_COMPACT_CAP
 
 # runtime ``ModelInfo.auto_compact_token_limit``: ``(context_window * 9) / 10``.
 AUTO_COMPACT_NUM = 9
@@ -69,6 +90,9 @@ def compression_threshold_tokens(
       ``(window * 9) // 10`` using the standard 90% auto-compact window heuristic.
     - Aggressive / hard: runtime also forces compact when usage reaches the full
       context window (``full_context_window_limit_reached``).
+    - Non-aggressive thresholds are additionally capped at
+      ``absolute_compact_cap()`` (default 150K): on big-window models the ratio
+      alone lets prefill latency grow unbounded.
     """
     n = max(0, int(context_length))
     if aggressive:
@@ -77,5 +101,7 @@ def compression_threshold_tokens(
         return int(n * float(aggressive_ratio))
     ratio = float(threshold_ratio)
     if abs(ratio - AUTO_COMPACT_RATIO) < 1e-9:
-        return auto_compact_token_limit(n)
-    return int(n * ratio)
+        threshold = auto_compact_token_limit(n)
+    else:
+        threshold = int(n * ratio)
+    return min(threshold, absolute_compact_cap())

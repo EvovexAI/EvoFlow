@@ -71,7 +71,8 @@ export async function finalizeNewSessionBackground(
       pill !== ctx.agentDefaultModelName
     if (explicitOverride) {
       try {
-        await api.chatUpdateContext(key, { model_name: pill })
+        // 显式选择 = 会话级 pin，model_pinned 一并写（写入纪律见 docs/design/model-resolution.md）
+        await api.chatUpdateContext(key, { model_name: pill, model_pinned: true })
         ctx.setModelName(pill)
         ctx.syncModelSessionPrevKeyRef.current = key
       } catch (e) {

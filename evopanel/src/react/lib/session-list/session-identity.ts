@@ -34,7 +34,8 @@ export const SESSION_TRIGGER_LABELS: Record<SessionListTrigger, string> = {
   channel: '渠道',
   schedule: '定时',
   task: '任务',
-  dept: '部门',
+  /** 部门时间线 + 员工侧「群聊 @ 出的 sticky」统一标群聊 */
+  dept: '群聊',
 }
 
 export function sessionTriggerLabel(trigger: SessionListTrigger): string {
@@ -67,6 +68,24 @@ function sourceFromContext(context: Record<string, unknown> | null | undefined):
   return String((context as { source?: unknown }).source || '')
     .trim()
     .toLowerCase()
+}
+
+/** ``proactive:{code}:chat:dept-{id}`` 或 context 带部门群标志 */
+export function looksLikeDeptGroupChat(
+  chatSuffix: string | null | undefined,
+  context?: Record<string, unknown> | null,
+): boolean {
+  const suffix = String(chatSuffix || '')
+    .trim()
+    .toLowerCase()
+  if (suffix.startsWith('dept-') || suffix.startsWith('dept:')) return true
+  if (!context || typeof context !== 'object') return false
+  if (context.dept_group_im === true || context.dept_group_im === 1) return true
+  const flag = String(context.dept_group_im || '')
+    .trim()
+    .toLowerCase()
+  if (flag === '1' || flag === 'true' || flag === 'yes') return true
+  return Boolean(String(context.dept_group_id || context.dept_group_name || '').trim())
 }
 
 /**
@@ -120,6 +139,15 @@ export function resolveSessionListIdentity(
       }
     }
     if (parsed.kind === 'chat') {
+      // 部门群 @ 成员 sticky：与任务芯片同级，标「群聊」（勿落成普通「对话」）
+      if (looksLikeDeptGroupChat(parsed.suffix, context)) {
+        return {
+          ownerKey: code,
+          ownerKind: 'agent',
+          ownerCode: code,
+          trigger: 'dept',
+        }
+      }
       const im =
         looksLikeImChannelToken(parsed.suffix) ||
         looksLikeImChannelToken(ctxChannel) ||

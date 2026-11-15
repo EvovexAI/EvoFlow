@@ -42,7 +42,6 @@ def resolve_effective_max_output_tokens(
     return resolve_model_max_output_tokens(max_tokens)
 
 
-DEFAULT_MODEL_TEMPERATURE = 0.7
 # Ceiling for a single vendor request. The legacy 600s froze the UI on「生成中…」for
 # up to 10 minutes per attempt when a gateway accepted the socket but never streamed a
 # first token; with ``max_retries`` the worst case was 600s x 3 = 30 minutes. 120s
@@ -60,13 +59,6 @@ _REQUEST_TIMEOUT_CEILING = 300.0
 # Rows written before this change stored the legacy 2 explicitly; clamp on read so a
 # wedged gateway cannot burn 3x the timeout.
 _MAX_RETRIES_CEILING = 2
-
-
-def resolve_model_temperature(raw: float | None) -> float:
-    """Normalize DB/API temperature: unset → 0.7."""
-    if raw is None:
-        return DEFAULT_MODEL_TEMPERATURE
-    return float(raw)
 
 
 def resolve_model_request_timeout(raw: float | None) -> float:

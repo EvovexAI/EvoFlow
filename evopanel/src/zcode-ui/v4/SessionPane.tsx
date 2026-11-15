@@ -3676,22 +3676,8 @@ export function SessionPane({
     });
   }, [dispatchCommand, sessionId]);
 
-  // composer parity：Esc → stop（旧 useChatViewEffects「Escape 停止生成」语义保真：
-  // 事件路径含 dialog / defaultPrevented 时跳过；mention/slash 面板打开时 Lexical 已
-  // preventDefault，本 handler 自然让路）。仅 focused pane 监听：
-  // 「stop 等危险操作永远作用于明确的 pane，快捷键走 focused pane」。
-  useEffect(() => {
-    if (!focused || readOnly) return;
-    if (!sessionId || !liveExecutionBusy) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (shouldIgnoreEscapeForStopGeneration(event)) return;
-      event.preventDefault();
-      handleStop("escape");
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [focused, handleStop, liveExecutionBusy, readOnly, sessionId]);
+  // composer parity：Esc → stop effect 依赖 liveExecutionBusy（下方 stop/gear 区声明），
+  // 已整体移到该声明之后（避免 TDZ 型 TS 错误）。
 
   // handleStop 带 source 参数（button / escape 两个调用点），但 ConversationComposer 是 memo：
   // 直接写 onStop={() => handleStop("button")} 每次 render 都换引用，memo 白做，而 composer
@@ -3957,6 +3943,22 @@ export function SessionPane({
     snapshot,
     runningBackgroundWorkCountForStop,
   );
+  // composer parity：Esc → stop（旧 useChatViewEffects「Escape 停止生成」语义保真：
+  // 事件路径含 dialog / defaultPrevented 时跳过；mention/slash 面板打开时 Lexical 已
+  // preventDefault，本 handler 自然让路）。仅 focused pane 监听：
+  // 「stop 等危险操作永远作用于明确的 pane，快捷键走 focused pane」。
+  useEffect(() => {
+    if (!focused || readOnly) return;
+    if (!sessionId || !liveExecutionBusy) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (shouldIgnoreEscapeForStopGeneration(event)) return;
+      event.preventDefault();
+      handleStop("escape");
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [focused, handleStop, liveExecutionBusy, readOnly, sessionId]);
   useEffect(() => {
     setTerminalSectionOpen(false);
     setAgentSectionOpen(false);

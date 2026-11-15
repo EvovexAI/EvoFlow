@@ -1056,14 +1056,20 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     except Exception:
         pass
     _inject_goal_mode_into_cfg(cfg)
-    # Create-time stamp used to set model_name == primary_model_name; that is not a
-    # user pin — drop it so resolve_run_model can follow agent → live primary.
+    # Non-pin model_name stamps must not freeze the run: legacy create-time stamps set
+    # model_name == primary_model_name, and config-class writers (dept-group role
+    # backfill) set model_pinned=0. Drop both so resolve_run_model can follow
+    # agent → live primary. A real user pin (model_pinned=1) survives — see
+    # docs/design/model-resolution.md.
     try:
         from evoflow.persistence.session_context_fields import effective_session_model_override
 
-        _pinned = effective_session_model_override(cfg.get("model_name"), cfg.get("primary_model_name"))
+        _pinned = effective_session_model_override(
+            cfg.get("model_name"), cfg.get("primary_model_name"), cfg.get("model_pinned")
+        )
         if not _pinned:
             cfg.pop("model_name", None)
+            cfg.pop("model_pinned", None)
             if str(cfg.get("model") or "").strip() == str(cfg.get("primary_model_name") or "").strip():
                 cfg.pop("model", None)
     except Exception:
@@ -1366,21 +1372,25 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     custom_system_prompt = str(agent_config.system_prompt).strip() if agent_config and agent_config.system_prompt else ""
     # Single source of truth for model resolution. Order: cfg.model_name (the
     # slot proactive employees + front-end session UI write to) -> Agent.model
-    # -> primary_model -> models[0]. See ``evoflow.models.resolver``.
+    # -> primary_model -> models[0]. See ``evoflow.models.resolver``. The
+    # resolved tier is logged + traced every run (observability closed loop).
     from evoflow.models.resolver import (
         NoChatModelConfiguredError,
-        resolve_run_model,
+        resolve_run_model_with_source,
+        source_name as resolver_source_name,
     )
 
     try:
-        model_name = resolve_run_model(
+        model_name, _model_source_idx = resolve_run_model_with_source(
             agent_code=str(agent_name) if agent_name else None,
             cfg=cfg,
         )
+        model_source = resolver_source_name(_model_source_idx)
     except NoChatModelConfiguredError:
         # Empty configuration — let the dedicated error block below format the
         # actionable message (it has live AppConfig at hand).
         model_name = ""
+        model_source = "unresolved"
         model_config = None
         app_config = get_app_config()
         raise ValueError(
@@ -1407,6 +1417,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
                 fallback,
             )
             model_name = fallback
+            model_source = "stale_fallback"
             model_config = app_config.get_model_config(model_name)
 
     if model_config is None:
@@ -1416,6 +1427,15 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
             "Models are stored in SQLite (evoflow_models). "
             "If the table was cleared, re-add your provider API keys in the UI and restart Gateway."
         )
+    # 观测闭环：每轮一行 INFO，标明模型来自哪一层（pin/岗位=runtime、智能体、primary、first）。
+    # 排查「改了模型为什么不生效」时在 gateway 日志 grep 'model resolved: source='。
+    logger.info(
+        "model resolved: source=%s name=%r agent=%s session=%s",
+        model_source,
+        model_name,
+        agent_name or "-",
+        str(cfg.get("session_key") or "").strip() or "-",
+    )
     if thinking_enabled and not model_config.supports_thinking:
         logger.warning(f"Thinking mode is enabled but model '{model_name}' does not support it; fallback to non-thinking mode.")
         thinking_enabled = False
@@ -1428,7 +1448,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
 
     _agent_log = (
         "Create Agent(%s) -> session_mode: %s, thinking_enabled: %s, reasoning_effort: %s, "
-        "model_name: %s, is_plan_mode: %s, subagent_enabled: %s, max_concurrent_subagents: %s, "
+        "model_name: %s, model_source: %s, is_plan_mode: %s, subagent_enabled: %s, max_concurrent_subagents: %s, "
         "include_search: %s, voice_mode: %s, xiaomi_front_desk: %s, thinking_type: %s"
     )
     _agent_args = (
@@ -1437,6 +1457,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         thinking_enabled,
         reasoning_effort,
         model_name,
+        model_source,
         is_plan_mode,
         subagent_enabled,
         max_concurrent_subagents,
@@ -1459,6 +1480,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
         {
             "agent_name": agent_name or "default",
             "model_name": model_name or "default",
+            "model_source": model_source,
             "thinking_enabled": thinking_enabled,
             "reasoning_effort": reasoning_effort,
             "is_plan_mode": is_plan_mode,

@@ -14,6 +14,8 @@ export interface ChatSessionRow {
   activatedScenarios?: string[]
   /** Gateway 扁平字段（会话 context 恢复） */
   modelName?: string | null
+  /** 用户显式钉死的模型（model_pinned）；null/缺省 = 旧行，需按 ==primary 推断 */
+  modelPinned?: boolean | null
   sessionMode?: string | null
   memoryEnabled?: boolean | null
   context?: Record<string, unknown>

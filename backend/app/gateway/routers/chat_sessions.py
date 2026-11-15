@@ -62,6 +62,7 @@ class SessionRowResponse(BaseModel):
     localWorkspaceRoot: str | None = None
     useVirtualPaths: bool | None = None
     modelName: str | None = None
+    modelPinned: bool | None = None
     primaryModelName: str | None = None
     sessionMode: str | None = None
     thinkingEnabled: bool | None = None

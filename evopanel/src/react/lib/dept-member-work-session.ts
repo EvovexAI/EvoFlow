@@ -192,7 +192,9 @@ export async function runDeptMemberWorkTurn(
     }
     const model = String(cfg.model_name || '').trim()
     if (model && model.toLowerCase() !== 'default') {
-      roleRuntimePatch = { ...roleRuntimePatch, model_name: model }
+      // 配置类回填必须带 model_pinned=0（写入纪律，docs/design/model-resolution.md）：
+      // 否则会被当成用户 pin，岗位改模型后 sticky 会话跟不过去。
+      roleRuntimePatch = { ...roleRuntimePatch, model_name: model, model_pinned: false }
     }
   } catch {
     /* 岗位拉不到时交给后端 apply_role_*_to_run_cfg */

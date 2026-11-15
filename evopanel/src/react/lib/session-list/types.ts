@@ -23,6 +23,9 @@ export type ShellSidebarSyncRow = {
   agentId?: string
   /** context.channel：飞书/企微等渠道类型 */
   channel?: string
+  /** 部门群 @ 员工 sticky（context.dept_group_*），侧栏「群聊」芯片补强 */
+  deptGroupId?: string
+  deptGroupIm?: boolean
 }
 
 /** API：工作目录汇总（侧栏文件夹计数） */

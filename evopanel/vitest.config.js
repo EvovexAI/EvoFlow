@@ -296,6 +296,10 @@ export default defineConfig({
       'tests/ws-subagent-token-delta.test.js',
       // 目标徽标 bridge：class store 的 subscribe 传参必须保持 this 绑定
       'tests/goal-status-badge-bridge.test.tsx',
+      // V4 轮尾 token 用量串格式化（复刻旧版 ↑in ↓out · ⚡cacheRead）
+      'tests/v4-assistant-usage-label.test.ts',
+      // 渲染进程内存瞭望：投影行字节估算（2026-11-15 renderer 1.7GB 悬案的下次定罪探针）
+      'tests/v4-projection-memory-probe.test.ts',
     ],
   },
 })

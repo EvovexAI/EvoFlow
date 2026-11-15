@@ -1,13 +1,13 @@
 /**
- * 运维观测开启后的本机运行监控浮窗（中文）：
- * CPU/内存 + Agent 运行时探活 + 对话回合首字卡顿/记死计数。
+ * 运维观测浮窗：三块人话状态卡（总览 / 对话能不能聊 / 本机负载）。
+ * 不堆截断数字；卡住会写清「前端没发出 / 后端没开跑 / 等模型首字」。
  * 随 `evoflow:obs-enabled-changed` 显隐；可拖拽、可收起。
  */
 import { api } from './tauri-api.js'
 import { OBS_ENABLED_CHANGED_EVENT } from '../react/obs/lib/obs-api.js'
 
 const HUD_ID = 'evoflow-perf-hud'
-const HUD_SKIN = 'telemetry-v3-zh'
+const HUD_SKIN = 'telemetry-v4-plain'
 const POS_KEY = 'evoflow_perf_hud_pos'
 const COLLAPSED_KEY = 'evoflow_perf_hud_collapsed'
 
@@ -212,62 +212,31 @@ function hudCss() {
       }
       #${HUD_ID} .ef-hud-body{position:relative;z-index:1;padding:10px 14px 14px}
       #${HUD_ID}.is-collapsed .ef-hud-body{display:none}
-      #${HUD_ID} .ef-hud-gauges{
-        display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;
+      #${HUD_ID} .ef-hud-cards{display:flex;flex-direction:column;gap:10px}
+      #${HUD_ID} .ef-hud-card{
+        padding:12px 12px 10px;
+        background:rgba(0,16,28,.82);
+        border:1px solid rgba(0,229,255,.25);
+        border-left:4px solid rgba(0,229,255,.55);
       }
-      #${HUD_ID} .ef-hud-gauge{
-        position:relative;display:flex;flex-direction:column;align-items:center;gap:4px;
-        padding:10px 6px 8px;
-        background:rgba(0,20,32,.72);
-        border:1px solid rgba(0,229,255,.28);
-        clip-path:polygon(0 6px,6px 0,100% 0,100% calc(100% - 6px),calc(100% - 6px) 100%,0 100%);
+      #${HUD_ID} .ef-hud-card.is-ok{border-left-color:#34d399}
+      #${HUD_ID} .ef-hud-card.is-warn{border-left-color:#ffc14d;background:rgba(40,28,8,.55)}
+      #${HUD_ID} .ef-hud-card.is-bad{border-left-color:#ff5c7a;background:rgba(48,8,18,.55)}
+      #${HUD_ID} .ef-hud-card-h{
+        display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:6px;
       }
-      #${HUD_ID} .ef-hud-ring-wrap{position:relative;width:72px;height:72px}
-      #${HUD_ID} .ef-hud-ring{width:72px;height:72px;display:block}
-      #${HUD_ID} .ef-hud-ring-val{
-        position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
-        flex-direction:column;pointer-events:none;
+      #${HUD_ID} .ef-hud-card-h .t{font-size:12px;color:#9adcec;font-weight:700}
+      #${HUD_ID} .ef-hud-card-h .s{
+        font-size:13px;font-weight:800;color:#fff;white-space:nowrap;
       }
-      #${HUD_ID} .ef-hud-ring-val strong{
-        font-size:15px;color:#ffffff;font-weight:800;letter-spacing:-.02em;
-        text-shadow:0 0 10px rgba(0,229,255,.35);
+      #${HUD_ID} .ef-hud-card.is-ok .s{color:#6ee7b7}
+      #${HUD_ID} .ef-hud-card.is-warn .s{color:#ffc14d}
+      #${HUD_ID} .ef-hud-card.is-bad .s{color:#fda4af}
+      #${HUD_ID} .ef-hud-card-p{
+        font-size:12px;line-height:1.55;color:#d7f7ff;word-break:break-word;
       }
-      #${HUD_ID} .ef-hud-ring-val span{
-        font-size:9px;color:#7ddcf0;letter-spacing:.14em;font-weight:700;
-      }
-      #${HUD_ID} .ef-hud-gauge-label{
-        font-size:11px;color:#00e5ff;letter-spacing:.04em;font-weight:700;
-      }
-      #${HUD_ID} .ef-hud-sec{
-        margin:0 0 8px;font-size:10px;color:#5ec8dc;font-weight:700;letter-spacing:.04em;
-      }
-      #${HUD_ID} .ef-hud-rows{display:flex;flex-direction:column;gap:8px}
-      #${HUD_ID} .ef-hud-row{
-        display:grid;grid-template-columns:1fr auto;gap:4px 10px;align-items:center;
-        font-size:11px;padding:8px 10px;
-        background:rgba(0,16,28,.78);
-        border:1px solid rgba(0,229,255,.22);
-        border-left:3px solid rgba(0,229,255,.55);
-      }
-      #${HUD_ID} .ef-hud-row.is-warn{
-        border-color:rgba(255,92,122,.65);border-left-color:#ff5c7a;
-        background:rgba(48,8,18,.55);
-      }
-      #${HUD_ID} .ef-hud-row.is-ok{border-left-color:#34d399}
-      #${HUD_ID} .ef-hud-row .k{
-        color:#9adcec;font-size:11px;font-weight:650;
-      }
-      #${HUD_ID} .ef-hud-row .v{
-        color:#ffffff;font-weight:750;white-space:nowrap;font-size:12px;
-        text-shadow:0 0 8px rgba(0,229,255,.2);font-variant-numeric:tabular-nums;
-        max-width:58%;overflow:hidden;text-overflow:ellipsis;
-      }
-      #${HUD_ID} .ef-hud-row .ef-hud-bar{
-        grid-column:1 / -1;height:4px;margin-top:2px;
-        background:rgba(0,229,255,.12);overflow:hidden;
-      }
-      #${HUD_ID} .ef-hud-row .ef-hud-bar i{
-        display:block;height:100%;min-width:2px;transition:width .35s ease;
+      #${HUD_ID} .ef-hud-card-p em{
+        font-style:normal;color:#7ddcf0;font-weight:700;
       }
       #${HUD_ID} .ef-hud-foot{
         margin-top:12px;display:flex;justify-content:space-between;gap:8px;align-items:center;
@@ -334,17 +303,9 @@ function ensureHost() {
         </div>
       </div>
       <div class="ef-hud-body" data-hud-body>
-        <div class="ef-hud-gauges">
-          <div class="ef-hud-gauge" data-hud-cpu-gauge></div>
-          <div class="ef-hud-gauge" data-hud-mem-gauge></div>
-        </div>
-        <div class="ef-hud-sec">资源</div>
-        <div class="ef-hud-rows" data-hud-rows></div>
-        <div class="ef-hud-sec" style="margin-top:10px">对话链路</div>
-        <div class="ef-hud-rows" data-hud-chat-rows></div>
+        <div class="ef-hud-cards" data-hud-cards></div>
         <div class="ef-hud-foot">
           <button type="button" class="ef-hud-link" data-hud-obs>运维观测</button>
-          <button type="button" class="ef-hud-link" data-hud-rm>资源管理</button>
           <button type="button" class="ef-hud-link" data-hud-life>回合日志</button>
           <span class="ef-hud-tick" data-hud-tick>—</span>
         </div>
@@ -378,9 +339,6 @@ function ensureHost() {
   })
   host.querySelector('[data-hud-obs]')?.addEventListener('click', () => {
     window.location.hash = '/observability'
-  })
-  host.querySelector('[data-hud-rm]')?.addEventListener('click', () => {
-    void import('./resource-manager-overlay.js').then((m) => m.openResourceManagerOverlay())
   })
   host.querySelector('[data-hud-life]')?.addEventListener('click', () => {
     window.location.hash = '/system-logs?source=chat-turn-lifecycle'
@@ -472,6 +430,65 @@ async function probeAgentRuntime() {
   return { ok: false, port: null, label: '不可达' }
 }
 
+function loadLevel(cpu, memPct) {
+  if (cpu >= 85 || memPct >= 90) return { cls: 'is-bad', s: '偏高', tip: '机器负载偏高，对话可能变慢' }
+  if (cpu >= 65 || memPct >= 80) return { cls: 'is-warn', s: '略高', tip: '机器有点忙，一般还能聊' }
+  return { cls: 'is-ok', s: '正常', tip: '本机 CPU / 内存都还好' }
+}
+
+function chatVerdict(chatOps, lgProbe) {
+  if (!lgProbe?.ok) {
+    return {
+      cls: 'is-bad',
+      s: '聊不了',
+      tip: '对话引擎没起来（Agent 运行时探测失败）。先看网关 / LangGraph 是否在跑。',
+    }
+  }
+  const stall = chatOps?.stall
+  if (stall?.stalled) {
+    const sec = Math.round(stall.sinceMs / 1000)
+    const stage =
+      stall.stage === 'fe_prep'
+        ? '前端还没把消息发出去'
+        : stall.stage === 'be_accept'
+          ? '消息已发出，后端还没开跑'
+          : stall.stage === 'await_first_token'
+            ? '后端已开跑，还在等模型吐出第一个字'
+            : '还在等回复'
+    if (sec >= 30) {
+      return {
+        cls: 'is-bad',
+        s: `卡住 ${sec} 秒`,
+        tip: `${stage}。已记入「回合日志」，可点下面按钮查看。`,
+      }
+    }
+    return {
+      cls: 'is-warn',
+      s: `等待中 ${sec} 秒`,
+      tip: `${stage}。再等等；超过约 30 秒会记成异常。`,
+    }
+  }
+  if (chatOps?.watch) {
+    return {
+      cls: 'is-ok',
+      s: '旁观轮询',
+      tip: '当前不是本机实时流，在定时拉历史（常见于飞书等渠道旁观）。',
+    }
+  }
+  if ((chatOps?.deadCount || 0) > 0) {
+    return {
+      cls: 'is-warn',
+      s: '曾超时',
+      tip: `本机已记下 ${chatOps.deadCount} 次「发了很久没出字」。点「回合日志」看详情。`,
+    }
+  }
+  return {
+    cls: 'is-ok',
+    s: '可对话',
+    tip: '引擎在线。发消息后若迟迟无字，这里会改成「等待中 / 卡住」。',
+  }
+}
+
 function render(host, snap, chatOps, lgProbe) {
   const appCpu = clampPct(snap?.app?.cpuPercent)
   const sysCpu = clampPct(snap?.system?.cpuPercent)
@@ -479,106 +496,52 @@ function render(host, snap, chatOps, lgProbe) {
   const sysUsed = Number(snap?.system?.memoryUsedBytes) || 0
   const sysTotal = Number(snap?.system?.memoryTotalBytes) || 0
   const sysMemPct = sysTotal > 0 ? (sysUsed / sysTotal) * 100 : 0
-  const appMemPct = sysTotal > 0 ? (appMem / sysTotal) * 100 : 0
   const lg = pickLanggraph(snap?.processes)
-  const lgWarn = lg && lg.memoryBytes >= 4 * 1024 * 1024 * 1024
+  const load = loadLevel(Math.max(appCpu, sysCpu), sysMemPct)
+  const chat = chatVerdict(chatOps, lgProbe)
 
-  const cpuTone = toneForPct(appCpu, 80)
-  const memTone = toneForPct(sysMemPct, 85)
-  const sysCpuTone = toneForPct(sysCpu, 85)
-  const lgCpu = lg ? clampPct(lg.cpuPercent) : 0
-
-  const cpuGauge = host.querySelector('[data-hud-cpu-gauge]')
-  const memGauge = host.querySelector('[data-hud-mem-gauge]')
-  if (cpuGauge) {
-    cpuGauge.innerHTML = `
-      <div class="ef-hud-ring-wrap">
-        ${ringSvg(appCpu, cpuTone)}
-        <div class="ef-hud-ring-val"><strong>${appCpu.toFixed(0)}%</strong><span>本应用</span></div>
-      </div>
-      <div class="ef-hud-gauge-label">CPU</div>
-    `
-  }
-  if (memGauge) {
-    memGauge.innerHTML = `
-      <div class="ef-hud-ring-wrap">
-        ${ringSvg(sysMemPct, memTone)}
-        <div class="ef-hud-ring-val"><strong>${sysMemPct.toFixed(0)}%</strong><span>本机</span></div>
-      </div>
-      <div class="ef-hud-gauge-label">内存</div>
-    `
+  let overall = { cls: 'is-ok', s: '一切正常', tip: '本机与对话引擎看起来都正常。' }
+  if (chat.cls === 'is-bad' || load.cls === 'is-bad') {
+    overall = {
+      cls: 'is-bad',
+      s: '有问题',
+      tip: chat.cls === 'is-bad' ? chat.tip : load.tip,
+    }
+  } else if (chat.cls === 'is-warn' || load.cls === 'is-warn') {
+    overall = {
+      cls: 'is-warn',
+      s: '需留意',
+      tip: chat.cls === 'is-warn' ? chat.tip : load.tip,
+    }
   }
 
-  const rows = host.querySelector('[data-hud-rows]')
-  if (rows) {
-    rows.innerHTML = `
-      <div class="ef-hud-row">
-        <span class="k">本机 CPU</span><span class="v">${sysCpu.toFixed(1)}%</span>
-        ${barMeter(sysCpu, sysCpuTone)}
+  const cards = host.querySelector('[data-hud-cards]')
+  if (cards) {
+    const memLine = sysTotal
+      ? `本机内存约用了 ${sysMemPct.toFixed(0)}%（${formatBytes(sysUsed)} / ${formatBytes(sysTotal)}）`
+      : `本应用内存 ${formatBytes(appMem)}`
+    const lgLine = lgProbe?.ok
+      ? `对话引擎在线（端口 ${lgProbe.port}）${lg ? `，占用 ${formatBytes(lg.memoryBytes)}` : ''}`
+      : '对话引擎探测失败——这通常就是「发了没回」的根因之一'
+    cards.innerHTML = `
+      <div class="ef-hud-card ${overall.cls}">
+        <div class="ef-hud-card-h"><span class="t">总览</span><span class="s">${overall.s}</span></div>
+        <div class="ef-hud-card-p">${overall.tip}</div>
       </div>
-      <div class="ef-hud-row">
-        <span class="k">EvoFlow 内存</span>
-        <span class="v">${formatBytes(appMem)}${sysTotal ? ` · ${appMemPct.toFixed(1)}%` : ''}</span>
-        ${barMeter(appMemPct || Math.min(100, appMem / (512 * 1024 * 1024) * 100), toneForPct(appMemPct || 0, 40))}
+      <div class="ef-hud-card ${chat.cls}">
+        <div class="ef-hud-card-h"><span class="t">对话</span><span class="s">${chat.s}</span></div>
+        <div class="ef-hud-card-p">${chat.tip}<br/><em>${lgLine}</em></div>
       </div>
-      <div class="ef-hud-row">
-        <span class="k">本机内存</span>
-        <span class="v">${sysTotal ? `${formatBytes(sysUsed)} / ${formatBytes(sysTotal)}` : '—'}</span>
-        ${barMeter(sysMemPct, memTone)}
-      </div>
-      <div class="ef-hud-row ${lgWarn || !lgProbe?.ok ? 'is-warn' : 'is-ok'}">
-        <span class="k">Agent 运行时</span>
-        <span class="v">${lgProbe?.label || '检测中…'}${lg ? ` · ${formatBytes(lg.memoryBytes)}` : ''}</span>
-        ${lg ? barMeter(Math.min(100, (lg.memoryBytes / (4 * 1024 * 1024 * 1024)) * 100), lgWarn ? '#ff5c7a' : '#00e5ff') : ''}
-      </div>
-      <div class="ef-hud-row ${lg ? '' : 'is-warn'}">
-        <span class="k">LangGraph 进程</span>
-        <span class="v">${lg ? `CPU ${lgCpu.toFixed(1)}% · RSS ${formatBytes(lg.memoryBytes)}` : '未采样到'}</span>
-      </div>
-    `
-  }
-
-  const chatRows = host.querySelector('[data-hud-chat-rows]')
-  if (chatRows) {
-    const stall = chatOps?.stall
-    const linkMode = stall?.stalled
-      ? stall.zh
-      : chatOps?.watch
-        ? '历史轮询中（无 live SSE）'
-        : '空闲 / 或 SSE 实时中'
-    const stallClass = stall?.stalled
-      ? stall.sinceMs >= 30_000
-        ? 'is-warn'
-        : ''
-      : 'is-ok'
-    chatRows.innerHTML = `
-      <div class="ef-hud-row ${stallClass}">
-        <span class="k">当前回合</span>
-        <span class="v" title="${stall?.zh || linkMode}">${linkMode}</span>
-      </div>
-      <div class="ef-hud-row">
-        <span class="k">选中会话</span>
-        <span class="v" title="${chatOps?.sk || ''}">${chatOps?.sk ? chatOps.sk.slice(0, 28) + (chatOps.sk.length > 28 ? '…' : '') : '（未绑定）'}</span>
-      </div>
-      <div class="ef-hud-row ${(chatOps?.deadCount || 0) > 0 ? 'is-warn' : ''}">
-        <span class="k">首字异常（本会话环）</span>
-        <span class="v">记死 ${chatOps?.deadCount || 0} · 预警 ${chatOps?.stallCount || 0} · 共 ${chatOps?.anomalyCount || 0}</span>
-      </div>
-      <div class="ef-hud-row">
-        <span class="k">最近一条</span>
-        <span class="v" title="${chatOps?.latestZh || ''}">${chatOps?.latestZh ? String(chatOps.latestZh).slice(0, 36) + (chatOps.latestZh.length > 36 ? '…' : '') : '暂无'}</span>
+      <div class="ef-hud-card ${load.cls}">
+        <div class="ef-hud-card-h"><span class="t">本机负载</span><span class="s">${load.s}</span></div>
+        <div class="ef-hud-card-p">${load.tip}<br/>CPU 约 ${Math.max(appCpu, sysCpu).toFixed(0)}% · ${memLine}</div>
       </div>
     `
   }
 
   const sub = host.querySelector('[data-hud-sub]')
   if (sub) {
-    const marker = snap?.instanceMarker || snap?.instance_marker || ''
-    const n = (snap?.processes || []).length
-    const lgBit = lgProbe?.ok ? `运行时${lgProbe.port || ''}` : '运行时异常'
-    sub.textContent = marker
-      ? `实例 ${marker} · ${n} 进程 · ${lgBit}`
-      : `${n} 个进程 · ${lgBit} · 实时采样`
+    sub.textContent = `${overall.s} · 对话${chat.s} · 负载${load.s}`
   }
   const tick = host.querySelector('[data-hud-tick]')
   if (tick) tick.textContent = new Date().toLocaleTimeString()

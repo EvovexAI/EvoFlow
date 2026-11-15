@@ -303,9 +303,9 @@ async def _invoke_langgraph_for_automation(
         run_context = enrich_run_context_identity(run_context)
     except Exception:
         logger.debug("automation_runner: identity inject failed task_id=%s", task_id, exc_info=True)
-    requested_model_name = str(task.get("model_name") or "").strip()
-    if requested_model_name:
-        run_context["requested_model_name"] = requested_model_name
+    # 任务级模型不进 run_context：真实生效链路是 collab 主任务行的 session_model_name
+    # （见下方 new_project_bundle_root_task 落参 → runtime_context.resolve_session_model_name_from_runtime 消费）。
+    # 曾在此写 run_context["requested_model_name"]，全仓无读取方，2026-11-14 移除。
 
     # 规划模式会走 plan_guard / 多轮门禁，LangGraph 超步远大于「工具调用次数」；定时默认关闭，可用 EVOFLOW_AUTOMATION_PLAN_MODE=1 打开
     automation_plan_mode = os.getenv("EVOFLOW_AUTOMATION_PLAN_MODE", "").strip().lower() in ("1", "true", "yes", "on")

@@ -487,9 +487,13 @@ function ShellSessionListRowInner({
   onPrefetch,
 }: ShellSessionListRowProps) {
   const sessionKey = String(row.sessionKey || '')
-  const identity = resolveSessionListIdentity(sessionKey)
+  const identity = resolveSessionListIdentity(sessionKey, {
+    ...(row.channel ? { channel: row.channel } : {}),
+    ...(row.deptGroupId ? { dept_group_id: row.deptGroupId } : {}),
+    ...(row.deptGroupIm ? { dept_group_im: true } : {}),
+  })
   const triggerLabel = sessionTriggerLabel(identity.trigger)
-  /** 普通面板对话不挂芯片，避免满屏「对话」；渠道 / 定时 / 任务 / 部门才标 */
+  /** 普通面板对话不挂芯片，避免满屏「对话」；渠道 / 定时 / 任务 / 群聊才标 */
   const showTriggerChip = identity.trigger !== 'panel'
   const proactiveAgentCode = isProactiveSessionKey(sessionKey)
     ? proactiveAgentCodeFromSessionKey(sessionKey)

@@ -25,7 +25,24 @@ from evoflow.models.resolver import (
     SOURCE_RUNTIME,
     resolve_run_model,
     resolve_run_model_with_source,
+    source_name,
 )
+
+
+# ---------------------------------------------------------------------------
+# observability labels
+# ---------------------------------------------------------------------------
+
+
+def test_source_name_covers_all_tiers():
+    """观测闭环依赖这些标签的稳定性：日志 grep source=<label> 按此匹配。"""
+    assert source_name(SOURCE_RUNTIME) == "runtime"
+    assert source_name(SOURCE_AGENT) == "agent"
+    assert source_name(SOURCE_GLOBAL_PRIMARY) == "primary"
+    assert source_name(SOURCE_GLOBAL_FIRST) == "first"
+    # 未知索引不得抛错（callers log with it unconditionally）
+    assert source_name(99).startswith("source#")
+    assert source_name(-1).startswith("source#")
 
 
 # ---------------------------------------------------------------------------

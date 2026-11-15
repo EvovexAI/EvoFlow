@@ -1229,6 +1229,14 @@ class ProactiveEngine:
     ) -> str:
         """Call the LLM and return raw text output."""
         name = (model_name or self._model_name or "").strip() or None
+        # 观测闭环：标明这次直调 LLM 的模型来源（调用方显式 / 引擎 env 默认 / 工厂兜底 resolver）。
+        if model_name:
+            _src = "explicit"
+        elif self._model_name:
+            _src = "engine_default"
+        else:
+            _src = "factory_default"
+        logger.info("proactive llm: source=%s name=%r", _src, name or "-")
         try:
             model = create_chat_model(
                 name=name,
