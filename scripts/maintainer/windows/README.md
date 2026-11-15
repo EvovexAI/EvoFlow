@@ -50,15 +50,26 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
 | `-DelaySec` | 30 | 留给你收尾/落盘的时间窗；此间可 `Unregister-ScheduledTask -TaskName EvoFlow-SelfVerify-Watchdog -Confirm:$false` 取消 |
 | `-ReadyTimeoutSec` | 240 | 等 `backend-runtime.json` 换代（pid 变或 generation 变大）**且** `GET /health` 通过 |
 | `-WakeAttempts` | 6 | wake 失败重试次数（退避递增 10→25→40…封顶 60s；仅名册/状态类错误重试） |
-| `-RosterTimeoutSec` | 300 | **wake 前等岗位名册载入的上限**（实测教训：`/health` 返 200 ≠ `employees list` 有货，直接投 wake 会连报 `No employee matching`） |
+| `-RosterTimeoutSec` | 300 | **wake 前等目标岗位在册的上限**。注意它只防"gateway 刚起、名册有延迟"；第13轮 wake 连败 6 次的真因是**数据目录继承错**（见下），那种情况下等多久都没用 |
 
 看门狗**只从 `outputs\selfverify\state.json` 读路径与 goal**，安装目录字串不进命令行，
 否则会被 `kill-install-orphans.ps1` 的 CommandLine 匹配连带杀掉（goal 里若含安装目录也会被剥成 `<install-dir>`）。
 每步结果落 `outputs\selfverify\watchdog.log` 与 `watchdog-result.json`，醒来的 Agent 先读这两个文件再验收。
 
 **实测结论（2026-11-15 端到端跑通一次）**：静默安装 / 拉起 / Gateway 换代（generation 319→320、pid 换新、
-`/health` 200、`EVOFLOW_BACKEND_DIR` 生效）四步全过；**首次 wake 失败** —— `/health` 通了但岗位名册未载入完，
-连投 6 次 `No employee matching`。已按此加 `wait-roster` 闸门（见上表 `-RosterTimeoutSec`）。
+`/health` 200、`EVOFLOW_BACKEND_DIR` 生效）四步全过；**首次 wake 失败** —— 连投 6 次 `No employee matching`。
+
+**wake 失败的真因（第14轮只读实测证死，更正我第13轮写下的"名册未载入"归因）**：
+`evoflow employees list / wake` 读的是**本地 SQLite**（`ProactiveRepository.list_roles` → `get_db()`），
+**不走 Gateway HTTP**，所以「`/health` 通」与「名册查得到岗位」毫不相干。真因是
+**计划任务继承了用户级持久环境变量 `EVOFLOW_HOME`**，本机该值指向 `C:\Users\<you>\.evoflow-dev`，
+而那是另一份**旧库**（实测：`.evoflow-dev` 库 17 岗位且无 `fullstack-dev`；
+`profiles\default` 库 22 岗位含 `fullstack-dev`）。Task Scheduler 取注册表用户级值，
+不取 Agent dev shell 的进程级值 —— 于是看门狗读旧库、查无此岗，而我事后在 shell 里跑同一条命令
+当然查得到（**两个进程读的不是同一个库**，这就是当时那个"矛盾"）。
+判定性对照（同一 CLI 只换 `EVOFLOW_HOME`）：指向 `.evoflow-dev` → 命中 0；指向 `profiles\default` → 命中 1。
+**修法**：看门狗在 wake 前用 `state.json` 里的权威 `evoflowHome` 显式覆盖 `$env:EVOFLOW_HOME`。
+`wait-roster` 闸门（`-RosterTimeoutSec`）只有在 home 钉对之后才有意义，二者必须配套。
 **已知边界**：① 静默安装 `/S` 若命中需提权的写入路径会失败（看门狗 exit=1 并记日志），本机默认装到 `D:\app` 不需要；
 ② 只改后端 python 时代价太大——那种改动用 `run-installed-with-dev-gateway.ps1` 直接让已装客户端连仓库源码，重启 gateway 即可，不必走本闭环；
 ③ wake 目前只能**另起一个值班对话**，回不到发起时的原对话（`dispatch_task_fire_and_forget` 无 `session_key` 形参，会话键在 `runner._process_role` 现算）；

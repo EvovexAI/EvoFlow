@@ -180,14 +180,21 @@ try {
   if (-not (Test-Path -LiteralPath $Cli)) { throw "CLI 不存在: $Cli" }
   $env:EVOFLOW_GATEWAY_URL = $baseUrl
   $env:EVOFLOW_GATEWAY_PORT = ([int](([Uri]$baseUrl).Port))
-  # 【fullstack-dev · 2026-11-15 · 第14轮】钉死 CLI 的数据目录。
-  # 为什么：employees list / wake 读的是**本地 SQLite**（ProactiveRepository.list_roles → get_db()），
-  # 不是走 Gateway HTTP。计划任务的干净环境里 HOME/EVOFLOW_HOME 皆无，paths.py 要按
-  # $HOME/.evoflow/profiles/<active> → cwd/.evoflow → $HOME/.evoflow 逐级猜；猜偏就落到
-  # 裸 ~/.evoflow/evoflow.db（本机该文件为 0 字节），名册于是恒空 —— 这正是第13轮实测
-  # 07:48:26→07:49:57 wake 连败 6 次报 "No employee matching 'fullstack-dev'"、
-  # 而事后同一条命令能列出 22 个岗位的原因。evoflowHome 是登记端从 backend-runtime.json
-  # 同目录读到的权威值，直接用它，不留给运行时去猜。
+  # 【fullstack-dev · 2026-11-15 · 第14轮】钉死 CLI 的数据目录（EVOFLOW_HOME）。
+  # 为什么：employees list / wake 读的是**本地 SQLite**（ProactiveRepository.list_roles →
+  # get_db()），根本不走 Gateway HTTP —— 所以「/health 通了」和「名册查得到」是两回事，
+  # 第13轮 wake 连败 6 次报 "No employee matching 'fullstack-dev'" 就是这么来的。
+  # 真因（第14轮只读实测证死，非推测）：本机**用户级持久**环境变量
+  #   [Environment]::GetEnvironmentVariable('EVOFLOW_HOME','User') = C:\Users\admin\.evoflow-dev
+  # 而计划任务（Task Scheduler）继承的正是注册表里的用户级值，不是我 dev shell 里那份
+  # 进程级 EVOFLOW_HOME=…\profiles\default。两个库内容不同：
+  #   .evoflow-dev/data/app/evoflow.db        → 17 个岗位，**无 fullstack-dev**
+  #   profiles/default/data/app/evoflow.db    → 22 个岗位，含 fullstack-dev
+  # 故看门狗在计划任务下跑 CLI 时读到 .evoflow-dev 那份旧库，名册里查无此岗；
+  # 我事后在 dev shell 里跑同一条命令自然查得到 22 个岗位 —— 当时那个矛盾就是这么产生的。
+  # 对照实验（同一 CLI，只换 EVOFLOW_HOME）：指向 .evoflow-dev → grep -c fullstack-dev = 0；
+  # 指向 profiles\default → ≥1。修法即用登记端从 backend-runtime.json 同目录读到的权威
+  # evoflowHome 显式覆盖，不给继承值留机会。
   if (-not [string]::IsNullOrWhiteSpace($RuntimeHome)) {
     $env:EVOFLOW_HOME = $RuntimeHome
     Write-Log "CLI 数据目录钉为 EVOFLOW_HOME=$RuntimeHome"
@@ -201,10 +208,12 @@ try {
   if ($TaskId)    { $wakeArgs += @("--task-id", $TaskId) }
   if ($safeGoal)  { $wakeArgs += @("--goal", $safeGoal) }
   if ($RoundId)   { $wakeArgs += @("--round-id", $RoundId) }
-  # 【fullstack-dev · 2026-11-15 · 第14轮】修今日实测失败的真因（watchdog.log 07:48:26→07:49:57）：
-  # 原判据「/health 返 200」= Gateway 可投递，是错的。HTTP 通了但岗位名册尚未装载完，
-  # wake 连投 6 次全报 "No employee matching 'fullstack-dev'"（同一命令事后查得到 22 个岗位）。
-  # 改为两道闸：① 先轮询到目标岗位真的出现在 employees list 里；② wake 失败按递增退避重试。
+  # 【fullstack-dev · 2026-11-15 · 第14轮】wake 前先等目标岗位真的在册，再投 wake；失败按递增退避重试。
+  # 更正我上一轮的归因：原判据「/health 返 200 = 可投递」确实错（list/wake 读本地 SQLite，
+  # 不走 HTTP），但「名册尚未装载完」这个解释也错——真因见上方 EVOFLOW_HOME 那段（继承了
+  # .evoflow-dev 旧库，该库根本不含 fullstack-dev，等多久都不会出现）。
+  # 所以本闸门**必须和上面的 EVOFLOW_HOME 覆盖配套**才有效；单独留着它只会在旧库上白等
+  # rosterTimeout 秒再 throw。保留理由：防御 home 正确、但 gateway 刚起、名册确有延迟的场景。
   $stage = "wait-roster"
   $rosterTimeout = [int]$state.rosterTimeoutSec; if ($rosterTimeout -le 0) { $rosterTimeout = 300 }
   $needle = '"agent_code": "' + $AgentCode + '"'

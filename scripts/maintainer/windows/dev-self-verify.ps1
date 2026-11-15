@@ -33,8 +33,10 @@ param(
   [int]    $DelaySec = 30,
   [int]    $InstallTimeoutSec = 1800,
   [int]    $ReadyTimeoutSec = 240,
-  # 【fullstack-dev · 2026-11-15 · 第14轮】新增：/health 通了 ≠ 岗位名册载入完（第13轮实测
-  # wake 连败 6 次即栽在这），看门狗 wake 前先轮询 employees list，此为等待上限。
+  # 【fullstack-dev · 2026-11-15 · 第14轮】新增：看门狗 wake 前先轮询 employees list，此为等待上限。
+  # 注意：第13轮 wake 连败 6 次的真因**不是**名册延迟，而是计划任务继承了用户级
+  # EVOFLOW_HOME=…\.evoflow-dev（旧库、无 fullstack-dev）；看门狗已显式覆盖该值。
+  # 本参数只在 home 正确的前提下才有意义（见 selfverify-watchdog.ps1 同名注释）。
   [int]    $RosterTimeoutSec = 300,
   [int]    $WakeAttempts = 6,
   [switch] $DryRun
