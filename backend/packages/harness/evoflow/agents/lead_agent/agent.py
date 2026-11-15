@@ -47,6 +47,7 @@ from evoflow.agents.middlewares.exploration_graph_live_footer_middleware import 
 )
 from evoflow.agents.middlewares.external_memory_plugin_middleware import ExternalMemoryPluginMiddleware
 from evoflow.agents.middlewares.loop_detection_middleware import LoopDetectionMiddleware
+from evoflow.agents.middlewares.task_notification_prefix_middleware import TaskNotificationProviderPrefixMiddleware
 from evoflow.agents.middlewares.memory_live_footer_middleware import MemoryLiveFooterMiddleware
 from evoflow.agents.middlewares.memory_middleware import MemoryMiddleware
 from evoflow.agents.middlewares.memory_runtime_control_middleware import MemoryRuntimeControlMiddleware
@@ -923,6 +924,10 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
         )
 
         middlewares.append(PostCompactionToolPairSanitizeMiddleware())
+    # Task-notification wake inputs: inject the SYSTEM NOTIFICATION preamble at
+    # the provider boundary only. Transcript/wire keep bare <task-notification>
+    # blocks so every user-bubble filter keeps matching (bare-prefix contract).
+    middlewares.append(TaskNotificationProviderPrefixMiddleware())
     # AFTER compaction: before_model still injects; wrap_model_call reattaches
     # data-URIs if strip left "base64 data omitted" (Mode A). Later in the list
     # ⇒ inner wrap ⇒ runs after compaction's strip.

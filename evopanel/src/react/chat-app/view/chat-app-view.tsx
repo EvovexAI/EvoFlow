@@ -47,6 +47,7 @@ import { ChatComposer, type WorkspaceMentionConfig, type MentionEmployeeOption }
 import { PendingSteersStrip } from '../../components/PendingSteersStrip.js'
 import { GoalModePanel } from '../../components/GoalModePanel.js'
 import { GoalStatusBadgeBridge } from '../../v4/GoalStatusBadgeBridge.js'
+import { ChildWorkRunningBadgeBridge } from '../../v4/ChildWorkRunningBadgeBridge.js'
 import { GoalProposalDock } from '../../components/GoalProposalDock.js'
 import { SkillPickerModal, type SkillSelection } from '../../components/SkillPickerModal.js'
 import { PluginQuickPanel } from '../../components/PluginQuickPanel.js'
@@ -543,7 +544,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                         ) : null}
                         <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
-                      </>
+                        <ChildWorkRunningBadgeBridge sessionKey={String(selectedSessionKey || '')} />
+                    </>
                     )}
                   </div>
                   {isHomeSurface ? null : collabVerifyingBadge}
@@ -606,6 +608,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                         <span className="react-chat-header-run-badge is-warming">引擎加载中</span>
                       ) : null}
                       <GoalStatusBadgeBridge sessionKey={String(selectedSessionKey || '')} />
+                      <ChildWorkRunningBadgeBridge sessionKey={String(selectedSessionKey || '')} />
                     </>
                   )}
                 </div>

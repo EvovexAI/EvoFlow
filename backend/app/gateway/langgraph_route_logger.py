@@ -743,7 +743,8 @@ class LangGraphRouteLoggerMiddleware:
                     new_thread_id,
                 )
                 return False
-            # Rewrite body: replace thread_id occurrences (top-level + nested).
+            # Rewrite body: replace thread_id occurrences (top-level + nested +
+            # context.thread_id,run body 的三种携带位置都要改,否则重发仍指旧线程)。
             new_body_bytes = b""
             try:
                 parsed = json.loads(b"".join(body_chunks))
@@ -754,6 +755,9 @@ class LangGraphRouteLoggerMiddleware:
                         cg = cfg.get("configurable")
                         if isinstance(cg, dict) and isinstance(cg.get("thread_id"), str):
                             cg["thread_id"] = new_thread_id
+                    ctx = parsed.get("context")
+                    if isinstance(ctx, dict) and isinstance(ctx.get("thread_id"), str):
+                        ctx["thread_id"] = new_thread_id
                     new_body_bytes = json.dumps(parsed, ensure_ascii=False).encode("utf-8")
             except Exception:
                 logger.warning(
@@ -761,7 +765,17 @@ class LangGraphRouteLoggerMiddleware:
                     exc_info=True,
                 )
                 new_body_bytes = b"".join(body_chunks)
-            new_path = path.replace(f"/threads/{lg_thread_id}/", f"/threads/{new_thread_id}/", 1)
+            # 顺序 bug(2026-11-15 实锤):此前先把 lg_thread_id 改写成 new_thread_id
+            # 再做 replace——拿新 id 在旧路径里找,替换必然不生效,重发永远打到
+            # 旧死线程 404,透明自愈从未成功过。必须用 old_tid 做搜索串。
+            old_path_tid = str(lg_thread_id)
+            new_path = path.replace(f"/threads/{old_path_tid}/", f"/threads/{new_thread_id}/", 1)
+            if new_path == path:
+                logger.warning(
+                    "[LG-ROUTE] 404 fallback: path rewrite no-op old=%s (path=%s)",
+                    old_path_tid,
+                    path,
+                )
             new_scope = dict(scope)
             new_scope["path"] = new_path
             new_headers = []
@@ -855,7 +869,21 @@ class LangGraphRouteLoggerMiddleware:
                     hdrs = list(msg.get("headers") or [])
                     hdrs.extend(new_headers_extra)
                     msg = {**msg, "headers": hdrs}
+                    # remint 调试:重发响应状态 + 实际路径,定位 404 穿透
+                    logger.warning(
+                        "[LG-ROUTE] 404 remint re-dispatch response status=%s path=%s root_path=%s",
+                        msg.get("status"),
+                        new_scope.get("path"),
+                        new_scope.get("root_path"),
+                    )
                 await _dispatch_send(msg)
+
+            logger.warning(
+                "[LG-ROUTE] 404 remint re-dispatch begin new_path=%s root_path=%s body_bytes=%d",
+                new_scope.get("path"),
+                new_scope.get("root_path"),
+                len(new_body_bytes),
+            )
 
             print(
                 f"[LG-ROUTE] 404 thread-missing fallback: rebuild thread old={old_tid} new={new_thread_id} sk={sk}",
@@ -869,12 +897,84 @@ class LangGraphRouteLoggerMiddleware:
                 sk,
             )
 
-            # Re-dispatch to upstream (always direct — no mirror middle layer).
+            # Re-dispatch: 不走 self.app——remint 请求经 self.app 会在 langgraph
+            # 路由之前被通用 404({"detail":"Not Found"})拦截,重建线程的 re-dispatch
+            # 0 命中 langgraph 路由(2026-11-15 实锤:重发 0 条 access log)。改为
+            # loopback HTTP 直连 langgraph 挂载点(与面板正常请求同一条路),SSE
+            # 原样回传客户端。
+            import httpx as _httpx
+
+            _lg_base = ""
             try:
-                await self.app(new_scope, _recover_receive, _recover_send)
+                from evoflow.langgraph_run_config import resolve_langgraph_base_url
+
+                _lg_base = str(resolve_langgraph_base_url() or "").rstrip("/")
             except Exception:
-                logger.debug(
-                    "404 fallback re-dispatch exception thread=%s",
+                _lg_base = ""
+            if not _lg_base:
+                # 兜底:resolver 不可用时仍走原 self.app 重发
+                await self.app(new_scope, _recover_receive, _recover_send)
+                return True
+
+            _qs = b""
+            raw_qs = new_scope.get("query_string")
+            if isinstance(raw_qs, bytes) and raw_qs:
+                _qs = b"?" + raw_qs
+            elif isinstance(raw_qs, str) and raw_qs:
+                _qs = ("?" + raw_qs).encode("latin-1")
+            # 双重前缀陷阱(2026-11-15 实锤):resolve_langgraph_base_url() 已含
+            # /api/langgraph 挂载前缀,而 remint 的 scope path 同样带前缀——直接
+            # 拼接会得到 /api/langgraph/api/langgraph/... → 通用 404。剥掉 path
+            # 上的挂载前缀再拼。
+            _p = str(new_scope.get("path") or "")
+            _mount = "/api/langgraph"
+            if _p.startswith(_mount + "/"):
+                _p = _p[len(_mount):]
+            _target = _lg_base + _p + _qs.decode("latin-1", errors="replace")
+            _upstream_headers = [
+                (k, v)
+                for k, v in (new_scope.get("headers") or [])
+                if k.decode("latin-1").lower()
+                not in ("host", "content-length", "connection", "transfer-encoding")
+            ]
+
+            async def _redispatch_via_http() -> None:
+                async with _httpx.AsyncClient(timeout=_httpx.Timeout(600.0)) as _hc:
+                    async with _hc.stream(
+                        "POST",
+                        _target,
+                        content=new_body_bytes,
+                        headers=_upstream_headers,
+                    ) as _up:
+                        logger.warning(
+                            "[LG-ROUTE] 404 remint loopback re-dispatch status=%s target=%s",
+                            _up.status_code,
+                            _target,
+                        )
+                        await _recover_send(
+                            {
+                                "type": "http.response.start",
+                                "status": _up.status_code,
+                                "headers": [
+                                    (b"content-type", b"text/event-stream; charset=utf-8"),
+                                ],
+                            }
+                        )
+                        async for _chunk in _up.aiter_bytes():
+                            if not _chunk:
+                                continue
+                            await _recover_send(
+                                {"type": "http.response.body", "body": _chunk, "more_body": True}
+                            )
+                        await _recover_send(
+                            {"type": "http.response.body", "body": b"", "more_body": False}
+                        )
+
+            try:
+                await _redispatch_via_http()
+            except Exception:
+                logger.warning(
+                    "[LG-ROUTE] 404 remint loopback re-dispatch failed new=%s",
                     new_thread_id,
                     exc_info=True,
                 )
@@ -907,7 +1007,17 @@ class LangGraphRouteLoggerMiddleware:
                     captured_body_chunks.append(msg.get("body") or b"")
                     if not msg.get("more_body", False):
                         body_text = b"".join(captured_body_chunks).decode("utf-8", errors="replace")
-                        if "thread or assistant not found" in body_text.lower():
+                        low = body_text.lower()
+                        # 两种 404 文本都要认:
+                        # - "Thread or assistant not found"(graph/assistant 缺失)
+                        # - "Thread with ID ... not found"(in-memory 线程库随网关
+                        #   进程重启清空——重启后旧会话发送的实际形态,2026-11-15
+                        #   E2E 实锤)。漏认第二种会让重启后所有旧会话的发送 404
+                        #   透传,用户消息石沉大海。
+                        if (
+                            "thread or assistant not found" in low
+                            or "not found" in low
+                        ):
                             thread_missing_detected = True
                             return
                     return
