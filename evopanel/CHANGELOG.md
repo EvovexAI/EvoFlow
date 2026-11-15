@@ -6,27 +6,41 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.3.28] - 2026-11-15
+## [1.3.28] - 2026-11-16
 
-相对 **1.3.27**：顶栏显示正在跑的子任务/工作流数量；任务通知续写不再漏唤醒或串读前缀；会话可选模型落库；助手轮次用量可在对话里看到；修 V4 busy 同步导致的整页空白。
+相对 **1.3.27**：一个微信渠道可绑多个账号并按账号独立收发；协作拆出的员工任务不再停在「运行中」；长对话不再把渲染进程撑到 Out of Memory；命令在 PowerShell 下不再被当成 bash 方言执行；顶栏显示正在跑的子任务/工作流数量；助手轮次用量可在对话里看到。
 GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.28.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+> 本版为**同日两批合流**：首批（子任务角标 / 任务通知续写 / 会话模型覆盖 / React #185）于 2026-11-15 出包；第二批（微信多账号绑定、员工任务终态收口、hydration 顺序、bash 方言路由、唤醒 503 等）随后合入 main，未另升号，统一并入 1.3.28。
 
 ### Added
 
+- **微信 iLink 多账号绑定**：同一渠道可绑多个账号，按账号维度隔离会话槽位与收发链路（`weixin_binding.py` + channels manager/service/weixin + 账号维度槽位键）
+- **员工任务终态收口**：`run_settle_reconciler` 后台兜底回收异常退出的运行中任务
 - **子任务运行中角标**：顶栏显示当前会话正在跑的子任务 / 工作流数量
-- **助手轮次用量**：对话行展示本轮用量标签
+- **助手轮次用量**：对话行展示本轮用量标签（镜像 usage 盖章 + 快照尾部窗口）
+- **渲染内存水位探针**：`renderer-memory-pressure` 采集 WebView 内存压力并落盘
+- **maintainer**：`evoflow-home-probe.ps1`、`ps1-gate.ps1`；`obs_query` 观测脚本
 
 ### Fixed
 
 - **任务通知续写**：去重与批量投递落库；唤醒输入写入 SSOT 后再跑；防误读前缀改到提供层
 - **子任务完成后唤醒派发会话**：协作拆出的子任务结束后唤醒原对话
 - **唤醒轮次 400 / 404 remint**：可配置上下文校验；路径失效时改写并回环重派
+- **唤醒 503**：就绪判据补探受访问闸门保护的端点，自验证闭环不再误判未就绪
 - **会话模型覆盖**：选中的模型写入会话，不再切回默认
 - **整页空白（React #185）**：V4 busy 同步改出 layout 阶段，停止按钮与对话忙碌态不再互锁刷屏
+- **历史对话顺序错乱**：hydration `created_at` 改单调对齐，重载后消息不再串位
+- **bash 在 PowerShell 下执行异常**：按终端方言路由执行（`test_bash_dialect_routing`）
+- **重复探索守卫误拦**：不同 `--sql` / `uv run` 参数不再塌成同一指纹
+- **岗位改名后自诊断查不到数据**：`agent_self_metrics` 按新旧岗位码并集查询
+- **craft 笔记**：正文去重，追加不覆盖
 
 ### Changed
 
-- **数据保留 / live-run 快照**：vacuum 加守卫；同线程快照单飞
+- **数据保留 / live-run 快照**：sqlite retention vacuum 加 busy 让路守卫；同线程快照单飞
+- **多轮对话防 WebView OOM**：投影窗口按渲染内存水位自适应裁顶；旧工具卡瘦身；高压时收缩后台 pin
+- **会话列表**：员工分组排序与孤儿会话剪枝联动
 
 ## [1.3.27] - 2026-11-14
 

@@ -9,8 +9,8 @@
   "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.28/EvoFlow_1.3.28_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.28/EvoFlow_1.3.28_x64-setup.exe",
   "size": 0,
-  "changelog": "**EvoFlow v1.3.28 — 子任务角标、任务通知续写与会话模型**\n\n顶栏显示正在跑的子任务/工作流数量；任务通知续写不再漏唤醒或串读前缀；会话可选模型落库；助手轮次用量可在对话里看到；修 V4 busy 同步导致的整页空白。无数据迁移，覆盖安装即可。",
-  "notes": "**EvoFlow v1.3.28 — 子任务角标、任务通知续写与会话模型**\n\n顶栏显示正在跑的子任务/工作流数量；任务通知续写不再漏唤醒或串读前缀；会话可选模型落库；助手轮次用量可在对话里看到；修 V4 busy 同步导致的整页空白。无数据迁移，覆盖安装即可。",
+  "changelog": "**EvoFlow v1.3.28 — 微信多账号绑定、员工任务终态收口与长对话内存治理**\n\n一个微信渠道可绑多个账号并按账号独立收发；协作拆出的员工任务不再停在「运行中」；长对话不再把渲染进程撑到 Out of Memory；命令在 PowerShell 下不再被当成 bash 方言执行；顶栏显示正在跑的子任务数，助手轮次用量可见。无数据迁移，覆盖安装即可。",
+  "notes": "**EvoFlow v1.3.28 — 微信多账号绑定、员工任务终态收口与长对话内存治理**\n\n一个微信渠道可绑多个账号并按账号独立收发；协作拆出的员工任务不再停在「运行中」；长对话不再把渲染进程撑到 Out of Memory；命令在 PowerShell 下不再被当成 bash 方言执行；顶栏显示正在跑的子任务数，助手轮次用量可见。无数据迁移，覆盖安装即可。",
   "releasedAt": "",
   "pub_date": ""
 }
