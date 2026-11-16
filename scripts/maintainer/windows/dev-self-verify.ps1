@@ -59,6 +59,46 @@ $NsisDir   = Join-Path $RepoRoot "evopanel\src-tauri\target\release\bundle\nsis"
 
 function Say([string] $m, [string] $c = "Cyan") { Write-Host "[self-verify] $m" -ForegroundColor $c }
 function Ensure-Dir([string] $p) { if (-not (Test-Path -LiteralPath $p)) { New-Item -ItemType Directory -Path $p -Force | Out-Null } }
+# 【self-evolution-bot · 2026-11-16 · 第20轮】抽出 CLI 定位，供「构建前验锚点单」与第 3 步共用同一判据。
+function Resolve-Cli {
+  foreach ($c in @((Join-Path $RepoRoot "backend\.venv\Scripts\evoflow.exe"),
+                   (Join-Path $InstallDir "binaries\evoflow-gateway\tools\evoflow\evoflow.exe"))) {
+    if (Test-Path -LiteralPath $c) { return $c }
+  }
+  $w = Get-Command evoflow -ErrorAction SilentlyContinue
+  if ($w) { return $w.Source }
+  return ""
+}
+
+# ── 0. 构建前先验 wake 锚点单未结案（这一步必须排在 -Build 之前）────────────
+# 【self-evolution-bot · 2026-11-16 · 第20轮】改了什么：登记前用 tasks get 查锚点单状态，
+# 已结案/查不到就当场 throw，既不构建也不注册计划任务。
+# 为什么：`wake --task-id` 指向已结案单时，看门狗第 4 步 done-guard 返回 skipped=true、exit=0
+# 但不投递 → 这一整轮**构建（数分钟）+ 静默安装 + 拉起 + 我断线**全部白跑，
+# 只在 watchdog-result.json 留一行 ok=false / stage=wake。
+# 第20轮实测：锚点单 2611162002_08d9 已在 20:10 被我提前结案，20:21 登记闭环，20:23:37 撞 done-guard。
+# 判据：终态三值（completed/failed/cancelled）一律拒；查不到状态也拒 —— 宁可不跑，不可白跑一轮重启。
+# 位置理由：放在 -Build 之前，否则构建已跑完才发现白跑。
+if ($TaskId) {
+  $taskCli = Resolve-Cli
+  if ([string]::IsNullOrWhiteSpace($taskCli)) {
+    throw "无法定位 evoflow CLI，不能校验 wake 锚点单 $TaskId（-CliExe 可指定）。"
+  }
+  $taskStatus = ""
+  try {
+    $tj = & $taskCli tasks get $TaskId --compact 2>&1 | Out-String
+    if ($tj -match '"status"\s*:\s*"([^"]+)"') { $taskStatus = $Matches[1] }
+  } catch { $taskStatus = "" }
+  if ([string]::IsNullOrWhiteSpace($taskStatus)) {
+    throw "无法确认 wake 锚点单 $TaskId 的状态（tasks get 无返回/非 JSON）。wake 需要未结案单，请核对单号，或不传 -TaskId（此时只装机重启、不叫醒）。"
+  }
+  if ($taskStatus -in @("completed", "failed", "cancelled")) {
+    throw "wake 锚点单 $TaskId 已结案（status=$taskStatus）→ 看门狗 wake 必被 done-guard 跳过，整轮构建+安装+重启将白跑。请先新建一张未结案单，或去掉 -TaskId（只装机重启、不叫醒）。"
+  }
+  Say "wake 锚点单 $TaskId 状态=$taskStatus（未结案，可投递）" "Green"
+} elseif (-not $SkipWake) {
+  Say "未传 -TaskId：看门狗只做普通叫醒，续不上本轮上下文（要续轮请传未结案单号）" "Yellow"
+}
 
 Ensure-Dir $OutDir
 
@@ -93,16 +133,8 @@ if (-not (Test-Path -LiteralPath $SetupExe)) { throw "安装包不存在: $Setup
 Say "安装包: $SetupExe  修改时间 $((Get-Item -LiteralPath $SetupExe).LastWriteTime)"
 
 # ── 3. 解析 CLI（看门狗要用它 wake 岗位）───────────────────────────────────
-if ([string]::IsNullOrWhiteSpace($CliExe)) {
-  foreach ($c in @((Join-Path $RepoRoot "backend\.venv\Scripts\evoflow.exe"),
-                   (Join-Path $InstallDir "binaries\evoflow-gateway\tools\evoflow\evoflow.exe"))) {
-    if (Test-Path -LiteralPath $c) { $CliExe = $c; break }
-  }
-  if ([string]::IsNullOrWhiteSpace($CliExe)) {
-    $w = Get-Command evoflow -ErrorAction SilentlyContinue
-    if ($w) { $CliExe = $w.Source }
-  }
-}
+# 【self-evolution-bot · 2026-11-16 · 第20轮】改为复用 Resolve-Cli，两处判据只留一份。
+if ([string]::IsNullOrWhiteSpace($CliExe)) { $CliExe = Resolve-Cli }
 if ([string]::IsNullOrWhiteSpace($CliExe) -or -not (Test-Path -LiteralPath $CliExe)) {
   throw "无法定位 evoflow CLI（-CliExe 指定）。看门狗需要它来唤醒岗位。"
 }
