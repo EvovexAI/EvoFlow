@@ -144,6 +144,7 @@ function shellHtml() {
             <div class="sr-draft-actions">
               <button type="button" class="sr-btn" data-sr-act="goto-assets">打开资产中心</button>
               <button type="button" class="sr-btn sr-btn--primary" data-sr-act="export">导出资源包</button>
+              <button type="button" class="sr-btn" data-sr-act="export-publish" title="导出为 zip 并发布到本机资源市场，供内网同事安装">导出并发布到本机市场</button>
             </div>
             <pre class="sr-log" data-ex-log hidden></pre>
           </div>
@@ -492,10 +493,14 @@ async function pickDir() {
   }
 }
 
-async function runExport() {
+async function runExport({ publish = false } = {}) {
   const include = buildIncludeFromSelection()
-  if (!include.employee_codes.length && !include.app_ids.length) {
-    toast.error('请至少勾选 1 个员工或 1 个工作流(资源包 kind 需要其一)')
+  if (
+    !include.employee_codes.length &&
+    !include.app_ids.length &&
+    !include.extension_ids.length
+  ) {
+    toast.error('请至少勾选 1 个员工、工作流或 Agent 应用')
     return
   }
   const idEl = _root?.querySelector('[data-ex-id]')
@@ -515,27 +520,49 @@ async function runExport() {
     toast.error('请填写导出目录')
     return
   }
+  const wantZip = publish || !!(zipEl instanceof HTMLInputElement && zipEl.checked)
   try {
-    toast('正在导出…')
+    toast(publish ? '正在导出并发布…' : '正在导出…')
     const res = await api.orgExport({
       pack: {
         id: packId || 'my-export',
         name: name || packId || '我的资源包',
         version: version || '1.0.0',
         description,
+        kind: include.extension_ids.length && !include.employee_codes.length && !include.app_ids.length
+          ? 'extensions'
+          : undefined,
       },
       include: {
         ...include,
         include_vault_data: !!(vaultDataEl instanceof HTMLInputElement && vaultDataEl.checked),
       },
-      output: { dir, zip: !!(zipEl instanceof HTMLInputElement && zipEl.checked) },
+      output: { dir, zip: wantZip },
     })
+    let publishRes = null
+    if (publish) {
+      const zipPath = res?.zip_path || res?.output_zip || ''
+      const publishPath = zipPath || res?.output_dir || dir
+      publishRes = await api.resourceMarketHostPublish({
+        path: publishPath,
+        id: packId || undefined,
+        name: name || undefined,
+        version: version || undefined,
+        description: description || undefined,
+      })
+      await api.resourceMarketHostEnable({ enabled: true })
+    }
     if (logEl) {
       logEl.hidden = false
-      logEl.textContent = JSON.stringify(res, null, 2)
+      logEl.textContent = JSON.stringify({ export: res, publish: publishRes }, null, 2)
     }
     const warn = Array.isArray(res?.warnings) && res.warnings.length ? `(${res.warnings.length} 条警告)` : ''
-    toast.success(`已导出到 ${res?.output_dir || dir}${warn}`)
+    if (publish) {
+      const share = (publishRes?.share_urls || [])[0] || ''
+      toast.success(`已发布到本机市场${warn}${share ? `；分享：${share}` : ''}`)
+    } else {
+      toast.success(`已导出到 ${res?.output_dir || dir}${warn}`)
+    }
   } catch (e) {
     const detail = e?.detail
     const msg =
@@ -580,7 +607,8 @@ function onClick(e) {
       if (path) navigate(path)
     }
     if (act === 'pick-dir') void pickDir()
-    if (act === 'export') void runExport()
+    if (act === 'export') void runExport({ publish: false })
+    if (act === 'export-publish') void runExport({ publish: true })
     if (act === 'goto-assets') navigate('/assets')
     return
   }

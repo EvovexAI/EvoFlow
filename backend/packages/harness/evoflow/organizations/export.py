@@ -280,8 +280,10 @@ def export_organization(
     kb_names = [str(x).strip() for x in (inc.get("knowledge_base_names") or []) if str(x).strip()]
     vault_ids = [str(x).strip() for x in (inc.get("vault_ids") or []) if str(x).strip()]
     include_vault_data = bool(inc.get("include_vault_data", False))
-    if not employee_codes and not app_ids:
-        raise OrganizationExportError("include.employee_codes or include.app_ids is required")
+    if not employee_codes and not app_ids and not extension_ids:
+        raise OrganizationExportError(
+            "include.employee_codes, include.app_ids, or include.extension_ids is required"
+        )
 
     pack_id = _safe_id(str(pack.get("id") or "exported-pack"))
     name = str(pack.get("name") or pack_id).strip() or pack_id
@@ -313,6 +315,10 @@ def export_organization(
             kind = "full"
         elif app_ids:
             kind = "pipeline"
+        elif employee_codes:
+            kind = "team"
+        elif extension_ids:
+            kind = "extensions"
         else:
             kind = "team"
 
@@ -403,6 +409,8 @@ def export_organization(
         raise OrganizationExportError("kind team|full requires at least one employee export")
     if kind in ("pipeline", "full") and not app_refs:
         raise OrganizationExportError("kind pipeline|full requires at least one app export")
+    if kind == "extensions" and not ext_refs:
+        raise OrganizationExportError("kind extensions requires at least one extension export")
 
     primitives: dict[str, Any] = {
         "agents": agent_refs,

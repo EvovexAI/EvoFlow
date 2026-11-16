@@ -32,7 +32,12 @@ param(
   # 「找不到参数」、脚本里 [bool]$SkipInstall 恒为 False —— 自检模式实际只能靠手改 state.json
   # 才进得去，等于第15轮宣称的"一键自检"从未真机可用（本轮 grep param 块才发现）。
   [switch] $SkipInstall,
-  [switch] $SkipLaunch
+  [switch] $SkipLaunch,
+  # 【self-evolution-bot · 2026-11-16 · 第19轮】新增：只装只拉、不唤醒。
+  # 为什么：用户要「构建重启但不要唤醒」—— 装完把客户端拉起来就该收工，
+  # 叫醒 Agent 反而会在用户没要的时候插一轮对话。与前两个开关同理必须在此声明，
+  # 否则命令行传参会被判「找不到参数」（第15轮就栽过这个接线漏项）。
+  [switch] $SkipWake
 )
 
 $ErrorActionPreference = "Stop"
@@ -158,6 +163,9 @@ Write-Log "安装目录=$InstallDir 安装包=$SetupExe 岗位=$AgentCode Task=$
 # 会把尚未触发的真安装任务 EvoFlow-SelfVerify-Watchdog 删掉。state 与命令行开关取并集。
 $skipInstall = [bool]$SkipInstall -or [bool]$state.skipInstall
 $skipLaunch  = [bool]$SkipLaunch  -or [bool]$state.skipLaunch
+# 【self-evolution-bot · 2026-11-16 · 第19轮】新增 $skipWake：只装只拉、不叫醒 Agent。
+# 取 state 与命令行开关并集，与上面两个同口径。
+$skipWake    = [bool]$SkipWake    -or [bool]$state.skipWake
 
 $exitCode = 0
 $stage = "init"
@@ -327,9 +335,17 @@ try {
   if (-not $gateOk) { throw "投递面在 ${gateTimeout}s 内未就绪（/api/proactive/status 持续 503）—— 未做 wake，扩展路由可能加载失败，请查 gateway 日志" }
 
   $stage = "wake"
-  $ok = $false
+  # 【self-evolution-bot · 2026-11-16 · 第19轮】新增 $skipWake 短路：只装只拉、不叫醒。
+  # 放在 for 循环之前，且把分型写成 "skipped-by-flag" —— 绝不能停在初值 not-attempted，
+  # 否则读 result.json 的人分不清「没走到 wake」和「我主动跳过了」。
+  if ($skipWake) {
+    Write-Log "[skipWake] 已指定跳过 wake —— 客户端已拉起，不再叫醒 $AgentCode（本次不算投递验证）" "WARN"
+    $wakeOutcome = "skipped-by-flag"
+    $ok = $true
+  }
   $backoff = 10
   for ($i = 1; $i -le $WakeAttempts; $i++) {
+    if ($skipWake) { break }
     # 【self-evolution-bot · 2026-11-15 · 第16轮】dryrun 也要把分型写清楚：原先只置 $ok=$true、
     # 让 wakeOutcome 停在初值 not-attempted，读的人还得自己猜。改成显式 "dryrun-not-attempted"，
     # 与真投递的 delivered / busy-wiring-proven / skipped-already-done 一眼区分。
@@ -387,7 +403,7 @@ finally {
   # 却没写进本文件，被叫醒的岗位读 result 仍只看到 ok=true，分不清是 delivered / busy / skipped ——
   # 正是我记过的「只测函数不测接线」同类漏项。另加 selftest：让读的人一眼知道这轮 ok=true 只证明
   # 了后半段（就绪/名册/投递面/wake），没证明静默安装与拉起。
-  $summary = @{ stage = $stage; ok = ($exitCode -eq 0); exitCode = $exitCode; baseUrl = $baseUrl; agentCode = $AgentCode; taskId = $TaskId; wakeOutcome = $wakeOutcome; selftest = [bool]($skipInstall -or $skipLaunch); at = (Get-Date).ToString("o") } | ConvertTo-Json -Compress
+  $summary = @{ stage = $stage; ok = ($exitCode -eq 0); exitCode = $exitCode; baseUrl = $baseUrl; agentCode = $AgentCode; taskId = $TaskId; wakeOutcome = $wakeOutcome; selftest = [bool]($skipInstall -or $skipLaunch); skipWake = [bool]$skipWake; at = (Get-Date).ToString("o") } | ConvertTo-Json -Compress
   try {
     if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
     Set-Content -LiteralPath $ResultFile -Value $summary -Encoding UTF8

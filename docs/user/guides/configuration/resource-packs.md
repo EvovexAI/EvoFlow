@@ -127,26 +127,44 @@
 ## 装别人的包
 
 1. 打开 **设置 → 资源中心 → 获取资源**。  
-2. **市场目录**：默认读取公开索引（无需配置）  
+2. **市场目录**：默认合并「官方 GitHub 市场」+ 你添加的自定义源。官方索引：  
    `https://raw.githubusercontent.com/EvovexAI/evoflow-resource-market/main/catalog.json`  
-   点卡片「安装」即可从 GitHub 拉取并安装。高级场景可用环境变量 `EVOFLOW_RESOURCE_MARKET_CATALOG_URL` 指向其它 raw `catalog.json`（仅非空值生效，空值仍用默认）。  
-3. 或 **导入本地**：选 zip / 文件夹（根目录要有 `evoflow.organization.json`）→ 预检 → 安装。  
-4. 装完后：「资源中心 → 已装」能看到记录。
+   高级场景可用环境变量 `EVOFLOW_RESOURCE_MARKET_CATALOG_URL` 覆盖官方 URL（仅非空值生效）。  
+3. **自定义 / 内网源**：在「市场源」里粘贴同事分享的 catalog 地址（可带 `?token=`），例如  
+   `http://192.168.1.17:8382/api/resource-market/catalog.json`。  
+   带 `download.zip_url`（或卡片「直链」）的条目会走 HTTP zip 安装；官方包仍可走 GitHub 目录安装。  
+4. 或 **导入本地**：选 zip / 文件夹（根目录要有 `evoflow.organization.json`）→ 预检 → 安装。  
+5. 装完后：「资源中心 → 已装」能看到记录。
 
 ---
 
 ## 导出自己的包
 
 1. **设置 → 资源中心 → 打包分享**。  
-2. 「填入当前员工」或手填 `agent_code` / 工作流 id。  
-3. 选导出目录 → 导出（可同时打 zip）。  
-4. 得到与安装同结构的目录，可发给别人或 PR 上架。
+2. 勾选员工 / 工作流 / 技能 / **Agent 应用**等（可只勾 Agent 应用，kind=`extensions`）。  
+3. 选导出目录 → **导出资源包**，或 **导出并发布到本机市场**（自动 zip + 写入本机 Host）。  
+4. 得到与安装同结构的目录 / zip，可发给别人、发到本机内网市场，或 PR 上架公网市场。
 
 CLI：`evoflow org export --employees a,b --apps app_xxx -o ./my-pack --zip`  
-市场：`evoflow org market install packs/foo`
+市场：`evoflow org market install packs/foo`（或带 `zip_url`）
+
 ---
 
-## 发布到资源市场
+## 本机资源市场（内网分享）
+
+在 **获取资源 → 本机资源市场**：
+
+1. **开启内网分享**（Gateway 需能被局域网访问，例如已开 WebUI 远程或绑定 `0.0.0.0`）。  
+2. 可选 **生成 token**：分享链接会自动带 `?token=`；不设则目录公开可读。  
+3. **复制** share URL 发给同事 → 对方在「市场源」里添加。  
+4. 用「打包分享 → 导出并发布到本机市场」上架包；同事刷新市场目录即可安装。
+
+本机数据目录：`~/.evoflow/resource-market/`（`catalog.json` + `packs/<id>.zip`）。  
+公开接口：`GET /api/resource-market/catalog.json`、`GET /api/resource-market/packs/<id>.zip`。
+
+---
+
+## 发布到公开资源市场（GitHub）
 
 ```text
 catalog.json
@@ -158,10 +176,10 @@ packs/<你的包-id>/
 
 1. 本地预检通过。  
 2. Fork 市场仓库 → 放入 `packs/<id>/`。  
-3. 改 `catalog.json` 加一行。  
+3. 改 `catalog.json` 加一行（可选 `download.zip_url` 指向 Release / CDN）。  
 4. 开 PR；合并后别人刷新市场即可看到。
 
-字段见资源市场 catalog schema（私有设计文档，不在本仓）。
+字段见资源市场 catalog schema（私有设计文档，不在本仓）；内网 Host 生成的条目会带 `download.type=zip_url`。
 
 ---
 

@@ -56,13 +56,19 @@ def resolve_evopanel_dist_dir() -> Path | None:
         if (dev_dist / "index.html").is_file():
             return dev_dist
 
-    # Repo dev: …/evoflow/webui/static.py → <repo>/evopanel/dist
+    # Repo dev: …/packages/harness/evoflow/webui/static.py → <repo>/evopanel/dist
     here = Path(__file__).resolve()
     for ancestor in here.parents:
         candidate = ancestor / "evopanel" / "dist"
         if (candidate / "index.html").is_file():
             return candidate
-        if ancestor.name in {"EvoFlow", "evoflow", "github"}:
+        # Stop at a real checkout root (has both trees). Do NOT stop on the
+        # Python package dir ``…/harness/evoflow`` — that used to make WebUI
+        # log "dist was not found" while ``<repo>/evopanel/dist`` existed,
+        # so LAN ``http://<ip>:8382/`` returned 404.
+        if (ancestor / "evopanel").is_dir() and (ancestor / "backend").is_dir():
+            break
+        if ancestor.name in {"EvoFlow", "github"}:
             break
 
     return None
@@ -81,11 +87,15 @@ def mount_evopanel_static(app: FastAPI) -> bool:
     if _STATIC_MOUNTED:
         return True
     if not is_webui_enabled():
+        logger.debug("Skip EvoPanel static mount — WebUI remote access is disabled")
         return False
 
     dist = resolve_evopanel_dist_dir()
     if dist is None:
-        logger.warning("WebUI is enabled but EvoPanel dist was not found — build evopanel (npm run build) or set EVOFLOW_EVOPANEL_DIST")
+        logger.warning(
+            "WebUI is enabled but EvoPanel dist was not found — build evopanel "
+            "(npm run build) or set EVOFLOW_EVOPANEL_DIST"
+        )
         return False
 
     dist_str = str(dist)
@@ -110,20 +120,23 @@ def mount_evopanel_static(app: FastAPI) -> bool:
     if images_dir.is_dir():
         app.mount("/images", StaticFiles(directory=str(images_dir)), name="evopanel-images")
 
-    @app.get("/{full_path:path}", include_in_schema=False)
-    async def evopanel_spa_fallback(full_path: str) -> FileResponse:
-        """SPA fallback — serve ``index.html`` for client-side hash routes."""
-        # Never return SPA HTML for API paths (breaks JSON clients; e.g. GET /api/channels).
-        if full_path == "api" or full_path.startswith("api/"):
-            from fastapi import HTTPException
+    index_html = str(dist / "index.html")
 
-            raise HTTPException(status_code=404, detail="Not Found")
-        # Let explicit files (favicon, etc.) through when present.
-        if full_path and full_path != "index.html":
-            candidate = dist / full_path
-            if candidate.is_file():
-                return FileResponse(str(candidate))
-        return FileResponse(str(dist / "index.html"))
+    # Explicit SPA entry routes only — never ``/{full_path:path}``.
+    # A catch-all registered during deferred WebUI load was matching
+    # ``/api/webui/*`` first and breaking remote login/status.
+    # Hash-router navigation stays on ``/`` / ``/login`` after first paint.
+    async def _spa_index() -> FileResponse:
+        return FileResponse(index_html)
+
+    for spa_path in ("/", "/login", "/qr-login", "/index.html"):
+        app.add_api_route(
+            spa_path,
+            _spa_index,
+            methods=["GET", "HEAD"],
+            include_in_schema=False,
+            name=f"evopanel_spa_{spa_path.strip('/') or 'root'}",
+        )
 
     _STATIC_MOUNTED = True
     return True

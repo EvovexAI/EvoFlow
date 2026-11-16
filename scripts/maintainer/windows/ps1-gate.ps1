@@ -96,6 +96,18 @@ Chk 'watchdog: wakeOutcome 写进 watchdog-result.json' (
 ) '被叫醒的岗位读不到分型 → 静默假阳性'
 Chk 'watchdog: selftest 标记写进 result.json' ($wd -match '\$summary\s*=.*selftest')
 
+# 【self-evolution-bot · 2026-11-16 · 第19轮】-SkipWake 的接线断言（声明↔使用↔落盘）。
+# 为什么必须加：第15轮就是「用了 5 处却没在 param 声明」，测试全绿但命令行根本传不进去。
+# 这三条正是那次事故的形状，新开关必须照同一把尺子量。
+Chk 'watchdog: -SkipWake 已在 param 声明' ($wdParamBlock -match '\[switch\]\s*\$SkipWake') '只在正文使用=命令行传不进来'
+Chk 'watchdog: skipWake 确实被分支使用' (
+    ([regex]::Matches($wd, '\$skipWake')).Count -ge 3
+) '声明了却没用 = 开关是摆设'
+Chk 'watchdog: skipWake 与 skipWake 分型都写进 result.json' (
+    $wd -match '\$summary\s*=.*skipWake\s*=' -and $wd -match 'skipped-by-flag'
+) '跳过 wake 却不落盘/不分型 → 读的人分不清"没走到"和"主动跳过"'
+Chk 'trigger: -SkipWake 透传进 state' (($tvRaw -join "`n") -match 'skipWake\s*=\s*\[bool\]\$SkipWake')
+
 # 数据目录必须显式覆盖继承值，且值来自 state（不是写死路径）
 Chk 'watchdog: EVOFLOW_HOME 用 state 权威值覆盖' ($wd -match '\$env:EVOFLOW_HOME\s*=\s*\$RuntimeHome')
 Chk 'watchdog: RuntimeHome 取自 state.evoflowHome' ($wd -match '\$RuntimeHome\s*=\s*\[string\]\$state\.evoflowHome')

@@ -42,6 +42,10 @@ param(
   # 本参数只在 home 正确的前提下才有意义（见 selfverify-watchdog.ps1 同名注释）。
   [int]    $RosterTimeoutSec = 300,
   [int]    $WakeAttempts = 6,
+  # 【self-evolution-bot · 2026-11-16 · 第19轮】透传给看门狗：装完拉起就收工，不叫醒岗位。
+  # 用途：用户只要「重建+重启」、不想被 Agent 插一轮对话时用。
+  # 注意这不是自检模式 —— 安装与拉起照常做，只跳过最后一步 wake。
+  [switch] $SkipWake,
   [switch] $DryRun
 )
 
@@ -196,6 +200,9 @@ $state = [ordered]@{
   readyTimeoutSec   = $ReadyTimeoutSec
   rosterTimeoutSec  = $RosterTimeoutSec
   wakeAttempts      = $WakeAttempts
+  # 【self-evolution-bot · 2026-11-16 · 第19轮】只在显式给了 -SkipWake 时才写这个键，
+  # 不写 false —— 看门狗读的是 $state.skipWake，缺键与 false 同效，但少一行噪声。
+  skipWake          = [bool]$SkipWake
   oldGatewayPid     = $oldPid
   oldGeneration     = $oldGen
   repoRoot          = $RepoRoot

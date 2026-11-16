@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.30] - 2026-11-16
+
+相对 **1.3.29**：资源中心可开内网市场、添加同事的 catalog 源，并支持 zip 直链安装；打包分享可一键发布到本机市场。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.30.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **本机资源市场**：开启内网分享，生成带可选 token 的 catalog 地址发给同事
+- **多源市场目录**：合并官方 GitHub 市场与自定义源
+- **导出并发布到本机市场**：打包分享可写 zip + 本机 Host
+
+### Changed
+
+- **zip 直链安装**：catalog 带 `download.zip_url` 时走 HTTP 安装
+- **资源包指南**：补充本机市场与市场源说明
+
+### Fixed
+
+- **工具层契约**：任务状态别名、资产路径报错与自诊断度量脚本与现网口径对齐
+
 ## [1.3.29] - 2026-11-16
 
 相对 **1.3.28**：命令行可管外观/渠道/媒体/插件/界面与系统自检；平台作用域提示与设置页对齐；对话子任务/工作流时间线投影与角标跟跑状态一致。

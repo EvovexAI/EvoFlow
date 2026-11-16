@@ -56,5 +56,15 @@ async def load_webui_settings_deferred(app: FastAPI) -> None:
         await asyncio.to_thread(_load_webui_enabled)
         if is_webui_enabled():
             logger.info("WebUI remote access is enabled — JWT auth middleware active")
+            # Extended routers may have run before the DB flag was loaded (in-memory
+            # default False) and skipped SPA mount — retry once WebUI is known on.
+            try:
+                from evoflow.webui.static import mount_evopanel_static
+
+                mounted = mount_evopanel_static(app)
+                if mounted:
+                    logger.info("EvoPanel WebUI static mount ensured after deferred WebUI load")
+            except Exception:
+                logger.warning("Deferred EvoPanel static mount failed", exc_info=True)
     except Exception:
         logger.debug("Deferred WebUI settings load failed (non-fatal)", exc_info=True)

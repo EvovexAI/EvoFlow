@@ -3477,52 +3477,29 @@ def org_export(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def org_market_catalog(_args: dict[str, Any]) -> dict[str, Any]:
-    import urllib.request
-
-    from evoflow.organizations.fetch import market_catalog_url
-
-    url = market_catalog_url()
-    empty = {
-        "ok": True,
-        "schema": 1,
-        "marketId": "evoflow-resource-market",
-        "packs": [],
-        "configured": bool(url),
-        "source": url or None,
-    }
-    if not url:
-        return empty
-
-    def _fetch() -> dict[str, Any]:
-        with urllib.request.urlopen(url, timeout=15) as resp:  # noqa: S310
-            data = json.loads(resp.read().decode("utf-8", errors="replace"))
-        if not isinstance(data, dict):
-            raise ValidationError("catalog must be a JSON object")
-        data.setdefault("schema", 1)
-        data["source"] = url
-        data["configured"] = True
-        if not isinstance(data.get("packs"), list):
-            data["packs"] = []
-        return data
+    from evoflow.organizations.market_sources import fetch_merged_catalog
 
     try:
-        return {"ok": True, **_fetch()}
-    except ValidationError:
-        raise
+        data = fetch_merged_catalog(force=bool(_args.get("force")))
+        return {"ok": True, **data}
     except Exception as exc:
         raise ValidationError(f"Failed to fetch market catalog: {exc}") from exc
 
 
 def org_market_install(args: dict[str, Any]) -> dict[str, Any]:
+    zip_url = _arg_str(args, "zip_url", "download_url", "url")
     path = _arg_str(args, "path", "pack_path")
-    if not path:
-        raise ValidationError("path is required（市场内相对路径，如 packs/foo）")
     merged = dict(args)
-    merged["source"] = {
-        "type": "market_path",
-        "path": path,
-        "repo": _arg_str(args, "repo") or None,
-    }
+    if zip_url:
+        merged["source"] = {"type": "zip_url", "url": zip_url}
+    elif path:
+        merged["source"] = {
+            "type": "market_path",
+            "path": path,
+            "repo": _arg_str(args, "repo") or None,
+        }
+    else:
+        raise ValidationError("path（市场相对路径）或 zip_url 必填其一")
     if "conflict" not in merged and "conflict_policy" not in merged:
         merged["conflict"] = "fail"
     return org_install(merged)

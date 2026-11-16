@@ -195,62 +195,27 @@ def _save_market_cache_to_disk(data: dict[str, Any]) -> None:
 
 
 @router.get("/market/catalog")
-async def api_market_catalog() -> dict[str, Any]:
-    """Return GitHub catalog.json (default public market; optional non-empty URL override)."""
+async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
+    """Merged catalog from official GitHub + user-added market sources (LAN/custom)."""
     import asyncio
-    import json
-    import time
-    import urllib.request
 
-    from evoflow.organizations.fetch import market_catalog_url
+    from evoflow.organizations.market_sources import fetch_merged_catalog
 
-    url = market_catalog_url()
-    empty = {
-        "schema": 1,
-        "marketId": "evoflow-resource-market",
-        "packs": [],
-        "updatedAt": None,
-        "source": url or None,
-        "configured": bool(url),
-    }
-    if not url:
-        return empty
-
-    # 两个模块级缓存都在本函数读写；global 声明必须先于首次使用
-    # （负缓存分支在下方 try 之前就读 _market_catalog_cache）。
     global _market_catalog_cache, _market_catalog_failed_until
-    now = time.monotonic()
-    if now < _market_catalog_failed_until:
-        # 外网刚失败过：立即返回（优先上次成功目录，否则空目录），不等超时
-        cached = _market_catalog_cache or _load_market_cache_from_disk()
-        if cached:
-            stale = dict(cached)
-            stale["stale"] = True
-            return stale
-        return empty
 
-    def _fetch_catalog() -> dict[str, Any]:
-        with urllib.request.urlopen(url, timeout=_MARKET_CATALOG_TIMEOUT_S) as resp:  # noqa: S310 — operator-configured URL
-            raw = resp.read().decode("utf-8", errors="replace")
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("catalog must be a JSON object")
-        data.setdefault("schema", 1)
-        data["source"] = url
-        data["configured"] = True
-        if not isinstance(data.get("packs"), list):
-            data["packs"] = []
-        return data
+    def _fetch() -> dict[str, Any]:
+        return fetch_merged_catalog(force=bool(force))
 
     try:
-        data = await asyncio.to_thread(_fetch_catalog)
+        data = await asyncio.to_thread(_fetch)
         _market_catalog_cache = data
         _market_catalog_failed_until = 0.0
         _save_market_cache_to_disk(data)
         return data
     except Exception as e:
+        import time
+
         _market_catalog_failed_until = time.monotonic() + _MARKET_CATALOG_FAILURE_TTL_S
-        # 外网超时/失败：立即回退最近一次成功目录（内存 → 磁盘），页面照常打开
         cached = _market_catalog_cache or _load_market_cache_from_disk()
         if cached:
             stale = dict(cached)

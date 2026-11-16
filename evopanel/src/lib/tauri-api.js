@@ -1231,6 +1231,7 @@ const _EXTENDED_API_PREFIXES = [
   '/api/stage/news',
   '/api/meetings',
   '/api/organizations',
+  '/api/resource-market',
   '/api/task-detail',
   '/api/runtime',
   '/api/debug',
@@ -2858,7 +2859,26 @@ export const api = {
   orgInstall: async (payload) => gatewayProxy('POST', '/organizations/install', payload || {}),
   orgUninstall: async (payload) => gatewayProxy('POST', '/organizations/uninstall', payload || {}),
   orgExport: async (payload) => gatewayProxy('POST', '/organizations/export', payload || {}),
-  orgMarketCatalog: async () => gatewayProxy('GET', '/organizations/market/catalog'),
+  orgMarketCatalog: async (force = false) =>
+    gatewayProxy('GET', '/organizations/market/catalog', null, force ? { force: true } : {}),
+  resourceMarketSources: async () => gatewayProxy('GET', '/resource-market/sources'),
+  resourceMarketSourceAdd: async (payload) =>
+    gatewayProxy('POST', '/resource-market/sources', payload || {}),
+  resourceMarketSourceRemove: async (sourceId) =>
+    gatewayProxy('DELETE', `/resource-market/sources/${encodeURIComponent(String(sourceId || ''))}`),
+  resourceMarketSourceEnable: async (sourceId, enabled) =>
+    gatewayProxy(
+      'PUT',
+      `/resource-market/sources/${encodeURIComponent(String(sourceId || ''))}/enabled`,
+      { enabled: !!enabled },
+    ),
+  resourceMarketHostStatus: async () => gatewayProxy('GET', '/resource-market/host/status'),
+  resourceMarketHostEnable: async (payload) =>
+    gatewayProxy('POST', '/resource-market/host/enable', payload || {}),
+  resourceMarketHostPublish: async (payload) =>
+    gatewayProxy('POST', '/resource-market/host/publish', payload || {}),
+  resourceMarketHostUnpublish: async (packId) =>
+    gatewayProxy('DELETE', `/resource-market/host/packs/${encodeURIComponent(String(packId || ''))}`),
   assetsUsageStats: async ({ entityType, entityId, topN = 12 } = {}) =>
     gatewayProxy('GET', '/assets/stats', null, { entityType, entityId, topN }),
   /** Asset Hub Phase1/Phase2 processing run log (verification). */

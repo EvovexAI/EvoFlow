@@ -154,6 +154,7 @@ def register_extended_routers(app: FastAPI) -> None:
         ("app.gateway.routers.apps", "apps", {}),
         ("app.gateway.routers.audit", "audit", {}),
         ("app.gateway.routers.organizations", "organizations", {}),
+        ("app.gateway.routers.resource_market", "resource_market", {}),
         ("app.gateway.routers.collab", "collab", {}),
         ("app.gateway.routers.mcp", "mcp", {}),
         ("app.gateway.routers.plugins", "plugins", {}),

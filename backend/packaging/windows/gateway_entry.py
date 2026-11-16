@@ -430,19 +430,16 @@ def main() -> None:
         if force_all in ("0.0.0.0", "::", "*"):
             bind_host = "0.0.0.0"
             logging.info("EVOFLOW_GATEWAY_BIND=%s — binding Gateway to 0.0.0.0", force_all)
-        elif (os.environ.get("EVOFLOW_APP_SERVER_STDIO") or "").strip().lower() in (
-            "1",
-            "true",
-            "yes",
-            "on",
-        ):
-            logging.debug("desktop stdio mode — keep Gateway bind %s (skip WebUI DB bind rewrite)", bind_host)
         elif _pinned:
             logging.info(
                 "EVOFLOW_GATEWAY_BIND_HOST=%s — keeping loopback bind (skip WebUI-wide rewrite)",
                 _pinned,
             )
         else:
+            # Probe WebUI even under desktop stdio (EVOFLOW_APP_SERVER_STDIO=1).
+            # Settings → WebUI 远程访问 advertises LAN URLs and reload_gateway; the old
+            # stdio early-return left listeners on 127.0.0.1 only → ERR_CONNECTION_REFUSED
+            # for http://<lan-ip>:port while the UI still showed those links.
             try:
                 import threading
 

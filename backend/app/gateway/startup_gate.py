@@ -50,6 +50,7 @@ _EXTENDED_ROUTE_PREFIXES = (
     "/api/stage/news",
     "/api/meetings",
     "/api/organizations",
+    "/api/resource-market",
     "/api/task-detail",
     "/api/runtime",
     "/api/debug",
