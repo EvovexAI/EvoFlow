@@ -22,7 +22,21 @@ DELETE_TOOL_DESCRIPTION = "Delete a single file (not directories; system paths b
 
 RG_TOOL_DESCRIPTION = "Search file contents with ripgrep in the bound workspace. Uses native rg only (no FTS/index redirect); pipe in pattern is not search_code_index synonyms."
 FIND_TOOL_DESCRIPTION = "Find files by glob pattern under a workspace directory."
-SEARCH_CODE_INDEX_DESCRIPTION = "Search workspace code index (symbols/FTS). Pipe in query means synonym terms, not regex."
+SEARCH_CODE_INDEX_DESCRIPTION = (
+    "Search workspace code index (symbols + full-text). Pipe in query means synonym terms, not regex.\n"
+    "Use this FIRST when you don't know which file holds something: locating a function/class name, "
+    "finding where a concept is implemented, or when you only remember the words not the path. "
+    "One call usually replaces several rg/find + read round-trips.\n"
+    "- Queries are matched against file paths, symbol names, and indexed content, so bare identifiers "
+    "like `_check_explore_loops` or phrases like `循环守卫 重复探索` both work.\n"
+    "- Pass `queries` (list) to try several phrasings in ONE call — cheaper than sequential retries.\n"
+    "- Set `read_limit` (<=4) to get the definition body inline instead of a follow-up read.\n"
+    "- Results carry file:line, so you can jump straight to `read` with offset.\n"
+    "Do NOT use it for: reading a file you already know the path of (use read), "
+    "regex/structural pattern matching (use rg), or symbol rename/refactor. "
+    "If it returns 0 hits, the file may not be indexed yet — fall back to rg rather than retrying "
+    "the same query with different wording."
+)
 
 TERMINAL_TOOL_DESCRIPTION = "Short shell command. workdir: path or skill:<name>. Long jobs → process."
 READ_LINTS_DESCRIPTION = "Run linter/diagnostics on one Python/JS/TS/Java source file."

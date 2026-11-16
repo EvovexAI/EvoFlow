@@ -247,8 +247,16 @@ def test_fire_and_forget_forwards_key_to_bg_dispatch():
     captured: dict = {}
     role = SimpleNamespace(agent_code="self-evolution-bot", role_name="自我进化BOT", status="active")
 
-    async def _fake_bg(*args, **kwargs):
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】原来是 `async def _fake_bg` + create_task：
+    # async 函数体要等事件循环调度到才执行，create_task 后若没有让出控制权，
+    # 后台任务根本没启动，captured 就是空的 —— 同一份代码实测 2 次 FAIL / 2 次 PASS。
+    # 改成普通函数：在调用点同步记录参数，再交一个空协程给 create_task，结果与调度时机无关。
+    def _fake_bg(*args, **kwargs):
         captured.update(kwargs)
+        return _noop_coro()
+
+    async def _noop_coro():
+        return None
 
     class _R:
         _bg_tasks: set = set()
@@ -288,8 +296,16 @@ def test_fire_and_forget_bg_dispatch_defaults_empty():
     captured: dict = {}
     role = SimpleNamespace(agent_code="self-evolution-bot", role_name="自我进化BOT", status="active")
 
-    async def _fake_bg(*args, **kwargs):
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】原来是 `async def _fake_bg` + create_task：
+    # async 函数体要等事件循环调度到才执行，create_task 后若没有让出控制权，
+    # 后台任务根本没启动，captured 就是空的 —— 同一份代码实测 2 次 FAIL / 2 次 PASS。
+    # 改成普通函数：在调用点同步记录参数，再交一个空协程给 create_task，结果与调度时机无关。
+    def _fake_bg(*args, **kwargs):
         captured.update(kwargs)
+        return _noop_coro()
+
+    async def _noop_coro():
+        return None
 
     class _R:
         _bg_tasks: set = set()
