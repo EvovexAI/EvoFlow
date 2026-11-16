@@ -261,3 +261,37 @@ def test_read_git_bash_path_does_not_hit_ghost_d_tree(tmp_path):
     body = out.content if hasattr(out, "content") else out
     assert "A-01" in body and "A-02" in body, body
     assert "File not found" not in body, body
+
+
+def test_read_missing_relative_path_reports_resolved_absolute_and_workspace_root(tmp_path):
+    """缺文件时只回显入参 = 调用方只能靠猜再绕一步（第20轮修）。
+
+    现网 obs 实测：read('backend/packages/harness/evoflow/assets/craft.py')
+    这类«仓库相对路径»被拼到工作区根下（C:\\Users\\admin\\.evoflow\\profiles\\default）
+    后报 ``File not found: backend/packages/...``——报错本身不提工作区根，读的人
+    无法判断是路径写错还是根不对。修后报错必须同时给出（a）实际查找的绝对路径
+    （b）相对路径是按哪个工作区根拼的。
+    """
+    rt = _rt(tmp_path)
+    out = read_file_hd.invoke({"path": "backend/packages/harness/evoflow/assets/craft.py", "runtime": rt})
+    body = out.content if hasattr(out, "content") else str(out)
+
+    assert "File not found" in body, body
+    # (a) 必须点名实际查找的绝对路径
+    assert "实际查找的绝对路径" in body, body
+    assert str(tmp_path).replace("\\", "/").lower() in body.replace("\\", "/").lower(), body
+    # (b) 必须说明相对路径是按哪个工作区根拼的 + 该改用仓库绝对路径
+    assert "工作区根" in body, body
+    assert "D:/" in body or "绝对路径" in body, body
+
+
+def test_read_missing_absolute_path_does_not_blame_workspace_root(tmp_path):
+    """反证：绝对路径入参不该被塞「相对路径按工作区根拼」这种无关话术。"""
+    rt = _rt(tmp_path)
+    missing_abs = (tmp_path / "definitely_missing_xyz.py").as_posix()
+    out = read_file_hd.invoke({"path": missing_abs, "runtime": rt})
+    body = out.content if hasattr(out, "content") else str(out)
+
+    assert "File not found" in body, body
+    # 绝对路径入参 target 与入参一致时不该啰嗦；被工作区重映射时才必须点出真实位置。
+    assert "按工作区根拼接" not in body or "实际查找的绝对路径" in body, body

@@ -530,17 +530,49 @@ def assets_tool(
             return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
         if not text:
             return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
+        _KIND_DIRS = {
+            "process": "memory/episodic/",
+            "episodic": "memory/episodic/",
+            "experience": "craft/",
+            "craft": "craft/",
+            "reflection": "memory/journal/",
+            "journal": "memory/journal/",
+        }
+        # 【self-evolution-bot · 2026-11-16 · 第20轮】同一工具两套口径的缺陷：
+        # note 分支按 kind 推导落点（"落点由 kind 决定"），write 分支却只认带前缀的
+        # 完整相对路径，裸文件名一律 write_path_not_allowed。现网 obs 实测正是这样：
+        # xiaomi 09:01 传 kind=episodic + path='补充-2026-11-16-...md'（裸名，语义明确、
+        # 目标就是 episodic），被拒后还得再猜一次前缀。改为与 note 同口径：kind 能定目录
+        # 且 path 无目录成分（或目录不属于可写集合）时，补上 kind 对应的目录，
+        # 并在回执里明写 resolved_path，不静默改址。
+        kind_dir = _KIND_DIRS.get(str(kind or "").strip().lower(), "")
+        resolved_from_kind = False
+        if kind_dir and not rel.startswith(("craft/", "memory/episodic/", "memory/journal/", "memory/standing")):
+            if "/" not in rel:
+                rel = f"{kind_dir}{rel}"
+                resolved_from_kind = True
         allowed = rel.startswith(("craft/", "memory/episodic/", "memory/journal/", "memory/standing")) or rel in (
             "memory/standing.md",
             "memory/MEMORY.md",
             "profile/affect.md",
         )
         if not allowed:
+            # 顺带把「该往哪写」直接说出来：原来只说白名单目录，不给可落点示例。
             return json.dumps(
                 {
                     "ok": False,
                     "error": "write_path_not_allowed",
-                    "hint": "write only craft / episodic / journal / standing / MEMORY.md / profile/affect.md",
+                    "received_path": path,
+                    "hint": (
+                        "write only craft / memory/episodic / memory/journal / memory/standing* / "
+                        "memory/MEMORY.md / profile/affect.md；"
+                        "传裸文件名时同时给 kind（episodic|journal|craft）可自动补目录"
+                    ),
+                    "examples": [
+                        "craft/某配方.md",
+                        "memory/journal/某教训.md",
+                        "memory/episodic/某经过.md",
+                    ],
                 },
                 ensure_ascii=False,
             )
@@ -591,12 +623,23 @@ def assets_tool(
                     "ok": True,
                     "action": "write",
                     "path": data.get("path") or rel,
+                    # 【self-evolution-bot · 2026-11-16 · 第20轮】按 kind 补目录时必须回显，
+                    # 否则调用方以为自己写的是 path=裸名，下次 update_path 又得猜一遍。
+                    **({"resolved_path": rel, "resolved_from_kind": True} if resolved_from_kind else {}),
                     "updated": True,
                     "mode": write_mode,
                     "hint": (
-                        f"已覆盖写入 {rel}。"
-                        if write_mode == "replace"
-                        else f"已追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
+                        (
+                            f"已按 kind 补全目录后覆盖写入 {rel}。"
+                            if write_mode == "replace"
+                            else f"已按 kind 补全目录后追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
+                        )
+                        if resolved_from_kind
+                        else (
+                            f"已覆盖写入 {rel}。"
+                            if write_mode == "replace"
+                            else f"已追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
+                        )
                     ),
                 },
                 ensure_ascii=False,

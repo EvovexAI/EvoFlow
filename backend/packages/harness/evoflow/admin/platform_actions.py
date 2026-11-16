@@ -1571,10 +1571,19 @@ def build_help(topic: str | None = None) -> dict[str, Any]:
         return build_catalog(domain=t, detailed=True)
 
     sug = [name for name in reg if t in name or name.startswith(t)]
+    # 【self-evolution-bot · 2026-11-16 · 第20轮】与 dispatch 的 unknown action 同型缺陷：
+    # 上面两句只在 t 是「域」或「完整动作名」时命中；t='assets.search' 这类
+    # 「域.动作」拼错时 sug 为空，原实现回退 list(reg.keys())[:16] = 恒 knowledge.*，
+    # 于是 help 给出的建议与问的域无关。改为按域回填。
+    if not sug:
+        raw_dom = t.split(".", 1)[0].strip().lower() if "." in t else ""
+        if raw_dom:
+            sug = [n for n in reg if n.split(".", 1)[0].lower() == raw_dom]
     return {
         "ok": False,
         "error": f"unknown help topic: {t}",
         "suggestions": sug[:16] or list(reg.keys())[:16],
+        "suggestions_scoped": bool(sug),
         "domains": list(PLATFORM_DOMAINS),
         "guides": [domain_guide(d) for d in PLATFORM_DOMAINS],
         "hint": "先 action=catalog 看目录（含每域 when + 功能清单）。",
@@ -1663,14 +1672,43 @@ def dispatch_platform_action(
     if entry is None and "." not in act and domain:
         entry = reg.get(f"{str(domain).strip()}.{act}")
     if entry is None:
-        matches = [n for n in reg if n.endswith("." + act) or act in n]
-        return {
+        # 【self-evolution-bot · 2026-11-16 · 第20轮】原实现 miss 后回退 list(reg.keys())[:16]，
+        # 而注册表前 16 个键恒为 knowledge.* / workflow.*，于是任何未知 action（assets.search /
+        # employees.status / agents.catalog / settings.catalog / tasks.comment …）都拿到同一串与
+        # 调用域无关的「建议」——不是「不点名」，是**确定地指错**（现网 obs 实测 7 次，横跨
+        # main / xiaomi / fullstack-dev 三岗，每次都按它再绕一步）。改为按域/动作名取建议，
+        # 且当域不存在时明说「域不存在 + 平台只有这些域」，不再给与输入无关的假建议。
+        raw_dom = act.split(".", 1)[0].strip().lower() if "." in act else ""
+        leaf = act.split(".", 1)[1].strip().lower() if "." in act else key
+        known_domains = {d.lower() for d in PLATFORM_DOMAINS}
+        matches: list[str] = []
+        basis = "无相近动作"
+        if raw_dom and raw_dom in known_domains:
+            matches = [n for n in reg if n.split(".", 1)[0].lower() == raw_dom]
+            basis = f"域 {raw_dom!r} 下的已注册动作（域存在，但没有 {leaf!r}）"
+            # leaf 的近邻排前：employees.status → employees.org_status 才该被第一眼看到。
+            if leaf:
+                matches.sort(key=lambda n: (leaf not in n.split(".", 1)[-1].lower(), n))
+        if not matches and leaf:
+            matches = [n for n in reg if leaf in n.split(".", 1)[-1].lower()]
+            if matches:
+                basis = f"动作名包含 {leaf!r}"
+        payload: dict[str, Any] = {
             "ok": False,
             "error": f"unknown action: {act}",
-            "suggestions": matches[:12] or list(reg.keys())[:16],
+            "suggestions": matches[:12],
+            "suggestion_basis": basis,
             "domains": list(PLATFORM_DOMAINS),
             "catalog_hint": "先调用 action=catalog 或 help。",
         }
+        if raw_dom and raw_dom not in known_domains:
+            payload["domain_exists"] = False
+            payload["hint"] = (
+                f"域 {raw_dom!r} 不存在；平台域只有 {', '.join(PLATFORM_DOMAINS)} 这 {len(PLATFORM_DOMAINS)} 个。"
+            )
+        elif raw_dom:
+            payload["domain_exists"] = True
+        return payload
 
     try:
         args = _parse_args(args_json)

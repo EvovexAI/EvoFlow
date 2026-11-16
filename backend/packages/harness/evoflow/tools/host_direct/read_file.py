@@ -14,8 +14,8 @@ from evoflow.tools.host_direct.workspace_path_guard import (
     resolve_tool_path,
 )
 from evoflow.tools.minimal_schema import READ_TOOL_DESCRIPTION
-from evoflow.utils.workspace_browse import flatten_bound_workspace_absolute
 from evoflow.utils.bundled_tools import from_bash_posix_path
+from evoflow.utils.workspace_browse import flatten_bound_workspace_absolute
 
 # Image refs (local paths / http(s) URLs / browser-snapshot refs) dispatch to the
 # shared view_image pipeline instead of returning text (ZCode-style Read dispatch).
@@ -180,6 +180,11 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
         if not target.is_file():
             if target.is_dir():
                 return f"Error: Path is a directory, not a file: {path}. Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
+            # 【self-evolution-bot · 2026-11-16 · 第20轮】绝对路径入参通常 target==入参，
+            # 报入参就等于报查找位置；但 flatten_bound_workspace_absolute 可能把它重映射到
+            # 绑定工作区下的另一条路径，此时只报入参就是在误导。仅在两者不同时补一句。
+            if str(target) != str(Path(expanded).resolve()):
+                return f"Error: File not found: {path}（实际查找的绝对路径：{target}）"
             return f"Error: File not found: {path}"
         return target
 
@@ -195,8 +200,22 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
     if not target.is_file():
         if target.is_dir():
             return f"Error: Path is a directory, not a file: {path}. Use terminal (e.g. dir / ls) to browse, or read with a concrete file path."
-        return f"Error: File not found: {path}"
-    return target
+        # 【self-evolution-bot · 2026-11-16 · 第20轮】报错只说入参不报「实际找的是哪」，
+        # 于是相对路径被解析到工作区根（C:\Users\admin\.evoflow\profiles\default）而不是
+        # 仓库根时，调用方只能靠猜再绕一步 —— 现网 obs 实测 1 次（memory/standing.md、
+        # backend/packages/.../craft.py 这类仓库相对路径）。这里把试过的绝对路径 + 工作区根
+        # 一起回显，且当工作区根下确实存在同名但不同根的候选时，把「你可能想用仓库绝对路径」
+        # 这句也说出来；纯绝对路径入参不重复啰嗦工作区根。
+        tried = target
+        detail = f"Error: File not found: {path}（实际查找的绝对路径：{tried}）"
+        root_s_hint, _tid2 = resolve_tool_workspace_root(runtime=runtime)
+        if root_s_hint and not _is_absolute_path(expanded, expanded):
+            root_hint = Path(os.path.expanduser(os.path.expandvars(root_s_hint))).resolve()
+            detail += (
+                f"；相对路径是按工作区根 {root_hint} 拼接的，"
+                "仓库内文件请传 D:/... 绝对路径"
+            )
+        return detail
 
 
 def _note_model_read(path: Path, *, full_read: bool = True, content_hash: str | None = None) -> None:
