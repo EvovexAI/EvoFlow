@@ -901,6 +901,142 @@ fn resolve_cwd(row: &Value) -> PathBuf {
     }
 }
 
+/// One-shot runtime prep for market installs (deps stripped from zip).
+/// Marker: ``.evoflow-setup-ok`` under cwd. Commands from ``service.setup`` or auto npm/pip.
+fn ensure_extension_runtime_setup(id: &str, cwd: &Path, manifest: &Value) -> Result<(), String> {
+    let marker = cwd.join(".evoflow-setup-ok");
+    if marker.is_file() {
+        return Ok(());
+    }
+    if !cwd.is_dir() {
+        return Err(format!(
+            "扩展目录不存在：{}（资源包可能未正确落盘，请重新从市场安装）",
+            cwd.display()
+        ));
+    }
+
+    let mut cmds: Vec<Vec<String>> = Vec::new();
+    let setup = manifest.pointer("/service/setup").cloned().unwrap_or(json!({}));
+    let key = if cfg!(target_os = "windows") {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
+    if let Some(arr) = setup
+        .get(key)
+        .or_else(|| setup.get("default"))
+        .and_then(|v| v.as_array())
+    {
+        for item in arr {
+            if let Some(parts) = item.as_array() {
+                let row: Vec<String> = parts
+                    .iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect();
+                if !row.is_empty() {
+                    cmds.push(row);
+                }
+            }
+        }
+    }
+
+    // Auto: Node app without node_modules
+    if cmds.is_empty()
+        && cwd.join("package.json").is_file()
+        && !cwd.join("node_modules").is_dir()
+    {
+        cmds.push(vec!["npm".into(), "install".into()]);
+        if cwd.join("package.json").is_file() {
+            // Prefer build when a build script exists — best-effort; ignore failure later only for build
+        }
+    }
+    // Auto: Python requirements without venv
+    if cwd.join("requirements.txt").is_file() && !cwd.join(".venv").is_dir() {
+        cmds.push(vec![
+            "python".into(),
+            "-m".into(),
+            "venv".into(),
+            ".venv".into(),
+        ]);
+        #[cfg(target_os = "windows")]
+        {
+            cmds.push(vec![
+                ".venv\\Scripts\\python.exe".into(),
+                "-m".into(),
+                "pip".into(),
+                "install".into(),
+                "-r".into(),
+                "requirements.txt".into(),
+            ]);
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            cmds.push(vec![
+                ".venv/bin/python".into(),
+                "-m".into(),
+                "pip".into(),
+                "install".into(),
+                "-r".into(),
+                "requirements.txt".into(),
+            ]);
+        }
+    }
+
+    if cmds.is_empty() {
+        // Nothing to install — still mark ready so we don't re-scan every start
+        let _ = fs::write(
+            &marker,
+            format!("ok\nextension={id}\nreason=no-setup-needed\n"),
+        );
+        return Ok(());
+    }
+
+    append_log(id, &format!("runtime setup ({} commands) cwd={}", cmds.len(), cwd.display()));
+    for parts in &cmds {
+        let (program, args) = resolve_program_and_args(parts)?;
+        append_log(id, &format!("setup$ {} {:?}", program.display(), args));
+        let mut cmd = Command::new(&program);
+        cmd.args(&args).current_dir(cwd).stdout(Stdio::piped()).stderr(Stdio::piped());
+        #[cfg(target_os = "windows")]
+        {
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        let output = cmd
+            .output()
+            .map_err(|e| format!("环境准备失败（{}）：{e}", parts.join(" ")))?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !stdout.trim().is_empty() {
+            append_log(id, &format!("setup stdout: {}", stdout.chars().take(2000).collect::<String>()));
+        }
+        if !stderr.trim().is_empty() {
+            append_log(id, &format!("setup stderr: {}", stderr.chars().take(2000).collect::<String>()));
+        }
+        if !output.status.success() {
+            let hint = manifest
+                .pointer("/service/hint")
+                .and_then(|v| v.as_str())
+                .unwrap_or("请在扩展目录手动安装依赖后重试");
+            return Err(format!(
+                "环境准备失败：{}（exit {:?}）。{hint}\n目录：{}",
+                parts.join(" "),
+                output.status.code(),
+                cwd.display()
+            ));
+        }
+    }
+
+    fs::write(
+        &marker,
+        format!("ok\nextension={id}\ncmds={}\n", cmds.len()),
+    )
+    .map_err(|e| format!("写入 setup 标记失败: {e}"))?;
+    append_log(id, "runtime setup ok");
+    Ok(())
+}
+
 fn kill_ports(ports: &[u16]) {
     for port in ports {
         #[cfg(target_os = "windows")]
@@ -1154,8 +1290,19 @@ pub fn ui_extension_service_start(id: String) -> Result<Value, String> {
         return Ok(json!({ "id": id, "state": "running", "shared": true }));
     }
 
-    let (mut program, args) = service_cmd_for(&manifest)?;
     let cwd = resolve_cwd(&row);
+    // Market zip installs strip node_modules/.venv — run one-shot setup before start.
+    if let Err(e) = ensure_extension_runtime_setup(&id, &cwd, &manifest) {
+        if let Ok(mut map) = services().lock() {
+            if let Some(rt) = map.get_mut(&id) {
+                rt.state = "failed".into();
+                rt.message = e.clone();
+            }
+        }
+        return Err(e);
+    }
+
+    let (mut program, args) = service_cmd_for(&manifest)?;
     // 相对路径程序（如 python\python.exe）相对扩展 cwd，而非 Tauri 进程目录
     if !program.is_absolute() {
         let joined = cwd.join(&program);

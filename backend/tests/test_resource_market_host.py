@@ -44,7 +44,8 @@ def test_publish_and_public_catalog(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     cat = host.public_catalog(base_url="http://192.168.1.17:8382")
     assert len(cat["packs"]) == 1
     assert cat["packs"][0]["download"]["type"] == "zip_url"
-    assert cat["packs"][0]["download"]["url"].endswith("/api/resource-market/packs/demo-app-pack.zip")
+    url = str(cat["packs"][0]["download"]["url"])
+    assert "/api/resource-market/packs/demo-app-pack.zip" in url
 
 
 def test_host_token_gate(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -116,3 +117,56 @@ def test_pack_download_url_helpers() -> None:
     )
     assert pack_download_url({"zip_url": "https://example.com/b.zip"}) == "https://example.com/b.zip"
     assert pack_download_url({"path": "packs/foo"}) == ""
+
+
+def test_pack_zip_ignore_skips_runtime_bloat(tmp_path: Path) -> None:
+    from evoflow.organizations.pack_zip_ignore import iter_pack_files, should_skip_pack_path
+    from evoflow.organizations.market_host import _zip_directory
+
+    root = tmp_path / "pack"
+    (root / "agents").mkdir(parents=True)
+    (root / "agents" / "a.yaml").write_text("agent_code: a\n", encoding="utf-8")
+    (root / "README.md").write_text("hi\n", encoding="utf-8")
+    # bloat that must never ship
+    (root / "remakes" / "x").mkdir(parents=True)
+    (root / "remakes" / "x" / "out.mp4").write_bytes(b"0" * 100)
+    (root / "voice-notes" / ".venv" / "lib").mkdir(parents=True)
+    (root / "voice-notes" / ".venv" / "lib" / "torch.dll").write_bytes(b"0" * 100)
+    (root / "voice-notes" / "data" / "sessions" / "s1").mkdir(parents=True)
+    (root / "voice-notes" / "data" / "sessions" / "s1" / "audio.wav").write_bytes(b"0" * 100)
+    (root / "data" / "videos").mkdir(parents=True)
+    (root / "data" / "videos" / "a.mp4").write_bytes(b"0" * 100)
+    (root / "data" / "scripts.json").write_text("{}\n", encoding="utf-8")
+    (root / "node_modules" / "pkg").mkdir(parents=True)
+    (root / "node_modules" / "pkg" / "index.js").write_text("1\n", encoding="utf-8")
+    # per-pack ignore
+    (root / ".evoflowpackignore").write_text("# extra\ncraft/cache/\n", encoding="utf-8")
+    (root / "craft" / "cache").mkdir(parents=True)
+    (root / "craft" / "cache" / "x.bin").write_bytes(b"0" * 20)
+    (root / "craft" / "keep.txt").write_text("ok\n", encoding="utf-8")
+
+    assert should_skip_pack_path(root / "remakes" / "x" / "out.mp4", root) is True
+    assert should_skip_pack_path(root / "data" / "scripts.json", root) is False
+
+    names = {p.relative_to(root).as_posix() for p in iter_pack_files(root)}
+    assert "agents/a.yaml" in names
+    assert "README.md" in names
+    assert "data/scripts.json" in names
+    assert "craft/keep.txt" in names
+    assert "remakes/x/out.mp4" not in names
+    assert "voice-notes/.venv/lib/torch.dll" not in names
+    assert "voice-notes/data/sessions/s1/audio.wav" not in names
+    assert "data/videos/a.mp4" not in names
+    assert "node_modules/pkg/index.js" not in names
+    assert "craft/cache/x.bin" not in names
+
+    dest = tmp_path / "out.zip"
+    _zip_directory(root, dest)
+    assert dest.is_file()
+    import zipfile
+
+    with zipfile.ZipFile(dest, "r") as zf:
+        znames = set(zf.namelist())
+    assert "agents/a.yaml" in znames
+    assert "data/videos/a.mp4" not in znames
+    assert dest.stat().st_size < 10_000

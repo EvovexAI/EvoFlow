@@ -224,3 +224,49 @@ def test_uninstall_removes_extension_keeps_knowledge_by_default(
     out2 = uninstall_organization(result2["org_instance_id"], options={"keep_knowledge": False})
     assert out2["removed"]["knowledge"] == [kb_id]
     assert not any(b["id"] == kb_id for b in owned_service.list_bases())
+
+
+def test_zip_install_persists_and_forces_extension_copy(
+    isolated_home: Path, tmp_path: Path
+) -> None:
+    """Market/zip installs must not folder-link into a deleted TEMP extract."""
+    import zipfile
+
+    from evoflow.admin.ui_extensions_registry import config_dir, ui_extensions_root
+    from evoflow.organizations.pack_persist import org_packs_root
+
+    pack, _ = _make_pack(tmp_path)
+    # Author-style link flags (broken for zip unless installer forces copy)
+    man = json.loads((pack / "evoflow.organization.json").read_text(encoding="utf-8"))
+    man["primitives"]["extensions"] = [{"from": "./extensions/my-ext", "link": True}]
+    man["primitives"]["skills"] = [{"path": "./skills/my-skill", "link": True}]
+    (pack / "evoflow.organization.json").write_text(json.dumps(man), encoding="utf-8")
+    ext_man = json.loads((pack / "extensions" / "my-ext" / "evoflow.extension.json").read_text(encoding="utf-8"))
+    ext_man["service"] = {"mode": "none", "link": True}
+    (pack / "extensions" / "my-ext" / "evoflow.extension.json").write_text(
+        json.dumps(ext_man), encoding="utf-8"
+    )
+
+    zpath = tmp_path / "pack.zip"
+    with zipfile.ZipFile(zpath, "w") as zf:
+        for f in pack.rglob("*"):
+            if f.is_file():
+                zf.write(f, f.relative_to(pack).as_posix())
+
+    result = install_organization(source={"type": "zip_path", "path": str(zpath)})
+    assert result.get("portable") is True
+    pack_root = Path(result["pack_root"])
+    assert pack_root.is_dir()
+    assert org_packs_root() in pack_root.parents or pack_root.parent == org_packs_root()
+    assert "pack_root" in result["artifacts"]
+
+    rows = _registry_rows(isolated_home)
+    assert len(rows) == 1
+    install_path = Path(rows[0]["install_path"])
+    assert install_path.is_dir()
+    assert install_path.parent == ui_extensions_root()
+    assert "folder-link" not in str(rows[0].get("source") or "")
+    # Copied manifest must not keep service.link
+    copied = json.loads((install_path / "evoflow.extension.json").read_text(encoding="utf-8"))
+    assert (copied.get("service") or {}).get("link") in (False, None)
+    _ = config_dir  # keep import used for clarity in failures

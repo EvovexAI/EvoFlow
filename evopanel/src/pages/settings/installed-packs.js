@@ -78,6 +78,25 @@ function packTitle(it) {
   return String(it?.pack_name || it?.name || it?.pack_id || '').trim() || '未命名资源包'
 }
 
+function shortPath(p) {
+  const s = String(p || '').trim()
+  if (s.length <= 64) return s
+  return `…${s.slice(-56)}`
+}
+
+async function revealPath(absPath) {
+  const p = String(absPath || '').trim()
+  if (!p) {
+    toast.error('没有可打开的路径')
+    return
+  }
+  try {
+    await api.revealPathInFileManager(p)
+  } catch (e) {
+    toast.error(String(e?.message || e))
+  }
+}
+
 function shellHtml(embedded) {
   const header = embedded
     ? ''
@@ -224,6 +243,11 @@ function renderList(items) {
           <div class="sr-card-meta">安装于 ${esc(fmtTime(it.installed_at))}${
             it.workspace_path ? ` · 工作区 ${esc(it.workspace_path)}` : ''
           }</div>
+          ${
+            it.pack_root || (Array.isArray(it.artifacts?.pack_root) && it.artifacts.pack_root[0])
+              ? `<div class="sr-card-meta">包目录 <code title="${esc(it.pack_root || it.artifacts.pack_root[0])}">${esc(shortPath(it.pack_root || it.artifacts.pack_root[0]))}</code></div>`
+              : ''
+          }
         </div>
         <div class="sr-card-actions">
           <button type="button" class="sr-btn" data-ip-act="open-detail" data-org-id="${id}">详情</button>
@@ -241,8 +265,28 @@ function renderDetail(it) {
   const title = packTitle(it)
   if (titleEl) titleEl.textContent = title
   const ws = String(it.workspace_path || '').trim()
+  const packRoot = String(
+    it.pack_root || (Array.isArray(it.artifacts?.pack_root) && it.artifacts.pack_root[0]) || '',
+  ).trim()
+  const extInstalls = Array.isArray(it.extension_installs) ? it.extension_installs : []
   const wsWarn = ws.includes('${')
     ? `<p class="sr-warn">工作区路径仍含占位符,可能是安装时未展开。重新安装或在安装时选择工作区可修复。</p>`
+    : ''
+  const extBlock = extInstalls.length
+    ? `<div class="sr-detail-block">
+        <h4>Agent 应用安装目录</h4>
+        <p class="sr-muted" style="margin:0 0 10px">市场安装会复制到本机；首次打开时会自动准备 npm/pip 环境。</p>
+        ${extInstalls
+          .map((row) => {
+            const ip = String(row.install_path || '').trim()
+            return `<div class="sr-chip-row" style="margin-bottom:8px;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="sr-chip sr-chip--named"><b>${esc(row.name || row.id)}</b><code>${esc(row.id)}</code></span>
+              ${ip ? `<code title="${esc(ip)}" style="font-size:12px">${esc(shortPath(ip))}</code>
+              <button type="button" class="sr-btn" data-ip-act="reveal-path" data-path="${esc(ip)}">打开目录</button>` : '<span class="sr-muted">路径未知</span>'}
+            </div>`
+          })
+          .join('')}
+      </div>`
     : ''
   host.innerHTML = `
     <div class="sr-detail-hero">
@@ -264,9 +308,16 @@ function renderDetail(it) {
         <div><dt>实例 id</dt><dd><code>${esc(it.org_instance_id || '—')}</code></dd></div>
         <div><dt>安装时间</dt><dd>${esc(fmtTime(it.installed_at))}</dd></div>
         <div><dt>工作区</dt><dd>${ws ? `<code>${esc(ws)}</code>` : '—'}</dd></div>
+        <div><dt>包目录</dt><dd>${
+          packRoot
+            ? `<code>${esc(packRoot)}</code>
+               <button type="button" class="sr-btn" style="margin-left:8px" data-ip-act="reveal-path" data-path="${esc(packRoot)}">打开目录</button>`
+            : '—'
+        }</dd></div>
       </dl>
       ${wsWarn}
     </div>
+    ${extBlock}
     <div class="sr-detail-block">
       <h4>已装产物</h4>
       <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / 扩展等;主文案为中文显示名,编码可悬停查看。</p>
@@ -357,6 +408,7 @@ function onClick(e) {
   }
   if (act === 'uninstall') void uninstall(actBtn.getAttribute('data-org-id') || '')
   if (act === 'uninstall-detail') void uninstall(_detailId)
+  if (act === 'reveal-path') void revealPath(actBtn.getAttribute('data-path') || '')
 }
 
 function onKeydown(e) {

@@ -57,6 +57,21 @@ def _download_bytes(url: str, *, timeout: int = 60) -> bytes:
         return resp.read()
 
 
+def _download_to_file(url: str, dest: Path, *, timeout: int = 1800) -> int:
+    """Stream a URL to disk (LAN market zips can be multi-GB; avoid RAM soak)."""
+    req = Request(url, headers={"User-Agent": "EvoFlow-OrgPack/1.0"})
+    written = 0
+    with urlopen(req, timeout=timeout) as resp:  # noqa: S310 — caller-controlled market/zip URL
+        with dest.open("wb") as out:
+            while True:
+                chunk = resp.read(1024 * 1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+                written += len(chunk)
+    return written
+
+
 def load_pack_from_zip_url(url: str) -> LoadedPack:
     u = str(url or "").strip()
     if not u:
@@ -67,7 +82,8 @@ def load_pack_from_zip_url(url: str) -> LoadedPack:
     tmp = Path(tempfile.mkdtemp(prefix="evoflow_org_zipurl_"))
     zip_path = tmp / "pack.zip"
     try:
-        zip_path.write_bytes(_download_bytes(u))
+        nbytes = _download_to_file(u, zip_path)
+        logger.info("Downloaded pack zip_url bytes=%s dest=%s", nbytes, zip_path)
         loaded = load_pack_from_zip(zip_path)
         loaded.cleanup_dirs.append(tmp)
         return loaded
