@@ -119,7 +119,12 @@ def parse_tree(path: Path, text: str) -> tuple[Any, bytes, str] | None:
 
 
 def _append(out: list[Symbol], *, name: str, kind: str, line: int, parser: str) -> None:
-    if not name or (name.startswith("_") and name != "__init__"):
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】删掉「把 _ 前缀名丢弃」的过滤。
+    # 为什么：模块级私有函数（_terminal_command_fingerprint 等）恰恰是排查核心逻辑时最常找的目标，
+    # 而同一套索引里 regex 兜底路径（symbols.py 的 _PY_DEF 用 \w+）本来就会收录它们——
+    # 只有 tree-sitter 主路径单方面丢弃，导致同一文件「有的私有函数在、有的不在」。
+    # 实证：loop_detection_middleware.py 的 symbols 只有 7 条、全是类方法，模块级私有函数 0 条。
+    if not name:
         return
     out.append({"name": name, "kind": kind, "line": max(1, int(line or 1)), "parser": parser})
 

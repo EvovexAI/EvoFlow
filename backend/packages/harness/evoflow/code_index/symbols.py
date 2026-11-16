@@ -36,7 +36,10 @@ _CURSOR_LANGS = frozenset({".py", ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", 
 
 
 def _append(out: list[Symbol], *, name: str, kind: str, line: int, parser: str) -> None:
-    if not name or (name.startswith("_") and name != "__init__"):
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】同 tree_sitter_core._append：不再丢弃 _ 前缀名。
+    # 私有函数是排障时最常搜的目标；且本文件的 regex 规则（_PY_DEF 用 \w+）本来就能匹配到它们，
+    # 只在写符号表这一步被过滤，等于「能发现但不存」，属于自相矛盾而非有意设计。
+    if not name:
         return
     out.append({"name": name, "kind": kind, "line": max(1, int(line or 1)), "parser": parser})
 
@@ -51,8 +54,7 @@ def _regex_python_symbols(text: str) -> list[Symbol]:
         _append(out, name=m.group(1), kind="class", line=_line_at(text, m.start()), parser="python_regex")
     for m in _PY_DEF.finditer(text):
         name = m.group(1)
-        if name.startswith("_") and name != "__init__":
-            continue
+        # 【self-evolution-bot · 2026-11-16 · 第24轮】不再跳过 _ 前缀函数：私有函数正是排障时最常搜的目标。
         _append(out, name=name, kind="function", line=_line_at(text, m.start()), parser="python_regex")
     return out
 
@@ -68,8 +70,7 @@ def _ast_python_symbols(text: str) -> list[Symbol]:
         if isinstance(node, ast.ClassDef):
             _append(out, name=node.name, kind="class", line=int(node.lineno or 0), parser="python_ast")
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if node.name.startswith("_") and node.name != "__init__":
-                continue
+            # 【self-evolution-bot · 2026-11-16 · 第24轮】不再跳过 _ 前缀函数，与 tree-sitter / regex / LSP 四条路径口径统一。
             _append(out, name=node.name, kind="function", line=int(node.lineno or 0), parser="python_ast")
     return out or _regex_python_symbols(text)
 
