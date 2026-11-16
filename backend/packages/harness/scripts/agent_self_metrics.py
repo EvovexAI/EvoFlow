@@ -199,7 +199,10 @@ def _failure_signature(rows: list[dict[str, Any]]) -> dict[tuple[str, str], int]
         tool = str(r.get("tool_name") or "?")
         etype = str(r.get("error_type") or "").strip() or "(无类型)"
         msg = str(r.get("error_message") or "").strip()
-        key = f"{etype}::{_message_stub(msg)}" if msg else etype
+        stub = _message_stub(msg) if msg else ""
+        # 【self-evolution-bot · 2026-11-16 · 第19轮】error_type 与文案首词相同时别印两遍：
+        # 现网实测出现 ``write_path_not_allowed::write_path_not_allowed``，读起来像两个不同的东西。
+        key = etype if (not stub or stub == etype) else f"{etype}::{stub}"
         sig[(tool, key)] = sig.get((tool, key), 0) + 1
     return sig
 
@@ -214,12 +217,80 @@ _STUB_STOPWORDS = frozenset(
 )
 
 
+# 守卫拦截文案的前缀（loop_detection 等中间件产生）：形如「[重复探索·已拦截] …」。
+# 【self-evolution-bot · 2026-11-16 · 第19轮】新增这条判据，因为它让本脚本**报过假故障**。
+# 现网实测（真 24h 窗口）：bash 351 次 error 里 **350 次是守卫拦截**，真正跑 list_dir 的命令 **0 次**；
+# 但拦截文案末尾写着「不要再次 read/rg/list_dir 同一目标」，而本函数第①步抓的是文案里
+# 第一个 snake_case 词 → 350 次全塌成签名 ``ToolReturnedError::list_dir``，
+# 于是我自己写的度量表上出现一行「! bash · ToolReturnedError::list_dir —— 113 次（新增报错模式）」，
+# 我上一轮据此写了「下轮立案」。**度量工具把守卫正常工作读成故障，比没有度量更坏。**
+# 拦截不是故障：它该按「拦了什么」单独成桶，且绝不能再去抢文案后半句里的英文标识符。
+_GUARD_BLOCK_RE = re.compile(r"^\s*[\[【]([^\]】]{2,20}?)·已拦截[\]】]")
+
+
+# 【self-evolution-bot · 2026-11-16 · 第19轮】拦辄单独成栏 —— 上一版只把「拦截:」做进
+# ``_message_stub`` 的**桶键**，却没在**输出层**把它与真故障分开，于是第19轮我跑本脚本时
+# 第一屏读到：
+#     ! bash · ToolReturnedError::拦截:重复探索 —— 113 次（新增报错模式）
+# 就写下了「这是不是新回归、得查」，随后**花 3 次 obs 查询**才发现 116 次里 113 次发生在
+# 第17轮修复上线**之前**、剩 3 次是我自己 01:13 连跑同一门禁（正当拦截）。也就是说：
+# 判据（注释里写着「拦截不是故障」）与输出（仍标成"新增报错模式"）**没接上**，
+# 这正是我第16轮栽过的「声明处有、使用处有、输出处没通」。改法：签名按守卫/故障分流，
+# 守卫另立一节，**不参与** 重复踩坑 / 已消失 / 新增报错模式 三条判断。
+def _is_guard_sig(key: tuple[str, str]) -> bool:
+    """该签名是否来自守卫拦截（桶键形如 ``ToolReturnedError::拦截:重复探索``）。"""
+    return key[1].split("::", 1)[-1].startswith("拦截:")
+
+
+def _guard_stub(key: tuple[str, str]) -> str:
+    """从签名键里剥出纯 ``拦截:<类型>`` —— _guard_spans 的键形状，两边必须同一形状。"""
+    return key[1].split("::", 1)[-1]
+
+
+def _guard_spans(rows: list[dict[str, Any]]) -> dict[tuple[str, str], dict[str, Any]]:
+    """守卫拦截的次数 + 首末时刻。
+
+    为什么要时刻：只给次数时，我无法在表内区分「修复前的历史存量」与「修复后的新拦截」，
+    只能再去查观测库 —— 第19轮为这一条多发了 3 次查询才确认「113 次全在修复上线前」。
+    把首末时刻直接印出来，这一趟省掉。
+    """
+    out: dict[tuple[str, str], dict[str, Any]] = {}
+    for r in rows:
+        if str(r.get("status") or "").lower() in ("success", "ok", ""):
+            continue
+        msg = str(r.get("error_message") or "").strip()
+        if not msg:
+            continue
+        stub = _message_stub(msg)
+        if not stub.startswith("拦截:"):
+            continue
+        tool = str(r.get("tool_name") or "?")
+        ts = str(r.get("started_at") or "")
+        d = out.setdefault((tool, stub), {"count": 0, "first": ts, "last": ts})
+        d["count"] += 1
+        if ts and (not d["first"] or ts < d["first"]):
+            d["first"] = ts
+        if ts and ts > d["last"]:
+            d["last"] = ts
+    return out
+
+
+def _fmt_span(d: dict[str, Any] | None) -> str:
+    if not d or not d.get("first"):
+        return "无时刻"
+    return f"{str(d['first'])[:16].replace('T', ' ')} → {str(d['last'])[:16].replace('T', ' ')}"
+
+
 def _message_stub(msg: str) -> str:
     """取报错里最**稳定**的标识，让同一故障在不同文案下仍归为一条：
+    ⓪ 守卫拦截前缀 → ``拦截:<类型>``（必须先于①，否则会被劝导语里的英文词污染）；
     ① snake_case 错误码（not_found / kind_required / path_ignored）；
     ② JSON 信封里的 "error" 字段；
     ③ 去掉虚词后的首个实词（或中文前 24 字）。
     """
+    blocked = _GUARD_BLOCK_RE.match(msg)
+    if blocked:
+        return f"拦截:{blocked.group(1).strip()}"
     code = re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", msg)
     if code:
         return code.group(0)[:40]
@@ -355,9 +426,21 @@ def _classify_signatures(stats: list[dict[str, Any]]) -> dict[str, list[dict[str
     # labels 错位，末桶判「归零」就成了假的 —— 故显式两趟而不是一趟 setdefault）。
     keys = {k for s in stats for k in s["sig"]}
     agg: dict[tuple[str, str], list[int]] = {k: [s["sig"].get(k, 0) for s in stats] for k in keys}
-    out: dict[str, list[dict[str, Any]]] = {"recurring": [], "resolved": [], "new": []}
+    out: dict[str, list[dict[str, Any]]] = {"recurring": [], "resolved": [], "new": [], "guard": []}
     for k, series in agg.items():
-        if sum(1 for x in series if x) > 1:
+        # 【self-evolution-bot · 2026-11-16 · 第19轮】守卫拦截单列成 guard，**不参与**复发/已消失/新坑 —
+        # 与对半切口径同一条判据（见 _guard_spans 上方注释）：拦截是设计动作，不是"新坑"。
+        # 只改一个口径 = 没改：两条出口（对半切 / 逐桶）必须一致，否则换个 --bucket 就自相矛盾。
+        if _is_guard_sig(k):
+            if sum(series):
+                out["guard"].append({"tool": k[0], "failure": k[1], "series": series, "total": sum(series)})
+            continue
+        # 【self-evolution-bot · 2026-11-16 · 第19轮】修：同一键曾同时印在「复发」和「已消失」两栏。
+        # 现网实测（--days 7 --bucket day）有 7 个键这样重复，例如
+        # ``tasks · ToolReturnedError  15 > 0 > 0 > 6 > 0 > 7 > 0 > 0`` —— 末桶归零说明它已被修掉，
+        # 却同时被标成「上次没真修好」，两条结论互相打脸，读表的人只能靠猜。
+        # 判据改为**末桶优先**：末桶还有 → 复发（真的没收口）；末桶归零 → 已消失（历史复发不再单列）。
+        if series[-1] > 0 and sum(1 for x in series if x) > 1:
             out["recurring"].append({"tool": k[0], "failure": k[1], "series": series, "total": sum(series)})
         if series[-1] == 0 and sum(series) > 0:
             out["resolved"].append({"tool": k[0], "failure": k[1], "series": series, "total": sum(series)})
@@ -366,6 +449,7 @@ def _classify_signatures(stats: list[dict[str, Any]]) -> dict[str, list[dict[str
     out["recurring"].sort(key=lambda x: -x["total"])
     out["resolved"].sort(key=lambda x: -x["total"])
     out["new"].sort(key=lambda x: -x["total"])
+    out["guard"].sort(key=lambda x: -x["total"])
     return out
 
 
@@ -420,6 +504,12 @@ def _print_trend(stats: list[dict[str, Any]], top: int) -> None:
         print(f"\n  {title}" + ("" if items else " —— 无"))
         for it in items[:top]:
             print("    " + it["tool"] + " · " + it["failure"] + "  " + " > ".join(str(x) for x in it["series"]))
+    # 【self-evolution-bot · 2026-11-16 · 第19轮】守卫拦截单列（判据同对半切口径）：
+    # 不并进上面三条，否则「拦得对」会被读成「又出新坑」。
+    guards = cls["guard"]
+    print("\n  ⛔ 守卫拦截（设计动作，不是故障）" + ("" if guards else " —— 无"))
+    for it in guards[:top]:
+        print("    " + it["tool"] + " · " + it["failure"] + "  " + " > ".join(str(x) for x in it["series"]))
     print("\n  注：桶与桶之间不是 A/B（任务难度/上下文规模会混进来）。能当证据的只有末桶归零这类定向结论。")
 
 
@@ -574,6 +664,14 @@ def main() -> int:
     ct, pt = _tool_stats(cur_tools, args.slow_ms), _tool_stats(prev_tools, args.slow_ms) if prev_tools else None
 
     cur_sig, prev_sig = _failure_signature(cur_tools), _failure_signature(prev_tools)
+    # 【self-evolution-bot · 2026-11-16 · 第19轮】守卫拦截与真故障分流（判据见 _guard_spans 上方注释）。
+    # 拦截**不进** 重复踩坑 / 已消失 / 新增报错模式 三条：它按设计就该拦，
+    # 把它当"新增报错模式"会让下一轮的我误判成回归（本轮为此多花 3 次 obs 查询）。
+    cur_guard = {k: v for k, v in cur_sig.items() if _is_guard_sig(k)}
+    prev_guard = {k: v for k, v in prev_sig.items() if _is_guard_sig(k)}
+    cur_sig = {k: v for k, v in cur_sig.items() if not _is_guard_sig(k)}
+    prev_sig = {k: v for k, v in prev_sig.items() if not _is_guard_sig(k)}
+    guard_span = _guard_spans(tool_rows)
     carried = sorted(
         ((k, v, prev_sig.get(k, 0)) for k, v in cur_sig.items() if k in prev_sig),
         key=lambda x: -(x[1] + x[2]),
@@ -595,6 +693,26 @@ def main() -> int:
         ],
         "resolved": [{"tool": k[0], "failure": k[1], "previous": prev_sig[k]} for k in fixed[: args.top]],
         "new_failure_modes": [{"tool": k[0], "failure": k[1], "current": cur_sig[k]} for k in new[: args.top]],
+        # 守卫拦截单列：含全窗口次数与首末时刻，供判断「历史存量 vs 新拦截」。
+        # 【self-evolution-bot · 2026-11-16 · 第19轮】注意键形状：签名键是
+        # ``(tool, "<error_type>::拦截:<类型>")``，而 _guard_spans 按纯 ``拦截:<类型>`` 记 ——
+        # 第一版直接拿签名键去查，字面永远不命中，表里印出「全窗口 0 次 / 首末：无时刻」。
+        # 这就是我反复栽过的「键漂移 ≠ 修好」：同一个事实两个键形状，取数就静默归零。
+        "guard_blocks": [
+            {
+                "tool": k[0],
+                "kind": k[1],
+                "current": cur_guard.get(k, 0),
+                "previous": prev_guard.get(k, 0),
+                "window_total": guard_span.get((k[0], _guard_stub(k)), {}).get("count", 0),
+                "first": guard_span.get((k[0], _guard_stub(k)), {}).get("first", ""),
+                "last": guard_span.get((k[0], _guard_stub(k)), {}).get("last", ""),
+            }
+            for k in sorted(
+                set(cur_guard) | set(prev_guard),
+                key=lambda k: -guard_span.get((k[0], _guard_stub(k)), {}).get("count", 0),
+            )[: args.top]
+        ],
     }
     if args.json:
         print(json.dumps(payload, ensure_ascii=False, indent=2))
@@ -626,6 +744,21 @@ def main() -> int:
     print("\n── 新增报错模式（后半期第一次见）" + "─" * 12)
     for k in new[: args.top]:
         print(f"  ! {k[0]} · {k[1]} —— {cur_sig[k]} 次")
+
+    # 【self-evolution-bot · 2026-11-16 · 第19轮】守卫拦截独立成节，且**写明首末时刻**。
+    # 不放这节时，我第19轮把这行读成「新回归」，多花 3 次查询才查清 113/116 发生在修复上线前。
+    print("\n── 守卫拦截（按设计动作，不是故障；不计入上面三条）" + "─" * 6)
+    if not payload["guard_blocks"]:
+        print("  无 —— 窗口内没有守卫拦截")
+    for g in payload["guard_blocks"]:
+        trend = "↑" if g["current"] > g["previous"] else ("↓" if g["current"] < g["previous"] else "＝")
+        print(
+            f"  · {g['tool']} · {g['kind']} 后半 {g['current']} 次 / 前半 {g['previous']} 次 {trend}"
+            f" · 全窗口 {g['window_total']} 次"
+        )
+        print(f"      首末：{_fmt_span(g)}")
+    print("  （判读：次数集中在修复/改判据上线**之前**＝历史存量；上线之后仍有＝要查是否误拦，")
+    print("    且必须先看被拦命令原文，别只看次数——第17轮我据次数误判过一次。warning 类拦截不进观测库）")
 
     _print_model_block(_model_stats(cur_model), _model_stats(prev_model) if prev_model else None)
 

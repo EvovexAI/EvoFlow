@@ -218,7 +218,15 @@ def resolve_entity_file(entity: EntityRef, rel_path: str) -> Path:
     if not rel or rel.startswith("..") or "/../" in f"/{rel}/":
         raise ValueError("invalid relative path")
     if not _SAFE_REL_PATH.match(rel):
-        raise ValueError("invalid characters in path")
+        # 【self-evolution-bot · 2026-11-16 · 第19轮】原来只说 "invalid characters in path"，
+        # 不告诉调用方是哪个字符、允许哪些字符 —— 第19轮我写一个含 "+" 的 journal 文件名，
+        # 连试 3 次才摸到规则，纯属让人猜。改为点名非法字符 + 附允许集合。
+        _bad = sorted({ch for ch in rel if not re.match(r"[\w./\-]", ch)})
+        raise ValueError(
+            "invalid characters in path: "
+            + (", ".join(repr(ch) for ch in _bad) if _bad else repr(rel))
+            + r" (allowed: letters, digits, underscore, dot, slash, hyphen)"
+        )
     root = entity_root(e).resolve()
     target = (root / rel).resolve()
     if target != root and root not in target.parents:

@@ -161,6 +161,43 @@ def window_lint(sql: str) -> list[str]:
     return warns
 
 
+_NO_SUCH_RE = re.compile(r"no such (column|table):\s*([\w.]+)", re.I)
+_FROM_TABLE_RE = re.compile(r"\b(?:from|join)\s+\"?([A-Za-z_][\w.]*)\"?", re.I)
+
+
+def sql_error_lines(con: sqlite3.Connection, sql: str, err: Exception) -> list[str]:
+    """猜错列名 / 表名时，回一句「下一步能直接用的东西」，两种错分开说。
+
+    【self-evolution-bot · 2026-11-16 · 第18轮】新建。
+    原实现把 column 与 table 合成一条正则，再拿**出错的那个词当表名**去查
+    ``PRAGMA table_info`` —— 于是猜错**列名**时回显成「response_summary_json 不是表名」
+    （2026-11-16 00:5x 现网撞到的原文），对象说错了，还把"把真列名吐回去"这一次机会白白扔掉。
+    本脚本存在的理由就是消灭猜列名（第13轮我 8 个探针里 2 个死在这上面），
+    所以这条判据属于它的本职，不是锦上添花。
+    """
+    m = _NO_SUCH_RE.search(str(err))
+    if not m:
+        return []
+    kind, token = m.group(1).lower(), m.group(2)
+    bare = token.split(".")[-1]
+    if kind == "table":
+        return [f"  ↳ {bare} 不是表名；用 --list-tables 查真名"]
+    owners: list[str] = ([token.split(".")[0]] if "." in token else [])
+    owners += [t.split(".")[-1] for t in _FROM_TABLE_RE.findall(sql)]
+    seen: set[str] = set()
+    for tbl in owners:
+        if tbl.lower() in seen:
+            continue
+        seen.add(tbl.lower())
+        try:
+            cols = [c["name"] for c in con.execute(f'PRAGMA table_info("{tbl}")')]  # noqa: S608
+        except sqlite3.Error:
+            continue
+        if cols:
+            return [f"  ↳ 列名「{bare}」不在 {tbl}；该表实际列：{', '.join(cols)}"]
+    return ["  ↳ 没能从语句里定位到表；先跑 --schema <表名> 看列名（别再猜）"]
+
+
 def _connect(db: Path) -> sqlite3.Connection:
     con = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
     con.row_factory = sqlite3.Row
@@ -221,17 +258,8 @@ def run_sql(db: Path, sql: str, limit: int, as_json: bool) -> int:
     except sqlite3.Error as e:
         # 列名/表名猜错是最常见错法：直接把可用列名吐回去，省掉"再发一发探针"。
         print(f"[obs_query] SQL 出错：{type(e).__name__}: {e}", file=sys.stderr)
-        m = re.search(r"no such (?:column|table):\s*([\w.]+)", str(e))
-        if m:
-            bare = m.group(1).split(".")[-1]
-            try:
-                cols = [c["name"] for c in con.execute(f'PRAGMA table_info("{bare}")')]  # noqa: S608
-                if cols:
-                    print(f"  ↳ {bare} 的实际列：{', '.join(cols)}", file=sys.stderr)
-                else:
-                    print(f"  ↳ {bare} 不是表名；用 --list-tables 查真名", file=sys.stderr)
-            except sqlite3.Error:
-                pass
+        for line in sql_error_lines(con, stmt, e):
+            print(line, file=sys.stderr)
         return 2
     finally:
         con.close()

@@ -394,6 +394,13 @@ def tasks_tool(
     task_id: str = "",
     subtask_id: str = "",
     status: str = "",
+    # 【self-evolution-bot · 2026-11-16 · 第19轮】新增 state 作为 status 的别名（见 state 分支）。
+    # 为什么：本 action 名就叫 "state"，状态值却要传给 status。观测库实测这类错
+    # error_message='status is required' 已发生 3 次（11-15 08:02 / 15:02 / 19:32），
+    # 19:32 那次就在我把报错文案改得更明确之后 —— 说明"改文案"只缓解不解决。
+    # 照 _resolve_create_description 的先例：能兜回来就兜（两者都给时以 status 为准），
+    # 兜回来时在回执里明写 warning，不静默丢弃。
+    state: str = "",
     summary: str = "",
     progress: int | None = None,
     outputs: OutputsArg = None,
@@ -480,18 +487,24 @@ def tasks_tool(
         if act == "state":
             tid = str(task_id or "").strip()
             st = str(status or "").strip()
+            st_alias_used = False
             if not tid:
                 return _err(act, "task_id is required")
             if not st:
-                # 【self-evolution-bot · 2026-11-15 · 第17轮】报错文案点名"易混参数名"。
-                # 为什么：本 action 的名字就叫 state，而状态值要传给 status —— 2026-11-15 我连着
-                # 两次写成 state="completed"，拿到的 "status is required" 没指方向，白花一轮往返。
-                # 同型一条：create 的正文参数叫 description（不是 content），已有 warning 兜底。
-                return _err(
-                    act,
-                    "status is required（参数名是 status，不是 action 名 state；"
-                    "取值 completed/failed/cancelled）",
-                )
+                # 【self-evolution-bot · 2026-11-16 · 第19轮】state 别名兜底。
+                # 依据：obs 实测 "status is required" 已发生 3 次（11-15 08:02/15:02/19:32），
+                # 最后一次发生在我把文案改明确之后 —— 文案救不了，得让参数能接住。
+                st_alias = str(state or "").strip()
+                if st_alias:
+                    st = st_alias
+                    st_alias_used = True
+                else:
+                    # 文案仍保留：真没给值时得指方向。
+                    return _err(
+                        act,
+                        "status is required（参数名是 status 或别名 state，"
+                        "不是 action 名；取值 completed/failed/cancelled）",
+                    )
             try:
                 data = tasks_admin.set_task_state(
                     tid,
@@ -547,7 +560,16 @@ def tasks_tool(
                         }
                 else:
                     raise
-            return _ok({"action": act, "result": data})
+            payload: dict[str, Any] = {"action": act, "result": data}
+            # 【self-evolution-bot · 2026-11-16 · 第19轮】别名被接住时明写 warning。
+            # 判据同 _resolve_create_description：能兜回来就兜，但**不许静默** ——
+            # 静默会让"我传对了参数"的错觉一直留着，下次照错写。
+            if st_alias_used:
+                payload["warning"] = (
+                    "状态值取自参数 state（别名）；本 action 的规范参数名是 status。"
+                    "两者都给时以 status 为准。"
+                )
+            return _ok(payload)
 
         if act == "delete":
             tid = str(task_id or "").strip()
