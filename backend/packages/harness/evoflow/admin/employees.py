@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import re
 from collections import Counter
 from typing import Any
@@ -2223,6 +2222,9 @@ def dispatch(
     resume_round: bool = False,
     fresh_round: bool = False,
     skip_done_guard: bool = False,
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】透传「投回哪一屏对话」。
+    # 空 = 原行为（task/duty 自动分桶），对现有调用方零影响。
+    session_key: str = "",
 ) -> dict[str, Any]:
     """Fire-and-forget dispatch via Gateway HTTP (requires running Gateway)."""
     code = str(agent_code or "").strip()
@@ -2277,6 +2279,10 @@ def dispatch(
         payload["fresh_round"] = True
     if skip_done_guard:
         payload["skip_done_guard"] = True
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】钉回指定真人会话键（空则不发该字段）
+    sk_s = str(session_key or "").strip()
+    if sk_s:
+        payload["session_key"] = sk_s
 
     # Prefer in-process ProactiveRunner when we are already inside Gateway's
     # event loop. Sync httpx → same-process /dispatch deadlocks the loop
@@ -2307,6 +2313,8 @@ def dispatch(
                     resume_round=bool(resume_round),
                     fresh_round=bool(fresh_round),
                     skip_done_guard=skip_done_guard,
+                    # 【第28轮】in-process 分支也要带上，否则 Gateway 内调用会丢会话键
+                    pinned_session_key=sk_s,
                 )
 
             fut = loop.create_task(_inproc())
@@ -2376,6 +2384,10 @@ def wake(
     resume_round: bool = False,
     fresh_round: bool = False,
     skip_done_guard: bool = False,
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】把本轮唤醒投回调用方指定的那一屏对话。
+    #   为什么：原来 wake 只能在 task/duty 两个桶里落会话，用户「续不上我这个对话」
+    #   就是这个。空值 = 原行为，对现有 wake 调用方零影响。
+    session_key: str = "",
 ) -> dict[str, Any]:
     """Wake a teammate (``@``) — resolve by agent_code or role_name, then dispatch.
 
@@ -2532,6 +2544,8 @@ def wake(
         resume_round=bool(resume_round),
         fresh_round=bool(fresh_round),
         skip_done_guard=skip_done_guard,
+        # 【self-evolution-bot · 2026-11-17 · 第28轮】把「回哪一屏」透传到底
+        session_key=session_key,
     )
     if isinstance(result, dict):
         result.setdefault("woken", True)

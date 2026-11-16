@@ -234,7 +234,36 @@ async def api_get(org_instance_id: str) -> dict[str, Any]:
     inst = get_org_instance(org_instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail=f"Organization not found: {org_instance_id}")
-    return inst
+    out = dict(inst)
+    arts = out.get("artifacts") if isinstance(out.get("artifacts"), dict) else {}
+    pack_roots = arts.get("pack_root") if isinstance(arts.get("pack_root"), list) else []
+    if pack_roots:
+        out["pack_root"] = str(pack_roots[0] or "")
+    # Resolve live extension install paths from registry (survives relinks)
+    ext_ids = arts.get("extensions") if isinstance(arts.get("extensions"), list) else []
+    if ext_ids:
+        try:
+            from evoflow.admin.ui_extensions_registry import read_registry
+
+            by_id = {str(r.get("id") or ""): r for r in read_registry() if isinstance(r, dict)}
+            paths = []
+            for eid in ext_ids:
+                row = by_id.get(str(eid))
+                if not row:
+                    continue
+                paths.append(
+                    {
+                        "id": str(eid),
+                        "name": str((row.get("manifest") or {}).get("name") or eid),
+                        "install_path": str(row.get("install_path") or ""),
+                        "source": str(row.get("source") or ""),
+                    }
+                )
+            if paths:
+                out["extension_installs"] = paths
+        except Exception:
+            logger.debug("enrich extension_installs failed", exc_info=True)
+    return out
 
 
 @router.post("/uninstall")

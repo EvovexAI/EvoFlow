@@ -27,6 +27,13 @@ param(
   [string] $AgentCode = "self-evolution-bot",
   [string] $TaskId = "",
   [string] $RoundId = "",
+  # 【self-evolution-bot · 2026-11-17 · 第28轮】把唤醒投回「用户正看着的那一屏」。
+  #   为什么加：原来 wake 只能在 task/duty 两个桶里落会话（resolve_work_session_key 只产这两支），
+  #   装完机叫醒我只会另起一个值班对话，用户那句「续不上当前对话」就是这个。
+  #   后端第17轮已把 pinned_session_key 接进 engine/runner，本轮补齐接口/wake/CLI 三处接线；
+  #   本参数把键从登记端一路落到看门狗的 wake 命令里，闭环才算真能回到同一屏。
+  #   取值形如 proactive:<agent_code>:chat:<stamp>；空 = 原行为（自动分桶），不传零影响。
+  [string] $SessionKey = "",
   [string] $Goal = "",
   [string] $CliExe = "",
   # 【fullstack-dev · 2026-11-15 · 第13轮】新增：拉起时指回仓库源码后端。不这么做，重装后跑的是
@@ -104,6 +111,16 @@ Ensure-Dir $OutDir
 
 if (-not (Test-Path -LiteralPath $Watchdog)) { throw "看门狗脚本缺失: $Watchdog" }
 if (-not (Test-Path -LiteralPath $InstallDir)) { throw "安装目录不存在: $InstallDir（-InstallDir 可覆盖）" }
+
+# 【self-evolution-bot · 2026-11-16 · 第28轮】修：-DryRun 的提前返回原本写在状态组装之后
+#   （本文件后面的 `if ($DryRun) { ... return }`），而构建在下面第 1 段就真跑了 —— 也就是说
+#   「空跑」照样跑满十分钟 npm/Rust 构建。本轮我连做三次空跑，叠出 3 个并发 build:desktop:win
+#   进程互相覆写 target 目录（进程表实测 68064/95800/71096 三条同时存在），才发现这个副作用。
+#   空跑的定义是"看清将要发生什么"，不该产生任何副作用 —— 故把 Build 在构建段之前摘掉。
+if ($DryRun -and $Build) {
+  Say "[dryrun] -Build 已跳过：空跑不产生副作用（真要构建请去掉 -DryRun）" "Yellow"
+  $Build = $false
+}
 
 # ── 1. 可选构建 ────────────────────────────────────────────────────────────
 if ($Build) {
@@ -223,6 +240,8 @@ $state = [ordered]@{
   agentCode         = $AgentCode
   taskId            = $TaskId
   roundId           = $RoundId
+  # 【第28轮】透传给看门狗：wake 时带上 --session-key，投回用户正看着的那一屏
+  sessionKey        = $SessionKey
   goal              = $Goal
   cliExe            = $CliExe
   evoflowHome       = $runtimeHome

@@ -190,6 +190,13 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         action="store_true",
         help="Force a new dispatch:… round (do not continue trail)",
     )
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】把唤醒投回指定真人会话（如装完机回到用户正看的那一屏）。
+    #   不加这个参数，wake 只能在 task/duty 两个桶里落会话，用户会觉得"续不上当前对话"。
+    wake_p.add_argument(
+        "--session-key",
+        default="",
+        help="Pin this wake into an existing chat session, e.g. proactive:<agent>:chat:<stamp>",
+    )
     add_output_flags(wake_p)
     wake_p.set_defaults(handler=_wake)
 
@@ -377,6 +384,8 @@ def _wake(args: argparse.Namespace):
         round_id=str(getattr(args, "round_id", "") or ""),
         resume_round=bool(getattr(args, "resume_round", False)),
         fresh_round=bool(getattr(args, "fresh_round", False)),
+        # 【self-evolution-bot · 2026-11-17 · 第28轮】透传 --session-key 到 admin.wake
+        session_key=str(getattr(args, "session_key", "") or ""),
     )
 
 

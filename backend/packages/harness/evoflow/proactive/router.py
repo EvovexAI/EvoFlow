@@ -251,6 +251,17 @@ class DispatchTaskRequest(BaseModel):
         False,
         description="为 true 时中断员工当前轮次再派发；默认忙碌则排队",
     )
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】把本轮投回调用方指定的那一屏对话。
+    #   为什么：装完机自验证要回到用户正看着的那个对话，而 resolve_work_session_key
+    #   只产 task/duty 两支，真人对话键 proactive:{code}:chat:{stamp} 永远选不到 ——
+    #   wake 只能另起值班会话，用户那句"续不上当前对话"就是这个。
+    #   第17轮已把 pinned_session_key 接进 engine/runner，但接口层没这个字段，
+    #   键传不进来，等于白接。空值 = 原行为（自动分桶），不影响任何现有调用方。
+    #   所有权校验在 normalize_pinned_session_key（别人的键/老键/ambient 键一律丢弃）。
+    session_key: str = Field(
+        "",
+        description="把本轮投回指定真人会话键（proactive:{code}:chat:{stamp}）；空则按 task/duty 自动分桶",
+    )
 
     @field_validator("priority")
     @classmethod
@@ -1200,8 +1211,8 @@ async def unbind_role_weixin(request: Request, agent_code: str) -> dict[str, Any
 async def get_role_weixin_binding(request: Request, agent_code: str) -> dict[str, Any]:
     """Return UI-safe WeChat binding status for an employee."""
     _require_role_agent(request, agent_code)
-    from evoflow.proactive.weixin_binding import weixin_binding_public
     from evoflow.persistence.config_repositories import get_bot_binding
+    from evoflow.proactive.weixin_binding import weixin_binding_public
 
     role = ProactiveRepository.get_role(agent_code)
     if not role:
@@ -1579,6 +1590,10 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
             fresh_round=bool(getattr(req, "fresh_round", False)),
             skip_done_guard=bool(getattr(req, "skip_done_guard", False)),
             interrupt=bool(getattr(req, "interrupt", False)),
+            # 【self-evolution-bot · 2026-11-17 · 第28轮】把调用方钉的真人会话键透传下去。
+            # 原来这里没传，第17轮在 engine/runner 接好的 pinned_session_key 永远收不到值，
+            # 于是 wake 只能另起 duty/task 会话 —— 这就是"装完机回不到同一屏"的真正断点。
+            pinned_session_key=str(getattr(req, "session_key", "") or "").strip(),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

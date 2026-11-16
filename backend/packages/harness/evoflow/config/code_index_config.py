@@ -43,7 +43,16 @@ def _default_lsp_profiles() -> list[LspServerProfile]:
 
 class CodeIndexConfig(BaseModel):
     enabled: bool = Field(default=True)
-    max_files: int = Field(default=3000, ge=100)
+    # 【self-evolution-bot · 2026-11-16 · 第26轮】3000 → 20000。
+    # 为什么：用真实枚举器 `_iter_source_files` 数，本仓可索引 **9,020** 个文件，
+    # 上限卡在 3000 意味着只有 33% 进索引、6,020 个被**静默丢掉**，
+    # 而且丢哪一批取决于 os.walk 的目录遍历顺序（不是按重要性排）。
+    # 这是 `search_code_index` 搜不到东西的第一原因：
+    # 实测索引里 `symbols.py` 0 条、`loop_detection_middleware.py` 的函数符号 0 条，
+    # 目标文件根本不在库里，再好的检索算法也搜不出来。
+    # 原来卡 3000 是因为云端向量按 token 计费；现在默认走本地 bge（0 元），
+    # 全量 9,020 文件 ≈14.2 万块、约 38 分钟、不花钱，所以这个截断没有存在理由了。
+    max_files: int = Field(default=20_000, ge=100)
     max_chars_per_file: int = Field(default=48_000, ge=1000)
     search_limit: int = Field(default=20, ge=1, le=100)
     search_wait_seconds: float = Field(

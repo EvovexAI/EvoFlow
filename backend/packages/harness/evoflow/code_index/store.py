@@ -151,13 +151,42 @@ def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
 
 def _load_sqlite_vec_extension(conn: sqlite3.Connection) -> None:
     """Best-effort load of the ``sqlite-vec`` extension for vec0 vector table."""
+    global _SQLITE_VEC_LOAD_WARNED, _SQLITE_VEC_AVAILABLE  # noqa: PLW0603
     try:
         import sqlite_vec
 
         conn.enable_load_extension(True)
         conn.load_extension(sqlite_vec.loadable_path())
+        _SQLITE_VEC_AVAILABLE = True
     except Exception as exc:  # noqa: BLE001 - optional, must never block
+        _SQLITE_VEC_AVAILABLE = False
         logger.debug("code_index: sqlite-vec extension not loaded: %s", exc)
+        # 【self-evolution-bot · 2026-11-16 · 第23轮】P2 可见性（判定单 §四）：
+        # 为什么：静默降级曾导致「code_vec 建好却 0 行」类问题无人察觉；
+        # 首次失败升级 WARNING 一次（进程内），index_status 暴露 vector_available。
+        if not _SQLITE_VEC_LOAD_WARNED:
+            _SQLITE_VEC_LOAD_WARNED = True
+            logger.warning(
+                "code_index: sqlite-vec extension failed to load (semantic vector recall disabled): %s",
+                exc,
+            )
+
+
+_SQLITE_VEC_LOAD_WARNED = False
+_SQLITE_VEC_AVAILABLE: bool | None = None
+
+
+def _sqlite_vec_available(conn: sqlite3.Connection) -> bool:
+    """Whether vec0 module is actually usable on this connection (probe once, cache)."""
+    global _SQLITE_VEC_AVAILABLE  # noqa: PLW0603
+    if _SQLITE_VEC_AVAILABLE is not None:
+        return _SQLITE_VEC_AVAILABLE
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM pragma_module_list WHERE name='vec0'").fetchone()
+        _SQLITE_VEC_AVAILABLE = bool(row and int(row[0]) > 0)
+    except Exception:  # noqa: BLE001 - health probe must never break status
+        _SQLITE_VEC_AVAILABLE = False
+    return _SQLITE_VEC_AVAILABLE
 
 
 def _connect(root: str) -> sqlite3.Connection:
@@ -323,15 +352,213 @@ def _ensure_vec_table(conn: sqlite3.Connection) -> None:
     cfg = get_code_index_config()
     if not cfg.semantic_search_enabled:
         return
-    dim = cfg.semantic_embedding_dim
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】维度不再照抄配置里的静态 512。
+    # 为什么：512 是本地 bge-small-zh 的维度，而当前生效的向量模型是云端 2048 维，
+    # 于是每条向量插入都被拒（Dimension mismatch Expected 512 but received 2048），
+    # 且只落 debug 日志——code_vec 建好了却 0 行，语义召回等于不存在。
+    # 同时显式声明 distance_metric=cosine：_score() 的注释本来就是按
+    # 「1.0 - cosine_distance，范围 0~1」写的，但建表没写度量 → vec0 默认 L2，
+    # 2048 维未归一化向量 L2 ≈1.0~1.35，score 全成负数，语义命中反被沉到最底。
+    dim = _resolved_embedding_dim(cfg)
     try:
-        conn.execute(f"CREATE VIRTUAL TABLE IF NOT EXISTS code_vec USING vec0(path TEXT PRIMARY KEY, embedding FLOAT[{dim}])")
+        conn.execute(_vec_create_sql(dim, if_not_exists=True))
         conn.commit()
     except sqlite3.OperationalError as exc:
         if "vec0" in str(exc).lower() or "no such module" in str(exc).lower():
             logger.debug("code_index: vec0 module not available, semantic search disabled")
         else:
             raise
+
+
+def _resolved_embedding_dim(cfg: CodeIndexConfig | None = None) -> int:
+    """【self-evolution-bot · 2026-11-16 · 第24轮】按「当前生效的向量模型」解析维度。
+
+    配置里的 ``semantic_embedding_dim`` 只是本地 bge-small-zh 的旧默认值（512）。
+    换成云端模型（doubao-embedding-vision = 2048）后它不会自动跟着变，
+    于是每条向量插入都被 vec0 拒绝，code_vec 建好了却 0 行。
+    这里优先按模型 id 查已知维度表，查不到才退回配置值；
+    真正的兜底在 :func:`_ensure_vec_table_dim`——以实际产出的向量长度为准。
+    """
+    base = cfg or get_code_index_config()
+    configured = int(getattr(base, "semantic_embedding_dim", 0) or 0) or 512
+    try:
+        from evoflow.knowledge.embedding.registry import (
+            get_embedding_config,
+            known_embedding_dim,
+        )
+
+        mc = get_embedding_config()
+        model_id = str(getattr(mc, "model", "") or "").strip()
+        known = known_embedding_dim(model_id)
+        if known:
+            return int(known)
+    except Exception as exc:  # noqa: BLE001 - 维度解析失败不能挡住索引
+        logger.debug("code_index: resolve embedding dim failed: %s", exc)
+    return configured
+
+
+def _vec_create_sql(dim: int, *, if_not_exists: bool = True) -> str:
+    """【self-evolution-bot · 2026-11-16 · 第24轮】code_vec 建表语句统一出口。
+
+    显式写 ``distance_metric=cosine``，与实际使用方式对齐：
+    ``_score()`` 按 ``score = 1.0 - cosine_distance``（0~1）计分并 ×100 加重排。
+    不写度量时 vec0 默认 L2，2048 维未归一化向量的 L2 距离 ≈1.0~1.35，
+    score 全为负数，语义命中反而被排到最底。
+
+    【self-evolution-bot · 2026-11-16 · 第26轮】主键从 ``path`` 改成 ``chunk_id``，
+    ``path`` 降为辅助列（vec0 支持带辅助列的 KNN，实测可用）。
+    为什么必须一文件多向量：本地 bge-small-zh ``max_seq_length=512`` token，
+    而仓库文件按 ``chars/token`` P50=2.5 折算，**55/60 个文件超长**，
+    整文件嵌入平均只看到 31.8% 的内容——本地 top1 只有 2/8（云端整文件 4/8）。
+    切块后同一批查询本地 top1 升到 5/8、MRR 0.752 > 云端 0.713。
+    也就是说：不切块，本地模型是「省钱但更差」；切块之后才「又省钱又更好」。
+    """
+    ine = "IF NOT EXISTS " if if_not_exists else ""
+    return (
+        f"CREATE VIRTUAL TABLE {ine}code_vec USING vec0("
+        f"chunk_id TEXT PRIMARY KEY, path TEXT, "
+        f"embedding FLOAT[{int(dim)}] distance_metric=cosine)"
+    )
+
+
+# 【self-evolution-bot · 2026-11-16 · 第26轮】切块参数。
+# 依据是实测而非直觉：在 150 个真实仓库文件上量「切出来的块有多少超过 512 token」，
+#   chunk=600  overlap=75  -> 超限 0.21%   (块数 141,994 / 全量 ≈37.9 分钟)
+#   chunk=900  overlap=112 -> 超限 5.00%
+#   chunk=1200 overlap=150 -> 超限 22.49%
+#   chunk=1500 overlap=187 -> 超限 70.80%
+# 取 600/75 是唯一「几乎零截断」档；再大一档就有 5% 的块被模型静默截尾。
+# 重叠取 chunk/8：跨块边界的函数签名与实现都能落在同一块里，避免切丢上下文。
+_CHUNK_CHARS = 600
+_CHUNK_OVERLAP = 75
+
+# 【self-evolution-bot · 2026-11-16 · 第26轮】每批嵌入多少块。
+# 实测本地 bge 在 batch=64 时 16.1 ms/块、batch=128 时 16.0 ms/块、batch=32 时 27.9 ms/块，
+# 64 与 128 基本同速，取 64：单批 encode 约 1 秒，远低于 30s 看门狗，
+# 且中途失败只损失 64 块而不是整仓。
+_EMBED_CHUNK_BATCH = 64
+
+# 【self-evolution-bot · 2026-11-16 · 第26轮】语义召回的块→文件放大倍数。
+# 一文件多块后，KNN 取 top_k 个块可能全落在同一文件里，必须放大候选再按文件聚合。
+# 取 5：按 600 字符/块计，一个命中文件平均贡献远小于 5 个高分块，
+# 放大 5 倍足以让 top_k 个不同文件填满，又不会把 KNN 成本放大太多。
+_SEMANTIC_CHUNK_FANOUT = 5
+
+
+def _chunk_text(text: str) -> list[str]:
+    """【self-evolution-bot · 2026-11-16 · 第26轮】把文件正文切成定长重叠块。
+
+    纯字符切分，不引入 tokenizer 依赖——索引路径上多跑一遍分词没必要，
+    且 ``bge`` 的 tokenizer 与模型绑定，放在这里会让 code_index 反依赖
+    sentence-transformers（云端模型时本地根本没装）。
+    600/75 这组参数是按实测截断率选的（见 ``_CHUNK_CHARS`` 上方数据）。
+    """
+    step = _CHUNK_CHARS - _CHUNK_OVERLAP
+    if step <= 0:  # 防御：参数写坏时退化成不重叠，别死循环
+        step = _CHUNK_CHARS
+    out: list[str] = []
+    n = len(text)
+    i = 0
+    while i < n:
+        piece = text[i : i + _CHUNK_CHARS]
+        if piece.strip():
+            out.append(piece)
+        if i + _CHUNK_CHARS >= n:
+            break
+        i += step
+    return out
+
+
+def _table_vec_metric(conn: sqlite3.Connection) -> str | None:
+    """code_vec 声明的距离度量（``cosine`` / ``l2`` / None=vec0 默认 L2）。"""
+    try:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name='code_vec'").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row or not row[0]:
+        return None
+    m = re.search(r"distance_metric\s*=\s*(\w+)", str(row[0]), re.IGNORECASE)
+    return m.group(1).lower() if m else None
+
+
+def _table_vec_is_chunked(conn: sqlite3.Connection) -> bool:
+    """【self-evolution-bot · 2026-11-16 · 第26轮】code_vec 是否已是「一文件多块」结构。
+
+    判据是主键名：旧表 ``path TEXT PRIMARY KEY``（一文件一向量），
+    新表 ``chunk_id TEXT PRIMARY KEY, path TEXT``（辅助列）。
+    只看维度会漏掉「维度已对但还是一文件一向量」的存量表，
+    那种表即使维度对了，本地模型仍然只能看到每个文件的前 512 token。
+    """
+    try:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name='code_vec'").fetchone()
+    except sqlite3.OperationalError:
+        return False
+    if not row or not row[0]:
+        return False
+    return "chunk_id" in str(row[0])
+
+
+def _table_vec_dim(conn: sqlite3.Connection) -> int | None:
+    """code_vec 声明的向量维度（从建表 SQL 的 ``FLOAT[n]`` 读）；表不存在返回 None。"""
+    try:
+        row = conn.execute("SELECT sql FROM sqlite_master WHERE name='code_vec'").fetchone()
+    except sqlite3.OperationalError:
+        return None
+    if not row or not row[0]:
+        return None
+    m = re.search(r"FLOAT\[(\d+)\]", str(row[0]), re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def _ensure_vec_table_dim(conn: sqlite3.Connection, dim: int) -> bool:
+    """确保 code_vec 的声明维度与实际向量维度一致、且距离度量为 cosine；不符就整表重建。
+
+    vec0 的维度与度量都写死在建表语句里、改不了，只能 DROP 重建。
+    重建后向量要等下一轮索引重跑才补得回来，所以这里必须用 warning，
+    不能再像原来那样静默 continue——0 行向量等于语义召回根本不存在。
+
+    【self-evolution-bot · 2026-11-16 · 第24轮】补上度量校验：
+    只看维度会漏掉「维度已对、但度量还是 vec0 默认 L2」的现网存量表
+    （本机那张就是 2048 + L2），负分排序问题会一直留着。
+
+    【self-evolution-bot · 2026-11-16 · 第26轮】再加结构校验：
+    一文件一向量（主键 ``path``）的旧表必须重建为块级表（主键 ``chunk_id``），
+    否则本地模型仍只能看到每个文件开头 600 字符，切块收益等于没生效。
+    """
+    if not dim or dim <= 0:
+        return False
+    current = _table_vec_dim(conn)
+    metric = _table_vec_metric(conn)
+    chunked = _table_vec_is_chunked(conn)
+    if current == dim and metric == "cosine" and chunked:
+        return True
+    if current is not None:
+        if not chunked:
+            logger.warning(
+                "code_index: code_vec 重建（一文件一向量 → 一文件多块，dim=%d）；"
+                "重建后需重新索引补齐向量",
+                dim,
+            )
+        else:
+            logger.warning(
+                "code_index: code_vec 重建（维度 %s→%d，度量 %s→cosine）；重建后需重新索引补齐向量",
+                current,
+                dim,
+                metric or "l2(默认)",
+            )
+        try:
+            conn.execute("DROP TABLE IF EXISTS code_vec")
+            conn.commit()
+        except sqlite3.OperationalError as exc:
+            logger.warning("code_index: 重建 code_vec 失败: %s", exc)
+            return False
+    try:
+        conn.execute(_vec_create_sql(dim, if_not_exists=True))
+        conn.commit()
+        return True
+    except sqlite3.OperationalError as exc:
+        logger.warning("code_index: code_vec 建表失败（vec0 不可用？）: %s", exc)
+        return False
 
 
 def _path_has_skipped_segment(rel: str) -> bool:
@@ -643,14 +870,49 @@ def _embed_texts_sync(texts: list[str]) -> list[list[float]] | None:
                 "code_index: skip sync remote batch embed while event loop is running"
             )
             return None
-        return _run_async_in_thread(lambda: _embed_texts_batch(texts), timeout=30.0)
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】超时不再写死 30 秒，按批大小给预算。
+        # 为什么：云端 doubao 实测 770~794 ms/文件，一批 100 条要 77~79 秒，
+        # 而这里原来硬编码 30.0s —— 每一批都必然 TimeoutError，
+        # 网关日志实证：「sync batch embedding failed: TimeoutError: _run_async_in_thread
+        # timed out after 30.0s (daemon still running)」，于是 3000 个文件走完整索引后
+        # code_vec 仍是 0 行。批量嵌入是「一个都不能少」的路径，超时预算必须跟着批量走。
+        budget = _embed_timeout_seconds(len(texts))
+        return _run_async_in_thread(lambda: _embed_texts_batch(texts), timeout=budget)
     except Exception as exc:
         logger.warning(
-            "code_index: sync batch embedding failed: %s: %s",
+            "code_index: sync batch embedding failed: %s: %s (%d 条)",
             type(exc).__name__,
             exc,
+            len(texts),
         )
         return None
+
+
+def _embed_timeout_seconds(n_texts: int) -> float:
+    """【self-evolution-bot · 2026-11-16 · 第26轮】按批量给嵌入超时预算。
+
+    云端实测 770~794 ms/文件（100 条 ≈ 77~79 s），本地 bge 约 20~26 ms/文件。
+    取 1.2 s/文件 + 60 s 底，既是云端 1.5 倍余量，也不会让本地小批量空等。
+    """
+    return max(60.0, 1.2 * max(1, int(n_texts or 1)))
+
+
+def _embed_texts_with_bisect(pairs: list[tuple[str, str]]) -> list[list[float]]:
+    """【self-evolution-bot · 2026-11-16 · 第26轮】整批失败时二分拆批重试。
+
+    保持与 ``pairs`` 一一对齐（失败的位放空列表占位），
+    这样调用方 ``zip(pairs, embeddings, strict=True)`` 不会错位。
+    单条仍失败就放弃该条——一条坏数据不该拖垮整库。
+    """
+    if not pairs:
+        return []
+    got = _embed_texts_sync([t for _, t in pairs])
+    if got and len(got) == len(pairs):
+        return got
+    if len(pairs) == 1:
+        return [[]]
+    mid = len(pairs) // 2
+    return _embed_texts_with_bisect(pairs[:mid]) + _embed_texts_with_bisect(pairs[mid:])
 
 
 def _embed_query_sync(text: str) -> list[float] | None:
@@ -764,50 +1026,111 @@ def _index_embeddings_sync(
         return 0
 
     # Collect (rel_path, text) pairs
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】跳过空/纯空白文本。
+    # 为什么：云端向量接口遇到空 input 直接整单 400（实测
+    # "The parameter `input` ... input could not be empty"），
+    # 而本仓有 8 个 len=0 的 __init__.py 之类文件，只要有一个混进批次，
+    # 整批嵌入全部失败 → code_vec 长期 0 行，语义召回根本不存在。
     pairs: list[tuple[str, str]] = []
+    skipped_empty = 0
     for fp in files:
         try:
             rel = fp.relative_to(root_path).as_posix()
             text = fp.read_text(encoding="utf-8", errors="replace")[: cfg.max_chars_per_file]
-            pairs.append((rel, text))
         except OSError:
             continue
+        if not text.strip():
+            skipped_empty += 1
+            continue
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】一文件切成多块再嵌入。
+        # 为什么：本地 bge-small-zh 的 max_seq_length 只有 512 token，
+        # 而仓库文件 chars/token P50=2.5 → 600 字符≈240 token、48k 字符≈19k token。
+        # 整文件嵌入时模型只看前 512 token（≈1280 字符），一个 2 万字符的文件
+        # 平均只有 31.8% 的内容进入向量——这是本地 top1 只有 2/8 的真因，不是模型差。
+        # pairs 的元素改成 (rel, chunk_text)，下面按块写入 code_vec。
+        for idx, piece in enumerate(_chunk_text(text)):
+            pairs.append((rel, piece))
+
+    if skipped_empty:
+        logger.info("code_index: 跳过 %d 个空文件（不送嵌入）", skipped_empty)
 
     if not pairs:
         return 0
 
     # Batch embed (sync path avoids asyncio.to_thread issues in background threads)
-    texts = [p[1] for p in pairs]
-    try:
-        embeddings = _embed_texts_sync(texts)
-    except Exception as exc:
-        logger.warning("code_index: embedding failed: %s: %s", type(exc).__name__, exc)
-        return 0
-
-    if not embeddings or len(embeddings) != len(pairs):
-        logger.warning("code_index: embedding count mismatch (%d vs %d), skipping vectors", len(embeddings or []), len(pairs))
-        return 0
-
-    # Store vectors
-    dim = cfg.semantic_embedding_dim
+    # 【self-evolution-bot · 2026-11-16 · 第26轮】按批嵌入并按批落库，不再一次性喂全部。
+    # 为什么：切块后全仓约 14.2 万块（实测 600/75 口径 141,994 块），
+    # 一次 embed 全部 + 全部向量驻留内存 = 141994 × 512 × 4B ≈ 290 MB，
+    # 且本地 encode 单次跨度过大会把 GIL 线程占满几十秒（现有 30s 看门狗会直接超时）。
+    # 分批后峰值内存降到单批量级，且每批成功即落库，中途失败不会全丢。
+    dim = 0
     conn = _connect(root)
     try:
         _ensure_schema(conn)
         count = 0
-        for (rel, _), vec in zip(pairs, embeddings, strict=True):
-            if len(vec) != dim:
-                logger.debug("code_index: dim mismatch for %s: %d != %d", rel, len(vec), dim)
+        failed_chunks = 0
+        batch_size = _EMBED_CHUNK_BATCH
+        for start in range(0, len(pairs), batch_size):
+            batch = pairs[start : start + batch_size]
+            try:
+                embeddings = _embed_texts_sync([t for _, t in batch])
+            except Exception as exc:
+                logger.warning("code_index: embedding failed: %s: %s", type(exc).__name__, exc)
+                embeddings = None
+
+            # 【self-evolution-bot · 2026-11-16 · 第24轮】整批失败不能连坐。
+            # 一把梭失败（超长文件、单条被接口拒）时退回二分拆批，能救多少算多少，
+            # 而不是整库 0 行。
+            # 【第26轮】二分拆批保住 O(log n) 次调用，别退化成逐块重试。
+            if not embeddings or len(embeddings) != len(batch):
+                embeddings = _embed_texts_with_bisect(batch)
+
+            if not embeddings or len(embeddings) != len(batch):
+                logger.warning(
+                    "code_index: embedding count mismatch (%d vs %d), skipping batch at %d",
+                    len(embeddings or []),
+                    len(batch),
+                    start,
+                )
+                failed_chunks += len(batch)
                 continue
-            conn.execute(
-                "INSERT OR REPLACE INTO code_vec (path, embedding) VALUES (?, ?)",
-                (rel, _pack_vec(vec)),
-            )
-            count += 1
-        conn.commit()
-        logger.info("code_index: embedded %d/%d files into code_vec", count, len(pairs))
+
+            # 【self-evolution-bot · 2026-11-16 · 第24轮】以「实际向量长度」为权威维度，
+            # 不再拿配置里的静态 512 卡。首条非空向量的长度即权威维度。
+            if not dim:
+                dim = next((len(v) for v in embeddings if v), 0)
+                if not dim:
+                    logger.warning("code_index: 本轮没有任何可用向量，跳过写入")
+                    return 0
+                if not _ensure_vec_table_dim(conn, dim):
+                    logger.warning(
+                        "code_index: code_vec 维度对齐失败，本轮 %d 块向量未写入", len(pairs)
+                    )
+                    return 0
+
+            for offset, ((rel, _), vec) in enumerate(zip(batch, embeddings, strict=True)):
+                if not vec or len(vec) != dim:
+                    failed_chunks += 1
+                    continue
+                conn.execute(
+                    "INSERT OR REPLACE INTO code_vec (chunk_id, path, embedding) VALUES (?, ?, ?)",
+                    (f"{rel}::{start + offset}", rel, _pack_vec(vec)),
+                )
+                count += 1
+            conn.commit()
+
+        logger.info(
+            "code_index: embedded %d/%d 块 into code_vec (dim=%d, %d 个文件)",
+            count,
+            len(pairs),
+            dim,
+            len(files),
+        )
+        if failed_chunks:
+            logger.warning("code_index: %d 块未能写入向量（维度不符或嵌入失败）", failed_chunks)
         return count
     except sqlite3.OperationalError as exc:
-        logger.debug("code_index: code_vec insert failed (vec0 not available?): %s", exc)
+        logger.warning("code_index: code_vec insert failed: %s", exc)
         return 0
     finally:
         conn.close()
@@ -837,28 +1160,56 @@ def _semantic_recall_sync(
     if not query_vec:
         return []
 
-    dim = cfg.semantic_embedding_dim
-    if len(query_vec) != dim:
-        logger.debug("code_index: query dim mismatch: %d != %d", len(query_vec), dim)
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】召回侧同样以表里声明的维度为准，
+    # 不再拿配置的静态 512 去比；不一致时给 warning，别再 debug 静默返回空列表。
+    table_dim = _table_vec_dim(conn)
+    if table_dim and len(query_vec) != table_dim:
+        logger.warning(
+            "code_index: 查询向量维度 %d 与 code_vec 声明维度 %d 不一致，语义召回跳过（需重建索引）",
+            len(query_vec),
+            table_dim,
+        )
         return []
 
     blob = _pack_vec(query_vec)
     try:
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】一文件多块 → k 要放大，再按文件去重。
+        # 为什么：表里每个文件有几十个块，直接取 top_k 个块可能全落在同一个文件里，
+        # 文件级召回数会严重不足（原来 top_k=20 时实际可能只有 1~2 个文件）。
+        # 这里取 top_k 的 _SEMANTIC_CHUNK_FANOUT 倍块数，按 path 聚合取最高分，
+        # 最后截回 top_k 个文件——与改造前的「top_k 个文件」语义保持一致。
         rows = conn.execute(
-            "SELECT path, distance FROM code_vec WHERE embedding MATCH ? AND k = ? ORDER BY distance",
-            (blob, top_k),
+            "SELECT path, chunk_id, distance FROM code_vec WHERE embedding MATCH ? AND k = ? "
+            "ORDER BY distance",
+            (blob, max(top_k, top_k * _SEMANTIC_CHUNK_FANOUT)),
         ).fetchall()
     except sqlite3.OperationalError:
         return []
 
+    # 按文件聚合：同一文件多个块命中时只保留最相似的那块（距离最小）。
+    best: dict[str, dict] = {}
+    for r in rows:
+        path = str(r["path"] or "")
+        if not path:
+            continue
+        dist = float(r["distance"])
+        prev = best.get(path)
+        if prev is None or dist < prev["distance"]:
+            best[path] = {
+                "path": path,
+                "chunk_id": str(r["chunk_id"] or ""),
+                "distance": dist,
+            }
+    ranked = sorted(best.values(), key=lambda d: d["distance"])[:top_k]
     return [
         {
-            "path": str(r["path"]),
-            "distance": round(float(r["distance"]), 4),
-            "score": round(1.0 - float(r["distance"]), 4),
+            "path": d["path"],
+            "chunk_id": d["chunk_id"],
+            "distance": round(d["distance"], 4),
+            "score": round(1.0 - d["distance"], 4),
             "kind": "semantic",
         }
-        for r in rows
+        for d in ranked
     ]
 
 
@@ -890,6 +1241,9 @@ def _delete_path_from_index(conn: sqlite3.Connection, rel: str) -> None:
     conn.execute("DELETE FROM internal_refs WHERE from_path = ? OR to_path = ?", (rel, rel))
     conn.execute("DELETE FROM type_relations WHERE from_path = ? OR to_path = ?", (rel, rel))
     try:
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】块级表按辅助列 path 删（实测 vec0 支持）。
+        # 原来按主键 path 删单条向量；改块级后同一文件有多行，必须按辅助列整体清掉，
+        # 否则文件改动后旧块会残留，召回里出现已删除的行号/内容。
         conn.execute("DELETE FROM code_vec WHERE path = ?", (rel,))
     except sqlite3.OperationalError:
         pass  # vec0 table may not exist if sqlite-vec is unavailable
@@ -1026,6 +1380,17 @@ def _touch_index_meta(conn: sqlite3.Connection, root: str, dbp: Path) -> None:
         "INSERT OR REPLACE INTO meta(key, value) VALUES ('index_tokenizer_version', ?)",
         (index_tokenizer_version(),),
     )
+    # 【self-evolution-bot · 2026-11-16 · 第26轮】记下本次建库用的 max_files 上限。
+    # 为什么必须记：状态判定要能区分「索引完整」与「被截断」。
+    # 本机那张表 3001 个文件、上限正好 3000——不记上限的话，
+    # 下次把上限调大也判断不出这张表是残缺的，重建永远不会触发。
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES ('indexed_max_files', ?)",
+            (str(int(get_code_index_config().max_files)),),
+        )
+    except Exception:  # noqa: BLE001 - 记录失败不能挡住建库收尾
+        logger.debug("code_index: write indexed_max_files failed", exc_info=True)
 
 
 def index_file(
@@ -1082,17 +1447,43 @@ def index_file(
             # Incremental embedding for this file
             if cfg.semantic_search_enabled:
                 try:
-                    inc_text = abs_path.read_text(encoding="utf-8", errors="replace")[: cfg.max_chars_per_file]
-                    vec = _run_async_in_thread(
-                        lambda: _embed_query(inc_text), timeout=8.0
-                    )
-                    if vec and len(vec) == cfg.semantic_embedding_dim:
-                        conn.execute(
-                            "INSERT OR REPLACE INTO code_vec (path, embedding) VALUES (?, ?)",
-                            (rel, _pack_vec(vec)),
-                        )
+                    inc_text = abs_path.read_text(encoding="utf-8", errors="replace")[
+                        : cfg.max_chars_per_file
+                    ]
+                    # 【self-evolution-bot · 2026-11-16 · 第26轮】增量也要切块，与全量口径一致。
+                    # 原来这里只嵌入整文件一条（且用的是 query role），改块级之后
+                    # 两个路径必须同口径，否则增量更新的文件永远只有 1 个向量、
+                    # 而全量建的文件有几十个——召回会系统性偏向刚改过的文件。
+                    pieces = _chunk_text(inc_text)
+                    if pieces:
+                        vecs = _embed_texts_sync(pieces)
+                        tdim = _table_vec_dim(conn)
+                        if not vecs or len(vecs) != len(pieces):
+                            logger.warning(
+                                "code_index: 增量嵌入返回 %d 条（应为 %d），跳过 %s",
+                                len(vecs or []),
+                                len(pieces),
+                                rel,
+                            )
+                        elif tdim and any(v and len(v) != tdim for v in vecs):
+                            logger.warning(
+                                "code_index: 增量向量维度与 code_vec 声明 %d 不一致，跳过 %s（需重建索引）",
+                                tdim,
+                                rel,
+                            )
+                        else:
+                            # 先清掉该文件的旧块，再写新块——否则文件变短后尾块会残留。
+                            conn.execute("DELETE FROM code_vec WHERE path = ?", (rel,))
+                            for idx, vec in enumerate(vecs):
+                                if not vec:
+                                    continue
+                                conn.execute(
+                                    "INSERT OR REPLACE INTO code_vec (chunk_id, path, embedding) "
+                                    "VALUES (?, ?, ?)",
+                                    (f"{rel}::{idx}", rel, _pack_vec(vec)),
+                                )
                 except Exception as exc:
-                    logger.debug("code_index: incremental embedding failed for %s: %s", rel, exc)
+                    logger.warning("code_index: incremental embedding failed for %s: %s", rel, exc)
 
             _touch_index_meta(conn, root, dbp)
             conn.commit()
@@ -1135,7 +1526,39 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
             row = conn.execute("SELECT value FROM meta WHERE key='root'").fetchone()
             n = int(conn.execute("SELECT COUNT(*) FROM fts_content").fetchone()[0])
             sym_n = int(conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0])
-            ready = bool(row and str(row[0]) == root and n > 0)
+            # 【self-evolution-bot · 2026-11-16 · 第26轮】两处修正：
+            # (1) vector_available 原来是 conn.close() 之后才算的——use-after-close，
+            #     异常被 except 吞掉后 _SQLITE_VEC_AVAILABLE 会被永久缓存成 False，
+            #     于是整个进程生命周期都不再报告向量健康度。必须在关连接前算。
+            # (2) ready 原来只判「根路径对 + 有文件」，不看索引是否残缺：
+            #     本机那张表 3001 个文件（上限 3000 截断）也被判 ready，
+            #     于是 schedule_build_index 直接 index_ready 跳过重建，
+            #     9000 个文件里 6000 个永远进不了库——这是「搜不到东西」的第一原因。
+            vec_ok = _sqlite_vec_available(conn)
+            stale_reasons: list[str] = []
+            cfg = get_code_index_config()
+            built_max = conn.execute(
+                "SELECT value FROM meta WHERE key='indexed_max_files'"
+            ).fetchone()
+            built_max_n = int(built_max[0]) if built_max and str(built_max[0]).isdigit() else 0
+            if built_max_n and int(cfg.max_files) > built_max_n:
+                stale_reasons.append(
+                    f"max_files_upgraded:{built_max_n}->{int(cfg.max_files)}"
+                )
+            elif not built_max_n and n > 0 and n >= 3000:
+                # 旧库没记录上限、且文件数顶到旧默认值 → 几乎必然是截断产物
+                stale_reasons.append("max_files_unrecorded_at_old_cap")
+            if cfg.semantic_search_enabled and vec_ok:
+                vec_n = 0
+                try:
+                    vec_n = int(conn.execute("SELECT COUNT(*) FROM code_vec").fetchone()[0])
+                except sqlite3.OperationalError:
+                    vec_n = 0
+                if n > 0 and vec_n == 0:
+                    stale_reasons.append("vectors_missing")
+                elif n > 0 and vec_n < n:
+                    # 块级表应当「文件数 <= 块数」；块数少于文件数说明只写了一部分
+                    stale_reasons.append(f"vectors_incomplete:{vec_n}<{n}")
         finally:
             conn.close()
         updated_at = None
@@ -1143,6 +1566,7 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
             updated_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(dbp.stat().st_mtime))
         except OSError:
             pass
+        ready = bool(row and str(row[0]) == root and n > 0 and not stale_reasons)
         return {
             "ok": True,
             "ready": ready,
@@ -1152,6 +1576,12 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
             "files": n,
             "symbols": sym_n,
             "updated_at": updated_at,
+            # 【self-evolution-bot · 2026-11-16 · 第23轮】P2 向量健康度（判定单 §四）
+            "vector_available": vec_ok,
+            # 【self-evolution-bot · 2026-11-16 · 第26轮】索引为何「不完整」，
+            # 空列表 = 完整。外部（面板/重建入口）据此决定要不要自动重建，
+            # 而不是靠人记得手动点。
+            "stale_reasons": stale_reasons,
         }
     except Exception:
         return {
@@ -1163,6 +1593,7 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
             "files": 0,
             "symbols": 0,
             "updated_at": None,
+            "stale_reasons": ["status_read_failed"],
         }
 
 
@@ -1257,6 +1688,12 @@ def schedule_build_index(
     dbp = _db_path(root)
     if not force:
         st = index_status(workspace_root=workspace_root, thread_id=thread_id)
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】索引残缺要自动重建，不能算「已就绪」。
+        # 原来的判据是 st["ready"] —— 而 ready 只看「根路径对 + 有文件」，
+        # 于是被 max_files 截断的索引、以及向量 0 行的索引全部被判为就绪，
+        # 之后每次调用都返回 index_ready 直接跳过，没人会去重建它们。
+        # 实测后果：本机 9000 个文件只有 3001 个在库里、code_vec 只有 3 行，
+        # 而系统一直认为「索引是好的」——用户问「为什么搜不到」的根就在这里。
         if st.get("ready"):
             return {
                 "ok": True,
@@ -1267,6 +1704,16 @@ def schedule_build_index(
                 "db_path": str(dbp),
                 "files": st.get("files"),
             }
+        stale = list(st.get("stale_reasons") or [])
+        if stale and st.get("files"):
+            # 库里有数据但被判残缺 → 无需人工介入，直接升级为强制重建
+            force = True
+            logger.warning(
+                "code_index: 索引残缺（%s），自动触发全量重建（root=%s, 现有 %s 文件）",
+                ", ".join(stale),
+                root,
+                st.get("files"),
+            )
     key = _workspace_hash(root)
     with _jobs_lock:
         existing = _build_jobs.get(key)
@@ -1421,7 +1868,28 @@ def build_index(
             time.sleep(0)
 
         # --- Semantic embedding pass ---
+        # 【self-evolution-bot · 2026-11-16 · 第26轮】向量阶段单独上报进度。
+        # 为什么：切块后这个阶段是全量重建里最耗时的一段（14.2 万块、约 38 分钟），
+        # 而原来只上报 indexing 阶段，于是「文件都索引完了」后进度条停在 100%
+        # 却还要再等半小时——用户会以为卡死了，只能干等，没有任何可见性。
+        _update_build_progress(
+            root,
+            phase="embedding",
+            total_files=total_files,
+            indexed_files=indexed,
+            symbols=sym_count,
+            vectors_total=int(getattr(cfg, "max_files", 0) or 0) or None,
+            vectors_done=0,
+        )
         vec_count = _index_embeddings_sync(root, root_path, source_files, cfg)
+        _update_build_progress(
+            root,
+            phase="embedding_done",
+            total_files=total_files,
+            indexed_files=indexed,
+            symbols=sym_count,
+            vectors_done=int(vec_count or 0),
+        )
 
         def _finalize_meta() -> None:
             conn = _connect(root)

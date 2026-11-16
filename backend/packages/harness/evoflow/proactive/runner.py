@@ -1285,6 +1285,9 @@ class ProactiveRunner:
         resume_round: bool = False,
         fresh_round: bool = False,
         skip_done_guard: bool = False,
+        # 【self-evolution-bot · 2026-11-17 · 第28轮】排队也必须记住「回哪一屏」，
+        # 否则岗位忙的时候叫醒，等空闲后 drain 出来又落到 task 桶 —— 用户还是续不上。
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Queue a wake for after the current in-flight round (no new Task minted here)."""
         code = str(agent_code or "").strip()
@@ -1301,6 +1304,8 @@ class ProactiveRunner:
             "resume_round": bool(resume_round),
             "fresh_round": bool(fresh_round),
             "skip_done_guard": bool(skip_done_guard),
+            # 【第28轮】排队条目携带会话键，drain 时原样回投
+            "pinned_session_key": str(pinned_session_key or "").strip(),
         }
         async with self._wake_queue_guard:
             q = self._wake_queue.setdefault(code, [])
@@ -1370,6 +1375,8 @@ class ProactiveRunner:
                 resume_round=bool(entry.get("resume_round")),
                 fresh_round=bool(entry.get("fresh_round")),
                 skip_done_guard=bool(entry.get("skip_done_guard")),
+                # 【第28轮】drain 时把排队条目里的会话键原样带回去
+                pinned_session_key=str(entry.get("pinned_session_key") or ""),
             )
         except Exception:
             logger.exception("proactive.wake_queue.drain failed role=%s", code)
@@ -1900,13 +1907,11 @@ class ProactiveRunner:
 
                 pinned_round = duty_round_id
 
-                from evoflow.proactive.chat_session import resolve_work_session_key
-                from evoflow.proactive.duty_runs import update_duty_run
-
                 # 【fullstack-dev · 2026-11-15 · 第17轮】调用方钉了真人会话键 → 本轮所有
                 # 记账（duty_run.session_key / 通知跳转）都跟着指向那一屏，别再写 duty 桶；
                 # 否则 engine 实际落在 chat 会话、duty_run 却指向不存在的值班会话，面板「工作轨迹」对不上。
-                from evoflow.proactive.chat_session import normalize_pinned_session_key
+                from evoflow.proactive.chat_session import normalize_pinned_session_key, resolve_work_session_key
+                from evoflow.proactive.duty_runs import update_duty_run
 
                 pinned_session = normalize_pinned_session_key(code, pinned_session_key)
                 duty_session_key = pinned_session or resolve_work_session_key(
@@ -3300,6 +3305,8 @@ class ProactiveRunner:
                         resume_round=bool(resume_round),
                         fresh_round=bool(fresh_round),
                         skip_done_guard=bool(skip_done_guard),
+                        # 【第28轮】排队分支同样要带会话键
+                        pinned_session_key=str(pinned_session_key or ""),
                     )
                 logger.info(
                     "proactive.dispatch.interrupt role=%s related=%s goal=%s cancel=%s",
@@ -3321,6 +3328,8 @@ class ProactiveRunner:
                     resume_round=bool(resume_round),
                     fresh_round=bool(fresh_round),
                     skip_done_guard=bool(skip_done_guard),
+                    # 【第28轮】排队分支同样要带会话键
+                    pinned_session_key=str(pinned_session_key or ""),
                 )
 
         # Resolve the duty round id ONCE here and hand the same value to the
@@ -3358,6 +3367,11 @@ class ProactiveRunner:
                 skip_done_guard=bool(skip_done_guard),
                 resolved_round_id=preview_round,
                 resolved_resumed=bool(resumed),
+                # 【self-evolution-bot · 2026-11-17 · 第28轮】最后一米：原来这里漏传，
+                # 于是 fire_and_forget 收到的 pinned_session_key 在进 _dispatch_task_bg
+                # 之前就被丢掉，wake 永远落到 task/duty 桶 —— 实测 CLI 带
+                # --session-key 仍新开 thread（proactive:{code}:task:{tid}）。
+                pinned_session_key=str(pinned_session_key or ""),
             )
         )
         self._bg_tasks.add(task)

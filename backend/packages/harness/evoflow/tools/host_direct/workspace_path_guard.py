@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import functools
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -13,6 +15,8 @@ from evoflow.utils.workspace_browse import (
     resolve_bound_workspace_file,
     strip_bound_workspace_prefix,
 )
+
+logger = logging.getLogger(__name__)
 
 NO_WORKSPACE_BOUND = "Error: No workspace bound to this session. Select a local workspace in the UI, then retry."
 # Kept for compatibility; path confinement is disabled.
@@ -66,14 +70,71 @@ def resolve_filesystem_search_root(*, runtime: Any = None) -> tuple[str, str | N
     return str(Path.cwd().resolve()), thread_id or None
 
 
+# 【self-evolution-bot · 2026-11-16 · 第23轮】员工岗位工作区检索根（判定单 2611162156 §三①）
+# 为什么：员工值守会话无侧栏 local_workspace_root，旧解析链直接落到 profile 目录的
+# code_index（root=profile），仓库索引（root=D:/dev/github/EvoFlow）从未进查询范围。
+# 在 session 绑定与 thread sandbox 之间插入「employee workspace_path」一级；
+# 非员工会话（main/小V/普通聊天）解析为 None → 走原分支，行为零变化。
+@functools.lru_cache(maxsize=64)
+def _employee_workspace_root_cached(agent_code: str) -> str:
+    """Resolve hired employee's workspace_path once per agent_code (process cache)."""
+    code = str(agent_code or "").strip()
+    if not code:
+        return ""
+    try:
+        from evoflow.proactive.employee_prompting.identity import resolve_employee_identity
+
+        info = resolve_employee_identity(code)
+    except Exception:
+        logger.debug("employee identity lookup failed code=%s", code, exc_info=True)
+        return ""
+    if not info:
+        return ""
+    ws = str(info.get("workspace_path") or "").strip()
+    if not ws:
+        return ""
+    try:
+        p = Path(os.path.expanduser(os.path.expandvars(ws))).resolve()
+    except (OSError, ValueError):
+        return ""
+    # 必须是存在的目录才采用；不做 parent 兜底（判定单 §三①）。
+    return str(p) if p.is_dir() else ""
+
+
+def _resolve_employee_workspace_root(runtime: Any = None) -> str:
+    """Current run's employee workspace_path, or empty for non-employee sessions."""
+    agent_code = ""
+    try:
+        from evoflow.authz.agent_actor import agent_actor_from_runtime
+
+        agent_code = str(agent_actor_from_runtime(runtime=runtime) or "").strip()
+    except Exception:
+        logger.debug("agent actor lookup failed", exc_info=True)
+        return ""
+    if not agent_code:
+        return ""
+    try:
+        from evoflow.proactive.employee_prompting.identity import normalize_employee_agent_code
+
+        agent_code = str(normalize_employee_agent_code(agent_code) or "").strip()
+    except Exception:
+        pass
+    if not agent_code or agent_code.lower() in {"main", "lead_agent", "auto", "user"}:
+        return ""
+    return _employee_workspace_root_cached(agent_code)
+
+
 def resolve_search_workspace_root(*, runtime: Any = None) -> tuple[str, str | None] | str:
-    """Directory root for code-index search: bound workspace or thread sandbox, else error."""
+    """Directory root for code-index search: bound workspace → employee workspace → thread sandbox, else error."""
     root_s, thread_id = resolve_tool_workspace_root(runtime=runtime)
     if root_s:
         root = Path(os.path.expanduser(os.path.expandvars(root_s))).resolve()
         norm_root = _normalize_bound_workspace_dir(root)
         if not isinstance(norm_root, str):
             return str(norm_root), thread_id or None
+    emp_ws = _resolve_employee_workspace_root(runtime=runtime)
+    if emp_ws:
+        return emp_ws, str(thread_id or "").strip() or None
     tid = str(thread_id or "").strip()
     if tid:
         try:
