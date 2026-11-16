@@ -120,8 +120,8 @@ def test_pack_download_url_helpers() -> None:
 
 
 def test_pack_zip_ignore_skips_runtime_bloat(tmp_path: Path) -> None:
-    from evoflow.organizations.pack_zip_ignore import iter_pack_files, should_skip_pack_path
     from evoflow.organizations.market_host import _zip_directory
+    from evoflow.organizations.pack_zip_ignore import iter_pack_files, should_skip_pack_path
 
     root = tmp_path / "pack"
     (root / "agents").mkdir(parents=True)

@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from evoflow.organizations.manifest import LoadedPack, PackManifestError, load_pack_from_source, load_agent_definition, load_json_ref
+from evoflow.organizations.manifest import LoadedPack, PackManifestError, load_agent_definition, load_json_ref, load_pack_from_source
 
 
 def _sha(text: str) -> str:
@@ -101,9 +101,9 @@ def audit_pack_drift(pack_path: str) -> dict[str, Any]:
     pack_id = str(pack.manifest.get("id") or "").strip()
     pack_ver = str(pack.manifest.get("version") or "").strip()
 
-    from evoflow.config.agents_config import load_agent_soul, _agent_soul_file
-    from evoflow.persistence import config_repositories as cfg_repo
+    from evoflow.config.agents_config import _agent_soul_file, load_agent_soul
     from evoflow.organizations.registry import list_org_instances
+    from evoflow.persistence import config_repositories as cfg_repo
 
     agent_rows: list[dict[str, Any]] = []
     for code in _agent_codes_from_pack(pack):
