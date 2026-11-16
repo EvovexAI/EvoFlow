@@ -601,6 +601,146 @@ class TestErrorRepeat:
         assert out.content != _ERROR_BLOCK_MSG
 
 
+class TestCompoundCommandFingerprint:
+    """【self-evolution-bot · 2026-11-16 · 第21轮】新建：复合命令塌缩的回归护栏。
+
+    真实现场（obs 2026-11-09~16，11573 条被指纹覆盖的 bash）：
+    ``_terminal_focus_segment`` 只取**最后一段**实质命令，于是「同一尾巴、不同前缀」的
+    复合命令全塌进同一个桶 —— 733 个桶吞了 >=2 条不同命令，其中拦截占全部拦截的 84%。
+    最狠的单桶 ``terminal:test -f 1.3.28发版核对结论.md`` 吞 24 条不同命令、被拦 100 次；
+    受害最大的是同事：release-engineer 2735 次调用被拦 779 次（28.5%）。
+
+    修法：命令含 >=2 个实质段时追加整条命令链的摘要 ``|d:<8hex>``。
+    下面每条断言都成对出现 —— 正向证明「不同命令不再共键」，反向证明「同一命令仍共键」，
+    否则放宽判据等于把检测削空（第17轮「随机拦与不拦」那个坑）。
+    """
+
+    def test_real_prod_bucket_ruff_two_commands_split(self):
+        """现网真实原文（非自造）：旧指纹把这两条塌成同一键，被拦 96 次 / 桶内 7 条不同命令。
+
+        取自 obs 2026-11-09~16 的 ``terminal:python:m:ruff:check:tool_error_handling_middleware.py`` 桶。
+        这两条**跑的根本不是一回事**：前者只跑 ruff；后者是完整的「py_compile + ruff」双门禁链。
+        旧版（第20轮）两条指纹完全相同 —— 已用 ``git show HEAD:<file>`` 换回旧版跑过，
+        本条断言在旧版下**确实红**（不是自造样例那种两版都能过的假证据）。
+        """
+        only_ruff = (
+            'cd /d/dev/github/EvoFlow && python -m ruff check '
+            'backend/packages/harness/evoflow/agents/middlewares/tool_error_handling_middleware.py'
+            '; echo "RUFF_EXIT=$?"'
+        )
+        compile_plus_ruff = (
+            'cd /d/dev/github/EvoFlow && echo "=== FRESH gates on round-5 file ===" && cd backend '
+            '&& python -m py_compile packages/harness/evoflow/agents/middlewares/'
+            'tool_error_handling_middleware.py; echo "PYC_EXIT=$?"; '
+            'python -m ruff check packages/harness/evoflow/agents/middlewares/'
+            'tool_error_handling_middleware.py; echo "RUFF_EXIT=$?"'
+        )
+        a = _terminal_command_fingerprint({"command": only_ruff})
+        b = _terminal_command_fingerprint({"command": compile_plus_ruff})
+        assert a != b, (a, b)
+        # 反向：各自重复跑仍是各自的目标（检测力不得丢）
+        assert _terminal_command_fingerprint({"command": only_ruff}) == a
+        assert _terminal_command_fingerprint({"command": compile_plus_ruff}) == b
+
+    def test_real_prod_bucket_release_checklist_split(self):
+        """现网最大塌缩桶（被拦 100 次 / 24 条不同命令）的真实原文对。
+
+        两条都是发版核对脚本，尾巴都落在 ``test -f …结论.md``，旧指纹只取末段 → 同键。
+        实际跑的东西不同：前者只查 E1~E5，后者多查工作区状态与 E6。
+        """
+        e1_to_e5 = (
+            'cd /d/dev/github/EvoFlow && echo "===E1) 三份说明文件无未提交改动（diff应为空）===" '
+            '&& git diff --name-only -- evopanel/CHANGELOG.md scripts/maintainer/update/latest.json '
+            '; echo "(空=无回退)" && echo "===E5) 交付文档存在===" '
+            '&& test -f docs/roles/release-engineer/20261115-16/1.3.28发版核对结论.md && echo ok'
+        )
+        e1_to_e6 = (
+            'cd /d/dev/github/EvoFlow && echo "===E1) 工作区状态（别的工作流未提交，非我造成）===" '
+            '&& git status --porcelain && echo "===E2) 我的三份说明文件无未提交回退===" '
+            '&& git diff --name-only -- evopanel/CHANGELOG.md ; echo "(空=无回退)" '
+            '&& echo "===E6) 交付文档存在===" '
+            '&& test -f docs/roles/release-engineer/20261115-16/1.3.28发版核对结论.md && echo ok'
+        )
+        a = _terminal_command_fingerprint({"command": e1_to_e5})
+        b = _terminal_command_fingerprint({"command": e1_to_e6})
+        assert a != b, (a, b)
+        assert a.startswith("terminal:test -f 1.3.28"), a
+        assert b.startswith("terminal:test -f 1.3.28"), b
+
+    def test_middle_segment_distinguishes(self):
+        """中段不同（不是尾巴）也要分开 —— 旧指纹只看末段，中段信息全丢。"""
+        a = _terminal_command_fingerprint(
+            {"command": "cd /d/repo && git ls-remote origin && cd backend && python -m pytest tests/a.py -q"}
+        )
+        b = _terminal_command_fingerprint(
+            {"command": "cd /d/repo && git status --porcelain && cd backend && python -m pytest tests/a.py -q"}
+        )
+        assert a != b, (a, b)
+
+    def test_single_substantive_segment_keeps_legacy_fingerprint(self):
+        """单实质段命令**不加** ``|d:`` 后缀：与第20轮指纹逐字节一致，零行为漂移。
+
+        cd / echo / printf / date / true 都是噪音段（第12/17轮已固化），
+        剥掉后只剩 ``bash -n scripts/a.sh`` 一段 —— 这时补丁必须完全不介入。
+        """
+        fp = _terminal_command_fingerprint({"command": "cd /d/repo && echo START && bash -n scripts/a.sh"})
+        assert "|d:" not in fp, fp
+        assert fp == "terminal:bash -n a.sh", fp
+
+    def test_separator_style_does_not_change_fingerprint(self):
+        """``&&`` 与 ``;`` 只是写法，跑的是同一串工作 → 必须同一指纹（否则拦与不拦变随机）。"""
+        a = _terminal_command_fingerprint(
+            {"command": "cd /d/repo && git status --porcelain && git rev-parse HEAD"}
+        )
+        b = _terminal_command_fingerprint(
+            {"command": "cd /d/repo; git status --porcelain; git rev-parse HEAD"}
+        )
+        assert a == b, (a, b)
+
+    def test_volatile_clock_and_timestamp_normalized(self):
+        """同一条命令里嵌了毫秒戳/时刻，不得因此变成"新目标"（否则重跑永远不被拦）。"""
+        a = _terminal_command_fingerprint(
+            {"command": "cd /d/repo && curl -s http://127.0.0.1:8382/health?t=1700000000000 && git status --porcelain"}
+        )
+        b = _terminal_command_fingerprint(
+            {"command": "cd /d/repo && curl -s http://127.0.0.1:8382/health?t=1799999999999 && git status --porcelain"}
+        )
+        assert a == b, (a, b)
+
+    def test_repeated_compound_command_still_hard_blocked(self):
+        """反向护栏（最重要）：同一复合命令第 5 次照样被拦 —— 补丁不是放宽阈值。"""
+        from evoflow.agents.middlewares.loop_detection_middleware import (
+            _EXPLORE_BLOCK_MSG,
+            _EXPLORE_HARD_THRESHOLD,
+        )
+
+        mw = LoopDetectionMiddleware()
+        cmd = "cd /d/repo && git status --porcelain && python -m pytest tests/a.py --tb=line 2>&1 | tail -20"
+        for i in range(_EXPLORE_HARD_THRESHOLD - 1):
+            out = mw._check_explore_loops("cmp-thread", [_bash_call(cmd, call_id=f"cmp_{i}")])
+            assert out != _EXPLORE_BLOCK_MSG, f"blocked too early at #{i}"
+        blocked = mw._check_explore_loops(
+            "cmp-thread", [_bash_call(cmd, call_id=f"cmp_{_EXPLORE_HARD_THRESHOLD}")]
+        )
+        assert blocked == _EXPLORE_BLOCK_MSG, blocked
+
+    def test_distinct_compound_commands_never_block(self):
+        """反向护栏：7 条**真在干不同活**的复合命令，一条都不许被拦。"""
+        mw = LoopDetectionMiddleware()
+        cmds = [
+            "cd /d/repo && git status --porcelain && git rev-parse HEAD",
+            "cd /d/repo && git diff --name-only -- a.md && git log --oneline -1",
+            "cd /d/repo && test -f b.md && git diff --name-only -- b.md",
+            "cd /d/repo && python -m pytest tests/a.py -q && echo OK",
+            "cd /d/repo && python -m pytest tests/c.py -q && echo OK",
+            "cd /d/repo && ruff check x.py && python -m py_compile y.py",
+            "cd /d/repo && grep -n def x.py && grep -c class y.py",
+        ]
+        for i, cmd in enumerate(cmds):
+            out = mw._check_explore_loops("distinct-thread", [_bash_call(cmd, call_id=f"d_{i}")])
+            assert out is None, f"#{i} {cmd} → {out}"
+
+
 class TestAsyncWrap:
     def test_awrap_tool_call_blocks_after_hard_limit(self):
         mw = LoopDetectionMiddleware()
@@ -638,3 +778,141 @@ class TestSupervisorExemption:
         for _ in range(6):
             result = mw._apply(_make_state(tool_calls=call), runtime)
             assert result is None
+
+
+class TestMutationResetsExploreHistory:
+    """【self-evolution-bot · 2026-11-16 · 第20轮】成功写盘后作废探索账本。
+
+    真实现场（obs 2026-11-09~16，1066 次「重复探索·已拦截」）：
+      · 302 次（28.3%）发生在一次成功 replace/write 之后的 180s 内；
+      · 其中 190 次是 pytest / py_compile / tsc / ruff 验收命令；
+      · 被拦最多的单条命令就是 `python -m pytest`（115 次）与 `py_compile`（96 次）。
+    判据前提「同一目标 ⇒ 同一内容」在成功写盘后不成立：文件已变，重跑门禁是正确行为。
+    下面用那两条真实命令原文复跑，不是自造样例。
+    """
+
+    REAL_PYTEST = "cd /d/dev/github/EvoFlow/backend && PYTHONPATH=packages/harness:. python -m pytest"
+    REAL_PYCOMPILE = "cd /d/dev/github/EvoFlow/backend && python -m py_compile packages/harness/evoflow/"
+
+    @staticmethod
+    def _ok_write(call_id="call_write_ok"):
+        """成功落地的 write：非 error、正文不含 ok:false。"""
+        return {
+            "name": "write",
+            "id": call_id,
+            "args": {"path": "/tmp/x.py", "content": "print(1)"},
+        }
+
+    def _write_request(self, call, thread_id="test-thread"):
+        return _tool_request(call, thread_id=thread_id)
+
+    def test_real_pytest_after_successful_write_not_blocked(self):
+        """反证：改完代码重跑门禁必须放行 —— 不修的话第 5 次就被拦。"""
+        mw = LoopDetectionMiddleware()
+        tid = "edit-verify-thread"
+        call = _bash_call(self.REAL_PYTEST, call_id="c_pytest")
+
+        # 前 4 次不拦（第 5 次才会触发 HARD）
+        for i in range(4):
+            out = mw._check_explore_loops(tid, [call])
+            assert out != _EXPLORE_BLOCK_MSG, f"第 {i+1} 次就被硬拦了：{out}"
+
+        # 成功写盘一次 → 账本作废
+        wcall = self._ok_write()
+        req = self._write_request(wcall, thread_id=tid)
+        mw.wrap_tool_call(req, _handler_returning(ToolMessage(content="ok", tool_call_id=wcall["id"])))
+
+        # 再跑 4 次同一 pytest：若未重置，累计已到第 8 次，必被拦
+        for i in range(4):
+            call = _bash_call(self.REAL_PYTEST, call_id=f"c_pytest_after_{i}")
+            out = mw._check_explore_loops(tid, [call])
+            assert out != _EXPLORE_BLOCK_MSG, f"写盘后第 {i+1} 次重跑门禁被硬拦：{out}"
+
+    def test_real_pycompile_after_successful_replace_not_blocked(self):
+        """同上，换 replace + py_compile 那条真实命令。"""
+        mw = LoopDetectionMiddleware()
+        tid = "edit-verify-pycompile"
+        call = _bash_call(self.REAL_PYCOMPILE, call_id="c_pyc")
+        for _ in range(4):
+            assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG
+
+        rcall = {"name": "replace", "id": "call_rep_ok", "args": {"path": "/tmp/x.py"}}
+        mw.wrap_tool_call(_tool_request(rcall, thread_id=tid), _handler_returning(ToolMessage(content="ok", tool_call_id="call_rep_ok")))
+
+        for i in range(4):
+            call = _bash_call(self.REAL_PYCOMPILE, call_id=f"c_pyc_{i}")
+            assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG, f"replace 后第 {i+1} 次被拦"
+
+    def test_failed_write_does_not_reset(self):
+        """反向：写入失败不得重置 —— 真 thrash 照旧被拦。"""
+        mw = LoopDetectionMiddleware()
+        tid = "failed-write-thread"
+        call = _bash_call(self.REAL_PYTEST, call_id="c_pytest")
+        for _ in range(4):
+            assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG
+
+        # 失败写入（工具层报错）
+        fcall = self._ok_write("call_write_fail")
+        mw.wrap_tool_call(
+            _tool_request(fcall, thread_id=tid),
+            _handler_returning(_error_tool_message(fcall, "Error: Permission denied")),
+        )
+
+        # 未重置 → 第 5 次必须被拦
+        out = mw._check_explore_loops(tid, [_bash_call(self.REAL_PYTEST, call_id="c_pytest5")])
+        assert out == _EXPLORE_BLOCK_MSG, f"失败写入不该重置账本，实际：{out}"
+
+    def test_write_with_ok_false_body_does_not_reset(self):
+        """反向：工具自报 ok:false（如 String not found）也算没落地。"""
+        mw = LoopDetectionMiddleware()
+        tid = "ok-false-thread"
+        call = _bash_call(self.REAL_PYTEST, call_id="c_pytest")
+        for _ in range(4):
+            assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG
+
+        fcall = {"name": "replace", "id": "call_rep_nf", "args": {"path": "/tmp/x.py"}}
+        mw.wrap_tool_call(
+            _tool_request(fcall, thread_id=tid),
+            _handler_returning(
+                ToolMessage(content='{"ok": false, "error": "String not found in file"}', tool_call_id="call_rep_nf")
+            ),
+        )
+
+        out = mw._check_explore_loops(tid, [_bash_call(self.REAL_PYTEST, call_id="c_pytest5")])
+        assert out == _EXPLORE_BLOCK_MSG, f"ok:false 不该重置，实际：{out}"
+
+    def test_non_mutation_tool_does_not_reset(self):
+        """反向：读类工具不重置（否则守卫等于没有）。"""
+        mw = LoopDetectionMiddleware()
+        tid = "read-only-thread"
+        call = _bash_call(self.REAL_PYTEST, call_id="c_pytest")
+        for _ in range(4):
+            assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG
+
+        rcall = _read_call("/tmp/x.py", call_id="call_read_ok")
+        mw.wrap_tool_call(_tool_request(rcall, thread_id=tid), _handler_returning(ToolMessage(content="file body", tool_call_id="call_read_ok")))
+
+        out = mw._check_explore_loops(tid, [_bash_call(self.REAL_PYTEST, call_id="c_pytest5")])
+        assert out == _EXPLORE_BLOCK_MSG, f"读不重置，实际：{out}"
+
+    def test_async_path_also_resets(self):
+        """接线：异步钩子 awrap_tool_call 也必须接上。"""
+        async def _run():
+            mw = LoopDetectionMiddleware()
+            tid = "async-thread"
+            call = _bash_call(self.REAL_PYTEST, call_id="c_pytest")
+            for _ in range(4):
+                assert mw._check_explore_loops(tid, [call]) != _EXPLORE_BLOCK_MSG
+
+            wcall = self._ok_write("call_write_async")
+
+            async def handler(_request):
+                return ToolMessage(content="ok", tool_call_id=wcall["id"])
+
+            await mw.awrap_tool_call(_tool_request(wcall, thread_id=tid), handler)
+
+            for i in range(4):
+                c = _bash_call(self.REAL_PYTEST, call_id=f"c_async_{i}")
+                assert mw._check_explore_loops(tid, [c]) != _EXPLORE_BLOCK_MSG, f"异步路径未重置，第 {i+1} 次被拦"
+
+        asyncio.run(_run())

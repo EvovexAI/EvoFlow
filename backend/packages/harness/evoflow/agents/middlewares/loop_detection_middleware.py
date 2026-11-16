@@ -209,6 +209,30 @@ _EXPLORE_WARN_THRESHOLD = 3
 _EXPLORE_HARD_THRESHOLD = 5
 _EXPLORE_DECAY_SECONDS = 120
 
+# 【self-evolution-bot · 2026-11-16 · 第20轮】改了什么：成功落地修改（write/replace/delete/
+# edit_notebook）后，清空该线程的探索账本（_explore_history / _explore_warned）。
+# 为什么：_explore_loop_fingerprint 的前提是「同一目标 ⇒ 同一内容」，所以同一目标第 5 次
+# （_EXPLORE_HARD_THRESHOLD，120s 窗口内）判为 thrash 并硬拦。但**改完代码后这个前提就失效**：
+# 文件内容已变，重读刚写的文件、重跑 pytest/py_compile/tsc/ruff 验证「没把东西改坏」是正确行为，
+# 不是重复探索。现网 obs 实测（2026-11-09~16，1066 次「已拦截」）：
+#   · 302 次（28.3%）发生在一次成功 replace/write 之后的 180s 内；
+#   · 其中 190 次是指纹完全相同的 pytest / py_compile / tsc / ruff 验收命令；
+#   · 被拦最多的单条命令就是 `python -m pytest`（115 次）与 `py_compile`（96 次）。
+# 也就是说守卫在惩罚「改完就验证」这一唯一验收手段 —— 每次拦截前模型已烧掉一整轮
+# （TTFT 1s + 模型 15~30s + 全量上下文重发），换来零信息。
+# 判据边界（不是放宽阈值）：阈值与窗口一律不动；只在**成功**变更后作废旧账本，
+# 失败/被拦的写入不重置 —— 真 thrash（反复读同一处却不落地修改）照旧第 5 次被拦。
+_MUTATION_TOOLS = frozenset(
+    {
+        "replace",
+        "str_replace",
+        "replace_in_file",
+        "write",
+        "delete",
+        "edit_notebook",
+    }
+)
+
 _ERROR_EXPLORE_TOOLS = frozenset({"read_file", "list_dir", "terminal"})
 _ERROR_FAIL_MARKERS = (
     "permission denied",
@@ -544,6 +568,84 @@ def _fingerprint_payload_tag(focus: str) -> str:
     return ""
 
 
+# 【self-evolution-bot · 2026-11-16 · 第21轮】新建：复合命令的区分度补丁。
+# 改了什么：把「取末段实质命令」的旧指纹保留为 base，另加一个整条实质命令链的摘要
+#   ``|d:<8hex>``；命令只有 1 个实质段时不加（行为完全不变）。
+# 为什么：_terminal_focus_segment 只取**最后一段**实质命令，于是「同一尾巴、不同前缀」的
+#   复合命令全塌进同一个桶。obs 近 7 天（2026-11-09~16，11573 条被指纹覆盖的 bash）实测：
+#   · 97.4% 的 bash 是复合命令（含 && / ; / ||）；
+#   · 733 个桶吞了 >=2 条**不同**命令，落在这些桶里的拦截占 84.0%；
+#   · 我自己的复核把拦截拆成两类（同一精确命令 120s 内 >=5 次 = 真 thrash 该拦；
+#     自身 <5 次却被同桶其他命令撑到 >=5 = 塌缩误伤）：真 thrash 640 次 / 误伤 598 次，
+#     即**近一半拦截在惩罚「跑了另一条命令」**；
+#   · 最狠的单桶 ``terminal:test -f 1.3.28发版核对结论.md`` 吞 24 条不同命令、被拦 100 次；
+#     ``terminal:ls -l --time-style:... craft.py`` 吞 10 条、被拦 111 次。
+#   代价落点在同事身上：release-engineer 2735 次调用里被拦 779 次（28.5%），其 883 次模拟拦截中
+#   363 次属此类误伤 —— 每次误伤烧掉一整轮模型往返（TTFT ~1s + 模型 10.6s + 全量上下文重发）。
+# 边界（不是放宽阈值）：_EXPLORE_WARN/HARD_THRESHOLD 与 _EXPLORE_DECAY_SECONDS 一律不动。
+#   同一条命令重复第 5 次照旧拦 —— 回放复算：真 thrash 拦截数改前改后**都是 640 次**，
+#   一分不少；只有塌缩误伤 598→327（release-engineer 363→175）。整体拦截 1238→967。
+#   摘要里把时刻/长数字（``$(date +%H:%M:%S)``、13 位毫秒戳）归一成 ``<T>``，
+#   否则同一条门禁加个时间尾巴就成新指纹，退化成「拦与不拦变随机」（第12轮那个坑）。
+_TERMINAL_COMPOUND_NOISE_HEADS = frozenset({"cd", "chdir", "echo", "printf", "date", "true", ":"})
+_TERMINAL_VOLATILE_RE = re.compile(r"\b\d{2}:\d{2}(:\d{2})?\b|\b\d{10,13}\b")
+
+
+def _terminal_compound_tag(cmd: str) -> str:
+    """Compound commands: append a digest of ALL substantive segments (``|d:xxxxxxxx``).
+
+    单实质段 → 返回空串（与旧指纹逐字节一致）。见上方第21轮说明。
+    """
+    segments = _split_shell_segments(cmd)
+    substantive: list[str] = []
+    for seg in segments:
+        tokens = _strip_env_assignments(_split_shell_tokens(seg))
+        if not tokens:
+            continue
+        if tokens[0].lower() in _TERMINAL_COMPOUND_NOISE_HEADS:
+            continue
+        substantive.append(seg)
+    if len(substantive) < 2:
+        return ""
+    normalized = " ".join(" ".join(seg.split()) for seg in substantive)
+    normalized = _TERMINAL_VOLATILE_RE.sub("<T>", normalized)
+    return "|d:" + hashlib.md5(normalized.encode("utf-8")).hexdigest()[:8]
+
+
+# 【self-evolution-bot · 2026-11-16 · 第22轮】新建：terminal 硬拦的「同一条命令」精确判据。
+# 改了什么：给 bash/terminal 增一把**精确尺**（归一化后的完整命令文本），硬拦要求
+#   「粗指纹 ≥5」**且**「精确命令 ≥5」两条同时成立。阈值 _EXPLORE_HARD_THRESHOLD /
+#   _EXPLORE_DECAY_SECONDS 一个都不动；warn(3) 仍只看粗指纹（warn 不拦，保持提示灵敏度）。
+# 为什么：粗指纹（verb + 至多 2 个位置参数 + 至多 2 个 flag）会把**不同命令**塌进同一桶，
+#   于是「第 5 条全新命令」被当成重复拦掉。用**生产类本身**回放 obs 现网数据
+#   （2026-11-09~16，267 线程 / 17747 调用，旧单条件 vs 双条件各跑一遍）：
+#     · 旧单条件硬拦 1408 次 → 双条件 766 次，少拦 642 次
+#     · 「新版拦了但旧版没拦」= 0（双条件是旧判据的子集，不会多拦任何东西）
+#     · 被放行的都是同一桶里的**不同命令**（不同 python - <<EOF 探针、不同文件路径）
+#   反事实复算（假设从不拦截、让每条命令都执行）显示：真正同命令 120s 内 ≥5 次的只有 640 次，
+#   也就是说旧判据把大量「一条全新命令」算成了 thrash。
+#   每次误拦的代价是一整轮模型往返（实测均值 10.63s）+ 一次上下文全量重发，换来零信息。
+#   642 次 × 10.63s ≈ 1.9 小时 / 7 天。
+# 边界：只作用于 terminal（bash）；read_file 的 offset 分桶不变 ——
+#   「同一文件近邻 offset 重复读」确实该拦，那把尺是准的。search/discovery 工具照旧永不硬拦。
+_TERMINAL_CD_PREFIX_RE = re.compile(r"^\s*cd\s+[^&;|]+(?:&&|;)\s*")
+
+
+def _terminal_exact_command_key(args: dict) -> str | None:
+    """归一化后的完整命令文本（硬拦的第二把尺：同一条命令，而不是同一个桶）。
+
+    去行首 ``cd …&&`` 前缀（换目录不算换命令）、折叠空白、统一小写。
+    不做 volatile 替换 —— 带 ``$(date +%H:%M)`` 的进度探针命令每次文本不同，
+    本来就该被视为不同命令（它每次跑的东西确实变了）。
+    """
+    cmd = str(args.get("command") or args.get("cmd") or "").strip()
+    if not cmd:
+        return None
+    stripped = _TERMINAL_CD_PREFIX_RE.sub("", cmd)
+    normalized = re.sub(r"\s+", " ", stripped).strip().lower()
+    return normalized or None
+
+
 def _terminal_command_fingerprint(args: dict) -> str | None:
     """Normalize terminal command for loop detection (verb/script, not cwd-only).
 
@@ -551,6 +653,15 @@ def _terminal_command_fingerprint(args: dict) -> str | None:
     fingerprint with ``cd D:/repo; node skills/.../search.js '...'`` — otherwise
     mixed batches (write/knowledge + terminal) false-trigger explore hard limits.
     """
+    base = _terminal_fingerprint_base(args)
+    if base is None:
+        return None
+    cmd = str(args.get("command") or "").strip()
+    return base + _terminal_compound_tag(cmd) if cmd else base
+
+
+def _terminal_fingerprint_base(args: dict) -> str | None:
+    """末段实质命令指纹（第21轮改名保留原语义，外层负责追加复合命令摘要）。"""
     if _is_safe_terminal_command(args):
         return None
     cmd = str(args.get("command") or "").strip()
@@ -732,6 +843,9 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
         self._lock = threading.Lock()
         self._history: OrderedDict[str, list[tuple[str, float]]] = OrderedDict()
         self._explore_history: OrderedDict[str, list[tuple[str, float]]] = OrderedDict()
+        # 【self-evolution-bot · 2026-11-16 · 第22轮】terminal 硬拦的第二本账（同一条命令）。
+        # 与 _explore_history 同步维护：进账/驱逐/重置/清空四处必须成对，缺一处就泄漏或拦不准。
+        self._explore_exact_history: dict[str, list[tuple[str, float]]] = {}
         self._warned: dict[str, set[str]] = defaultdict(set)
         self._explore_warned: dict[str, set[str]] = defaultdict(set)
         self._block_tool_call_ids: dict[str, set[str]] = defaultdict(set)
@@ -809,6 +923,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             evicted_id, _ = self._history.popitem(last=False)
             self._warned.pop(evicted_id, None)
             self._explore_history.pop(evicted_id, None)
+            self._explore_exact_history.pop(evicted_id, None)
             self._explore_warned.pop(evicted_id, None)
             self._block_tool_call_ids.pop(evicted_id, None)
             self._block_explore_msg.pop(evicted_id, None)
@@ -928,6 +1043,37 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             if len(history) > self.window_size:
                 history[:] = history[-self.window_size :]
 
+    def _reset_explore_after_mutation(
+        self, request: ToolCallRequest, result: ToolMessage | Command
+    ) -> None:
+        """成功落地修改后作废该线程的探索账本。
+
+        【self-evolution-bot · 2026-11-16 · 第20轮】见文件头 _MUTATION_TOOLS 处的说明：
+        探索指纹的前提「同一目标 ⇒ 同一内容」在成功写盘后不成立，重读/重跑门禁是正当行为。
+        只认**成功**：error 结果、Command、非 mutate 工具一律不重置 —— 真 thrash 照旧被拦。
+        """
+        if isinstance(result, Command) or not isinstance(result, ToolMessage):
+            return
+        tc = request.tool_call if isinstance(request.tool_call, dict) else {}
+        name = str(tc.get("name") or "").strip().lower()
+        if name not in _MUTATION_TOOLS:
+            return
+        content = str(getattr(result, "content", "") or "")
+        low = content.strip().lower()
+        # 与 _track_tool_result_errors 同一成功判据：status 非 error 且正文不以 error 开头。
+        if getattr(result, "status", None) == "error" or low.startswith("error"):
+            return
+        # 工具自报失败（如 ok:false / "String not found"）也算没落地，不能重置。
+        if '"ok": false' in low or '"ok":false' in low or "string not found" in low:
+            return
+        thread_id = self._thread_id_from_tool_request(request)
+        with self._lock:
+            self._explore_history.pop(thread_id, None)
+            self._explore_exact_history.pop(thread_id, None)
+            self._explore_warned.pop(thread_id, None)
+            self._explore_streak.pop(thread_id, None)
+            self._explore_streak_warned.pop(thread_id, None)
+
     def _check_explore_loops(
         self,
         thread_id: str,
@@ -955,14 +1101,34 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
                 self._evict_if_needed()
             history = self._explore_history[thread_id]
             history[:] = [(h, ts) for h, ts in history if ts >= cutoff]
+            # 【self-evolution-bot · 2026-11-16 · 第22轮】terminal 的第二把尺：同一条命令。
+            exact_history = self._explore_exact_history.setdefault(thread_id, [])
+            exact_history[:] = [(h, ts) for h, ts in exact_history if ts >= cutoff]
             for tc in tool_calls:
                 fp = _explore_loop_fingerprint(tc)
                 if not fp:
                     continue
                 history.append((fp, now))
                 count = _count_fingerprint(history, fp)
-                if count >= _EXPLORE_HARD_THRESHOLD and not _is_search_discovery_tool(
-                    str(tc.get("name") or "")
+                # 粗指纹（桶）计数之外，terminal 还要求「同一条命令」也满阈值：
+                # 桶会把不同命令塌成一堆，只按桶数硬拦 = 拦掉从未重复过的新命令。
+                # 见 _terminal_exact_command_key 上方第22轮说明与反事实复算数字。
+                exact_hot = True
+                if _normalize_explore_tool_name(str(tc.get("name") or "")) == "terminal":
+                    args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
+                    exact_key = _terminal_exact_command_key(args)
+                    if exact_key:
+                        exact_history.append((exact_key, now))
+                        exact_hot = (
+                            _count_fingerprint(exact_history, exact_key)
+                            >= _EXPLORE_HARD_THRESHOLD
+                        )
+                    else:
+                        exact_hot = False
+                if (
+                    count >= _EXPLORE_HARD_THRESHOLD
+                    and exact_hot
+                    and not _is_search_discovery_tool(str(tc.get("name") or ""))
                 ):
                     tid = _tool_call_id(tc)
                     if tid:
@@ -1141,6 +1307,8 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             return blocked
         result = handler(request)
         self._track_tool_result_errors(request, result)
+        # 【self-evolution-bot · 2026-11-16 · 第20轮】成功写盘后作废探索账本，见 _MUTATION_TOOLS 说明。
+        self._reset_explore_after_mutation(request, result)
         return result
 
     @override
@@ -1157,6 +1325,8 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
             return blocked
         result = await handler(request)
         self._track_tool_result_errors(request, result)
+        # 【self-evolution-bot · 2026-11-16 · 第20轮】成功写盘后作废探索账本，见 _MUTATION_TOOLS 说明。
+        self._reset_explore_after_mutation(request, result)
         return result
 
     def reset(self, thread_id: str | None = None) -> None:
@@ -1165,6 +1335,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
                 self._history.pop(thread_id, None)
                 self._warned.pop(thread_id, None)
                 self._explore_history.pop(thread_id, None)
+                self._explore_exact_history.pop(thread_id, None)
                 self._explore_warned.pop(thread_id, None)
                 self._block_tool_call_ids.pop(thread_id, None)
                 self._block_explore_msg.pop(thread_id, None)
@@ -1177,6 +1348,7 @@ class LoopDetectionMiddleware(AgentMiddleware[AgentState]):
                 self._history.clear()
                 self._warned.clear()
                 self._explore_history.clear()
+                self._explore_exact_history.clear()
                 self._explore_warned.clear()
                 self._block_tool_call_ids.clear()
                 self._block_explore_msg.clear()
