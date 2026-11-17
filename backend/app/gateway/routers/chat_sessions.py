@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -860,6 +861,20 @@ async def compact_session_context(request: Request, session_key: str) -> ManualC
         if busy:
             raise busy
         raise
+    # 压缩不是对话 turn；若 V4 投影仍停在 running/canStop，catchup 按 DB 终态收口，
+    # 否则前端停止钮与浮层「运行中」会一直亮着。
+    try:
+        tid = str(row.get("threadId") or row.get("thread_id") or "").strip()
+        if tid:
+            from app.gateway.v4.conversation import HUB
+
+            await asyncio.to_thread(HUB.catchup_from_transcript, tid)
+    except Exception:
+        logger.debug(
+            "compact-context v4 catchup settle skipped session=%s",
+            key[:24],
+            exc_info=True,
+        )
     return ManualContextCompactionResponse(
         ok=result.ok,
         changed=result.changed,

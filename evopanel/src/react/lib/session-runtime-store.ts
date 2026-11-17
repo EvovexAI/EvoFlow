@@ -476,19 +476,18 @@ function applyTurnIdle(rt: SessionRuntime): void {
   // while tokens keep arriving. Keep wire + activity + timing so stop/spinner /
   // sidebar preview (e.g. 「绘画」) stay honest until SSE final clears the wire.
   const keepLiveWire = rt.streamWireSource === 'run'
-  if (rt.turnPhase !== 'idle') {
+  rt.turnPhase = 'idle'
+  if (keepLiveWire) {
     // Do not stamp settled while the browser-owned POST is still open — that
     // locks out revive/reattach and hides stop until a full remount.
-    if (!keepLiveWire) {
-      rt.uiTurnSettled = true
-    }
+    return
   }
-  rt.turnPhase = 'idle'
-  if (!keepLiveWire) {
-    rt.activity = { kind: 'idle', detail: '' }
-    rt.streamWireSource = null
-    clearTurnTiming(rt)
-  }
+  // 即使 phase 已是 idle（例如先 idle 再清 wire 的第二次 TURN_IDLE），也必须盖章
+  // settled；否则 stream 缓冲残留会让 isSessionRuntimeLive 一直钉「运行中」。
+  rt.uiTurnSettled = true
+  rt.activity = { kind: 'idle', detail: '' }
+  rt.streamWireSource = null
+  clearTurnTiming(rt)
 }
 
 /** Live browser-owned POST ``/runs/stream`` still open. */

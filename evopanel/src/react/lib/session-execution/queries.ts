@@ -59,10 +59,18 @@ export function isSessionExecuting(
   // 「绘画」preview even if a mid-turn RUN_FINISHED left turnPhase idle.
   if (isLivePostStreamOpen(rt)) return true
 
-  if (isSessionRuntimeLive(rt)) return true
-
   // V4 时间线仍有 streaming / running 工具（含后台 pin）：侧栏齿轮与 pin 集合同源。
   if (getV4TimelineBusy(sk)) return true
+
+  // phase 已收口且无 live wire：忽略 stream 缓冲残留（aguiTurn / compactedParts）。
+  // 对齐 V4StreamRowsBridge：勿用 isSessionRuntimeLive 当 busy，否则压缩/收尾后
+  // 停止钮与浮层「运行中」会一直亮着（phase=idle · wire=∅ · executing=1）。
+  const phaseSettled =
+    rt.turnPhase === 'idle' ||
+    rt.turnPhase === 'degraded' ||
+    rt.turnPhase === 'stopped' ||
+    rt.turnPhase === 'error'
+  if (!phaseSettled && isSessionRuntimeLive(rt)) return true
 
   const row = opts.sessionRow
   const st = String(row?.runStatus || '').trim().toLowerCase()

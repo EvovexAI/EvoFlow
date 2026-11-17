@@ -47,6 +47,17 @@ describe('live-execution-busy', () => {
     ).toBe(false) // terminal + host idle：不信滞后 canStop
   })
 
+  it('ignores stale canStop on terminal phase even without hostExecuting hint', () => {
+    // 压缩后常见：control.phase 已 completedSuccess 但 canStop 仍 true → 不得钉停止钮
+    expect(
+      resolveLiveExecutionBusy({
+        canStop: true,
+        phase: 'completedSuccess',
+        rows: [{ kind: 'toolCall', status: 'success' }],
+      }),
+    ).toBe(false)
+  })
+
   it('keeps pendingApproval busy even when host idle on terminal phase', () => {
     expect(
       resolveLiveExecutionBusy({

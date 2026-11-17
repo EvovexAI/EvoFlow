@@ -68,7 +68,9 @@ export function setSessionExecutionProbe(
     return
   }
   cache.set(sk, next)
-  if (next.goalActive) markSessionGoalRunning(sk, true)
+  // probe 权威：goalActive 落下时同步清本地标记，避免「永远运行中」。
+  // 本地 useGoalMode 仍可通过 markSessionGoalRunning(true) 再点亮。
+  markSessionGoalRunning(sk, next.goalActive === true)
   bump()
 }
 
