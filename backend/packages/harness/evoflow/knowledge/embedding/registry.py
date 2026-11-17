@@ -314,46 +314,12 @@ async def get_embeddings(
 # Known model → dimension map for fast (non-probing) resolution.
 # Add entries here when you introduce new local/embedding models so that
 # knowledge-base creation can pick the right dimension without a live call.
-_KNOWN_DIMS: dict[str, int] = {
-    # Cloud (OpenAI-compatible)
-    "text-embedding-3-small": 1536,
-    "text-embedding-3-large": 3072,
-    "text-embedding-ada-002": 1536,
-    # 【self-evolution-bot · 2026-11-16 · 第24轮】补上当前实际生效的云端向量模型。
-    # 为什么：本机 get_embedding_config() 解析到的就是 doubao-embedding-vision，
-    # 实测输出 2048 维（真调用量得）；此前不在表里 → 调用方退回配置静态 512 →
-    # code_vec 按 512 建表 → 每条向量插入被 vec0 拒绝（Expected 512 received 2048）→ 表里 0 行。
-    "doubao-embedding-vision": 2048,
-    # Local (sentence-transformers / BGE)
-    "baai/bge-small-zh-v1.5": 512,
-    "baai/bge-base-zh-v1.5": 768,
-    "baai/bge-large-zh-v1.5": 1024,
-    "baai/bge-m3": 1024,
-    "baai/bge-small-en-v1.5": 384,
-    "bge-small-zh-v1.5": 512,
-    "bge-base-zh-v1.5": 768,
-    "bge-large-zh-v1.5": 1024,
-    "bge-m3": 1024,
-    "bge-small-en-v1.5": 384,
-    "sentence-transformers/all-minilm-l6-v2": 384,
-    "sentence-transformers/paraphrase-multilingual-minilm-l12-v2": 384,
-    "intfloat/multilingual-e5-small": 384,
-    "thenlper/gte-small": 384,
-    "shibing624/text2vec-base-chinese": 768,
-    "nomic-ai/nomic-embed-text-v1.5": 768,
-}
-
-
-def known_embedding_dim(model_id: str) -> int | None:
-    """Return the vector dimension for a known model id, or ``None`` if unknown.
-
-    Lookups are case-insensitive so ``BAAI/bge-small-zh-v1.5`` and
-    ``baai/bge-small-zh-v1.5`` both match.
-    """
-    if not model_id:
-        return None
-    key = model_id.strip().lower()
-    return _KNOWN_DIMS.get(key)
+# 【self-evolution-bot · 2026-11-17 · 第33轮】维度表与查询函数已拆到轻量叶子模块
+# ``dims.py``：本模块在模块级 import base/local_provider，实测首次 import
+# 2426 个模块 / 4340ms（transformers+numpy+PIL），而 known_embedding_dim 只是查字典。
+# code_index 每次检索都会走到它，于是「打开索引库」被拖慢 3~4 秒。
+# 这里 re-export，既有 import 路径（registry.known_embedding_dim）保持不变。
+from evoflow.knowledge.embedding.dims import _KNOWN_DIMS, known_embedding_dim  # noqa: E402,F401
 
 
 async def detect_embedding_dim(
