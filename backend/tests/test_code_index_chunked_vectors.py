@@ -484,6 +484,8 @@ def test_schedule_build_index_force_rebuilds_when_stale(monkeypatch, tmp_path) -
     ws = tmp_path / "ws"
     ws.mkdir()
     seen: list[dict] = []
+    # In-process so monkeypatched build_index is what the scheduler calls.
+    monkeypatch.setenv("EVOFLOW_CODE_INDEX_BUILD_INPROCESS", "1")
     monkeypatch.setattr(
         S, "index_status", lambda **kw: {"ready": False, "files": 3001, "stale_reasons": ["vectors_missing"]}
     )
@@ -496,3 +498,29 @@ def test_schedule_build_index_force_rebuilds_when_stale(monkeypatch, tmp_path) -
     assert r.get("status") == "scheduled", f"应调度重建，实得 {r}"
     assert seen, "没有真正调起 build_index"
     assert seen[0].get("force") is True, "残缺索引必须以 force=True 重建"
+
+
+def test_schedule_build_index_defaults_to_subprocess(monkeypatch, tmp_path) -> None:
+    """生产默认走子进程，避免 ST/sklearn 导入 GIL 卡死 Gateway。"""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    monkeypatch.delenv("EVOFLOW_CODE_INDEX_BUILD_INPROCESS", raising=False)
+    monkeypatch.setattr(
+        S, "index_status", lambda **kw: {"ready": False, "files": 0, "stale_reasons": []}
+    )
+    spawned: list[dict] = []
+
+    def _fake_spawn(**kw):
+        spawned.append(kw)
+
+        class _Job:
+            def is_alive(self) -> bool:
+                return False
+
+        return _Job()
+
+    monkeypatch.setattr(S, "_spawn_build_subprocess", _fake_spawn)
+    r = S.schedule_build_index(workspace_root=str(ws), force=True)
+    assert r.get("mode") == "subprocess"
+    assert r.get("status") == "scheduled"
+    assert spawned and spawned[0].get("force") is True

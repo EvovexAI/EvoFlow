@@ -993,7 +993,9 @@ class ProactiveRunner:
         if employee_via_automation_enabled():
             due_roles: list[ProactiveRole] = []
         else:
-            due_roles = ProactiveRepository.list_due_roles(now)
+            # Worker thread can wait on the process DB lock; asyncio thread
+            # fails fast at 0.5s and would abort the whole tick.
+            due_roles = await asyncio.to_thread(ProactiveRepository.list_due_roles, now)
 
         overloaded, lag = self._gateway_dispatch_overloaded()
         if overloaded:
@@ -1080,17 +1082,40 @@ class ProactiveRunner:
                 "、".join(f"{(r.role_name or r.agent_code)}({r.agent_code})" for r in queued),
             )
 
-        # 3. Recover initiatives stuck in pending_approval without an Approval row
-        recovered = await self._recover_orphaned_pending_approvals()
-
-        # 4. Reap stale executing initiatives (TTL cleanup for zombie records)
-        stale_executing = await self._recover_stale_executing()
-
-        # 4b. Board task zombies: executing@100 / stale awaiting_close (at most hourly)
-        board_reclaimed = await self._maybe_reclaim_board_zombies()
-
-        # 5. Check approval timeouts
-        timed_out = await self._gate.check_timeouts()
+        # 3–5. DB-heavy recoveries — isolate lock contention so one miss
+        # does not abort the whole tick (and spam "tick error").
+        recovered = 0
+        stale_executing = 0
+        board_reclaimed = 0
+        timed_out: list[Any] = []
+        try:
+            recovered = await self._recover_orphaned_pending_approvals()
+        except Exception:
+            logger.warning(
+                "proactive.runner: recover orphaned approvals skipped",
+                exc_info=True,
+            )
+        try:
+            stale_executing = await self._recover_stale_executing()
+        except Exception:
+            logger.warning(
+                "proactive.runner: reap stale executing skipped",
+                exc_info=True,
+            )
+        try:
+            board_reclaimed = await self._maybe_reclaim_board_zombies()
+        except Exception:
+            logger.warning(
+                "proactive.runner: board zombie reclaim skipped",
+                exc_info=True,
+            )
+        try:
+            timed_out = await self._gate.check_timeouts()
+        except Exception:
+            logger.warning(
+                "proactive.runner: approval timeout check skipped",
+                exc_info=True,
+            )
 
         # 6. O4.2: anomaly alerts (Feishu + desktop)
         # (git HEAD poll removed — do not auto-steer every role into code review)
@@ -2445,14 +2470,20 @@ class ProactiveRunner:
         zombies as FAILED with a clear explanation so they leave the open-items
         list and stop misleading the agent.
         """
-        stale = ProactiveRepository.list_stale_executing(max_age_minutes=max_age_minutes)
+        stale = await asyncio.to_thread(
+            ProactiveRepository.list_stale_executing,
+            max_age_minutes=max_age_minutes,
+        )
         reaped = 0
         for init in stale:
             try:
-                ProactiveRepository.update_initiative_status(
+                await asyncio.to_thread(
+                    ProactiveRepository.update_initiative_status,
                     init.id,
                     InitiativeStatus.FAILED,
-                    execution_result=(f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"),
+                    execution_result=(
+                        f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"
+                    ),
                 )
                 reaped += 1
                 logger.info(
@@ -2523,7 +2554,8 @@ class ProactiveRunner:
           each call generates a fresh approval id, two racing calls would both
           succeed and produce two rows — hence the per-initiative guard here.
         """
-        orphans = ProactiveRepository.list_initiatives(
+        orphans = await asyncio.to_thread(
+            ProactiveRepository.list_initiatives,
             status=InitiativeStatus.PENDING_APPROVAL.value,
             limit=50,
         )
@@ -2533,12 +2565,16 @@ class ProactiveRunner:
             if not init_id:
                 continue
 
-            # Quick pre-check without lock (filter obvious non-orphans first)
-            appr = ProactiveRepository.get_approval_by_initiative(init.id)
+            # Quick pre-check (filter obvious non-orphans first)
+            appr = await asyncio.to_thread(
+                ProactiveRepository.get_approval_by_initiative, init.id
+            )
             if appr is None and str(init.id or "").startswith("task:"):
                 tid = str(init.id)[5:].strip()
                 if tid:
-                    appr = ProactiveRepository.get_approval_by_task(tid)
+                    appr = await asyncio.to_thread(
+                        ProactiveRepository.get_approval_by_task, tid
+                    )
 
             if appr is None:
                 # In-process dedup: skip if another coroutine is already
@@ -2552,10 +2588,14 @@ class ProactiveRunner:
                     # Double-check after acquiring the recovery slot — another
                     # coroutine may have created the approval between our
                     # earlier read and us claiming the slot.
-                    appr2 = ProactiveRepository.get_approval_by_initiative(init.id)
+                    appr2 = await asyncio.to_thread(
+                        ProactiveRepository.get_approval_by_initiative, init.id
+                    )
                     if appr2 is not None:
                         continue
-                    role = ProactiveRepository.get_role(init.role_agent_code)
+                    role = await asyncio.to_thread(
+                        ProactiveRepository.get_role, init.role_agent_code
+                    )
                     if not role:
                         continue
                     try:
@@ -2585,7 +2625,7 @@ class ProactiveRunner:
             else:
                 init.status = InitiativeStatus.REJECTED
             init.approval_id = appr.id
-            ProactiveRepository.save_initiative(init)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, init)
             recovered += 1
             logger.info(
                 "proactive.runner: reconciled stuck pending_approval initiative=%s approval=%s → %s",

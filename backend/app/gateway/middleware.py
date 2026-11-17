@@ -656,6 +656,9 @@ def setup_middleware(app: FastAPI) -> None:
             "Accept-Ranges",
             "Content-Range",
             "Content-Length",
+            # LangGraph stream-404 remint：FE 必须读到才能 V4 rebind，否则订阅停在旧 tid。
+            "x-evoflow-new-thread-id",
+            "x-evoflow-old-thread-id",
         ],
     )
 

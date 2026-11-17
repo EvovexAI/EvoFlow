@@ -100,6 +100,10 @@ _BEST_EFFORT_CONTAINS = (
     "/subagent/",  # transcript polls every few seconds while a run is open
     "/transcript",
     "/execution-history",  # task-detail poll; also matched by METHODS_PATHS
+    "/execution/state",  # history-watch / gear poll; must shed under lag (2026-11-17)
+    "/runtime-status",  # deprecated alias of execution/state
+    "/workspaces/index-status",  # code-index poll while rebuild runs
+    "/workspaces/index-warm",
 )
 
 _BEST_EFFORT_EXACT = frozenset(
@@ -122,6 +126,10 @@ _BEST_EFFORT_METHODS_PATHS: tuple[tuple[str, re.Pattern[str]], ...] = (
     # Task detail history poll — was DATA + full project scan; under lag shed so
     # chat open/send stay responsive (2026-11-14 17:06 hang: 8.6s inflight).
     ("GET", re.compile(r"^/api/tasks/[^/]+/execution-history/?$")),
+    # Session run-status poll — was DATA and sat 200s+ while code-index imported
+    # sklearn (2026-11-17 09:08). Shed under lag so other pages stay reachable.
+    ("GET", re.compile(r"^/api/chat/sessions/.+/execution/state/?$")),
+    ("GET", re.compile(r"^/api/chat/sessions/.+/runtime-status/?$")),
 )
 
 

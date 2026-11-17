@@ -12,7 +12,7 @@
 | 分区 | 路径 | 做什么 |
 |------|------|--------|
 | **获取资源** | `#/settings?tab=resources`（或 `&panel=market`） | 从市场一键安装，或导入本地 zip / 文件夹；浏览 GitHub catalog |
-| **已装资源** | `#/settings?tab=resources&panel=installed` | 已装资源包实例、卸载 |
+| **已装资源** | `#/settings?tab=resources&panel=installed` | 已装资源包实例、卸载；有新版本时一键升级 |
 | **打包分享** | `#/settings?tab=resources&panel=mine` | 勾选本机资源，打包导出给他人 |
 
 旧链接 `#/settings?tab=my-resources` / `resource-market` 会自动落到「资源中心」。
@@ -195,11 +195,31 @@ Showcase / monorepo 包常见模式：扩展与技能 `link` 指回目录（改�
 1. 包会**持久化**到 `~/.evoflow/org-packs/<pack_id>/`（不再链到临时解压目录）。  
 2. Agent 应用**强制复制**到 `~/.evoflow/ui-extensions/<id>/`（忽略作者本机的 `link: true`）。  
 3. 「已装资源」详情展示包目录与扩展 `install_path`，可一键打开文件夹。  
-4. 首次打开 Agent 应用时，桌面端会按 `service.setup`（或自动检测 `package.json` / `requirements.txt`）准备运行环境，并写 `.evoflow-setup-ok`。
+4. 首次打开 Agent 应用时，桌面端会按 `service.setup`（或自动检测）准备运行环境，并写 `.evoflow-setup-ok`：  
+   - 有 `package.json` 且无 `node_modules` → `npm install`  
+   - 有 `scripts.build` 且无 `dist/` → **`npm run build`**（否则 Vite 应用会「能开但没样式」）  
+   - 有 `requirements.txt` 且无 `.venv` → 建 venv + `pip install -r`  
+5. 分享 zip **故意不含** `node_modules` / `.venv`；同事机器需要本机已装 Node / Python，首次打开会自动装依赖与构建产物。
 
 作者本机用文件夹 `link` 开发不受影响；只有 zip / zip_url / market 安装走便携复制。
 
 若同事是**旧版**装的（扩展指到已删临时目录），请在「已装资源」卸载后重新从市场安装一次。
+
+---
+
+## 版本检测与一键升级
+
+资源包用 `evoflow.organization.json` 的 **`version`**（以及 catalog 条目的同名字段）做比较，**不是**桌面端热更新。
+
+| 场景 | 怎么做 |
+|------|--------|
+| 作者发新版 | 改包内 `version`（如 `1.0.0` → `1.1.0`）→ 再 `publish-local` / 更新市场 zip |
+| 同事看是否有更新 | **获取资源**刷新市场：卡片出现「可更新」；或 **已装资源** 列表/详情出现「可更新 → vX」 |
+| 一键升级 | 点「升级」→ 按市场 zip/path **replace 重装**，覆盖同名 Agent / 员工 / 扩展；默认保留工作区与知识库数据，并清理旧实例记录 |
+
+API（供排障）：`GET /api/organizations/market/catalog`（包上附 `_updateAvailable`）、`GET /api/organizations/market/updates`、`POST /api/organizations/upgrade`（body：`{ "pack_id": "…" }`）。
+
+注意：升级会重跑扩展 `setup`/`build`；大版本若改了员工 code / 扩展 id，仍可能要人工核对。本地文件夹开发用 `evoflow org sync` 对齐运行态，与市场上的「升级」是两条路径。
 
 ---
 

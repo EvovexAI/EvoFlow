@@ -100,6 +100,22 @@ def test_execution_history_is_best_effort() -> None:
         classify_path("/api/tasks/2611141704_a169/execution-history", method="GET").lane
         == Lane.BEST_EFFORT
     )
+
+
+def test_execution_state_and_index_status_are_best_effort() -> None:
+    path = (
+        "/api/chat/sessions/proactive:self-evolution-bot:chat:2026-11-16T11-40-50.047Z"
+        "/execution/state"
+    )
+    assert classify_path(path, method="GET").lane == Lane.BEST_EFFORT
+    assert (
+        classify_path(
+            "/api/chat/sessions/agent:main:x/runtime-status", method="GET"
+        ).lane
+        == Lane.BEST_EFFORT
+    )
+    assert classify_path("/api/workspaces/index-status", method="GET").lane == Lane.BEST_EFFORT
+    assert classify_path("/api/workspaces/index-warm", method="POST").lane == Lane.BEST_EFFORT
     assert (
         classify_path("/api/tasks/2611141704_a169/execution-history/", method="GET").lane
         == Lane.BEST_EFFORT

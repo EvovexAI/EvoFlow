@@ -368,7 +368,8 @@ def extract_type_relations_tree_sitter(path: Path, text: str) -> list[TypeRelati
     from evoflow.code_index.tree_sitter_core import language_for_path, parse_tree
 
     lang = language_for_path(path)
-    if lang not in {"typescript", "javascript", "java"}:
+    # tsx 与 typescript 同构（heritage 节点类型一致）；旧映射漏掉 tsx 会导致 .tsx 永远走 regex。
+    if lang not in {"typescript", "tsx", "javascript", "java"}:
         return None
     parsed = parse_tree(path, text)
     if not parsed:
@@ -380,37 +381,46 @@ def extract_type_relations_tree_sitter(path: Path, text: str) -> list[TypeRelati
 
 
 def _walk_ts_heritage(node: Any, source: bytes, lang_key: str, out: list[TypeRelation]) -> None:
-    if node.type == "class_declaration":
-        name = _ts_node_name(node, source)
-        if name:
-            for child in node.children:
-                if child.type == "extends_clause":
-                    base = _heritage_type_name(child, source)
-                    if base:
-                        out.append(
-                            {
-                                "from_path": "",
-                                "from_type": name,
-                                "to_path": None,
-                                "to_type": base,
-                                "rel_kind": "extends",
-                                "line": node.start_point[0] + 1,
-                            }
-                        )
-                elif child.type == "implements_clause":
-                    for iface in _implements_names(child, source):
-                        out.append(
-                            {
-                                "from_path": "",
-                                "from_type": name,
-                                "to_path": None,
-                                "to_type": iface,
-                                "rel_kind": "implements",
-                                "line": node.start_point[0] + 1,
-                            }
-                        )
-    for child in node.children:
-        _walk_ts_heritage(child, source, lang_key, out)
+    # 迭代 + 节点预算：与 tree_sitter_core 对齐，避免病态 AST 上递归爆栈/挂死。
+    from evoflow.code_index.tree_sitter_core import MAX_WALK_NODES
+
+    stack: list[Any] = [node]
+    visited = 0
+    while stack:
+        cur = stack.pop()
+        visited += 1
+        if visited > MAX_WALK_NODES:
+            return
+        if cur.type == "class_declaration":
+            name = _ts_node_name(cur, source)
+            if name:
+                for child in cur.children:
+                    if child.type == "extends_clause":
+                        base = _heritage_type_name(child, source)
+                        if base:
+                            out.append(
+                                {
+                                    "from_path": "",
+                                    "from_type": name,
+                                    "to_path": None,
+                                    "to_type": base,
+                                    "rel_kind": "extends",
+                                    "line": cur.start_point[0] + 1,
+                                }
+                            )
+                    elif child.type == "implements_clause":
+                        for iface in _implements_names(child, source):
+                            out.append(
+                                {
+                                    "from_path": "",
+                                    "from_type": name,
+                                    "to_path": None,
+                                    "to_type": iface,
+                                    "rel_kind": "implements",
+                                    "line": cur.start_point[0] + 1,
+                                }
+                            )
+        stack.extend(cur.children)
 
 
 def _ts_node_name(node: Any, source: bytes) -> str | None:

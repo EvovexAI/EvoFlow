@@ -285,10 +285,9 @@ function renderCatalog(data) {
   const packs = Array.isArray(data?.packs) ? data.packs : []
   reportCount(packs.length)
   const srcN = Array.isArray(data?.sources) ? data.sources.length : 0
-  if (meta) {
-    meta.textContent = `${packs.length} 个包 · ${srcN || 1} 个源`
-  }
   if (!packs.length) {
+    if (meta) meta.textContent = '0 个包'
+
     const errs = Array.isArray(data?.errors) && data.errors.length
       ? `<p class="sr-muted">${esc(data.errors.map((e) => `${e.sourceId}: ${e.error}`).join('；'))}</p>`
       : ''
@@ -300,12 +299,27 @@ function renderCatalog(data) {
       </div>`
     return
   }
+  const updateN = Array.isArray(data?.updates) ? data.updates.length : packs.filter((p) => p._updateAvailable).length
+  if (meta) {
+    meta.textContent = updateN
+      ? `${packs.length} 个包 · ${srcN || 1} 个源 · ${updateN} 个可更新`
+      : `${packs.length} 个包 · ${srcN || 1} 个源`
+  }
   list.innerHTML = packs
     .map((p, idx) => {
       const path = esc(p.path || '')
       const zipUrl = String(p._zipUrl || p.zip_url || p.download?.url || '').trim()
       const srcName = esc(p._sourceName || p._sourceId || '')
       const tags = (p.tags || []).map((t) => `<span class="sr-tag">${esc(t)}</span>`).join('')
+      const installed = !!p._installed
+      const canUpdate = !!p._updateAvailable
+      const sameVer = !!p._sameVersion
+      let actionBtn = `<button type="button" class="sr-btn sr-btn--primary" data-rm-act="install-market" data-pack-idx="${idx}">安装</button>`
+      if (canUpdate) {
+        actionBtn = `<button type="button" class="sr-btn sr-btn--primary" data-rm-act="upgrade-market" data-pack-idx="${idx}">升级到 v${esc(p.version)}</button>`
+      } else if (sameVer || (installed && !canUpdate)) {
+        actionBtn = `<button type="button" class="sr-btn" disabled title="已安装 v${esc(p._installedVersion || p.version)}">已安装</button>`
+      }
       return `
       <article class="sr-card sr-catalog-card">
         <span class="sr-type-icon" title="资源包">${ICONS.box}</span>
@@ -314,6 +328,8 @@ function renderCatalog(data) {
             <span>${esc(p.name || p.id)}</span>
             <span class="sr-badge">${esc(kindLabel(p.kind))}</span>
             <span class="sr-badge sr-badge--muted">v${esc(p.version)}</span>
+            ${canUpdate ? `<span class="sr-badge sr-badge--update">可更新</span>` : ''}
+            ${installed && !canUpdate ? `<span class="sr-badge sr-badge--muted">已装 v${esc(p._installedVersion || p.version)}</span>` : ''}
             ${srcName ? `<span class="sr-badge sr-badge--muted">${srcName}</span>` : ''}
             ${zipUrl ? `<span class="sr-badge">直链</span>` : ''}
           </div>
@@ -324,7 +340,7 @@ function renderCatalog(data) {
           </div>
         </div>
         <div class="sr-card-actions">
-          <button type="button" class="sr-btn sr-btn--primary" data-rm-act="install-market" data-pack-idx="${idx}">安装</button>
+          ${actionBtn}
         </div>
       </article>`
     })
@@ -446,32 +462,75 @@ async function refreshHost() {
   }
 }
 
+function marketSourceForPack(p) {
+  const zipUrl = String(p?._zipUrl || p?.zip_url || p?.download?.url || '').trim()
+  const path = String(p?.path || '').trim()
+  if (zipUrl) return { type: 'zip_url', url: zipUrl }
+  if (path) return { type: 'market_path', path }
+  return null
+}
+
 async function onInstallMarket(idx) {
   const list = _root?.querySelector('[data-rm-catalog]')
   const packs = list?._rmPacks
   const p = Array.isArray(packs) ? packs[Number(idx)] : null
   if (!p) return
-  const zipUrl = String(p._zipUrl || p.zip_url || p.download?.url || '').trim()
-  const path = String(p.path || '').trim()
-  const label = p.name || p.id || path || zipUrl
-  const mode = zipUrl ? '直链 zip' : 'GitHub 市场目录'
+  const source = marketSourceForPack(p)
+  const label = p.name || p.id || ''
+  const mode = source?.type === 'zip_url' ? '直链 zip' : 'GitHub 市场目录'
   const ok = await showConfirm(`安装「${label}」？\n方式：${mode}`)
   if (!ok) return
+  if (!source) {
+    toast.error('该条目缺少 path / zip_url')
+    return
+  }
   try {
     toast('正在从市场下载并安装…')
-    const source = zipUrl
-      ? { type: 'zip_url', url: zipUrl }
-      : { type: 'market_path', path }
-    if (!zipUrl && !path) {
-      toast.error('该条目缺少 path / zip_url')
-      return
-    }
     const res = await api.orgInstall({
       source,
       workspace_path: workspaceValue() || null,
       options: { conflict_policy: 'fail' },
     })
     await afterInstalled(res)
+  } catch (e) {
+    const detail = e?.detail
+    const msg =
+      (detail && typeof detail === 'object' && (detail.error || detail.detail)) ||
+      e?.message ||
+      e
+    toast.error(String(msg))
+    setLog(detail || String(msg))
+  }
+}
+
+async function onUpgradeMarket(idx) {
+  const list = _root?.querySelector('[data-rm-catalog]')
+  const packs = list?._rmPacks
+  const p = Array.isArray(packs) ? packs[Number(idx)] : null
+  if (!p) return
+  const packId = String(p.id || '').trim()
+  if (!packId) {
+    toast.error('缺少 pack id')
+    return
+  }
+  const label = p.name || packId
+  const from = p._installedVersion || '?'
+  const to = p.version || '?'
+  const ok = await showConfirm(
+    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 Agent / 员工 / 扩展（保留工作区与知识库数据）。`,
+  )
+  if (!ok) return
+  try {
+    toast('正在升级…')
+    const source = marketSourceForPack(p)
+    const res = await api.orgUpgrade({
+      pack_id: packId,
+      source: source || undefined,
+      workspace_path: workspaceValue() || null,
+    })
+    setLog(res)
+    toast.success(`已升级到 v${res?.pack_version || to}`)
+    await refreshCatalog()
   } catch (e) {
     const detail = e?.detail
     const msg =
@@ -525,6 +584,7 @@ function onClick(e) {
   if (act === 'preflight') void onPreflight()
   if (act === 'install') void onInstall()
   if (act === 'install-market') void onInstallMarket(btn.getAttribute('data-pack-idx') || '')
+  if (act === 'upgrade-market') void onUpgradeMarket(btn.getAttribute('data-pack-idx') || '')
   if (act === 'refresh-catalog') void refreshCatalog()
   if (act === 'refresh-sources') void refreshSources()
   if (act === 'refresh-host') void refreshHost()

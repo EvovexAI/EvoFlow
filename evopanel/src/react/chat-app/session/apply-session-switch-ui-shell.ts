@@ -47,6 +47,20 @@ export type ApplySessionSwitchUiShellCtx = {
   setStreamingWritePreview: (v: null) => void
   setWorkspacePanelOpen: (v: boolean) => void
   setWorkspaceTreePinned: (v: boolean) => void
+  /** 按会话记住工作区面板开合（对齐 ZCode pane 本地状态，切走不整页砸关）。 */
+  workspacePanelOpenBySessionRef?: { current: Map<string, boolean> }
+  workspacePanelOpenRef?: { current: boolean }
+  /** 按会话记住协作侧栏开合。 */
+  sessionSidebarOpenBySessionRef?: { current: Map<string, boolean> }
+  sessionSidebarOpenRef?: { current: boolean }
+  setSessionSidebarOpen?: (v: boolean) => void
+  /** 按会话记住执行面板 / 知识图谱开合。 */
+  collabExecPanelOpenBySessionRef?: { current: Map<string, boolean> }
+  collabExecPanelOpenRef?: { current: boolean }
+  setCollabExecPanelOpen?: (v: boolean) => void
+  knowledgeMapPanelOpenBySessionRef?: { current: Map<string, boolean> }
+  knowledgeMapPanelOpenRef?: { current: boolean }
+  setKnowledgeMapPanelOpen?: (v: boolean) => void
   setSubagentDockTasks: (v: Record<string, unknown>) => void
   setThreadPanelState: Dispatch<SetStateAction<ThreadPanelState>>
   setHasReceivedTodos: (v: boolean) => void
@@ -84,24 +98,94 @@ export function applySessionSwitchUiShell(ctx: ApplySessionSwitchUiShellCtx): vo
     else ctx.composerDraftsRef.current.delete(fromKey)
     ctx.threadPanelBySessionRef.current.set(fromKey, ctx.threadPanelStateRef.current)
     ctx.planSessionEnterRef.current = ''
+    if (ctx.workspacePanelOpenBySessionRef && ctx.workspacePanelOpenRef) {
+      ctx.workspacePanelOpenBySessionRef.current.set(
+        fromKey,
+        !!ctx.workspacePanelOpenRef.current,
+      )
+    }
+    if (ctx.sessionSidebarOpenBySessionRef && ctx.sessionSidebarOpenRef) {
+      ctx.sessionSidebarOpenBySessionRef.current.set(
+        fromKey,
+        !!ctx.sessionSidebarOpenRef.current,
+      )
+    }
+    if (ctx.collabExecPanelOpenBySessionRef && ctx.collabExecPanelOpenRef) {
+      ctx.collabExecPanelOpenBySessionRef.current.set(
+        fromKey,
+        !!ctx.collabExecPanelOpenRef.current,
+      )
+    }
+    if (ctx.knowledgeMapPanelOpenBySessionRef && ctx.knowledgeMapPanelOpenRef) {
+      ctx.knowledgeMapPanelOpenBySessionRef.current.set(
+        fromKey,
+        !!ctx.knowledgeMapPanelOpenRef.current,
+      )
+    }
   }
   delete ctx.refreshAttachAttemptedRef.current[selectedSessionKey]
 
+  const wsMap = ctx.workspacePanelOpenBySessionRef?.current
+  const hasWsEntry =
+    !!selectedSessionKey && !!wsMap && wsMap.has(selectedSessionKey)
+  let restoreWsOpen =
+    !!selectedSessionKey && hasWsEntry && !!wsMap!.get(selectedSessionKey)
+  // 目标会话尚无开合记录：与上一会话同 workspace 且上一会话开着 → 继承开态
+  // （对齐 ZCode pane 本地壳：同工作区切聊不砸关文件树）。
+  if (!restoreWsOpen && !hasWsEntry && fromKey && selectedSessionKey) {
+    const prevWsOpen = !!wsMap?.get(fromKey)
+    if (prevWsOpen) {
+      try {
+        const prevRoot = String(
+          ctx.getSessionContext(fromKey).local_workspace_root || '',
+        ).trim()
+        const nextRoot = String(
+          ctx.getSessionContext(selectedSessionKey).local_workspace_root || '',
+        ).trim()
+        if (prevRoot && nextRoot && prevRoot === nextRoot) {
+          restoreWsOpen = true
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+  const restoreSidebarOpen =
+    !!selectedSessionKey &&
+    !!ctx.sessionSidebarOpenBySessionRef?.current.get(selectedSessionKey)
+  const restoreCollabExec =
+    !!selectedSessionKey &&
+    !!ctx.collabExecPanelOpenBySessionRef?.current.get(selectedSessionKey)
+  const restoreKnowledgeMap =
+    !!selectedSessionKey &&
+    !!ctx.knowledgeMapPanelOpenBySessionRef?.current.get(selectedSessionKey)
+
   queueMicrotask(() => {
     ctx.setStreamingWritePreview(null)
-    ctx.setWorkspacePanelOpen(false)
+    ctx.setWorkspacePanelOpen(restoreWsOpen)
     ctx.setWorkspaceTreePinned(false)
     ctx.setSubagentDockTasks({})
+    ctx.syncShellAsideForWorkspacePanel(restoreWsOpen)
+    ctx.setSessionSidebarOpen?.(restoreSidebarOpen)
+    ctx.setCollabExecPanelOpen?.(restoreCollabExec)
+    ctx.setKnowledgeMapPanelOpen?.(restoreKnowledgeMap)
   })
   ctx.lastStreamWritePathRef.current = null
   resetStreamMirrorDedupe()
   resetPlanTrace()
   ctx.planResolveInFlightRef.current = false
-  ctx.syncShellAsideForWorkspacePanel(false)
+  // 同步路径：要恢复则立刻开 aside（避免 microtask 前闪关）；否则先关。
+  if (restoreWsOpen) ctx.syncShellAsideForWorkspacePanel(true)
+  else ctx.syncShellAsideForWorkspacePanel(false)
   const isTaskJump =
     ctx.processedTaskIdRef.current &&
     ctx.boundTaskIdRef.current === ctx.processedTaskIdRef.current
-  ctx.resetCollabPlanUiForSession({ keepBoundTaskId: !!isTaskJump, closeSidebar: true })
+  // 侧栏按会话恢复：目标会话本就开着则不要砸关（对齐 ZCode pane 本地壳）。
+  // reset 里仍会关 collabExec/knowledgeMap；microtask 再按 map 恢复。
+  ctx.resetCollabPlanUiForSession({
+    keepBoundTaskId: !!isTaskJump,
+    closeSidebar: !restoreSidebarOpen,
+  })
   if (selectedSessionKey) {
     // 切会话时立即校验：若新选中的会话看起来 busy，查 DB 确认是否真的还在运行
     const switchSk = String(selectedSessionKey).trim()

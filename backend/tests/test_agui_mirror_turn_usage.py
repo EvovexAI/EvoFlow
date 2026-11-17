@@ -265,3 +265,39 @@ def test_session_usage_state_skipped_without_baseline(clean_hub) -> None:
         ],
     )
     assert sess.usage_state is None
+
+
+def test_assistant_text_preserves_start_created_at(clean_hub, monkeypatch: pytest.MonkeyPatch) -> None:
+    """TEXT_MESSAGE_END / RUN_FINISHED 不得把多段正文盖成同一个 turn_started。"""
+    clock = {"t": 1_700_000_000_000}
+
+    def _tick() -> int:
+        clock["t"] += 10
+        return clock["t"]
+
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._now_ms", _tick)
+    tid = clean_hub("created-at")
+    mirror = V4Mirror(HUB)
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "一"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m2"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m2", "delta": "二"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m2"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
+        ],
+    )
+    texts = _texts(tid, "run-1")
+    assert len(texts) == 2
+    c0 = int(texts[0]["createdAt"])
+    c1 = int(texts[1]["createdAt"])
+    assert c1 > c0, f"两段正文须各自保留 START 时钟，got {c0} / {c1}"
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    header = next(r for r in sess.rows.values() if r.get("kind") == "turnHeader")
+    assert c0 > int(header["createdAt"])
+    assert c1 > int(header["createdAt"])

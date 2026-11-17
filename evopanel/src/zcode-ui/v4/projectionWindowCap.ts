@@ -43,6 +43,69 @@ export function resolveProjectionWindowSoftCap(): number {
   return projectionSoftCapForMemoryLevel(resolveRendererMemoryLevel());
 }
 
+function isRealUserRow(row: ConversationRow | undefined): boolean {
+  return !!row && row.kind === "userInput" && row.origin === "realUser";
+}
+
+/**
+ * 最新非空 realUser 的 (turnStart, userIdx)。turnStart 含紧前 turnHeader。
+ * 用于 prefer=head 裁切后把直播轮尾钉回窗口，避免 stale_prev_turn_tail。
+ */
+export function liveTurnSpan(
+  rows: readonly ConversationRow[],
+): { turnStart: number; userIdx: number } | null {
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  let userIdx = -1;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const row = rows[i];
+    if (!isRealUserRow(row)) continue;
+    if (!String((row as { text?: string }).text || "").trim()) continue;
+    userIdx = i;
+    break;
+  }
+  if (userIdx < 0) return null;
+  let turnStart = userIdx;
+  if (userIdx > 0 && rows[userIdx - 1]?.kind === "turnHeader") {
+    turnStart = userIdx - 1;
+  }
+  return { turnStart, userIdx };
+}
+
+/**
+ * prefer=head 裁掉直播轮尾时：在 softCap 内把头窗与直播轮拼回。
+ * 不是按埋深「只留当前轮」重建——有预算就尽量保留 capped 里更早的行。
+ */
+export function ensureLiveTurnInProjectionWindow(
+  full: readonly ConversationRow[],
+  capped: readonly ConversationRow[],
+  softCap: number,
+): readonly ConversationRow[] {
+  const span = liveTurnSpan(full);
+  if (!span) return capped;
+  const live = full.slice(span.turnStart);
+  if (live.length === 0) return capped;
+  const present = new Set(capped.map((r) => r.rowId));
+  if (live.every((r) => present.has(r.rowId))) return capped;
+
+  const cap = Math.max(MIN_KEEP, Math.floor(softCap));
+  if (live.length >= cap) {
+    const head = full.slice(span.turnStart, span.userIdx + 1);
+    const after = full.slice(span.userIdx + 1);
+    const tailBudget = Math.max(0, cap - head.length);
+    const tail = tailBudget > 0 ? after.slice(-tailBudget) : [];
+    return [...head, ...tail];
+  }
+  const olderBudget = cap - live.length;
+  const older = capped.filter((r) => r.rowId < (live[0]?.rowId ?? 0));
+  let olderKeep =
+    older.length > olderBudget ? older.slice(older.length - olderBudget) : older;
+  if (olderKeep.length > 0 && olderKeep[0]?.kind !== "turnHeader") {
+    const idx = olderKeep.findIndex((r) => r.kind === "turnHeader");
+    if (idx > 0) olderKeep = olderKeep.slice(idx);
+  }
+  return [...olderKeep, ...live];
+}
+
 /**
  * 裁到 softCap。未超限时返回原引用（避免无意义换引用触发重绘）。
  */

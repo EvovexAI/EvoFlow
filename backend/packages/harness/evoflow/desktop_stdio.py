@@ -137,23 +137,60 @@ def _replace_stdio_from_dup(saved: dict[str, int]) -> None:
             setattr(sys, name, stream)
 
 
+def _iter_logging_targets() -> list[logging.Logger]:
+    """Root + known uvicorn loggers + any already-created named loggers."""
+    out: list[logging.Logger] = [logging.getLogger()]
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error", "uvicorn.asgi"):
+        out.append(logging.getLogger(name))
+    try:
+        for obj in list(logging.Logger.manager.loggerDict.values()):
+            if isinstance(obj, logging.Logger):
+                out.append(obj)
+    except Exception:
+        pass
+    # de-dupe by identity
+    seen: set[int] = set()
+    unique: list[logging.Logger] = []
+    for log in out:
+        ident = id(log)
+        if ident in seen:
+            continue
+        seen.add(ident)
+        unique.append(log)
+    return unique
+
+
 def _sanitize_logging_after_stdio_fix() -> None:
-    """Drop StreamHandlers still bound to pre-fix or colorama-wrapped streams."""
-    root = logging.getLogger()
-    for handler in list(root.handlers):
-        if not isinstance(handler, logging.StreamHandler):
-            continue
-        stream = getattr(handler, "stream", None)
-        if stream is None:
-            continue
-        if stream is sys.stdout or stream is sys.stderr:
-            continue
-        if _is_colorama_wrapped(stream) or not _stream_is_usable(stream):
-            root.removeHandler(handler)
-            try:
-                handler.close()
-            except Exception:
-                pass
+    """Retarget/drop StreamHandlers still bound to pre-fix or colorama streams.
+
+    ``reconfigure_stdio_utf8`` detaches the old TextIOWrapper; uvicorn's
+    access logger often keeps that wrapper and then dies with
+    ``ValueError: underlying buffer has been detached`` on every request.
+    Prefer retargeting to the current ``sys.stderr`` so access logs keep working.
+    """
+    for log in _iter_logging_targets():
+        for handler in list(log.handlers):
+            if not isinstance(handler, logging.StreamHandler):
+                continue
+            # FileHandler is a StreamHandler subclass — never retarget files.
+            if isinstance(handler, logging.FileHandler):
+                continue
+            stream = getattr(handler, "stream", None)
+            if stream is None:
+                continue
+            if stream is sys.stdout or stream is sys.stderr:
+                continue
+            if _is_colorama_wrapped(stream) or not _stream_is_usable(stream):
+                try:
+                    handler.stream = sys.stderr
+                    continue
+                except Exception:
+                    pass
+                log.removeHandler(handler)
+                try:
+                    handler.close()
+                except Exception:
+                    pass
     try:
         last = logging.lastResort
         if isinstance(last, logging.Handler):
@@ -238,9 +275,13 @@ def reconfigure_stdio_utf8() -> None:
     Must ``detach()`` the old TextIOWrapper before wrapping the same buffer —
     otherwise the old wrapper's ``__del__`` closes the shared fd (Tauri/Start-Process
     stderr tee → ``ValueError: I/O operation on closed file`` / ``lost sys.stderr``).
+
+    After detach, retarget logging handlers that still hold the old wrapper so
+    uvicorn access logs do not spam ``underlying buffer has been detached``.
     """
     if os.name != "nt" or getattr(sys, "frozen", False):
         return
+    changed = False
     for name in ("stdout", "stderr"):
         stream = getattr(sys, name, None)
         if stream is None or not hasattr(stream, "buffer"):
@@ -263,6 +304,52 @@ def reconfigure_stdio_utf8() -> None:
                 line_buffering=True,
             )
             setattr(sys, name, wrapped)
+            changed = True
+        except Exception:
+            pass
+    if changed:
+        _sanitize_logging_after_stdio_fix()
+        heal_mcp_stdio_errlog_default()
+
+
+def heal_mcp_stdio_errlog_default() -> None:
+    """Refresh ``mcp.client.stdio.stdio_client``'s import-time ``errlog`` default.
+
+    ``stdio_client(server, errlog=sys.stderr)`` freezes whatever ``sys.stderr``
+    was when the MCP SDK was first imported. After ``reconfigure_stdio_utf8``
+    detaches that TextIOWrapper, every stdio MCP spawn fails with
+    ``ValueError: underlying buffer has been detached`` — even when the live
+    ``sys.stderr`` is fine. ``langchain_mcp_adapters`` binds the same function
+    object, so repairing ``__wrapped__.__defaults__`` fixes all callers.
+    """
+    try:
+        import mcp.client.stdio as stdio_mod
+    except ImportError:
+        return
+
+    live = sys.stderr
+    if not _stream_is_usable(live):
+        try:
+            live = open(os.devnull, "w", encoding="utf-8")  # noqa: SIM115
+        except OSError:
+            return
+
+    client = getattr(stdio_mod, "stdio_client", None)
+    if client is None:
+        return
+    targets = [client]
+    wrapped = getattr(client, "__wrapped__", None)
+    if wrapped is not None:
+        targets.append(wrapped)
+    for fn in targets:
+        defaults = getattr(fn, "__defaults__", None)
+        if not defaults:
+            continue
+        current = defaults[0]
+        if current is live and _stream_is_usable(current):
+            continue
+        try:
+            fn.__defaults__ = (live,) + tuple(defaults[1:])
         except Exception:
             pass
 
@@ -331,6 +418,9 @@ def shield_stdio_from_handler_close() -> None:
         except Exception:
             pass
 
+    # Shield replaces sys.stderr — keep MCP's frozen errlog default in sync.
+    heal_mcp_stdio_errlog_default()
+
     if _stream_handler_close_patched:
         return
     _orig_close = logging.StreamHandler.close
@@ -358,6 +448,10 @@ def apply_windows_stdio_fixes(*, reconfigure: bool = True) -> None:
     apply_windows_stdio_env()
     if getattr(sys, "frozen", False):
         prepare_frozen_process_stdio()
+        heal_mcp_stdio_errlog_default()
         return
     if reconfigure and os.name == "nt":
         reconfigure_stdio_utf8()
+        # Idempotent when reconfigure already sanitized; covers already-UTF8 stdio.
+        _sanitize_logging_after_stdio_fix()
+    heal_mcp_stdio_errlog_default()

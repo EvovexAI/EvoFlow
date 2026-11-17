@@ -397,7 +397,9 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             # 冷启动可达数十秒，表现为 health 超时、V4 subscribe_ack 卡死、对话没反应
             # （hang: background_startup._warmup_embedding_model → warmup_local_model）。
             # 也不走 asyncio.to_thread（默认 ThreadPoolExecutor 在 Windows 上曾与
-            # scipy._fblas .pyd 冷加载死锁）。专用 daemon 线程：堵的是暖机，不是 Gateway。
+            # scipy._fblas .pyd 冷加载死锁）。专用 daemon 线程仍可能因 GIL/import 锁
+            # 拖慢 event loop（2026-11-17 hang 186s）；代码索引重建已改子进程隔离。
+            # 暖机仍用专用线程：堵的是暖机路径，至少不占默认线程池。
             loop = asyncio.get_running_loop()
             done: asyncio.Future[None] = loop.create_future()
 

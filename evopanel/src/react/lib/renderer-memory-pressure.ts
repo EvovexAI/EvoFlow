@@ -50,19 +50,40 @@ export function projectionSoftCapForMemoryLevel(level: RendererMemoryLevel): num
   return 400
 }
 
-/** 后台 pin 会话数上限。 */
+/** 后台 pin 会话数上限。对齐 ZCode 多 leaf 常驻：normal=8；high 至少 4；critical=1。 */
 export function pinMaxForMemoryLevel(level: RendererMemoryLevel): number {
   if (level === 'critical') return 1
-  if (level === 'high') return 2
-  return 4
+  if (level === 'high') return 4
+  return 8
 }
 
 let lastLoggedLevel: RendererMemoryLevel | null = null
 let lastLoggedAt = 0
+/** 上一次采样的 heap MB，供 critical 渐进驱逐判断「是否仍在涨」。 */
+let lastHeapMbSample: number | null = null
+
+/**
+ * critical 水位是否还应继续挤 keep-warm：
+ * - 读不到 heap → 保守继续挤
+ * - heap 比上次采样仍升（或持平偏高）→ 继续
+ * - heap 已回落 → 停手，避免无意义全灭导致切回冷开
+ */
+export function shouldContinueCriticalEviction(heapMb?: number | null): boolean {
+  const mb = heapMb == null ? readRendererHeapMb() : heapMb
+  if (mb == null || !Number.isFinite(mb)) return true
+  const prev = lastHeapMbSample
+  lastHeapMbSample = mb
+  if (prev == null) return true
+  // 允许 8MB 抖动；明显回落则停。
+  return mb >= prev - 8
+}
 
 /** 水位变化或每 30s 打一行，落 frontend 日志便于对账 OOM。 */
 export function noteRendererMemoryPressure(detail?: Record<string, unknown>): RendererMemoryLevel {
   const heapMb = readRendererHeapMb()
+  if (heapMb != null && Number.isFinite(heapMb)) {
+    lastHeapMbSample = heapMb
+  }
   const level = resolveRendererMemoryLevel(heapMb)
   const now = Date.now()
   const changed = level !== lastLoggedLevel

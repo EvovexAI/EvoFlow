@@ -26,9 +26,25 @@ logger = logging.getLogger(__name__)
 _TEXT_SUFFIXES = {".md", ".markdown", ".mdx", ".txt", ".yaml", ".yml", ".json"}
 
 
+# 【self-evolution-bot · 2026-11-17 · 第32轮】新增进程级"已建好骨架"缓存（按路径记）。
+# 为什么：obs 实测 delete P50=349ms、并发 11 次时 P90=15.7s，而删除本体只是一个 unlink()。
+#   大头在每次写动作都全量重跑目录骨架 ensure（assets 树 + 实体树：约 8 次 mkdir、
+#   5 次 is_file、affect 默认文件、_migrate_craft_dirs_to_files 目录扫描、standing/MEMORY 检查）。
+#   Windows 上这些元数据操作打在同一批目录上会互相串行排队——并发写越多排得越久。
+# 缓存语义：首次调用照常建骨架并记下该路径；之后同路径重复调用 = set 查找 + 一次 is_dir()。
+# 边界：键用未 resolve 的 str(path)，只会"多跑一次"（大小写不同的同一路径 miss 后重新 ensure），
+#   不会假命中；测试换 vault（不同 tmp_path）天然不同键。ent_root 被外部整删时 is_dir()
+#   不过 → 自动重新 ensure。注意一条**行为变化**：用 delete 删掉的 standing.md/MEMORY.md
+#   不再被下次写入"复活"——删除即真删除，与本工具"删除不可撤销"的回执口径一致。
+_ENSURED_ASSET_ROOTS: set[str] = set()
+_ENSURED_ENTITY_ROOTS: set[str] = set()
+
+
 def ensure_assets_tree() -> Path:
-    """Create ``assets/`` skeleton if missing."""
+    """Create ``assets/`` skeleton if missing (process-cached per root path)."""
     root = assets_root()
+    if str(root) in _ENSURED_ASSET_ROOTS and root.is_dir():
+        return root
     root.mkdir(parents=True, exist_ok=True)
 
     index = root / "index.md"
@@ -42,6 +58,7 @@ def ensure_assets_tree() -> Path:
         (entity_root(EntityRef("user", "user")) / sub).mkdir(parents=True, exist_ok=True)
 
     _ensure_obsidian_marker(root)
+    _ENSURED_ASSET_ROOTS.add(str(root))
     return root
 
 
@@ -54,9 +71,15 @@ def _ensure_obsidian_marker(dest: Path) -> None:
 
 
 def ensure_entity_tree(entity: EntityRef) -> Path:
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】命中进程缓存即早退（见 _ENSURED_ASSET_ROOTS 注释）。
+    #   delete/note/write 每次都全量走这里，实测单次约 15~20 个文件系统元数据操作，
+    #   并发写全挤在同一批目录上互相排队——这是 delete P90=15.7s 的主要构成。
+    #   行为变化：删掉的 standing.md/MEMORY.md 不再被下次写入复活（删除即真删除）。
+    ent_root = entity_root(entity.normalized())
+    if str(ent_root) in _ENSURED_ENTITY_ROOTS and ent_root.is_dir():
+        return ensure_assets_tree()
     root = ensure_assets_tree()
     e = entity.normalized()
-    ent_root = entity_root(e)
     ent_root.mkdir(parents=True, exist_ok=True)
     # Workspace project assets have no profile/; user/agent/employee keep profile under entity root.
     if e.entity_type != "workspace":
@@ -73,6 +96,7 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
 
     # Agents are config shells — no memory/craft tree (dialogue memory lives under user/).
     if e.entity_type == "agent":
+        _ENSURED_ENTITY_ROOTS.add(str(ent_root))
         return root
 
     for sub in ("memory", "craft"):
@@ -103,6 +127,7 @@ def ensure_entity_tree(entity: EntityRef) -> Path:
         from evoflow.assets.user_profile_dims import ensure_user_profile_files
 
         ensure_user_profile_files(e)
+    _ENSURED_ENTITY_ROOTS.add(str(ent_root))
     return root
 
 
@@ -787,11 +812,41 @@ def save_craft_note(
             if _s:
                 break
         t = body_first_heading or t
-        # New craft: unique name if slug taken (do not silently clobber another craft).
+        # 【self-evolution-bot · 2026-11-17 · 第31轮】改：slug 撞名且**标题同文**时，不再加随机后缀
+        #   另存新文件，而是命中已有文件走下面的追加分支。为什么：wrap-up 镜像同题重跑时
+        #   `_unique_rel_name` 造出 `X.md` + `X-a137.md`（H1 完全同文）两份——"防撞=防覆盖"是
+        #   第12轮追加语义落地前的老前提，现在同题追加不丢内容，同题另存反而制造重复配方。
+        #   判据用 `_h1_norm`（同文归一化，与第12轮双标题判据同一口径）：frontmatter name 或正文
+        #   首个 H1 任一与新标题同文 → 视为同一配方。
+        # 边界：撞 slug 但标题**不同文**（48 字截断致撞、或改名）→ 仍走 _unique_rel_name 另存，
+        #   不吞另一篇配方；mode=replace 显式覆盖的语义不变。
         slug = _slug_cjk(t, fallback="craft")
-        rel = _unique_rel_name(entity, "craft", slug)
-        skill_name = Path(rel).stem
+        rel = f"craft/{slug}.md"
         updated = False
+        candidate = resolve_entity_file(e, rel)
+        if candidate.is_file():
+            from evoflow.assets.craft import _h1_norm
+
+            try:
+                _existing_txt = candidate.read_text(encoding="utf-8")
+            except OSError:
+                _existing_txt = ""
+            _fm_name = ""
+            if _existing_txt.startswith("---"):
+                _blocks = _existing_txt.split("---", 2)
+                if len(_blocks) >= 3:
+                    _fm_m = re.search(r"^name:\s*(.+)$", _blocks[1], re.M)
+                    _fm_name = _fm_m.group(1).strip() if _fm_m else ""
+            _h1_m = re.search(r"^# +(.+)$", _existing_txt, re.M)
+            _norm_new = _h1_norm(t)
+            if _norm_new and (
+                (_fm_name and _h1_norm(_fm_name) == _norm_new)
+                or (_h1_m and _h1_norm(_h1_m.group(1)) == _norm_new)
+            ):
+                updated = True  # 同文命中 → 下面走追加
+            else:
+                rel = _unique_rel_name(e, "craft", slug)
+        skill_name = Path(rel).stem
     # 【fullstack-dev · 2026-11-15 · 第12轮】改：update_path 命中已有文件时，从"整篇重建覆盖"改为追加一节。
     # 为什么：我按工具自己写的规矩（``note`` 默认追加、``write`` 才要 mode=replace）用 note 更新 craft 配方，
     # 结果 ``save_craft_from_experience`` 把文件**整份重写**，上一轮写的两段分析直接没了，回执还是 ``ok:true``

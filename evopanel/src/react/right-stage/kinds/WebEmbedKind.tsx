@@ -290,9 +290,25 @@ export const WebEmbedKind = memo(function WebEmbedKind({
 
   const canShowFrame = !!pageUrl && !blocked && !localBlocked && (!!embedSrc || !!embedSrcDoc)
 
+  const showBack = typeof onClose === 'function'
+
   return (
     <div className="react-chat-web-embed">
       <header className="react-chat-web-embed-toolbar">
+        {showBack ? (
+          <button
+            type="button"
+            className="react-chat-web-embed-back"
+            onClick={onClose}
+            title="返回"
+            aria-label="返回"
+          >
+            <span className="react-chat-web-embed-back-icon" aria-hidden>
+              ←
+            </span>
+            <span className="react-chat-web-embed-back-label">返回</span>
+          </button>
+        ) : null}
         <span className="react-chat-web-embed-globe" aria-hidden>
           <GlobeIcon />
         </span>
@@ -349,7 +365,8 @@ export const WebEmbedKind = memo(function WebEmbedKind({
             <ExternalLinkIcon />
           </a>
         ) : null}
-        {onClose ? (
+        {/* 关闭保留在右侧；主返回入口已在顶栏左侧（更明显） */}
+        {showBack ? (
           <button
             type="button"
             className="react-chat-web-embed-btn react-chat-web-embed-close"

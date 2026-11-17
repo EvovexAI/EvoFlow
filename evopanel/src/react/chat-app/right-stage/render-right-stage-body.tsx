@@ -496,6 +496,7 @@ export function renderRightStageBody(
           aria-label="工作区文件"
         >
           <V4WorkspaceFileTreePane
+            key={browseRoot}
             workspacePath={browseRoot}
             threadId={wsClient.getSessionThreadId(selectedSessionKey || '') || undefined}
             activePreviewPath={focusPath || undefined}

@@ -576,11 +576,18 @@ class V4ConversationHub:
             except ValueError:
                 sess.log_epoch = f"{sess.log_epoch}+r"
 
-    def catchup_from_transcript(self, session_id: str) -> dict[str, Any]:
+    def catchup_from_transcript(
+        self,
+        session_id: str,
+        *,
+        prefer_settle_only: bool = False,
+    ) -> dict[str, Any]:
         """飞书/IM 旁观：用 DB transcript 强制重建投影（hydrate 仅空 session 时会跳过）。
 
         - 指纹未变 → no-op（避免无意义闪烁）
         - 频道 live mirror 本轮仍在写 → 禁止 wipe（否则 240 行 live 被打回 ~130 行 DB）
+        - ``prefer_settle_only``：客户端已有投影（切回校准）时只 settle phase / 更新指纹，
+          禁止 ``clear_projection_for_rehydrate``（对齐 ZCode：有投影继续显示）。
         """
         tid = str(session_id or "").strip()
         if not tid or tid.startswith("v4-"):
@@ -733,6 +740,26 @@ class V4ConversationHub:
                     "logEpoch": sess.log_epoch,
                     "fingerprint": fp,
                 }
+
+        # 切回校准：客户端已有投影行 → 只 settle，绝不 wipe（避免 recovery 整窗替换闪烁）。
+        if prefer_settle_only and prev_rows > 0:
+            sess.catchup_fp = fp
+            logger.info(
+                "[v4.catchup] settle-only session=%s rows=%s settled=%s fp=%s",
+                tid,
+                prev_rows,
+                settled_phase or "-",
+                fp,
+            )
+            return {
+                "ok": True,
+                "changed": False,
+                "reason": "settle-only",
+                "rows": prev_rows,
+                "settledPhase": settled_phase or None,
+                "logEpoch": sess.log_epoch,
+                "fingerprint": fp,
+            }
 
         # Catchup must not mirror_reset — that clears run_started mid-IM stream and
         # lets the next tick wipe again.
@@ -1726,6 +1753,8 @@ class V4ConversationHub:
         last_ui_idx: int | None = None
         for i in range(len(rows) - 1, -1, -1):
             if str(rows[i].get("kind") or "") != "userInput":
+                continue
+            if str(rows[i].get("origin") or "") != "realUser":
                 continue
             if not str(rows[i].get("text") or "").strip():
                 continue

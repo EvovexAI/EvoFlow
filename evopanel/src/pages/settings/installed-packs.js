@@ -13,6 +13,8 @@ let _root = null
 let _items = []
 /** @type {string} */
 let _detailId = ''
+/** @type {Map<string, Record<string, any>>} pack_id → update info */
+let _updatesByPackId = new Map()
 
 function esc(s) {
   return String(s ?? '')
@@ -135,6 +137,7 @@ function shellHtml(embedded) {
             <h3 data-ip-detail-title style="margin:0">资源包详情</h3>
           </div>
           <div class="sr-inline-actions">
+            <button type="button" class="sr-btn sr-btn--primary" data-ip-act="upgrade-detail" hidden data-ip-upgrade-btn>升级</button>
             <button type="button" class="sr-btn sr-btn--danger" data-ip-act="uninstall-detail">卸载</button>
           </div>
         </div>
@@ -227,6 +230,9 @@ function renderList(items) {
       const title = packTitle(it)
       const desc = String(it.description || '').trim()
       const showId = it.pack_id && it.pack_id !== title
+      const upd = _updatesByPackId.get(String(it.pack_id || ''))
+      const canUpdate = !!upd
+      const availVer = upd ? String(upd.available_version || '') : ''
       return `
       <article class="sr-card sr-card--clickable" data-org-id="${id}" data-ip-act="open-detail" tabindex="0" role="button" aria-label="查看 ${esc(title)} 详情">
         <span class="sr-type-icon" title="${esc(kindLabel(it.kind))}">${kindIcon(it.kind)}</span>
@@ -235,6 +241,7 @@ function renderList(items) {
             <span>${esc(title)}</span>
             <span class="sr-badge">${esc(kindLabel(it.kind))}</span>
             <span class="sr-badge sr-badge--muted">v${esc(it.pack_version)}</span>
+            ${canUpdate ? `<span class="sr-badge sr-badge--update">可更新 → v${esc(availVer)}</span>` : ''}
           </div>
           ${desc ? `<div class="sr-card-meta">${esc(desc)}</div>` : ''}
           <div class="sr-card-meta">${esc(artifactSummary(it.artifacts))}${
@@ -250,6 +257,7 @@ function renderList(items) {
           }
         </div>
         <div class="sr-card-actions">
+          ${canUpdate ? `<button type="button" class="sr-btn sr-btn--primary" data-ip-act="upgrade" data-pack-id="${esc(it.pack_id)}">升级</button>` : ''}
           <button type="button" class="sr-btn" data-ip-act="open-detail" data-org-id="${id}">详情</button>
           <button type="button" class="sr-btn sr-btn--danger" data-ip-act="uninstall" data-org-id="${id}">卸载</button>
         </div>
@@ -261,9 +269,16 @@ function renderList(items) {
 function renderDetail(it) {
   const host = _root?.querySelector('[data-ip-detail]')
   const titleEl = _root?.querySelector('[data-ip-detail-title]')
+  const upgradeBtn = _root?.querySelector('[data-ip-upgrade-btn]')
   if (!host) return
   const title = packTitle(it)
   if (titleEl) titleEl.textContent = title
+  const upd = _updatesByPackId.get(String(it.pack_id || ''))
+  if (upgradeBtn instanceof HTMLElement) {
+    upgradeBtn.hidden = !upd
+    upgradeBtn.setAttribute('data-pack-id', String(it.pack_id || ''))
+    upgradeBtn.textContent = upd ? `升级到 v${upd.available_version || ''}` : '升级'
+  }
   const ws = String(it.workspace_path || '').trim()
   const packRoot = String(
     it.pack_root || (Array.isArray(it.artifacts?.pack_root) && it.artifacts.pack_root[0]) || '',
@@ -271,6 +286,9 @@ function renderDetail(it) {
   const extInstalls = Array.isArray(it.extension_installs) ? it.extension_installs : []
   const wsWarn = ws.includes('${')
     ? `<p class="sr-warn">工作区路径仍含占位符,可能是安装时未展开。重新安装或在安装时选择工作区可修复。</p>`
+    : ''
+  const updateBanner = upd
+    ? `<p class="sr-warn">市场有新版本：v${esc(it.pack_version)} → v${esc(upd.available_version)}。点右上角「升级」一键覆盖安装。</p>`
     : ''
   const extBlock = extInstalls.length
     ? `<div class="sr-detail-block">
@@ -295,9 +313,11 @@ function renderDetail(it) {
           <span>${esc(title)}</span>
           <span class="sr-badge">${esc(kindLabel(it.kind))}</span>
           <span class="sr-badge sr-badge--muted">v${esc(it.pack_version)}</span>
+          ${upd ? `<span class="sr-badge sr-badge--update">可更新 → v${esc(upd.available_version)}</span>` : ''}
           <span class="sr-badge sr-badge--muted">${esc(it.status || 'active')}</span>
         </div>
         <p class="sr-card-meta" style="margin:0">${esc(it.description || '无描述')}</p>
+        ${updateBanner}
       </div>
     </div>
     <div class="sr-detail-block">
@@ -347,11 +367,25 @@ async function openDetail(orgId) {
   }
 }
 
+async function refreshUpdates() {
+  try {
+    const res = await api.orgMarketUpdates()
+    const map = new Map()
+    for (const row of res?.items || []) {
+      const pid = String(row?.pack_id || '').trim()
+      if (pid) map.set(pid, row)
+    }
+    _updatesByPackId = map
+  } catch {
+    _updatesByPackId = new Map()
+  }
+}
+
 async function refresh() {
   const list = _root?.querySelector('[data-ip-list]')
   if (list && !_detailId) list.innerHTML = `<div class="sr-empty">加载中…</div>`
   try {
-    const res = await api.orgList('active')
+    const [res] = await Promise.all([api.orgList('active'), refreshUpdates()])
     renderList(res?.items || [])
     if (_detailId) {
       const still = _items.some((x) => x.org_instance_id === _detailId)
@@ -363,6 +397,35 @@ async function refresh() {
       list.innerHTML = `<div class="sr-empty sr-empty--error">加载失败：${esc(e?.message || e)}</div>`
     }
     toast.error(String(e?.message || e))
+  }
+}
+
+async function upgradePack(packId) {
+  const pid = String(packId || '').trim()
+  if (!pid) return
+  const upd = _updatesByPackId.get(pid)
+  const cached = _items.find((x) => String(x.pack_id || '') === pid)
+  const label = cached ? packTitle(cached) : pid
+  const from = upd?.installed_version || cached?.pack_version || '?'
+  const to = upd?.available_version || '?'
+  const ok = await showConfirm(
+    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 Agent / 员工 / 扩展（保留工作区与知识库数据）。`,
+  )
+  if (!ok) return
+  try {
+    toast('正在升级…')
+    const res = await api.orgUpgrade({ pack_id: pid })
+    toast.success(`已升级到 v${res?.pack_version || to}`)
+    _detailId = ''
+    showList()
+    await refresh()
+  } catch (e) {
+    const detail = e?.detail
+    const msg =
+      (detail && typeof detail === 'object' && (detail.error || detail.detail)) ||
+      e?.message ||
+      e
+    toast.error(String(msg))
   }
 }
 
@@ -408,6 +471,8 @@ function onClick(e) {
   }
   if (act === 'uninstall') void uninstall(actBtn.getAttribute('data-org-id') || '')
   if (act === 'uninstall-detail') void uninstall(_detailId)
+  if (act === 'upgrade') void upgradePack(actBtn.getAttribute('data-pack-id') || '')
+  if (act === 'upgrade-detail') void upgradePack(actBtn.getAttribute('data-pack-id') || '')
   if (act === 'reveal-path') void revealPath(actBtn.getAttribute('data-path') || '')
 }
 
@@ -443,4 +508,5 @@ export function cleanup() {
   }
   _items = []
   _detailId = ''
+  _updatesByPackId = new Map()
 }

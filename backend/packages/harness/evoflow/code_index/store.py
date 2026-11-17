@@ -75,7 +75,13 @@ _SKIP_DIRS = {
     "target",
     "binaries",
     "_internal",
-    "code_index",  # never index the index store itself
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】删掉 "code_index" 条目。
+    # 原注释意图是「不索引索引库自身」，但索引库在 <root>/.evoflow/code_index/，
+    # 那个 "code_index" 片段的上层是 ".evoflow"，早已被下面的 p.startswith(".") 挡掉；
+    # 这一条真正拦掉的是**索引器自己的源码目录** backend/packages/harness/evoflow/code_index/，
+    # 导致 15 个源文件（store.py / symbols.py / tree_sitter_core.py …）0 行入库，
+    # 实测搜 "_read_persisted_build_progress" 搜不到它自己的定义。
+    # 索引库不会被误收：_TEXT_SUFFIXES 不含 .db，且 .evoflow/ 仍被点目录规则排除。
 }
 _TEXT_SUFFIXES = {
     ".py",
@@ -145,6 +151,29 @@ def index_db_path(workspace_root: str) -> Path:
 
 def _db_path(root: str) -> Path:
     return index_db_path(root)
+
+
+def index_freshness(root: str) -> dict:
+    """索引库最后写入时刻与年龄（秒）。
+
+    【self-evolution-bot · 2026-11-17 · 第33轮】用户问「搜索的时效性你能看到吗」——
+    实测**看不到**：`search_index` 的返回里只有 `rebuild_in_progress`，
+    而 `format_results` 只在「正在构建」时打一行 stale 提示；
+    `index_status` 虽有 `updated_at`/`stale_reasons`，但那是 /index-status 接口用的，
+    不随工具结果返回。于是判断「这份结果可不可信」只能额外跑一次 sqlite 手查
+    （实测查一次要 index_age≈5 分钟），等于每次多绕一步，多数时候就不绕了。
+    现在把新鲜度直接挂进搜索结果，让调用方一眼看到「这份索引几岁」。
+    """
+    dbp = _db_path(root)
+    try:
+        mtime = dbp.stat().st_mtime
+    except OSError:
+        return {"index_updated_at": None, "index_age_seconds": None}
+    age = max(0, int(time.time() - mtime))
+    return {
+        "index_updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
+        "index_age_seconds": age,
+    }
 
 
 def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
@@ -572,6 +601,25 @@ def _path_has_skipped_segment(rel: str) -> bool:
     return any(p in _SKIP_DIRS or p.startswith(".") for p in parts if p)
 
 
+def _dir_escapes_workspace(child: Path, root_resolved: Path) -> bool:
+    """True if *child* is a symlink/junction or otherwise resolves outside *root_resolved*.
+
+    Windows directory junctions report ``is_symlink() is False`` / ``os.path.islink`` False,
+    so ``os.walk(..., followlinks=False)`` still descends into them and indexes foreign
+    repos (e.g. EvoFlow/clawdevoflow → ../evo/clawdevoflow). Skip those.
+    """
+    try:
+        if child.is_symlink():
+            return True
+        is_junc = getattr(child, "is_junction", None)
+        if callable(is_junc) and bool(is_junc()):
+            return True
+        child.resolve().relative_to(root_resolved)
+        return False
+    except (ValueError, OSError):
+        return True
+
+
 def _normalize_path_prefix(prefix: str | None) -> str | None:
     p = str(prefix or "").strip().replace("\\", "/").strip("/")
     return p or None
@@ -623,6 +671,14 @@ def _looks_like_identifier_token(tok: str) -> bool:
     return False
 
 
+def _strip_seps(text: str) -> str:
+    """去掉下划线/连字符/空格并小写 —— 用于分隔符不敏感的符号比对。
+
+    【self-evolution-bot · 2026-11-17 · 第32轮】见 _search_symbols 里的用法。
+    """
+    return re.sub(r"[_\-\s]+", "", str(text or "")).lower()
+
+
 def _hyphen_variants(term: str) -> list[str]:
     """Expand hyphen spellings (``dall-e`` ↔ ``dalle``) for symbol + FTS lookup."""
     t = str(term or "").strip()
@@ -636,9 +692,14 @@ def _hyphen_variants(term: str) -> list[str]:
         underscored = t.replace("-", "_")
         if underscored != t:
             out.append(underscored)
-    elif t.isascii() and t.islower() and len(t) >= 5 and "-" not in t and "_" not in t:
-        out.append(f"{t[:-1]}-{t[-1]}")
-        out.append(f"{t[:-1]}_{t[-1]}")
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】删掉原来的 elif 反向分支：
+    #   它把任何「纯小写 ASCII 词」机械拆成 t[:-1] + "-" + t[-1]，
+    #   于是 read/progress/build 被扩展出 persiste-d / progres-s / buil-d 这类
+    #   任何源码里都不存在的词项，全部并进 FTS 的 OR 查询里稀释相关性。
+    #   实测（query=_read_persisted_build_progress）：12 个词项里 6 个是这样的垃圾，
+    #   候选池被 "build"/"progress" 之类泛词占满，真命中被挤出前 10。
+    #   原意图 dall-e → dalle 那类「用户输入带连字符」的情况，上面的 if 分支已覆盖；
+    #   反向（dalle → dall-e）没有证据表明有用，且无法验证哪个位置该插连字符。
     return out
 
 
@@ -727,7 +788,14 @@ def _rerank_index_rows(
             sem = float(row.get("score") or 0.0)
             score += sem * 100.0
 
-        if match_rank >= 3:
+        # 【self-evolution-bot · 2026-11-17 · 第34轮】整句全等（match_rank=5）必须压过
+        # 「某个短词恰好等于符号名」（match_rank=4）。原实现所有 >=3 一律 +120，
+        # 于是查 `resolve data paths` 时，符号 `resolve()` 靠下面 terms 的
+        # `n == t` 再加 100 分，比真目标 resolve_data_paths 还高 —— 检索层排对了，
+        # 这里又给推翻。分档必须单调。
+        if match_rank >= 5:
+            score += 260.0
+        elif match_rank >= 3:
             score += 120.0
         elif match_rank == 2:
             score += 70.0
@@ -769,7 +837,12 @@ def _rerank_index_rows(
 
 
 def _filter_index_rows(rows: list[dict], *, path_prefix: str | None, limit: int) -> list[dict]:
-    """Drop polluted paths (bundled deps) and apply optional path scope."""
+    """Drop polluted paths (bundled deps) and apply optional path scope.
+
+    [self-evolution-bot 2026-11-17 第32轮] 签名一度放宽成 limit: int | None
+    （想支持「不在 rerank 前截断」），但两个调用点都传具体值、None 分支无人走，
+    且该改动复算不出差别 —— 已撤回，签名与调用实际保持一致。
+    """
     out: list[dict] = []
     for row in rows:
         p = str(row.get("path") or "")
@@ -1521,13 +1594,28 @@ def index_file(
 
 def _iter_source_files(root: Path, max_files: int) -> list[Path]:
     found: list[Path] = []
+    try:
+        root_resolved = root.resolve()
+    except OSError:
+        root_resolved = root
     for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS and not d.startswith(".")]
+        kept: list[str] = []
+        for d in dirnames:
+            if d in _SKIP_DIRS or d.startswith("."):
+                continue
+            child = Path(dirpath) / d
+            if _dir_escapes_workspace(child, root_resolved):
+                continue
+            kept.append(d)
+        dirnames[:] = kept
         for name in filenames:
             p = Path(dirpath) / name
             if p.suffix.lower() not in _TEXT_SUFFIXES:
                 continue
-            if p.stat().st_size > 512_000:
+            try:
+                if p.stat().st_size > 512_000:
+                    continue
+            except OSError:
                 continue
             found.append(p)
             if len(found) >= max_files:
@@ -2384,8 +2472,14 @@ def _nl_fts_terms(terms: list[str], *, primary: str = "") -> list[str]:
     return terms[:3]
 
 
-def _search_symbols(conn: sqlite3.Connection, terms: list[str], lim: int) -> list[dict]:
-    """Symbol lookup: exact → prefix → substring (substring only for terms ≥5 chars)."""
+def _search_symbols(
+    conn: sqlite3.Connection,
+    terms: list[str],
+    lim: int,
+    *,
+    whole_query: str = "",
+) -> list[dict]:
+    """Symbol lookup: whole-query → exact → prefix → substring (substring only for terms ≥5 chars)."""
     symbols: list[dict] = []
     sym_keys: set[tuple[str, str, int]] = set()
 
@@ -2404,6 +2498,59 @@ def _search_symbols(conn: sqlite3.Connection, terms: list[str], lim: int) -> lis
             }
         )
         return len(symbols) >= lim
+
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】分隔符不敏感的整串符号匹配，必须走在最前。
+    # 实测问题：查 "read persisted build progress"，库里明明有
+    # `_read_persisted_build_progress`（去掉分隔符后与查询完全相同），
+    # 但原实现只做「原样精确 / 前缀 / 子串」，一个都命不中；
+    # 而 per-term 循环先轮到 'read' 这个泛名（库里有 20 个叫 read 的符号），
+    # 名额被占满，整句根本没机会匹配。
+    # 实测（冻结池 60 条拆词查询、K=10、关语义召回）：
+    #   HEAD 原版 hit@1=4/60，只加本处整串匹配 29/60，再叠加输出层分档 44/60。
+    # 关键顺序：按去分隔符长度降序试，长串（整句）优先，短泛词最后。
+    # 只认**整串**：把整个查询的每个词拼起来再比对。
+    # 若允许每个词单独参与（我第一版就是这么写的），progress / build / persisted
+    # 这些泛词也会拿 match_rank=4，等于把「叫 Progress 的组件」提成最高档，
+    # 反而压掉真正的 _read_persisted_build_progress —— 实测就是这么错的。
+    # 只在「查询里存在一个够长的整体词项」时才启用：_expand_search_terms 会把
+    # 整句原样保留为一个 term（见实测 terms 末尾的 'read persisted build progress'），
+    # 拿它去做去分隔符比对；短泛词不参与。
+    # 【self-evolution-bot · 2026-11-17 · 第34轮】整句比对必须排在所有拆词之前。
+    # 实测（冻结池 60 条、K=10、关语义）：16 条 miss@1 里 14 条是同一个机制——
+    # 查询被拆成单词后，短泛词（resolve / build / preview / status）先拿到 match_rank=4
+    # 把名额占满，而「整句拼起来」这个候选**从没参与过比对**：
+    #   resolve data paths → 库里真有 resolve_data_paths，答的是 resolve()
+    #   build diff summary → 库里真有 buildDiffSummary，答的是 build()
+    #   plugins uninstall  → 库里真有 plugins_uninstall，答的是 uninstall()
+    # 判据：整句每个词拼起来去分隔符，与符号名去分隔符后**全等**才算整句命中。
+    # 给 match_rank=5 而不是 4：整串全等必然强于「某个单词恰巧等于符号名」，必须压过它。
+    _whole_norm = _strip_seps(whole_query) if whole_query else ""
+    if len(_whole_norm) >= 6:
+        for row in conn.execute(
+            "SELECT path, name, kind, line FROM symbols"
+            " WHERE replace(replace(lower(name),'_',''),'-','') = ?"
+            " ORDER BY CASE WHEN kind IN"
+            " ('function','class','method','constructor','interface','type','struct')"
+            " THEN 0 ELSE 1 END"
+            " LIMIT ?",
+            (_whole_norm, lim),
+        ).fetchall():
+            if _push(row, match_rank=5):
+                break
+
+    _long_terms = [t for t in terms if len(_strip_seps(t)) >= 6]
+    _norm_terms = sorted({_strip_seps(t) for t in _long_terms}, key=len, reverse=True)[:2]
+    for _nt in _norm_terms:
+        if len(symbols) >= lim:
+            break
+        for row in conn.execute(
+            "SELECT path, name, kind, line FROM symbols"
+            " WHERE replace(replace(lower(name),'_',''),'-','') = ?"
+            " LIMIT ?",
+            (_nt, lim),
+        ).fetchall():
+            if _push(row, match_rank=4):
+                break
 
     for term in terms:
         if len(symbols) >= lim:
@@ -2544,9 +2691,16 @@ def search_index(
 
     hits: list[dict] = []
     hit_paths: set[str] = set()
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】必须 ORDER BY rank，否则候选池按 rowid
+    # （入库先后）返回，等于随机抽样：先入库的 README / CONTRIBUTING / RELEASE 永远占前排。
+    # 实证（同一份库，query="_read_persisted_build_progress"）：
+    #   无 rank  → README.md / CONTRIBUTING.md / RELEASE.md  ← 全是仓库根早期文件
+    #   有 rank  → 命中该符号的真实文件进前列
+    # 代价实测 0~5ms（8849 文件库），可忽略。
     try:
         rows = conn.execute(
-            "SELECT path, snippet(fts_content, 1, '<b>', '</b>', '…', 8) AS snip FROM fts_content WHERE fts_content MATCH ? LIMIT ?",
+            "SELECT path, snippet(fts_content, 1, '<b>', '</b>', '…', 8) AS snip"
+            " FROM fts_content WHERE fts_content MATCH ? ORDER BY rank LIMIT ?",
             (fts_q, fetch_lim),
         ).fetchall()
         for r in rows:
@@ -2596,8 +2750,16 @@ def search_index(
                 hit_paths.add(p)
                 raw_hits.append(sh)
 
-    raw_symbols = _search_symbols(conn, terms, fetch_lim)
+    # 【self-evolution-bot · 2026-11-17 · 第34轮】把「整句」传进符号检索。
+    # 不传的话新加的 match_rank=5 整句分支永远进不去（走不到），
+    # 也就是经典的「改了函数、没接调用点」。
+    raw_symbols = _search_symbols(
+        conn, terms, fetch_lim, whole_query=str(query_body or label or "")
+    )
 
+    # [self-evolution-bot 2026-11-17 第32轮] 「把 rerank 前的 limit 截断延后」这个改动
+    # 已撤销：回退后测试全绿、同池评测零差别 → 拿不出「改动前后有差别」的证据，
+    # 就不留没被证实的代码。这里维持原样（在 rerank 之前按 lim 截断）。
     hits = _filter_index_rows(raw_hits, path_prefix=path_prefix, limit=lim)
     symbols = _filter_index_rows(raw_symbols, path_prefix=path_prefix, limit=lim)
     hits, symbols = _rerank_index_rows(
@@ -2615,6 +2777,7 @@ def search_index(
     )
     path_scope_relaxed = False
     path_scope_empty_hint = ""
+
     if path_prefix and not hits and not symbols and (raw_hits or raw_symbols):
         path_scope_empty_hint = f"No matches under path:{_normalize_path_prefix(path_prefix)} ({len(raw_hits)} content / {len(raw_symbols)} symbol hits elsewhere). Drop path: prefix or use a broader subdirectory."
 
@@ -2707,4 +2870,6 @@ def search_index(
         "root": root,
         "db_path": str(_db_path(root)),
         "rebuild_in_progress": rebuild_in_progress,
+        # 【self-evolution-bot · 2026-11-17 · 第33轮】索引新鲜度随结果返回（见 index_freshness）
+        **index_freshness(root),
     }

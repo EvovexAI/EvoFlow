@@ -43,13 +43,31 @@ def format_search_index_body(
                 sname = str(s.get("name") or "").lower()
                 skind = str(s.get("kind") or "").lower().strip()
                 is_def = 0 if skind in _DEFINITION_KINDS else 1
+                # 【self-evolution-bot · 2026-11-17 · 第32轮】检索层的 match_rank 必须最优先。
+                # 原实现只按「符号名里是否字面包含查询串」重排，把检索层算好的相关性整个推翻：
+                # 实测查 "read persisted build progress"，
+                #   _search_symbols 正确给出 _read_persisted_build_progress（match_rank=4）排第一，
+                #   这里却因为 Progress 的名字含 "progress"（字面包含，判 1）
+                #   判定它排在 _read_persisted_build_progress（不含完整查询串，判 2）之前。
+                # 结果就是用户看到的第一条是无关的 Progress 组件。
+                # 现在：match_rank 降序 → 字面匹配档 → 是否定义。
+                # 【self-evolution-bot · 2026-11-17 · 第34轮】加第 5 档（整句全等）。
+                # 原实现 mr>=4 一律进 tier 0，于是 `resolve`（单词全等，mr=4）与
+                # `resolve_data_paths`（整句全等，mr=5）同档，再由「字面包含」判胜负 ——
+                # 短名又赢了。改成单调分档，整句命中独占最前。
+                mr = int(s.get("match_rank") or 0)
+                tier = (
+                    0
+                    if mr >= 5
+                    else (1 if mr >= 4 else (2 if mr == 3 else (3 if mr == 2 else 4)))
+                )
                 for t in _label_terms:
                     if sname == t:
-                        return (0, is_def)
+                        return (tier, 0, is_def)
                 for t in _label_terms:
                     if t and t in sname:
-                        return (1, is_def)
-                return (2, is_def)
+                        return (tier, 1, is_def)
+                return (tier, 2, is_def)
 
             symbols = sorted(symbols, key=_symbol_rank)
     related = data.get("related_files") or []
@@ -60,6 +78,22 @@ def format_search_index_body(
     type_subs = data.get("type_subtypes") or []
 
     lines: list[str] = []
+    # 【self-evolution-bot · 2026-11-17 · 第33轮】把索引年龄打出来（用户问「时效性你能看到吗」，
+    # 实测原本看不到：只有「正在构建」时才提示 stale，构建完成后的索引是 5 分钟还是 5 天，
+    # 调用方无从判断）。分档只用于给一句人话，秒数照样保留，便于核对。
+    age = data.get("index_age_seconds")
+    if isinstance(age, int) and age >= 0:
+        if age < 60:
+            age_txt = f"{age}s"
+        elif age < 3600:
+            age_txt = f"{age // 60}m"
+        elif age < 86400:
+            age_txt = f"{age // 3600}h"
+        else:
+            age_txt = f"{age // 86400}d"
+        stale_note = " — you may be editing newer content; re-run after the index rebuilds" if age >= 900 else ""
+        lines.append(f"[index] last updated {age_txt} ago (age={age}s){stale_note}")
+        lines.append("")
     if rebuild_in_progress:
         lines.append("[index] rebuild in progress — results may be stale")
         lines.append("")

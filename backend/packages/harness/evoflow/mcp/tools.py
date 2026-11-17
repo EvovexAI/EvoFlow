@@ -284,10 +284,15 @@ def _mcp_error_hint(server_name: str, cfg: dict[str, Any], err_text: str) -> str
         hints.append(
             "启动超时：可增大环境变量 EVOFLOW_MCP_SERVER_TIMEOUT_SEC 或配置里的 timeoutMs（毫秒）/ timeout（秒）"
         )
+    if "buffer has been detached" in lower or "i/o operation on closed file" in lower:
+        hints.append(
+            "宿主 stdout/stderr 已被关闭或 detach（桌面重定向/UTF-8 重包装常见）：重启 Gateway；"
+            "若反复出现，检查日志是否在刷 ValueError: underlying buffer has been detached"
+        )
     if transport == "stdio":
         if "not found" in lower or "winerror 2" in lower or "no such file" in lower:
             hints.append("找不到可执行文件：检查 command 是否在 PATH 中，Windows 上 npx/python 建议写全路径")
-        if cfg.get("command") in ("python", "uvx", "npx"):
+        elif cfg.get("command") in ("python", "uvx", "npx") and "buffer has been detached" not in lower:
             hints.append(f"确认已安装 {cfg.get('command')} 且子进程能正常启动")
     if transport in ("http", "sse", "streamable_http", "streamable-http"):
         if "401" in lower or "403" in lower or "unauthorized" in lower:
@@ -391,6 +396,20 @@ async def get_mcp_tools() -> list[BaseTool]:
     Returns:
         List of LangChain tools from all enabled MCP servers.
     """
+    # Best-effort: heal Windows stdio side-effects before spawning MCP children.
+    # 1) uvicorn handlers may still hold a detached TextIOWrapper
+    # 2) mcp.client.stdio.stdio_client freezes errlog=sys.stderr at import time
+    try:
+        from evoflow.desktop_stdio import (
+            _sanitize_logging_after_stdio_fix,
+            heal_mcp_stdio_errlog_default,
+        )
+
+        _sanitize_logging_after_stdio_fix()
+        heal_mcp_stdio_errlog_default()
+    except Exception:
+        pass
+
     try:
         from langchain_mcp_adapters.client import MultiServerMCPClient  # noqa: F401
     except ImportError:
@@ -427,12 +446,27 @@ async def get_mcp_tools() -> list[BaseTool]:
         if err:
             logger.error("MCP server %r failed: %s", name, err)
             if cfg.get("transport") == "stdio":
-                logger.error(
-                    "MCP stdio server %r: command=%r args=%r — missing executable / not on PATH?",
-                    name,
-                    cfg.get("command"),
-                    cfg.get("args"),
+                lower_err = err.lower()
+                looks_missing = (
+                    "not found" in lower_err
+                    or "winerror 2" in lower_err
+                    or "no such file" in lower_err
+                    or "filenotfound" in lower_err
                 )
+                if looks_missing:
+                    logger.error(
+                        "MCP stdio server %r: command=%r args=%r — missing executable / not on PATH?",
+                        name,
+                        cfg.get("command"),
+                        cfg.get("args"),
+                    )
+                else:
+                    logger.error(
+                        "MCP stdio server %r: command=%r args=%r (spawn/handshake failed; not necessarily PATH)",
+                        name,
+                        cfg.get("command"),
+                        cfg.get("args"),
+                    )
             status_map[name] = {"load_status": "error", "tool_count": 0, "error": err}
         else:
             logger.info("MCP server %r loaded %d tool(s)", name, len(tools))

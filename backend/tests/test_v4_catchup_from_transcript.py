@@ -101,6 +101,23 @@ def test_catchup_from_transcript_noops_on_same_fingerprint() -> None:
     assert out["rows"] == rows
 
 
+def test_catchup_prefer_settle_only_never_wipes_existing_rows() -> None:
+    """切回校准：客户端已有投影时只 settle，禁止 clear_projection wipe。"""
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(THREAD)
+    rows = len(hub.get_session(THREAD).rows)
+    epoch = hub.get_session(THREAD).log_epoch
+    with _msgs(MESSAGES_V2):
+        out = hub.catchup_from_transcript(THREAD, prefer_settle_only=True)
+    assert out["ok"] is True
+    assert out["changed"] is False
+    assert out.get("reason") == "settle-only"
+    assert out["rows"] == rows
+    assert len(hub.get_session(THREAD).rows) == rows
+    assert hub.get_session(THREAD).log_epoch == epoch
+
+
 def test_catchup_skips_wipe_when_only_tail_content_grows() -> None:
     hub = V4ConversationHub()
     with _msgs(MESSAGES_V1):

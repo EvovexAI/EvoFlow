@@ -8448,6 +8448,19 @@ html.dark .react-chat-conversation-col {
   box-shadow: none !important;
 }
 
+/* 单栏稳定 composer 槽（HostStack 外）：与正文同轴承宽，切会话不跟着 sticky 飘顶 */
+.react-chat-conversation-col [data-v4-evoflow-composer-host-stable="true"] {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding: 0 16px 12px;
+  box-sizing: border-box;
+}
+.react-chat-conversation-col [data-v4-evoflow-composer-host-stable="true"] > .react-chat-bottom-dock {
+  width: 100%;
+  max-width: var(--chat-composer-max, 840px);
+}
+
 /* sticky dock 内容列：与正文 [data-v4-timeline-content-column] 同宽同轴 */
 .react-chat-conversation-col [data-v4-composer-dock-content="true"] {
   width: 100% !important;
@@ -31884,6 +31897,37 @@ html.dark .shell-tasks-row--focus {
   background: var(--bg-secondary, #f3f4f6);
   flex-shrink: 0;
   min-height: 36px;
+}
+
+.react-chat-web-embed-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px 0 8px;
+  border: none;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary, #111827) 6%, transparent);
+  color: var(--text-primary, #111827);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.react-chat-web-embed-back:hover {
+  background: color-mix(in srgb, var(--accent, #007aff) 14%, transparent);
+  color: var(--accent, #007aff);
+}
+
+.react-chat-web-embed-back-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.react-chat-web-embed-back-label {
+  letter-spacing: 0.02em;
 }
 
 .react-chat-web-embed-globe {

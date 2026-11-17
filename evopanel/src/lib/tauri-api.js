@@ -2857,10 +2857,12 @@ export const api = {
     gatewayProxy('GET', `/organizations/${encodeURIComponent(String(orgInstanceId || ''))}`),
   orgPreflight: async (payload) => gatewayProxy('POST', '/organizations/preflight', payload || {}),
   orgInstall: async (payload) => gatewayProxy('POST', '/organizations/install', payload || {}),
+  orgUpgrade: async (payload) => gatewayProxy('POST', '/organizations/upgrade', payload || {}),
   orgUninstall: async (payload) => gatewayProxy('POST', '/organizations/uninstall', payload || {}),
   orgExport: async (payload) => gatewayProxy('POST', '/organizations/export', payload || {}),
   orgMarketCatalog: async (force = false) =>
     gatewayProxy('GET', '/organizations/market/catalog', null, force ? { force: true } : {}),
+  orgMarketUpdates: async () => gatewayProxy('GET', '/organizations/market/updates'),
   resourceMarketSources: async () => gatewayProxy('GET', '/resource-market/sources'),
   resourceMarketSourceAdd: async (payload) =>
     gatewayProxy('POST', '/resource-market/sources', payload || {}),

@@ -12,7 +12,9 @@ import type { DisplayRow } from '../../chat-types.js'
 import { ModelCatalogMenu } from '../../components/ModelCatalogMenu.js'
 import { ShellSessionListHost } from '../../components/ShellSessionListHost.js'
 import { ChatMessageStreamPane } from '../../components/ChatMessageStreamPane.js'
-import { V4StreamRowsBridge, retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
+import { retryEvoflowV4Session } from '../../v4/V4StreamRowsBridge.js'
+import { V4ChatHostStack } from '../../v4/V4ChatHostStack.js'
+import { V4ViewportDebugOverlay } from '../../v4/V4ViewportDebugOverlay.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { ConversationCompactTipBanner } from '../../v4/ConversationCompactTipBanner.js'
 import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
@@ -201,6 +203,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     headerTokenTotals,
     historyError,
     historyHasMore,
+    historyBoundSessionKey = '',
     historyInstantPaint,
     historyLoading,
     historyLoadingOlder,
@@ -298,6 +301,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
     selectedSessionKey,
     selectedSessionLive,
     selectedThreadId,
+    v4KeepAliveHosts = [],
+    v4SplitSecondary = null,
+    openV4SplitSession,
+    closeV4SplitSecondary,
     selectedSkills,
     selectedStreamPriorTurnStrip,
     selectedTurnBusy,
@@ -703,30 +710,53 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   sessionKey={String(selectedSessionKey || '')}
                 />
               ) : null}
-              {/* V4：对话恒用 ConversationTimeline。ChatMessageStreamPane 仅工作台首页壳。 */}
+              {/* V4：KeepAlive 多 host（对齐 ZCode 隐藏但挂载）。ChatMessageStreamPane 仅工作台首页壳。
+                  单栏时 HostStack 包在 flex-1 里，composer 稳定槽做兄弟，避免 h-full 把输入挤出。 */}
               {!isDeptChatSurface ? (
-              <V4StreamRowsBridge
-                enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
-                /* 用 controller 钉住的 selectedThreadId，避免 ensure remint 导致 sessionId 连跳拆租约 */
-                sessionId={String(selectedThreadId || '').trim() || null}
+              <div
+                className={
+                  isEvoflowChatV4Enabled() && !isHomeSurface && !v4SplitSecondary
+                    ? 'relative min-h-0 flex-1'
+                    : 'contents'
+                }
               >
-                {(v4Payload, v4Phase) => {
+              <V4ChatHostStack
+                enabled={isEvoflowChatV4Enabled() && !isHomeSurface}
+                activeThreadId={String(selectedThreadId || '').trim() || null}
+                secondaryThreadId={
+                  v4SplitSecondary
+                    ? String(v4SplitSecondary.threadId || '').trim() || null
+                    : null
+                }
+                hosts={v4KeepAliveHosts}
+                onCloseSecondary={closeV4SplitSecondary}
+              >
+                {({
+                  threadId: hostThreadId,
+                  hostSessionKey,
+                  visible: hostVisible,
+                  focused: hostFocused = hostVisible,
+                  payload: v4Payload,
+                  phase: v4Phase,
+                }) => {
                   /* 发送瞬间：在 V4 时间线尾部注入乐观 userInput，绝不整树切老面板。
                      优先用 pendingOptimisticUserText（不经 setRows 全量历史），避免 flushSync 卡主线程。
-                     闲置切历史 turnLive=false 且无 pending，不会 hold，避免字墙。 */
+                     闲置切历史 turnLive=false 且无 pending，不会 hold，避免字墙。
+                     隐藏 host 仍挂载收帧；分屏副栏可见但不抢 composer/乐观。 */
+                  const hostTid = String(hostThreadId || '').trim()
                   const v4RowCount = v4Payload?.snapshot?.rows.totalCount ?? 0
+                  // KeepAlive：隐藏/显示必须是同一棵 V4ZCodeTimeline 树，禁止 early-return
+                  // 换组件（否则切走 remount → 丢滚动/测高，KeepAlive 白做；对齐 ZCode hidden pane）。
                   const v4SessionMatched =
                     !!v4Payload &&
-                    String(v4Payload.sessionId || '').trim() ===
-                      String(selectedThreadId || '').trim()
-                  // 用户刚停：冷却期内投影 canStop / phase=running 常滞后，勿再点亮停止钮与齿轮
-                  const stopRecovering = isSessionRecoveryCooldownActive(
-                    String(selectedSessionKey || '').trim(),
-                  )
+                    String(v4Payload.sessionId || '').trim() === hostTid
+                  const hostSk =
+                    String(hostSessionKey || '').trim() ||
+                    (hostFocused ? String(selectedSessionKey || '').trim() : '')
+                  const stopRecovering = isSessionRecoveryCooldownActive(hostSk)
                   // hostExecuting 只看 wire/turnPhase，禁止用 selectedTurnBusy（其含
                   // getV4TimelineBusy）——否则 SyncV4TimelineBusy 与判定互喂 → #185。
-                  const skForBusy = String(selectedSessionKey || '').trim()
-                  const rtForBusy = skForBusy ? getSessionRuntime(skForBusy) : null
+                  const rtForBusy = hostSk ? getSessionRuntime(hostSk) : null
                   const wireHostExecuting = !!(
                     rtForBusy &&
                     (isTurnBusy(rtForBusy) || isLivePostStreamOpen(rtForBusy))
@@ -735,185 +765,197 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     !stopRecovering &&
                     v4SessionMatched &&
                     resolveSessionBusyFromControl(v4Payload?.snapshot, {
-                      // control-first（Phase A 后 control 与快照同源）：canStop 权威；
-                      // 侧栏已 idle 时 control 终态直接收口，勿被陈旧 running 卡钉死齿轮
                       hostExecuting: wireHostExecuting,
                     })
-                  // 齿轮/停止：wire busy ∪ 时间线仍 streaming/工具未收口（防 sse_final 早关）
-                  const uiBusy = !!(
-                    selectedTurnBusy ||
-                    (!stopRecovering && displayTurnBusy) ||
-                    timelineBusy
-                  )
-                  const turnLive = uiBusy || selectedSessionLive
-                  // 对话运行时：右下角停止 vs 左侧列表 executing 分叉时单独落盘
-                  try {
-                    const sk = String(selectedSessionKey || '').trim()
-                    if (sk) {
-                      const sessionRow =
-                        (sessions || []).find(
-                          (s) => String(s?.sessionKey || '').trim() === sk,
-                        ) || null
-                      const rt = getSessionRuntime(sk)
-                      const listExecuting = isSessionExecuting(sk, {
-                        sessionRow,
-                      })
-                      logChatRuntimeBusyFork({
-                        sessionKey: sk,
+                  // 焦点栏：wire busy ∪ 时间线；分屏副栏/隐藏 host 只看本会话 control。
+                  const uiBusy = hostFocused
+                    ? !!(
+                        selectedTurnBusy ||
+                        (!stopRecovering && displayTurnBusy) ||
+                        timelineBusy
+                      )
+                    : !!timelineBusy
+                  const turnLive = hostFocused
+                    ? uiBusy || selectedSessionLive
+                    : !!timelineBusy
+                  const pendingOpt = hostFocused
+                    ? String(pendingOptimisticUserText || '').trim()
+                    : ''
+                  const v4Window = v4Payload?.snapshot?.rows?.window
+                  let optimisticUserText: string | null = null
+                  let draftEmpty = false
+                  let useLegacyPane = false
+                  if (hostFocused) {
+                    // 对话运行时：右下角停止 vs 左侧列表 executing 分叉时单独落盘
+                    try {
+                      const sk = String(selectedSessionKey || '').trim()
+                      if (sk) {
+                        const sessionRow =
+                          (sessions || []).find(
+                            (s) => String(s?.sessionKey || '').trim() === sk,
+                          ) || null
+                        const rt = getSessionRuntime(sk)
+                        const listExecuting = isSessionExecuting(sk, {
+                          sessionRow,
+                        })
+                        logChatRuntimeBusyFork({
+                          sessionKey: sk,
+                          threadId: selectedThreadId || undefined,
+                          title: String(sessionRow?.title || '').trim() || undefined,
+                          busy: {
+                            selectedTurnBusy: !!selectedTurnBusy,
+                            displayTurnBusy: !!displayTurnBusy,
+                            timelineBusy: !!timelineBusy,
+                            uiBusy: !!uiBusy,
+                            listExecuting: !!listExecuting,
+                            v4TimelineBusy: getV4TimelineBusy(sk),
+                            recoveryCooldown: !!stopRecovering,
+                            uiTurnSettled: !!rt.uiTurnSettled,
+                            turnPhase: String(rt.turnPhase || ''),
+                            runStatus: String(sessionRow?.runStatus || ''),
+                          },
+                        })
+                      }
+                    } catch {
+                      /* best-effort */
+                    }
+                    const lastLocal =
+                      Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
+                    const lastLocalUserText =
+                      lastLocal && String(lastLocal.role || '') === 'user'
+                        ? String(lastLocal.text || '').trim()
+                        : ''
+                    const optimisticNeedle =
+                      pendingOpt || (turnLive ? lastLocalUserText : '')
+                    const hasV4UserEcho =
+                      !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
+                    const awaitingV4UserEcho = !!pendingOpt && !hasV4UserEcho
+                    const localOptimisticHold =
+                      awaitingV4UserEcho &&
+                      (v4Phase === 'ready'
+                        ? v4SessionMatched
+                        : v4Phase === 'connecting' ||
+                          v4Phase === 'no-thread' ||
+                          v4Phase === 'failed')
+                    // V4 切会话不再砸空 host rows：localHasRows 必须绑定当前会话，
+                    // 否则上一会话残留行会把空草稿误判成「有内容」。
+                    const rowsBoundToSelected =
+                      String(historyBoundSessionKey || '').trim() ===
+                      String(selectedSessionKey || '').trim()
+                    const localHasRows =
+                      rowsBoundToSelected &&
+                      ((Array.isArray(rows) && rows.length > 0) || !!pendingOpt)
+                    const v4HasRows = v4SessionMatched && v4RowCount > 0
+                    optimisticUserText = localOptimisticHold ? pendingOpt : null
+                    const v4RenderSig = [
+                      selectedSessionKey,
+                      selectedThreadId,
+                      v4Phase,
+                      v4SessionMatched ? 1 : 0,
+                      v4RowCount,
+                      selectedTurnBusy ? 1 : 0,
+                      uiBusy ? 1 : 0,
+                      timelineBusy ? 1 : 0,
+                      selectedSessionLive ? 1 : 0,
+                      optimisticNeedle ? 1 : 0,
+                      hasV4UserEcho ? 1 : 0,
+                      localOptimisticHold ? 1 : 0,
+                      historyLoading ? 1 : 0,
+                      Array.isArray(rows) ? rows.length : 0,
+                    ].join('|')
+                    const turnLiveKey = String(selectedSessionKey || selectedThreadId || '')
+                    if (
+                      turnLiveKey &&
+                      _v4PrevTurnLiveKey === turnLiveKey &&
+                      _v4PrevTurnLive &&
+                      !turnLive
+                    ) {
+                      noteStreamStopUiIdle({
+                        sessionKey: selectedSessionKey,
                         threadId: selectedThreadId || undefined,
-                        title: String(sessionRow?.title || '').trim() || undefined,
-                        busy: {
-                          selectedTurnBusy: !!selectedTurnBusy,
-                          displayTurnBusy: !!displayTurnBusy,
-                          timelineBusy: !!timelineBusy,
-                          uiBusy: !!uiBusy,
-                          listExecuting: !!listExecuting,
-                          v4TimelineBusy: getV4TimelineBusy(sk),
-                          recoveryCooldown: !!stopRecovering,
-                          uiTurnSettled: !!rt.uiTurnSettled,
-                          turnPhase: String(rt.turnPhase || ''),
-                          runStatus: String(sessionRow?.runStatus || ''),
+                        detail: {
+                          selectedTurnBusy,
+                          displayTurnBusy,
+                          timelineBusy,
+                          uiBusy,
+                          selectedSessionLive,
                         },
                       })
                     }
-                  } catch {
-                    /* best-effort */
-                  }
-                  const pendingOpt = String(pendingOptimisticUserText || '').trim()
-                  const v4Window = v4Payload?.snapshot?.rows?.window
-                  const lastLocal =
-                    Array.isArray(rows) && rows.length > 0 ? rows[rows.length - 1] : null
-                  const lastLocalUserText =
-                    lastLocal && String(lastLocal.role || '') === 'user'
-                      ? String(lastLocal.text || '').trim()
-                      : ''
-                  // pending 优先；turn 进行中才回退 lastLocal——但 lastLocal 仅用于
-                  // echo 判定（清 pending），绝不触发注入：①切回瞬间 rows 还是上个
-                  // 会话的，needle 会跨会话泄漏；②超长流式回合把 userInput 行挤出
-                  // 尾部窗口后 echo 永远失败，乐观行会垫在流式回复下面几十秒
-                  // （2026-11-08 正式版实锤：「已重启了」在 2081 行快照上重复挂 20s+）。
-                  // 历史输入本就在权威流里，投影行到即显示。
-                  const optimisticNeedle =
-                    pendingOpt || (turnLive ? lastLocalUserText : '')
-                  const hasV4UserEcho =
-                    !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
-                  // 乐观注入只服务「本次刚点发送」的 pending；echo 后由 ClearPending… 清掉。
-                  const awaitingV4UserEcho = !!pendingOpt && !hasV4UserEcho
-                  const localOptimisticHold =
-                    awaitingV4UserEcho &&
-                    (v4Phase === 'ready'
-                      ? v4SessionMatched
-                      : v4Phase === 'connecting' ||
-                        v4Phase === 'no-thread' ||
-                        v4Phase === 'failed')
-                  const localHasRows =
-                    (Array.isArray(rows) && rows.length > 0) || !!pendingOpt
-                  const v4HasRows = v4SessionMatched && v4RowCount > 0
-                  const optimisticUserText = localOptimisticHold ? pendingOpt : null
-                  // 切会话诊断：渲染层四源的绑定状态一次看清——
-                  // ①V4 投影（phase/sessionMatched/行数）②乐观气泡（needle/echo/hold）
-                  // ③本地行（rows/lastLocalUserText）④运行计时（turnLive 绑的是哪个会话）。
-                  // 「输入在回复下面」= optimistic 注入且投影无当前轮 userInput（hasV4UserEcho=0）；
-                  // 「打开空白」= phase 停在 connecting 且 v4RowCount=0。签名变化才打一行，流式不刷屏。
-                  const v4RenderSig = [
-                    selectedSessionKey,
-                    selectedThreadId,
-                    v4Phase,
-                    v4SessionMatched ? 1 : 0,
-                    v4RowCount,
-                    selectedTurnBusy ? 1 : 0,
-                    uiBusy ? 1 : 0,
-                    timelineBusy ? 1 : 0,
-                    selectedSessionLive ? 1 : 0,
-                    optimisticNeedle ? 1 : 0,
-                    hasV4UserEcho ? 1 : 0,
-                    localOptimisticHold ? 1 : 0,
-                    historyLoading ? 1 : 0,
-                    Array.isArray(rows) ? rows.length : 0,
-                  ].join('|')
-                  const turnLiveKey = String(selectedSessionKey || selectedThreadId || '')
-                  if (
-                    turnLiveKey &&
-                    _v4PrevTurnLiveKey === turnLiveKey &&
-                    _v4PrevTurnLive &&
-                    !turnLive
-                  ) {
-                    noteStreamStopUiIdle({
-                      sessionKey: selectedSessionKey,
-                      threadId: selectedThreadId || undefined,
-                      detail: {
-                        selectedTurnBusy,
-                        displayTurnBusy,
-                        timelineBusy,
-                        uiBusy,
-                        selectedSessionLive,
-                      },
+                    if (turnLiveKey) {
+                      _v4PrevTurnLiveKey = turnLiveKey
+                      _v4PrevTurnLive = !!turnLive
+                    }
+                    if (_v4RenderStateSig !== v4RenderSig) {
+                      _v4RenderStateSig = v4RenderSig
+                      logV4Life({
+                        event: 'render_state',
+                        sessionKey: selectedSessionKey,
+                        threadId: selectedThreadId || undefined,
+                        zh: `渲染层绑定：phase=${v4Phase} matched=${v4SessionMatched ? 1 : 0} v4行=${v4RowCount} turnLive=${turnLive ? 1 : 0}(wire=${selectedTurnBusy ? 1 : 0}/ui=${uiBusy ? 1 : 0}/tl=${timelineBusy ? 1 : 0}/live=${selectedSessionLive ? 1 : 0}) 乐观针=${optimisticNeedle ? `「${optimisticNeedle.slice(0, 16)}」` : '∅'} echo=${hasV4UserEcho ? 1 : 0} 乐观挂=${localOptimisticHold ? 1 : 0} 本地行=${Array.isArray(rows) ? rows.length : 0}`,
+                        detail: {
+                          v4Phase,
+                          v4SessionMatched,
+                          v4RowCount,
+                          turnLive,
+                          selectedTurnBusy,
+                          displayTurnBusy,
+                          timelineBusy,
+                          uiBusy,
+                          selectedSessionLive,
+                          optimisticNeedle: optimisticNeedle.slice(0, 40) || null,
+                          hasV4UserEcho,
+                          localOptimisticHold,
+                          historyLoading,
+                          localRows: Array.isArray(rows) ? rows.length : 0,
+                        },
+                        skipDedupe: true,
+                      })
+                    }
+                    let knownEmptyDraft = false
+                    try {
+                      knownEmptyDraft =
+                        sessionStorage.getItem(SS_SHELL_EMPTY_DRAFT) ===
+                        String(selectedSessionKey || '').trim()
+                    } catch {
+                      knownEmptyDraft = false
+                    }
+                    const mode = resolveChatPaneMode({
+                      v4Phase,
+                      localHasRows,
+                      historyLoading,
+                      v4HasRows,
+                      isHomeSurface,
+                      localOptimisticHold,
+                      knownEmptyDraft,
                     })
+                    useLegacyPane = mode.useLegacyPane
+                    draftEmpty = mode.draftEmpty
                   }
-                  if (turnLiveKey) {
-                    _v4PrevTurnLiveKey = turnLiveKey
-                    _v4PrevTurnLive = !!turnLive
-                  }
-                  if (_v4RenderStateSig !== v4RenderSig) {
-                    _v4RenderStateSig = v4RenderSig
-                    logV4Life({
-                      event: 'render_state',
-                      sessionKey: selectedSessionKey,
-                      threadId: selectedThreadId || undefined,
-                      zh: `渲染层绑定：phase=${v4Phase} matched=${v4SessionMatched ? 1 : 0} v4行=${v4RowCount} turnLive=${turnLive ? 1 : 0}(wire=${selectedTurnBusy ? 1 : 0}/ui=${uiBusy ? 1 : 0}/tl=${timelineBusy ? 1 : 0}/live=${selectedSessionLive ? 1 : 0}) 乐观针=${optimisticNeedle ? `「${optimisticNeedle.slice(0, 16)}」` : '∅'} echo=${hasV4UserEcho ? 1 : 0} 乐观挂=${localOptimisticHold ? 1 : 0} 本地行=${Array.isArray(rows) ? rows.length : 0}`,
-                      detail: {
-                        v4Phase,
-                        v4SessionMatched,
-                        v4RowCount,
-                        turnLive,
-                        selectedTurnBusy,
-                        displayTurnBusy,
-                        timelineBusy,
-                        uiBusy,
-                        selectedSessionLive,
-                        optimisticNeedle: optimisticNeedle.slice(0, 40) || null,
-                        hasV4UserEcho,
-                        localOptimisticHold,
-                        historyLoading,
-                        localRows: Array.isArray(rows) ? rows.length : 0,
-                      },
-                      skipDedupe: true,
-                    })
-                  }
-                  let knownEmptyDraft = false
-                  try {
-                    knownEmptyDraft =
-                      sessionStorage.getItem(SS_SHELL_EMPTY_DRAFT) ===
-                      String(selectedSessionKey || '').trim()
-                  } catch {
-                    knownEmptyDraft = false
-                  }
-                  /* 面板选择：对话永不回落 ToolCallList；useLegacyPane 仅首页。 */
-                  const { useLegacyPane, draftEmpty } = resolveChatPaneMode({
-                    v4Phase,
-                    localHasRows,
-                    historyLoading,
-                    v4HasRows,
-                    isHomeSurface,
-                    localOptimisticHold,
-                    knownEmptyDraft,
-                  })
+                  // 后台/副栏 host：同步本会话 timeline busy 到侧栏（勿用 selectedSessionKey）。
+                  const busySessionKey = hostFocused
+                    ? selectedSessionKey
+                    : hostSk || selectedSessionKey
                   return (
                     <>
-                      <SyncV4TimelineBusy
-                        sessionKey={selectedSessionKey}
-                        busy={!!timelineBusy}
-                      />
-                      <ClearPendingOptimisticOnV4Echo
-                        pendingText={pendingOpt}
-                        windowRows={v4Window}
-                        onClear={
-                          typeof setPendingOptimisticUserText === 'function'
-                            ? () => setPendingOptimisticUserText('')
-                            : undefined
-                        }
-                      />
-                      {useLegacyPane ? (
+                      {busySessionKey ? (
+                        <SyncV4TimelineBusy
+                          sessionKey={busySessionKey}
+                          busy={!!timelineBusy}
+                        />
+                      ) : null}
+                      {hostFocused ? (
+                        <ClearPendingOptimisticOnV4Echo
+                          pendingText={pendingOpt}
+                          windowRows={v4Window}
+                          onClear={
+                            typeof setPendingOptimisticUserText === 'function'
+                              ? () => setPendingOptimisticUserText('')
+                              : undefined
+                          }
+                        />
+                      ) : null}
+                      {hostFocused && useLegacyPane ? (
               /* LEGACY：仅 isHomeSurface — 勿在此恢复主对话 ToolCallList */
               <ChatMessageStreamPane
                 rows={renderRows}
@@ -969,25 +1011,32 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     <V4ZCodeTimeline
                       payload={v4Payload}
                       connecting={
-                        // no-thread 不能当永久「加载中」——否则无 tid 时转圈到死；
-                        // 交给 draftEmpty / 空态文案；connecting 只表示「已有 tid、等首帧」。
-                        v4Phase === 'connecting' || v4Phase === 'failed'
+                        hostFocused
+                          ? v4Phase === 'connecting' ||
+                            v4Phase === 'failed' ||
+                            (v4Phase === 'no-thread' && !draftEmpty)
+                          : v4Phase === 'connecting' || v4Phase === 'failed'
                       }
-                      connectionFailed={v4Phase === 'failed'}
+                      connectionFailed={hostFocused && v4Phase === 'failed'}
                       onRetryConnection={
-                        v4Phase === 'failed' && selectedThreadId
+                        hostFocused && v4Phase === 'failed' && selectedThreadId
                           ? () => retryEvoflowV4Session(String(selectedThreadId))
                           : undefined
                       }
-                      draftEmpty={draftEmpty}
-                      optimisticUserText={optimisticUserText}
-                      evoflowSessionKey={selectedSessionKey}
-                      // 左下角齿轮 ↔ 右下角停止：uiBusy（wire ∪ 时间线仍活）
+                      draftEmpty={hostFocused ? draftEmpty : false}
+                      optimisticUserText={
+                        hostFocused ? optimisticUserText : null
+                      }
+                      evoflowSessionKey={
+                        hostSessionKey || hostTid || selectedSessionKey
+                      }
+                      focused={hostFocused}
+                      hostVisible={hostVisible}
                       sessionBusy={uiBusy}
                       topChrome={
+                        hostFocused ? (
                         <ConversationCompactTipBanner
                           sessionKey={selectedSessionKey}
-                          // 优先用后端 context_usage.message_count；未上报时用 V4 行数兜底
                           messageCount={
                             displayContextUsage?.messageCount ??
                             (v4RowCount > 0 ? v4RowCount : undefined)
@@ -997,6 +1046,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           sessionBusy={uiBusy}
                           onCompact={handleManualContextCompact}
                         />
+                        ) : null
                       }
                       onOpenFileLink={(target) => {
                         // 话术 Markdown 路径 pill → 右侧「文件」预览区（可关、半宽，不盖住对话）
@@ -1056,37 +1106,66 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                           },
                         })
                       }}
-                      onAutoOpenCodeViewers={(sources) => {
-                        showRightStageCodeViewers(sources, {
-                          sessionKey: selectedSessionKey,
-                          threadId: wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
-                        })
-                      }}
-                      onEdit={async (target, newText) => {
-                        // ZCode 行内编辑 UI → 既有 truncate+resend（entityId = message_id）
-                        const mid = String(target?.entityId || '').trim()
-                        if (!mid) return false
-                        try {
-                          await handleEditMessage(String(newText || ''), mid)
-                          return true
-                        } catch {
-                          return false
-                        }
-                      }}
+                      onAutoOpenCodeViewers={
+                        hostFocused
+                          ? (sources) => {
+                              showRightStageCodeViewers(sources, {
+                                sessionKey: selectedSessionKey,
+                                threadId:
+                                  wsClient?.getSessionThreadId?.(
+                                    selectedSessionKey || '',
+                                  ) || '',
+                              })
+                            }
+                          : undefined
+                      }
+                      onEdit={
+                        hostFocused
+                          ? async (target, newText) => {
+                              const mid = String(target?.entityId || '').trim()
+                              if (!mid) return false
+                              try {
+                                await handleEditMessage(String(newText || ''), mid)
+                                return true
+                              } catch {
+                                return false
+                              }
+                            }
+                          : undefined
+                      }
                       toolApprovalUiDisabled={toolApprovalUiDisabled}
                       bottomDock={
-                        <div
-                          ref={setV4ComposerHostEl}
-                          data-v4-evoflow-composer-host="true"
-                          className="w-full min-w-0"
-                        />
+                        /* 分屏才把 composer 粘进 timeline；单栏走 HostStack 外稳定槽，
+                           避免 KeepAlive 切会话时 sticky dock 落在估高压短的文档流顶部。 */
+                        v4SplitSecondary && hostFocused ? (
+                          <div
+                            ref={setV4ComposerHostEl}
+                            data-v4-evoflow-composer-host="true"
+                            className="w-full min-w-0"
+                          />
+                        ) : undefined
                       }
                     />
                       )}
                     </>
                   )
                 }}
-              </V4StreamRowsBridge>
+              </V4ChatHostStack>
+              {isEvoflowChatV4Enabled() && !isHomeSurface ? (
+                <V4ViewportDebugOverlay />
+              ) : null}
+              </div>
+              ) : null}
+              {isEvoflowChatV4Enabled() &&
+              !isHomeSurface &&
+              !isDeptChatSurface &&
+              !v4SplitSecondary ? (
+                <div
+                  ref={setV4ComposerHostEl}
+                  data-v4-evoflow-composer-host="true"
+                  data-v4-evoflow-composer-host-stable="true"
+                  className="relative z-20 w-full shrink-0"
+                />
               ) : null}
             </div>
           </div>
@@ -1884,6 +1963,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
         setMoreMenuKey={setMoreMenuKey}
         onSelectSession={selectSessionFromShell}
         onPrefetchSession={prefetchSessionHistoryFromShell}
+        onOpenSplitSession={openV4SplitSession}
         onPinSession={onShellPinSession}
         onDeleteSession={onShellDeleteSession}
         onForkSession={onShellForkSession}

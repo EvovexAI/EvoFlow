@@ -7,7 +7,7 @@ import { api } from './tauri-api.js'
 import { OBS_ENABLED_CHANGED_EVENT } from '../react/obs/lib/obs-api.js'
 
 const HUD_ID = 'evoflow-perf-hud'
-const HUD_SKIN = 'telemetry-v4-plain'
+const HUD_SKIN = 'telemetry-v4-plain-dragsafe'
 const POS_KEY = 'evoflow_perf_hud_pos'
 const COLLAPSED_KEY = 'evoflow_perf_hud_collapsed'
 
@@ -105,6 +105,42 @@ function loadPos() {
 function savePos(left, top) {
   try {
     localStorage.setItem(POS_KEY, JSON.stringify({ left, top }))
+  } catch {
+    /* ignore */
+  }
+}
+
+/** 标题栏 / 窗缘安全边距：顶边太贴时会被 Tauri drag-region 抢走指针，拖不动。 */
+const HUD_EDGE = 8
+const HUD_SAFE_TOP = 44
+
+function clampHudPos(left, top, host) {
+  const w = Math.max(120, host?.offsetWidth || 320)
+  const h = Math.max(40, host?.offsetHeight || 80)
+  const maxL = Math.max(HUD_EDGE, window.innerWidth - w - HUD_EDGE)
+  const maxT = Math.max(HUD_SAFE_TOP, window.innerHeight - h - HUD_EDGE)
+  return {
+    left: Math.min(maxL, Math.max(HUD_EDGE, Number(left) || HUD_EDGE)),
+    top: Math.min(maxT, Math.max(HUD_SAFE_TOP, Number(top) || HUD_SAFE_TOP)),
+  }
+}
+
+function applyHudPos(host, left, top) {
+  const p = clampHudPos(left, top, host)
+  host.style.left = `${p.left}px`
+  host.style.top = `${p.top}px`
+  host.style.right = 'auto'
+  host.style.bottom = 'auto'
+  return p
+}
+
+function resetHudPos(host) {
+  host.style.left = 'auto'
+  host.style.top = 'auto'
+  host.style.right = '18px'
+  host.style.bottom = '18px'
+  try {
+    localStorage.removeItem(POS_KEY)
   } catch {
     /* ignore */
   }
@@ -268,28 +304,30 @@ function ensureHost() {
     const display = _host.style.display
     const left = _host.style.left
     const top = _host.style.top
+    const hadCustomPos = left && left !== 'auto'
+    const prevLeft = hadCustomPos ? parseFloat(left) : null
+    const prevTop = hadCustomPos ? parseFloat(top || '0') : null
     _host.remove()
     _host = null
     const rebuilt = ensureHost()
     if (display) rebuilt.style.display = display
-    if (left) {
-      rebuilt.style.left = left
-      rebuilt.style.top = top || '0px'
-      rebuilt.style.right = 'auto'
-      rebuilt.style.bottom = 'auto'
+    if (hadCustomPos && Number.isFinite(prevLeft) && Number.isFinite(prevTop)) {
+      applyHudPos(rebuilt, prevLeft, prevTop)
     }
     return rebuilt
   }
   const host = document.createElement('div')
   host.id = HUD_ID
+  // 整窗禁止 Tauri 标题栏拖拽抢事件；否则贴顶后标题条拖不动浮窗、只拖窗口
+  host.setAttribute('data-tauri-no-drag', '')
   host.innerHTML = `
     <style>${hudCss()}</style>
-    <div class="ef-hud-shell" data-hud-shell>
+    <div class="ef-hud-shell" data-hud-shell data-tauri-no-drag>
       <i class="ef-hud-corner tl" aria-hidden="true"></i>
       <i class="ef-hud-corner tr" aria-hidden="true"></i>
       <i class="ef-hud-corner bl" aria-hidden="true"></i>
       <i class="ef-hud-corner br" aria-hidden="true"></i>
-      <div class="ef-hud-head" data-hud-drag>
+      <div class="ef-hud-head" data-hud-drag data-tauri-no-drag>
         <div class="ef-hud-brand">
           <i class="ef-hud-pulse" aria-hidden="true"></i>
           <div style="min-width:0">
@@ -297,12 +335,13 @@ function ensureHost() {
             <div class="ef-hud-sub" data-hud-sub>采样中…</div>
           </div>
         </div>
-        <div class="ef-hud-actions">
+        <div class="ef-hud-actions" data-tauri-no-drag>
+          <button type="button" class="ef-hud-btn" data-hud-reset title="复位到右下角">↺</button>
           <button type="button" class="ef-hud-btn" data-hud-collapse title="收起/展开">–</button>
           <button type="button" class="ef-hud-btn" data-hud-close title="关闭浮窗（运维观测仍开启）">×</button>
         </div>
       </div>
-      <div class="ef-hud-body" data-hud-body>
+      <div class="ef-hud-body" data-hud-body data-hud-drag-secondary>
         <div class="ef-hud-cards" data-hud-cards></div>
         <div class="ef-hud-foot">
           <button type="button" class="ef-hud-link" data-hud-obs>运维观测</button>
@@ -318,10 +357,7 @@ function ensureHost() {
 
   const pos = loadPos()
   if (pos) {
-    host.style.left = `${Math.max(8, pos.left)}px`
-    host.style.top = `${Math.max(8, pos.top)}px`
-    host.style.right = 'auto'
-    host.style.bottom = 'auto'
+    applyHudPos(host, pos.left, pos.top)
   }
   // 新皮肤默认展开，避免只剩一行标题啥都看不见
   setCollapsed(false)
@@ -332,10 +368,20 @@ function ensureHost() {
     const next = !host.classList.contains('is-collapsed')
     host.classList.toggle('is-collapsed', next)
     setCollapsed(next)
+    // 收起后高度变小，重新夹紧以免贴死顶边
+    if (host.style.left && host.style.left !== 'auto') {
+      const r = host.getBoundingClientRect()
+      const p = applyHudPos(host, r.left, r.top)
+      savePos(p.left, p.top)
+    }
   })
   host.querySelector('[data-hud-close]')?.addEventListener('click', (e) => {
     e.stopPropagation()
     hidePerfHud({ userDismissed: true })
+  })
+  host.querySelector('[data-hud-reset]')?.addEventListener('click', (e) => {
+    e.stopPropagation()
+    resetHudPos(host)
   })
   host.querySelector('[data-hud-obs]')?.addEventListener('click', () => {
     window.location.hash = '/observability'
@@ -344,10 +390,9 @@ function ensureHost() {
     window.location.hash = '/system-logs?source=chat-turn-lifecycle'
   })
 
-  const dragEl = host.querySelector('[data-hud-drag]')
-  dragEl?.addEventListener('pointerdown', (e) => {
+  const beginDrag = (e, captureEl) => {
     if (e.button !== 0) return
-    if (e.target?.closest?.('.ef-hud-btn')) return
+    if (e.target?.closest?.('.ef-hud-btn, .ef-hud-link, a, button')) return
     const rect = host.getBoundingClientRect()
     _drag = {
       ox: e.clientX - rect.left,
@@ -355,28 +400,43 @@ function ensureHost() {
       pointerId: e.pointerId,
     }
     try {
-      dragEl.setPointerCapture(e.pointerId)
+      captureEl.setPointerCapture(e.pointerId)
     } catch {
       /* ignore */
     }
-  })
-  dragEl?.addEventListener('pointermove', (e) => {
+  }
+  const onDragMove = (e) => {
     if (!_drag || _drag.pointerId !== e.pointerId) return
-    const left = Math.min(window.innerWidth - 40, Math.max(0, e.clientX - _drag.ox))
-    const top = Math.min(window.innerHeight - 40, Math.max(0, e.clientY - _drag.oy))
-    host.style.left = `${left}px`
-    host.style.top = `${top}px`
-    host.style.right = 'auto'
-    host.style.bottom = 'auto'
-  })
+    applyHudPos(host, e.clientX - _drag.ox, e.clientY - _drag.oy)
+  }
   const endDrag = (e) => {
     if (!_drag || (_drag.pointerId != null && e.pointerId !== _drag.pointerId)) return
     const rect = host.getBoundingClientRect()
-    savePos(rect.left, rect.top)
+    const p = applyHudPos(host, rect.left, rect.top)
+    savePos(p.left, p.top)
     _drag = null
   }
-  dragEl?.addEventListener('pointerup', endDrag)
-  dragEl?.addEventListener('pointercancel', endDrag)
+  const bindDrag = (el) => {
+    if (!el) return
+    el.addEventListener('pointerdown', (e) => beginDrag(e, el))
+    el.addEventListener('pointermove', onDragMove)
+    el.addEventListener('pointerup', endDrag)
+    el.addEventListener('pointercancel', endDrag)
+  }
+  bindDrag(host.querySelector('[data-hud-drag]'))
+  // 标题被顶栏挡住时，可从卡片区拖走
+  bindDrag(host.querySelector('[data-hud-drag-secondary]'))
+
+  window.addEventListener(
+    'resize',
+    () => {
+      if (!host.style.left || host.style.left === 'auto') return
+      const r = host.getBoundingClientRect()
+      const p = applyHudPos(host, r.left, r.top)
+      savePos(p.left, p.top)
+    },
+    { passive: true },
+  )
 
   return host
 }
@@ -596,30 +656,21 @@ export function hidePerfHud(opts = {}) {
   }
 }
 
-export function syncPerfHudWithObsEnabled(enabled) {
-  if (enabled) {
-    if (_userDismissed) return
-    showPerfHud()
-  } else {
-    _userDismissed = false
-    hidePerfHud()
-  }
+/**
+ * 「本机运行监控」已退役：调试态改看 V4 视口调试浮层（运行 SSE / 旁观轮询）。
+ * 保留 API 以免旧调用炸；永远隐藏。
+ */
+export function syncPerfHudWithObsEnabled(_enabled) {
+  _userDismissed = false
+  hidePerfHud()
 }
 
-/** Boot once: listen for debug/obs toggle + restore if already on. */
+/** Boot once: ensure any leftover HUD is hidden. */
 export function installPerfHud() {
   if (_installed) return
   _installed = true
-  window.addEventListener(OBS_ENABLED_CHANGED_EVENT, (ev) => {
-    const on = !!ev?.detail?.enabled
-    syncPerfHudWithObsEnabled(on)
+  hidePerfHud()
+  window.addEventListener(OBS_ENABLED_CHANGED_EVENT, () => {
+    hidePerfHud()
   })
-  void import('../react/obs/lib/obs-api.js')
-    .then((m) => m.fetchObsEnabledStatus())
-    .then((st) => {
-      syncPerfHudWithObsEnabled(!!st?.enabled)
-    })
-    .catch(() => {
-      /* gateway may be down at boot */
-    })
 }

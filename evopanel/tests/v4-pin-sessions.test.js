@@ -56,3 +56,10 @@ describe('syncEvoflowV4PinnedSessions export', () => {
     mod.syncEvoflowV4PinnedSessions([])
   })
 })
+
+describe('V4ChatHostStack KeepAlive（对齐 ZCode 隐藏挂载）', () => {
+  it('exports V4ChatHostStack', async () => {
+    const mod = await import('../src/react/v4/V4ChatHostStack.tsx')
+    expect(typeof mod.V4ChatHostStack).toBe('function')
+  })
+})

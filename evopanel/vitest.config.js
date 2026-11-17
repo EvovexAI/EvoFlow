@@ -268,6 +268,10 @@ export default defineConfig({
       // 多会话钉住 V4 投影：peekStore + pin 租约，切回不冷开空白
       'tests/v4-pin-sessions.test.js',
       'tests/v4-session-keepwarm-cancel.test.ts',
+      // 渲染内存水位 → pinMax / 投影软顶（normal=8 / high=4）
+      'tests/renderer-memory-pressure.test.ts',
+      // 从未打开：磁盘投影缓存 → sticky 先画
+      'tests/v4-snapshot-disk-cache.test.ts',
       // stream-404 remint：旧投影改挂新 thread，避免冷开清空时间线
       'tests/v4-remint-rebind.test.ts',
       'tests/langgraph-thread-stale-epoch.test.ts',
@@ -306,6 +310,12 @@ export default defineConfig({
       'tests/v4-assistant-usage-label.test.ts',
       // 渲染进程内存瞭望：投影行字节估算（2026-11-15 renderer 1.7GB 悬案的下次定罪探针）
       'tests/v4-projection-memory-probe.test.ts',
+      // search_code_index 卡片：不得被 family=search 抢去渲染成不可展开的一行式块
+      // 【self-evolution-bot · 2026-11-17 · 第33轮】新增用例必须登记，否则 vitest 根本不会跑它
+      'tests/search-code-index-card.test.ts',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】插件设置页空白回归（容器样式 + services 稳定性）：
+      // 不登记这行，本文件在 CI 里等于不存在。
+      'tests/plugin-settings-not-blank.test.ts',
     ],
   },
 })

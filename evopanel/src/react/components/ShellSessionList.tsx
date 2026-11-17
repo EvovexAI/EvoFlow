@@ -130,6 +130,8 @@ export type ShellSessionListProps = {
   onSelectSession: (sessionKey: string) => void
   /** Background warm idle runtime cache on sidebar hover. */
   onPrefetchSession?: (sessionKey: string) => void
+  /** Alt+点击：右侧分屏打开（不切走主选）。 */
+  onOpenSplitSession?: (sessionKey: string) => void
   onSessionFilterChange: (value: string) => void
   onMoreMenuToggle: (sessionKey: string) => void
   onMoreMenuClose: () => void
@@ -330,6 +332,7 @@ export function ShellSessionList({
   globalLoading = false,
   onSelectSession,
   onPrefetchSession,
+  onOpenSplitSession,
   onSessionFilterChange,
   onMoreMenuToggle,
   onMoreMenuClose,
@@ -796,9 +799,14 @@ export function ShellSessionList({
   }, [newTaskActive, displaySelectedKey, onChatRoute])
 
   const handleSelect = useCallback(
-    (sessionKey: string) => {
+    (sessionKey: string, opts?: { altKey?: boolean }) => {
       const key = String(sessionKey || '').trim()
       if (!key) return
+      // Alt+点击：右侧分屏打开，不切走主选（对齐 ZCode split leaf）。
+      if (opts?.altKey && onOpenSplitSession) {
+        onOpenSplitSession(key)
+        return
+      }
       clearPendingShellSession()
       // 点开会话即清除「标为未读」手动标记（对齐 zcode 未读语义）
       if (unreadKeysRef.current.has(key)) {
@@ -819,7 +827,7 @@ export function ShellSessionList({
       }
       onSelectSession(key)
     },
-    [onSelectSession],
+    [onSelectSession, onOpenSplitSession],
   )
 
   /** 行所属工作空间的本地路径（特殊组 / 未注册目录返回空） */
@@ -1566,7 +1574,7 @@ export function ShellSessionList({
         runningSummary={runningSessionMap[sk] ?? null}
         resolveLiveStreamActivity={resolveLiveStreamActivityForSession}
         variant="chat"
-        onSelect={() => handleSelect(sk)}
+        onSelect={(opts) => handleSelect(sk, opts)}
         onMoreToggle={() => onMoreMenuToggle(sk)}
         onRefresh={() => onRefreshSession(sk)}
         onMenuAction={(action) => runMenuAction(action, sk)}

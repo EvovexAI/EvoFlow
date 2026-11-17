@@ -166,6 +166,11 @@ export class EvoFlowV4Transport implements ConversationTransport {
     this.connectionId = `evoflow-${Math.random().toString(36).slice(2, 10)}-${Date.now().toString(36)}`;
   }
 
+  /** 页面级 frames SSE 当前是否在读流（诊断浮层用；非「本轮 AG-UI 在推字」）。 */
+  isFramesSseConnected(): boolean {
+    return this.sseLoopStarted && !!this.sseReader && !this.disposed;
+  }
+
   private noteSseAssembleProgress(restBytes: number): void {
     // 只在跨 chunk 拼大包时打点：≥256KiB 起，每翻一倍或每 +512KiB 记一条。
     if (restBytes < 256 * 1024) return;

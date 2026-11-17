@@ -903,9 +903,28 @@ fn resolve_cwd(row: &Value) -> PathBuf {
 
 /// One-shot runtime prep for market installs (deps stripped from zip).
 /// Marker: ``.evoflow-setup-ok`` under cwd. Commands from ``service.setup`` or auto npm/pip.
+fn package_json_has_script(cwd: &Path, script: &str) -> bool {
+    let path = cwd.join("package.json");
+    let Ok(text) = fs::read_to_string(&path) else {
+        return false;
+    };
+    let Ok(v) = serde_json::from_str::<Value>(strip_utf8_bom(&text)) else {
+        return false;
+    };
+    v.pointer("/scripts")
+        .and_then(|s| s.get(script))
+        .and_then(|x| x.as_str())
+        .map(|s| !s.trim().is_empty())
+        .unwrap_or(false)
+}
+
 fn ensure_extension_runtime_setup(id: &str, cwd: &Path, manifest: &Value) -> Result<(), String> {
     let marker = cwd.join(".evoflow-setup-ok");
-    if marker.is_file() {
+    let needs_vite_dist = cwd.join("package.json").is_file()
+        && package_json_has_script(cwd, "build")
+        && !cwd.join("dist").is_dir();
+    // Prior installs may have marked setup-ok after npm install only (no dist) — rebuild.
+    if marker.is_file() && !needs_vite_dist {
         return Ok(());
     }
     if !cwd.is_dir() {
@@ -942,14 +961,13 @@ fn ensure_extension_runtime_setup(id: &str, cwd: &Path, manifest: &Value) -> Res
         }
     }
 
-    // Auto: Node app without node_modules
-    if cmds.is_empty()
-        && cwd.join("package.json").is_file()
-        && !cwd.join("node_modules").is_dir()
-    {
-        cmds.push(vec!["npm".into(), "install".into()]);
-        if cwd.join("package.json").is_file() {
-            // Prefer build when a build script exists — best-effort; ignore failure later only for build
+    // Auto: Node app — install deps, then build UI assets when dist/ is missing.
+    if cmds.is_empty() && cwd.join("package.json").is_file() {
+        if !cwd.join("node_modules").is_dir() {
+            cmds.push(vec!["npm".into(), "install".into()]);
+        }
+        if needs_vite_dist || (package_json_has_script(cwd, "build") && !cwd.join("dist").is_dir()) {
+            cmds.push(vec!["npm".into(), "run".into(), "build".into()]);
         }
     }
     // Auto: Python requirements without venv

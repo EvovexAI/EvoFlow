@@ -950,6 +950,11 @@
   color: var(--text-muted, #64748b);
 }
 
+.sr-badge--update {
+  background: color-mix(in srgb, #f59e0b 18%, transparent);
+  color: #b45309;
+}
+
 .sr-footnote {
   margin: 10px 0 0;
   font-size: 11px;

@@ -23,6 +23,11 @@ import {
   fetchObsEnabledStatus,
   setObsEnabled,
 } from '../../obs/lib/obs-api.js'
+import {
+  V4_VIEWPORT_OVERLAY_CHANGED,
+  V4_VIEWPORT_OVERLAY_LS_KEY,
+  setV4ViewportOverlayEnabled,
+} from '../../v4/V4ViewportDebugOverlay.js'
 
 export function renderBrowserToggleButton(ctx: {
   browserStageActive: boolean
@@ -198,6 +203,13 @@ export function ChatHeaderHelpMenu(): ReactNode {
   const [debugOn, setDebugOn] = useState(false)
   const [debugLocked, setDebugLocked] = useState(false)
   const [debugBusy, setDebugBusy] = useState(false)
+  const [viewportOverlayOn, setViewportOverlayOn] = useState(() => {
+    try {
+      return localStorage.getItem(V4_VIEWPORT_OVERLAY_LS_KEY) !== '0'
+    } catch {
+      return true
+    }
+  })
 
   const close = () => setOpen(false)
 
@@ -220,6 +232,23 @@ export function ChatHeaderHelpMenu(): ReactNode {
       cancelled = true
     }
   }, [open])
+
+  useEffect(() => {
+    const onOverlay = (ev: Event) => {
+      const detail = (ev as CustomEvent<{ enabled?: boolean }>).detail
+      if (typeof detail?.enabled === 'boolean') {
+        setViewportOverlayOn(detail.enabled)
+        return
+      }
+      try {
+        setViewportOverlayOn(localStorage.getItem(V4_VIEWPORT_OVERLAY_LS_KEY) !== '0')
+      } catch {
+        setViewportOverlayOn(true)
+      }
+    }
+    window.addEventListener(V4_VIEWPORT_OVERLAY_CHANGED, onOverlay)
+    return () => window.removeEventListener(V4_VIEWPORT_OVERLAY_CHANGED, onOverlay)
+  }, [])
 
   const openDocs = () => {
     close()
@@ -401,6 +430,40 @@ export function ChatHeaderHelpMenu(): ReactNode {
               <span
                 className={`react-chat-header-menu-switch${debugOn ? ' is-on' : ''}${
                   debugLocked ? ' is-locked' : ''
+                }`}
+                aria-hidden="true"
+              />
+            </button>
+            <button
+              type="button"
+              role="menuitemcheckbox"
+              className="react-chat-header-menu-item react-chat-header-menu-item--toggle"
+              aria-checked={viewportOverlayOn}
+              disabled={!debugOn}
+              title={
+                debugOn
+                  ? '调试模式下显示视口浮层：可见 turn 画面摘要 + 原始 message/row'
+                  : '请先开启调试模式'
+              }
+              onClick={() => {
+                const next = !viewportOverlayOn
+                setViewportOverlayOn(next)
+                setV4ViewportOverlayEnabled(next)
+                if (next && !debugOn) {
+                  void toastMsg('请先开启调试模式，浮层才会显示', 'info')
+                } else {
+                  void toastMsg(
+                    next ? '视口调试浮层已开' : '视口调试浮层已关',
+                    'success',
+                  )
+                }
+              }}
+            >
+              <ScrollText className="react-chat-header-icon" aria-hidden />
+              <span>视口调试浮层</span>
+              <span
+                className={`react-chat-header-menu-switch${viewportOverlayOn ? ' is-on' : ''}${
+                  !debugOn ? ' is-locked' : ''
                 }`}
                 aria-hidden="true"
               />

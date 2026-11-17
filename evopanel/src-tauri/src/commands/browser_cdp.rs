@@ -1081,6 +1081,102 @@ fn cdp_evaluate_result(value: Value) -> String {
     json!({ "result": { "type": type_name, "value": value } }).to_string()
 }
 
+/// 主聊天窗 WebView2 标签（与 `get_webview_window("main")` 对齐）。
+pub const MAIN_WEBVIEW_LABEL: &str = "main";
+
+/// 只 stash 主窗 CoreWebView2，不装 embed 的 zoom/popup hook。
+fn capture_main_core_webview2(app: &AppHandle, window: &WebviewWindow) {
+    let (tx, rx) = std::sync::mpsc::sync_channel::<bool>(1);
+    let win = window.clone();
+    if app
+        .run_on_main_thread(move || {
+            let tx_done = tx.clone();
+            if let Err(e) = win.with_webview(move |platform| {
+                let controller = platform.controller();
+                match unsafe { controller.CoreWebView2() } {
+                    Ok(wv) => {
+                        if let Ok(mut g) = core_webview_store().lock() {
+                            g.insert(
+                                MAIN_WEBVIEW_LABEL.to_string(),
+                                SendableCoreWebView(wv),
+                            );
+                        }
+                        crate::commands::browser_cdp_server::log_line(
+                            "[main-cdp] captured main CoreWebView2",
+                        );
+                        let _ = tx_done.send(true);
+                    }
+                    Err(e) => {
+                        crate::commands::browser_cdp_server::log_line(&format!(
+                            "[main-cdp] CoreWebView2 capture failed: {e}"
+                        ));
+                        let _ = tx_done.send(false);
+                    }
+                }
+            }) {
+                crate::commands::browser_cdp_server::log_line(&format!(
+                    "[main-cdp] capture with_webview enqueue failed: {e}"
+                ));
+                let _ = tx.send(false);
+            }
+        })
+        .is_err()
+    {
+        return;
+    }
+    let ok = rx.recv_timeout(std::time::Duration::from_secs(3)).unwrap_or(false);
+    if !ok {
+        crate::commands::browser_cdp_server::log_line("[main-cdp] CoreWebView2 capture timed out");
+    }
+}
+
+/// 在主窗口执行 JS 并返回值（供 `/main-cdp/evaluate` / 布局 dump）。
+///
+/// 与侧栏 browser CDP 共用 `browser-cdp-http-port`，路由前缀 `/main-cdp/` 区分。
+pub fn evaluate_on_main_webview(app: &AppHandle, expression: &str) -> Result<Value, String> {
+    let _guard = cdp_global_lock()
+        .lock()
+        .map_err(|_| "main-cdp: global lock poisoned".to_string())?;
+    let window = app
+        .get_webview_window(MAIN_WEBVIEW_LABEL)
+        .ok_or_else(|| "main window not found".to_string())?;
+    if !has_stashed_core_webview2(MAIN_WEBVIEW_LABEL) {
+        crate::commands::browser_cdp_server::log_line(
+            "[main-cdp] stash miss; capturing main CoreWebView2",
+        );
+        capture_main_core_webview2(app, &window);
+    }
+    match execute_script_on_stashed(app, MAIN_WEBVIEW_LABEL, expression) {
+        Ok(v) => Ok(v),
+        Err(e) => {
+            crate::commands::browser_cdp_server::log_line(&format!(
+                "[main-cdp] ExecuteScript miss ({e}); refresh stash + retry"
+            ));
+            clear_stashed_core_webview2(MAIN_WEBVIEW_LABEL);
+            capture_main_core_webview2(app, &window);
+            execute_script_on_stashed(app, MAIN_WEBVIEW_LABEL, expression)
+        }
+    }
+}
+
+/// 快捷：跑 `__evoflowDumpChatLayout`（无全局函数则 collect 失败返回 error 对象）。
+pub fn dump_main_chat_layout(app: &AppHandle) -> Result<Value, String> {
+    evaluate_on_main_webview(
+        app,
+        r#"(function(){
+  try {
+    if (typeof window.__evoflowDumpChatLayout === 'function') {
+      return window.__evoflowDumpChatLayout('main-cdp');
+    }
+    if (window.__evoflowChatLayout) return window.__evoflowChatLayout;
+    return { error: 'layout dump not installed (need frontend with v4-chat-layout-dump)' };
+  } catch (e) {
+    return { error: String((e && e.message) || e) };
+  }
+})()"#,
+    )
+}
+
 /// Keep CDP logs readable: screenshot payloads and DOM snapshots run to
 /// megabytes, and the tail is what identifies the call.
 fn truncate(text: &str, limit: usize) -> String {

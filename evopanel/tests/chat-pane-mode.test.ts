@@ -79,13 +79,22 @@ describe('resolveChatPaneMode — V4 开启时对话不回落老面板', () => {
     expect(mode.useLegacyPane).toBe(false)
   })
 
-  it('尚无 thread 且确认没有本地行：也是新草稿', () => {
-    const mode = resolveChatPaneMode({
-      ...base,
-      v4Phase: 'no-thread',
-      historyLoading: false,
-    })
-    expect(mode.draftEmpty).toBe(true)
+  it('尚无 thread：默认不当草稿（ensure 在途）；knownEmptyDraft 才居中', () => {
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'no-thread',
+        historyLoading: false,
+      }).draftEmpty,
+    ).toBe(false)
+    expect(
+      resolveChatPaneMode({
+        ...base,
+        v4Phase: 'no-thread',
+        historyLoading: false,
+        knownEmptyDraft: true,
+      }).draftEmpty,
+    ).toBe(true)
   })
 
   it('V4 已有该会话的行：用 V4 时间线', () => {
