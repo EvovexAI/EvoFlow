@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.32] - 2026-11-17
+
+相对 **1.3.31**：打开无限画布等 Agent 应用不再把客户端点死；历史回填时助手续跑不再劈成两段；打开代码索引明显更快。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.32.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **打开 Agent 应用客户端点死**：开签前腾出对话内存；服务未就绪先显示「启动中」；同屏只保留一个 Agent 应用签
+- **历史回填续跑劈轮**：重载时把无新用户输入的续跑并回上一轮
+- **打开代码索引很慢**：读索引状态不再拖入重型模型栈
+
 ## [1.3.31] - 2026-11-17
 
 相对 **1.3.30**：切会话不再整页拆装对话区；已装资源包可一键升级；长命令执行时终端持续出字；重启后对话不再被卡住。

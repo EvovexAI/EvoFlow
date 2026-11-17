@@ -458,6 +458,37 @@ export function focusEvoflowV4SessionForOpen(sessionId: string): void {
   }
 }
 
+/**
+ * Agent 应用（无限画布等）要在同 WebView 里再挂重 iframe / 本地服务。
+ * 开签前主动挤掉 keep-warm，避免对话投影 + SPA 叠爆渲染进程（点不动 / OOM）。
+ */
+export function prepareRendererForHeavyStage(detail?: Record<string, unknown>): void {
+  try {
+    const level = noteRendererMemoryPressure({
+      reason: "heavy_stage",
+      ...(detail || {}),
+    });
+    const keep = [..._pinnedLeases.keys()];
+    const closed = getSharedLayer().releaseKeepWarmExcept(keep, {
+      // 开重 UI：有快照的空闲投影也挤，只保 pin（执行中）。
+      onlyWithoutSnapshot: false,
+      preferLargest: true,
+      ...(level === "critical" ? { limit: 8 } : { limit: 4 }),
+    });
+    if (closed > 0) {
+      logV4Life({
+        event: "heavy_stage_evict_warm",
+        level: level === "critical" ? "error" : "warn",
+        zh: `打开重型右栏前清掉 ${closed} 条 keep-warm 投影，给 Agent 应用腾渲染内存。`,
+        detail: { closed, level, pinned: _pinnedLeases.size, ...(detail || {}) },
+        skipDedupe: true,
+      });
+    }
+  } catch {
+    /* best-effort */
+  }
+}
+
 export type V4PinTarget = {
   threadId: string;
   /** 侧栏 / runtime 用 sessionKey；缺省时只钉租约、不同步 busy */

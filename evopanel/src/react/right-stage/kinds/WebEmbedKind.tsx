@@ -288,7 +288,14 @@ export const WebEmbedKind = memo(function WebEmbedKind({
     [pageUrl],
   )
 
-  const canShowFrame = !!pageUrl && !blocked && !localBlocked && (!!embedSrc || !!embedSrcDoc)
+  // 托管服务冷启动时不要挂 iframe：连死端口 + 对话时间线同 WebView 会把客户端点死。
+  const canShowFrame =
+    !!pageUrl &&
+    !serviceStarting &&
+    !serviceError &&
+    !blocked &&
+    !localBlocked &&
+    (!!embedSrc || !!embedSrcDoc)
 
   const showBack = typeof onClose === 'function'
 

@@ -607,3 +607,9 @@ evopanel/src-tauri/gen/
 /docs/contribute/v4-streaming-alignment-logbook.md
 /backend/tests/FINAL_SUMMARY_*.md
 /backend/tests/IMPROVEMENTS_*.md
+
+# 本地 Agent 日记 / craft 草稿（不进公开仓、不出现在待提交）
+/memory/
+/craft/
+/backend/memory/
+/assets/employees/**/memory/journal/

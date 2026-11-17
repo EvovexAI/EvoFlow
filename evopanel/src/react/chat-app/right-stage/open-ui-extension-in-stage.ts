@@ -6,7 +6,9 @@
  * - **先开签，再起服务**。managed 扩展要 spawn `node server/index.js` / `python main.py`，
  *   冷启动 30~60s；若先 await ensureUiExtensionReady 再开签，用户在这段时间里
  *   什么都看不到，表现就是「点了没反应」。
- * - 服务就绪后再刷新一次 iframe（URL 加 cache-buster），把首屏失败的标签救回来。
+ * - **服务未就绪时不挂 iframe**（url 先空）。无限画布等 SPA 对死端口反复连 + 对话投影
+ *   同 WebView 叠载会把客户端点死（2026-11-17）。
+ * - 服务就绪后再挂 iframe（URL 加 cache-buster）。
  * - 起服务失败不关签：签里留着错误提示 + 重试入口，用户能看到发生了什么。
  */
 import { flushSync } from 'react-dom'
@@ -19,6 +21,7 @@ import {
 import { toast } from '../../../components/toast.js'
 import { toUserFacingError } from '../../../lib/user-facing-error.js'
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
+import { prepareRendererForHeavyStage } from '../../v4/V4StreamRowsBridge.js'
 
 /** 每个 Agent 应用一个标签：同 kind 多签共存，id 按扩展 id 区分。 */
 export function uiExtensionStageTabId(extensionId: string): string {
@@ -119,7 +122,24 @@ export function openUiExtensionInStage(ctx: OpenUiExtensionInStageCtx, extension
         serviceReady = st?.state === 'running' || st?.state === 'external' || st?.state === 'none'
       }
 
+      // 开签前：挤掉对话 keep-warm，并关掉其它 Agent 应用签（同 WebView 叠多个 SPA 极易卡死）。
+      prepareRendererForHeavyStage({ extensionId: id, title })
+      const selfTabId = uiExtensionStageTabId(id)
+      const selfTabKey = `web-embed:${selfTabId}`
+      try {
+        const snap = rightStageStore.getSnapshot()
+        for (const tab of snap.tabs || []) {
+          if (tab.kind !== 'web-embed') continue
+          const key = `web-embed:${tab.id}`
+          if (key === selfTabKey) continue
+          rightStageStore.closeTab(key)
+        }
+      } catch {
+        /* best-effort */
+      }
+
       // ---- 先开签：让用户立刻看到右栏有东西 ----
+      // 服务未就绪时 url 先空：只显示「启动中」，不要对死端口挂 iframe。
       ctx.cancelPendingStreamUiBumpsRef.current()
       setRightStageOverlayDefer(RIGHT_STAGE_OVERLAY_DEFER_KEYS, false)
       ctx.syncShellAsideForWorkspacePanel(true)
@@ -133,37 +153,40 @@ export function openUiExtensionInStage(ctx: OpenUiExtensionInStageCtx, extension
         ctx.writeStreamDismissedRef.current = false
         ctx.rightStageUserPinnedRef.current = 'web-embed'
         ctx.showKind('web-embed', {
-          id: uiExtensionStageTabId(id),
+          id: selfTabId,
           title,
           forceExpand: true,
           data: {
-            url: entry,
+            url: serviceReady ? entry : '',
             editable: false,
             extensionId: id,
             extensionManifest: manifest,
             sandbox,
             titleLabel: title,
-            ...(serviceReady ? {} : { serviceStarting: true, serviceHint: serviceHintFor(manifest) }),
+            ...(serviceReady
+              ? { serviceStarting: false, serviceReady: true }
+              : { serviceStarting: true, serviceHint: serviceHintFor(manifest) }),
           },
         })
       })
 
       if (serviceReady) return
 
-      // ---- 服务冷启动：并行等，起好了刷新 iframe ----
+      // ---- 服务冷启动：并行等，起好了再挂 iframe ----
       const ready = await ensureUiExtensionReady(id)
       const readyEntry = String(ready?.entry || '').trim() || entry
       // 用户可能已经关掉签、或切到别的应用了；只刷新仍属于本应用的签。
-      const tabKey = `web-embed:${uiExtensionStageTabId(id)}`
-      const live = rightStageStore.findTab(tabKey)
+      const live = rightStageStore.findTab(selfTabKey)
       if (!live) return
+      // 再腾一次内存：服务就绪瞬间挂 SPA 是峰值。
+      prepareRendererForHeavyStage({ extensionId: id, phase: 'service_ready' })
       rightStageStore.updateData(
         {
           url: withCacheBuster(readyEntry),
           serviceStarting: false,
           serviceReady: true,
         },
-        { id: uiExtensionStageTabId(id) },
+        { id: selfTabId },
       )
     } catch (e) {
       const msg = toUserFacingError((e as Error)?.message || e)
