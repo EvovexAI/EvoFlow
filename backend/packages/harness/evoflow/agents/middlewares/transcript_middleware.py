@@ -16,7 +16,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 from collections.abc import Awaitable, Callable
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from langchain.agents import AgentState
@@ -34,6 +36,41 @@ from evoflow.agents.middlewares.stream_accumulator import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 【self-evolution-bot · 2026-11-17 · 第36轮】transcript 落库改走专用线程池，不再用默认 executor。
+# 为什么：现网 obs 同批 4 个工具调用，最内层 tool_end 实测只有 10~22ms（assets）、246~419ms（bash），
+#   但 tool_error_handling 记的 duration_ms 是 2142ms / 2363ms —— 差值固定约 1.9~2.1s，且四条几乎
+#   同刻结束（barrier 形状）。回推调用链：本中间件在 ``await handler(request)`` 之后
+#   ``await asyncio.to_thread(self._persist_tool_result_now, ...)``，而 ``asyncio.to_thread`` 用的
+#   是事件循环的**默认** executor —— 全仓 231 处 to_thread + langchain ``run_in_executor(None, ...)``
+#   （同步工具如 assets 的默认路径）全挤这同一个池（32 核机器默认 max_workers≈32）。
+#   复现：默认池塞满 32 个 blocker 后跑同一条 awrap 路径，工具体仍只花 10ms，但 4 并发墙钟
+#   530ms → 3786ms（见本轮 journal）。即用户看到的「删/写要 2 秒」不是资产代码慢，是落库排队。
+# 修复边界：只把**本中间件自己的落库**挪到专用池，默认池与其它 230 处不动（不改变任何工具行为）。
+#   池上限取 4：这里每次只写一条 batch，4 个并发工具足够；再多会加剧 SQLite 单连接锁竞争
+#   （get_db() 是单共享连接 + 进程级 RLock，并发写本来就是串行的）。
+# 判据：改完必须复算现网同一批并发，duration_ms 应回到 ≈工具体耗时（assets 十毫秒级）。
+_TRANSCRIPT_POOL_MAX_WORKERS = 4
+_TRANSCRIPT_POOL: ThreadPoolExecutor | None = None
+_TRANSCRIPT_POOL_GUARD = threading.Lock()
+
+
+def _transcript_pool() -> ThreadPoolExecutor:
+    """Lazy singleton so importing this module never starts threads."""
+    global _TRANSCRIPT_POOL
+    with _TRANSCRIPT_POOL_GUARD:
+        if _TRANSCRIPT_POOL is None:
+            _TRANSCRIPT_POOL = ThreadPoolExecutor(
+                max_workers=_TRANSCRIPT_POOL_MAX_WORKERS,
+                thread_name_prefix="evoflow-transcript",
+            )
+        return _TRANSCRIPT_POOL
+
+
+async def _run_in_transcript_pool(fn: Callable[..., Any], /, *args: Any) -> Any:
+    """Run blocking transcript persistence off the loop, on the private pool."""
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(_transcript_pool(), lambda: fn(*args))
 
 
 def _thread_id_from_runtime(runtime: Runtime) -> str:
@@ -411,7 +448,11 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
     ) -> dict[str, Any] | None:
         # Run sync SQLite persistence in a worker thread so the event loop
         # is never blocked by message/artifact INSERTs after each model call.
-        await asyncio.to_thread(self.after_model, state, runtime)
+        # 【self-evolution-bot · 2026-11-17 · 第36轮】改走专用池：原来 asyncio.to_thread 用默认
+        # executor，会和全仓 231 处 to_thread + langchain 同步工具的 run_in_executor(None,…)
+        # 抢同一个池。本轮已证默认池饱和时 4 并发落库墙钟 1893ms（工具体只需 10ms），
+        # 工具 duration_ms 因此被撑到 2s 级——同一根因，一并挪走。
+        await _run_in_transcript_pool(self.after_model, state, runtime)
         return None
 
     @classmethod
@@ -489,7 +530,10 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
         handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Any]],
     ) -> ToolMessage | Any:
         result = await handler(request)
-        await asyncio.to_thread(self._persist_tool_result_now, request, result)
+        # 【self-evolution-bot · 2026-11-17 · 第36轮】原来这里是 asyncio.to_thread（默认 executor）。
+        # 默认池被全仓 231 处 to_thread + langchain run_in_executor(None,…) 共用，并发工具调用时
+        # 落库排队 1.9~2.1s，把 tool 的 duration_ms 撑到 2 秒以上（工具体实测只有 10~22ms）。
+        await _run_in_transcript_pool(self._persist_tool_result_now, request, result)
         return result
 
     # ------------------------------------------------------------------

@@ -35,23 +35,41 @@ def _tool_name(tool: Any) -> str:
     return str(getattr(tool, "name", "") or "").strip()
 
 
+_ASSETS_TOOL_CACHE: Any | None = None
+_ASSETS_TOOL_CACHE_READY = False
+
+
 def _load_assets_tool() -> Any | None:
+    """Resolve the ``assets`` StructuredTool once (process cache).
+
+    ``get_builtin_tools`` is already lru-cached; this avoids re-walking the catalog
+    on every memory-gate patch / force-mount.
+    """
+    global _ASSETS_TOOL_CACHE, _ASSETS_TOOL_CACHE_READY
+    if _ASSETS_TOOL_CACHE_READY:
+        return _ASSETS_TOOL_CACHE
+    tool: Any | None = None
     try:
         from evoflow.tools.tools import get_builtin_tools
 
         for t in get_builtin_tools():
             if _tool_name(t) == ASSETS_TOOL_NAME:
-                return t
+                tool = t
+                break
     except Exception:
         logger.debug("load assets tool for memory gate failed", exc_info=True)
-    try:
-        import importlib
+    if tool is None:
+        try:
+            import importlib
 
-        mod = importlib.import_module("evoflow.tools.builtins.assets_tool")
-        return getattr(mod, "assets_tool", None)
-    except Exception:
-        logger.debug("import assets tool for memory gate failed", exc_info=True)
-        return None
+            mod = importlib.import_module("evoflow.tools.builtins.assets_tool")
+            tool = getattr(mod, "assets_tool", None)
+        except Exception:
+            logger.debug("import assets tool for memory gate failed", exc_info=True)
+            tool = None
+    _ASSETS_TOOL_CACHE = tool
+    _ASSETS_TOOL_CACHE_READY = True
+    return tool
 
 
 class MemoryRuntimeControlMiddleware(AgentMiddleware[AgentState]):
