@@ -83,6 +83,26 @@ export function getSearchPrimaryText(intl: IntlLike, input: unknown): string {
     }
   }
 
+  // search_code_index 主入参是 queries:string[]（可无单数 query）。
+  const queries = input.queries;
+  if (Array.isArray(queries)) {
+    const parts = queries
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0);
+    if (parts.length > 0) {
+      const label = parts.length === 1 ? parts[0] : `${parts[0]} (+${parts.length - 1})`;
+      return intl.formatMessage(
+        { id: "chat.toolCall.search.findWithQuery" },
+        { query: label },
+      );
+    }
+  } else if (typeof queries === "string" && queries.trim().length > 0) {
+    return intl.formatMessage(
+      { id: "chat.toolCall.search.findWithQuery" },
+      { query: queries.trim() },
+    );
+  }
+
   return intl.formatMessage({ id: "chat.toolCall.search.find" });
 }
 

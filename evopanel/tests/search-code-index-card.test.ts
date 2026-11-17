@@ -11,14 +11,22 @@
  * 这两条断言就是那次事故的红线：
  *   1. search_code_index → SearchCodeIndexToolCallBlock（不是 SearchToolCallBlock）
  *   2. 同 family 的普通 search / search_content 仍走 SearchToolCallBlock（别改坏别人）
+ *
+ * 【续】展开后仍看不到 Parameters/Result：search family 的 displayModel
+ * 默认 showInput=false；代码索引必须强制露出输入+输出。
  */
 import { describe, expect, it } from 'vitest'
+import { buildToolDisplayModel } from '../src/zcode-ui/lib/toolDisplay.ts'
 import { resolveToolCallRenderer } from '../src/zcode-ui/ToolCallBlocks/resolveRenderer.ts'
 import {
+  buildSearchCodeIndexDisplayModel,
   isSearchCodeIndexToolCall,
   SearchCodeIndexToolCallBlock,
 } from '../src/zcode-ui/ToolCallBlocks/renderers/search-code-index.tsx'
-import { SearchToolCallBlock } from '../src/zcode-ui/ToolCallBlocks/renderers/search.tsx'
+import {
+  getSearchPrimaryText,
+  SearchToolCallBlock,
+} from '../src/zcode-ui/ToolCallBlocks/renderers/search.tsx'
 import type { ToolCallBlockRenderContext } from '../src/zcode-ui/ToolCallBlocks/fileSummaryTypes.ts'
 
 function makeContext(toolName: string, input: unknown = {}): ToolCallBlockRenderContext {
@@ -78,5 +86,44 @@ describe('V4 search_code_index 工具卡可展开', () => {
     expect(isSearchCodeIndexToolCall({ toolName: 'search_content' })).toBe(false)
     expect(isSearchCodeIndexToolCall({ toolName: 'search' })).toBe(false)
     expect(isSearchCodeIndexToolCall({ toolName: 'grep' })).toBe(false)
+  })
+
+  it('displayModel 对 search_code_index 同时露出 Parameters + Result', () => {
+    const toolCall = {
+      toolId: 'tool-sci',
+      toolName: 'search_code_index',
+      kind: 'search_code_index',
+      title: 'search_code_index',
+      input: {
+        queries: ['模型注入 session prompt', 'build session 模型:'],
+        read_limit: 3,
+      },
+      status: 'completed',
+      output: 'Symbols:\n  - function foo @ a.py:1',
+    }
+    const model = buildToolDisplayModel(toolCall as never, '/w')
+    expect(model.showInput).toBe(true)
+    expect(model.showOutput).toBe(true)
+
+    const overridden = buildSearchCodeIndexDisplayModel(
+      { ...model, showInput: false, showOutput: false },
+      toolCall as never,
+    )
+    expect(overridden.showInput).toBe(true)
+    expect(overridden.showOutput).toBe(true)
+  })
+
+  it('摘要文案识别 queries[]（search_code_index 主入参）', () => {
+    const intl = {
+      formatMessage: (
+        _descriptor: { id: string },
+        values?: Record<string, string>,
+      ) => (values?.query ? `find:${values.query}` : 'find'),
+    }
+    expect(
+      getSearchPrimaryText(intl, {
+        queries: ['模型注入 session prompt model line', 'build session'],
+      }),
+    ).toBe('find:模型注入 session prompt model line (+1)')
   })
 })

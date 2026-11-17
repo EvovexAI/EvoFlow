@@ -703,6 +703,52 @@ def _strip_seps(text: str) -> str:
     return re.sub(r"[_\-\s]+", "", str(text or "")).lower()
 
 
+def _name_tokens(name: str) -> list[str]:
+    """把符号名切成小写词元：camelCase / snake_case / kebab-case 都拆开。
+
+    【self-evolution-bot · 2026-11-17 · 第36轮】整句比对需要「按词」而不是「按字符」
+    比较，否则 `plugin uninstall` 与 `plugins_uninstall` 差一个 s 就判不等。
+    """
+    s = str(name or "")
+    s = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", s)
+    s = re.sub(r"([A-Z]+)([A-Z][a-z])", r"\1 \2", s)
+    return [t.lower() for t in re.split(r"[^A-Za-z0-9]+", s) if t]
+
+
+def _sing_tok(word: str) -> str:
+    """词尾单数化（只动词尾，不做词干提取，避免误伤 progress/series 这类词）。"""
+    w = str(word or "").lower()
+    if len(w) > 3 and w.endswith("ies"):
+        return w[:-3] + "y"
+    if len(w) > 3 and w.endswith("ses"):
+        return w[:-2]
+    if len(w) > 2 and w.endswith("s") and not w.endswith("ss"):
+        return w[:-1]
+    return w
+
+
+def _whole_name_matches(whole_query: str, name: str) -> bool:
+    """整句匹配：查询词元序列与符号名词元序列**逐位相等**（单复数视为相等）。
+
+    实测收益（见第36轮）：`plugin uninstall` 曾完全查不到 `plugins_uninstall`
+    （去分隔符后 'pluginuninstall' vs 'pluginsuninstall'，严格全等失败），
+    首条给的是短泛名 `uninstall`。按词元比对后两侧都是
+    ['plugin','uninstall'] vs ['plugins','uninstall']，单数化后一致 → 命中。
+    """
+    # 判据一（主）：去分隔符后全等。覆盖绝大多数情况，且不会误伤
+    # ZCodeBackgroundTaskControlItem 这类「大写缩写连写」—— 词元方案会把
+    # ZCode 拆成 z/code，反而对不上（第36轮我先漏掉这条，一次退化了 4 条）。
+    if _strip_seps(whole_query) == _strip_seps(name):
+        return True
+    # 判据二（补）：逐词元相等，单复数归一。专治 plugin↔plugins 这种差一个 s、
+    # 全等判据够不着的情况。
+    q = _name_tokens(whole_query)
+    n = _name_tokens(name)
+    if not q or len(q) != len(n):
+        return False
+    return all(_sing_tok(a) == _sing_tok(b) for a, b in zip(q, n))
+
+
 def _hyphen_variants(term: str) -> list[str]:
     """Expand hyphen spellings (``dall-e`` ↔ ``dalle``) for symbol + FTS lookup."""
     t = str(term or "").strip()
@@ -2572,15 +2618,45 @@ def _search_symbols(
     # 给 match_rank=5 而不是 4：整串全等必然强于「某个单词恰巧等于符号名」，必须压过它。
     _whole_norm = _strip_seps(whole_query) if whole_query else ""
     if len(_whole_norm) >= 6:
-        for row in conn.execute(
+        # 【self-evolution-bot · 2026-11-17 · 第36轮】整句匹配必须容忍单复数差异。
+        # 实测（工具出口评测，60 条查询）：`plugin uninstall` 查不到
+        # `plugins_uninstall` —— 去分隔符后是 'pluginuninstall' vs 'pluginsuninstall'，
+        # 差一个 s 就不全等，于是整句档（rank=5）完全没参与比对，答案排到 10 名外，
+        # 首条给的是短泛名 `uninstall`。而 `resolve data paths` / `build diff summary`
+        # 能进是因为它们恰好逐字相同 —— 这不是能力差异，只是一个字符的运气。
+        # 做法：把「词尾单复数」在归一化阶段抹平（plugin↔plugins、index↔indexes）。
+        # 只做尾部，不做词干提取：词干会把 progress/progresses 之外的东西也吃掉，
+        # 引入不可控的误匹配。
+        # 【self-evolution-bot · 2026-11-17 · 第36轮】SQL 只做粗筛：候选名必须
+        # 「词元数相同」且首词元前 6 个字符相同（走 name 索引前缀，避免全表 Python 扫）。
+        # 精确判定交给 _whole_name_matches（逐词元比对 + 单复数归一）。
+        # 粗筛用「子串」而不是「前缀」：前缀会漏掉带前导下划线的 `_build_overlay`，
+        # 也会漏掉大写缩写连写的 `ZCodeBackgroundTaskControlItem`（实测这两类共退化 4 条）。
+        # 5.2 万行子串扫描在 SQLite 上是几十毫秒量级，相比整体 p50 ~600ms 可忽略。
+        _q_tokens = _name_tokens(whole_query)
+        _head = (_q_tokens[0][:6] if _q_tokens else "") or _whole_norm[:6]
+        _cand_sql = (
             "SELECT path, name, kind, line FROM symbols"
-            " WHERE replace(replace(lower(name),'_',''),'-','') = ?"
+            " WHERE name LIKE ?"
             " ORDER BY CASE WHEN kind IN"
             " ('function','class','method','constructor','interface','type','struct')"
             " THEN 0 ELSE 1 END"
-            " LIMIT ?",
-            (_whole_norm, lim),
-        ).fetchall():
+            " LIMIT ?"
+        )
+        # 【self-evolution-bot · 2026-11-17 · 第36轮】同一档（rank=5）内还要再排一次：
+        # 去分隔符**全等**的必须排在「靠单复数容错才相等」的前面。
+        # 实测教训：查 `build overlay` 时 `_buildOverlays`（复数容错命中）排在
+        # `_build_overlay`（逐字全等）前面，用户看到的首条是错的那个 ——
+        # 复数容错本是为了补召回，不该抢走逐字命中的首位。
+        _exact: list = []
+        _fuzzy: list = []
+        for row in conn.execute(_cand_sql, ("%" + _head + "%", lim * 40)).fetchall():
+            name = str(row["name"] or "")
+            if _strip_seps(whole_query) == _strip_seps(name):
+                _exact.append(row)
+            elif _whole_name_matches(whole_query, name):
+                _fuzzy.append(row)
+        for row in _exact + _fuzzy:
             if _push(row, match_rank=5):
                 break
 

@@ -209,6 +209,31 @@ const executeToolStrategy: ToolDisplayStrategy = {
   },
 };
 
+const searchCodeIndexToolStrategy: ToolDisplayStrategy = {
+  matches(context) {
+    // search_code_index 虽被 family 判成 search，但产出是多段检索报告，
+    // 用户点开就是要同时看 queries 入参 + Symbols/Content 结果。
+    // 若走下面 searchToolStrategy（showInput=false），展开区只剩 Result；
+    // 再碰上 output 尚未进投影时，展开就是空白——V4「代码索引下拉无内容」现场。
+    const name = String(
+      context.toolCall.toolName || context.identity.toolName || "",
+    )
+      .trim()
+      .toLowerCase();
+    return name === "search_code_index";
+  },
+  build(context) {
+    return {
+      inlinePreview: { type: "none" },
+      showSummaryFileLink: false,
+      showInput: context.toolCall.input !== undefined,
+      showOutput:
+        context.toolCall.output !== undefined || Boolean(context.errorText),
+      showKind: false,
+    };
+  },
+};
+
 const searchToolStrategy: ToolDisplayStrategy = {
   matches(context) {
     return context.identity.family === "search";
@@ -284,6 +309,8 @@ const TOOL_DISPLAY_STRATEGIES: ToolDisplayStrategy[] = [
   readToolStrategy,
   writeToolStrategy,
   executeToolStrategy,
+  // 必须在 searchToolStrategy 之前：否则 family=search 会抢先关掉 Parameters。
+  searchCodeIndexToolStrategy,
   searchToolStrategy,
   goalToolStrategy,
   nodeReplToolStrategy,
