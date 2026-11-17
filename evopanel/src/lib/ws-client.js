@@ -56,6 +56,7 @@ import {
   openAiMetaToStreamTurnEvents,
 } from '../react/lib/openai-stream-turn.ts'
 import { logStreamCompareSseRecv, markStreamCompareSession, markStreamCompareRun } from '../react/lib/stream-compare-file-log.ts'
+import { pushViewportStreamAguiTap } from '../react/v4/v4-viewport-stream-tap.ts'
 import { transportLog, transportRawLog, isTransportLogEnabled } from './transport-log-gate.js'
 import { streamPerfMark } from '../react/lib/stream-perf-trace.ts'
 
@@ -93,6 +94,16 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
     data,
     wire: 'agui',
   })
+  try {
+    pushViewportStreamAguiTap({
+      channel: 'agui',
+      sessionKey: key,
+      runId,
+      data,
+    })
+  } catch {
+    /* overlay tap only */
+  }
 
   if (t === 'TEXT_MESSAGE_CONTENT') {
     const delta = typeof data.delta === 'string' ? data.delta : ''

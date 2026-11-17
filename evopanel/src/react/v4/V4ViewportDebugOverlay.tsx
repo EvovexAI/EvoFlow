@@ -1,6 +1,7 @@
 /**
  * V4 视口调试浮层：跟当前可见对话面板同步，展示
  * 0) 当前运行状态：SSE 正在返回 / 运行中 / 停止；运行中且无 SSE 时打印轮询目标/方/间隔
+ * 0b) 流式原始 JSON（AG-UI / V4 环形缓冲，可上滚看历史、贴底跟新）
  * 1) 视口内 turn 的画面摘要（DOM 文本）
  * 2) 对应投影原始 row（message 组成）
  * 3) 布局诊断（!EST72 / gap / host）
@@ -35,6 +36,12 @@ import {
   collectV4ChatLayoutDump,
   type V4ChatLayoutDump,
 } from "./v4-chat-layout-dump.js";
+import {
+  clearViewportStreamTap,
+  listViewportStreamTapEntries,
+  subscribeViewportStreamTap,
+  type ViewportStreamTapEntry,
+} from "./v4-viewport-stream-tap.js";
 
 /** 与 session-reattach.reattachRunningSessionIfNeeded 默认一致。 */
 const HISTORY_WATCH_DEFAULT_POLL_SEC = 1.5;
@@ -82,6 +89,9 @@ type RunStatusProbe = {
   historyWatchActive: boolean;
   v4TimelineBusy: boolean;
   executing: boolean;
+  /** 钉住「运行中」的原因，便于对照 phase=idle 仍 executing=1 */
+  execWhy: string;
+  uiTurnSettled: boolean;
   polls: PollLine[];
 };
 
@@ -114,9 +124,19 @@ function collectRunStatusProbe(
   const turnBusy = isTurnBusy(rt);
   const historyWatchActive = sk ? isSessionHistoryWatchActive(sk) : false;
   const v4TimelineBusy = sk ? getV4TimelineBusy(sk) : false;
-  const executing = sk
-    ? isSessionExecuting(sk) || turnBusy || v4TimelineBusy || historyWatchActive
-    : false;
+  const listExecuting = sk ? isSessionExecuting(sk) : false;
+  const executing =
+    listExecuting || turnBusy || v4TimelineBusy || historyWatchActive;
+
+  const why: string[] = [];
+  if (aguiSseOpen) why.push("aguiWire");
+  if (turnBusy) why.push(`turnPhase=${rt?.turnPhase || "?"}`);
+  if (v4TimelineBusy) why.push("v4TimelineBusy");
+  if (historyWatchActive) why.push("historyWatch");
+  if (listExecuting && !turnBusy && !v4TimelineBusy && !historyWatchActive) {
+    why.push("isSessionExecuting");
+  }
+  if (rt?.uiTurnSettled) why.push("settled");
 
   const polls: PollLine[] = [];
   if (!aguiSseOpen && executing) {
@@ -129,18 +149,12 @@ function collectRunStatusProbe(
       active: historyWatchActive,
     });
     if (tid) {
-      let storeLive = false;
-      try {
-        const st = getSharedV4SessionDataLayer().peekStore(tid)?.getState();
-        storeLive = st?.status === "live";
-      } catch {
-        storeLive = false;
-      }
+      // store status=live 只表示 frames 已订阅，不等于「正在为运行态 soft catchup」
       polls.push({
         target: "POST /api/v4/conversation/catchup（投影 soft reconcile）",
         owner: "V4StreamRowsBridge.refreshEvoflowV4Session",
         intervalSec: V4_SOFT_CATCHUP_POLL_SEC,
-        active: storeLive || historyWatchActive || v4TimelineBusy,
+        active: historyWatchActive || v4TimelineBusy,
       });
     }
   }
@@ -165,6 +179,8 @@ function collectRunStatusProbe(
     historyWatchActive,
     v4TimelineBusy,
     executing,
+    execWhy: why.join(",") || "∅",
+    uiTurnSettled: !!rt?.uiTurnSettled,
     polls,
   };
 }
@@ -505,8 +521,13 @@ export function V4ViewportDebugOverlay() {
   const [minimized, setMinimized] = useState(false);
   const [snapshot, setSnapshot] = useState<OverlaySnapshot | null>(null);
   const [expandedTurn, setExpandedTurn] = useState<string | null>(null);
+  const [streamEntries, setStreamEntries] = useState<ViewportStreamTapEntry[]>(
+    () => listViewportStreamTapEntries({ limit: 48 }),
+  );
   const [pos, setPos] = useState(defaultOverlayPos);
   const panelRef = useRef<HTMLDivElement | null>(null);
+  const streamScrollRef = useRef<HTMLDivElement | null>(null);
+  const streamFollowBottomRef = useRef(true);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -562,6 +583,15 @@ export function V4ViewportDebugOverlay() {
     setSnapshot(collectOverlaySnapshot());
   }, []);
 
+  const refreshStream = useCallback(() => {
+    setStreamEntries(
+      listViewportStreamTapEntries({
+        sessionKey: snapshot?.sessionKey ?? null,
+        limit: 48,
+      }),
+    );
+  }, [snapshot?.sessionKey]);
+
   const active = obsEnabled && prefOn;
 
   useEffect(() => {
@@ -590,6 +620,31 @@ export function V4ViewportDebugOverlay() {
       window.clearInterval(timer);
     };
   }, [active, refresh, snapshot?.tid]);
+
+  useEffect(() => {
+    if (!active) return;
+    refreshStream();
+    let raf = 0;
+    const unsub = subscribeViewportStreamTap(() => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        refreshStream();
+      });
+    });
+    return () => {
+      unsub();
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [active, refreshStream]);
+
+  // 流式面板默认贴底；用户上滚后停跟，滚回底部附近再恢复。
+  useEffect(() => {
+    if (!active || !streamFollowBottomRef.current) return;
+    const el = streamScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [active, streamEntries]);
 
   const clampToViewport = useCallback((left: number, top: number) => {
     const el = panelRef.current;
@@ -756,6 +811,12 @@ export function V4ViewportDebugOverlay() {
                     {snapshot.runStatus.v4FramesSseOpen
                       ? " · V4 frames SSE 已连接"
                       : " · V4 frames SSE 未连"}
+                    {snapshot.runStatus.uiTurnSettled
+                      ? " · settled=1"
+                      : " · settled=0"}
+                    {snapshot.runStatus.execWhy
+                      ? ` · why=${snapshot.runStatus.execWhy}`
+                      : ""}
                   </span>
                 </div>
                 {snapshot.runStatus.mode === "sse" ? (
@@ -802,7 +863,8 @@ export function V4ViewportDebugOverlay() {
                       v4Busy=
                       {snapshot.runStatus.v4TimelineBusy ? "1" : "0"} ·
                       executing=
-                      {snapshot.runStatus.executing ? "1" : "0"}
+                      {snapshot.runStatus.executing ? "1" : "0"} · why=
+                      {snapshot.runStatus.execWhy || "∅"}
                     </div>
                   </div>
                 ) : null}
@@ -813,8 +875,139 @@ export function V4ViewportDebugOverlay() {
                   {snapshot.turns.length}
                   <span style={{ color: "#94a3b8" }}>
                     {" "}
-                    · 左=界面看到的字 · 右=投影原始 row
+                    · 左=界面 · 右下=流式 JSON · 投影 row 仍在 turn 卡
                   </span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  marginBottom: 12,
+                  border: "1px solid rgba(167,139,250,0.35)",
+                  borderRadius: 10,
+                  overflow: "hidden",
+                  background: "rgba(76, 29, 149, 0.22)",
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    padding: "7px 10px",
+                    background: "rgba(55, 48, 163, 0.45)",
+                    color: "#ddd6fe",
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    fontSize: 11,
+                  }}
+                >
+                  <strong style={{ color: "#f5f3ff" }}>
+                    流式原始 JSON
+                  </strong>
+                  <span style={{ color: "#c4b5fd" }}>
+                    最近 {streamEntries.length} 条 · AG-UI / V4 · 上滚看历史 ·
+                    贴底跟新
+                  </span>
+                  <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                    <button
+                      type="button"
+                      style={btnStyle}
+                      title="滚到底并恢复跟新"
+                      onClick={() => {
+                        streamFollowBottomRef.current = true;
+                        const el = streamScrollRef.current;
+                        if (el) el.scrollTop = el.scrollHeight;
+                      }}
+                    >
+                      贴底
+                    </button>
+                    <button
+                      type="button"
+                      style={btnStyle}
+                      title="清空环形缓冲"
+                      onClick={() => clearViewportStreamTap()}
+                    >
+                      清空
+                    </button>
+                  </span>
+                </div>
+                <div
+                  ref={streamScrollRef}
+                  onScroll={(e) => {
+                    const el = e.currentTarget;
+                    const dist =
+                      el.scrollHeight - el.scrollTop - el.clientHeight;
+                    streamFollowBottomRef.current = dist < 48;
+                  }}
+                  style={{
+                    maxHeight: 220,
+                    overflow: "auto",
+                    padding: "8px 10px 10px",
+                    fontFamily:
+                      'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+                    fontSize: 11,
+                    lineHeight: 1.4,
+                    color: "#ede9fe",
+                  }}
+                >
+                  {streamEntries.length === 0 ? (
+                    <div style={{ color: "#a78bfa" }}>
+                      尚无流式帧。发一条消息后，这里会滚动显示最近 AG-UI /
+                      V4 原始 JSON（大字段已裁剪）。
+                    </div>
+                  ) : (
+                    streamEntries.map((entry, idx) => {
+                      const newest =
+                        idx >= streamEntries.length - 3;
+                      const time = new Date(entry.atMs).toLocaleTimeString(
+                        "zh-CN",
+                        {
+                          hour12: false,
+                          hour: "2-digit",
+                          minute: "2-digit",
+                          second: "2-digit",
+                        },
+                      );
+                      return (
+                        <div
+                          key={entry.id}
+                          style={{
+                            marginBottom: 8,
+                            padding: "6px 8px",
+                            borderRadius: 6,
+                            border: newest
+                              ? "1px solid rgba(196,181,253,0.55)"
+                              : "1px solid rgba(148,163,184,0.18)",
+                            background: newest
+                              ? "rgba(91, 33, 182, 0.35)"
+                              : "rgba(15,23,42,0.45)",
+                          }}
+                        >
+                          <div
+                            style={{
+                              color: newest ? "#f5f3ff" : "#c4b5fd",
+                              marginBottom: 4,
+                            }}
+                          >
+                            #{entry.id} · {time} · {entry.headline}
+                          </div>
+                          <pre
+                            style={{
+                              margin: 0,
+                              whiteSpace: "pre-wrap",
+                              wordBreak: "break-word",
+                              color: "#f8fafc",
+                              maxHeight: newest ? 140 : 72,
+                              overflow: "auto",
+                            }}
+                          >
+                            {entry.jsonText}
+                          </pre>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
 
@@ -835,7 +1028,7 @@ export function V4ViewportDebugOverlay() {
                   左侧 · 界面内容（DOM 画面）
                 </div>
                 <div style={{ ...colHeadStyle, color: "#c4b5fd" }}>
-                  右侧 · 原始数据（message / row）
+                  右侧 · 投影原始 row（非流式帧）
                 </div>
               </div>
 
