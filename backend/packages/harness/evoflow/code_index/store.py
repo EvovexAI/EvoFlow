@@ -378,6 +378,21 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         conn.commit()
 
 
+def _vec_table_exists(conn: sqlite3.Connection) -> bool:
+    """``code_vec`` 是否已建好。
+
+    【self-evolution-bot · 2026-11-17 · 第33轮】新增。仅查 sqlite_master，不做任何
+    embedding 栈 import —— 用来把「表已存在」的稳态路径压到微秒级。
+    """
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_vec' LIMIT 1"
+        ).fetchone()
+        return row is not None
+    except sqlite3.Error:
+        return False
+
+
 def _ensure_vec_table(conn: sqlite3.Connection) -> None:
     """Create the ``code_vec`` vec0 virtual table for semantic search.
 
@@ -386,6 +401,15 @@ def _ensure_vec_table(conn: sqlite3.Connection) -> None:
     """
     cfg = get_code_index_config()
     if not cfg.semantic_search_enabled:
+        return
+    # 【self-evolution-bot · 2026-11-17 · 第33轮】表已存在就**不解析维度**。
+    # 为什么：CREATE VIRTUAL TABLE IF NOT EXISTS 对已存在的表本就是空操作，
+    # 但 _resolved_embedding_dim() 要 import evoflow.knowledge.embedding.registry，
+    # 连带拖进 base -> transformers/numpy/PIL（实测 2426 模块 / 4340ms）。
+    # 而 _ensure_vec_table 由 _ensure_schema 调用，_ensure_schema 又在**每次检索**
+    # 里被调两次（index_status + search_index），于是「打开索引库」稳定花 3~4s，
+    # 用户感知就是搜索类工具莫名其妙很慢。稳态下这里应当接近 0 成本。
+    if _vec_table_exists(conn):
         return
     # 【self-evolution-bot · 2026-11-16 · 第24轮】维度不再照抄配置里的静态 512。
     # 为什么：512 是本地 bge-small-zh 的维度，而当前生效的向量模型是云端 2048 维，
