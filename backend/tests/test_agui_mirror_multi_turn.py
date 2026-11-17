@@ -139,6 +139,52 @@ def test_run_started_without_user_uses_goal_continuation_origin(mirror_session: 
     assert [r for r in _rows(tid) if r.get("kind") == "userInput"] == []
 
 
+def test_mirror_reset_then_run_without_user_reuses_hub_turn(mirror_session: str) -> None:
+    """catchup/remint 会 mirror_reset 清掉 last_turn_id；无 note 的续跑仍须挂回 hub 上一轮。
+
+    否则左栏劈成两截，右栏第二截只有 turnHeader(origin=goalContinuation)。
+    """
+    from app.gateway.v4.agui_mirror import mirror_reset_thread
+
+    tid = mirror_session + "-reset-cont"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "继续", message_id="u-reset-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-first"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "先补证据"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-first"},
+        ],
+    )
+    mirror_reset_thread(tid)  # 模拟 catchup 前清状态
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-01a1e755"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m2"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m2", "delta": "收口。计数核对无误"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m2"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-01a1e755"},
+        ],
+    )
+
+    headers = _headers(tid)
+    assert len(headers) == 1, headers
+    assert headers[0]["turnId"] == "run-first"
+    assert headers[0]["origin"] == "userInput"
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert [t["text"] for t in texts] == ["先补证据", "收口。计数核对无误"]
+    assert {t["turnId"] for t in texts} == {"run-first"}
+
+
 def test_finished_then_run_without_user_reuses_turn(mirror_session: str) -> None:
     """RUN_FINISHED 清闩后若再来无 note 的 RUN_STARTED：必须续挂同一轮。
 

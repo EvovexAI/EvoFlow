@@ -1273,6 +1273,23 @@ class V4Mirror:
             origin,
         )
 
+    def _latest_product_turn_id(self, tid: str) -> str:
+        """Hub 投影里最近一条 turnHeader 的 turnId（mirror_reset 后 last_turn_id 会丢）。"""
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return ""
+        best: dict[str, Any] | None = None
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("kind") or "") != "turnHeader":
+                continue
+            if best is None or int(row.get("rowId") or 0) >= int(best.get("rowId") or 0):
+                best = row
+        if best is None:
+            return ""
+        return str(best.get("turnId") or "").strip()
+
     def _reuse_product_turn(
         self,
         tid: str,
@@ -1419,10 +1436,13 @@ class V4Mirror:
                 )
                 self._reset_turn_ephemeral(st)
 
-            # FINISHED 已清闩锁后的内部续跑：也没有 note_user_input → 仍挂回上一轮，
-            # 否则右栏会出现 turnHeader(origin=userInput) 无气泡，左栏 AI 回复劈成 #N/#N+1。
+            # FINISHED 已清闩锁 / mirror_reset 后的内部续跑：没有 note_user_input →
+            # 仍挂回上一轮。否则右栏会出现 goalContinuation 假新轮，左栏 AI 回复劈成两截
+            # （浮层 #N userInput + #N+1 无气泡，正是用户贴的那种）。
             if not pending_user:
-                cont_tid = str(st.last_turn_id or "").strip()
+                cont_tid = str(st.last_turn_id or "").strip() or self._latest_product_turn_id(
+                    tid
+                )
                 if cont_tid:
                     cont_rid, cont_started, cont_origin = self._lookup_turn_header(
                         tid, cont_tid

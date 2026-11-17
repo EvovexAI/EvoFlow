@@ -9,8 +9,8 @@
   "urlGitee": "https://gitee.com/evovexai/EvoFlow/releases/download/v1.3.31/EvoFlow_1.3.31_x64-setup.exe",
   "urlGithub": "https://github.com/EvovexAI/EvoFlow/releases/download/v1.3.31/EvoFlow_1.3.31_x64-setup.exe",
   "size": 0,
-  "changelog": "**EvoFlow v1.3.31 — 对话 KeepAlive、资源包升级与终端/索引稳场**\n\n切会话不再整页拆装对话区；已装资源包可一键升级；长命令终端持续出字；重启后对话不再被索引暖机拖死。无数据迁移，覆盖安装即可。",
-  "notes": "**EvoFlow v1.3.31 — 对话 KeepAlive、资源包升级与终端/索引稳场**\n\n切会话不再整页拆装对话区；已装资源包可一键升级；长命令终端持续出字；重启后对话不再被索引暖机拖死。无数据迁移，覆盖安装即可。",
+  "changelog": "**EvoFlow v1.3.31 — 对话切会话更稳、资源包可升级、长命令持续出字**\n\n切会话不再整页拆装对话区；已装资源包可一键升级；长命令执行时终端持续出字；重启后对话不再被卡住。无数据迁移，覆盖安装即可。",
+  "notes": "**EvoFlow v1.3.31 — 对话切会话更稳、资源包可升级、长命令持续出字**\n\n切会话不再整页拆装对话区；已装资源包可一键升级；长命令执行时终端持续出字；重启后对话不再被卡住。无数据迁移，覆盖安装即可。",
   "releasedAt": "",
   "pub_date": ""
 }
