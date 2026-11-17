@@ -1647,6 +1647,28 @@ def _iter_source_files(root: Path, max_files: int) -> list[Path]:
     return found
 
 
+def _fts_doc_count(conn: sqlite3.Connection) -> int:
+    """FTS5 里「有多少条文档」，优先走影子表，别每次全表数。
+
+    【self-evolution-bot · 2026-11-17 · 第34轮】原来这里是
+    ``SELECT COUNT(*) FROM fts_content``：FTS5 对虚拟表做 COUNT(*) 要走整棵
+    内容表，实测 80ms（8177 条文档、库 1.0GB），而 index_status 每次检索至少调一次。
+    ``fts_content_docsize`` 是 fts5 自带影子表，每篇文档一行（默认 columnsize=1），
+    实测同样的库 0ms。取数语义不变，只是换了个等价且更省的位置数。
+    找不到影子表（老库 columnsize=0）就退回全表 COUNT，不改变正确性。
+    """
+    try:
+        row = conn.execute("SELECT COUNT(*) FROM fts_content_docsize").fetchone()
+        if row is not None:
+            return int(row[0] or 0)
+    except sqlite3.Error:
+        pass
+    try:
+        return int(conn.execute("SELECT COUNT(*) FROM fts_content").fetchone()[0])
+    except sqlite3.Error:
+        return 0
+
+
 def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict:
     """Lock-free read of index readiness (WAL allows concurrent reads during rebuild)."""
     try:
@@ -1654,7 +1676,7 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
         try:
             _ensure_schema(conn)
             row = conn.execute("SELECT value FROM meta WHERE key='root'").fetchone()
-            n = int(conn.execute("SELECT COUNT(*) FROM fts_content").fetchone()[0])
+            n = _fts_doc_count(conn)
             sym_n = int(conn.execute("SELECT COUNT(*) FROM symbols").fetchone()[0])
             # 【self-evolution-bot · 2026-11-16 · 第26轮】两处修正：
             # (1) vector_available 原来是 conn.close() 之后才算的——use-after-close，
@@ -2621,13 +2643,20 @@ def _wait_index_ready(
     *,
     thread_id: str | None,
     cfg: CodeIndexConfig,
+    initial: dict | None = None,
 ) -> dict:
-    """Poll until index is ready or timeout (only while a build job is active)."""
+    """Poll until index is ready or timeout (only while a build job is active).
+
+    【self-evolution-bot · 2026-11-17 · 第34轮】新增 *initial*：调用方可以把它刚算出来的
+    状态传进来。为什么：稳态下 search_index 已经算过一次 index_status（实测 103ms/次，
+    其中 80ms 是 fts_content 全表 COUNT），这里又原样再算一遍只为判「是否在构建」，
+    等于每次检索白花约 100ms、占稳态 580ms 的 17%。传入初始状态后稳态只算一次。
+    """
     wait_s = float(cfg.search_wait_seconds or 0)
     if wait_s <= 0:
-        return index_status(workspace_root=workspace_root, thread_id=thread_id)
+        return initial if initial is not None else index_status(workspace_root=workspace_root, thread_id=thread_id)
     deadline = time.time() + wait_s
-    st = index_status(workspace_root=workspace_root, thread_id=thread_id)
+    st = initial if initial is not None else index_status(workspace_root=workspace_root, thread_id=thread_id)
     while not st.get("ready") and st.get("building") and time.time() < deadline:
         time.sleep(0.25)
         st = index_status(workspace_root=workspace_root, thread_id=thread_id)
@@ -2663,8 +2692,12 @@ def search_index(
             )
             st = index_status(workspace_root=workspace_root, thread_id=thread_id)
             rebuild_in_progress = bool(st.get("building"))
-        st = _wait_index_ready(workspace_root, thread_id=thread_id, cfg=cfg)
-        rebuild_in_progress = bool(st.get("building"))
+        # 【self-evolution-bot · 2026-11-17 · 第34轮】只有「正在构建」才需要等；
+        # 稳态（已 ready 且无构建任务）直接把上面这份状态复用下去，
+        # 不再为同一个判定重复算一次 index_status（每次约 100ms）。
+        if st.get("building"):
+            st = _wait_index_ready(workspace_root, thread_id=thread_id, cfg=cfg, initial=st)
+            rebuild_in_progress = bool(st.get("building"))
         if st.get("building") and not st.get("ready") and int(st.get("files") or 0) == 0:
             return {
                 "hits": [],
