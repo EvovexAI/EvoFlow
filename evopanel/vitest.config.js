@@ -313,9 +313,21 @@ export default defineConfig({
       // search_code_index 卡片：不得被 family=search 抢去渲染成不可展开的一行式块
       // 【self-evolution-bot · 2026-11-17 · 第33轮】新增用例必须登记，否则 vitest 根本不会跑它
       'tests/search-code-index-card.test.ts',
-      // 【self-evolution-bot · 2026-11-17 · 第35轮】插件设置页空白回归（容器样式 + services 稳定性）：
-      // 不登记这行，本文件在 CI 里等于不存在。
-      'tests/plugin-settings-not-blank.test.ts',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】原登记 tests/plugin-settings-not-blank.test.ts，
+      // 但该文件在磁盘上从未存在（上一轮上下文回写的假账）——登记物在、文件不在，
+      // 会让任何按名过滤的 vitest 调用报 No test files found。此处删除悬空登记，
+      // 由下面 5 个真实存在的用例覆盖同一意图。
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】插件市场 Tab 真实渲染（网关真实快照回放），
+      // 断言插件名进入可视文本；不登记 = CI 里不存在。
+      'tests/plugin-settings-render.test.tsx',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】插件 Tab 初始化不得因渲染自激（按网关请求次数判）。
+      'tests/plugin-settings-init-count.test.tsx',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】接口失败时必须给可见文案（复刻真实 404 报案现场）。
+      'tests/plugin-settings-failure.test.tsx',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】加载中必须有可见文字（接口挂住时不得纯空白）。
+      'tests/plugin-settings-loading-blank.test.tsx',
+      // 【self-evolution-bot · 2026-11-17 · 第35轮】子树渲染抛错时不得静默空白（React 渲染期异常绕过 hub.js catch）。
+      'tests/plugin-settings-render-crash.test.tsx',
     ],
   },
 })
