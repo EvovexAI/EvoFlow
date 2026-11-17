@@ -44,6 +44,7 @@ import type {
 import type { ConversationTransport } from "@zcode/ui/v4/transport.js";
 import { evoflowFetch, evoflowFetchStream } from "../../lib/ws-client.js";
 import { logStreamCompareV4Recv } from "../lib/stream-compare-file-log.js";
+import { pushViewportStreamV4Tap } from "./v4-viewport-stream-tap.js";
 import { logV4Life } from "../lib/v4-lifecycle-log.js";
 import { markOpenStage } from "@zcode/ui/lib/openTrace.js";
 import { parseV4WireSseBlocks } from "./v4-wire-sse-parse.js";
@@ -642,7 +643,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
         deliveryKind,
         { via: "early_stage", stagedIndex: staged.length, wireBytes },
       );
-      this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
+      this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind, wireBytes);
       staged.push({ frame: candidate.frame, deliveryKind });
       return;
     }
@@ -653,7 +654,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
       deliveryKind,
       { via: "live", wireBytes },
     );
-    this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind);
+    this.logCompareFrame(candidate.topic, candidate.frame, deliveryKind, wireBytes);
     this.dispatchFrame(candidate.frame, deliveryKind);
   }
 
@@ -753,11 +754,22 @@ export class EvoFlowV4Transport implements ConversationTransport {
     topic: string,
     frame: ConversationTopicFrame,
     deliveryKind: TopicFrameDeliveryKind,
+    wireBytes?: number,
   ): void {
     try {
       logStreamCompareV4Recv({ topic, deliveryKind, frame });
     } catch {
       /* best-effort：对比日志失败不得影响投影 */
+    }
+    try {
+      pushViewportStreamV4Tap({
+        topic,
+        deliveryKind,
+        frame,
+        wireBytes,
+      });
+    } catch {
+      /* overlay tap only */
     }
   }
 }
