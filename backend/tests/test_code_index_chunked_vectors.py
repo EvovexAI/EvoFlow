@@ -524,3 +524,88 @@ def test_schedule_build_index_defaults_to_subprocess(monkeypatch, tmp_path) -> N
     assert r.get("mode") == "subprocess"
     assert r.get("status") == "scheduled"
     assert spawned and spawned[0].get("force") is True
+
+
+# ---------------------------------------------------------------------------
+# 7) 【第41轮】vec0 写入必须「先删后插」，且覆盖率判据要按 distinct path
+# ---------------------------------------------------------------------------
+
+
+def test_vec0_insert_or_replace_raises_so_we_must_not_use_it(Conn) -> None:
+    """把「vec0 不支持 OR REPLACE」这条事实本身锁住。
+
+    为什么值得单独一条：这是整条链的**前提**。如果哪天 sqlite-vec 支持了替换，
+    这条会红，提醒我们回看 `_write_code_vec_row` 是否还需要先删。
+    反向断言（先证明旧写法真的会炸）永远比「新写法能跑」更有信息量——
+    后者在两种实现下都是绿的。
+    """
+    import sqlite3 as _s
+
+    Conn.execute(S._vec_create_sql(4, if_not_exists=True))
+    _insert(Conn, "a.py::0", "a.py", [1.0, 0.0, 0.0, 0.0])
+
+    with pytest.raises(_s.OperationalError) as ei:
+        Conn.execute(
+            "INSERT OR REPLACE INTO code_vec (chunk_id, path, embedding) VALUES (?, ?, ?)",
+            ("a.py::0", "a.py", S._pack_vec([0.0, 1.0, 0.0, 0.0])),
+        )
+    assert "UNIQUE" in str(ei.value).upper(), str(ei.value)
+
+
+def test_write_code_vec_row_overwrites_same_chunk_id(Conn) -> None:
+    """`_write_code_vec_row` 必须能覆盖同名块（这是续跑能补向量的前提）。"""
+    Conn.execute(S._vec_create_sql(4, if_not_exists=True))
+    S._write_code_vec_row(Conn, "a.py::0", "a.py", [1.0, 0.0, 0.0, 0.0])
+    # 同一个 chunk_id 再写一次，不得抛错、不得留两行
+    S._write_code_vec_row(Conn, "a.py::0", "a.py", [0.0, 1.0, 0.0, 0.0])
+    rows = Conn.execute("SELECT chunk_id FROM code_vec WHERE path='a.py'").fetchall()
+    assert len(rows) == 1, f"同名块被写成了 {len(rows)} 行"
+
+
+def test_vectors_only_rerun_can_refill_after_partial_embedding(monkeypatch, tmp_path) -> None:
+    """模拟真实现场：库里有旧块 → 续跑再嵌入同一批块_id → 必须能补上，且不整体放弃。
+
+    这是 82% 缺向量的真实复现路径：
+      · 上次只嵌了一部分就断了，`code_vec` 留下若干块；
+      · `vectors_only` 分流**不清表**（见 test_code_index_vectors_only_rebuild）；
+      · 续跑重算同一批 chunk_id，若用 OR REPLACE 就抛 UNIQUE；
+      · 外层函数级 except 吞掉 → return 0 → 永远补不上。
+    断言只看「同一批文件第二次也能写进去」，不看耗时、不看实现细节。
+    """
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    files = []
+    for i in range(3):
+        f = ws / f"m{i}.py"
+        f.write_text("x = 1\n", encoding="utf-8")
+        files.append(f)
+
+    import sqlite_vec
+
+    dbp = S._db_path(str(ws))
+    dbp.parent.mkdir(parents=True, exist_ok=True)
+    seed = sqlite3.connect(str(dbp))
+    seed.enable_load_extension(True)
+    seed.load_extension(sqlite_vec.loadable_path())
+    seed.execute(S._vec_create_sql(DIM, if_not_exists=True))
+    # 旧块：与将要重算的 chunk_id 完全相同
+    for f in files:
+        _insert(seed, f"{f.name}::0", f.name, FAKE_VEC)
+    seed.commit()
+    seed.close()
+
+    monkeypatch.setattr(S, "_embed_texts_sync", lambda ts: [list(FAKE_VEC) for _ in ts])
+    monkeypatch.setattr(S, "_resolved_embedding_dim", lambda *a, **k: DIM)
+    cfg = CodeIndexConfig(semantic_search_enabled=True, semantic_embedding_dim=DIM)
+
+    got = S._index_embeddings_sync(str(ws), ws, files, cfg)
+    assert got == len(files), f"续跑只写进 {got}/{len(files)} 块 —— 撞主键后又整体放弃了"
+
+    conn = sqlite3.connect(str(dbp))
+    conn.enable_load_extension(True)
+    conn.load_extension(sqlite_vec.loadable_path())
+    try:
+        n = conn.execute("SELECT COUNT(DISTINCT path) FROM code_vec").fetchone()[0]
+        assert n == len(files), f"code_vec 只覆盖 {n} 个文件"
+    finally:
+        conn.close()

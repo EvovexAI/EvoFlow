@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 
 import pytest
@@ -202,13 +203,17 @@ def test_iter_skips_external_junction(tmp_path: Path) -> None:
         r = subprocess.run(
             ["cmd", "/c", "mklink", "/J", str(link), str(foreign)],
             capture_output=True,
-            text=True,
+            # 【self-evolution-bot · 2026-11-17 · 第40轮】不能用 text=True：
+            # Windows 下 cmd 的输出是 GBK（本机实测 0xb4），按 UTF-8 解码会在
+            # subprocess 的 reader 线程抛 UnicodeDecodeError，把干净的测试输出
+            # 污染成 PytestUnhandledThreadExceptionWarning —— 后来者会以为有故障。
             check=False,
         )
         if r.returncode != 0 or not link.exists():
+            msg = (r.stderr or r.stdout or b"").decode("mbcs", errors="replace")
             import pytest
 
-            pytest.skip(f"cannot create symlink/junction: {r.stderr or r.stdout}")
+            pytest.skip(f"cannot create symlink/junction: {msg}")
 
     assert S._dir_escapes_workspace(link, root.resolve()) is True
     files = S._iter_source_files(root, max_files=100)
@@ -321,3 +326,310 @@ def test_output_layer_rank_is_monotonic() -> None:
     lines = [ln for ln in body.splitlines() if ln.strip().startswith("-")]
     assert lines, f"符号行没渲染出来：{body!r}"
     assert "resolve_data_paths" in lines[0], f"mr=5 没排第一，首条={lines[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# 第40轮：三条实测缺陷的回归锁
+# 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+# ---------------------------------------------------------------------------
+
+
+def _git_repo(tmp_path: Path) -> str:
+    """建一个最小 git 仓库（`_git_ignored_dirs` 依赖 git）。"""
+    import subprocess
+
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / ".gitignore").write_text("outputs/\nsite/\n", encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=False, capture_output=True)
+    # 不用 text=True：Windows 下 git 的 stderr 可能是 GBK，
+    # 解码失败会在 reader 线程抛 UnicodeDecodeError，把测试输出污染成"疑似失败"。
+    check = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--git-dir"],
+        capture_output=True,
+        check=False,
+    )
+    if check.returncode != 0:
+        pytest.skip("git 不可用，跳过 gitignore 相关断言")
+    return str(root)
+
+
+def test_generated_dirs_are_skipped_by_gitignore(tmp_path: Path) -> None:
+    """生成物目录（outputs/site）不得进索引。
+
+    【self-evolution-bot · 2026-11-17 · 第40轮】为什么必须锁：本轮实测
+    `outputs/eval_search_tool.py`（我自己的评测脚本）里写了负例字符串常量，
+    于是「查一个根本不存在的符号」时索引"命中"了那个脚本，
+    工具返回 10 条无关结果 —— **索引把测试夹具当成了答案**。
+    同批实测，磁盘 8425 个文件里 982 个（12%）落在被忽略目录内，白解析白占库。
+    """
+    root = _git_repo(tmp_path)
+    (tmp_path / "ws" / "outputs").mkdir()
+    (tmp_path / "ws" / "outputs" / "probe.py").write_text("def probe():\n    return 1\n", encoding="utf-8")
+    (tmp_path / "ws" / "site").mkdir()
+    (tmp_path / "ws" / "site" / "x.md").write_text("# site\n", encoding="utf-8")
+    (tmp_path / "ws" / "src").mkdir()
+    (tmp_path / "ws" / "src" / "keep.py").write_text("def keep():\n    return 2\n", encoding="utf-8")
+
+    S._GIT_IGNORED_DIRS_CACHE.clear()
+    names = {p.name for p in S._iter_source_files(Path(root), max_files=100)}
+    assert "keep.py" in names, f"真实源码被误伤：{names}"
+    assert "probe.py" not in names, f"生成物目录 outputs/ 没有被排除：{names}"
+    assert "x.md" not in names, f"生成物目录 site/ 没有被排除：{names}"
+
+
+def test_real_content_dirs_not_skipped(tmp_path: Path) -> None:
+    """反向断言：真实内容目录即使被 .gitignore 也不许排除。
+
+    【self-evolution-bot · 2026-11-17 · 第40轮】第一版判据是「git 忽略就跳过」，
+    实测会把 docs/roles（339 行）、backend/assets（23 行，agent 记忆）、
+    skills/custom（14 行）从索引里删掉 —— 排除掉的不是产物，是人写的文档。
+    判据只能是「是不是生成物落点」，不能是「git 有没有忽略」。
+    """
+    root = _git_repo(tmp_path)
+    ws = tmp_path / "ws"
+    (ws / ".gitignore").write_text("outputs/\ndocs/roles/\nassets/\n", encoding="utf-8")
+    (ws / "docs" / "roles").mkdir(parents=True)
+    (ws / "docs" / "roles" / "note.md").write_text("# 角色文档\n", encoding="utf-8")
+    (ws / "assets").mkdir()
+    (ws / "assets" / "mem.md").write_text("# 记忆\n", encoding="utf-8")
+
+    S._GIT_IGNORED_DIRS_CACHE.clear()
+    names = {p.name for p in S._iter_source_files(Path(root), max_files=100)}
+    assert "note.md" in names, f"真实文档目录被误排除：{names}"
+    assert "mem.md" in names, f"真实记忆目录被误排除：{names}"
+
+
+def test_literal_missing_only_for_bare_identifiers() -> None:
+    """「查不到」判定只能用于裸标识符，不能判死自然语言查询。
+
+    【self-evolution-bot · 2026-11-17 · 第40轮】实测依据（大池 224 条）：
+    5 条随机不存在标识符 → 5 条都没有说「没有」，其中 4 条照常吐 10 条符号。
+    但 `resolve data paths`（真查询，拆词后能命中）绝不能被判成「没有」。
+    语义分数不适用于此判定：实测真查询 `prune empty dirs` 语义 0.555，
+    假查询 0.642 —— 分数反向，任何阈值都会误杀真查询。
+    """
+    assert S._looks_like_single_identifier("resolve_data_paths") is True
+    assert S._looks_like_single_identifier("buildDiffSummary") is True
+    assert S._looks_like_single_identifier("some_missing_symbol_ab12") is True
+
+    # 自然语言 / 中文 / 管道 / 带空格 → 一律不判
+    for s in ("resolve data paths", "插件卸载", "dall-e|dalle", "", "a b"):
+        assert S._looks_like_single_identifier(s) is False, f"{s!r} 不该被当成裸标识符"
+
+
+def test_not_found_hint_rendered_and_absent(tmp_path: Path) -> None:
+    """输出层两向断言：标记为真才提示，标记缺失/为假时不许提示。"""
+    from evoflow.code_index.format_results import format_search_index_body
+
+    with_flag = format_search_index_body(
+        {"hits": [], "symbols": [], "literal_query_missing": True},
+        label="some_missing_symbol_ab12",
+        limit=5,
+    )
+    assert "[not found]" in with_flag, f"缺「没有」提示：{with_flag!r}"
+
+    without_flag = format_search_index_body(
+        {"hits": [], "symbols": [], "literal_query_missing": False},
+        label="resolve_data_paths",
+        limit=5,
+    )
+    assert "[not found]" not in without_flag, f"真查询被误判成没有：{without_flag!r}"
+
+    # 老数据没有这个键 → 不许 KeyError，也不许乱提示
+    legacy = format_search_index_body(
+        {"hits": [], "symbols": []}, label="resolve_data_paths", limit=5
+    )
+    assert "[not found]" not in legacy
+# 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+# 以下两条来自本机现网实测缺陷，不是设想：
+#   库内 fts_content 9040 行 / 7840 个不同 path → 1200 条重复行，
+#   而向量判据分母取行数(9040)、分子取 distinct path(7840)，
+#   造出阈值 8859 > 分子天花板 7840 → ready 永远 False →
+#   每次检索都「索引残缺，自动触发重建」，整仓被反复白烧。
+
+
+def test_reindex_same_file_does_not_duplicate_fts_rows(tmp_path: Path) -> None:
+    """同一个文件被索引两次，fts_content 必须仍只有一行。
+
+    【缺陷】fts_content 是 FTS5 虚拟表，没有 UNIQUE 约束——`INSERT` 不报错、
+    也不覆盖，只会**再加一行**。全量建库时第一步 `_clear_tables()` 整表 DELETE
+    掩盖了这个问题，所以单进程跑一万次都看不出来；只有第二个构建进程在同一批
+    path 上交错写才会暴露（本机 2026-11-18 07:24 实测 4 个 build_worker 并存
+    → 1200 条重复，且抽查 40/40 的重复行 content 完全一致，是纯重复不是新旧版本）。
+
+    断言同时覆盖两条写入路径：
+      · `_index_batch`（全量建库批内写）——已补 DELETE 前置；
+      · `index_file`（watcher 单文件增量）——原本就有 DELETE，一并钉住防回归。
+    """
+    root = _build_workspace(tmp_path, {"src/dup_check.py": "def dup_probe_symbol():\n    return 1\n"})
+    S.build_index(workspace_root=root, force=True)
+
+    conn = S._connect(Path(root))
+    try:
+        rows_after_build = conn.execute("select count(*) from fts_content").fetchone()[0]
+        # 增量入口再写一次同一个文件（模拟 watcher 触发 / 第二个进程交错写）
+        S.index_file(workspace_root=root, relative_path="src/dup_check.py")
+        rows_after_incremental = conn.execute("select count(*) from fts_content").fetchone()[0]
+        paths = conn.execute("select count(distinct path) from fts_content").fetchone()[0]
+    finally:
+        conn.close()
+
+    assert rows_after_build == 1, f"全量建库就写出了重复行：{rows_after_build} 行"
+    assert rows_after_incremental == 1, (
+        f"同一文件被重复索引后 fts_content 变成 {rows_after_incremental} 行"
+        "（FTS5 无 UNIQUE 约束，写前必须先按 path DELETE）"
+    )
+    assert paths == 1
+
+
+def test_vector_coverage_denominator_uses_distinct_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """向量覆盖率判据的分母必须按**不同文件数**，不能按 fts 行数。
+
+    【为什么】分子 `vec_paths` 是 `COUNT(DISTINCT path)`（文件数口径），
+    分母若取 `_fts_doc_count()` 的行数，一旦 fts 出现同 path 多行，
+    分母会虚涨而分子天花板不变 → 阈值永远达不到 → `ready=False` 恒定
+    → `schedule_build_index` 每次都判残缺 → 每次检索都白烧一遍全仓。
+    本机实测：9040 行 / 7840 path，阈值 8859 > 天花板 7840，恒 False。
+
+    本用例直接**人为制造**重复行来复现那个状态，再断言判据不因重复行变脸。
+    """
+    root = _build_workspace(
+        tmp_path,
+        {
+            "src/a.py": "def alpha_symbol():\n    return 1\n",
+            "src/b.py": "def beta_symbol():\n    return 2\n",
+        },
+    )
+    S.build_index(workspace_root=root, force=True)
+
+    # 人工灌重复行（等价于并发构建交错写留下来的脏数据）
+    conn = S._connect(Path(root))
+    try:
+        row = conn.execute("select path, content from fts_content limit 1").fetchone()
+        for _ in range(3):
+            conn.execute("INSERT INTO fts_content(path, content) VALUES (?, ?)", (row[0], row[1]))
+        conn.commit()
+        rows = conn.execute("select count(*) from fts_content").fetchone()[0]
+        distinct = conn.execute("select count(distinct path) from fts_content").fetchone()[0]
+        # 清掉向量，让判据必须开口说话（否则 vec_n==0 走 vectors_missing 分支）
+        try:
+            conn.execute("DELETE FROM code_vec")
+            conn.commit()
+        except Exception:  # noqa: BLE001 - 没有 vec0 时这条用例退化为只验分母
+            pass
+    finally:
+        conn.close()
+
+    assert rows > distinct, f"夹具没造出重复行：rows={rows} distinct={distinct}"
+
+    st = S.index_status(workspace_root=root)
+    reasons = " ".join(st.get("stale_reasons") or [])
+    # 分母必须是 distinct(2)，不能是 rows(5)：报出的数字应等于文件数
+    for num in reasons.replace("<", " ").replace(":", " ").split():
+        if num.isdigit():
+            assert int(num) != rows or rows == distinct, (
+                f"判据仍在用行数 {rows} 当分母（真实文件数 {distinct}）：{reasons!r}"
+            )
+def test_build_lease_is_mutually_exclusive_under_race(tmp_path: Path) -> None:
+    """并发抢建库租约，只许一个进程抢到。
+
+    【缺陷】原实现是「读→判→写」三步：每个进程先 `_read_build_lease` 读到没人持有，
+    再各自 `INSERT OR REPLACE`，最后一个覆盖前几个 —— **所有进程都返回抢到了**。
+    本机 2026-11-18 07:24 复现：4 个 build_worker 并存写同一个库，
+    fts_content 造出 1200 条同 path 重复行，进而让向量判据分母虚涨、
+    `ready` 永远 False、每次检索都重烧一遍全仓。
+    修法：压成一条 `INSERT ... ON CONFLICT DO UPDATE ... WHERE 旧心跳/旧 pid 仍匹配`，
+    `rowcount == 0` 即没抢到（单条语句在 SQLite 里是原子的）。
+
+    反证要求：把 `ON CONFLICT ... WHERE` 换回 `INSERT OR REPLACE`，
+    本用例必须变红（否则说明它测不到竞争）。
+    """
+    import sqlite3
+
+    root = _build_workspace(tmp_path, {"src/x.py": "def x_symbol():\n    return 1\n"})
+    key = S._workspace_hash(root)
+    # 先建库让 schema/租约表就位，再清掉租约，模拟「此刻没人持有」
+    S.build_index(workspace_root=root, force=True)
+    conn = S._connect(Path(root))
+    try:
+        conn.execute("DELETE FROM build_lease")
+        conn.commit()
+    finally:
+        conn.close()
+
+    n = 6
+    results: list[tuple[int, bool]] = []
+    barrier = threading.Barrier(n)
+
+    def _worker(i: int) -> None:
+        c = sqlite3.connect(str(S._db_path(root)), timeout=30.0)
+        c.row_factory = sqlite3.Row
+        try:
+            barrier.wait()
+            ok, _holder = S.try_acquire_build_lease(c, key, owner=f"w{i}:test")
+            results.append((i, bool(ok)))
+        finally:
+            c.close()
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    got = [r for r in results if r[1]]
+    assert len(results) == n
+    assert len(got) == 1, (
+        f"租约不互斥：{len(got)}/{n} 个进程都以为自己抢到了（应为 1）—— "
+        f"读写判断必须压成一条带条件的 SQL 才是原子的：{sorted(results)}"
+    )
+def test_vectors_only_embeds_only_files_missing_vectors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`vectors_only` 恢复路径必须**只补缺向量的文件**，不许把全仓重嵌一遍。
+
+    【缺陷】原实现无条件把 `source_files` 整份交给 `_index_embeddings_sync`，
+    于是「只补向量」实际等于「把所有文件重算一遍向量」。
+    实测本机 2026-11-18：7842 个可索引文件里 2580 个已有向量 → 33% 纯浪费；
+    而向量段是建库最慢的一段（本地 bge ≈96 块/秒、全仓 11.4 万块 ≈20 分钟），
+    每被打断一次就多烧 6~7 分钟。
+
+    本用例用 monkeypatch 记录真正送进嵌入的文件名，直接断言「已有向量的不送」。
+    """
+    files = {
+        "src/keep.py": "def keep_symbol():\n    return 1\n",
+        "src/fill.py": "def fill_symbol():\n    return 2\n",
+        "src/other.py": "def other_symbol():\n    return 3\n",
+    }
+    root = _build_workspace(tmp_path, files)
+    S.build_index(workspace_root=root, force=True)
+
+    # 人为制造「部分文件缺向量」：删掉 src/fill.py 的全部向量
+    conn = S._connect(Path(root))
+    try:
+        conn.execute("DELETE FROM code_vec WHERE path = ?", ("src/fill.py",))
+        conn.commit()
+        have = {r[0] for r in conn.execute("SELECT DISTINCT path FROM code_vec")}
+    finally:
+        conn.close()
+    assert "src/fill.py" not in have
+    assert have, "夹具没留下任何已有向量，用例无意义"
+
+    sent: list[str] = []
+    real_embed = S._index_embeddings_sync
+
+    def _spy(root_, root_path_, files_, cfg_):
+        sent.extend(p.relative_to(root_path_).as_posix() for p in files_)
+        return real_embed(root_, root_path_, files_, cfg_)
+
+    monkeypatch.setattr(S, "_index_embeddings_sync", _spy)
+    S.build_index(workspace_root=root, force=False)  # 走 vectors_only 分支
+
+    assert "src/fill.py" in sent, f"缺向量的文件没被补：{sorted(sent)}"
+    for p in have:
+        assert p not in sent, (
+            f"已有向量的 {p} 被重复嵌入（vectors-only 应当只补缺的）：{sorted(sent)}"
+        )

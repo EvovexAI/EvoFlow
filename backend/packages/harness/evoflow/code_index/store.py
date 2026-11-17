@@ -33,8 +33,10 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 from collections import defaultdict
 from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any, Protocol, TypeVar
 
@@ -168,12 +170,160 @@ def index_freshness(root: str) -> dict:
     try:
         mtime = dbp.stat().st_mtime
     except OSError:
-        return {"index_updated_at": None, "index_age_seconds": None}
+        return {
+            "index_updated_at": None,
+            "index_age_seconds": None,
+            "index_source_drift": None,
+        }
     age = max(0, int(time.time() - mtime))
     return {
         "index_updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(mtime)),
         "index_age_seconds": age,
+        # 【self-evolution-bot · 2026-11-17 · 第38轮】index_age 只说明「库多久前被写过」，
+        # 不说明「库里的代码是不是当前的」：用户刚新建的文件照样 0 行在库里，
+        # 而上面这个 age 还是 481s 看着很新。源码漂移必须单独测（见 source_drift）。
+        "index_source_drift": _source_drift_cached(root, mtime),
     }
+
+
+# ---- 源码漂移检测（代码改了但索引没跟上）------------------------------------
+# 【self-evolution-bot · 2026-11-17 · 第38轮】为什么需要它：
+# 实测（本轮探针）——22:39 新建 `outputs/probe_freshness_zzq.py`，带唯一符号
+# `zzq_freshness_probe_marker_2026`，查它：fts_content 0 行、symbols 0 行，
+# 工具却照样返回 24 条拆词凑出来的结果，头一行还写 `age=475s`（看着很新）。
+# 根因链有三层，缺一层都不至于这么静默：
+#   1) `watcher_enabled=False`（默认）→ 没人监听文件改动，`watching: false`；
+#   2) `schedule_build_index` / `build_index` 见 `ready=True` 直接
+#      `skipped: index_ready` 返回 → 永远不重建；
+#   3) `stale_reasons` 只查 `max_files` 上限与 `code_vec` 行数，
+#      **从不看源码内容是否变过** → 源文件改了也报 ready=True/[]。
+# 于是「索引过期」在工具输出里完全不可见，只能靠人想起来手查 sqlite。
+_DRIFT_CACHE: dict[str, tuple[float, dict]] = {}
+_DRIFT_CACHE_TTL_SECONDS = 30.0
+
+
+def _rel_path_prefix(root_path: Path) -> str:
+    """相对路径比较用的根前缀（统一分隔符、去掉尾斜杠）。"""
+    return str(root_path).replace(os.sep, "/").rstrip("/")
+
+
+def _relative_source_path(p: Path, root_prefix: str) -> str | None:
+    """把磁盘文件路径转成索引里存的那种相对路径（``a/b.py``）。
+
+    【self-evolution-bot · 2026-11-17 · 第39轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么不用 ``Path.relative_to(...).as_posix()``：这段循环对本仓 8.4k 个文件
+    逐个调用，实测 relative_to + as_posix 合计 **167~231ms**，是 source_drift 里
+    第二大的开销（仅次于遍历磁盘 ~290ms），而它做的事只是「砍掉一个已知前缀」。
+    改成前缀比较 + 切片后实测 **2~4ms（-98%）**，两法输出的相对路径集合
+    逐条比对 8429/8429 完全一致。这个结果由
+    ``tests/test_code_index_search_open_cheap.py`` 直接调本函数与 pathlib 对拍守住。
+
+    语义与改造前严格一致：
+      · 路径以 ``root_prefix/`` 开头 → 去掉该前缀；
+      · 路径正好等于 root 本身 → 返回 None（原实现 relative_to 得 ``"."``，会被
+        ``as_posix()`` 变成 ``"."`` 当作一个文件记进 seen，属噪声；这里返回 None 由
+        调用方 continue，行为差异仅在「根目录自身」这种不可能是文件的输入上）；
+      · 其它（不在根下）→ 返回原串，与原实现 ``except ValueError: continue`` 相比
+        是**更保守**的选择：宁可用绝对路径参与集合比较，也不静默丢掉一个真实文件。
+    """
+    sp = str(p).replace(os.sep, "/")
+    if sp.startswith(root_prefix + "/"):
+        return sp[len(root_prefix) + 1 :]
+    if sp == root_prefix:
+        return None
+    return sp
+
+
+def source_drift(root: str, *, since_ts: float | None = None) -> dict:
+    """相对索引构建时刻，有多少文件被改动 / 新增 / 删除。
+
+    【self-evolution-bot · 2026-11-17 · 第38轮】第一版只遍历「库内已有 path」逐条 stat，
+    实测对本轮探针直接失效：探针文件是**新建**的，压根不在库里，于是 modified=0 deleted=0
+    —— 用户最常遇到的「我刚写的文件搜不到」恰好被这个盲区放过了。
+    所以必须走全仓 `_iter_source_files` 拿磁盘现状，再与库内 path 做双向差集：
+      · 磁盘有 + 库里有 + mtime 比库新 → changed
+      · 磁盘有 + 库里没有            → added
+      · 库里有 + 磁盘没有            → deleted
+    代价实测：walk 333ms + 取 path 84ms ≈ 420ms，所以外面必须套缓存。
+    """
+    dbp = _db_path(root)
+    if since_ts is None:
+        try:
+            since_ts = dbp.stat().st_mtime
+        except OSError:
+            return {"changed": 0, "added": 0, "deleted": 0, "total": 0}
+    root_path = Path(root)
+    cfg = get_code_index_config()
+    try:
+        conn = _connect(root)
+    except Exception:
+        return {"changed": 0, "added": 0, "deleted": 0, "total": 0}
+    try:
+        rows = conn.execute("SELECT path FROM fts_content").fetchall()
+    except sqlite3.Error:
+        rows = []
+    finally:
+        conn.close()
+    indexed = {str(rel).replace(os.sep, "/") for (rel,) in rows}
+    try:
+        disk_files = _iter_source_files(root_path, cfg.max_files)
+    except Exception:  # noqa: BLE001
+        disk_files = []
+    changed = 0
+    added = 0
+    seen: set[str] = set()
+    root_prefix = _rel_path_prefix(root_path)
+    for p in disk_files:
+        rel = _relative_source_path(p, root_prefix)
+        if rel is None:
+            continue
+        seen.add(rel)
+        if rel not in indexed:
+            added += 1
+            continue
+        try:
+            if p.stat().st_mtime > since_ts + 1.0:
+                changed += 1
+        except OSError:
+            continue
+    deleted = len(indexed - seen)
+    return {
+        "changed": changed,
+        "added": added,
+        "deleted": deleted,
+        "total": len(seen),
+    }
+
+
+def _source_drift_cached(root: str, db_mtime: float) -> dict | None:
+    """`source_drift` 的进程内缓存（默认 30s），避免每次检索白花 ~230ms。
+
+    缓存键含库 mtime：一旦有增量写库（`index_file`）mtime 变化即自动失效，
+    不会出现「刚补完索引仍报漂移」的假警报。
+
+    【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+    但 mtime 必须**粗化**，原来带的是秒级精度 —— 而建库每批（约 1s）就 commit 一次，
+    于是构建期间 mtime 每秒都变，缓存 100% 不命中，等于没有缓存。
+    实测（同一进程连续 3 次 search_index）：`index_freshness` 分别
+    290ms / 513ms / 297ms，全部是重新 walk 7839 个文件；
+    构建期它占检索总耗时的 10%+，而这份漂移信息这 30 秒内根本没变。
+    粗化到 60s 桶：真正的增量写库最多晚 60s 才让缓存失效（TTL 30s 本来也在这量级），
+    构建期间则稳定命中，省掉每次 290~500ms。
+    """
+    key = f"{root}\u0000{int(db_mtime // 60)}"
+    now = time.time()
+    hit = _DRIFT_CACHE.get(key)
+    if hit is not None and now - hit[0] < _DRIFT_CACHE_TTL_SECONDS:
+        return hit[1]
+    try:
+        drift = source_drift(root, since_ts=db_mtime)
+    except Exception:  # noqa: BLE001 - 漂移检测是尽力而为，绝不能拖垮检索
+        return None
+    _DRIFT_CACHE[key] = (now, drift)
+    if len(_DRIFT_CACHE) > 8:
+        oldest = min(_DRIFT_CACHE, key=lambda k: _DRIFT_CACHE[k][0])
+        _DRIFT_CACHE.pop(oldest, None)
+    return drift
 
 
 def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
@@ -181,6 +331,19 @@ def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA busy_timeout=60000")
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
+    # 【self-evolution-bot · 2026-11-17 · 第39轮 · 模型:deepseek-v4.1-flash-1017】
+    # 为什么加：本仓索引库已到 1.0GB（code_vec 向量段 644MB），而 vec0 的 KNN
+    # 在 Windows 上对 mmap 极敏感。同一进程同一批 query 交替 A/B 实测：
+    #   search_index 整体   无 mmap 427ms → mmap 353ms（-21%，4 组交替取中位）
+    #   vec0 KNN 单段       embed 6.4ms 不变，KNN 374ms → 66ms（-82%）
+    # 语义召回那段几乎全是它，所以不映射就每次白等 0.3s。
+    # 1GB 上限：库当前 999MB 刚好整库可映射；超了也不会报错，只是退化成部分映射。
+    # 与 persistence/db.py 的同名 pragma 保持一致的写法（那边 256MB，因主库更小），
+    # 失败一律吞掉——映射是纯优化，绝不能让它挡住检索。
+    try:
+        conn.execute("PRAGMA mmap_size=1073741824")
+    except Exception:  # noqa: BLE001 - 纯优化，任何失败都退回普通读
+        pass
     _load_sqlite_vec_extension(conn)
 
 
@@ -270,6 +433,270 @@ def run_index_db[T](root: str, fn: Callable[[], T], *, max_attempts: int = 10) -
     if last:
         raise last
     raise RuntimeError("run_index_db failed without exception")
+
+
+# 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+# 跨进程建库租约 —— 修「索引永不收敛」的活锁。
+#
+# 现象（本机实测）：`search_code_index` 每次 11~15s，10 个
+# `build_worker` 子进程同时在跑，每个占 800~900s CPU，`meta` 里
+# `build_progress.phase=embedding`、`vectors_done` 缓慢爬又反复归零。
+#
+# 三层原因，缺一层都不会活锁：
+#  1) `_build_jobs` 是**进程内** dict。本机同时跑着两个 Gateway 进程
+#     （pid 34300/94272 与 79744/79960），各自 `schedule_build_index`
+#     都看到「本地没有 job」，于是各起一个子进程。`_jobs_lock` 只锁本进程，
+#     拦不住跨进程，等于没有互斥。
+#  2) `build_index` 第一步 `_clear_tables()` 里有 `DELETE FROM meta` ——
+#     **整张 meta 表**被清掉，连着 `root` / `indexed_max_files` /
+#     `index_tokenizer_version` 一起消失。于是并发进程 B 一边在写文件段，
+#     进程 A 一边把 B 的 meta 删掉；下一次 `index_status` 读到 `root=None`
+#     → `ready=False` → `schedule_build_index` 判定「索引残缺」→ 再起一个。
+#  3) 向量段（本仓 11.4 万块、约 30 分钟）必然被下一轮重建的 `_clear_tables`
+#     打断，`vectors_done` 永远是几千/11 万，`stale_reasons` 永远有
+#     `vectors_incomplete` —— 判据永远为「未就绪」，重建永远不会停。
+#
+# 修法（本条）：建库前用一个 **SQLite 独占租约**做跨进程互斥。为什么用 SQLite
+# 而不是文件锁：index.db 本来就要打开，`BEGIN EXCLUSIVE` 在 WAL 下由 SQLite
+# 自己保证跨进程、跨平台一致，且进程被 kill 时锁由 OS 自动释放（不需要
+# 陈旧锁清理逻辑、不需要判断 pid 是否还活）。租约只要持有到本进程建库结束，
+# 期间每次 `_update_build_progress` 刷 `build_progress.updated_at`
+# 就是天然心跳，读侧据此判断「还在跑 / 已经死了」。
+_LEASE_TABLE_DDL = """
+CREATE TABLE IF NOT EXISTS build_lease (
+    workspace TEXT PRIMARY KEY,
+    owner TEXT NOT NULL,
+    pid INTEGER NOT NULL,
+    started_at INTEGER NOT NULL,
+    heartbeat_at INTEGER NOT NULL
+)
+"""
+
+# 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+# 当前线程持有租约的 owner 串。用 ContextVar 而不是全局变量：
+# 同进程里可能并发多个 workspace 构建，全局变量会让心跳刷错行；
+# 而 `_persist_build_progress` 在建库线程/协程里被调用，上下文天然对齐。
+_build_lease_owner: ContextVar[str | None] = ContextVar("_build_lease_owner", default=None)
+
+# 心跳超过这个秒数就认为持有者已死，别人可以接管。
+# 建库每批（_BUILD_BATCH_SIZE 文件 / 64 块向量）都会刷一次进度，
+# 实测最慢的一批（本地 bge 64 块）不超过 3s，300s 是极宽松的上限。
+_BUILD_LEASE_TTL_S = 300
+
+
+def _read_build_lease(conn: sqlite3.Connection, workspace_key: str) -> dict | None:
+    """读当前租约行（不存在/表不存在都返回 None）。"""
+    try:
+        row = conn.execute(
+            "SELECT owner, pid, started_at, heartbeat_at FROM build_lease WHERE workspace = ?",
+            (workspace_key,),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    return {
+        "owner": str(row[0]),
+        "pid": int(row[1] or 0),
+        "started_at": int(row[2] or 0),
+        "heartbeat_at": int(row[3] or 0),
+    }
+
+
+def _pid_alive(pid: int) -> bool:
+    """本机 pid 是否还活着（只用于把「同 pid 死锁」的陈旧租约判死）。
+
+    【self-evolution-bot · 2026-11-18 · 第43轮】为什么不能只看心跳年龄：
+    进程被 kill -9 / 断电重启后 heartbeat_at 会停在死亡那一刻，
+    在 TTL 内后进来的进程仍会认为「有人在跑」而放弃建库 —— 那是**空转**
+    （索引一直残缺却没人修），比活锁更难发现。所以同机时优先问 OS。
+    """
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+        # Windows 上 `os.kill(pid, 0)` **不可用于存活判定**：它对不存在的 pid
+        # 抛的是通用 `OSError [WinError 87] 参数错误`，与其它 OSError 无法区分，
+        # 我第一版就靠 except OSError → return True 把它当成"还活着"，
+        # 于是死进程的租约永远不被接管（测试当场抓出来）。
+        # 改用 OpenProcess：拿不到句柄时用 last_error 区分
+        # 87(ERROR_INVALID_PARAMETER)=pid 不存在、5(ACCESS_DENIED)=进程存在但无权限。
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            handle = k32.OpenProcess(0x1000, False, int(pid))  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not handle:
+                err = ctypes.get_last_error()
+                if err == 5:  # ACCESS_DENIED：进程在，只是不归我管
+                    return True
+                return False  # 87 及其它：pid 不存在
+            try:
+                code = wintypes.DWORD()
+                if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return True  # 查不到退出码时保守认为活着
+                return code.value == 259  # STILL_ACTIVE
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:  # noqa: BLE001 - 存活判定失败时保守认为活着
+            return True
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return True
+    return True
+
+
+def _lease_is_live(cur: dict, *, now: int, ttl_s: int) -> bool:
+    """租约是否仍有活人持有。
+
+    判据两条（任一成立即死）：
+      · 同机 pid 已不存在 → 立刻判死。这是 `kill -9` / 断电后的唯一可靠信号；
+        只靠心跳 TTL 的话要白等 300s，那段时间索引残缺却没人修。
+      · 心跳超过 TTL → 判死（跨机 / pid 被复用等拿不准的情况兜底）。
+    """
+    age = now - int(cur.get("heartbeat_at") or 0)
+    pid = int(cur.get("pid") or 0)
+    if pid != os.getpid() and not _pid_alive(pid):
+        return False
+    return age <= ttl_s
+
+
+def peek_build_lease(root: str, *, ttl_s: int = _BUILD_LEASE_TTL_S) -> dict | None:
+    """只看一眼有没有活人持有租约，**不写任何东西**。返回活着的持有者或 None。
+
+    【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么需要"只看不占"：schedule_build_index 只是要决定「要不要起子进程」，
+    如果它也去 acquire，就会在 acquire→release 之间制造一个几毫秒的窗口，
+    真正的 build_worker 恰好在这期间抢租约就会误判「已有构建在跑」而放弃，
+    结果索引谁都不建 —— 比原来的活锁更难查。
+    """
+    try:
+        conn = _connect(root)
+    except sqlite3.Error:
+        return None
+    try:
+        cur = _read_build_lease(conn, _workspace_hash(root))
+    finally:
+        conn.close()
+    if cur is None:
+        return None
+    if not _lease_is_live(cur, now=int(time.time()), ttl_s=ttl_s):
+        return None
+    return cur
+
+
+def try_acquire_build_lease(
+    conn: sqlite3.Connection,
+    workspace_key: str,
+    *,
+    owner: str,
+    ttl_s: int = _BUILD_LEASE_TTL_S,
+) -> tuple[bool, dict | None]:
+    """尝试拿建库租约。返回 ``(是否拿到, 当前持有者信息)``。
+
+    拿到时会在同一个事务里写入本进程的 owner/pid/heartbeat。
+    拿不到时返回持有者信息，调用方据此说「已有构建在跑」而不是再起一个。
+    """
+    try:
+        conn.execute(_LEASE_TABLE_DDL)
+        conn.commit()
+    except sqlite3.Error:
+        # 建表失败不阻塞建库（老库/只读盘）：退化为「不互斥」，行为与改造前一致。
+        return True, None
+    now = int(time.time())
+    cur = _read_build_lease(conn, workspace_key)
+    if cur is not None and _lease_is_live(cur, now=now, ttl_s=ttl_s):
+        return False, cur
+
+    # 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+    # 「读→判→写」三步必须压成**一条**语句，否则就是 TOCTOU 竞态。
+    # 为什么原来的实现等于没有互斥（本机 2026-11-18 复现实证）：
+    #   4 个线程同时 `try_acquire_build_lease`，全部返回 (True, None)——
+    #   因为每个都先 `_read_build_lease` 读到「没人持有」，再各自 INSERT OR REPLACE，
+    #   最后一个覆盖了前三个，**四个进程都以为自己拿到了租约**。
+    #   于是 4 个 build_worker 并发写同一个库 → fts_content 1200 条重复行 →
+    #   向量判据分母虚涨 → ready 永远 False → 每次检索都重烧一遍全仓。
+    # 修法用两条 SQLite 语义保证：
+    #   · 单条语句本身是原子的（不存在「读和写之间被别人插进来」）；
+    #   · `ON CONFLICT ... WHERE <条件不满足>` 让它在「对方还活着」时**不更新任何行**，
+    #     `cur.rowcount == 0` 就是「没抢到」——这个返回值只可能有一个进程拿到 1。
+    # 旧租约判死走同一个原子 UPDATE：把严格限制为「行里的 heartbeat 仍是刚才读到的那个
+    # 旧值」才允许接管，避免两个进程同时判死同一个租约又同时接管。
+    stale_hb = int(cur.get("heartbeat_at") or 0) if cur is not None else -1
+    if cur is not None:
+        logger.warning(
+            "code_index: 尝试接管陈旧建库租约（owner=%s pid=%s 心跳 %ss 前）",
+            cur.get("owner"),
+            cur.get("pid"),
+            now - int(cur.get("heartbeat_at") or 0),
+        )
+    try:
+        res = conn.execute(
+            "INSERT INTO build_lease(workspace, owner, pid, started_at, heartbeat_at)"
+            " VALUES (?, ?, ?, ?, ?)"
+            " ON CONFLICT(workspace) DO UPDATE SET"
+            "   owner = excluded.owner,"
+            "   pid = excluded.pid,"
+            "   started_at = excluded.started_at,"
+            "   heartbeat_at = excluded.heartbeat_at"
+            " WHERE build_lease.heartbeat_at = ? AND build_lease.pid = ?",
+            (
+                workspace_key,
+                owner,
+                os.getpid(),
+                now,
+                now,
+                stale_hb,
+                int(cur.get("pid") or 0) if cur is not None else -1,
+            ),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        return True, None
+    if int(res.rowcount or 0) <= 0:
+        # 没抢到：重读一次，把真正的持有者带回去给调用方说清楚。
+        return False, _read_build_lease(conn, workspace_key)
+    return True, None
+
+
+def refresh_build_lease(conn: sqlite3.Connection, workspace_key: str, *, owner: str) -> None:
+    """刷新心跳（每批进度一次）。失败静默——心跳不该打断建库。"""
+    try:
+        conn.execute(
+            "UPDATE build_lease SET heartbeat_at = ? WHERE workspace = ? AND owner = ?",
+            (int(time.time()), workspace_key, owner),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        pass
+
+
+def release_build_lease(root: str, *, owner: str) -> None:
+    """释放租约（正常结束或被中断都要调）。"""
+    try:
+        # 用独立连接：调用点可能正处在异常路径上，不能指望已有连接还活着。
+        conn = sqlite3.connect(str(_db_path(root)), timeout=10.0)
+    except sqlite3.Error:
+        return
+    try:
+        conn.execute(
+            "DELETE FROM build_lease WHERE workspace = ? AND owner = ?",
+            (_workspace_hash(root), owner),
+        )
+        conn.commit()
+    except sqlite3.Error:
+        pass
+    finally:
+        try:
+            conn.close()
+        except sqlite3.Error:
+            pass
 
 
 def _migrate_fts_if_needed(conn: sqlite3.Connection) -> None:
@@ -503,6 +930,40 @@ _EMBED_CHUNK_BATCH = 64
 # 放大 5 倍足以让 top_k 个不同文件填满，又不会把 KNN 成本放大太多。
 _SEMANTIC_CHUNK_FANOUT = 5
 
+# 【self-evolution-bot · 2026-11-17 · 第41轮】向量覆盖率的最低可接受比例。
+# 判据：`count(distinct path from code_vec) / 索引文件数 >= 0.98` 才算向量完整。
+# 留 2% 容差是因为纯空白文件（本仓实测 8 个，如空的 __init__.py）不送嵌入，
+# 这是合法缺口；而「1394/7839=18%」这种真残缺必须被抓出来。
+# 上一版判据是「块数 < 文件数」，因一文件多块而永远为假，等于没判。
+_VECTORS_COVERAGE_MIN = 0.98
+
+
+def _write_code_vec_row(
+    conn: sqlite3.Connection,
+    chunk_id: str,
+    rel: str,
+    vec: list[float],
+) -> None:
+    """【self-evolution-bot · 2026-11-17 · 第41轮】往 ``code_vec`` 写一条块向量。
+
+    为什么必须走这个出口、且**不能**写 `INSERT OR REPLACE`：
+    vec0 是虚拟表，`INSERT OR REPLACE` 在撞已有 `chunk_id` 时**不做替换**，
+    直接抛 `UNIQUE constraint failed on code_vec primary key`（sqlite-vec 0.1.6 实测）。
+    向量段与增量段原来都写了 `OR REPLACE`，后果分两种：
+      · 全量重建（先清表）：第一块就撞不上，能跑，但重跑时撞；
+      · `vectors_only` 续跑（**不清表**，见 build_index 里那条分流）：
+        第一块就撞上上次留下的同名块 → 抛异常 → 外层函数级
+        `except sqlite3.OperationalError` 吞掉并 `return 0` →
+        **续跑永远补不上任何向量**，`code_vec` 长期停在 18% 覆盖。
+    所以正确写法只有「先 DELETE 同名块、再 INSERT」，vec0 支持 DELETE（实测
+    按 chunk_id / path / IN 均可）。
+    """
+    conn.execute("DELETE FROM code_vec WHERE chunk_id = ?", (chunk_id,))
+    conn.execute(
+        "INSERT INTO code_vec (chunk_id, path, embedding) VALUES (?, ?, ?)",
+        (chunk_id, rel, _pack_vec(vec)),
+    )
+
 
 def _chunk_text(text: str) -> list[str]:
     """【self-evolution-bot · 2026-11-16 · 第26轮】把文件正文切成定长重叠块。
@@ -631,13 +1092,27 @@ def _dir_escapes_workspace(child: Path, root_resolved: Path) -> bool:
     Windows directory junctions report ``is_symlink() is False`` / ``os.path.islink`` False,
     so ``os.walk(..., followlinks=False)`` still descends into them and indexes foreign
     repos (e.g. EvoFlow/clawdevoflow → ../evo/clawdevoflow). Skip those.
+
+    【self-evolution-bot · 2026-11-17 · 第39轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么去掉末尾的 ``child.resolve().relative_to(root_resolved)``：
+    它对**每个**被保留下来的候选目录都做一次 ``nt._getfinalpathname`` 系统调用，
+    实测本仓 22k 个目录累计 **148ms**（带 resolve 303ms → 去掉 156ms），
+    而它拦下的东西**全是已经拦过的**：两处调用点都在 os.walk 里对 dirnames 逐个判、
+    判完 false 就 ``dirnames[:] = kept`` 剪枝，所以任何逃逸目录的子目录根本不会被访问。
+    实测核对（probe_escape_diff）：old-only 的 16097 个目录 100% 是
+    ``EvoFlow/clawdevoflow`` 这个 junction 的子目录，它们 resolve 后全在 ``D:\\dev\\github\\evo`` 下。
+    判据非「看着多余」，而是文件集：去掉后 ``_iter_source_files`` 产出的 8426 个文件
+    与去掉前**逐条完全相同**（集合相等，0 差集）。
+    兜底保留：万一运行在拿不到 ``is_junction`` 的平台/Python 上（3.12 之前没有该属性），
+    退回原来的 resolve 比较，行为与改造前一致。
     """
     try:
         if child.is_symlink():
             return True
         is_junc = getattr(child, "is_junction", None)
-        if callable(is_junc) and bool(is_junc()):
-            return True
+        if callable(is_junc):
+            return bool(is_junc())
+        # 无 is_junction（老 Python / 非 Windows）：退回逐条 resolve 比较
         child.resolve().relative_to(root_resolved)
         return False
     except (ValueError, OSError):
@@ -875,9 +1350,20 @@ def _rerank_index_rows(
             t = term.casefold()
             if name:
                 n = name.casefold()
+                # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+                # 前导下划线是「私有」约定，不是语义内容，不能因为它吃掉前缀加分。
+                # 实测偏置（冻结池 8 条失分里有 5 条同源）：查 `normalize reasoning effort`，
+                # 真目标 `_normalize_reasoning_effort` 因首字符是 `_` 而 `startswith("normalize")`
+                # 失败，只拿到子串分 +22；跨语言变体 `normalizeReasoningEffort` 拿前缀分 +55，
+                # 于是**变体压过完全匹配**、目标掉到第 2 位。
+                # 修法只影响「前缀/子串」这类模糊档，完全相等仍按字面比（`_foo` ≠ `foo`）。
+                n_bare = n.lstrip("_")
                 if n == t:
                     score += 100.0
-                elif n.startswith(t) and len(t) >= 2:
+                elif n_bare == t:
+                    # 只差前导下划线的同名符号，给足分但不高于字面全等
+                    score += 92.0
+                elif (n.startswith(t) or n_bare.startswith(t)) and len(t) >= 2:
                     score += 55.0
                 elif len(term) >= 5 and t in n:
                     score += 22.0
@@ -1257,14 +1743,26 @@ def _index_embeddings_sync(
                     )
                     return 0
 
+            # 【self-evolution-bot · 2026-11-17 · 第41轮】vec0 **不支持** `INSERT OR REPLACE`。
+            # 为什么这行必须改：实测 `INSERT OR REPLACE INTO code_vec(...)` 撞已有 chunk_id
+            # 直接抛 `UNIQUE constraint failed`（vec0 0.1.6），而原来的兜底是
+            # **函数级** `except sqlite3.OperationalError` → 第一块撞键就跳出整个向量段、
+            # `return 0`，前面写好的也一起作废。
+            # 实证后果：重建跑完 7839 文件 / 51746 符号后 `code_vec` 只有 20389 块、
+            # distinct path 仅 1394 → **6446 个文件（82%）没有向量**，
+            # 而 stale 判据还按「块数<文件数」算完整，于是语义召回长期只覆盖 18% 无人察觉。
+            # 修法：改走 `_write_code_vec_row`（先 DELETE 同名块再 INSERT，vec0 支持 DELETE），
+            # 且**逐块 try/except**，单块写失败只丢它自己，不毁整批、更不毁整段。
             for offset, ((rel, _), vec) in enumerate(zip(batch, embeddings, strict=True)):
                 if not vec or len(vec) != dim:
                     failed_chunks += 1
                     continue
-                conn.execute(
-                    "INSERT OR REPLACE INTO code_vec (chunk_id, path, embedding) VALUES (?, ?, ?)",
-                    (f"{rel}::{start + offset}", rel, _pack_vec(vec)),
-                )
+                try:
+                    _write_code_vec_row(conn, f"{rel}::{start + offset}", rel, vec)
+                except sqlite3.Error:
+                    # 单块失败不连坐：这一块没向量，别的照写。
+                    failed_chunks += 1
+                    continue
                 count += 1
             conn.commit()
             # 【self-evolution-bot · 2026-11-17 · 第31轮】向量段逐批上报进度。
@@ -1575,6 +2073,12 @@ def index_file(
         return {"ok": False, "reason": str(e)}
     if _path_has_skipped_segment(rel):
         return {"ok": True, "action": "skipped", "path": rel, "reason": "ignored_path"}
+    # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+    # 全量建库已尊重 .gitignore（`_iter_source_files`），单文件增量入口也必须一致，
+    # 否则 watcher 一旦开启就会把 outputs/ 里的探针重新塞回库里，
+    # 等于「刚扫干净又被自己污染」。判据同全量：目录级 ignore 命中即拒。
+    if _path_is_git_ignored(root_path, rel):
+        return {"ok": True, "action": "skipped", "path": rel, "reason": "git_ignored"}
 
     dbp = _db_path(root)
 
@@ -1638,11 +2142,11 @@ def index_file(
                             for idx, vec in enumerate(vecs):
                                 if not vec:
                                     continue
-                                conn.execute(
-                                    "INSERT OR REPLACE INTO code_vec (chunk_id, path, embedding) "
-                                    "VALUES (?, ?, ?)",
-                                    (f"{rel}::{idx}", rel, _pack_vec(vec)),
-                                )
+                                # 【self-evolution-bot · 2026-11-17 · 第41轮】改走统一出口。
+                                # 上一行已按 path 全删，本可直接 INSERT；但统一走
+                                # `_write_code_vec_row` 是为了让「vec0 必须先删后插」
+                                # 这条事实只有一个落点，避免两处再次分叉。
+                                _write_code_vec_row(conn, f"{rel}::{idx}", rel, vec)
                 except Exception as exc:
                     logger.warning("code_index: incremental embedding failed for %s: %s", rel, exc)
 
@@ -1662,12 +2166,151 @@ def index_file(
     return run_index_db(root, _update)
 
 
+_GENERATED_DIR_NAMES = frozenset(
+    {
+        # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+        # 这些是「东西被生成出来放的地方」，不是人写的源码或文档。
+        # 只有同时满足「在 .gitignore 里」才排除（见 _git_ignored_dirs）。
+        "outputs",
+        "site",
+        "tmp",
+        "temp",
+        "reports",
+        "logs",
+        "wallpaper",
+        "videos",
+        "uploads",
+        "web",
+        "test-results",
+        "build-temp",
+        "vite-cache",
+        "node_modules",
+        "dist",
+        "target",
+        "binaries",
+        "_internal",
+        "agent-browser-bundle",
+    }
+)
+
+
+def _git_ignored_dirs(root: Path) -> set[str]:
+    """返回被项目 `.gitignore` 忽略的**目录**相对路径集合（如 ``{"outputs", "site"}``）。
+
+    【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+
+    为什么必须让索引器尊重 `.gitignore`：仓库里存在大量「生成物目录」，
+    它们是产物/探针落点，不是产品源码，却会污染检索结果。本轮实测三条后果：
+      1) 负例查询失效：`outputs/eval_search_tool.py`（我自己的评测脚本）里
+         写了一个纯随机字符串常量，于是用户问一个根本不存在的符号时，
+         索引"命中"了 1 个文件并返回 10 条无关结果 —— **索引把测试夹具当成了答案**。
+      2) 排序位被挤占：探针脚本里的临时符号名与真实业务符号竞争前排。
+      3) 磁盘 8425 个可索引文件里 982 个（12%）落在被忽略目录内，白解析白占库。
+
+    为什么用 ``--directory`` 而不是逐文件 ``--stdin``：实测这两条路差距巨大——
+      · ``git check-ignore --stdin``（逐个喂 8150 个路径）：**3077ms**
+      · ``git ls-files --others --ignored --exclude-standard --directory``：**101ms**
+    目录级忽略（``outputs/`` 这种）是 .gitignore 里的绝对多数，目录级拿到就够了；
+    文件级忽略（如 ``*.log``）本就多数被 ``_TEXT_SUFFIXES`` 或大小限制挡掉。
+
+    失败一律返回空集：这不是索引正确性的前提，拿不到就当没有，绝不能让
+    「git 不在 PATH / 不是 git 仓库」把建库搞崩。
+    """
+    try:
+        proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                str(root),
+                "ls-files",
+                "--others",
+                "--ignored",
+                "--exclude-standard",
+                "--directory",
+            ],
+            capture_output=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    if proc.returncode != 0:
+        return set()
+    try:
+        out = proc.stdout.decode("utf-8", errors="replace")
+    except Exception:  # noqa: BLE001
+        return set()
+    dirs: set[str] = set()
+    for line in out.splitlines():
+        rel = line.strip().strip('"')
+        if not rel.endswith("/"):
+            continue
+        rel = rel.rstrip("/")
+        if not rel:
+            continue
+        rel = rel.replace("\\", "/")
+        # 只排除**生成物语义**的目录名。判据来自轮内实测的库内分布：
+        #   outputs 19 / site 128 / tmp 53 / web 39 / reports 14 / temp 9+26 / logs 6
+        #   —— 全是产物或临时落点。
+        # 而下面这些虽也被 .gitignore（本地个人数据不入库），
+        # **内容是真实文本、值得被检索**，必须保留，否则等于把 agent 记忆与
+        # 角色文档从索引里删掉：
+        #   backend/docs/roles 339 行、docs/roles 105 行、backend/assets 23 行、
+        #   skills/custom 14 行、memory 2 行。
+        # 所以判据不是「git 有没有忽略它」，而是「它是不是生成物落点」。
+        leaf = rel.rsplit("/", 1)[-1].casefold()
+        if leaf in _GENERATED_DIR_NAMES:
+            dirs.add(rel)
+    return dirs
+
+
+_GIT_IGNORED_DIRS_CACHE: dict[str, tuple[float, set[str]]] = {}
+_GIT_IGNORED_TTL_SECONDS = 60.0
+
+
+def _path_is_git_ignored(root: Path, rel: str) -> bool:
+    """单文件路径是否落在被 `.gitignore` 忽略的目录里（增量入口用）。
+
+    复用 `_git_ignored_dirs` 的 60 秒缓存：watcher 每来一个文件都跑一次 git 太贵
+    （97ms/次），而 .gitignore 本身极少改。
+    """
+    dirs = _git_ignored_dirs_cached(root)
+    if not dirs:
+        return False
+    r = str(rel).replace("\\", "/").lstrip("./")
+    return any(r == d or r.startswith(d + "/") for d in dirs)
+
+
+def _git_ignored_dirs_cached(root: Path) -> set[str]:
+    key = str(root).replace(os.sep, "/")
+    now = time.time()
+    hit = _GIT_IGNORED_DIRS_CACHE.get(key)
+    if hit is not None and now - hit[0] < _GIT_IGNORED_TTL_SECONDS:
+        return hit[1]
+    dirs = _git_ignored_dirs(root)
+    _GIT_IGNORED_DIRS_CACHE[key] = (now, dirs)
+    if len(_GIT_IGNORED_DIRS_CACHE) > 8:
+        oldest = min(_GIT_IGNORED_DIRS_CACHE, key=lambda k: _GIT_IGNORED_DIRS_CACHE[k][0])
+        _GIT_IGNORED_DIRS_CACHE.pop(oldest, None)
+    return dirs
+
+
 def _iter_source_files(root: Path, max_files: int) -> list[Path]:
     found: list[Path] = []
     try:
         root_resolved = root.resolve()
     except OSError:
         root_resolved = root
+    # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+    # 尊重项目自己的 .gitignore：只跳过「目录级」被忽略的目录（outputs/ / site/ …），
+    # 这些是生成物与一次性探针的落点。取一次 101ms，且只在遍历开始时取一次。
+    # 不跳过时的实测后果见 `_git_ignored_dirs` 的 docstring（负例查询被自己的
+    # 评测脚本伪装成"命中"，返回 10 条无关结果）。
+    ignored = _git_ignored_dirs(root)
+    ignored_abs: set[str] = set()
+    if ignored:
+        rp = str(root_resolved).replace(os.sep, "/").rstrip("/")
+        for rel in ignored:
+            ignored_abs.add(f"{rp}/{rel}")
     for dirpath, dirnames, filenames in os.walk(root):
         kept: list[str] = []
         for d in dirnames:
@@ -1675,6 +2318,8 @@ def _iter_source_files(root: Path, max_files: int) -> list[Path]:
                 continue
             child = Path(dirpath) / d
             if _dir_escapes_workspace(child, root_resolved):
+                continue
+            if ignored_abs and str(child).replace(os.sep, "/") in ignored_abs:
                 continue
             kept.append(d)
         dirnames[:] = kept
@@ -1748,15 +2393,47 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
                 stale_reasons.append("max_files_unrecorded_at_old_cap")
             if cfg.semantic_search_enabled and vec_ok:
                 vec_n = 0
+                vec_paths = 0
+                # 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+                # 判据的分母必须与分子**同口径**，否则会造出一个永远达不到的阈值。
+                # 分子 `vec_paths` 是 `COUNT(DISTINCT path)`（按文件数），原来分母 `n`
+                # 直接取 `_fts_doc_count()` 的**行数**——正常情况两者相等，看不出来；
+                # 一旦 fts 出现同 path 多行（并发构建交错写，本机实测 9040 行 / 7840 path
+                # = 1200 条重复），分母虚涨而分子天花板不变：
+                #   阈值 = 9040 × 0.98 = 8859，分子上限 = 7840 → **永远 False**。
+                # 后果不是「少一条提示」，而是 `ready=False` 恒定 → `schedule_build_index`
+                # 每次都判「索引残缺」→ 每次检索都重烧一遍全仓，用户只感觉「越用越慢」。
+                # 修法：分母单独取 distinct path，与分子同口径；行数仍然用于 `files` 展示
+                # （那才是「库里有多少篇文档」的语义）。顺带花 99ms，只在残缺判定路径上跑一次。
+                denom = 0
                 try:
                     vec_n = int(conn.execute("SELECT COUNT(*) FROM code_vec").fetchone()[0])
+                    # 【self-evolution-bot · 2026-11-17 · 第41轮】按**不同文件数**判，不按块数判。
+                    # 为什么原来那条判据永远判「完整」：它是 `vec_n < n`（块数 < 文件数），
+                    # 而一文件多块，块数天然远大于文件数——实测 7839 个文件、
+                    # code_vec 20389 块但 distinct path 只有 1394，
+                    # **6446 个文件（82%）没有向量**，判据却报完整、ready=True，
+                    # 于是每次检索都不补、语义召回长期只覆盖 18% 且无人察觉。
+                    # 换成 distinct path 直接对 n。
+                    vec_paths = int(
+                        conn.execute("SELECT COUNT(DISTINCT path) FROM code_vec").fetchone()[0]
+                    )
+                    denom = int(
+                        conn.execute("SELECT COUNT(DISTINCT path) FROM fts_content").fetchone()[0]
+                    )
                 except sqlite3.OperationalError:
                     vec_n = 0
+                    vec_paths = 0
+                    denom = 0
+                if denom <= 0:
+                    denom = n
                 if n > 0 and vec_n == 0:
                     stale_reasons.append("vectors_missing")
-                elif n > 0 and vec_n < n:
-                    # 块级表应当「文件数 <= 块数」；块数少于文件数说明只写了一部分
-                    stale_reasons.append(f"vectors_incomplete:{vec_n}<{n}")
+                elif denom > 0 and vec_paths < denom * _VECTORS_COVERAGE_MIN:
+                    # 容差 2%：本仓实测 8/7839 个空文件（纯空白，不送嵌入）合法无向量，
+                    # 占 0.1%；留 2% 既不会因空文件天天误报重建，
+                    # 又能把「只有 18% 覆盖」这类真残缺抓出来。
+                    stale_reasons.append(f"vectors_incomplete:{vec_paths}<{denom}")
         finally:
             conn.close()
         updated_at = None
@@ -1968,6 +2645,13 @@ def _persist_build_progress(root: str, fields: dict) -> None:
             "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
             (_PROGRESS_META_PREFIX + "updated_at", str(int(time.time()))),
         )
+        # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+        # 进度落盘就是建库租约的天然心跳 —— 建库每批（_BUILD_BATCH_SIZE 文件 /
+        # 64 块向量）都会走一次本函数，实测最慢的一批也远小于 300s TTL。
+        # 复用这一处而不是另开线程，是为了不新增任何后台线程（少一个要收尸的东西）。
+        _owner = _build_lease_owner.get()
+        if _owner:
+            refresh_build_lease(conn, _workspace_hash(root), owner=_owner)
         conn.commit()
     except Exception:  # noqa: BLE001 - 进度落盘失败绝不能打断建库
         logger.debug("code_index: persist build progress failed", exc_info=True)
@@ -2081,12 +2765,21 @@ def schedule_build_index(
     *,
     thread_id: str | None = None,
     force: bool = False,
+    status: dict | None = None,
 ) -> dict:
     """Enqueue a full index build (one job per workspace root).
 
     Production default: **subprocess** so embedding-model imports cannot
     stall the Gateway event loop (GIL / import lock are process-wide —
     a background thread does not protect HTTP).
+
+    【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+    *status*：调用方已经算过一次 `index_status` 时可传进来复用，别再算一遍。
+    实测（2026-11-18 本机，sqlite execute 逐条归因）：一次 `search_index` 里
+    `index_status` 被算了 **3 次**，每次含 `SELECT COUNT(DISTINCT path) FROM code_vec`
+    约 418ms（1.48GB 库、4.5 万块）→ 合计约 1.56s，占稳态 2.5s 的 61%。
+    其中后两次纯属重复：调度前后只可能变 `building`，而 `ready`/`stale_reasons`/`files`
+    在没有任何构建完成的情况下不会变，读同一个库算三遍得同一答案。
     """
     cfg = get_code_index_config()
     if not cfg.enabled:
@@ -2094,7 +2787,11 @@ def schedule_build_index(
     root = resolve_index_root(workspace_root=workspace_root, thread_id=thread_id)
     dbp = _db_path(root)
     if not force:
-        st = index_status(workspace_root=workspace_root, thread_id=thread_id)
+        st = (
+            status
+            if status is not None
+            else index_status(workspace_root=workspace_root, thread_id=thread_id)
+        )
         # 【self-evolution-bot · 2026-11-16 · 第26轮】索引残缺要自动重建，不能算「已就绪」。
         # 原来的判据是 st["ready"] —— 而 ready 只看「根路径对 + 有文件」，
         # 于是被 max_files 截断的索引、以及向量 0 行的索引全部被判为就绪，
@@ -2132,6 +2829,28 @@ def schedule_build_index(
             return {
                 "ok": True,
                 "status": "building",
+                "root": root,
+                "db_path": str(dbp),
+            }
+
+        # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+        # 起子进程前先问一次**跨进程**租约，`_build_jobs` 只看得见自己这个进程。
+        # 实测本机同时跑着两个 Gateway 进程，各自 `_build_jobs` 都是空的，
+        # 于是各起一个 build_worker，两个 worker 互相 `DELETE FROM meta` 清表，
+        # 索引永远建不完、检索永远 11~15s。必须在起进程前挡住第二个。
+        _probe_holder = peek_build_lease(root)
+        if _probe_holder is not None:
+            logger.info(
+                "code_index: 已有跨进程构建在跑（owner=%s pid=%s），不再起新进程 root=%s",
+                _probe_holder.get("owner"),
+                _probe_holder.get("pid"),
+                root,
+            )
+            return {
+                "ok": True,
+                "status": "building",
+                "reason": "build_in_progress",
+                "busy_owner": _probe_holder.get("owner"),
                 "root": root,
                 "db_path": str(dbp),
             }
@@ -2218,6 +2937,41 @@ def build_index(
 
     from evoflow.code_index.lsp_pool import reset_build_budget
 
+    # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+    # 建库前先抢跨进程租约。抢不到 = 已经有别的进程（另一个 Gateway / 上一个
+    # build_worker）在同一个 workspace 建库，直接返回「正在构建」，不要再烧一遍全仓。
+    # 为什么必须在这里而不是 schedule_build_index：build_worker 是**独立进程**，
+    # 它直接调 build_index()，根本不经过 schedule_build_index 的进程内 _build_jobs 判断。
+    _lease_owner = f"{os.getpid()}:{uuid.uuid4().hex[:8]}"
+    _lease_root = root
+    _lease_token = None
+    _lease_conn = _connect(root)
+    try:
+        _ensure_schema(_lease_conn)
+        _got_lease, _holder = try_acquire_build_lease(
+            _lease_conn, _workspace_hash(root), owner=_lease_owner
+        )
+    finally:
+        _lease_conn.close()
+    if not _got_lease:
+        logger.warning(
+            "code_index: 已有构建在跑（owner=%s pid=%s 心跳 %ss 前），本进程放弃重建 root=%s",
+            (_holder or {}).get("owner"),
+            (_holder or {}).get("pid"),
+            int(time.time()) - int((_holder or {}).get("heartbeat_at") or 0),
+            root,
+        )
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "build_in_progress",
+            "busy_owner": (_holder or {}).get("owner"),
+            "root": root,
+            "db_path": str(dbp),
+        }
+    # 拿到租约 → 让本次构建的所有进度落盘都带上心跳。
+    _lease_token = _build_lease_owner.set(_lease_owner)
+
     reset_build_budget(root)
 
     root_path = Path(root)
@@ -2289,7 +3043,25 @@ def build_index(
                     conn.execute("DELETE FROM code_vec")
                 except sqlite3.OperationalError:
                     pass  # vec0 may not exist
-                conn.execute("DELETE FROM meta")
+                # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+                # 原来这里是 `DELETE FROM meta` —— **整张 meta 表**清空，包含
+                # `root` / `indexed_max_files` / `index_tokenizer_version` /
+                # `fts_schema_version` / `build_lease`（本轮新加的那张进度外的表）。
+                # 后果是活锁的另一半：清表后的 `index_status` 读到 `meta['root']` 为 None，
+                # `ready` 必定 False、`stale_reasons` 必定含 `max_files_unrecorded_at_old_cap`，
+                # 于是**每一个后续检索**都判定「索引残缺」→ `schedule_build_index(force=True)`
+                # → 又清一次表。建库永远跑不完，检索永远慢。
+                # 修法：只删「本次清表真正该失效」的产物键，保留身份/版本/租约。
+                conn.execute(
+                    "DELETE FROM meta WHERE key IN ("
+                    "'indexed_at', 'index_db_path', 'symbol_parsers',"
+                    "'build_progress.phase', 'build_progress.updated_at'"
+                    ")"
+                )
+                # build_progress 的计数类键留着会被下一次 index_status 当成"已有进度"，
+                # 但它们的值已随清表失效，必须一起清掉（前缀删）。
+                conn.execute("DELETE FROM meta WHERE key LIKE 'build_progress.%'")
+                conn.execute("DELETE FROM meta WHERE key = 'fts_needs_rebuild'")
                 conn.commit()
             finally:
                 conn.close()
@@ -2330,6 +3102,23 @@ def build_index(
                                     )
                                     sym_count += 1
                                     parser_stats[str(sym.get("parser") or "unknown")] += 1
+                                # 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+                                # 写前必须先删同 path 的行。fts_content 是 FTS5 虚拟表，**没有
+                                # UNIQUE 约束**，`INSERT` 不报错也不会覆盖，只会再加一行。
+                                # 全量建库时这一步被 `_clear_tables()` 的整表 DELETE 兜住了，
+                                # 所以单进程跑永远看不出问题；但只要有第二个构建进程（第二个
+                                # Gateway / 上一个 build_worker 还没退出）在**同一批 path** 上
+                                # 交错写，就会出现「一个文件两行」。
+                                # 实测（2026-11-18 07:24 本机）：4 个 build_worker 进程并存，
+                                # 库内 fts 9040 行 / 7840 个不同 path → **1200 条重复**，
+                                # 且重复行 content 完全一致（40/40 抽查），即纯重复不是新旧版本。
+                                # 后果链：向量判据分母用行数（9040）、分子用 distinct path（7840），
+                                # 分子天花板被重复行压在 7840 → 阈值 8859 永远达不到 →
+                                # `ready=False` → **每一次检索都打印「索引残缺，自动触发重建」**
+                                # 并真去重建一遍全仓。这就是「检索越用越慢」的真因。
+                                # 这一行与 `_index_one_file`（单文件增量入口）口径对齐：那里
+                                # 第 1622 行已经先 `DELETE FROM fts_content WHERE path = ?`。
+                                conn.execute("DELETE FROM fts_content WHERE path = ?", (rel,))
                                 conn.execute(
                                     "INSERT INTO fts_content(path, content) VALUES (?, ?)",
                                     (rel, _fts_document(rel, snippet, sym_names)),
@@ -2361,6 +3150,42 @@ def build_index(
                 time.sleep(0)
 
         # --- Semantic embedding pass ---
+        # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+        # 文件段一结束就先把 meta 落盘，**不要等向量段跑完**。
+        # 为什么：`_touch_index_meta` 只在 `_finalize_meta`（向量段之后）被调用，
+        # 而向量段是全量重建里最容易被打断的一段（本轮实测 114s 文件段正常，
+        # 向量段跑了 9 分钟仍未完成，被我 590s 超时掐断）。
+        # 中断后果实测（就在本机）：
+        #   · meta 里既没有 `indexed_max_files` 也没有 `indexed_at`；
+        #   · `stale_reasons` 立刻报 `max_files_unrecorded_at_old_cap` → `ready=False`；
+        #   · 于是**每一次检索**都 `schedule_build_index(force=True)` 再烧一遍全仓，
+        #     用户感觉「检索越来越慢」，而日志里全是「索引残缺，自动触发重建」。
+        # 先落盘后：文件段完成即拥有合法 meta，中断只表现为「向量不全」，
+        # 由 `vectors_only` 分支单独补向量，不再触发全量重建。
+        def _commit_file_phase_meta() -> None:
+            conn = _connect(root)
+            try:
+                _ensure_schema(conn)
+                _touch_index_meta(conn, root, dbp)
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES ('symbol_parsers', ?)",
+                    (json.dumps(dict(parser_stats)),),
+                )
+                conn.execute(
+                    "INSERT OR REPLACE INTO meta(key, value) VALUES ('fts_schema_version', ?)",
+                    (_FTS_SCHEMA_VERSION,),
+                )
+                conn.execute("DELETE FROM meta WHERE key='fts_needs_rebuild'")
+                conn.commit()
+            except Exception:  # noqa: BLE001 - 落盘失败不能让整个构建失败
+                logger.warning("code_index: 文件段 meta 落盘失败（不中断构建）", exc_info=True)
+            finally:
+                conn.close()
+
+        if not vectors_only:
+            run_index_db(root, _commit_file_phase_meta)
+
+        # --- Semantic embedding pass ---
         # 【self-evolution-bot · 2026-11-16 · 第26轮】向量阶段单独上报进度。
         # 为什么：切块后这个阶段是全量重建里最耗时的一段（14.2 万块、约 38 分钟），
         # 而原来只上报 indexing 阶段，于是「文件都索引完了」后进度条停在 100%
@@ -2374,7 +3199,37 @@ def build_index(
             vectors_total=int(getattr(cfg, "max_files", 0) or 0) or None,
             vectors_done=0,
         )
-        vec_count = _index_embeddings_sync(root, root_path, source_files, cfg)
+        # 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+        # `vectors_only` 的语义是「**只补缺的**向量」，原来却把全部文件重嵌一遍，
+        # 已有向量的文件整段白算。实测（本机 2026-11-18）：7842 个可索引文件里
+        # 2580 个已有向量、5262 个缺 → 33% 的算力纯粹浪费；而这段是建库里最慢的
+        # 一段（本地 bge 实测约 96 块/秒，全仓 11.4 万块 ≈ 20 分钟），
+        # 浪费的 33% 就是每被打断一次都多烧 6~7 分钟。
+        # 判据：只有在 vectors_only 且读得到 code_vec 时，才把文件列表过滤成
+        # 「库里没有该 path 任何向量」的那些；全量重建（vectors_only=False）不受影响，
+        # 因为那时表刚被清空、全部文件都该重嵌。
+        embed_files = source_files
+        if vectors_only:
+            try:
+                _vc = _connect(root)
+                try:
+                    _have = {r[0] for r in _vc.execute("SELECT DISTINCT path FROM code_vec")}
+                finally:
+                    _vc.close()
+            except sqlite3.Error:
+                _have = set()
+            if _have:
+                embed_files = [
+                    p
+                    for p in source_files
+                    if p.relative_to(root_path).as_posix() not in _have
+                ]
+                logger.info(
+                    "code_index: vectors-only 只补缺向量的 %d 个文件（已有 %d 个跳过）",
+                    len(embed_files),
+                    len(source_files) - len(embed_files),
+                )
+        vec_count = _index_embeddings_sync(root, root_path, embed_files, cfg)
         _update_build_progress(
             root,
             phase="embedding_done",
@@ -2405,6 +3260,13 @@ def build_index(
         run_index_db(root, _finalize_meta)
     finally:
         _clear_build_progress(root)
+        # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+        # 无论正常结束、抛异常还是被打断，都必须把租约还回去。
+        # 否则下一个进程要等 300s TTL（或等自己发现 pid 已死）才能接管，
+        # 那段时间用户看到的就是「索引残缺但没人修」。
+        release_build_lease(_lease_root, owner=_lease_owner)
+        if _lease_token is not None:
+            _build_lease_owner.reset(_lease_token)
 
     logger.info(
         "code_index: indexed %d files (%d symbols, %d deps, %d refs, %d type_rels, %d vecs, %d skipped) under %s -> %s parsers=%s",
@@ -2564,6 +3426,74 @@ def _nl_fts_terms(terms: list[str], *, primary: str = "") -> list[str]:
     return terms[:3]
 
 
+def _looks_like_single_identifier(text: str) -> bool:
+    """整句是否「就是一个标识符」—— 没有空格、无中文、含下划线或驼峰。
+
+    【self-evolution-bot · 2026-11-17 · 第40轮】用来区分两类查询：
+      · 形如 `some_missing_symbol_ab12` 的随机标识符 / `buildDiffSummary` → 用户问的是具体名字，
+        查不到就是查不到，应当明说；
+      · `resolve data paths` / `插件卸载` → 用户在描述功能，
+        拆词命中是设计允许的，不能因为整句没字面出现就判死。
+    """
+    s = str(text or "").strip()
+    if not s or " " in s or "\t" in s:
+        return False
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.-]*", s):
+        return False
+    return "_" in s or bool(re.search(r"[a-z][A-Z]", s)) or len(s) >= 12
+
+
+def _index_has_literal_hit(conn: sqlite3.Connection, whole: str) -> bool:
+    """该字符串是否**字面**出现在索引里（文件名 / 符号名 / 正文任一处）。
+
+    判定顺序按代价从低到高，命中即返回；三步全部未中才算「没有」：
+      1. 符号名精确相等（`symbols.name`，B 树索引，最快）
+      2. 路径包含（`fts_content.path`）
+      3. 正文包含（FTS 短语查询）
+
+    为什么不用语义向量：实测语义分数与真假无关（真查询 0.555 < 假查询 0.642），
+    任何阈值都会误杀真实查询。字面命中在实测 5 真 / 5 假两组上完全可分。
+    """
+    w = str(whole or "").strip()
+    if len(w) < 3:
+        return True  # 太短无法判定，一律当作「可能有」，避免误杀
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM symbols WHERE name = ? LIMIT 1", (w,)
+        ).fetchone()
+        if row is not None:
+            return True
+    except sqlite3.Error:
+        return True  # 查不了就别谎报「没有」
+    # 大小写不敏感的符号名（FTS 之外的兜底）
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM symbols WHERE name = ? COLLATE NOCASE LIMIT 1", (w,)
+        ).fetchone()
+        if row is not None:
+            return True
+    except sqlite3.Error:
+        pass
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM fts_content WHERE path LIKE ? LIMIT 1", (f"%{w}%",)
+        ).fetchone()
+        if row is not None:
+            return True
+    except sqlite3.Error:
+        return True
+    try:
+        row = conn.execute(
+            "SELECT 1 FROM fts_content WHERE fts_content MATCH ? LIMIT 1",
+            (_fts5_quote_term(w),),
+        ).fetchone()
+        if row is not None:
+            return True
+    except sqlite3.Error:
+        return True
+    return False
+
+
 def _search_symbols(
     conn: sqlite3.Connection,
     terms: list[str],
@@ -2635,6 +3565,16 @@ def _search_symbols(
         # 5.2 万行子串扫描在 SQLite 上是几十毫秒量级，相比整体 p50 ~600ms 可忽略。
         _q_tokens = _name_tokens(whole_query)
         _head = (_q_tokens[0][:6] if _q_tokens else "") or _whole_norm[:6]
+        # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+        # 上面这行 `_q_tokens[0][:6]` 对「大写缩写连写」是致命的：
+        # `ZCode Background Task Control Item` 的首词元被拆成 `z`，
+        # 于是粗筛变成 `name LIKE '%z%'` —— 5.2 万个符号里几乎全中，
+        # 候选被 LIMIT 400 截断，**真目标压根没进候选集**，整句档（rank=5）
+        # 形同虚设，答案只能靠后面的模糊档捞，位置从第 1 掉到第 2。
+        # 判据：首词元太短（<4 字符）时不拿它当锚点，改用整串归一后的前缀。
+        # 单字/双字词元做 LIKE 锚点没有任何筛选力，只会把 LIMIT 烧光。
+        if len(_head) < 4:
+            _head = _whole_norm[:8] or _head
         _cand_sql = (
             "SELECT path, name, kind, line FROM symbols"
             " WHERE name LIKE ?"
@@ -2733,7 +3673,18 @@ def _wait_index_ready(
         return initial if initial is not None else index_status(workspace_root=workspace_root, thread_id=thread_id)
     deadline = time.time() + wait_s
     st = initial if initial is not None else index_status(workspace_root=workspace_root, thread_id=thread_id)
-    while not st.get("ready") and st.get("building") and time.time() < deadline:
+    # 【self-evolution-bot · 2026-11-18 · 第43轮 · 模型:deepseek-v4.1-flash-1017】
+    # 等待条件原来是 `not ready and building` —— 而 `ready` 要求**完全没有** stale_reasons，
+    # 其中 `vectors_incomplete` 要等整个向量段跑完（本仓 11.4 万块、约 30 分钟）。
+    # 后果：只要向量还在补，每一次检索都无条件空等满 `search_wait_seconds`（默认 2.0s）。
+    # 实测 8×250ms = 2000ms 全部白等，而库里明明有 7839 文件 / 51744 符号可搜。
+    # 「等」的正当理由只有一个：库里还没东西可搜。有内容就立刻搜，别等全量建完。
+    while (
+        not st.get("ready")
+        and st.get("building")
+        and int(st.get("files") or 0) == 0
+        and time.time() < deadline
+    ):
         time.sleep(0.25)
         st = index_status(workspace_root=workspace_root, thread_id=thread_id)
     return st
@@ -2761,13 +3712,23 @@ def search_index(
         st = index_status(workspace_root=workspace_root, thread_id=thread_id)
         rebuild_in_progress = bool(st.get("building"))
         if needs_rebuild or (not st.get("ready") and not st.get("building")):
-            schedule_build_index(
+            sched = schedule_build_index(
                 workspace_root=workspace_root,
                 thread_id=thread_id,
                 force=bool(needs_rebuild),
+                status=st,
             )
-            st = index_status(workspace_root=workspace_root, thread_id=thread_id)
-            rebuild_in_progress = bool(st.get("building"))
+            # 【self-evolution-bot · 2026-11-18 · 第44轮 · 模型:deepseek-v4.1-flash-1017】
+            # 原来这里重算一次 index_status 只为了拿新的 `building` —— 实测 418ms/次
+            # （COUNT(DISTINCT path) FROM code_vec），换来的信息量却只有 1 个 bool：
+            # `ready`/`stale_reasons`/`files` 在「刚把任务排进去」这个瞬间不可能变
+            # （真要变也只能是构建真跑完了，那需要分钟级）。直接由调度结果推 building，
+            # 语义等价且省掉一整次全表 COUNT。
+            st = dict(st)
+            st["building"] = bool(
+                str(sched.get("status") or "") in ("scheduled", "building")
+            )
+            rebuild_in_progress = st["building"]
         # 【self-evolution-bot · 2026-11-17 · 第34轮】只有「正在构建」才需要等；
         # 稳态（已 ready 且无构建任务）直接把上面这份状态复用下去，
         # 不再为同一个判定重复算一次 index_status（每次约 100ms）。
@@ -2886,6 +3847,24 @@ def search_index(
     # 【self-evolution-bot · 2026-11-17 · 第34轮】把「整句」传进符号检索。
     # 不传的话新加的 match_rank=5 整句分支永远进不去（走不到），
     # 也就是经典的「改了函数、没接调用点」。
+    # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+    # 「没查到就该说没查到」——本轮大池评测实测：5 条随机不存在标识符，
+    # 5 条全都**没说没有**，其中 4 条照常吐出 10 条符号（如查一个纯随机串，
+    # 首条返回的符号是 `note`），1 条吐出 10 条内容命中。
+    # 调用方拿到这种输出会以为「有这个符号，只是名字不太一样」，比空结果更误导。
+    # 判据必须用**字面命中**，不能用语义分数：实测真查询 `prune empty dirs`
+    # 语义 top1=0.555，而纯随机串是 0.642 —— 分数反向，
+    # 任何阈值都会把真查询判死。字面命中则能干净分离（实测：真标识符
+    # resolve_data_paths 整串命中 5 个文件，5 条假标识符全部 0）。
+    # 只在「查询本身看起来就是一个标识符」时判定，避免把自然语言查询误判成没查到。
+    literal_missing = False
+    whole = str(query_body or label or "").strip()
+    if whole and _looks_like_single_identifier(whole):
+        try:
+            literal_missing = not _index_has_literal_hit(conn, whole)
+        except sqlite3.Error:
+            literal_missing = False
+
     raw_symbols = _search_symbols(
         conn, terms, fetch_lim, whole_query=str(query_body or label or "")
     )
@@ -3003,6 +3982,9 @@ def search_index(
         "root": root,
         "db_path": str(_db_path(root)),
         "rebuild_in_progress": rebuild_in_progress,
+        # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+        # 「整句标识符在库里字面不存在」→ 输出层据此明说没有，而不是拿拆词凑数。
+        "literal_query_missing": literal_missing,
         # 【self-evolution-bot · 2026-11-17 · 第33轮】索引新鲜度随结果返回（见 index_freshness）
         **index_freshness(root),
     }
