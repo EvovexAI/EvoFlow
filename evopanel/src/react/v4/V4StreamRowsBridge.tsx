@@ -48,12 +48,14 @@ import {
 import { isSessionRecoveryCooldownActive } from "../lib/stream-reattach-cooldown.js";
 import { evoflowFetch } from "../../lib/ws-client.js";
 import {
+  memoryWatchIntervalMs,
   noteRendererMemoryPressure,
   pinMaxForMemoryLevel,
   readRendererHeapMb,
   resolveRendererMemoryLevel,
   shouldContinueCriticalEviction,
 } from "../lib/renderer-memory-pressure.js";
+import { shrinkAllLiveProjectionWindows } from "../../zcode-ui/v4/conversationProjectionStore.js";
 
 export interface V4TimelinePayload {
   sessionId: string;
@@ -101,7 +103,7 @@ const WARM_COLD_WINDOW_MS = 3_000;
 /** 并行冷 hydrate 会拖死 Gateway；窗内最多 2 条。 */
 const WARM_COLD_MAX_PER_WINDOW = 2;
 /** 多会话并跑：钉住最近/执行中会话的租约，避免 30s keep-warm 过期后冷开空白。 */
-const PIN_MAX_SESSIONS_DEFAULT = 8;
+const PIN_MAX_SESSIONS_DEFAULT = 4;
 /**
  * 超大投影（复刻长会话常 1k–2k+ 行）仅用于观测 / 悬停冷预热节流。
  * pin 数量只走 pinMaxForMemoryLevel（与普通会话同一上限）——对齐 ZCode：
@@ -123,7 +125,7 @@ const _stickySnapshotByThread = new Map<
   { snapshot: ConversationSnapshot; at: number }
 >();
 const STICKY_SNAPSHOT_MS = 8_000;
-let _memPressureTimer: ReturnType<typeof setInterval> | null = null;
+let _memPressureTimer: ReturnType<typeof setTimeout> | null = null;
 
 function _rememberStickySnapshot(
   sessionId: string,
@@ -165,54 +167,79 @@ export function peekEvoflowV4HasPaintableSnapshot(sessionId: string): boolean {
   return !!_peekStickySnapshot(id);
 }
 
+function _clearStickySnapshots(): number {
+  const n = _stickySnapshotByThread.size;
+  _stickySnapshotByThread.clear();
+  return n;
+}
+
+function _runMemoryPressurePass(): void {
+  const level = noteRendererMemoryPressure({
+    pinned: _pinnedLeases.size,
+    layerSize: getSharedLayer().size,
+  });
+  if (level === "normal") return;
+
+  // high：挤无快照冷 hydrate；同时强制把已常驻窗口裁到当前 softCap。
+  // critical：heap 仍涨则清空全部 keep-warm + sticky，并对所有 live store 再裁一遍。
+  if (level === "critical" && !shouldContinueCriticalEviction()) {
+    const shrunk = shrinkAllLiveProjectionWindows();
+    if (shrunk > 0) {
+      logV4Life({
+        event: "mem_pressure_shrink_windows",
+        level: "warn",
+        zh: `渲染内存危急但 heap 回落：仍强制裁了 ${shrunk} 个投影窗口。`,
+        detail: { shrunk, heapMb: readRendererHeapMb() },
+        skipDedupe: true,
+      });
+    }
+    return;
+  }
+
+  const keep = [..._pinnedLeases.keys()];
+  const onlyWithoutSnapshot = level === "high";
+  const closed = getSharedLayer().releaseKeepWarmExcept(keep, {
+    onlyWithoutSnapshot,
+    preferLargest: true,
+    // critical：一次清空空闲投影，别每次只挤 2 条看着 heap 涨到 3GB。
+    ...(level === "critical" ? {} : { limit: 4 }),
+  });
+  const shrunk = shrinkAllLiveProjectionWindows();
+  const stickyCleared = level === "critical" ? _clearStickySnapshots() : 0;
+  if (closed > 0 || shrunk > 0 || stickyCleared > 0) {
+    logV4Life({
+      event: "mem_pressure_evict_warm",
+      level: level === "critical" ? "error" : "warn",
+      zh:
+        level === "critical"
+          ? `渲染内存危急：清 keep-warm ${closed}、裁窗口 ${shrunk}、清 sticky ${stickyCleared}，避免 Out of Memory。`
+          : `渲染内存偏高：清 keep-warm ${closed}、裁窗口 ${shrunk}。`,
+      detail: {
+        closed,
+        shrunk,
+        stickyCleared,
+        level,
+        pinned: _pinnedLeases.size,
+        heapMb: readRendererHeapMb(),
+        onlyWithoutSnapshot,
+      },
+      skipDedupe: true,
+    });
+  }
+}
+
 function _ensureMemoryPressureWatch(): void {
   if (_memPressureTimer != null || typeof window === "undefined") return;
-  _memPressureTimer = setInterval(() => {
+  const tick = () => {
     try {
-      const level = noteRendererMemoryPressure({
-        pinned: _pinnedLeases.size,
-        layerSize: getSharedLayer().size,
-      });
-      if (level === "normal") return;
-      // 高压：只留 pin。high 只清无快照冷 hydrate（对齐 ZCode 有投影继续显示）；
-      // critical：heap 仍升才挤，每次最多 2 条最大空闲（不要一次清空导致全冷开）。
-      if (level === "critical" && !shouldContinueCriticalEviction()) {
-        logV4Life({
-          event: "mem_pressure_evict_skip",
-          level: "warn",
-          zh: "渲染内存危急但 heap 已回落：本轮不挤 keep-warm，避免切回冷开。",
-          detail: {
-            level,
-            pinned: _pinnedLeases.size,
-            heapMb: readRendererHeapMb(),
-          },
-          skipDedupe: true,
-        });
-        return;
-      }
-      const keep = [..._pinnedLeases.keys()];
-      const onlyWithoutSnapshot = level === "high";
-      const closed = getSharedLayer().releaseKeepWarmExcept(keep, {
-        onlyWithoutSnapshot,
-        ...(level === "critical"
-          ? { limit: 2, preferLargest: true }
-          : {}),
-      });
-      if (closed > 0) {
-        logV4Life({
-          event: "mem_pressure_evict_warm",
-          level: level === "critical" ? "error" : "warn",
-          zh: onlyWithoutSnapshot
-            ? `渲染内存偏高：清掉 ${closed} 条无快照 keep-warm，保留已有投影缓存。`
-            : `渲染内存危急：清掉 ${closed} 条最大空闲 keep-warm 投影，避免 WebView Out of Memory。`,
-          detail: { closed, level, pinned: _pinnedLeases.size, onlyWithoutSnapshot },
-          skipDedupe: true,
-        });
-      }
+      _runMemoryPressurePass();
     } catch {
       /* best-effort */
     }
-  }, 15_000);
+    const level = resolveRendererMemoryLevel();
+    _memPressureTimer = setTimeout(tick, memoryWatchIntervalMs(level));
+  };
+  _memPressureTimer = setTimeout(tick, memoryWatchIntervalMs("normal"));
 }
 
 try {
@@ -473,14 +500,21 @@ export function prepareRendererForHeavyStage(detail?: Record<string, unknown>): 
       // 开重 UI：有快照的空闲投影也挤，只保 pin（执行中）。
       onlyWithoutSnapshot: false,
       preferLargest: true,
-      ...(level === "critical" ? { limit: 8 } : { limit: 4 }),
     });
-    if (closed > 0) {
+    const shrunk = shrinkAllLiveProjectionWindows();
+    if (level === "critical") _clearStickySnapshots();
+    if (closed > 0 || shrunk > 0) {
       logV4Life({
         event: "heavy_stage_evict_warm",
         level: level === "critical" ? "error" : "warn",
-        zh: `打开重型右栏前清掉 ${closed} 条 keep-warm 投影，给 Agent 应用腾渲染内存。`,
-        detail: { closed, level, pinned: _pinnedLeases.size, ...(detail || {}) },
+        zh: `打开重型右栏前：清 keep-warm ${closed}、裁窗口 ${shrunk}，给 Agent 应用腾渲染内存。`,
+        detail: {
+          closed,
+          shrunk,
+          level,
+          pinned: _pinnedLeases.size,
+          ...(detail || {}),
+        },
         skipDedupe: true,
       });
     }

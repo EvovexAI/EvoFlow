@@ -10,9 +10,13 @@
 
 export type RendererMemoryLevel = 'normal' | 'high' | 'critical'
 
-/** 约 512MB used → high；约 768MB → critical（WebView2 常见在 1–1.5GB 被杀）。 */
-const HIGH_HEAP_MB = 512
-const CRITICAL_HEAP_MB = 768
+/**
+ * 必须远早于 WebView2 杀进程阈值动手。
+ * 实测 2026-11-17：critical@768 时 heap 已 2.3–3.1GB 仍「每次只挤 2 条」，最终 Out of Memory。
+ * high@384 / critical@512：给收缩留出几十秒窗口，而不是等到 sad tab。
+ */
+const HIGH_HEAP_MB = 384
+const CRITICAL_HEAP_MB = 512
 
 type HeapSnap = { usedJSHeapSize: number; totalJSHeapSize?: number }
 
@@ -43,18 +47,31 @@ export function resolveRendererMemoryLevel(heapMb?: number | null): RendererMemo
 
 /** 投影 rows.window 软顶：高压时更狠，保住多轮「还能聊」而不是整页 OOM。 */
 export function projectionSoftCapForMemoryLevel(level: RendererMemoryLevel): number {
-  if (level === 'critical') return 80
-  if (level === 'high') return 140
-  // 正常水位 400（2026-11-15 从 220 回撤）：220 会在长回合直播中把前面轮次裁出
-  // 窗口（「历史记录看不到了」实锤）。行内重载荷已在服务端截断，400 行 ≈ 数 MB。
-  return 400
+  if (level === 'critical') return 50
+  if (level === 'high') return 100
+  // 正常 220：更早的行仍可通过上滚 loadOlder 拉回；常驻 400 行在长流式下仍易把 heap 顶穿。
+  return 220
 }
 
-/** 后台 pin 会话数上限。对齐 ZCode 多 leaf 常驻：normal=8；high 至少 4；critical=1。 */
+/** 后台 pin 会话数上限。normal 收紧到 4；high=2；critical=1。 */
 export function pinMaxForMemoryLevel(level: RendererMemoryLevel): number {
   if (level === 'critical') return 1
-  if (level === 'high') return 4
-  return 8
+  if (level === 'high') return 2
+  return 4
+}
+
+/** 内存巡检间隔：危急时 2s 一轮，别等 15s 才挤一次。 */
+export function memoryWatchIntervalMs(level: RendererMemoryLevel): number {
+  if (level === 'critical') return 2_000
+  if (level === 'high') return 5_000
+  return 15_000
+}
+
+/** 旧工具卡保留完整载荷的尾窗行数。 */
+export function heavyHorizonForMemoryLevel(level: RendererMemoryLevel): number {
+  if (level === 'critical') return 20
+  if (level === 'high') return 36
+  return 60
 }
 
 let lastLoggedLevel: RendererMemoryLevel | null = null

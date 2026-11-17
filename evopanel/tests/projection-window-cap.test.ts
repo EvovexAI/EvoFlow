@@ -126,19 +126,25 @@ describe('countRealUserQueries', () => {
 })
 
 describe('lightenProjectionRowsForMemory', () => {
-  it('trims old tool payloads outside heavy horizon, keeps display', () => {
+  it('trims old tool payloads outside heavy horizon; stripDisplay drops display', () => {
     const rows: ConversationRow[] = []
     for (let i = 1; i <= 100; i += 1) {
       rows.push(i <= 40 ? heavyTool(i) : row(i))
     }
-    const light = lightenProjectionRowsForMemory(rows, 60)
-    const early = light[0] as { output?: { text?: string; display?: unknown } }
-    const late = light[90] as { kind?: string }
+    const keepDisplay = lightenProjectionRowsForMemory(rows, 60)
+    const earlyKeep = keepDisplay[0] as {
+      output?: { text?: string; display?: unknown }
+    }
+    expect(earlyKeep.output?.text?.includes('[trimmed for memory]')).toBe(true)
+    expect(earlyKeep.output?.display).toEqual({ kind: 'platform', title: 'heavy-1' })
+
+    const stripped = lightenProjectionRowsForMemory(rows, 60, { stripDisplay: true })
+    const early = stripped[0] as { output?: { text?: string; display?: unknown } }
+    const late = stripped[90] as { kind?: string }
     expect(early.output?.text?.includes('[trimmed for memory]')).toBe(true)
-    // display（截图/文件 diff/媒体卡）是历史的一部分，必须保留
-    expect(early.output?.display).toEqual({ kind: 'platform', title: 'heavy-1' })
+    expect(early.output?.display).toBeUndefined()
     expect(late.kind).toBe('assistantMessage')
-    expect(light).not.toBe(rows)
+    expect(stripped).not.toBe(rows)
   })
 
   it('returns same reference when nothing to lighten', () => {
