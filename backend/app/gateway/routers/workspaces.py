@@ -179,6 +179,13 @@ class IndexBuildResponse(BaseModel):
     build_progress_pct: float | None = None
     build_phase: str | None = None
     updated_at: str | None = None
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】补回被响应模型吞掉的两个诊断字段。
+    # 为什么：store.index_status() 早就算出了 stale_reasons（第26轮加的），
+    # 但 IndexBuildResponse 没声明它，FastAPI 序列化时静默丢弃。
+    # 实测代价：库里 vec=7 / files=9044，/index-status 返回 ready=false 却
+    # stale_reasons=null —— 对外说不出「为什么不 ready」，只能回去读 SQL 反推。
+    stale_reasons: list[str] | None = None
+    vector_available: bool | None = None
 
 
 class IndexSearchHit(BaseModel):
@@ -1801,6 +1808,9 @@ def _index_build_response(data: dict) -> IndexBuildResponse:
         build_progress_pct=data.get("build_progress_pct"),
         build_phase=data.get("build_phase"),
         updated_at=data.get("updated_at"),
+        # 【self-evolution-bot · 2026-11-17 · 第31轮】同 IndexBuildResponse 注释
+        stale_reasons=data.get("stale_reasons"),
+        vector_available=data.get("vector_available"),
     )
 
 

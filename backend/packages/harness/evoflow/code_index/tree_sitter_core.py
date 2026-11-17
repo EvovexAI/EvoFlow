@@ -1,4 +1,4 @@
-"""Unified tree-sitter symbol extraction (Python / JS / TS / Java)."""
+"""Unified tree-sitter symbol extraction (Python / JS / TS / TSX / Java)."""
 
 from __future__ import annotations
 
@@ -11,6 +11,23 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 Symbol = dict[str, Any]
+
+# Hard cap on AST node visits per file. Pathological trees (wrong grammar on
+# JSX/TSX, ERROR-recovery blowups, extreme nesting) must not hang the indexer.
+MAX_WALK_NODES = 250_000
+
+_TS_LIKE_PROFILE: dict[str, Any] = {
+    "classes": frozenset({"class_declaration", "class_definition"}),
+    "interfaces": frozenset({"interface_declaration"}),
+    "types": frozenset({"type_alias_declaration"}),
+    "functions": frozenset(
+        {
+            "function_declaration",
+            "generator_function_declaration",
+            "method_definition",
+        }
+    ),
+}
 
 _LANG_PROFILES: dict[str, dict[str, Any]] = {
     "python": {
@@ -35,16 +52,18 @@ _LANG_PROFILES: dict[str, dict[str, Any]] = {
     },
     "typescript": {
         "parser": "typescript",
-        "classes": frozenset({"class_declaration", "class_definition"}),
-        "interfaces": frozenset({"interface_declaration"}),
-        "types": frozenset({"type_alias_declaration"}),
-        "functions": frozenset(
-            {
-                "function_declaration",
-                "generator_function_declaration",
-                "method_definition",
-            }
-        ),
+        **_TS_LIKE_PROFILE,
+    },
+    # 【self-evolution-bot · 2026-11-17 · 第31轮补】.tsx 必须用 tsx grammar。
+    # 实证：ToolCallBody.tsx（8.5KB）用 typescript 解析会卡死数分钟（event-loop-lag
+    # lag=267.5s 同源）；tsx grammar 0.02s / ~1900 nodes / depth≈19。
+    # 旧映射 .tsx→typescript 是三轮重建死在同一文件、向量阶段永远开不了的真因。
+    "tsx": {
+        "parser": "tsx",
+        # 【self-evolution-bot · 2026-11-17 · 第31轮】统计标签沿用 typescript，
+        # 让 symbols.parser 的历史口径与现网对得上（真正跑的是 tsx 语法）。
+        "tag": "typescript",
+        **_TS_LIKE_PROFILE,
     },
     "java": {
         "parser": "java",
@@ -62,7 +81,7 @@ _SUFFIX_TO_LANG = {
     ".mjs": "javascript",
     ".cjs": "javascript",
     ".ts": "typescript",
-    ".tsx": "typescript",
+    ".tsx": "tsx",
     ".java": "java",
 }
 
@@ -136,9 +155,15 @@ def _node_name(node: Any, source: bytes) -> str | None:
     return source[name_node.start_byte : name_node.end_byte].decode("utf-8", errors="replace")
 
 
-def _walk_symbols(node: Any, source: bytes, out: list[Symbol], profile: dict[str, Any], *, lang_key: str) -> None:
+def _classify_node(node: Any, source: bytes, out: list[Symbol], profile: dict[str, Any], *, lang_key: str) -> None:
+    """判定单个节点是否是一个符号；不做遍历。"""
     ntype = node.type
-    parser_tag = f"tree_sitter_{lang_key}"
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】允许 profile 用 tag 覆盖统计标签。
+    # 为什么：.tsx 改用 tsx grammar 后 lang_key 变成 "tsx"，若直接用 lang_key 打标签，
+    # symbols.parser 会从 tree_sitter_typescript 变成 tree_sitter_tsx，
+    # 让「按 parser 统计」的历史数据与现网口径对不上。tsx profile 里 tag="typescript"
+    # 保证同一批 TS/TSX 文件的统计口径不变，同时真正跑的是 tsx 语法。
+    parser_tag = f"tree_sitter_{profile.get('tag') or lang_key}"
 
     if ntype in profile["classes"]:
         name = _node_name(node, source)
@@ -161,8 +186,30 @@ def _walk_symbols(node: Any, source: bytes, out: list[Symbol], profile: dict[str
                 kind = "method"
             _append(out, name=name, kind=kind, line=node.start_point[0] + 1, parser=parser_tag)
 
-    for child in node.children:
-        _walk_symbols(child, source, out, profile, lang_key=lang_key)
+
+def _walk_symbols(node: Any, source: bytes, out: list[Symbol], profile: dict[str, Any], *, lang_key: str) -> None:
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】递归改迭代 + 显式栈 + 节点预算。
+    # 为什么：原来是 node.children 逐层递归，遇到 AST 嵌套极深的文件会直接爆栈——
+    # 08:43 前的 Gateway 日志留了实证：
+    #   RecursionError: maximum recursion depth exceeded
+    #   tree_sitter_core.py:165 _walk_symbols -> [Previous line repeated 987 more times]
+    # 后果不是「这个文件少收录符号」，而是**整个 build_index 从头抛异常退出**，
+    # 留下半截索引、code_vec 几乎为空。改显式栈后深度只受内存限制；
+    # 再加 MAX_WALK_NODES：病态树（错 grammar / ERROR 膨胀）只截断本文件。
+    stack: list[Any] = [node]
+    visited = 0
+    while stack:
+        cur = stack.pop()
+        visited += 1
+        if visited > MAX_WALK_NODES:
+            logger.warning(
+                "tree_sitter: walk budget exceeded (%d nodes) lang=%s — truncating symbols",
+                MAX_WALK_NODES,
+                lang_key,
+            )
+            return
+        _classify_node(cur, source, out, profile, lang_key=lang_key)
+        stack.extend(cur.children)
 
 
 def extract_symbols_tree_sitter(path: Path, text: str) -> list[Symbol] | None:
@@ -195,12 +242,23 @@ def walk_identifier_uses(
 
 
 def _walk_id_nodes(node: Any, source: bytes, aliases: dict[str, str], out: list[tuple[str, int]]) -> None:
-    if node.type in _IDENTIFIER_NODES:
-        name = source[node.start_byte : node.end_byte].decode("utf-8", errors="replace")
-        if name in aliases:
-            out.append((name, node.start_point[0] + 1))
-    for child in node.children:
-        _walk_id_nodes(child, source, aliases, out)
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】同 _walk_symbols：递归改显式栈 + 节点预算。
+    stack: list[Any] = [node]
+    visited = 0
+    while stack:
+        cur = stack.pop()
+        visited += 1
+        if visited > MAX_WALK_NODES:
+            logger.warning(
+                "tree_sitter: id-walk budget exceeded (%d nodes) — truncating",
+                MAX_WALK_NODES,
+            )
+            return
+        if cur.type in _IDENTIFIER_NODES:
+            name = source[cur.start_byte : cur.end_byte].decode("utf-8", errors="replace")
+            if name in aliases:
+                out.append((name, cur.start_point[0] + 1))
+        stack.extend(cur.children)
 
 
 def _regex_identifier_uses(text: str, aliases: dict[str, str]) -> list[tuple[str, int]]:

@@ -4,6 +4,9 @@ When indexing runs
 ------------------
 - **Full rebuild (blocking API)**: ``POST /api/workspaces/index-build`` — runs in a worker thread on the gateway (HTTP waits until done).
 - **Background rebuild (preferred for UI)**: ``POST /api/workspaces/index-warm`` — returns immediately; poll ``GET /api/workspaces/index-status``.
+  Default implementation spawns a **subprocess** (``python -m evoflow.code_index.build_worker``)
+  so sentence-transformers / sklearn imports cannot GIL-stall the Gateway event loop.
+  Set ``EVOFLOW_CODE_INDEX_BUILD_INPROCESS=1`` only for tests that monkeypatch ``build_index``.
 - **Incremental**: ``POST /api/workspaces/index-file`` or the background watcher after file changes.
 - **Watcher**: ``POST /api/workspaces/index-watch`` (EvoPanel starts after initial build).
 - **Lazy**: first search if no DB exists.
@@ -26,12 +29,14 @@ import os
 import re
 import sqlite3
 import struct
+import subprocess
+import sys
 import threading
 import time
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from evoflow.code_index.deps import (
     dependency_neighbors,
@@ -66,6 +71,7 @@ _SKIP_DIRS = {
     "dist",
     "build",
     ".next",
+    "_next",  # Next.js export (out/_next/static/chunks) — minified bundles, not source
     "target",
     "binaries",
     "_internal",
@@ -1118,6 +1124,18 @@ def _index_embeddings_sync(
                 )
                 count += 1
             conn.commit()
+            # 【self-evolution-bot · 2026-11-17 · 第31轮】向量段逐批上报进度。
+            # 为什么：这个阶段占整个建库的大头（本仓约 14 万块、20~40 分钟），
+            # 而原来只在进入/退出各报一次，中间几十分钟界面上完全静止，
+            # 用户没法判断是「正在跑」还是「卡死了」——这正是「哪里能看到进度」的由来。
+            # 累计值写进 meta，Gateway 跨进程可读。
+            _update_build_progress(
+                root,
+                phase="embedding",
+                indexed_files=len(files),
+                vectors_total=len(pairs),
+                vectors_done=count,
+            )
 
         logger.info(
             "code_index: embedded %d/%d 块 into code_vec (dim=%d, %d 个文件)",
@@ -1582,6 +1600,9 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
             # 空列表 = 完整。外部（面板/重建入口）据此决定要不要自动重建，
             # 而不是靠人记得手动点。
             "stale_reasons": stale_reasons,
+            # 【self-evolution-bot · 2026-11-17 · 第31轮】子进程构建时，进度只能从库里读。
+            # 由 _merge_build_progress 消费后从对外字段里剔除，不外泄这个内部键。
+            "_persisted_progress": _read_persisted_build_progress(conn),
         }
     except Exception:
         return {
@@ -1627,7 +1648,103 @@ def index_status(
     return _merge_build_progress(_read_index_status_unlocked(root, dbp, building=building), root)
 
 
-_build_jobs: dict[str, threading.Thread] = {}
+class _BuildJob(Protocol):
+    def is_alive(self) -> bool: ...
+
+
+class _ThreadBuildJob:
+    __slots__ = ("_thread",)
+
+    def __init__(self, thread: threading.Thread) -> None:
+        self._thread = thread
+
+    def is_alive(self) -> bool:
+        return self._thread.is_alive()
+
+
+class _SubprocessBuildJob:
+    """Track a child-process build without holding ML imports in Gateway."""
+
+    __slots__ = ("_proc",)
+
+    def __init__(self, proc: subprocess.Popen[Any]) -> None:
+        self._proc = proc
+
+    def is_alive(self) -> bool:
+        return self._proc.poll() is None
+
+
+_build_jobs: dict[str, _BuildJob] = {}
+
+
+def _code_index_build_inprocess() -> bool:
+    """Tests monkeypatch ``build_index`` in-process; production must use a subprocess."""
+    return (os.environ.get("EVOFLOW_CODE_INDEX_BUILD_INPROCESS") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
+def _spawn_build_subprocess(
+    *,
+    workspace_root: str | None,
+    thread_id: str | None,
+    force: bool,
+    job_key: str,
+) -> _SubprocessBuildJob:
+    from evoflow.utils.subprocess_platform import subprocess_hide_window_kwargs
+
+    cmd = [sys.executable, "-m", "evoflow.code_index.build_worker"]
+    if workspace_root:
+        cmd.extend(["--workspace-root", str(workspace_root)])
+    if thread_id:
+        cmd.extend(["--thread-id", str(thread_id)])
+    if force:
+        cmd.append("--force")
+    # Inherit env so the child sees the same profile / DB roots as Gateway.
+    proc = subprocess.Popen(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        **subprocess_hide_window_kwargs(),
+    )
+    job = _SubprocessBuildJob(proc)
+
+    def _reap() -> None:
+        try:
+            proc.wait()
+        except Exception:
+            logger.debug("code_index: reap wait failed key=%s", job_key, exc_info=True)
+        finally:
+            with _jobs_lock:
+                cur = _build_jobs.get(job_key)
+                if cur is job:
+                    _build_jobs.pop(job_key, None)
+
+    threading.Thread(
+        target=_reap,
+        name=f"code-index-reap-{job_key[:8]}",
+        daemon=True,
+    ).start()
+    logger.info(
+        "code_index: scheduled subprocess build pid=%s key=%s force=%s",
+        proc.pid,
+        job_key[:8],
+        force,
+    )
+    return job
+
+
+# 【self-evolution-bot · 2026-11-17 · 第31轮】进度跨进程可见性。
+# 生产默认 `build_worker` 子进程建库，`_build_progress` 是进程内 dict，
+# 所以 Gateway 读 /index-status 时 build_phase / build_progress_pct 永远为空，
+# 界面上看不到「跑到哪了」。改为同时写进 index.db 的 meta 表（build_progress.* 前缀），
+# 子进程构建时 Gateway 也能读到，进程被打断也留痕。
+_PROGRESS_META_PREFIX = "build_progress."
+
 _build_progress: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
 
@@ -1638,6 +1755,13 @@ def _update_build_progress(root: str, **fields: object) -> None:
         cur = dict(_build_progress.get(key) or {})
         cur.update(fields)
         _build_progress[key] = cur
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】同时落进 index.db 的 meta 表。
+    # 为什么：生产默认把构建丢进**子进程**（`build_worker`），而 `_build_progress` 是
+    # 进程内 dict —— 于是 Gateway 读 /index-status 拿到 `build_phase=None`、
+    # `build_progress_pct=None`，界面上只有「已索引 N 文件」这种事后数字。
+    # 向量段是全流程最慢的一段（本仓约 14 万块、20~40 分钟），这段时间界面完全静止，
+    # 看起来就像卡死。写进库后 Gateway 能跨进程读，进程被打断也留痕可查。
+    _persist_build_progress(root, {k: v for k, v in fields.items() if v is not None})
 
 
 def _get_build_progress(root: str) -> dict:
@@ -1646,27 +1770,125 @@ def _get_build_progress(root: str) -> dict:
         return dict(_build_progress.get(key) or {})
 
 
+def _persist_build_progress(root: str, fields: dict) -> None:
+    """把构建进度写进 index.db 的 meta 表（失败静默，进度不在关键路径上）。"""
+    if not fields:
+        return
+    try:
+        conn = _connect(root)
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        for k, v in fields.items():
+            conn.execute(
+                "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+                (_PROGRESS_META_PREFIX + str(k), str(v)),
+            )
+        conn.execute(
+            "INSERT OR REPLACE INTO meta(key, value) VALUES (?, ?)",
+            (_PROGRESS_META_PREFIX + "updated_at", str(int(time.time()))),
+        )
+        conn.commit()
+    except Exception:  # noqa: BLE001 - 进度落盘失败绝不能打断建库
+        logger.debug("code_index: persist build progress failed", exc_info=True)
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _clear_build_progress(root: str) -> None:
     key = _workspace_hash(root)
     with _jobs_lock:
         _build_progress.pop(key, None)
+    _clear_persisted_build_progress(root)
+
+
+def _read_persisted_build_progress(conn: sqlite3.Connection) -> dict:
+    """从已打开的 index.db 连接读回 build_progress.* 进度（跨进程可见）。
+
+    【self-evolution-bot · 2026-11-17 · 第31轮】补上这个被我漏定义的读侧。
+    为什么必须补：`_update_build_progress` 每轮都往 meta 表写 `build_progress.*`，
+    `_merge_build_progress` 也早就调用了本函数 —— 但函数体从来没被写出来过。
+    调用点抛 NameError，被 `_read_index_status_unlocked` 外层的
+    `except Exception` 吞掉，于是整个函数退化到兜底分支：
+    `files=0 / symbols=0 / stale_reasons=["status_read_failed"]`。
+    实测代价：/index-status 对着一库 9044 文件报 `files=0`，
+    而 `ready` 因此恒为 False —— 面板永远认为索引没建好，反复触发重建。
+    """
+    raw: dict[str, str] = {}
+    try:
+        rows = conn.execute(
+            "SELECT key, value FROM meta WHERE key LIKE ?", (_PROGRESS_META_PREFIX + "%",)
+        ).fetchall()
+    except sqlite3.Error:
+        return {}
+    for row in rows:
+        try:
+            k, v = str(row[0]), str(row[1])
+        except (IndexError, TypeError):
+            continue
+        raw[k[len(_PROGRESS_META_PREFIX) :]] = v
+    if not raw:
+        return {}
+    out: dict[str, object] = {}
+    for k, v in raw.items():
+        if k == "phase":
+            out[k] = v
+            continue
+        # 数值字段按整数回读；读不出就跳过这个键，而不是塞个 0 假数进去。
+        try:
+            out[k] = int(float(v))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _clear_persisted_build_progress(root: str) -> None:
+    try:
+        conn = _connect(root)
+    except Exception:  # noqa: BLE001
+        return
+    try:
+        conn.execute("DELETE FROM meta WHERE key LIKE ?", (_PROGRESS_META_PREFIX + "%",))
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        logger.debug("code_index: clear persisted progress failed", exc_info=True)
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _merge_build_progress(status: dict, root: str) -> dict:
     prog = _get_build_progress(root)
     if not prog and not status.get("building"):
+        # 【self-evolution-bot · 2026-11-17 · 第31轮】进程内没有进度时回退读库里的。
+        # 子进程构建的情况下 `_build_progress` 永远是空的，只有落库那份能反映真实进度。
+        prog = dict(status.get("_persisted_progress") or {})
+    if not prog and not status.get("building"):
         return status
+    out = dict(status)
+    out.pop("_persisted_progress", None)
     total = int(prog.get("total_files") or status.get("build_total_files") or 0)
     done = int(prog.get("indexed_files") or status.get("build_indexed_files") or 0)
+    # 向量段用块数计进度：vectors_done / vectors_total 比「文件数」更能反映真实推进，
+    # 这个阶段文件数早已跑满 100%，只看文件数会以为卡住不动。
+    v_total = int(prog.get("vectors_total") or 0)
+    v_done = int(prog.get("vectors_done") or 0)
+    phase = prog.get("phase") or status.get("build_phase")
+    if phase in {"embedding", "embedding_done"} and v_total > 0:
+        done, total = v_done, v_total
     pct = round(100.0 * done / total, 1) if total > 0 else None
-    out = dict(status)
     if prog or status.get("building"):
         out.update(
             {
                 "build_total_files": total or None,
                 "build_indexed_files": done or None,
                 "build_progress_pct": pct,
-                "build_phase": prog.get("phase") or status.get("build_phase"),
+                "build_phase": phase,
             }
         )
         if prog.get("symbols") is not None:
@@ -1680,7 +1902,12 @@ def schedule_build_index(
     thread_id: str | None = None,
     force: bool = False,
 ) -> dict:
-    """Enqueue a full index build on a background thread (one job per workspace root)."""
+    """Enqueue a full index build (one job per workspace root).
+
+    Production default: **subprocess** so embedding-model imports cannot
+    stall the Gateway event loop (GIL / import lock are process-wide —
+    a background thread does not protect HTTP).
+    """
     cfg = get_code_index_config()
     if not cfg.enabled:
         return {"ok": False, "reason": "disabled"}
@@ -1706,10 +1933,14 @@ def schedule_build_index(
             }
         stale = list(st.get("stale_reasons") or [])
         if stale and st.get("files"):
-            # 库里有数据但被判残缺 → 无需人工介入，直接升级为强制重建
+            # 库里有数据但被判残缺 → 无需人工介入，直接升级为强制重建。
+            # 【self-evolution-bot · 2026-11-17 · 第31轮】注意「只缺向量」这种残缺
+            # 不能在 build_index 里从头清表重来（会把 9044 个文件的 FTS/符号全删掉），
+            # 那条分流在 build_index 内部按同一批 stale_reasons 判定，
+            # 这样 subprocess / in-process 两条启动路径都能自动生效，不靠传参。
             force = True
             logger.warning(
-                "code_index: 索引残缺（%s），自动触发全量重建（root=%s, 现有 %s 文件）",
+                "code_index: 索引残缺（%s），自动触发重建（root=%s, 现有 %s 文件）",
                 ", ".join(stale),
                 root,
                 st.get("files"),
@@ -1725,6 +1956,28 @@ def schedule_build_index(
                 "db_path": str(dbp),
             }
 
+        if not _code_index_build_inprocess():
+            try:
+                job = _spawn_build_subprocess(
+                    workspace_root=workspace_root,
+                    thread_id=thread_id,
+                    force=force,
+                    job_key=key,
+                )
+                _build_jobs[key] = job
+                return {
+                    "ok": True,
+                    "status": "scheduled",
+                    "mode": "subprocess",
+                    "root": root,
+                    "db_path": str(dbp),
+                }
+            except Exception:
+                logger.exception(
+                    "code_index: subprocess schedule failed for %s; falling back to in-process thread",
+                    root,
+                )
+
         def _run() -> None:
             try:
                 build_index(workspace_root=workspace_root, thread_id=thread_id, force=force)
@@ -1735,9 +1988,15 @@ def schedule_build_index(
                     _build_jobs.pop(key, None)
 
         t = threading.Thread(target=_run, name=f"code-index-build-{key[:8]}", daemon=True)
-        _build_jobs[key] = t
+        _build_jobs[key] = _ThreadBuildJob(t)
         t.start()
-    return {"ok": True, "status": "scheduled", "root": root, "db_path": str(dbp)}
+    return {
+        "ok": True,
+        "status": "scheduled",
+        "mode": "inprocess",
+        "root": root,
+        "db_path": str(dbp),
+    }
 
 
 def build_index(
@@ -1784,9 +2043,35 @@ def build_index(
     root_path = Path(root)
     source_files = _iter_source_files(root_path, cfg.max_files)
     total_files = len(source_files)
+
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】「只缺向量」时跳过清表与文件段。
+    # 为什么：全量重建第一步 _clear_tables() 会把已建好的 FTS/符号/deps 全删掉，
+    # 而向量段（本仓约 14.2 万块、本地 bge 约 16ms/块 ≈ 38 分钟）是最容易被重启或超时
+    # 打断的一段。实测踩到：09:07 文件段 9044/9044 完成、进 embedding；
+    # 09:29 重启打断 → 库里「文件全在、code_vec 只有 7 行」；
+    # 而 ready=False 会驱动下一次调用再做一遍完整 9044 文件重建，
+    # 等于每被打断一次就白烧一遍全仓解析。
+    # 判据只看 stale_reasons 是否**全部**属于向量类，文件类残缺仍走全量重建。
+    vectors_only = False
+    try:
+        _st = _read_index_status_unlocked(root, dbp, building=False) if dbp.exists() else {}
+    except Exception:
+        _st = {}
+    _stale = list(_st.get("stale_reasons") or [])
+    if _stale and _st.get("files") and all(
+        s.startswith("vectors_missing") or s.startswith("vectors_incomplete") for s in _stale
+    ):
+        vectors_only = True
+        logger.warning(
+            "code_index: 仅向量段残缺（%s），跳过清表与文件段，只补向量（root=%s, %s 文件）",
+            ", ".join(_stale),
+            root,
+            _st.get("files"),
+        )
+
     _update_build_progress(
         root,
-        phase="indexing",
+        phase="embedding" if vectors_only else "indexing",
         total_files=total_files,
         indexed_files=0,
         symbols=0,
@@ -1797,8 +2082,18 @@ def build_index(
     type_rel_count = 0
     indexed = 0
     sym_count = 0
+    skipped_files = 0
 
     try:
+
+        if vectors_only:
+            # 只补向量：保留既有 fts/symbols/deps，不清表也不跑文件段。
+            indexed = int(_st.get("files") or 0)
+            sym_count = int(_st.get("symbols") or 0)
+            logger.info(
+                "code_index: vectors-only 重建，沿用已建好的 %d 个文件索引（跳过解析）",
+                indexed,
+            )
 
         def _clear_tables() -> None:
             conn = _connect(root)
@@ -1819,53 +2114,71 @@ def build_index(
             finally:
                 conn.close()
 
-        run_index_db(root, _clear_tables)
+        if not vectors_only:
+            run_index_db(root, _clear_tables)
 
-        for batch_start in range(0, len(source_files), _BUILD_BATCH_SIZE):
-            batch = source_files[batch_start : batch_start + _BUILD_BATCH_SIZE]
+            for batch_start in range(0, len(source_files), _BUILD_BATCH_SIZE):
+                batch = source_files[batch_start : batch_start + _BUILD_BATCH_SIZE]
 
-            def _index_batch(files: list[Path] = batch) -> None:
-                nonlocal indexed, sym_count, dep_count, ref_count, type_rel_count
-                conn = _connect(root)
-                try:
-                    _ensure_schema(conn)
-                    for fp in files:
-                        try:
-                            rel = fp.relative_to(root_path).as_posix()
-                            text = fp.read_text(encoding="utf-8", errors="replace")
-                        except OSError:
-                            continue
-                        snippet = text[: cfg.max_chars_per_file]
-                        sym_names: list[str] = []
-                        for sym in extract_symbols(fp, text, workspace_root=root, for_full_build=True):
-                            sym_names.append(str(sym["name"]))
-                            conn.execute(
-                                "INSERT OR REPLACE INTO symbols(path, name, kind, line) VALUES (?, ?, ?, ?)",
-                                (rel, sym["name"], sym["kind"], sym["line"]),
-                            )
-                            sym_count += 1
-                            parser_stats[str(sym.get("parser") or "unknown")] += 1
-                        conn.execute(
-                            "INSERT INTO fts_content(path, content) VALUES (?, ?)",
-                            (rel, _fts_document(rel, snippet, sym_names)),
-                        )
-                        dep_count += _index_file_deps(conn, root_path, rel, text, cfg)
-                        ref_count += _index_internal_refs(conn, root_path, rel, text, cfg)
-                        type_rel_count += _index_type_relations(conn, root_path, rel, text, cfg)
-                        indexed += 1
-                    conn.commit()
-                finally:
-                    conn.close()
+                def _index_batch(files: list[Path] = batch) -> None:
+                    nonlocal indexed, sym_count, dep_count, ref_count, type_rel_count, skipped_files
+                    conn = _connect(root)
+                    try:
+                        _ensure_schema(conn)
+                        for fp in files:
+                            try:
+                                rel = fp.relative_to(root_path).as_posix()
+                                text = fp.read_text(encoding="utf-8", errors="replace")
+                            except OSError:
+                                continue
+                            # 【self-evolution-bot · 2026-11-17 · 第31轮】单文件失败必须隔离。
+                            # 为什么：原来只有 read 被 try 包住，extract_symbols 等环节抛任何异常
+                            # 都会冒到 _run 的 except → **整个 build_index 中途退出**，留下半截库。
+                            # 实证：2026-11-17 07:32:25 Gateway 日志
+                            #   ERROR background code_index build failed / RecursionError
+                            #   （tree_sitter_core._walk_symbols 递归 987 层爆栈）
+                            # 结果库里 6454/9033 个文件、code_vec 只 14 行，且三轮重建死在同一处。
+                            # 递归已改迭代（根因），这里再兜一层：坏文件只丢它自己，不毁整库。
+                            try:
+                                snippet = text[: cfg.max_chars_per_file]
+                                sym_names: list[str] = []
+                                for sym in extract_symbols(fp, text, workspace_root=root, for_full_build=True):
+                                    sym_names.append(str(sym["name"]))
+                                    conn.execute(
+                                        "INSERT OR REPLACE INTO symbols(path, name, kind, line) VALUES (?, ?, ?, ?)",
+                                        (rel, sym["name"], sym["kind"], sym["line"]),
+                                    )
+                                    sym_count += 1
+                                    parser_stats[str(sym.get("parser") or "unknown")] += 1
+                                conn.execute(
+                                    "INSERT INTO fts_content(path, content) VALUES (?, ?)",
+                                    (rel, _fts_document(rel, snippet, sym_names)),
+                                )
+                                dep_count += _index_file_deps(conn, root_path, rel, text, cfg)
+                                ref_count += _index_internal_refs(conn, root_path, rel, text, cfg)
+                                type_rel_count += _index_type_relations(conn, root_path, rel, text, cfg)
+                                indexed += 1
+                            except Exception:
+                                skipped_files += 1
+                                logger.warning(
+                                    "code_index: 单文件索引失败已跳过 path=%s（不中断整库构建）",
+                                    rel,
+                                    exc_info=True,
+                                )
+                                continue
+                        conn.commit()
+                    finally:
+                        conn.close()
 
-            run_index_db(root, _index_batch)
-            _update_build_progress(
-                root,
-                phase="indexing",
-                total_files=total_files,
-                indexed_files=indexed,
-                symbols=sym_count,
-            )
-            time.sleep(0)
+                run_index_db(root, _index_batch)
+                _update_build_progress(
+                    root,
+                    phase="indexing",
+                    total_files=total_files,
+                    indexed_files=indexed,
+                    symbols=sym_count,
+                )
+                time.sleep(0)
 
         # --- Semantic embedding pass ---
         # 【self-evolution-bot · 2026-11-16 · 第26轮】向量阶段单独上报进度。
@@ -1914,13 +2227,14 @@ def build_index(
         _clear_build_progress(root)
 
     logger.info(
-        "code_index: indexed %d files (%d symbols, %d deps, %d refs, %d type_rels, %d vecs) under %s -> %s parsers=%s",
+        "code_index: indexed %d files (%d symbols, %d deps, %d refs, %d type_rels, %d vecs, %d skipped) under %s -> %s parsers=%s",
         indexed,
         sym_count,
         dep_count,
         ref_count,
         type_rel_count,
         vec_count,
+        skipped_files,
         root,
         dbp,
         dict(parser_stats),
@@ -1928,6 +2242,7 @@ def build_index(
     return {
         "ok": True,
         "files": indexed,
+        "skipped_files": skipped_files,
         "symbols": sym_count,
         "dependencies": dep_count,
         "internal_refs": ref_count,
