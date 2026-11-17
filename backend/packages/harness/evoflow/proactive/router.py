@@ -1274,7 +1274,13 @@ async def trigger_heartbeat(
                 detail=("本轮巡检工具步数已达上限，未能写完工作汇报。请缩短巡检范围，或在员工设置中提高 max_turns / timeout 后重试。"),
             ) from e
         raise
-    if result.get("busy"):
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】已排队 ≠ 失败。
+    #   runner 忙时会返回 ok=True / busy=True / queued_behind_busy=True（本次叫醒已入队，
+    #   当前轮结束后自动续跑同一任务），目标与会话键都记住了。原来这里只要 busy 就一律 409，
+    #   于是「叫醒已被接受」被报成「请稍候或查看进度」——调用方（CLI / 看门狗 / 我自己）
+    #   只能翻代码才知道没丢，实测为这一句多绕三四个回合。
+    #   现在：真入了队的按成功返回（带 queue_depth），只有没入队的 busy 才 409。
+    if result.get("busy") and not result.get("queued_behind_busy"):
         raise HTTPException(
             status_code=409,
             detail=result.get("error") or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
@@ -1610,7 +1616,13 @@ async def dispatch_task(request: Request, agent_code: str, req: DispatchTaskRequ
                 detail=("本轮派发任务工具步数已达上限，未能写完工作汇报。请缩短任务范围，或在员工设置中提高 max_turns / timeout 后重试。"),
             ) from e
         raise
-    if result.get("busy"):
+    # 【self-evolution-bot · 2026-11-17 · 第28轮】已排队 ≠ 失败。
+    #   runner 忙时会返回 ok=True / busy=True / queued_behind_busy=True（本次叫醒已入队，
+    #   当前轮结束后自动续跑同一任务），目标与会话键都记住了。原来这里只要 busy 就一律 409，
+    #   于是「叫醒已被接受」被报成「请稍候或查看进度」——调用方（CLI / 看门狗 / 我自己）
+    #   只能翻代码才知道没丢，实测为这一句多绕三四个回合。
+    #   现在：真入了队的按成功返回（带 queue_depth），只有没入队的 busy 才 409。
+    if result.get("busy") and not result.get("queued_behind_busy"):
         raise HTTPException(
             status_code=409,
             detail=result.get("error") or "该员工正在执行任务，请稍候或打开工作轨迹查看进度",
