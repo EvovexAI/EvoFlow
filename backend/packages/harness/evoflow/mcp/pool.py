@@ -235,6 +235,13 @@ class McpConnectionPool:
             entry.host_task = None
 
     async def _connect_entry(self, entry: _ServerEntry, timeout_sec: float) -> None:
+        # mcp.stdio_client captures sys.stderr at import; refresh before spawn.
+        try:
+            from evoflow.desktop_stdio import heal_mcp_stdio_errlog_default
+
+            heal_mcp_stdio_errlog_default()
+        except Exception:
+            pass
         entry.client = MultiServerMCPClient({entry.name: entry.config}, tool_name_prefix=True)
         entry.stop_event = asyncio.Event()
         entry.ready_event = asyncio.Event()

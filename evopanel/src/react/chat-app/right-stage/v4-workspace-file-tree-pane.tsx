@@ -63,7 +63,10 @@ export function V4WorkspaceFileTreePane(props: {
     acceptDirectoryName,
     hideEmptyDirectories = false,
   } = props;
-  // 访问器按 thread + workspace root 建，相对路径带 root 解析。
+  // 同 workspace root 跨会话切聊：services 键用 root，避免 threadId 变就整树 remount。
+  // （本地绝对路径共享同一文件系统；无 root 的沙箱才跟 thread。）
+  const servicesScopeKey =
+    String(workspacePath || "").trim() || String(threadId || "").trim();
   const partialServices = useMemo(() => {
     const base = createEvoflowPartialServices(threadId ?? "", workspacePath);
     if (!acceptFileName && !acceptDirectoryName && !hideEmptyDirectories) return base;
@@ -153,7 +156,9 @@ export function V4WorkspaceFileTreePane(props: {
         },
       },
     } as typeof base;
-  }, [threadId, workspacePath, acceptFileName, acceptDirectoryName, hideEmptyDirectories]);
+    // servicesScopeKey：同 root 不因 threadId 重建；无 root 时跟 thread。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: stabilize on scope
+  }, [servicesScopeKey, acceptFileName, acceptDirectoryName, hideEmptyDirectories]);
   const revealPlatform = useMemo(
     () => createEvoflowLocalRevealPlatform({ workspaceRoot: workspacePath }),
     [workspacePath],
@@ -163,10 +168,15 @@ export function V4WorkspaceFileTreePane(props: {
       <StoreProvider broadcastService={NOOP_BROADCAST}>
         <PlatformProvider platform={revealPlatform}>
           <ServiceProvider services={partialServices}>
-            {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器。 */}
-            <div className="zcode-bridge-root h-full min-h-0">
+            {/* zcode-bridge-root：styles-bridge 的 token / 暗色主题 / 滚动条作用域都收窄在此容器。
+                key=root：同 workspace 跨会话切聊复用树实例，避免整树 remount。 */}
+            <div
+              className="zcode-bridge-root h-full min-h-0"
+              data-workspace-tree-root={servicesScopeKey}
+            >
               <TooltipProvider>
                 <WorkspaceFileTree
+                  key={servicesScopeKey}
                   workspacePath={workspacePath}
                   // 对话点目录：用 revealPath 展开祖先+自身并滚动选中；不要只靠 activePreviewPath（那是文件预览定位）
                   revealPath={activePreviewPath ?? undefined}

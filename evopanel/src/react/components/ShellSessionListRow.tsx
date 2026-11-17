@@ -85,7 +85,7 @@ type ShellSessionListRowProps = {
   ) => ResolvedLiveStreamActivity | null
   /** chat=普通对话；employee=员工对话（单行，标题为员工名） */
   variant?: 'chat' | 'employee'
-  onSelect: () => void
+  onSelect: (opts?: { altKey?: boolean }) => void
   onMoreToggle: () => void
   /** 会话行是否有可解析的本地工作空间路径（决定「在文件管理器打开 / 复制路径」可用） */
   hasWorkspacePath?: boolean
@@ -545,7 +545,7 @@ function ShellSessionListRowInner({
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key !== 'Enter' && e.key !== ' ') return
     e.preventDefault()
-    onSelect()
+    onSelect({ altKey: e.altKey })
   }
 
   const handleTitleKeyDown = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -644,7 +644,7 @@ function ShellSessionListRowInner({
           ) {
             return
           }
-          onSelect()
+          onSelect({ altKey: e.altKey })
         }}
         onKeyDown={handleKeyDown}
         onDoubleClick={(e) => {

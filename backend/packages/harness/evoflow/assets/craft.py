@@ -329,7 +329,17 @@ def save_craft_from_experience(data: dict[str, Any]) -> dict[str, Any]:
         import uuid
 
         exp_id = f"exp_{uuid.uuid4().hex[:12]}"
-    slug = _slug(data.get("skill_name") or title)
+    # 【self-evolution-bot · 2026-11-17 · 第31轮】改：调用方显式给了 skill_name 时按其**全长**净化，
+    #   不再一律折回 max_len=48。为什么：hub.save_craft_note 撞名护栏传进来的 stem 是
+    #   「48 字截断 base + 随机后缀」（53 字），旧写法 _slug 把后缀再截掉 → 写回撞名 base 文件并
+    #   整篇重建，**另一篇配方被静默吞掉**（回归测试 test_slug_collision_but_different_title 钉住：
+    #   B 落盘后 A 的正文只剩 B）。不带 skill_name 的旧调用（migrate 等）行为不变。
+    _requested_skill = str(data.get("skill_name") or "").strip()
+    slug = (
+        _slug(_requested_skill, max_len=max(48, len(_requested_skill)))
+        if _requested_skill
+        else _slug(title)
+    )
     craft_root = _craft_root(entity)
     skill_path = craft_root / f"{slug}.md"
     tags = data.get("tags") or []

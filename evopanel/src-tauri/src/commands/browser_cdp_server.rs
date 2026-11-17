@@ -447,9 +447,23 @@ fn handle_connection(mut socket: TcpStream, app: tauri::AppHandle) {
             "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\n\r\n"
                 .to_string()
         }
-        ("OPTIONS", path) if path.starts_with("/browser-cdp/") => {
+        ("OPTIONS", path) if path.starts_with("/browser-cdp/") || path.starts_with("/main-cdp/") => {
             "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n"
                 .to_string()
+        }
+        // 主聊天窗 JS evaluate（排版 dump / 任意表达式）。与 embed CDP 共用端口，读
+        // ~/.evoflow/browser-cdp-http-port。
+        //   GET  /main-cdp/layout
+        //   POST /main-cdp/evaluate  body={"expression":"..."} 或 ?expression=
+        ("GET", path) if path.starts_with("/main-cdp/layout") => run_main_cdp_layout(app),
+        ("POST", path) if path.starts_with("/main-cdp/evaluate") => {
+            let body = extract_post_body(&buf);
+            let expr_q = query_param(path, "expression").map(|s| percent_decode(&s));
+            run_main_cdp_evaluate(app, &body, expr_q.as_deref())
+        }
+        ("GET", path) if path.starts_with("/main-cdp/evaluate") => {
+            let expr = query_param(path, "expression").map(|s| percent_decode(&s));
+            run_main_cdp_evaluate(app, "", expr.as_deref())
         }
         // Blank boot page for embed create (about:blank / example.com are unusable).
         ("GET", path) if path.starts_with("/browser-embed/blank") => {
@@ -567,6 +581,56 @@ fn run_cdp_status(app: tauri::AppHandle, thread_id: String) -> String {
     let value = match result {
         Ok(v) => v,
         Err(e) => serde_json::json!({"error": e}),
+    };
+    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"error":"json"}"#.into());
+    http_json_response(&json)
+}
+
+fn run_main_cdp_layout(app: tauri::AppHandle) -> String {
+    log_line("[main-cdp] GET /main-cdp/layout");
+    let value = match super::browser_cdp::dump_main_chat_layout(&app) {
+        Ok(v) => v,
+        Err(e) => serde_json::json!({ "error": e }),
+    };
+    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"error":"json"}"#.into());
+    http_json_response(&json)
+}
+
+fn run_main_cdp_evaluate(
+    app: tauri::AppHandle,
+    body: &str,
+    expression_query: Option<&str>,
+) -> String {
+    let mut expression = expression_query.unwrap_or("").trim().to_string();
+    if expression.is_empty() {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+            expression = v
+                .get("expression")
+                .and_then(|x| x.as_str())
+                .unwrap_or("")
+                .trim()
+                .to_string();
+        }
+    }
+    if expression.is_empty() {
+        return http_json_response(
+            r#"{"error":"missing expression (POST JSON {\"expression\":\"...\"} or ?expression=)"}"#,
+        );
+    }
+    log_line(&format!(
+        "[main-cdp] evaluate expr={}",
+        {
+            let t = expression.chars().take(120).collect::<String>();
+            if expression.len() > 120 {
+                format!("{t}…")
+            } else {
+                t
+            }
+        }
+    ));
+    let value = match super::browser_cdp::evaluate_on_main_webview(&app, &expression) {
+        Ok(v) => serde_json::json!({ "ok": true, "result": v }),
+        Err(e) => serde_json::json!({ "ok": false, "error": e }),
     };
     let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"error":"json"}"#.into());
     http_json_response(&json)

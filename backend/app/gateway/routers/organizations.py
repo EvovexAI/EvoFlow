@@ -47,6 +47,13 @@ class InstallRequest(BaseModel):
     options: InstallOptions | None = None
 
 
+class UpgradeRequest(BaseModel):
+    pack_id: str
+    source: SourceSpec | None = None
+    workspace_path: str | None = None
+    options: InstallOptions | None = None
+
+
 class UninstallOptions(BaseModel):
     keep_primitives: bool = False
     keep_workspace: bool = True
@@ -194,6 +201,23 @@ def _save_market_cache_to_disk(data: dict[str, Any]) -> None:
         logger.debug("market catalog disk cache write failed", exc_info=True)
 
 
+def _annotate_catalog_install_state(data: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.organizations.pack_upgrade import annotate_catalog_packs
+
+    out = dict(data or {})
+    out["packs"] = annotate_catalog_packs(list(out.get("packs") or []))
+    out["updates"] = [
+        {
+            "pack_id": p.get("id"),
+            "installed_version": p.get("_installedVersion"),
+            "available_version": p.get("version"),
+        }
+        for p in out["packs"]
+        if p.get("_updateAvailable")
+    ]
+    return out
+
+
 @router.get("/market/catalog")
 async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
     """Merged catalog from official GitHub + user-added market sources (LAN/custom)."""
@@ -208,6 +232,7 @@ async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
 
     try:
         data = await asyncio.to_thread(_fetch)
+        data = _annotate_catalog_install_state(data)
         _market_catalog_cache = data
         _market_catalog_failed_until = 0.0
         _save_market_cache_to_disk(data)
@@ -218,7 +243,7 @@ async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
         _market_catalog_failed_until = time.monotonic() + _MARKET_CATALOG_FAILURE_TTL_S
         cached = _market_catalog_cache or _load_market_cache_from_disk()
         if cached:
-            stale = dict(cached)
+            stale = _annotate_catalog_install_state(dict(cached))
             stale["stale"] = True
             return stale
         raise HTTPException(
@@ -227,14 +252,79 @@ async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
         ) from e
 
 
+@router.get("/market/updates")
+async def api_market_updates() -> dict[str, Any]:
+    """Installed packs that have a newer version available in the market catalog."""
+    import asyncio
+
+    from evoflow.organizations.pack_upgrade import list_available_updates
+
+    try:
+        items = await asyncio.to_thread(list_available_updates)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Failed to list updates: {e}") from e
+    return {"ok": True, "items": items, "count": len(items)}
+
+
+@router.post("/upgrade")
+async def api_upgrade(body: UpgradeRequest) -> dict[str, Any]:
+    """Upgrade an installed pack to the catalog version (replace + drop stale instances)."""
+    from evoflow.organizations.pack_upgrade import upgrade_organization
+
+    try:
+        src = _source_dict(body.source) if body.source is not None else None
+        return upgrade_organization(
+            pack_id=body.pack_id,
+            source=src,
+            workspace_path=body.workspace_path,
+            options=_options_dict(body.options),
+        )
+    except OrganizationInstallError as e:
+        raise HTTPException(
+            status_code=422,
+            detail={"ok": False, "error": str(e), "rolled_back": e.rolled_back},
+        ) from e
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail={"ok": False, "error": str(e)}) from e
+
+
 @router.get("/{org_instance_id}")
 async def api_get(org_instance_id: str) -> dict[str, Any]:
-    if org_instance_id in ("market",):
+    if org_instance_id in ("market", "upgrade"):
         raise HTTPException(status_code=404, detail="Not found")
     inst = get_org_instance(org_instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail=f"Organization not found: {org_instance_id}")
-    return inst
+    out = dict(inst)
+    arts = out.get("artifacts") if isinstance(out.get("artifacts"), dict) else {}
+    pack_roots = arts.get("pack_root") if isinstance(arts.get("pack_root"), list) else []
+    if pack_roots:
+        out["pack_root"] = str(pack_roots[0] or "")
+    # Resolve live extension install paths from registry (survives relinks)
+    ext_ids = arts.get("extensions") if isinstance(arts.get("extensions"), list) else []
+    if ext_ids:
+        try:
+            from evoflow.admin.ui_extensions_registry import read_registry
+
+            by_id = {str(r.get("id") or ""): r for r in read_registry() if isinstance(r, dict)}
+            paths = []
+            for eid in ext_ids:
+                row = by_id.get(str(eid))
+                if not row:
+                    continue
+                paths.append(
+                    {
+                        "id": str(eid),
+                        "name": str((row.get("manifest") or {}).get("name") or eid),
+                        "install_path": str(row.get("install_path") or ""),
+                        "source": str(row.get("source") or ""),
+                    }
+                )
+            if paths:
+                out["extension_installs"] = paths
+        except Exception:
+            logger.debug("enrich extension_installs failed", exc_info=True)
+    return out
 
 
 @router.post("/uninstall")

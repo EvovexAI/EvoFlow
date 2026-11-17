@@ -143,6 +143,10 @@ export class SessionDataLayer {
    * stream-404 remint：把旧 thread 的投影条目改挂到新 threadId。
    * 保留同一 store + snapshot；旧 topic 仍指向同一 entry（别名），
    * 这样旧 lease.release() 与新 acquire() 不会冷开空白。
+   *
+   * 冲突策略（不影响日常切会话）：
+   * - 新 topic 已被「空壳」占着（无窗口行、非直播）→ 关掉空壳再改挂（常见于 prefetch 抢先 cold acquire）
+   * - 新 topic 已有真实内容 / 正在直播 → 绝不覆盖，避免把正常会话投影冲掉
    */
   rebindSessionId(oldSessionId: string, newSessionId: string): boolean {
     if (this.disposed) return false;
@@ -155,14 +159,40 @@ export class SessionDataLayer {
     if (!entry) return false;
     const existing = this.entries.get(newTopic);
     if (existing && existing !== entry) {
-      logger.lifecycle.warn("v4 session data remint rebind skipped — new topic occupied", {
-        event: "v4.session_data.remint_rebind_conflict",
-        module: "ui.v4.session_data_layer",
-        oldTopic,
-        newTopic,
-        status: "skipped",
-      });
-      return false;
+      const exState = existing.store.getState();
+      const exRows = Array.isArray(exState.snapshot?.rows?.window)
+        ? exState.snapshot!.rows.window.length
+        : 0;
+      const exLive = exState.snapshot?.control?.canStop === true;
+      // 只驱逐空壳；有行或直播中的投影一律保留（正常使用路径）
+      if (exRows === 0 && !exLive) {
+        if (existing.keepWarmTimer !== null) {
+          clearTimeout(existing.keepWarmTimer);
+          existing.keepWarmTimer = null;
+        }
+        for (const [k, e] of [...this.entries.entries()]) {
+          if (e === existing) this.entries.delete(k);
+        }
+        void existing.store.close();
+        logger.lifecycle.info("v4 session data remint evicted empty occupant", {
+          event: "v4.session_data.remint_rebind_evict_empty",
+          module: "ui.v4.session_data_layer",
+          oldTopic,
+          newTopic,
+          status: "evicted",
+        });
+      } else {
+        logger.lifecycle.warn("v4 session data remint rebind skipped — new topic occupied", {
+          event: "v4.session_data.remint_rebind_conflict",
+          module: "ui.v4.session_data_layer",
+          oldTopic,
+          newTopic,
+          existingRows: exRows,
+          existingLive: exLive,
+          status: "skipped",
+        });
+        return false;
+      }
     }
     this.entries.set(newTopic, entry);
     try {
@@ -190,21 +220,66 @@ export class SessionDataLayer {
   }
 
   /**
-   * 用户点开某会话时：立刻关掉其它仅 keep-warm（refCount=0）的投影，
-   * 打断它们占着的 subscribe/hydrate，避免排队把点击拖成十几秒 connecting。
+   * 用户点开某会话时：关掉其它仅 keep-warm（refCount=0）的投影。
    * ``keepSessionIds`` 通常 = 当前点开 + 仍需钉住的执行中会话。
+   *
+   * ``onlyWithoutSnapshot``（对齐 ZCode：有投影就继续显示）：
+   * 只取消仍在冷 hydrate、尚无快照的 prefetch，保留已有 snapshot 的 keep-warm，
+   * 避免「多路并跑切走再切回」被 focus 清缓存后冷开空白。
+   * 内存危急 / 主动收缩时不要开此选项。
+   *
+   * ``limit``：最多关掉几条。危急水位应优先关「最大空闲」投影，而不是一次清空。
+   * ``preferLargest``：按 snapshot 行数降序关（默认 true when limit 有限）。
    */
-  releaseKeepWarmExcept(keepSessionIds: readonly string[]): number {
+  releaseKeepWarmExcept(
+    keepSessionIds: readonly string[],
+    opts?: {
+      onlyWithoutSnapshot?: boolean;
+      limit?: number;
+      preferLargest?: boolean;
+    },
+  ): number {
     if (this.disposed) return 0;
     const keep = new Set(
       keepSessionIds
         .map((id) => conversationTopic(String(id || "").trim()))
         .filter(Boolean),
     );
-    let closed = 0;
+    const onlyWithoutSnapshot = opts?.onlyWithoutSnapshot === true;
+    const limit =
+      typeof opts?.limit === "number" && Number.isFinite(opts.limit)
+        ? Math.max(0, Math.floor(opts.limit))
+        : null;
+    if (limit === 0) return 0;
+    const preferLargest =
+      opts?.preferLargest === true || (limit != null && opts?.preferLargest !== false);
+
+    type Candidate = { topic: string; entry: SessionEntry; rows: number };
+    const candidates: Candidate[] = [];
     for (const [topic, entry] of [...this.entries.entries()]) {
       if (keep.has(topic)) continue;
       if (entry.refCount > 0) continue;
+      let rows = 0;
+      try {
+        const snap = entry.store.getState().snapshot;
+        if (onlyWithoutSnapshot && snap) continue;
+        rows =
+          snap?.rows?.totalCount ??
+          snap?.rows?.window?.length ??
+          0;
+      } catch {
+        /* treat as closable, rows=0 */
+      }
+      candidates.push({ topic, entry, rows });
+    }
+    if (preferLargest) {
+      candidates.sort((a, b) => b.rows - a.rows || a.topic.localeCompare(b.topic));
+    }
+    const toClose =
+      limit == null ? candidates : candidates.slice(0, limit);
+
+    let closed = 0;
+    for (const { topic, entry } of toClose) {
       if (entry.keepWarmTimer !== null) {
         clearTimeout(entry.keepWarmTimer);
         entry.keepWarmTimer = null;
@@ -218,6 +293,8 @@ export class SessionDataLayer {
         module: "ui.v4.session_data_layer",
         topic,
         status: "cancelled",
+        onlyWithoutSnapshot,
+        limit,
       });
       void entry.store.close();
     }

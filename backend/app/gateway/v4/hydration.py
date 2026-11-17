@@ -818,8 +818,15 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             msg_id = str(msg.get("id") or msg.get("message_id") or "")
             payload = parse_content(msg)
             msg_ts = _msg_timestamp_ms(msg) or turn_start or now_ms
-            created_at = max(int(msg_ts), seed_clock_ms)
-            seed_clock_ms = created_at
+
+            def _next_created_at() -> int:
+                """跨行单调 +1ms：同毫秒多段 assistantText 不能共用一个 createdAt。"""
+                nonlocal seed_clock_ms
+                created = max(int(msg_ts), seed_clock_ms)
+                if created <= seed_clock_ms:
+                    created = seed_clock_ms + 1
+                seed_clock_ms = created
+                return created
 
             if role == "user":
                 text = _text_from_message_content(payload)
@@ -857,6 +864,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     continue
                 # 值班节拍不可编辑（系统开场，非真人输入）。
                 can_edit = tool_name != "proactive_duty_beat"
+                created_at = _next_created_at()
                 row: dict[str, Any] = {
                     "rowId": next_row_id(),
                     "turnId": turn_id,
@@ -876,6 +884,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             elif role == "assistant":
                 reasoning = str((payload or {}).get("reasoning") or "") if isinstance(payload, dict) else ""
                 if reasoning:
+                    created_at = _next_created_at()
                     rows.append(
                         {
                             "rowId": next_row_id(),
@@ -898,6 +907,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                         )
                     except Exception:
                         args_text = "{}"
+                    created_at = _next_created_at()
                     row = {
                         "rowId": next_row_id(),
                         "turnId": turn_id,
@@ -929,6 +939,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                             }
                 text = _text_from_message_content(payload.get("content") if isinstance(payload, dict) else None)
                 if text:
+                    created_at = _next_created_at()
                     row = {
                         "rowId": next_row_id(),
                         "turnId": turn_id,
@@ -947,6 +958,7 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 payload_d = payload if isinstance(payload, dict) else {}
                 status = _tool_status_from_payload(payload_d)
                 out_text = _tool_output_text_from_payload(payload_d)
+                created_at = _next_created_at()
                 if target is not None:
                     target["status"] = status
                     target["endedAt"] = created_at
@@ -1034,12 +1046,19 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     row["usage"] = turn_usage_row
                     break
 
+        # 无可见 userInput 时勿写 origin=userInput——否则浮层右栏「有头无气泡」，
+        # 左栏像把同一段 AI 回复劈成两轮。
+        has_visible_user = any(
+            str(r.get("kind") or "") == "userInput"
+            and str(r.get("origin") or "") in ("", "realUser", "goalContinuation")
+            for r in rows
+        )
         header_row: dict[str, Any] = {
             "rowId": header_row_id,
             "turnId": turn_id,
             "entityId": turn_id,
             "kind": "turnHeader",
-            "origin": "userInput",
+            "origin": "userInput" if has_visible_user else "goalContinuation",
             "state": "completedSuccess",
             "startedAt": turn_start,
             "endedAt": turn_end,

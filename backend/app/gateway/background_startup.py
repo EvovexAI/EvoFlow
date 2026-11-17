@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 import sys
+import threading
 from collections.abc import Callable
 from datetime import UTC
 from pathlib import Path
@@ -348,14 +349,27 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
     # import chain). 5s lines up with EVOFLOW_LG_MOUNT_DELAY_SEC so first paint
     # + first KB query are both clean.
     async def _warmup_embedding_model() -> None:
-        if os.environ.get("EVOFLOW_SKIP_EMBEDDING_WARMUP", "").strip().lower() in {
+        # Windows：sentence_transformers→sklearn→scipy 冷导入会长时间占 GIL，
+        # 即便丢到专用线程也会把 Gateway 事件循环拖死（重启后对话没反应 /
+        # health 超时 / V4 subscribe_ack 卡死）。默认跳过暖机；需要时设
+        # EVOFLOW_EMBEDDING_WARMUP=1（仍走专用线程，且延迟后再跑）。
+        skip_env = os.environ.get("EVOFLOW_SKIP_EMBEDDING_WARMUP", "").strip().lower()
+        force_on = os.environ.get("EVOFLOW_EMBEDDING_WARMUP", "").strip().lower() in {
             "1",
             "true",
             "yes",
             "on",
-        }:
-            st_log("embedding warmup skipped (EVOFLOW_SKIP_EMBEDDING_WARMUP)")
-            logger.info("Local embedding model warmup skipped (EVOFLOW_SKIP_EMBEDDING_WARMUP)")
+        }
+        if skip_env in {"1", "true", "yes", "on"} or (
+            sys.platform == "win32" and not force_on
+        ):
+            reason = (
+                "EVOFLOW_SKIP_EMBEDDING_WARMUP"
+                if skip_env in {"1", "true", "yes", "on"}
+                else "win32 default (set EVOFLOW_EMBEDDING_WARMUP=1 to enable)"
+            )
+            st_log(f"embedding warmup skipped ({reason})")
+            logger.info("Local embedding model warmup skipped (%s)", reason)
             return
         try:
             skip_reason, model_id = await asyncio.to_thread(resolve_local_embedding_warmup_target)
@@ -363,11 +377,12 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 st_log(f"embedding warmup skipped ({skip_reason})")
                 logger.info("Local embedding model warmup skipped: %s", skip_reason)
                 return
-            delay_raw = os.environ.get("EVOFLOW_EMBEDDING_WARMUP_DELAY_SEC", "5").strip()
+            # Default 20s：先让 /health + V4 subscribe 通了再暖机，避免重启后对话「没反应」。
+            delay_raw = os.environ.get("EVOFLOW_EMBEDDING_WARMUP_DELAY_SEC", "20").strip()
             try:
                 delay_sec = max(0.0, float(delay_raw))
             except ValueError:
-                delay_sec = 5.0
+                delay_sec = 20.0
             if delay_sec > 0:
                 st_log(f"embedding warmup scheduled in {delay_sec:.0f}s")
                 await asyncio.sleep(delay_sec)
@@ -378,16 +393,39 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
             st_log(f"embedding warmup start ({model_id})")
             logger.info("Local embedding model warmup starting (hub=%s, model=%s)", hub, model_id)
             _t_embed = _st.perf_counter()
-            # Run directly on the event loop — NOT via asyncio.to_thread —
-            # which would dispatch to the ThreadPoolExecutor and trigger a
-            # scipy.linalg._fblas native .pyd cold-load that hangs on Windows
-            # (Windows DLL loader + ThreadPoolExecutor worker threads deadlock).
-            # warmup_local_model uses _load_model_sync (pure sync, no to_thread),
-            # so this blocks the event loop but loads sklearn/scipy in the main
-            # thread where the DLL loader is ready. After warmup, _model_cache
-            # is populated so subsequent _load_model calls skip to_thread.
+            # 绝不能在事件循环上同步 import/load sentence_transformers→sklearn→scipy：
+            # 冷启动可达数十秒，表现为 health 超时、V4 subscribe_ack 卡死、对话没反应
+            # （hang: background_startup._warmup_embedding_model → warmup_local_model）。
+            # 也不走 asyncio.to_thread（默认 ThreadPoolExecutor 在 Windows 上曾与
+            # scipy._fblas .pyd 冷加载死锁）。专用 daemon 线程仍可能因 GIL/import 锁
+            # 拖慢 event loop（2026-11-17 hang 186s）；代码索引重建已改子进程隔离。
+            # 暖机仍用专用线程：堵的是暖机路径，至少不占默认线程池。
+            loop = asyncio.get_running_loop()
+            done: asyncio.Future[None] = loop.create_future()
+
+            def _warmup_in_dedicated_thread() -> None:
+                try:
+                    warmup_local_model(model_id)
+                except Exception as exc:
+                    def _fail() -> None:
+                        if not done.done():
+                            done.set_exception(exc)
+
+                    loop.call_soon_threadsafe(_fail)
+                else:
+                    def _ok() -> None:
+                        if not done.done():
+                            done.set_result(None)
+
+                    loop.call_soon_threadsafe(_ok)
+
+            threading.Thread(
+                target=_warmup_in_dedicated_thread,
+                name="evoflow-embedding-warmup",
+                daemon=True,
+            ).start()
             try:
-                warmup_local_model(model_id)
+                await done
             except Exception:
                 st_log("embedding warmup failed (non-fatal)")
                 logger.debug("Local embedding model warmup failed (non-fatal)", exc_info=True)

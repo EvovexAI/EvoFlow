@@ -3744,7 +3744,11 @@ export function SessionPane({
 
   // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
-  const connecting = sessionId !== null && (state.status === "connecting" || snapshot === null);
+  // 对齐 ZCode：有 snapshot 时重连仍显示内容（仅缺 runtimeInitialization 才当 connecting）。
+  const connecting =
+    sessionId !== null &&
+    (snapshot === null ||
+      (state.status === "connecting" && !snapshot.runtimeInitialization));
   const queueEditActiveForCurrentComposer =
     queueEditOperation?.sessionId === sessionId && queueEditOperation.workspaceKey === workspaceKey;
   const errored = sessionId !== null && state.status === "error";

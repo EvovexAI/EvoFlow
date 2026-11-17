@@ -58,7 +58,9 @@ def flatten_document_symbols(items: list[dict] | None, *, parser: str) -> list[d
             if not isinstance(node, dict):
                 continue
             name = str(node.get("name") or "").strip()
-            if name and not name.startswith("_"):
+            # 【self-evolution-bot · 2026-11-16 · 第24轮】不再丢弃 _ 前缀名：与 tree-sitter / AST / regex 三条路径口径统一，
+            # 否则启用 LSP 后私有函数又会消失，索引结果随 parser 模式漂移。
+            if name:
                 rng = node.get("range") or node.get("selectionRange") or {}
                 start = rng.get("start") if isinstance(rng, dict) else {}
                 line = int((start or {}).get("line", 0)) + 1

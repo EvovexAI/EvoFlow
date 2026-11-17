@@ -63,6 +63,10 @@ import { ReadToolCallBlock } from "@/ToolCallBlocks/renderers/read.js";
 import { ReadSessionContextToolCallBlock } from "@/ToolCallBlocks/renderers/read-session-context.js";
 import { RespondToCoordinatorToolCallBlock } from "@/ToolCallBlocks/renderers/respond-to-coordinator.js";
 import { SearchToolCallBlock } from "@/ToolCallBlocks/renderers/search.js";
+import {
+  isSearchCodeIndexToolCall,
+  SearchCodeIndexToolCallBlock,
+} from "@/ToolCallBlocks/renderers/search-code-index.js";
 import { SendMessageToolCallBlock } from "@/ToolCallBlocks/renderers/send-message.js";
 import { SkillToolCallBlock } from "@/ToolCallBlocks/renderers/skill.js";
 import { SubmitResultToolCallBlock } from "@/ToolCallBlocks/renderers/submit-result.js";
@@ -158,6 +162,15 @@ export function resolveToolCallRenderer(context: ToolCallBlockRenderContext) {
   }
   if (isKnowledgeToolCall(context.toolCallNode.toolCall)) {
     return KnowledgeToolCallBlock;
+  }
+
+  // search_code_index 必须在 `identity.family` 分流**之前**认领自己的名字。
+  // 它的 family 经 resolveLegacyKindFamily 的正则 /^(?:search|grep|find|…)(?:_|$)/
+  // 判成 "search"，会拿到 SearchToolCallBlock —— 那个组件写死 canToggle=false +
+  // content=null（为一行式 grep/web_search 设计），于是 V4 面板上「点不开、无详情」。
+  // 【self-evolution-bot · 2026-11-17 · 第33轮】用户报此缺陷。
+  if (isSearchCodeIndexToolCall(context.toolCallNode.toolCall)) {
+    return SearchCodeIndexToolCallBlock;
   }
 
   // 当前工具名已经是固定集合。继续用正则扫 kind/title 的话，

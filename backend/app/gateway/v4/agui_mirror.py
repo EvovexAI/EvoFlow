@@ -812,6 +812,15 @@ class V4Mirror:
         if not st.text_row_ids:
             return
         for mid, rid in list(st.text_row_ids.items()):
+            sess = self._hub.get_session(tid)
+            existing = sess.rows.get(int(rid)) if sess is not None else None
+            # 保留 TEXT_MESSAGE_START 写入的 createdAt——勿盖成 turn_started，
+            # 否则同轮多段正文共用一个时间戳，前端 created_at_regression。
+            created_at = (
+                int(existing.get("createdAt") or 0)
+                if isinstance(existing, dict)
+                else 0
+            ) or now_ms
             self._hub.author_upsert_row(
                 tid,
                 {
@@ -820,7 +829,7 @@ class V4Mirror:
                     "kind": "assistantText",
                     "text": str(st.text_acc.get(mid) or ""),
                     "state": "interrupted",
-                    "createdAt": st.turn_started_at_ms or now_ms,
+                    "createdAt": created_at,
                     "createdAtSeq": self._seq_now(tid),
                     "entityId": mid,
                     "endedAt": now_ms,
@@ -937,6 +946,11 @@ class V4Mirror:
             )
             if cur_state and cur_state != "streaming":
                 continue
+            created_at = (
+                int(existing.get("createdAt") or 0)
+                if isinstance(existing, dict)
+                else 0
+            ) or now_ms
             self._hub.author_upsert_row(
                 tid,
                 {
@@ -945,7 +959,7 @@ class V4Mirror:
                     "kind": "assistantText",
                     "text": str(st.text_acc.get(mid) or ""),
                     "state": state,
-                    "createdAt": st.turn_started_at_ms or now_ms,
+                    "createdAt": created_at,
                     "createdAtSeq": self._seq_now(tid),
                     "entityId": mid,
                     "endedAt": now_ms,
@@ -1162,6 +1176,16 @@ class V4Mirror:
         sess = self._hub.get_session(tid)
         return int(sess.seq) if sess is not None else 0
 
+    def _clear_stream_row_maps(self, st: _MirrorState) -> None:
+        """只清正文/思考/工具流式映射；保留 turnHeader / turnId / fileChanges。"""
+        st.text_row_ids.clear()
+        st.text_acc.clear()
+        st.reasoning_row_ids.clear()
+        st.reasoning_acc.clear()
+        st.tool_row_ids.clear()
+        st.tool_acc.clear()
+        st.tool_names.clear()
+
     def _reset_turn_ephemeral(self, st: _MirrorState) -> None:
         """清掉本轮翻译缓存，保留 ``user_text``（下一轮 note_user_input 可能已写入）。
 
@@ -1173,13 +1197,7 @@ class V4Mirror:
         st.turn_header_row_id = 0
         st.turn_id = ""
         st.turn_started_at_ms = 0
-        st.text_row_ids.clear()
-        st.text_acc.clear()
-        st.reasoning_row_ids.clear()
-        st.reasoning_acc.clear()
-        st.tool_row_ids.clear()
-        st.tool_acc.clear()
-        st.tool_names.clear()
+        self._clear_stream_row_maps(st)
         st.turn_file_changes.clear()
 
     def _tool_name(self, st: _MirrorState, tcid: str, ev: dict[str, Any]) -> str:
@@ -1199,6 +1217,13 @@ class V4Mirror:
         turn_id = str(st.turn_id or "").strip()
         if header_rid <= 0 or not turn_id:
             return
+        header_origin = "userInput"
+        sess = self._hub.get_session(tid)
+        existing = sess.rows.get(header_rid) if sess is not None else None
+        if isinstance(existing, dict):
+            prev_origin = str(existing.get("origin") or "").strip()
+            if prev_origin:
+                header_origin = prev_origin
         self._hub.author_upsert_row(
             tid,
             {
@@ -1206,7 +1231,7 @@ class V4Mirror:
                 "turnId": turn_id,
                 "entityId": turn_id,
                 "kind": "turnHeader",
-                "origin": "userInput",
+                "origin": header_origin,
                 "state": "failed",
                 "startedAt": st.turn_started_at_ms or now_ms,
                 "endedAt": now_ms,
@@ -1217,6 +1242,85 @@ class V4Mirror:
                     "message": reason[:500],
                 },
             },
+        )
+
+    def _lookup_turn_header(
+        self, tid: str, turn_id: str
+    ) -> tuple[int, int, str]:
+        """Return (header_row_id, started_at_ms, origin) for a product turn."""
+        want = str(turn_id or "").strip()
+        if not want:
+            return 0, 0, "userInput"
+        sess = self._hub.get_session(tid)
+        if sess is None:
+            return 0, 0, "userInput"
+        best: dict[str, Any] | None = None
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("kind") or "") != "turnHeader":
+                continue
+            if str(row.get("turnId") or "").strip() != want:
+                continue
+            if best is None or int(row.get("rowId") or 0) >= int(best.get("rowId") or 0):
+                best = row
+        if best is None:
+            return 0, 0, "userInput"
+        origin = str(best.get("origin") or "").strip() or "userInput"
+        return (
+            int(best.get("rowId") or 0),
+            int(best.get("startedAt") or 0),
+            origin,
+        )
+
+    def _reuse_product_turn(
+        self,
+        tid: str,
+        st: _MirrorState,
+        *,
+        turn_id: str,
+        header_rid: int,
+        started_at: int,
+        header_origin: str,
+        next_run_id: str,
+        now_ms: int,
+    ) -> None:
+        """无新用户输入的内部续跑：挂回上一 product turn，避免左栏 AI 回复被劈成两截。"""
+        logger.warning(
+            "[v4-mirror] RUN_STARTED continuation without userInput; "
+            "reuse turn thread=%s turn=%s next_run=%s",
+            tid,
+            turn_id,
+            next_run_id,
+        )
+        self._clear_stream_row_maps(st)
+        st.run_started = True
+        st.turn_id = turn_id
+        st.last_turn_id = turn_id
+        st.turn_header_row_id = header_rid
+        st.turn_started_at_ms = started_at or now_ms
+        st.turn_usage = None
+        st.last_text_row_id = 0
+        st.last_turn_success = False
+        st.usage_bumped = False
+        origin = str(header_origin or "").strip() or "userInput"
+        self._hub.author_upsert_row(
+            tid,
+            {
+                "rowId": header_rid,
+                "turnId": turn_id,
+                "entityId": turn_id,
+                "kind": "turnHeader",
+                "origin": origin,
+                "state": "running",
+                "startedAt": started_at or now_ms,
+                "createdAt": started_at or now_ms,
+                "createdAtSeq": self._seq_now(tid),
+            },
+        )
+        self._patch_control(
+            tid,
+            _running_control(now_ms=now_ms, last_error=st.sticky_run_error),
         )
 
     def _find_reusable_user_input_row(
@@ -1269,22 +1373,44 @@ class V4Mirror:
             )
             prior_reset = False
             prev_turn_id = ""
+            prev_header_rid = 0
+            prev_started_at = 0
+            pending_user = bool(str(st.user_text or "").strip() or st.user_attachments)
             if st.run_started:
-                # 同 runId 重复 START：去重。不同 runId：上一轮 FINISHED 漏清闩锁，强制开新轮。
+                # 同 runId 重复 START：去重。不同 runId：上一轮 FINISHED 漏清闩锁。
                 if new_turn_id == st.turn_id:
                     return
                 prior_reset = True
                 prev_turn_id = str(st.turn_id or "").strip()
+                prev_header_rid = int(st.turn_header_row_id or 0)
+                prev_started_at = int(st.turn_started_at_ms or 0)
                 logger.warning(
                     "[v4-mirror] RUN_STARTED while prior turn open; reset thread=%s prev=%s next=%s",
                     tid,
                     prev_turn_id,
                     new_turn_id,
                 )
-                # 先封未收口工具/流式正文/思考，再 reset ephemeral——否则行永久 running/streaming。
+                # 先封未收口工具/流式正文/思考——否则行永久 running/streaming。
                 self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
                 self._mark_assistant_text_interrupted(tid, st, now_ms=now_ms)
                 self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="interrupted")
+
+                if prev_turn_id and prev_header_rid > 0 and not pending_user:
+                    # 无新用户输入的「假新轮」（漏 FINISHED / 内部续跑）：续挂上一 product turn。
+                    _, _, prev_origin = self._lookup_turn_header(tid, prev_turn_id)
+                    self._reuse_product_turn(
+                        tid,
+                        st,
+                        turn_id=prev_turn_id,
+                        header_rid=prev_header_rid,
+                        started_at=prev_started_at,
+                        header_origin=prev_origin,
+                        next_run_id=new_turn_id,
+                        now_ms=now_ms,
+                    )
+                    return
+
+                # 有新用户输入：旧头收成 failed，再开真正的新轮。
                 self._fail_open_turn_header(
                     tid,
                     st,
@@ -1292,6 +1418,28 @@ class V4Mirror:
                     reason=f"superseded by {new_turn_id}",
                 )
                 self._reset_turn_ephemeral(st)
+
+            # FINISHED 已清闩锁后的内部续跑：也没有 note_user_input → 仍挂回上一轮，
+            # 否则右栏会出现 turnHeader(origin=userInput) 无气泡，左栏 AI 回复劈成 #N/#N+1。
+            if not pending_user:
+                cont_tid = str(st.last_turn_id or "").strip()
+                if cont_tid:
+                    cont_rid, cont_started, cont_origin = self._lookup_turn_header(
+                        tid, cont_tid
+                    )
+                    if cont_rid > 0:
+                        self._reuse_product_turn(
+                            tid,
+                            st,
+                            turn_id=cont_tid,
+                            header_rid=cont_rid,
+                            started_at=cont_started,
+                            header_origin=cont_origin,
+                            next_run_id=new_turn_id,
+                            now_ms=now_ms,
+                        )
+                        return
+
             st.run_started = True
             st.turn_id = new_turn_id
             st.last_turn_id = new_turn_id
@@ -1304,21 +1452,6 @@ class V4Mirror:
             st.usage_bumped = False
             rid = self._next_row_id(tid)
             st.turn_header_row_id = rid
-            self._hub.author_append_row(
-                tid,
-                {
-                    "rowId": rid,
-                    "turnId": st.turn_id,
-                    # 面板「N 个文件已更改」展开依赖 ConversationRowTarget.entityId
-                    "entityId": st.turn_id,
-                    "kind": "turnHeader",
-                    "origin": "userInput",
-                    "state": "running",
-                    "startedAt": now_ms,
-                    "createdAt": now_ms,
-                    "createdAtSeq": self._seq_now(tid),
-                },
-            )
             user_text = st.user_text
             user_atts = list(st.user_attachments or [])
             user_mid = str(st.user_message_id or "").strip()
@@ -1329,7 +1462,7 @@ class V4Mirror:
             st.user_message_id = ""
             st.user_origin = "realUser"
             st.user_epilogue_start = 0
-            if (user_text or user_atts) and not (
+            has_visible_user = bool(user_text or user_atts) and not (
                 not user_atts
                 and (
                     (
@@ -1343,7 +1476,25 @@ class V4Mirror:
                     )
                     or _is_hidden_task_notification_message_id(user_mid)
                 )
-            ):
+            )
+            # 无可见 userInput 时不要谎称 origin=userInput（否则浮层右栏有头无气泡、左栏像劈开的回复）。
+            header_origin = "userInput" if has_visible_user else "goalContinuation"
+            self._hub.author_append_row(
+                tid,
+                {
+                    "rowId": rid,
+                    "turnId": st.turn_id,
+                    # 面板「N 个文件已更改」展开依赖 ConversationRowTarget.entityId
+                    "entityId": st.turn_id,
+                    "kind": "turnHeader",
+                    "origin": header_origin,
+                    "state": "running",
+                    "startedAt": now_ms,
+                    "createdAt": now_ms,
+                    "createdAtSeq": self._seq_now(tid),
+                },
+            )
+            if has_visible_user:
                 reusable = self._find_reusable_user_input_row(
                     tid,
                     user_mid=user_mid,
@@ -1434,6 +1585,14 @@ class V4Mirror:
             rid = st.text_row_ids.get(mid)
             if rid is None:
                 return
+            sess = self._hub.get_session(tid)
+            existing = sess.rows.get(int(rid)) if sess is not None else None
+            # 保留 START 时的 createdAt（每段正文独立时钟）；END 只收 state/text。
+            created_at = (
+                int(existing.get("createdAt") or 0)
+                if isinstance(existing, dict)
+                else 0
+            ) or now_ms
             self._hub.author_upsert_row(
                 tid,
                 {
@@ -1442,7 +1601,7 @@ class V4Mirror:
                     "kind": "assistantText",
                     "state": "complete",
                     "text": st.text_acc.get(mid, ""),
-                    "createdAt": now_ms,
+                    "createdAt": created_at,
                     "createdAtSeq": self._seq_now(tid),
                     "assistantResponseId": mid,
                 },
@@ -1753,6 +1912,17 @@ class V4Mirror:
                     "files": len(st.turn_file_changes),
                 }
             turn_finished_at = now_ms
+            sess_for_origin = self._hub.get_session(tid)
+            existing_header = (
+                sess_for_origin.rows.get(int(st.turn_header_row_id))
+                if sess_for_origin is not None and st.turn_header_row_id
+                else None
+            )
+            header_origin = "userInput"
+            if isinstance(existing_header, dict):
+                prev_origin = str(existing_header.get("origin") or "").strip()
+                if prev_origin:
+                    header_origin = prev_origin
             self._hub.author_upsert_row(
                 tid,
                 {
@@ -1760,7 +1930,7 @@ class V4Mirror:
                     "turnId": st.turn_id,
                     "entityId": st.turn_id,
                     "kind": "turnHeader",
-                    "origin": "userInput",
+                    "origin": header_origin,
                     "state": v4_state,
                     "startedAt": st.turn_started_at_ms or now_ms,
                     "endedAt": turn_finished_at,

@@ -24,6 +24,16 @@ EXECUTION_STATE_SCHEMA_VERSION = 5
 _RECENTLY_COMPLETED_WINDOW_S = int(os.getenv("EVOFLOW_RECENTLY_COMPLETED_WINDOW_S", "60") or "60")
 # Cap LangGraph probe so a hung LG cannot stall every execution/state poll.
 _HEAL_PROBE_TIMEOUT = httpx.Timeout(connect=1.5, read=3.0, write=3.0, pool=3.0)
+# Hard ceiling for the whole execution/state handler (DB + heal). Under GIL /
+# SQLite lock storms FE should get a degraded payload, not a 200s hang that
+# makes every other API look dead (2026-11-17 hang dump).
+try:
+    _EXECUTION_STATE_TIMEOUT_S = float(
+        os.getenv("EVOFLOW_EXECUTION_STATE_TIMEOUT_S", "4") or "4"
+    )
+except ValueError:
+    _EXECUTION_STATE_TIMEOUT_S = 4.0
+_EXECUTION_STATE_TIMEOUT_S = max(1.0, min(30.0, _EXECUTION_STATE_TIMEOUT_S))
 
 
 def derive_executing(*, run_status: str) -> bool:
@@ -196,7 +206,44 @@ def _load_execution_state_db(session_key: str) -> dict[str, Any]:
     return {"key": key, "db_row": db_row, "db_path": db_path, "child_works": child_works}
 
 
-async def build_session_execution_state(session_key: str) -> dict[str, Any]:
+def _degraded_execution_state(session_key: str, *, reason: str) -> dict[str, Any]:
+    """Soft fail for FE polls — never leave the request hanging for minutes."""
+    key = str(session_key or "").strip()
+    return {
+        "ok": False,
+        "degraded": True,
+        "reason": reason,
+        "schemaVersion": EXECUTION_STATE_SCHEMA_VERSION,
+        "dbPath": "",
+        "sessionKey": key,
+        "threadId": None,
+        "runId": None,
+        "runStatus": "",
+        "runStatusRaw": "",
+        "currentTurnStartedAt": None,
+        "currentTurnEndedAt": None,
+        "phase": "idle",
+        "executing": False,
+        "stopAllowed": False,
+        "attachRecommended": False,
+        "streamResumeRecommended": False,
+        "goalActive": False,
+        "awaitingToolApproval": False,
+        "langgraphActive": False,
+        "gatewayStreamActive": False,
+        "snapshotAvailable": False,
+        "latestPartialText": "",
+        "latestToolSummary": "",
+        "lastEventAtMs": 0,
+        "recently_completed": False,
+        "recently_completed_run_id": None,
+        "recently_completed_status": None,
+        "childWorks": [],
+        "openChildWorkCount": 0,
+    }
+
+
+async def _build_session_execution_state_inner(session_key: str) -> dict[str, Any]:
     """Return session run fields; heal sticky SQLite running vs LangGraph truth.
 
     Hot path for FE history-watch / gear poll. Must not call ``get_db()`` on the
@@ -284,3 +331,21 @@ async def build_session_execution_state(session_key: str) -> dict[str, Any]:
             1 for w in child_works if str(w.get("status") or "") in {"pending", "running"}
         ),
     }
+
+
+async def build_session_execution_state(session_key: str) -> dict[str, Any]:
+    """Public entry: hard-timeout wrapper around the SQLite + heal path."""
+    try:
+        return await asyncio.wait_for(
+            _build_session_execution_state_inner(session_key),
+            timeout=_EXECUTION_STATE_TIMEOUT_S,
+        )
+    except TimeoutError:
+        logger.warning(
+            "execution_state timed out after %.1fs session=%s",
+            _EXECUTION_STATE_TIMEOUT_S,
+            str(session_key or "")[:80],
+        )
+        return _degraded_execution_state(session_key, reason="timeout")
+    except asyncio.CancelledError:
+        raise

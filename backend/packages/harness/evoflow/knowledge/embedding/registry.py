@@ -67,6 +67,28 @@ def get_embedding_config() -> ModelConfig:
     except Exception:
         models = []
 
+    # 【self-evolution-bot · 2026-11-16 · 第26轮】先看「设置里指定的默认向量模型」。
+    # 为什么：原来这里只按「名字里含 embedding」扫第一个命中项，用户把默认向量模型
+    # 改成别的（比如换本地 bge）之后，这个函数**完全不看那个设置**——
+    # 设了也白设，实际仍在用第一个含 embedding 的云端模型。
+    # 现在顺序是：显式默认设置 → 名字/厂商匹配 → 兜底。
+    # 延迟 import 避免 registry ←→ owned.settings 的循环依赖
+    # （owned.settings 只依赖 config_repositories，不依赖本模块）。
+    try:
+        from evoflow.knowledge.owned import settings as owned_settings
+
+        default_ref = owned_settings.get_default_embedding_model()
+    except Exception:
+        default_ref = ""
+    if default_ref:
+        for m in models:
+            name = str(getattr(m, "name", "") or "").strip()
+            model_id = str(getattr(m, "model", "") or "").strip()
+            display = str(getattr(m, "display_name", "") or "").strip()
+            if default_ref in (name, model_id, display):
+                logger.debug("Using default embedding model from settings: %s", name or model_id)
+                return m
+
     for m in models:
         name_lower = (getattr(m, "name", "") or "").lower()
         model_lower = (getattr(m, "model", "") or "").lower()
@@ -297,6 +319,11 @@ _KNOWN_DIMS: dict[str, int] = {
     "text-embedding-3-small": 1536,
     "text-embedding-3-large": 3072,
     "text-embedding-ada-002": 1536,
+    # 【self-evolution-bot · 2026-11-16 · 第24轮】补上当前实际生效的云端向量模型。
+    # 为什么：本机 get_embedding_config() 解析到的就是 doubao-embedding-vision，
+    # 实测输出 2048 维（真调用量得）；此前不在表里 → 调用方退回配置静态 512 →
+    # code_vec 按 512 建表 → 每条向量插入被 vec0 拒绝（Expected 512 received 2048）→ 表里 0 行。
+    "doubao-embedding-vision": 2048,
     # Local (sentence-transformers / BGE)
     "baai/bge-small-zh-v1.5": 512,
     "baai/bge-base-zh-v1.5": 768,

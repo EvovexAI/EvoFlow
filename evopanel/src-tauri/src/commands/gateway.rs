@@ -12,6 +12,12 @@ use super::backend;
 const STREAM_EOF: &str = "__DF_EOF__";
 /// 单包心跳 tag，JS 端识别后跳过：避免长 idle 流被中间设备 RST。
 const STREAM_PING: &str = "__DF_PING__";
+/// 连接成功后首包：把 remint 响应头带给 JS（Channel 只传 body 时否则读不到）。
+const STREAM_HDRS_PREFIX: &str = "__DF_HDRS__";
+const REMINT_RESPONSE_HEADERS: [&str; 2] = [
+    "x-evoflow-new-thread-id",
+    "x-evoflow-old-thread-id",
+];
 /// Connect-class retries during cold start / port reclaim (≈5–8s total).
 const PROXY_MAX_ATTEMPTS: u32 = 6;
 const PROXY_RETRY_DELAYS_MS: [u64; 5] = [200, 400, 800, 1600, 2400];
@@ -331,6 +337,28 @@ pub async fn gateway_proxy_stream(
             text
         };
         return Err(format!("网关流请求失败: {msg}"));
+    }
+
+    // Remint 头必须在首个 body chunk 前到达 JS，否则 chatSend 读不到、V4 订旧 topic。
+    // 正常流（无 remint 头）不发任何 meta 包 → 协议与旧客户端完全一致，不影响日常聊天。
+    {
+        let mut remint: BTreeMap<String, String> = BTreeMap::new();
+        for name in REMINT_RESPONSE_HEADERS {
+            if let Some(val) = resp.headers().get(name) {
+                if let Ok(s) = val.to_str() {
+                    let t = s.trim();
+                    if !t.is_empty() {
+                        remint.insert(name.to_string(), t.to_string());
+                    }
+                }
+            }
+        }
+        if !remint.is_empty() {
+            let payload = serde_json::json!({ "headers": remint });
+            let mut meta = STREAM_HDRS_PREFIX.as_bytes().to_vec();
+            meta.extend_from_slice(payload.to_string().as_bytes());
+            let _ = on_chunk.send(meta);
+        }
     }
 
     // ★ 优化：binary channel + 50ms 窗口合并 + 长 stream 心跳

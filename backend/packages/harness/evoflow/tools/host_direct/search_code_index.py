@@ -92,6 +92,10 @@ def _format_search_data(data: dict, *, limit: int, verbose: bool = False) -> str
             "type_subtypes": data.get("type_subtypes") or [],
             "path_prefix": data.get("path_prefix"),
             "path_scope_relaxed": data.get("path_scope_relaxed"),
+            # 【self-evolution-bot · 2026-11-17 · 第33轮】这里显式重建 dict 只挑字段，
+            # 不在这里透传 = 新加的索引新鲜度在工具出口处被丢掉（接线漏最后一米）。
+            "index_age_seconds": data.get("index_age_seconds"),
+            "index_updated_at": data.get("index_updated_at"),
         },
         label=label,
         limit=limit,

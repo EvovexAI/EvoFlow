@@ -63,14 +63,15 @@ export function resolveChatPaneMode(input: ChatPaneModeInput): ChatPaneMode {
   // v4Phase === 'disabled' 也不再切老对话（开关已退役）。
   const useLegacyPane = isHomeSurface
 
-  // 只有「确认无本地行 + 历史已加载完 + V4 已给出结论（ready/no-thread）」才是真草稿。
+  // 只有「确认无本地行 + 历史已加载完 + V4 ready」才是真草稿。
+  // no-thread 单独不算草稿：ensureChatThread 在途时应对齐 ZCode 显示加载，
+  // 不能居中「开始新的对话」。例外：knownEmptyDraft（侧栏「+」刚 mint）。
   // connecting / historyLoading / failed / 乐观发送中 一律不算。
-  // 例外：knownEmptyDraft（刚 mint 的空会话）允许在加载中就居中，消掉贴底→居中闪跳。
   const phaseOkForDraft =
     v4Phase === 'ready' ||
-    v4Phase === 'no-thread' ||
     v4Phase === 'disabled' ||
-    (knownEmptyDraft && v4Phase === 'connecting')
+    (knownEmptyDraft &&
+      (v4Phase === 'connecting' || v4Phase === 'no-thread'))
   const draftEmpty =
     !localOptimisticHold &&
     !localHasRows &&

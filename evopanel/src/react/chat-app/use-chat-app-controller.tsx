@@ -807,6 +807,7 @@ import { buildHistoryViewFromRaw } from '../lib/chatHistoryView.js'
 import { fetchSessionHistoryTailMessages } from '../hooks/fetchSessionHistory.js'
 import { warmSessionHistoryPrefetch } from '../lib/warm-session-history-prefetch.js'
 import { syncEvoflowV4PinnedSessions, warmEvoflowV4Session } from '../v4/V4StreamRowsBridge.js'
+import { publishV4ChatHostIndex } from '../v4/v4-chat-layout-dump.js'
 import {
   getV4TimelineBusy,
   getV4TimelineBusyEpoch,
@@ -1107,6 +1108,10 @@ export function useChatAppController() {
         })
         markOpenStage('ensure_thread', 'ensure-thread 成功', { sessionKey: sk, threadId: next })
         bindOpenTraceThread(next)
+        // 冷开闭环：一有 thread 立刻 force 预热，对齐 ZCode 点开即有投影。
+        if (isEvoflowChatV4Enabled()) {
+          warmEvoflowV4Session(next, { force: true })
+        }
         try {
           wsClient.noteSessionThreadId?.(sk, next)
         } catch {
@@ -1180,9 +1185,17 @@ export function useChatAppController() {
     executingSessionKeysRef.current = executingSessionKeys
   }, [executingSessionKeys])
 
-  // 钉住「当前选中 + 正在跑 + 最近切过」的 V4 投影：悬停 warm 只 keep-warm 30s，
-  // 三路并跑切来切去时租约会过期 → 冷开空白。pin 保持 refCount>0，切回直接画快照。
+  // 钉住「当前选中 + 正在跑 + 最近切过」：数据层 pin + UI KeepAlive host 同一组。
+  // 对齐 ZCode 多 pane：租约与 Timeline 都常驻，切走隐藏不卸。
   const recentV4ThreadIdsRef = useRef<string[]>([])
+  const [v4KeepAliveHosts, setV4KeepAliveHosts] = useState<
+    Array<{ threadId: string; sessionKey?: string }>
+  >([])
+  /** 双栏分屏副栏（ZCode split leaf 最小等价）：焦点/composer 仍在主选。 */
+  const [v4SplitSecondary, setV4SplitSecondary] = useState<{
+    threadId: string
+    sessionKey: string
+  } | null>(null)
   useLayoutEffect(() => {
     const sk = String(selectedSessionKey || '').trim()
     if (!sk) return
@@ -1192,17 +1205,32 @@ export function useChatAppController() {
         '',
     ).trim()
     if (!tid) return
+    // 对齐 ZCode 多 leaf：最近 8 路 KeepAlive（单槽隐藏挂载）。
     recentV4ThreadIdsRef.current = [
       tid,
       ...recentV4ThreadIdsRef.current.filter((x) => x !== tid),
-    ].slice(0, 4)
+    ].slice(0, 8)
   }, [selectedSessionKey])
+  // 分屏副栏若与主选相同则关掉；副栏进 pin/KeepAlive。
+  useLayoutEffect(() => {
+    if (!v4SplitSecondary) return
+    const primaryTid = String(selectedThreadId || '').trim()
+    if (primaryTid && v4SplitSecondary.threadId === primaryTid) {
+      setV4SplitSecondary(null)
+      return
+    }
+    recentV4ThreadIdsRef.current = [
+      v4SplitSecondary.threadId,
+      ...recentV4ThreadIdsRef.current.filter((x) => x !== v4SplitSecondary.threadId),
+    ].slice(0, 8)
+  }, [v4SplitSecondary, selectedThreadId])
   // executingSessionKeys 是新 Set 引用；用签名稳住 pin sync，避免 epoch 抖动反复撕订。
   const executingPinSig = useMemo(
     () => Array.from(executingSessionKeys).sort().join('\0'),
     [executingSessionKeys],
   )
-  useEffect(() => {
+  // layout：与 host 挂载同帧同步 pin + KeepAlive 列表。
+  useLayoutEffect(() => {
     if (!isEvoflowChatV4Enabled()) return
     const resolveTid = (sk: string) =>
       String(
@@ -1220,6 +1248,9 @@ export function useChatAppController() {
     }
     const selected = String(selectedSessionKey || '').trim()
     if (selected) pushTarget(selected, resolveTid(selected))
+    if (v4SplitSecondary?.threadId) {
+      pushTarget(v4SplitSecondary.sessionKey || '', v4SplitSecondary.threadId)
+    }
     for (const sk of executingPinSig ? executingPinSig.split('\0') : []) {
       const key = String(sk || '').trim()
       if (!key || key === selected) continue
@@ -1233,8 +1264,80 @@ export function useChatAppController() {
         ''
       pushTarget(String(sk || '').trim(), id)
     }
+    setV4KeepAliveHosts((prev) => {
+      if (
+        prev.length === ordered.length &&
+        prev.every(
+          (p, i) =>
+            p.threadId === ordered[i]?.threadId &&
+            String(p.sessionKey || '') === String(ordered[i]?.sessionKey || ''),
+        )
+      ) {
+        return prev
+      }
+      return ordered
+    })
     syncEvoflowV4PinnedSessions(ordered)
-  }, [executingPinSig, selectedSessionKey, sessions])
+    // 布局 dump / main-cdp 要对上「哪一个对话」：threadId → sessionKey + 侧栏标题
+    publishV4ChatHostIndex(
+      ordered.map((h) => {
+        const sk = String(h.sessionKey || '').trim()
+        const row = sk
+          ? sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)
+          : sessionsRef.current.find(
+              (s) => String(s.threadId || '').trim() === h.threadId,
+            )
+        return {
+          threadId: h.threadId,
+          sessionKey: sk || String(row?.sessionKey || '').trim() || undefined,
+          title: String(row?.title || '').trim() || undefined,
+        }
+      }),
+    )
+  }, [executingPinSig, selectedSessionKey, sessions, v4SplitSecondary])
+
+  // 列表空闲预热：从未打开过的会话也尽量先 hydrate（零延迟体感）。
+  useEffect(() => {
+    if (!isEvoflowChatV4Enabled()) return
+    if (typeof window === 'undefined') return
+    let cancelled = false
+    const run = () => {
+      if (cancelled) return
+      const rows = sessionsRef.current || []
+      const selected = String(selectedSessionKey || '').trim()
+      let n = 0
+      for (const s of rows) {
+        if (n >= 8) break
+        const sk = String(s?.sessionKey || '').trim()
+        if (!sk || sk === selected) continue
+        const tid = String(
+          s?.threadId || wsClient?.getSessionThreadId?.(sk) || '',
+        ).trim()
+        if (!tid) continue
+        warmEvoflowV4Session(tid)
+        n += 1
+      }
+    }
+    const ric = (
+      window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number
+      }
+    ).requestIdleCallback
+    const handle =
+      typeof ric === 'function'
+        ? ric(run, { timeout: 2_500 })
+        : window.setTimeout(run, 600)
+    return () => {
+      cancelled = true
+      if (typeof ric === 'function') {
+        ;(
+          window as Window & { cancelIdleCallback?: (id: number) => void }
+        ).cancelIdleCallback?.(handle as number)
+      } else {
+        window.clearTimeout(handle as number)
+      }
+    }
+  }, [sessions, selectedSessionKey])
 
   const seenRunIdsRef = useRef(new Set<string>())
   const activeChatRunIdRef = useRef<string | null>(null)
@@ -1797,6 +1900,9 @@ export function useChatAppController() {
   /** 审批 API 请求进行中（独立于轮次 busy 状态，避免待授权时按钮被禁用） */
   const [toolApprovalInFlight, setToolApprovalInFlight] = useState(false)
   const [sessionSidebarOpen, setSessionSidebarOpen] = useState(false)
+  const sessionSidebarOpenRef = useRef(sessionSidebarOpen)
+  sessionSidebarOpenRef.current = sessionSidebarOpen
+  const sessionSidebarOpenBySessionRef = useRef(new Map<string, boolean>())
   const [subtasksApiRefreshKey, setSubtasksApiRefreshKey] = useState(0)
   const bumpSubtasksApiRefresh = useCallback(() => {
     setSubtasksApiRefreshKey((k) => k + 1)
@@ -1927,8 +2033,14 @@ export function useChatAppController() {
   const setSessionArtifactsRef = useRef<Dispatch<SetStateAction<ChatArtifact[]>>>(() => {})
   const workspacePanelOpenRef = useRef(workspacePanelOpen)
   workspacePanelOpenRef.current = workspacePanelOpen
+  /** 多会话：记住各会话工作区面板是否打开（切走再切回不丢）。 */
+  const workspacePanelOpenBySessionRef = useRef(new Map<string, boolean>())
   const collabExecPanelOpenRef = useRef(collabExecPanelOpen)
   collabExecPanelOpenRef.current = collabExecPanelOpen
+  const collabExecPanelOpenBySessionRef = useRef(new Map<string, boolean>())
+  const knowledgeMapPanelOpenRef = useRef(knowledgeMapPanelOpen)
+  knowledgeMapPanelOpenRef.current = knowledgeMapPanelOpen
+  const knowledgeMapPanelOpenBySessionRef = useRef(new Map<string, boolean>())
   /** 打开右侧分栏（工作区 / 协作执行）前左侧壳是否已折叠；关闭时恢复 */
   const shellCollapsedBeforeWorkspaceRef = useRef<boolean | null>(null)
   const openSessionSidebar = useCallback(() => {
@@ -4349,6 +4461,17 @@ export function useChatAppController() {
       setStreamingWritePreview,
       setWorkspacePanelOpen,
       setWorkspaceTreePinned,
+      workspacePanelOpenBySessionRef,
+      workspacePanelOpenRef,
+      sessionSidebarOpenBySessionRef,
+      sessionSidebarOpenRef,
+      setSessionSidebarOpen,
+      collabExecPanelOpenBySessionRef,
+      collabExecPanelOpenRef,
+      setCollabExecPanelOpen,
+      knowledgeMapPanelOpenBySessionRef,
+      knowledgeMapPanelOpenRef,
+      setKnowledgeMapPanelOpen,
       setSubagentDockTasks,
       setThreadPanelState,
       setHasReceivedTodos,
@@ -6504,9 +6627,24 @@ export function useChatAppController() {
   boundTaskIdRef.current = boundTaskId
   threadBoundTaskIdRef.current = threadPanelState?.boundTaskId ?? null
 
+  /** 点击打开：强制预热（不受冷 hydrate 窗限流），对齐 ZCode 点开即有投影。 */
+  const warmV4OnSessionSelect = useCallback((sessionKey: string) => {
+    if (!isEvoflowChatV4Enabled()) return
+    const sk = String(sessionKey || '').trim()
+    if (!sk) return
+    const threadId = String(
+      sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)?.threadId ||
+        wsClient?.getSessionThreadId?.(sk) ||
+        '',
+    ).trim()
+    if (threadId) warmEvoflowV4Session(threadId, { force: true })
+  }, [])
+
   const selectSessionFromShellRef = useRef<(sessionKey: string) => void>(() => {})
   const selectSessionFromShell = useCallback(
     (sessionKey: string) => {
+      // 点击先于 flushSync 强制预热：KeepAlive miss 时也尽量带着快照进 host。
+      warmV4OnSessionSelect(sessionKey)
       selectSessionFromShellImpl(
         {
           sessionRef,
@@ -6521,7 +6659,12 @@ export function useChatAppController() {
         sessionKey,
       )
     },
-    [setNewChatButtonActive, setSelectedSessionKey, setMoreMenuKey],
+    [
+      setNewChatButtonActive,
+      setSelectedSessionKey,
+      setMoreMenuKey,
+      warmV4OnSessionSelect,
+    ],
   )
   selectSessionFromShellRef.current = selectSessionFromShell
 
@@ -6594,6 +6737,25 @@ export function useChatAppController() {
     },
     [selectedSessionKey],
   )
+
+  /** Alt+点击侧栏：右侧分屏打开（ZCode split 最小等价）。 */
+  const openV4SplitSession = useCallback((sessionKey: string) => {
+    if (!isEvoflowChatV4Enabled()) return
+    const sk = String(sessionKey || '').trim()
+    if (!sk || sk === String(selectedSessionKey || '').trim()) return
+    const threadId = String(
+      sessionsRef.current.find((s) => String(s.sessionKey || '').trim() === sk)?.threadId ||
+        wsClient?.getSessionThreadId?.(sk) ||
+        '',
+    ).trim()
+    if (!threadId) return
+    warmEvoflowV4Session(threadId, { force: true })
+    setV4SplitSecondary({ threadId, sessionKey: sk })
+  }, [selectedSessionKey])
+
+  const closeV4SplitSecondary = useCallback(() => {
+    setV4SplitSecondary(null)
+  }, [])
 
   useEffect(() => {
     return runShellWindowListenersEffect({
@@ -6704,6 +6866,7 @@ export function useChatAppController() {
     headerTokenTotals,
     historyError,
     historyHasMore,
+    historyBoundSessionKey,
     historyInstantPaint,
     historyLoading,
     historyLoadingOlder,
@@ -6802,6 +6965,10 @@ export function useChatAppController() {
     selectedSessionKey,
     selectedSessionLive,
     selectedThreadId,
+    v4KeepAliveHosts,
+    v4SplitSecondary,
+    openV4SplitSession,
+    closeV4SplitSecondary,
     selectedSkills,
     selectedStreamPriorTurnStrip,
     selectedTurnBusy,

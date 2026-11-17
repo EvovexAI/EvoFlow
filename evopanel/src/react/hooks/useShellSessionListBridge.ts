@@ -70,6 +70,8 @@ export type UseShellSessionListBridgeOptions = {
   loadMoreGlobalRecentSessions?: () => void | Promise<void>
   onSelectSession: (sessionKey: string) => void
   onPrefetchSession?: (sessionKey: string) => void
+  /** Alt+点击侧栏：右侧分屏打开 */
+  onOpenSplitSession?: (sessionKey: string) => void
   registeredWorkspacePaths?: string[]
   /** 已雇佣智能体员工（active），供「员工对话」Tab 展示完整花名册 */
   employeeRoles?: Array<{
@@ -116,6 +118,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onPinSession,
     onSelectSession,
     onPrefetchSession,
+    onOpenSplitSession,
     registeredWorkspacePaths,
     employeeRoles = null,
     onRefreshEmployeeRoles,
@@ -134,6 +137,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
 
   const onSelectSessionRef = useRef(onSelectSession)
   const onPrefetchSessionRef = useRef(onPrefetchSession)
+  const onOpenSplitSessionRef = useRef(onOpenSplitSession)
   const onPinSessionRef = useRef(onPinSession)
 
   const ensureWorkspaceExpandedRef = useRef(ensureWorkspaceExpanded)
@@ -225,6 +229,7 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
     onOpenWorkspaceFolderRef.current = onOpenWorkspaceFolder
     onSelectSessionRef.current = onSelectSession
     onPrefetchSessionRef.current = onPrefetchSession
+    onOpenSplitSessionRef.current = onOpenSplitSession
     onPinSessionRef.current = onPinSession
     ensureWorkspaceExpandedRef.current = ensureWorkspaceExpanded
     loadMoreWorkspaceSessionsRef.current = loadMoreWorkspaceSessions
@@ -314,6 +319,9 @@ export function useShellSessionListBridge(opts: UseShellSessionListBridgeOptions
       // (otherwise first paint without callback can permanently drop hover prefetch).
       onPrefetchSession: (key) => {
         onPrefetchSessionRef.current?.(key)
+      },
+      onOpenSplitSession: (key) => {
+        onOpenSplitSessionRef.current?.(key)
       },
       onSessionFilterChange: (value) => setSessionFilter(value),
       onMoreMenuToggle: (key) => setMoreMenuKey((cur) => (cur === key ? null : key)),

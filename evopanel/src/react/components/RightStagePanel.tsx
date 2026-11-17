@@ -46,6 +46,7 @@ import {
   useHostResolvedTheme,
 } from '@zcode/ui/useTheme.js'
 import '@/styles-bridge.css'
+import { RightStageTabActiveProvider } from '../v4/right-stage-tab-active.js'
 import {
   defaultTitleForKind,
   normalizeRightStageKind,
@@ -615,16 +616,17 @@ export const RightStagePanel = memo(function RightStagePanel({
         : renderContent?.(tab) ?? <UnknownStageKind kind={kind} />
 
       return (
-        <div
-          key={key}
-          role="tabpanel"
-          hidden={!active}
-          className={`react-chat-right-stage-body${active ? ' is-active' : ''}`}
-          data-stage-kind={kind}
-          data-stage-tab={key}
-        >
-          {body}
-        </div>
+        <RightStageTabActiveProvider key={key} active={!!active}>
+          <div
+            role="tabpanel"
+            hidden={!active}
+            className={`react-chat-right-stage-body${active ? ' is-active' : ''}`}
+            data-stage-kind={kind}
+            data-stage-tab={key}
+          >
+            {body}
+          </div>
+        </RightStageTabActiveProvider>
       )
     },
     [onCloseTab, renderContent, visibleActiveKey],

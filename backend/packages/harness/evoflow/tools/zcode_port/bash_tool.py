@@ -78,7 +78,7 @@ _BASH_CONCURRENCY = threading.Semaphore(_bash_max_concurrent())
 class _bash_concurrency_slot:
     """Process-wide cap on simultaneously running bash processes."""
 
-    def __enter__(self) -> "_bash_concurrency_slot":
+    def __enter__(self) -> _bash_concurrency_slot:
         _BASH_CONCURRENCY.acquire()
         return self
 
@@ -837,6 +837,23 @@ def _note_bash_timing(tool_call_id: str, **fields: object) -> None:
         return
 
 
+def _capture_writer():
+    """Grab the live stream writer **on the calling thread**, or ``None``.
+
+    Must be called from the thread that still owns the LangGraph contextvars —
+    ``threading.Thread`` does not inherit them, so ``capture_stream_writer()``
+    returns ``None`` inside a spawned pump thread. Capture first, pass it down.
+
+    【self-evolution-bot · 2026-11-17 · 第32轮】新增。
+    """
+    try:
+        from evoflow.tools.host_direct.terminal_stream import capture_stream_writer
+
+        return capture_stream_writer()
+    except Exception:
+        return None
+
+
 def _emit(kind: str, **kwargs: object) -> None:
     from evoflow.tools.host_direct.terminal_stream import (
         emit_background_work,
@@ -1068,13 +1085,66 @@ def _promote_warm_to_background(
         started_at_ms=started_ms,
     )
 
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】修：后台 pump 线程里的终端事件全部丢失。
+    # 为什么：_emit → capture_stream_writer() 靠 contextvar 取 writer，而 threading.Thread
+    # 不继承 contextvar（实测：主线程 True / 新线程 False），于是后台 start/stdout/exit
+    # 一条都到不了面板；同时 continue_drain 没传 on_chunk，整段后台期只有结束才出字。
+    # 做法：在**调用线程**（contextvar 还在）先抓 writer，线程内全程显式传入。
+    writer = _capture_writer()
+
     def _pump() -> None:
+        streamed = 0
+
+        def _append_output(text: str) -> None:
+            """边跑边落盘：工具返回里承诺过「Read persistedOutputPath 看中间输出」。
+
+            【self-evolution-bot · 2026-11-17 · 第33轮】加。
+            为什么：原来只在命令**结束**时 write_text 一次，所以转后台后那句
+            「To check interim output, use Read on that file path」是空头支票——
+            用户/agent 中途去读只会看到转后台前的旧片段。
+            """
+            if not text:
+                return
+            try:
+                with output_path.open("a", encoding="utf-8", errors="replace") as fh:
+                    fh.write(text)
+            except OSError:
+                pass  # 落盘失败不能影响命令本身
+
+        def _on_chunk(text: str) -> None:
+            nonlocal streamed
+            if not text:
+                return
+            streamed += len(text)
+            _emit(
+                "stdout",
+                invocation_id=stream_id,
+                tool_call_id=stream_id,
+                text=text,
+                stream_writer=writer,
+            )
+            _append_output(text)
+
         rest, code, timed_out = continue_drain(
-            session, timeout_s=max(1.0, remaining_timeout_s)
+            session,
+            timeout_s=max(1.0, remaining_timeout_s),
+            on_chunk=_on_chunk,
         )
-        if rest:
-            _emit("stdout", invocation_id=stream_id, tool_call_id=stream_id, text=rest)
-            chunks.append(rest)
+        # drain 回调可能已把整段发完；只补未发出的尾巴，避免重复行。
+        tail = (rest or "")[streamed:]
+        if tail:
+            _emit(
+                "stdout",
+                invocation_id=stream_id,
+                tool_call_id=stream_id,
+                text=tail,
+                stream_writer=writer,
+            )
+            _append_output(tail)
+        chunks.append(rest or "")
+        # 【self-evolution-bot · 2026-11-17 · 第33轮】保留这次整段重写作为**权威收尾**：
+        # 运行期已靠 _append_output 增量落盘，正常情况这里内容相同（幂等）；
+        # 若中途 append 失败，这一步仍能保证最终文件完整。
         output_path.write_text("".join(chunks), encoding="utf-8", errors="replace")
         remembered = last_cwd(session)
         if remembered:
@@ -1106,6 +1176,7 @@ def _promote_warm_to_background(
             tool_call_id=stream_id,
             exit_code=code,
             success=code == 0,
+            stream_writer=writer,
         )
         _emit(
             "background",
@@ -1115,6 +1186,7 @@ def _promote_warm_to_background(
             tool_call_id=stream_id,
             status=task.status if task.status != "stopped" else "cancelled",
             started_at_ms=started_ms,
+            stream_writer=writer,
         )
         _emit_task_notification(task)
 
@@ -1197,6 +1269,9 @@ def _run_foreground_warm(
             popen_kwargs=_popen_kwargs(),
             timeout_s=blocking_ms / 1000.0,
             kill_tree=lambda pid: _kill_process_tree(pid),
+            on_chunk=lambda text: _emit(
+                "stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=text
+            ),
         )
     except Exception:
         _unregister_active_bash(invocation)
@@ -1224,12 +1299,15 @@ def _run_foreground_warm(
             pass
         result.session.close(kill_tree=lambda pid: _kill_process_tree(pid))
         _timing(path="warm", warm_reused=warm_reused)
-        _emit(
-            "stdout",
-            invocation_id=invocation,
-            tool_call_id=tool_call_id,
-            text=result.partial,
-        )
+        # 【self-evolution-bot · 2026-11-17 · 第30轮】同上：已流式发出的部分不再重发。
+        tail = (result.partial or "")[result.streamed_chars:]
+        if tail:
+            _emit(
+                "stdout",
+                invocation_id=invocation,
+                tool_call_id=tool_call_id,
+                text=tail,
+            )
         _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=124, success=False)
         return _format_finished(
             command=command,
@@ -1250,7 +1328,11 @@ def _run_foreground_warm(
     _timing(path="warm", warm_reused=warm_reused)
     stdout = result.stdout or ""
     exit_code = result.exit_code
-    _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
+    # 【self-evolution-bot · 2026-11-17 · 第30轮】改：输出已在执行期间边读边发（on_chunk），
+    # 这里只补发还没发出去的尾巴；否则前端会看到整段重复两遍。
+    tail = stdout[result.streamed_chars:]
+    if tail:
+        _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=tail)
     _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=exit_code, success=exit_code == 0)
     return _format_finished(
         command=command,
@@ -1428,7 +1510,10 @@ def _run_background(
     )
     register_task(task)
     started_ms = int(task.started_at * 1000)
-    _emit("start", invocation_id=invocation, tool_call_id=stream_id, command=command)
+    # 【self-evolution-bot · 2026-11-17 · 第32轮】同 _promote_warm_to_background：
+    # pump 线程拿不到 contextvar，writer 必须在调用线程先抓。
+    writer = _capture_writer()
+    _emit("start", invocation_id=invocation, tool_call_id=stream_id, command=command, stream_writer=writer)
     _emit(
         "background",
         work_id=task_id,
@@ -1437,6 +1522,7 @@ def _run_background(
         tool_call_id=stream_id,
         status="running",
         started_at_ms=started_ms,
+        stream_writer=writer,
     )
 
     def _pump() -> None:
@@ -1447,14 +1533,37 @@ def _run_background(
                 _strip_pwd_marker(line, thread_id)
                 continue
             chunks.append(line)
-            _emit("stdout", invocation_id=invocation, tool_call_id=stream_id, text=line)
+            _emit(
+                "stdout",
+                invocation_id=invocation,
+                tool_call_id=stream_id,
+                text=line,
+                stream_writer=writer,
+            )
+            # 【self-evolution-bot · 2026-11-17 · 第33轮】边跑边落盘，
+            # 兑现返回文案里「Read persistedOutputPath 看中间输出」的承诺。
+            # 注意：直接写原始 line。不要传 _strip_pwd_marker(line)——它内部
+            # splitlines+join，会把行尾 \n 吃掉，逐行 append 就会把所有行粘成一行。
+            try:
+                with output_path.open("a", encoding="utf-8", errors="replace") as fh:
+                    fh.write(line)
+            except OSError:
+                pass
         code = proc.wait()
         text = _strip_pwd_marker("".join(chunks), thread_id)
+        # 权威收尾重写（正常情况下与增量 append 的内容一致）。
         output_path.write_text(text, encoding="utf-8", errors="replace")
         # TaskStop may have already marked cancelled.
         if task.status == "running":
             mark(task, status="completed" if code == 0 else "failed", exit_code=code)
-        _emit("exit", invocation_id=invocation, tool_call_id=stream_id, exit_code=code, success=code == 0)
+        _emit(
+            "exit",
+            invocation_id=invocation,
+            tool_call_id=stream_id,
+            exit_code=code,
+            success=code == 0,
+            stream_writer=writer,
+        )
         _emit(
             "background",
             work_id=task_id,
@@ -1463,6 +1572,7 @@ def _run_background(
             tool_call_id=stream_id,
             status=task.status if task.status != "stopped" else "cancelled",
             started_at_ms=started_ms,
+            stream_writer=writer,
         )
         _emit_task_notification(task)
 

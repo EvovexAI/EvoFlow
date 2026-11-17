@@ -360,6 +360,9 @@ export const ChatComposer = memo(function ChatComposer({
   const voiceHoldStartedAtRef = useRef(0)
   const savedDraftBeforeVoiceRef = useRef('')
   const appliedDraftVersionRef = useRef(draftVersion)
+  const pendingFilesBySessionRef = useRef(new Map<string, File[]>())
+  const pendingFilesRef = useRef<File[]>([])
+  const draftSessionKeyRef = useRef(String(sessionKey || '').trim())
   const enhanceAnchorRafRef = useRef(0)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceBusy, setVoiceBusy] = useState(false)
@@ -398,13 +401,29 @@ export const ChatComposer = memo(function ChatComposer({
     return () => unsub()
   }, [])
 
+  pendingFilesRef.current = pendingFiles
+
   useLayoutEffect(() => {
+    const nextSk = String(sessionKey || '').trim()
+    const prevSk = draftSessionKeyRef.current
+    // 切会话：先把上一会话未发附件存进 Map，再恢复目标会话（对齐 ZCode pane-local）。
+    if (prevSk !== nextSk) {
+      if (prevSk) {
+        const files = pendingFilesRef.current
+        if (files.length) pendingFilesBySessionRef.current.set(prevSk, files)
+        else pendingFilesBySessionRef.current.delete(prevSk)
+      }
+      draftSessionKeyRef.current = nextSk
+      setPendingFiles(
+        nextSk ? pendingFilesBySessionRef.current.get(nextSk) || [] : [],
+      )
+    }
     if (appliedDraftVersionRef.current === draftVersion) return
     appliedDraftVersionRef.current = draftVersion
     setText(initialDraft)
     setCursor(initialDraft.length)
     setPendingContextBoost(0)
-  }, [draftVersion, initialDraft])
+  }, [draftVersion, initialDraft, sessionKey])
 
   useEffect(() => {
     if (attachedContextFileCount > 0) setPendingContextBoost(0)

@@ -2491,6 +2491,14 @@ export function maybeSlimReadToolOutputForUi(target) {
 const _FULL_INLINE_TOOL_OUTPUT_NAMES = new Set([
   'list_agents',
   'list_assignable_tools',
+  // 【self-evolution-bot · 2026-11-17 · 第35轮】用户报「代码索引下拉之后什么也没显示」。
+  // 根因不在渲染器：本函数末尾有「所有工具：主页面不内联大段正文」这条兜底，
+  // 凡多行或 >160 字符的输出一律 return ''。而 search_code_index 的产出是
+  // Symbols / Content / Imports / Read catalog 的多段报告，必然多行 →
+  // 被剥成空串 → ToolCallList 里 `outputJson && !running` 不成立 →
+  // 行内展开体整个不渲染。表现就是「能点开，但展开是空的」。
+  // 实测该报告 1~4KB，远低于 _UI_TOOL_OUTPUT_MAX(12000)，不需要落盘。
+  'search_code_index',
 ])
 
 /** MediaToolResponse JSON blob (media_* tools). */

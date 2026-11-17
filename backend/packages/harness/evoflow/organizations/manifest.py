@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 _MANIFEST_NAME = "evoflow.organization.json"
 _ID_RE = re.compile(r"^[a-z][a-z0-9-]{1,63}$")
-_KIND = frozenset({"team", "pipeline", "full"})
+_KIND = frozenset({"team", "pipeline", "full", "extensions"})
 
 
 class PackManifestError(ValueError):

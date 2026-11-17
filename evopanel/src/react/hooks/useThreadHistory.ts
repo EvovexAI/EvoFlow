@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
 import { buildTranscriptResumeAnchorFromRawMessages, buildTranscriptResumeAnchorFromDisplayRows } from '../../lib/transcript-resume-anchor.js'
 import { buildHistoryViewFromRaw } from '../lib/chatHistoryView.js'
@@ -460,9 +460,13 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
       setHistoryInstantPaint(true)
       return
     }
-    setRows([])
-    setTokenTotals(null)
-    setRestoredScenarioScene(null)
+    // V4：切会话不砸空 host rows（localHasRows 已靠 historyBoundSessionKey 门控）。
+    // 对齐 ZCode 投影常驻——AG-UI 行只做副作用，不必随切换闪空。
+    if (!isEvoflowChatV4Enabled()) {
+      setRows([])
+      setTokenTotals(null)
+      setRestoredScenarioScene(null)
+    }
     // V4 主对话自管上屏：旧 /messages 只做后台对账，不要把 loading 拉成全屏转圈
     setLoading(!isEvoflowChatV4Enabled())
   }, [sessionKey])
@@ -544,7 +548,9 @@ export function useThreadHistory(sessionKey: string | null, liveOpts: ThreadHist
           rowsRef.current.length > 0
         const preserveRows =
           soft || liveRowsOnHot || liveSendRows || sameSessionContent || paintedFromIdleCacheRef.current || paintedFromKnownEmptyRef.current
-        if (!preserveRows) {
+        // V4 主路径不依赖 host rows；切会话清空会让 localHasRows 抖动、误伤 draft/乐观判定。
+        // 对齐 ZCode：投影层常驻，host AG-UI 行不必随切换砸空。
+        if (!preserveRows && !isEvoflowChatV4Enabled()) {
           setRows([])
           setTokenTotals(null)
           setRestoredScenarioScene(null)

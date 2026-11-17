@@ -104,7 +104,13 @@ const EMPTY_PENDING_GUIDES: readonly QueueItem[] = [];
 const ROW_OVERSCAN = 8;
 const RUNNING_WORK_DURATION_TICK_MS = 1000;
 const COMPOSER_MESSAGE_MASK_FADE_PX = 24;
+/** sticky bottomDock 叠在滚动视口内时，为 composer 预留的透明高度。 */
 const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX = 96;
+/**
+ * EvoFlow 单栏把 composer 挂在 HostStack 外稳定槽时没有 sticky 叠层，
+ * 只需很短的底边淡出；再用 96px 会在输入框上方留出一大块「空白阴影」。
+ */
+const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_EXTERNAL_PX = 20;
 const USER_SCROLL_INTENT_TTL_MS = 1200;
 const LAYOUT_SCROLL_GUARD_MS = 250;
 const CONTENT_WIDTH_RESIZE_SETTLE_MS = 120;
@@ -240,13 +246,18 @@ class ConversationScrollMemoryScopeCapture extends Component<
   }
 }
 
-/** tanstack 默认测量的竖向复刻：优先 ResizeObserver entry（不触发同步布局）。 */
+/**
+ * tanstack 竖向测高。RO borderBox 在 transform/显隐抖动时可能偏成 ≈72（估高），
+ * 而 getBoundingClientRect 仍是正文真实高度——两者取较大正值，避免把 virtualizer
+ * 间距锁死成 DEFAULT_ROW_HEIGHT_ESTIMATE_PX（叠字 / !EST72）。
+ */
 function measureRowHeight(element: Element, entry: ResizeObserverEntry | undefined): number {
+  const rectH = Math.round(element.getBoundingClientRect().height);
   const boxSize = entry?.borderBoxSize?.[0];
-  if (boxSize) {
-    return Math.round(boxSize.blockSize);
-  }
-  return Math.round(element.getBoundingClientRect().height);
+  const entryH = boxSize ? Math.round(boxSize.blockSize) : 0;
+  if (entryH > 0 && rectH > 0) return Math.max(entryH, rectH);
+  if (entryH > 0) return entryH;
+  return rectH;
 }
 
 function getUnitHeightCacheKey(unit: ConversationTurnRenderUnit | undefined): string | undefined {
@@ -351,6 +362,11 @@ interface ConversationTimelineProps {
   };
   /** 分享选择流程存在时，左侧 rail 由分享面板或 reopen 按钮独占。 */
   hideTurnNavigator?: boolean;
+  /**
+   * KeepAlive 宿主是否处于布局可见（非 display:none / 非 inert 隐藏层）。
+   * false→true 时强制 virtualizer.measure()，消化隐藏期可能写入的坏测高。
+   */
+  layoutActive?: boolean;
 }
 
 /**
@@ -399,6 +415,7 @@ function ConversationTimelineImpl({
   selectionActions,
   shareSelection,
   hideTurnNavigator = false,
+  layoutActive = true,
 }: ConversationTimelineProps) {
   const { intl } = useZCodeIntl();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -778,17 +795,46 @@ function ConversationTimelineImpl({
       ) ?? DEFAULT_ROW_HEIGHT_ESTIMATE_PX,
     [],
   );
+  const layoutActiveRef = useRef(layoutActive);
+  layoutActiveRef.current = layoutActive;
+
+  // KeepAlive 切回可见后短暂窗口：宁可信更大几何，也不吃 ≈72 的毒测高。
+  const remountMeasureGuardUntilRef = useRef(0);
   // 动态测高：virtualizer 对窗口内元素挂 ResizeObserver，流式行长高即回调此处；
   // 同时把真实高度写入稳定的 turnId 缓存。
+  // visibility:hidden 时几何仍有效（CDP 实证：正文高 1324 但间距锁 72）。
+  // 隐藏期只拒绝 0，绝不把有效测高丢弃成 DEFAULT 72。
   const measureElement = useCallback((element: Element, entry: ResizeObserverEntry | undefined) => {
-    const height = measureRowHeight(element, entry);
     const indexAttr = element.getAttribute("data-index");
     const unit = indexAttr === null ? undefined : virtualizedUnitsRef.current[Number(indexAttr)];
     const cacheKey = getUnitHeightCacheKey(unit);
-    if (cacheKey !== undefined) {
-      heightCacheRef.current?.set(cacheKey, height);
+    const cached =
+      cacheKey !== undefined ? heightCacheRef.current?.get(cacheKey) : undefined;
+
+    const height = measureRowHeight(element, entry);
+    if (height <= 0) {
+      // 仅 0/不可用时回落缓存或估高（display:none 残留路径）。
+      if (cached && cached > 0) return cached;
+      return (
+        heightCacheRef.current?.estimate(
+          cacheKey,
+          DEFAULT_ROW_HEIGHT_ESTIMATE_PX,
+        ) ?? DEFAULT_ROW_HEIGHT_ESTIMATE_PX
+      );
     }
-    return height;
+    // 毒测高：≈72 且远小于已有真实缓存——永远信缓存（不限显隐窗口）。
+    // 浮层实证：可见滚动时也会 gap→72 而 DOM h=383。
+    const looksLikeEstimate =
+      height <= DEFAULT_ROW_HEIGHT_ESTIMATE_PX + 8 &&
+      !!cached &&
+      cached > DEFAULT_ROW_HEIGHT_ESTIMATE_PX * 2 &&
+      height < cached * 0.5;
+    const resolved = looksLikeEstimate && cached ? cached : height;
+
+    if (cacheKey !== undefined) {
+      heightCacheRef.current?.set(cacheKey, resolved);
+    }
+    return resolved;
   }, []);
 
   const virtualizer = useVirtualizer({
@@ -803,6 +849,83 @@ function ConversationTimelineImpl({
     // 渲染窗口整体偏移一个 header 高度，用户滚到的区域会是空白。
     scrollMargin: headerSlotHeight,
   });
+  const prevLayoutActiveRef = useRef(layoutActive);
+  useLayoutEffect(() => {
+    const wasActive = prevLayoutActiveRef.current;
+    prevLayoutActiveRef.current = layoutActive;
+    if (!wasActive && layoutActive) {
+      // 切回可见：以 DOM 真实高度 heal（缓存可能已是 72），不要盲 measure() 先。
+      remountMeasureGuardUntilRef.current = performance.now() + 400;
+      const cache = heightCacheRef.current;
+      const units = virtualizedUnitsRef.current;
+      const root = scrollRef.current;
+      const domHeights = new Map<number, number>();
+      if (root) {
+        root.querySelectorAll("[data-v4-turn-unit][data-index]").forEach((node) => {
+          const idx = Number((node as HTMLElement).getAttribute("data-index"));
+          if (!Number.isFinite(idx)) return;
+          const h = Math.round((node as HTMLElement).getBoundingClientRect().height);
+          if (h > DEFAULT_ROW_HEIGHT_ESTIMATE_PX) domHeights.set(idx, h);
+        });
+      }
+      for (let i = 0; i < units.length; i++) {
+        const key = getUnitHeightCacheKey(units[i]);
+        const dom = domHeights.get(i);
+        const cached = key !== undefined ? cache?.get(key) : undefined;
+        const size = Math.max(dom ?? 0, cached ?? 0);
+        if (size > DEFAULT_ROW_HEIGHT_ESTIMATE_PX) {
+          if (key !== undefined) cache?.set(key, size);
+          virtualizer.resizeItem(i, size);
+        }
+      }
+      let cancelled = false;
+      let raf2 = 0;
+      const raf1 = window.requestAnimationFrame(() => {
+        raf2 = window.requestAnimationFrame(() => {
+          if (cancelled) return;
+          // measureElement 已防 72 毒写；此时再同步一次挂载行。
+          virtualizer.measure();
+        });
+      });
+      return () => {
+        cancelled = true;
+        window.cancelAnimationFrame(raf1);
+        if (raf2) window.cancelAnimationFrame(raf2);
+      };
+    }
+    return undefined;
+  }, [layoutActive, virtualizer]);
+
+  // 可见态持续 heal：浮层已实证「DOM h=383 但 gap→72」——virtualizer 仍信估高，
+  // 仅靠 RO/切会话 heal 不够。挂载行若 rect 明显大于当前 size，强制 resizeItem。
+  const healMountedTurnHeights = useCallback(() => {
+    if (!layoutActiveRef.current) return 0;
+    const root = scrollRef.current;
+    if (!root) return 0;
+    const cache = heightCacheRef.current;
+    const units = virtualizedUnitsRef.current;
+    const virtualItems = virtualizer.getVirtualItems();
+    const sizeByIndex = new Map<number, number>();
+    for (const item of virtualItems) sizeByIndex.set(item.index, item.size);
+    let fixed = 0;
+    root.querySelectorAll("[data-v4-turn-unit][data-index]").forEach((node) => {
+      const el = node as HTMLElement;
+      // live tail 不在 virtualizer 测高账本里，跳过。
+      if (el.getAttribute("data-v4-running-live-tail") === "true") return;
+      const idx = Number(el.getAttribute("data-index"));
+      if (!Number.isFinite(idx) || idx < 0 || idx >= units.length) return;
+      const domH = Math.round(el.getBoundingClientRect().height);
+      if (domH <= DEFAULT_ROW_HEIGHT_ESTIMATE_PX) return;
+      const current = sizeByIndex.get(idx) ?? 0;
+      if (domH <= current + 24) return;
+      const key = getUnitHeightCacheKey(units[idx]);
+      if (key !== undefined) cache?.set(key, domH);
+      virtualizer.resizeItem(idx, domH);
+      fixed += 1;
+    });
+    return fixed;
+  }, [virtualizer]);
+
   virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item) => {
     const adjust = shouldAdjustVirtualizerForItemSizeChange({
       suppressAdjustment: suppressVirtualizerAdjustmentDuringRestoreRef.current,
@@ -841,6 +964,46 @@ function ConversationTimelineImpl({
       ].join(":"),
     [liveUnit, virtualRows],
   );
+
+  useLayoutEffect(() => {
+    if (!layoutActive) return;
+    healMountedTurnHeights();
+    let raf2 = 0;
+    const raf1 = window.requestAnimationFrame(() => {
+      healMountedTurnHeights();
+      raf2 = window.requestAnimationFrame(() => {
+        healMountedTurnHeights();
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(raf1);
+      if (raf2) window.cancelAnimationFrame(raf2);
+    };
+  }, [layoutActive, mountedRowsKey, totalSize, healMountedTurnHeights]);
+
+  useEffect(() => {
+    if (!layoutActive) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    let raf = 0;
+    const onScroll = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        healMountedTurnHeights();
+      });
+    };
+    el.addEventListener("scroll", onScroll, { passive: true });
+    const timer = window.setInterval(() => {
+      healMountedTurnHeights();
+    }, 1000);
+    return () => {
+      el.removeEventListener("scroll", onScroll);
+      if (raf) window.cancelAnimationFrame(raf);
+      window.clearInterval(timer);
+    };
+  }, [layoutActive, healMountedTurnHeights, sessionKey]);
+
 
   const markProgrammaticScroll = useCallback(() => {
     if (programmaticScrollFrameRef.current !== null) {
@@ -948,42 +1111,51 @@ function ConversationTimelineImpl({
     }
   }, []);
 
-  const syncMessageLayerMask = useCallback((element: HTMLDivElement) => {
-    const messageLayer = messageLayerRef.current;
-    if (!messageLayer) return;
+  const syncMessageLayerMask = useCallback(
+    (element: HTMLDivElement) => {
+      const messageLayer = messageLayerRef.current;
+      if (!messageLayer) return;
 
-    if (
-      isAtBottom({
-        scrollTop: element.scrollTop,
-        viewportHeight: element.clientHeight,
-        contentHeight: element.scrollHeight,
-      })
-    ) {
-      // 贴底时消息已经位于正常文档流末尾，不会经过 sticky composer；
-      // 继续保留 mask 会无意义地淡出最后一条消息，只有离底滚动时才需要遮罩。
-      messageLayer.style.maskImage = "none";
-      messageLayer.style.webkitMaskImage = "none";
-      return;
-    }
+      if (
+        isAtBottom({
+          scrollTop: element.scrollTop,
+          viewportHeight: element.clientHeight,
+          contentHeight: element.scrollHeight,
+        })
+      ) {
+        // 贴底时消息已经位于正常文档流末尾，不会经过 sticky composer；
+        // 继续保留 mask 会无意义地淡出最后一条消息，只有离底滚动时才需要遮罩。
+        messageLayer.style.maskImage = "none";
+        messageLayer.style.webkitMaskImage = "none";
+        return;
+      }
 
-    const viewportHeight = element.clientHeight;
-    const transparentStart = Math.max(
-      0,
-      viewportHeight - COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX,
-    );
-    const opaqueEnd = Math.max(0, transparentStart - COMPOSER_MESSAGE_MASK_FADE_PX);
-    const viewportTopInLayer = Math.max(0, element.scrollTop - messageLayer.offsetTop);
-    const maskImage = `linear-gradient(to bottom, black 0, black ${opaqueEnd}px, transparent ${transparentStart}px, transparent 100%)`;
+      // 有 sticky bottomDock：按 composer 高度留透明带；无 dock（EvoFlow 外置稳定槽）
+      // 只留很短底边淡出，避免输入框上方一大块空白阴影。
+      const transparentHeightPx = bottomDock
+        ? COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX
+        : COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_EXTERNAL_PX;
+      const fadePx = bottomDock
+        ? COMPOSER_MESSAGE_MASK_FADE_PX
+        : Math.min(COMPOSER_MESSAGE_MASK_FADE_PX, 12);
 
-    // dock 的透明 padding 能保留分屏 focus ring，但消息会从留白透出；
-    // mask 必须随 scroll viewport 对齐且只裁消息层，不能裁掉 sticky composer 与按钮。
-    messageLayer.style.maskImage = maskImage;
-    messageLayer.style.webkitMaskImage = maskImage;
-    messageLayer.style.maskPosition = `0 ${viewportTopInLayer}px`;
-    messageLayer.style.webkitMaskPosition = `0 ${viewportTopInLayer}px`;
-    messageLayer.style.maskSize = `100% ${viewportHeight}px`;
-    messageLayer.style.webkitMaskSize = `100% ${viewportHeight}px`;
-  }, []);
+      const viewportHeight = element.clientHeight;
+      const transparentStart = Math.max(0, viewportHeight - transparentHeightPx);
+      const opaqueEnd = Math.max(0, transparentStart - fadePx);
+      const viewportTopInLayer = Math.max(0, element.scrollTop - messageLayer.offsetTop);
+      const maskImage = `linear-gradient(to bottom, black 0, black ${opaqueEnd}px, transparent ${transparentStart}px, transparent 100%)`;
+
+      // dock 的透明 padding 能保留分屏 focus ring，但消息会从留白透出；
+      // mask 必须随 scroll viewport 对齐且只裁消息层，不能裁掉 sticky composer 与按钮。
+      messageLayer.style.maskImage = maskImage;
+      messageLayer.style.webkitMaskImage = maskImage;
+      messageLayer.style.maskPosition = `0 ${viewportTopInLayer}px`;
+      messageLayer.style.webkitMaskPosition = `0 ${viewportTopInLayer}px`;
+      messageLayer.style.maskSize = `100% ${viewportHeight}px`;
+      messageLayer.style.webkitMaskSize = `100% ${viewportHeight}px`;
+    },
+    [bottomDock],
+  );
 
   const syncTurnNavigatorViewport = useCallback(
     (element: HTMLDivElement) => {
@@ -2012,7 +2184,9 @@ function ConversationTimelineImpl({
                   ? "mt-3 shrink-0"
                   : centeredEmptyLayout
                     ? "shrink-0"
-                    : "sticky bottom-0",
+                    : // mt-auto：内容被估高压短时仍把 dock 推到 min-h-full 底部，
+                      // 避免 sticky 落在短文档流末尾 → 输入框「飘到最上」。
+                      "mt-auto sticky bottom-0",
               )}
             >
               <div

@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { V4StreamRowsBridge, type V4TimelinePayload } from "./V4StreamRowsBridge.js";
 import { V4ZCodeTimeline } from "./V4ZCodeTimeline.js";
+import { useRightStageTabActive } from "./right-stage-tab-active.js";
 import {
   openRightStageForCodeViewerSource,
   showRightStageFromFileLink,
@@ -55,6 +56,11 @@ export type V4SessionPaneBridgeProps = {
    * 主聊传 selectedTurnBusy，小V/员工侧栏应传同一套 turnBusy。
    */
   sessionBusy?: boolean;
+  /**
+   * 是否前台。缺省：右栏签内跟签 active；签外 true。
+   * 失活 forceMount 签不得抢 V4 focus/authority（对齐 ZCode focused=false）。
+   */
+  foreground?: boolean;
 };
 
 export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.Element {
@@ -72,10 +78,18 @@ export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.
     optimisticUserText = null,
     onToolApproval,
     sessionBusy = false,
+    foreground: foregroundProp,
   } = props;
   const enabled = Boolean(sessionId);
   const sk = String(sessionKey || "").trim() || undefined;
   const evoSk = String(evoflowSessionKey || sessionKey || "").trim() || undefined;
+  const tabActive = useRightStageTabActive();
+  const foreground =
+    typeof foregroundProp === "boolean"
+      ? foregroundProp
+      : tabActive == null
+        ? true
+        : tabActive;
 
   const [resolvedWorkspacePath, setResolvedWorkspacePath] = useState(() =>
     resolveTimelineWorkspacePath({
@@ -132,7 +146,11 @@ export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.
   );
 
   return (
-    <V4StreamRowsBridge enabled={enabled} sessionId={sessionId}>
+    <V4StreamRowsBridge
+      enabled={enabled}
+      sessionId={sessionId}
+      foreground={foreground}
+    >
       {(payload: V4TimelinePayload | null, phase) => {
         const v4RowCount = payload?.snapshot?.rows.totalCount ?? 0;
         const isDraft =
@@ -141,26 +159,32 @@ export function V4SessionPaneBridge(props: V4SessionPaneBridgeProps): React.JSX.
             : typeof localMsgCount === "number"
               ? localMsgCount === 0 && phase === "ready" && v4RowCount === 0
               : false;
+        const windowRows = payload?.snapshot?.rows?.window?.length ?? 0;
+        // 对齐主聊 / ZCode：有窗口行就不标 connecting；无行时 connecting|no-thread 才加载。
+        // 勿用「!payload && !isDraft」单独成立——ready 瞬间 payload 空一帧会误闪加载。
         const phaseConnecting =
-          phase === "connecting" ||
-          phase === "no-thread" ||
-          (!sessionId && (localMsgCount ?? 0) > 0);
+          !isDraft &&
+          windowRows === 0 &&
+          (phase === "connecting" ||
+            phase === "no-thread" ||
+            (!sessionId && (localMsgCount ?? 0) > 0));
         return (
           <V4ZCodeTimeline
             payload={payload}
-            connecting={Boolean(connecting) || phaseConnecting || (!payload && !isDraft)}
+            connecting={Boolean(connecting) || phaseConnecting}
             draftEmpty={isDraft}
             evoflowSessionKey={evoSk}
             embedded={embedded}
             surface={surface}
-            optimisticUserText={optimisticUserText}
-            bottomDock={bottomDock}
+            focused={foreground}
+            optimisticUserText={foreground ? optimisticUserText : null}
+            bottomDock={foreground ? bottomDock : undefined}
             workspacePath={resolvedWorkspacePath || undefined}
-            onToolApproval={onToolApproval}
+            onToolApproval={foreground ? onToolApproval : undefined}
             sessionBusy={sessionBusy}
-            onOpenFileLink={onOpenFileLink}
-            onOpenCodeViewer={onOpenCodeViewer}
-            onOpenBrowserUrl={onOpenBrowserUrl}
+            onOpenFileLink={foreground ? onOpenFileLink : undefined}
+            onOpenCodeViewer={foreground ? onOpenCodeViewer : undefined}
+            onOpenBrowserUrl={foreground ? onOpenBrowserUrl : undefined}
           />
         );
       }}

@@ -993,7 +993,9 @@ class ProactiveRunner:
         if employee_via_automation_enabled():
             due_roles: list[ProactiveRole] = []
         else:
-            due_roles = ProactiveRepository.list_due_roles(now)
+            # Worker thread can wait on the process DB lock; asyncio thread
+            # fails fast at 0.5s and would abort the whole tick.
+            due_roles = await asyncio.to_thread(ProactiveRepository.list_due_roles, now)
 
         overloaded, lag = self._gateway_dispatch_overloaded()
         if overloaded:
@@ -1080,17 +1082,40 @@ class ProactiveRunner:
                 "、".join(f"{(r.role_name or r.agent_code)}({r.agent_code})" for r in queued),
             )
 
-        # 3. Recover initiatives stuck in pending_approval without an Approval row
-        recovered = await self._recover_orphaned_pending_approvals()
-
-        # 4. Reap stale executing initiatives (TTL cleanup for zombie records)
-        stale_executing = await self._recover_stale_executing()
-
-        # 4b. Board task zombies: executing@100 / stale awaiting_close (at most hourly)
-        board_reclaimed = await self._maybe_reclaim_board_zombies()
-
-        # 5. Check approval timeouts
-        timed_out = await self._gate.check_timeouts()
+        # 3–5. DB-heavy recoveries — isolate lock contention so one miss
+        # does not abort the whole tick (and spam "tick error").
+        recovered = 0
+        stale_executing = 0
+        board_reclaimed = 0
+        timed_out: list[Any] = []
+        try:
+            recovered = await self._recover_orphaned_pending_approvals()
+        except Exception:
+            logger.warning(
+                "proactive.runner: recover orphaned approvals skipped",
+                exc_info=True,
+            )
+        try:
+            stale_executing = await self._recover_stale_executing()
+        except Exception:
+            logger.warning(
+                "proactive.runner: reap stale executing skipped",
+                exc_info=True,
+            )
+        try:
+            board_reclaimed = await self._maybe_reclaim_board_zombies()
+        except Exception:
+            logger.warning(
+                "proactive.runner: board zombie reclaim skipped",
+                exc_info=True,
+            )
+        try:
+            timed_out = await self._gate.check_timeouts()
+        except Exception:
+            logger.warning(
+                "proactive.runner: approval timeout check skipped",
+                exc_info=True,
+            )
 
         # 6. O4.2: anomaly alerts (Feishu + desktop)
         # (git HEAD poll removed — do not auto-steer every role into code review)
@@ -1285,6 +1310,9 @@ class ProactiveRunner:
         resume_round: bool = False,
         fresh_round: bool = False,
         skip_done_guard: bool = False,
+        # 【self-evolution-bot · 2026-11-17 · 第28轮】排队也必须记住「回哪一屏」，
+        # 否则岗位忙的时候叫醒，等空闲后 drain 出来又落到 task 桶 —— 用户还是续不上。
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Queue a wake for after the current in-flight round (no new Task minted here)."""
         code = str(agent_code or "").strip()
@@ -1301,6 +1329,8 @@ class ProactiveRunner:
             "resume_round": bool(resume_round),
             "fresh_round": bool(fresh_round),
             "skip_done_guard": bool(skip_done_guard),
+            # 【第28轮】排队条目携带会话键，drain 时原样回投
+            "pinned_session_key": str(pinned_session_key or "").strip(),
         }
         async with self._wake_queue_guard:
             q = self._wake_queue.setdefault(code, [])
@@ -1370,6 +1400,8 @@ class ProactiveRunner:
                 resume_round=bool(entry.get("resume_round")),
                 fresh_round=bool(entry.get("fresh_round")),
                 skip_done_guard=bool(entry.get("skip_done_guard")),
+                # 【第28轮】drain 时把排队条目里的会话键原样带回去
+                pinned_session_key=str(entry.get("pinned_session_key") or ""),
             )
         except Exception:
             logger.exception("proactive.wake_queue.drain failed role=%s", code)
@@ -1900,13 +1932,11 @@ class ProactiveRunner:
 
                 pinned_round = duty_round_id
 
-                from evoflow.proactive.chat_session import resolve_work_session_key
-                from evoflow.proactive.duty_runs import update_duty_run
-
                 # 【fullstack-dev · 2026-11-15 · 第17轮】调用方钉了真人会话键 → 本轮所有
                 # 记账（duty_run.session_key / 通知跳转）都跟着指向那一屏，别再写 duty 桶；
                 # 否则 engine 实际落在 chat 会话、duty_run 却指向不存在的值班会话，面板「工作轨迹」对不上。
-                from evoflow.proactive.chat_session import normalize_pinned_session_key
+                from evoflow.proactive.chat_session import normalize_pinned_session_key, resolve_work_session_key
+                from evoflow.proactive.duty_runs import update_duty_run
 
                 pinned_session = normalize_pinned_session_key(code, pinned_session_key)
                 duty_session_key = pinned_session or resolve_work_session_key(
@@ -2440,14 +2470,20 @@ class ProactiveRunner:
         zombies as FAILED with a clear explanation so they leave the open-items
         list and stop misleading the agent.
         """
-        stale = ProactiveRepository.list_stale_executing(max_age_minutes=max_age_minutes)
+        stale = await asyncio.to_thread(
+            ProactiveRepository.list_stale_executing,
+            max_age_minutes=max_age_minutes,
+        )
         reaped = 0
         for init in stale:
             try:
-                ProactiveRepository.update_initiative_status(
+                await asyncio.to_thread(
+                    ProactiveRepository.update_initiative_status,
                     init.id,
                     InitiativeStatus.FAILED,
-                    execution_result=(f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"),
+                    execution_result=(
+                        f"执行超时（>{max_age_minutes}min 未收尾），已被 runner 自动标记为失败。"
+                    ),
                 )
                 reaped += 1
                 logger.info(
@@ -2518,7 +2554,8 @@ class ProactiveRunner:
           each call generates a fresh approval id, two racing calls would both
           succeed and produce two rows — hence the per-initiative guard here.
         """
-        orphans = ProactiveRepository.list_initiatives(
+        orphans = await asyncio.to_thread(
+            ProactiveRepository.list_initiatives,
             status=InitiativeStatus.PENDING_APPROVAL.value,
             limit=50,
         )
@@ -2528,12 +2565,16 @@ class ProactiveRunner:
             if not init_id:
                 continue
 
-            # Quick pre-check without lock (filter obvious non-orphans first)
-            appr = ProactiveRepository.get_approval_by_initiative(init.id)
+            # Quick pre-check (filter obvious non-orphans first)
+            appr = await asyncio.to_thread(
+                ProactiveRepository.get_approval_by_initiative, init.id
+            )
             if appr is None and str(init.id or "").startswith("task:"):
                 tid = str(init.id)[5:].strip()
                 if tid:
-                    appr = ProactiveRepository.get_approval_by_task(tid)
+                    appr = await asyncio.to_thread(
+                        ProactiveRepository.get_approval_by_task, tid
+                    )
 
             if appr is None:
                 # In-process dedup: skip if another coroutine is already
@@ -2547,10 +2588,14 @@ class ProactiveRunner:
                     # Double-check after acquiring the recovery slot — another
                     # coroutine may have created the approval between our
                     # earlier read and us claiming the slot.
-                    appr2 = ProactiveRepository.get_approval_by_initiative(init.id)
+                    appr2 = await asyncio.to_thread(
+                        ProactiveRepository.get_approval_by_initiative, init.id
+                    )
                     if appr2 is not None:
                         continue
-                    role = ProactiveRepository.get_role(init.role_agent_code)
+                    role = await asyncio.to_thread(
+                        ProactiveRepository.get_role, init.role_agent_code
+                    )
                     if not role:
                         continue
                     try:
@@ -2580,7 +2625,7 @@ class ProactiveRunner:
             else:
                 init.status = InitiativeStatus.REJECTED
             init.approval_id = appr.id
-            ProactiveRepository.save_initiative(init)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, init)
             recovered += 1
             logger.info(
                 "proactive.runner: reconciled stuck pending_approval initiative=%s approval=%s → %s",
@@ -3300,6 +3345,8 @@ class ProactiveRunner:
                         resume_round=bool(resume_round),
                         fresh_round=bool(fresh_round),
                         skip_done_guard=bool(skip_done_guard),
+                        # 【第28轮】排队分支同样要带会话键
+                        pinned_session_key=str(pinned_session_key or ""),
                     )
                 logger.info(
                     "proactive.dispatch.interrupt role=%s related=%s goal=%s cancel=%s",
@@ -3321,6 +3368,8 @@ class ProactiveRunner:
                     resume_round=bool(resume_round),
                     fresh_round=bool(fresh_round),
                     skip_done_guard=bool(skip_done_guard),
+                    # 【第28轮】排队分支同样要带会话键
+                    pinned_session_key=str(pinned_session_key or ""),
                 )
 
         # Resolve the duty round id ONCE here and hand the same value to the
@@ -3358,6 +3407,11 @@ class ProactiveRunner:
                 skip_done_guard=bool(skip_done_guard),
                 resolved_round_id=preview_round,
                 resolved_resumed=bool(resumed),
+                # 【self-evolution-bot · 2026-11-17 · 第28轮】最后一米：原来这里漏传，
+                # 于是 fire_and_forget 收到的 pinned_session_key 在进 _dispatch_task_bg
+                # 之前就被丢掉，wake 永远落到 task/duty 桶 —— 实测 CLI 带
+                # --session-key 仍新开 thread（proactive:{code}:task:{tid}）。
+                pinned_session_key=str(pinned_session_key or ""),
             )
         )
         self._bg_tasks.add(task)

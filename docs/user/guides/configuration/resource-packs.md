@@ -12,7 +12,7 @@
 | 分区 | 路径 | 做什么 |
 |------|------|--------|
 | **获取资源** | `#/settings?tab=resources`（或 `&panel=market`） | 从市场一键安装，或导入本地 zip / 文件夹；浏览 GitHub catalog |
-| **已装资源** | `#/settings?tab=resources&panel=installed` | 已装资源包实例、卸载 |
+| **已装资源** | `#/settings?tab=resources&panel=installed` | 已装资源包实例、卸载；有新版本时一键升级 |
 | **打包分享** | `#/settings?tab=resources&panel=mine` | 勾选本机资源，打包导出给他人 |
 
 旧链接 `#/settings?tab=my-resources` / `resource-market` 会自动落到「资源中心」。
@@ -146,7 +146,19 @@
 4. 得到与安装同结构的目录 / zip，可发给别人、发到本机内网市场，或 PR 上架公网市场。
 
 CLI：`evoflow org export --employees a,b --apps app_xxx -o ./my-pack --zip`  
-市场：`evoflow org market install packs/foo`（或带 `zip_url`）
+市场：`evoflow org market install packs/foo`（或带 `zip_url`）  
+已有目录发布：`evoflow org publish-local <pack目录>`  
+
+### 包目录 vs 运行态（防漂移）
+
+Showcase / monorepo 包常见模式：扩展与技能 `link` 指回目录（改源码即生效），但 **Agent SOUL / 员工 JSON 在安装时拷进运行库**。包升级后若未重装，就会出现「包里一套、面板里另一套」。
+
+- **权威**：仓库里的资源包目录（`evoflow.organization.json` + agents/employees…）  
+- **核对**：`evoflow org drift <pack目录>`  
+- **对齐**：`evoflow org sync <pack目录>`（等价于 `install --conflict replace`，用包覆盖运行态配置；不打包聊天/记忆）  
+- **内网分享**：直接 `publish-local` 该目录，不必再从面板勾选反导出  
+
+遗留的旧员工文件（如已退役的 `*.SOUL.md`）不会自动删除运行态旧实例；sync/replace 以当前 manifest 为准，旧 org instance 可在「已装资源」卸载。
 
 ---
 
@@ -161,6 +173,53 @@ CLI：`evoflow org export --employees a,b --apps app_xxx -o ./my-pack --zip`
 
 本机数据目录：`~/.evoflow/resource-market/`（`catalog.json` + `packs/<id>.zip`）。  
 公开接口：`GET /api/resource-market/catalog.json`、`GET /api/resource-market/packs/<id>.zip`。
+
+### 发布 zip 排除规则（默认）
+
+`publish-local` / 本机市场上架打 zip 时**不会**打进：
+
+| 类别 | 默认排除（任意深度目录名 / 后缀） |
+|------|----------------------------------|
+| 依赖与环境 | `node_modules`、`.venv`、`venv`、`site-packages`、`__pycache__`、`.tox`、各类 cache |
+| 运行产物 | `remakes`、`deliverables`、`work`、`generated`、`uploads`、`out`/`output`/`outputs`、`sessions`、`trash`、`videos`、`downloads`、`productions` |
+| 媒体 / 嵌套包 | `.mp4` `.mov` `.webm` `.wav` `.mp3` …、`.zip`、`.exe`、`.whl`；文件名含 `.bak` |
+| 本机状态 | `.git`、`.git-embedded-backup`、`.codex-tmp`、`.chrome-profile`、包内 `.evoflow` |
+
+需要额外排除时，在包根放 `.evoflowpackignore`（一行一个模式，`#` 注释；支持目录名或 `fnmatch` 路径）。  
+分享包只应含 manifest / agents / skills / 扩展 UI / 文档等可安装源码，不要夹带录音、成片、模型环境。
+
+### 同事安装后落在哪、为何能打开
+
+从市场 / zip 安装时：
+
+1. 包会**持久化**到 `~/.evoflow/org-packs/<pack_id>/`（不再链到临时解压目录）。  
+2. Agent 应用**强制复制**到 `~/.evoflow/ui-extensions/<id>/`（忽略作者本机的 `link: true`）。  
+3. 「已装资源」详情展示包目录与扩展 `install_path`，可一键打开文件夹。  
+4. 首次打开 Agent 应用时，桌面端会按 `service.setup`（或自动检测）准备运行环境，并写 `.evoflow-setup-ok`：  
+   - 有 `package.json` 且无 `node_modules` → `npm install`  
+   - 有 `scripts.build` 且无 `dist/` → **`npm run build`**（否则 Vite 应用会「能开但没样式」）  
+   - 有 `requirements.txt` 且无 `.venv` → 建 venv + `pip install -r`  
+5. 分享 zip **故意不含** `node_modules` / `.venv`；同事机器需要本机已装 Node / Python，首次打开会自动装依赖与构建产物。
+
+作者本机用文件夹 `link` 开发不受影响；只有 zip / zip_url / market 安装走便携复制。
+
+若同事是**旧版**装的（扩展指到已删临时目录），请在「已装资源」卸载后重新从市场安装一次。
+
+---
+
+## 版本检测与一键升级
+
+资源包用 `evoflow.organization.json` 的 **`version`**（以及 catalog 条目的同名字段）做比较，**不是**桌面端热更新。
+
+| 场景 | 怎么做 |
+|------|--------|
+| 作者发新版 | 改包内 `version`（如 `1.0.0` → `1.1.0`）→ 再 `publish-local` / 更新市场 zip |
+| 同事看是否有更新 | **获取资源**刷新市场：卡片出现「可更新」；或 **已装资源** 列表/详情出现「可更新 → vX」 |
+| 一键升级 | 点「升级」→ 按市场 zip/path **replace 重装**，覆盖同名 Agent / 员工 / 扩展；默认保留工作区与知识库数据，并清理旧实例记录 |
+
+API（供排障）：`GET /api/organizations/market/catalog`（包上附 `_updateAvailable`）、`GET /api/organizations/market/updates`、`POST /api/organizations/upgrade`（body：`{ "pack_id": "…" }`）。
+
+注意：升级会重跑扩展 `setup`/`build`；大版本若改了员工 code / 扩展 id，仍可能要人工核对。本地文件夹开发用 `evoflow org sync` 对齐运行态，与市场上的「升级」是两条路径。
 
 ---
 

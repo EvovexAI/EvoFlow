@@ -3,6 +3,7 @@ import {
   pinMaxForMemoryLevel,
   projectionSoftCapForMemoryLevel,
   resolveRendererMemoryLevel,
+  shouldContinueCriticalEviction,
 } from '../src/react/lib/renderer-memory-pressure.ts'
 
 describe('resolveRendererMemoryLevel', () => {
@@ -23,14 +24,22 @@ describe('resolveRendererMemoryLevel', () => {
 
 describe('adaptive caps under memory pressure', () => {
   it('shrinks projection soft cap as pressure rises', () => {
-    expect(projectionSoftCapForMemoryLevel('normal')).toBe(220)
+    expect(projectionSoftCapForMemoryLevel('normal')).toBe(400)
     expect(projectionSoftCapForMemoryLevel('high')).toBe(140)
     expect(projectionSoftCapForMemoryLevel('critical')).toBe(80)
   })
 
   it('shrinks pin max as pressure rises', () => {
-    expect(pinMaxForMemoryLevel('normal')).toBe(4)
-    expect(pinMaxForMemoryLevel('high')).toBe(2)
+    expect(pinMaxForMemoryLevel('normal')).toBe(8)
+    expect(pinMaxForMemoryLevel('high')).toBe(4)
     expect(pinMaxForMemoryLevel('critical')).toBe(1)
+  })
+
+  it('continues critical eviction while heap rises, stops when it falls', () => {
+    expect(shouldContinueCriticalEviction(900)).toBe(true)
+    expect(shouldContinueCriticalEviction(950)).toBe(true)
+    // 抖动 ≤8MB 仍算未回落
+    expect(shouldContinueCriticalEviction(945)).toBe(true)
+    expect(shouldContinueCriticalEviction(800)).toBe(false)
   })
 })

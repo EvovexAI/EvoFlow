@@ -274,11 +274,22 @@ async def v4_conversation_catchup(body: dict[str, Any]) -> JSONResponse:
 
     频道 ``runs.stream`` 默认 ``ui_sse=0``，不走 AG-UI mirror；仅 resync 会反复下发
     内存旧快照。本接口在指纹变化时 force-rehydrate 并广播 recovery snapshot。
+
+    ``preferSettleOnly``：客户端已有投影（切回校准）时只 settle，禁止 wipe。
     """
     session_id = str(body.get("sessionId") or body.get("threadId") or "").strip()
     if not session_id:
         raise HTTPException(status_code=422, detail="sessionId is required")
-    result = await asyncio.to_thread(V4_CONVERSATION_HUB.catchup_from_transcript, session_id)
+    prefer_settle_only = bool(
+        body.get("preferSettleOnly")
+        or body.get("prefer_settle_only")
+        or body.get("settleOnly")
+    )
+    result = await asyncio.to_thread(
+        V4_CONVERSATION_HUB.catchup_from_transcript,
+        session_id,
+        prefer_settle_only=prefer_settle_only,
+    )
     return JSONResponse(result)
 
 

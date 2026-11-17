@@ -853,6 +853,8 @@ function _markGlobalRunCancelUnsupported() {
 }
 
 const EVOFLOW_STREAM_EOF = '__DF_EOF__'
+/** Rust gateway_proxy_stream 在 body 前塞的 remint 头信封（见 gateway.rs STREAM_HDRS_PREFIX）。 */
+const EVOFLOW_STREAM_HDRS_PREFIX = '__DF_HDRS__'
 
 /**
  * Desktop chat stream via Rust ``gateway_proxy_stream`` (reqwest → Gateway SSE bytes).
@@ -862,6 +864,9 @@ const EVOFLOW_STREAM_EOF = '__DF_EOF__'
  * LangGraph restart 404 (``Thread or assistant not found``) must reject here so
  * ``chatSend``'s streamAttempt can force-recreate the thread — pushing the error into
  * ``ReadableStream`` mid-read used to bypass that recovery.
+ *
+ * Remint：成功响应上的 ``x-evoflow-*-thread-id`` 经 ``__DF_HDRS__`` 首包传到
+ * ``resp.headers``，供 chatSend 触发 V4 rebind（Channel 本身不带 HTTP 头）。
  */
 async function gatewayProxyFetchStream(url, options = {}) {
   const { invoke, Channel } = await import('@tauri-apps/api/core')
@@ -881,6 +886,8 @@ async function gatewayProxyFetchStream(url, options = {}) {
     resolveConnect = resolve
     rejectConnect = reject
   })
+  /** @type {Record<string, string>} */
+  const remintHeaderMap = {}
 
   const markConnectOk = () => {
     if (connectSettled) return
@@ -895,13 +902,19 @@ async function gatewayProxyFetchStream(url, options = {}) {
   const toStreamError = (err) =>
     err instanceof Error ? err : new Error(String(err || 'gateway_proxy_stream failed'))
 
-  // 预计算 EOF / PING 哨兵的字节序列，避免 onmessage 每次 TextDecoder 解码对比
+  // 预计算 EOF / PING / HDRS 哨兵的字节序列，避免 onmessage 每次 TextDecoder 解码对比
   const EOF_BYTES = new TextEncoder().encode(EVOFLOW_STREAM_EOF)
   const PING_BYTES = new TextEncoder().encode('__DF_PING__')
+  const HDRS_PREFIX_BYTES = new TextEncoder().encode(EVOFLOW_STREAM_HDRS_PREFIX)
   /** 快速匹配：bytes 长度等且逐字节等 */
   const bytesEqual = (a, b) => {
     if (a.length !== b.length) return false
     for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false
+    return true
+  }
+  const bytesStartsWith = (a, prefix) => {
+    if (a.length < prefix.length) return false
+    for (let i = 0; i < prefix.length; i++) if (a[i] !== prefix[i]) return false
     return true
   }
 
@@ -917,8 +930,6 @@ async function gatewayProxyFetchStream(url, options = {}) {
   onChunk.onmessage = (payload) => {
     streamPerfMark('ws:recv')
     if (finished || !controller) return
-    // First chunk or EOF ⇒ HTTP connect succeeded (Rust only sends after 2xx).
-    markConnectOk()
     // payload 现在是 Uint8Array (Rust Channel<Vec<u8>> 序列化为 array → JS 端是 number[] 或 Uint8Array)
     // 兼容 Tauri 2.x 的不同序列化方式：number[] / Uint8Array / ArrayBuffer
     let bytes
@@ -941,6 +952,27 @@ async function gatewayProxyFetchStream(url, options = {}) {
     } else {
       return
     }
+    // Remint 头信封：不进 body，但算 connect 成功（Rust 仅在 2xx 后发）。
+    if (bytesStartsWith(bytes, HDRS_PREFIX_BYTES)) {
+      try {
+        const jsonText = new TextDecoder().decode(bytes.subarray(HDRS_PREFIX_BYTES.length))
+        const parsed = JSON.parse(jsonText)
+        const hdrs = parsed?.headers
+        if (hdrs && typeof hdrs === 'object') {
+          for (const [k, v] of Object.entries(hdrs)) {
+            const key = String(k || '').trim().toLowerCase()
+            const val = String(v || '').trim()
+            if (key && val) remintHeaderMap[key] = val
+          }
+        }
+      } catch {
+        /* ignore malformed meta */
+      }
+      markConnectOk()
+      return
+    }
+    // First body chunk or EOF ⇒ HTTP connect succeeded (Rust only sends after 2xx).
+    markConnectOk()
     if (bytesEqual(bytes, EOF_BYTES)) {
       finished = true
       try {
@@ -1051,6 +1083,8 @@ async function gatewayProxyFetchStream(url, options = {}) {
     ok: true,
     status: 200,
     body: readable,
+    // Headers-like：chatSend 用 .get('x-evoflow-new-thread-id') 做 V4 remint rebind
+    headers: new Headers(remintHeaderMap),
     structured: false,
   }
 }
@@ -7150,6 +7184,7 @@ export class WsClient {
                   sessionKey: key,
                   oldThreadId: oldTid,
                   threadId: newTid,
+                  via: 'resp.headers',
                 })
               }
             }

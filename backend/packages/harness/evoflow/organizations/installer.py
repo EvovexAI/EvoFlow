@@ -332,20 +332,39 @@ def _ensure_knowledge_base(pack: LoadedPack, ref: dict[str, Any]) -> tuple[str, 
     return kb_id, created
 
 
-def _install_extension_ref(pack: LoadedPack, ref: dict[str, Any], *, source: str) -> dict[str, Any] | None:
-    """安装一个 extensions 原语条目；legacy ``{id}`` 形态返回 None（调用方记 warning）。"""
+def _install_extension_ref(
+    pack: LoadedPack,
+    ref: dict[str, Any],
+    *,
+    source: str,
+    portable: bool = False,
+) -> dict[str, Any] | None:
+    """安装一个 extensions 原语条目；legacy ``{id}`` 形态返回 None（调用方记 warning）。
+
+    ``portable=True``（zip/市场安装）强制 copy 到 ``ui-extensions/<id>/``，
+    忽略 pack / manifest 上的 ``link``，避免链到已删除的临时解压目录。
+    """
     from evoflow.admin.ui_extensions_registry import (
         ExtensionValidationError,
         register_directory,
         upsert_row,
     )
+    from evoflow.organizations.pack_persist import clear_extension_service_link
 
     if ref.get("from"):
         src = resolve_pack_rel(pack, str(ref["from"]))
-        return register_directory(src, link=ref.get("link"), source=source)
+        link = False if portable else ref.get("link")
+        row = register_directory(src, link=link, source=source)
+        if portable and row:
+            clear_extension_service_link(Path(str(row.get("install_path") or "")))
+        return row
     if ref.get("path"):
         p = Path(str(ref["path"])).expanduser()
-        return register_directory(p, link=bool(ref.get("link", True)), source=source)
+        link = False if portable else bool(ref.get("link", True))
+        row = register_directory(p, link=link, source=source)
+        if portable and row:
+            clear_extension_service_link(Path(str(row.get("install_path") or "")))
+        return row
     if ref.get("manifest") is not None:
         install_path = str(ref.get("install_path") or "").strip()
         if not install_path:
@@ -375,6 +394,18 @@ def install_organization(
         url=source.get("url"),
         repo=source.get("repo"),
     )
+    from evoflow.organizations.pack_persist import (
+        pack_needs_persist,
+        persist_pack_tree,
+        source_requires_portable,
+    )
+
+    # Zip/market extracts live under TEMP; persist before registering anything.
+    portable = source_requires_portable(source, options) or pack_needs_persist(pack)
+    if pack_needs_persist(pack) or (portable and pack.cleanup_dirs):
+        pack = persist_pack_tree(pack)
+        portable = True
+
     prefix = _id_prefix(options)
     policy = _conflict_policy(options)
     org_root = str(pack.root)
@@ -471,8 +502,11 @@ def install_organization(
                     continue
                 skill_dir = resolve_pack_rel(pack, rel)
                 # link=true / mode=bound: register in place (DB only). Default copy for portable zips.
+                # Zip/market installs always copy — bound paths to TEMP die after cleanup.
                 skill_mode = str(ref.get("mode") or "").strip().lower()
-                if not skill_mode:
+                if portable:
+                    skill_mode = "copy"
+                elif not skill_mode:
                     skill_mode = "bound" if bool(ref.get("link")) else "copy"
                 try:
                     result = install_skill_from_directory(skill_dir, mode=skill_mode)
@@ -500,6 +534,17 @@ def install_organization(
                     undo.append(("skill", _undo_skill))
                 except Exception as e:
                     msg = str(e)
+                    scan_fail = "security scan" in msg.lower()
+                    # Bound/link skills already live on disk; a doc false-positive
+                    # (e.g. markdown ``../../docs``) must not abort agent/SOUL sync.
+                    if scan_fail and skill_mode in ("bound", "link"):
+                        sname = skill_dir.name
+                        warnings.append(
+                            f"skill '{sname}' security scan failed (kept existing / skipped): {msg}"
+                        )
+                        if sname not in artifacts["skills"]:
+                            artifacts["skills"].append(sname)
+                        continue
                     already = "already" in msg.lower() or "exist" in msg.lower()
                     if not already:
                         raise
@@ -549,9 +594,14 @@ def install_organization(
                     "mcp_servers": list(agent_def.get("mcp_servers") or []),
                     "tags": list(agent_def.get("tags") or []),
                     "soul": str(agent_def.get("soul") or agent_def.get("system_prompt") or ""),
+                    # Pack author curated the allowlist; sync/install must not soft-cap at 12.
+                    "confirm_wide_tools": True,
                 }
                 if agent_def.get("system_prompt") and not payload["soul"]:
                     payload["system_prompt"] = agent_def["system_prompt"]
+                for _extra in ("capability_pack", "tools_extra", "model"):
+                    if agent_def.get(_extra) is not None:
+                        payload[_extra] = agent_def[_extra]
                 try:
                     agents_admin.create_agent(payload)
                     artifacts["agents"].append(code)
@@ -718,11 +768,12 @@ def install_organization(
 
             # 5) extensions（注册表与面板共享：evoflow.admin.ui_extensions_registry）
             ext_source = f"org_pack:{pack.pack_id}"
+            ext_paths: list[str] = []
             for ref in list(prim.get("extensions") or []):
                 if not isinstance(ref, dict):
                     continue
                 try:
-                    row = _install_extension_ref(pack, ref, source=ext_source)
+                    row = _install_extension_ref(pack, ref, source=ext_source, portable=portable)
                 except Exception as e:
                     if policy == "fail":
                         raise OrganizationInstallError(f"extension install failed: {e}") from e
@@ -735,8 +786,13 @@ def install_organization(
                 if not ext_id:
                     continue
                 artifacts["extensions"].append(ext_id)
+                ip = str(row.get("install_path") or "").strip()
+                if ip:
+                    ext_paths.append(ip)
                 if str(row.get("source") or "").endswith("folder-link"):
                     warnings.append(f"extension '{ext_id}' 为 folder-link（登记本机路径，包不可便携）")
+                elif portable:
+                    warnings.append(f"extension '{ext_id}' 已复制到 {ip or 'ui-extensions'}")
 
                 def _undo_ext(eid: str = ext_id) -> None:
                     try:
@@ -753,6 +809,13 @@ def install_organization(
             if prim.get("vaults"):
                 warnings.append("vaults not imported (Phase 1)")
 
+            # Durable locations for UI / agent setup
+            artifacts["pack_root"] = [org_root]
+            if ext_paths:
+                artifacts["extension_paths"] = ext_paths
+            if portable:
+                warnings.append(f"资源包已落盘：{org_root}")
+
             org_instance_id = f"org_{pack.pack_id}_{_now_stamp()}"
             instance = org_registry.insert_org_instance(
                 org_instance_id=org_instance_id,
@@ -764,6 +827,8 @@ def install_organization(
                 artifacts=artifacts,
             )
             instance["warnings"] = warnings
+            instance["pack_root"] = org_root
+            instance["portable"] = portable
             return instance
 
         except Exception as e:

@@ -1,4 +1,4 @@
-﻿# 【fullstack-dev · 2026-11-15 · 第13轮】新增：自验证看门狗（安装→拉起→回捞 Agent）
+# 【fullstack-dev · 2026-11-15 · 第13轮】新增：自验证看门狗（安装→拉起→回捞 Agent）
 #   为什么：dev-self-release.ps1 触发后，NSIS 会用 taskkill /F /T 打掉桌面父进程树 +
 #   安装目录下 python/bash/node（installer-hooks.nsh EvpKillRunningAppProcesses /
 #   kill-install-orphans.ps1），发起方 Agent 必然死在安装中途。本脚本只由 Task
@@ -144,6 +144,9 @@ $AgentCode   = [string]$state.agentCode
 $TaskId      = [string]$state.taskId
 $Goal        = [string]$state.goal
 $RoundId     = [string]$state.roundId
+# 【self-evolution-bot · 2026-11-17 · 第28轮】把唤醒投回用户正看着的那一屏。
+#   只有登记端传了 -SessionKey 才有值；空 = 原行为（task/duty 自动分桶），不受影响。
+$SessionKey  = [string]$state.sessionKey
 $Cli         = [string]$state.cliExe
 $RuntimeHome = [string]$state.evoflowHome
 $TaskName    = [string]$state.taskName
@@ -278,6 +281,9 @@ try {
   if ($TaskId)    { $wakeArgs += @("--task-id", $TaskId, "--resume-round") }
   if ($safeGoal)  { $wakeArgs += @("--goal", $safeGoal) }
   if ($RoundId)   { $wakeArgs += @("--round-id", $RoundId) }
+  # 【self-evolution-bot · 2026-11-17 · 第28轮】带 -SessionKey 时把唤醒投回用户那一屏；
+  #   不带保持原行为（自动分桶），旧闭环不受影响。
+  if ($SessionKey) { $wakeArgs += @("--session-key", $SessionKey) }
   # 【fullstack-dev · 2026-11-15 · 第14轮】wake 前先等目标岗位真的在册，再投 wake；失败按递增退避重试。
   # 更正我上一轮的归因：原判据「/health 返 200 = 可投递」确实错（list/wake 读本地 SQLite，
   # 不走 HTTP），但「名册尚未装载完」这个解释也错——真因见上方 EVOFLOW_HOME 那段（继承了

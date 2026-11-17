@@ -152,12 +152,14 @@ def partition_tool_names(
     """
     if not names:
         return [], []
+    from evoflow.tools.tool_aliases import canonical_tool_name
+
     allowed = assignable_tool_names(model_name=model_name)
     seen: set[str] = set()
     known: list[str] = []
     unknown: list[str] = []
     for raw in names:
-        n = str(raw or "").strip()
+        n = canonical_tool_name(str(raw or "").strip())
         if not n or n in seen:
             continue
         seen.add(n)

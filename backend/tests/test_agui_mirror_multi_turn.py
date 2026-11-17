@@ -68,6 +68,138 @@ def test_empty_stream_retry_does_not_duplicate_user_input(mirror_session: str) -
     assert headers[1]["state"] == "running"
 
 
+def test_prior_reset_without_user_reuses_turn_not_orphan_header(mirror_session: str) -> None:
+    """漏 FINISHED 后又来 RUN_STARTED、且没有新用户输入：必须续挂同一轮。
+
+    回归：否则会落 turnHeader(origin=userInput) 却无 userInput，左侧像 AI 回复被劈成两截
+    （浮层右栏有头无气泡，左栏两段助手内容中间没有用户消息）。
+    """
+    tid = mirror_session + "-cont-no-user"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "不行 你还是想想方案", message_id="u-cont-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-a"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-a"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m-a", "delta": "先拆成本"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-a"},
+            # 故意不发 RUN_FINISHED
+        ],
+    )
+    # 内部续跑 / 漏闩：新 runId，不再 note_user_input
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-b"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-b"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m-b", "delta": "找到真正优化点"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-b"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-b"},
+        ],
+    )
+
+    headers = _headers(tid)
+    assert len(headers) == 1, headers
+    assert headers[0]["turnId"] == "run-a"
+    assert headers[0]["state"] == "completedSuccess"
+
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1, users
+    assert users[0]["turnId"] == "run-a"
+
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert len(texts) == 2
+    assert {t["turnId"] for t in texts} == {"run-a"}
+    assert [t["text"] for t in texts] == ["先拆成本", "找到真正优化点"]
+
+
+def test_run_started_without_user_uses_goal_continuation_origin(mirror_session: str) -> None:
+    """冷启动无 note_user_input：turnHeader 不得冒充 origin=userInput。"""
+    tid = mirror_session + "-no-note"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-orphan"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "旁观"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-orphan"},
+        ],
+    )
+    headers = _headers(tid)
+    assert len(headers) == 1
+    assert headers[0]["origin"] == "goalContinuation"
+    assert [r for r in _rows(tid) if r.get("kind") == "userInput"] == []
+
+
+def test_finished_then_run_without_user_reuses_turn(mirror_session: str) -> None:
+    """RUN_FINISHED 清闩后若再来无 note 的 RUN_STARTED：必须续挂同一轮。
+
+    浮层实锤：#6 有用户气泡，#7 仅 turnHeader(origin=userInput)+reasoning/tools，
+    左栏被劈成两截。根因是 FINISHED 后内部续跑又开了假新轮。
+    """
+    tid = mirror_session + "-finished-cont"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "OK，我已经重新重启了，你再试试", message_id="u-fin-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-15a19511"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-mid"},
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": "m-mid",
+                "delta": "现在已经查清。",
+            },
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-mid"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-15a19511"},
+        ],
+    )
+    # 正常收口后再内部续跑，且没有 note_user_input
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-01a1e8c1"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-final"},
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": "m-final",
+                "delta": "1. 结论 这次重启后检索确实正常",
+            },
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-final"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-01a1e8c1"},
+        ],
+    )
+
+    headers = _headers(tid)
+    assert len(headers) == 1, headers
+    assert headers[0]["turnId"] == "run-15a19511"
+    assert headers[0]["origin"] == "userInput"
+
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1, users
+    assert users[0]["turnId"] == "run-15a19511"
+
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert len(texts) == 2
+    assert {t["turnId"] for t in texts} == {"run-15a19511"}
+    assert [t["text"] for t in texts] == [
+        "现在已经查清。",
+        "1. 结论 这次重启后检索确实正常",
+    ]
+
+
+
 def test_second_run_gets_fresh_running_turn_header(mirror_session: str) -> None:
     tid = mirror_session
     mirror = V4Mirror(HUB)

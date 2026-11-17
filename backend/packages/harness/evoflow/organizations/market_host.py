@@ -8,7 +8,7 @@ import re
 import secrets
 import shutil
 import zipfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,7 +81,7 @@ def set_host_name(name: str) -> str:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def _read_catalog() -> dict[str, Any]:
@@ -141,9 +141,15 @@ def public_catalog(*, base_url: str) -> dict[str, Any]:
             # Skip unpublished / missing artifacts
             continue
         p["path"] = p.get("path") or f"packs/{pid}"
+        zip_url = f"{base}/api/resource-market/packs/{pid}.zip"
+        # If host has a token, embed it so catalog consumers can download without
+        # a separate Authorization header (share-link / browser / curl friendly).
+        tok = get_host_token()
+        if tok:
+            zip_url = f"{zip_url}?token={tok}"
         p["download"] = {
             "type": "zip_url",
-            "url": f"{base}/api/resource-market/packs/{pid}.zip",
+            "url": zip_url,
         }
         packs_out.append(p)
     data["packs"] = packs_out
@@ -179,15 +185,41 @@ def resolve_pack_zip(pack_id: str) -> Path | None:
 
 
 def _zip_directory(src_dir: Path, dest_zip: Path) -> None:
+    """Zip pack source for market publish, applying :mod:`pack_zip_ignore` rules."""
+    from evoflow.organizations.pack_zip_ignore import iter_pack_files
+
     dest_zip.parent.mkdir(parents=True, exist_ok=True)
-    tmp = dest_zip.with_suffix(".zip.tmp")
-    if tmp.exists():
-        tmp.unlink()
+    # Unique tmp avoids WinError 32 when a prior publish left a locked .zip.tmp
+    import time
+    import uuid
+
+    tmp = dest_zip.parent / f"{dest_zip.stem}.{uuid.uuid4().hex[:8]}.zip.tmp"
+    stale = dest_zip.with_suffix(".zip.tmp")
+    if stale.exists():
+        try:
+            stale.unlink()
+        except OSError:
+            logger.debug("could not remove stale zip.tmp: %s", stale, exc_info=True)
+    files = iter_pack_files(src_dir)
     with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        for path in sorted(src_dir.rglob("*")):
-            if path.is_file():
-                zf.write(path, path.relative_to(src_dir).as_posix())
-    tmp.replace(dest_zip)
+        for path in files:
+            zf.write(path, path.relative_to(src_dir).as_posix())
+    logger.info(
+        "pack zip wrote files=%s src=%s dest=%s",
+        len(files),
+        src_dir,
+        dest_zip.name,
+    )
+    last_err: OSError | None = None
+    for attempt in range(5):
+        try:
+            tmp.replace(dest_zip)
+            return
+        except OSError as e:
+            last_err = e
+            time.sleep(0.4 * (attempt + 1))
+    if last_err:
+        raise last_err
 
 
 def publish_pack(
@@ -239,11 +271,25 @@ def publish_pack(
         if not re.match(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$", pid):
             raise ValueError(f"invalid pack id: {pid}")
 
-    name = str(meta.get("name") or pack_block.get("name") or pid).strip() or pid
-    version = str(meta.get("version") or pack_block.get("version") or "1.0.0").strip() or "1.0.0"
-    description = str(meta.get("description") or pack_block.get("description") or "").strip()
-    kind = str(meta.get("kind") or pack_block.get("kind") or "").strip() or None
-    tags = meta.get("tags") if isinstance(meta.get("tags"), list) else pack_block.get("tags")
+    # Prefer nested pack{} (exports), then top-level fields (showcase org manifests).
+    name = str(
+        meta.get("name") or pack_block.get("name") or manifest.get("name") or pid
+    ).strip() or pid
+    version = str(
+        meta.get("version") or pack_block.get("version") or manifest.get("version") or "1.0.0"
+    ).strip() or "1.0.0"
+    description = str(
+        meta.get("description")
+        or pack_block.get("description")
+        or manifest.get("description")
+        or ""
+    ).strip()
+    kind = str(
+        meta.get("kind") or pack_block.get("kind") or manifest.get("kind") or ""
+    ).strip() or None
+    tags = meta.get("tags") if isinstance(meta.get("tags"), list) else None
+    if tags is None:
+        tags = pack_block.get("tags") if isinstance(pack_block.get("tags"), list) else manifest.get("tags")
     if not isinstance(tags, list):
         tags = []
 
