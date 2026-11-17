@@ -78,7 +78,7 @@ _BASH_CONCURRENCY = threading.Semaphore(_bash_max_concurrent())
 class _bash_concurrency_slot:
     """Process-wide cap on simultaneously running bash processes."""
 
-    def __enter__(self) -> "_bash_concurrency_slot":
+    def __enter__(self) -> _bash_concurrency_slot:
         _BASH_CONCURRENCY.acquire()
         return self
 
@@ -1197,6 +1197,9 @@ def _run_foreground_warm(
             popen_kwargs=_popen_kwargs(),
             timeout_s=blocking_ms / 1000.0,
             kill_tree=lambda pid: _kill_process_tree(pid),
+            on_chunk=lambda text: _emit(
+                "stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=text
+            ),
         )
     except Exception:
         _unregister_active_bash(invocation)
@@ -1224,12 +1227,15 @@ def _run_foreground_warm(
             pass
         result.session.close(kill_tree=lambda pid: _kill_process_tree(pid))
         _timing(path="warm", warm_reused=warm_reused)
-        _emit(
-            "stdout",
-            invocation_id=invocation,
-            tool_call_id=tool_call_id,
-            text=result.partial,
-        )
+        # 【self-evolution-bot · 2026-11-17 · 第30轮】同上：已流式发出的部分不再重发。
+        tail = (result.partial or "")[result.streamed_chars:]
+        if tail:
+            _emit(
+                "stdout",
+                invocation_id=invocation,
+                tool_call_id=tool_call_id,
+                text=tail,
+            )
         _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=124, success=False)
         return _format_finished(
             command=command,
@@ -1250,7 +1256,11 @@ def _run_foreground_warm(
     _timing(path="warm", warm_reused=warm_reused)
     stdout = result.stdout or ""
     exit_code = result.exit_code
-    _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
+    # 【self-evolution-bot · 2026-11-17 · 第30轮】改：输出已在执行期间边读边发（on_chunk），
+    # 这里只补发还没发出去的尾巴；否则前端会看到整段重复两遍。
+    tail = stdout[result.streamed_chars:]
+    if tail:
+        _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=tail)
     _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=exit_code, success=exit_code == 0)
     return _format_finished(
         command=command,
