@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.36] - 2026-11-19
+
+相对 **1.3.35**：代码检索首调不再被嵌入模型冷启拖到 45 秒超时；删文件的索引更新改为按主键精确删块；语义召回临时降级时会把原因带进结果，不再只在日志里说话。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.36.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Improved
+
+- **代码检索首调**：嵌入模型冷启动不再压在第一次检索上，首调直接返回，模型后台加载
+- **删文件索引更新**：vec0 虚表按主键删块替掉按辅助列全表扫，单文件重新索引 1590ms → 673ms（现网 11.9 万行向量实测）
+- **大库索引映射**：mmap 上限改为按库实际大小计算，库长到 1.7GB 后不再静默退化为部分映射
+- **语义降级可见**：检索结果返回 `semantic_degraded` 及原因（warming_up / embed_error / dim_mismatch / vec_unavailable / remote_blocked_on_loop）
+
+### Fixed
+
+- **语义召回静默掉线 5 分钟**：嵌入模型本地缓存被上一进程半写时加载失败即放弃；现在重试一次
+
 ## [1.3.35] - 2026-11-18
 
 相对 **1.3.34**：打包分享会自动带上 Agent 绑定的 MCP 配置；上拉加载的更早对话在尾窗刷新后仍保留。
