@@ -2178,8 +2178,6 @@ async def process_approval(
 
                 set_work_item_status(tid, "pending", result="角色忙，暂缓执行")
             else:
-                import asyncio
-
                 safe_task = asyncio.create_task(_safe_execute_approved_work_item(tid, role_agent_code or ""))
                 safe_task.add_done_callback(_log_create_task_result)
 
@@ -2257,8 +2255,6 @@ async def process_approval(
             updated_init.status = InitiativeStatus.EXECUTING
             await asyncio.to_thread(ProactiveRepository.save_initiative, updated_init)
             # Execute in background (non-blocking)
-            import asyncio
-
             task = asyncio.create_task(_safe_execute_approved_initiative(engine, updated_init))
             task.add_done_callback(_log_create_task_result)
 
