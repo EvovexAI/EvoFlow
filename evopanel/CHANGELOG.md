@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.37] - 2026-11-19
+
+相对 **1.3.36**：安全收口为主——查看已配模型不再把 API Key 明文带进会话与日志；混进正文回复的思考过程标签统一剥离；会话打开、代码检索、工具报错三处最常见的卡顿与误导信息改掉。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.37.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **模型密钥外泄**：`mask` 命名的函数实际原样返回密钥，`settings.list_models` / `settings.get_model` 把明文吐进上下文、会话记录与日志；现改为真脱敏
+- **正文串入思考过程**：新增 `models/think_tags.py`，各模型/SSE 出口统一剥离 provider 写进 content 的 `<think>…</think>`
+- **上拉的更早行被挤掉**：窗口仍按原 softCap 钉直播轮（现场 `rows_range` 已返回 1…55，窗口卡在 56…）；为本页 older 留出预算
+- **裁切后页面空白**：尾窗裁切除进行中思考行后，V4 仍推 `row.delta` 而 apply 找不到行；裁切后钉回 in-flight 轮
+- **点开旧会话卡顿**：只取 `createdAt`/`title` 也重建全部会话行（547 会话冷 6976ms），改为单行读取（0.017ms）
+- **数据库报错误导**：`database is locked` 实为本进程 RLock 未抢到（0.5s 抛，非 sqlite busy），文案改为自曝真成因 + 重试
+- **检索工具必崩**：批量提交把反向验证留在工作区的占位函数名一起提交，`search_code_index` 每次调用 NameError（`py_compile`/`ruff` 语法级检不出）；已复原
+
+### Improved
+
+- **代码检索**：漂移过期重算移出检索主路（原每 30~60s 必有一次检索多付 1252ms，现 0.6ms）；覆盖率计数不再全表扫 vec0 虚表（486ms 起）；检索走独立线程池；首调不再被嵌入冷启压在 45s 超时上
+- **工具报错可读**：assets 缺目录/缺 `.md` 后缀自动补并点名文件，裸名找不到时给候选；platform 只读动作不再报「状态已变更」；`old_string` 唯一命中时放行编辑守卫（35 次 STALE 中 32 次属此类）
+- **浏览器自动化**：补 ARIA 隐式角色映射与 matcher 统一解析（实测 `getByRole("heading")` 原为 0），选择器/计数参数非法时给可读错误；已装官方插件启动时内容收敛
+- **上下文瘦身**：`admin.agents` list 默认不回传每人完整 `system_prompt`（183KB 中 133KB 是正文）；`list_models` 不逐条回实例化开关
+- **运行态自证**：新增 `runtime/version_info.py`，状态接口给出当前版本与源码是否已重启生效
+- **V4 调试浮层**：按当前页签 conversation tid 过滤，一行 headline 可读；旧环条目无 sessionId 时从 topic/requestText 兜底
+
 ## [1.3.36] - 2026-11-19
 
 相对 **1.3.35**：代码检索首调不再被嵌入模型冷启拖到 45 秒超时；删文件的索引更新改为按主键精确删块；语义召回临时降级时会把原因带进结果，不再只在日志里说话。
