@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Per-session chat UI runtime — single source of truth for turn lifecycle.
  *
  * All busy/spinner/stop/processing UI derives from ``turnPhase`` (+ optional DB cold bootstrap).

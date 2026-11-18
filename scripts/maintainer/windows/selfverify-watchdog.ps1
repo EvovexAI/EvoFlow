@@ -1,4 +1,4 @@
-﻿# 【fullstack-dev · 2026-11-15 · 第13轮】新增：自验证看门狗（安装→拉起→回捞 Agent）
+# 【fullstack-dev · 2026-11-15 · 第13轮】新增：自验证看门狗（安装→拉起→回捞 Agent）
 #   为什么：dev-self-release.ps1 触发后，NSIS 会用 taskkill /F /T 打掉桌面父进程树 +
 #   安装目录下 python/bash/node（installer-hooks.nsh EvpKillRunningAppProcesses /
 #   kill-install-orphans.ps1），发起方 Agent 必然死在安装中途。本脚本只由 Task

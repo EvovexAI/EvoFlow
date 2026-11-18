@@ -1,4 +1,4 @@
-﻿# 【fullstack-dev · 2026-11-15 · 第13轮】新增：改码→打包→自安装→自拉起→自唤醒 一键触发端
+# 【fullstack-dev · 2026-11-15 · 第13轮】新增：改码→打包→自安装→自拉起→自唤醒 一键触发端
 #   为什么：Agent 自己跑安装必然被 NSIS 的 taskkill /F /T（installer-hooks.nsh
 #   EvpKillRunningAppProcesses）连进程树一起杀掉，导致"装完拉起 + 找回对话"无人执行。
 #   本脚本只负责**登记一次性计划任务**然后立刻返回；真正的安装/拉起/唤醒由

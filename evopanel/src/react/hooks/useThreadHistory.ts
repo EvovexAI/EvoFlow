@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from 'react'
 import { toUserFacingError } from '../../lib/user-facing-error.js'
 import { buildTranscriptResumeAnchorFromRawMessages, buildTranscriptResumeAnchorFromDisplayRows } from '../../lib/transcript-resume-anchor.js'
 import { buildHistoryViewFromRaw } from '../lib/chatHistoryView.js'
