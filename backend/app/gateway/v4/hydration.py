@@ -1110,6 +1110,39 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
             and str(r.get("origin") or "") in ("", "realUser", "goalContinuation")
             for r in rows
         )
+
+        def _rows_have_assistant_work(turn_rows: list[dict[str, Any]]) -> bool:
+            for row in turn_rows:
+                kind = str(row.get("kind") or "")
+                if kind not in ("assistantText", "reasoning", "toolCall", "subagent"):
+                    continue
+                eid = str(row.get("entityId") or "")
+                if eid.startswith("empty-run-"):
+                    continue
+                if kind == "assistantText" and not str(row.get("text") or "").strip():
+                    continue
+                return True
+            return False
+
+        # 持久 transcript 里确有 user、却无助手/工具产出（真实 API 空跑）：
+        # remint/hydrate 也要落空跑占位，否则浮层仍是 !EMPTY_ASSISTANT。
+        if has_visible_user and not _rows_have_assistant_work(rows):
+            from app.gateway.v4.agui_mirror import EMPTY_RUN_NOTICE_TEXT
+
+            notice_at = _next_created_at()
+            rows.append(
+                {
+                    "rowId": next_row_id(),
+                    "turnId": turn_id,
+                    "kind": "assistantText",
+                    "text": EMPTY_RUN_NOTICE_TEXT,
+                    "state": "complete",
+                    "createdAt": notice_at,
+                    "createdAtSeq": 0,
+                    "entityId": f"empty-run-{turn_id}",
+                }
+            )
+
         header_row: dict[str, Any] = {
             "rowId": header_row_id,
             "turnId": turn_id,

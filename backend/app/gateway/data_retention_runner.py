@@ -170,16 +170,17 @@ def run_retention_once() -> dict[str, Any]:
     }
 
 
-def _run_wal_checkpoint_all() -> dict[str, Any]:
-    """Run ``PRAGMA wal_checkpoint(TRUNCATE)`` on all EvoFlow SQLite databases.
+def _run_wal_checkpoint_all(*, truncate: bool = False) -> dict[str, Any]:
+    """Run ``PRAGMA wal_checkpoint`` on all EvoFlow SQLite databases.
 
-    Called periodically (default ~hourly) by the data retention scheduler to
-    prevent WAL files from growing unbounded between full retention passes.
+    常规整点用 PASSIVE（不阻塞写入方；LG 每 superstep put / telemetry 持续写时
+    TRUNCATE 要么让写排队、要么自己失败形成「膨胀→TRUNCATE→挤压写」循环）。
+    仅 WAL 尺寸保险触发（超过上限、必须回收磁盘）时才用 TRUNCATE。
     """
     try:
         from evoflow.persistence.db import checkpoint_all_databases
 
-        return checkpoint_all_databases()
+        return checkpoint_all_databases(mode="passive" if not truncate else "truncate")
     except Exception:
         logger.warning("checkpoint_all_databases failed", exc_info=True)
         return {}
@@ -279,7 +280,7 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
                 oversized = False
             if oversized and now - last_wal_checkpoint >= _WAL_SIZE_GUARD_MIN_GAP_S:
                 try:
-                    wal_summary = await asyncio.to_thread(_run_wal_checkpoint_all)
+                    wal_summary = await asyncio.to_thread(_run_wal_checkpoint_all, truncate=True)
                     logger.warning("WAL size guard triggered early checkpoint: %s", wal_summary)
                 except Exception:
                     logger.warning("WAL size-guard checkpoint failed", exc_info=True)

@@ -1427,40 +1427,46 @@ async def batch_stop_tasks(http_request: Request, request: BatchStopRequest) -> 
 @router.get("/{task_id}", summary="Get Task", description="Get a task by ID.")
 async def get_task(request: Request, task_id: str) -> dict:
     """Get a task with its subtasks."""
-    from evoflow.persistence import task_repositories as task_repo
-
     require_task_visible(request, task_id)
-    storage = get_project_storage()
-    bundle = task_repo.load_task_bundle(task_id)
-    if bundle:
-        for task in bundle.get("tasks", []):
-            if task.get("id") == task_id:
-                # Heal workflow main-task outputs/summary from completed rollup.
-                try:
-                    if str(task.get("source_app_id") or "").strip() or str(task.get("final_rollup") or "").strip():
-                        from evoflow.collab.task_progress import sync_main_task_from_subtasks
 
-                        sync_main_task_from_subtasks(storage, str(task_id))
-                        bundle = task_repo.load_task_bundle(task_id) or bundle
-                        task = next(
-                            (t for t in (bundle.get("tasks") or []) if t.get("id") == task_id),
-                            task,
-                        )
-                except Exception:
-                    pass
-                storage.invalidate_project(task_id)
-                return _attach_runtime_health(_public_task_dict(task))
+    # 任务详情页轮询本接口；load_task_bundle(28 处 get_db)+rollup heal+全仓扫盘
+    # 全是同步慢活，必须 offload——否则写路径持锁/大仓扫盘时事件循环被冻结。
+    def _resolve_task() -> dict:
+        from evoflow.persistence import task_repositories as task_repo
 
-    projects = storage.list_projects()
-
-    for project_summary in projects:
-        project = storage.load_project(project_summary["id"])
-        if project:
-            for i, task in enumerate(project.get("tasks", [])):
+        storage = get_project_storage()
+        bundle = task_repo.load_task_bundle(task_id)
+        if bundle:
+            for task in bundle.get("tasks", []):
                 if task.get("id") == task_id:
+                    # Heal workflow main-task outputs/summary from completed rollup.
+                    try:
+                        if str(task.get("source_app_id") or "").strip() or str(task.get("final_rollup") or "").strip():
+                            from evoflow.collab.task_progress import sync_main_task_from_subtasks
+
+                            sync_main_task_from_subtasks(storage, str(task_id))
+                            bundle = task_repo.load_task_bundle(task_id) or bundle
+                            task = next(
+                                (t for t in (bundle.get("tasks") or []) if t.get("id") == task_id),
+                                task,
+                            )
+                    except Exception:
+                        pass
+                    storage.invalidate_project(task_id)
                     return _attach_runtime_health(_public_task_dict(task))
 
-    raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+        projects = storage.list_projects()
+
+        for project_summary in projects:
+            project = storage.load_project(project_summary["id"])
+            if project:
+                for i, task in enumerate(project.get("tasks", [])):
+                    if task.get("id") == task_id:
+                        return _attach_runtime_health(_public_task_dict(task))
+
+        raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+
+    return await asyncio.to_thread(_resolve_task)
 
 
 @router.post("", summary="Create Task", description="Create a new task.")
@@ -2496,72 +2502,78 @@ async def get_subtask_conversation_history(
     """
     require_task_visible(http_request, task_id)
     sid = str(subtask_id or "").strip()
-    task: dict[str, Any] | None = None
-    try:
-        from evoflow.persistence import task_repositories as task_repo
 
-        bundle = task_repo.load_task_bundle(task_id)
-        if bundle:
-            task = next(
-                (t for t in (bundle.get("tasks") or []) if isinstance(t, dict) and t.get("id") == task_id),
-                None,
-            )
-    except Exception:
-        task = None
-    if task is None:
-        found = find_main_task(get_project_storage(), task_id)
-        if not found:
+    # 子任务转录面板 2-3s 轮询本接口；load_task_bundle + 消息扫描整体 offload，
+    # 否则写路径持锁时每次轮询在事件循环上等锁 0.5s。
+    def _resolve_history() -> SubtaskConversationHistoryResponse:
+        task: dict[str, Any] | None = None
+        try:
+            from evoflow.persistence import task_repositories as task_repo
+
+            bundle = task_repo.load_task_bundle(task_id)
+            if bundle:
+                task = next(
+                    (t for t in (bundle.get("tasks") or []) if isinstance(t, dict) and t.get("id") == task_id),
+                    None,
+                )
+        except Exception:
+            task = None
+        if task is None:
+            found = find_main_task(get_project_storage(), task_id)
+            if not found:
+                raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
+            _proj, task = found
+        if not isinstance(task, dict):
             raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
-        _proj, task = found
-    if not isinstance(task, dict):
-        raise_task_error(ErrorCode.TASK_NOT_FOUND, f"任务 '{task_id}' 不存在")
-    target_subtask = next(
-        (
-            st
-            for st in (task.get("subtasks") or [])
-            if isinstance(st, dict) and str(st.get("id") or "").strip() == sid
-        ),
-        None,
-    )
-    if target_subtask is None:
-        raise_task_error(
-            ErrorCode.SUBTASK_NOT_FOUND,
-            f"子任务 '{subtask_id}' 在任务 '{task_id}' 中不存在",
+        target_subtask = next(
+            (
+                st
+                for st in (task.get("subtasks") or [])
+                if isinstance(st, dict) and str(st.get("id") or "").strip() == sid
+            ),
+            None,
         )
+        if target_subtask is None:
+            raise_task_error(
+                ErrorCode.SUBTASK_NOT_FOUND,
+                f"子任务 '{subtask_id}' 在任务 '{task_id}' 中不存在",
+            )
 
-    from evoflow.collab.conversation_persist import (
-        list_subtask_conversation_ui_messages,
-        resolve_subtask_transcript_thread,
-    )
-    from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
+        from evoflow.collab.conversation_persist import (
+            list_subtask_conversation_ui_messages,
+            resolve_subtask_transcript_thread,
+        )
+        from evoflow.collab.subtask_outcome import build_subtask_outcome_snapshot
 
-    sub_row = target_subtask if isinstance(target_subtask, dict) else None
-    thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=sub_row)
-    outcome = build_subtask_outcome_snapshot(sub_row or {})
-    if meta_only:
+        sub_row = target_subtask if isinstance(target_subtask, dict) else None
+        thread_id = resolve_subtask_transcript_thread(task, sid, subtask_row=sub_row)
+        outcome = build_subtask_outcome_snapshot(sub_row or {})
+        if meta_only:
+            return SubtaskConversationHistoryResponse(
+                task_id=task_id,
+                subtask_id=sid,
+                count=0,
+                messages=[],
+                thread_id=thread_id,
+                outcome=outcome,
+            )
+        cap = max(1, min(int(limit or 500), 5000))
+        rows = list_subtask_conversation_ui_messages(
+            task,
+            sid,
+            subtask_row=sub_row,
+            limit=cap,
+        )
         return SubtaskConversationHistoryResponse(
             task_id=task_id,
             subtask_id=sid,
-            count=0,
-            messages=[],
+            count=len(rows),
+            messages=rows,
             thread_id=thread_id,
             outcome=outcome,
         )
-    cap = max(1, min(int(limit or 500), 5000))
-    rows = list_subtask_conversation_ui_messages(
-        task,
-        sid,
-        subtask_row=sub_row,
-        limit=cap,
-    )
-    return SubtaskConversationHistoryResponse(
-        task_id=task_id,
-        subtask_id=sid,
-        count=len(rows),
-        messages=rows,
-        thread_id=thread_id,
-        outcome=outcome,
-    )
+
+    return await asyncio.to_thread(_resolve_history)
 
 
 @router.post(

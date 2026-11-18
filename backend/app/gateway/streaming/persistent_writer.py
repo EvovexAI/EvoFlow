@@ -348,11 +348,13 @@ def close_writer(stream_id: str) -> bool:
     Returns:
         True if writer was found and closed
     """
+    # writer.close() 内部会再次 acquire _writers_lock（非重入）——必须先在锁内
+    # 取引用、锁外关闭，否则当场自死锁（同 close_all_writers 的正确模式）。
     with _writers_lock:
         writer = _active_writers.get(stream_id)
-        if writer:
-            writer.close()
-            return True
+    if writer:
+        writer.close()
+        return True
     return False
 
 

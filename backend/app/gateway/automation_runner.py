@@ -1375,14 +1375,15 @@ async def _run_employee_heartbeat(
             "langgraph_run": False,
             **extra,
         }
-        auto_repo.append_automation_run(task_id, rec)
+        # 写事务 offload：角色心跳分钟级×角色数，竞争期 loop 同步写会 0.5s 快败丢历史。
+        await asyncio.to_thread(auto_repo.append_automation_run, task_id, rec)
         # Mirror last_run on the shadow rule for /cron UI.
         try:
             fresh = dict(task)
             fresh["last_run"] = record_started
             fresh["last_status"] = status
             fresh["run_count"] = int(fresh.get("run_count") or 0) + 1
-            auto_repo.save_automation(task_id, fresh)
+            await asyncio.to_thread(auto_repo.save_automation, task_id, fresh)
         except Exception:
             logger.debug("automation_runner: employee last_run update failed", exc_info=True)
     except Exception:
@@ -1554,7 +1555,7 @@ async def _run_one_task(
                 rec["summary"] = summary
             if collab_task_id:
                 rec["collab_task_id"] = collab_task_id
-            auto_repo.append_automation_run(task_id, rec)
+            await asyncio.to_thread(auto_repo.append_automation_run, task_id, rec)
         except Exception:
             logger.debug("automation_runner: append history failed", exc_info=True)
 
@@ -1642,7 +1643,7 @@ async def _run_one_task(
                 rec["summary"] = summary
             if collab_task_id:
                 rec["collab_task_id"] = collab_task_id
-            auto_repo.append_automation_run(task_id, rec)
+            await asyncio.to_thread(auto_repo.append_automation_run, task_id, rec)
         except Exception:
             logger.debug("automation_runner: append history failed", exc_info=True)
 
@@ -1853,7 +1854,7 @@ async def _run_one_task_direct_langgraph(
             rec["summary"] = summary
         if session_key_for_chat:
             rec["session_key"] = session_key_for_chat
-        auto_repo.append_automation_run(task_id, rec)
+        await asyncio.to_thread(auto_repo.append_automation_run, task_id, rec)
     except Exception:
         logger.debug("automation_runner: append history failed", exc_info=True)
 

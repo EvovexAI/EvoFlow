@@ -55,6 +55,7 @@ export {
   stashXiaomiFrameAssistantPending,
   resetXiaomiFrameAssistantFeed,
   interruptXiaomiFrame,
+  clearXiaomiVoiceCommittedTurns,
 } from './pipeline-client.js'
 
 export {

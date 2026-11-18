@@ -818,14 +818,17 @@ class ObservabilitySqliteStore:
         session_mode: str | None = None,
         agent_code: str | None = None,
         position_code: str | None = None,
+        row_id: str | None = None,
     ) -> str:
         """Insert a *running* model-invocation row at call start.
 
-        Returns the generated ``row_id`` so the caller can later call
-        :meth:`complete_model_invocation` to fill in latency / response / usage.
+        Returns the ``row_id`` (caller-provided or generated) so the caller can
+        later call :meth:`complete_model_invocation` to fill in latency /
+        response / usage. Callers may pre-generate the id and run this insert
+        in a background worker — the id stays valid either way.
         """
         tid = (thread_id or "").strip() or None
-        row_id = new_row_id()
+        row_id = (row_id or "").strip() or new_row_id()
         think_vals = _thinking_insert_values(
             thinking_enabled=thinking_enabled,
             reasoning_effort=reasoning_effort,

@@ -348,11 +348,13 @@ function renderCatalog(data) {
   list._rmPacks = packs
 }
 
-async function refreshCatalog() {
+async function refreshCatalog(force = false) {
   const list = _root?.querySelector('[data-rm-catalog]')
   if (list) list.innerHTML = `<div class="sr-empty">加载中…</div>`
   try {
-    const data = await api.orgMarketCatalog(true)
+    // force=true 绕过后端全部缓存、逐市场源串行拉外网（每源最长 12s）——只在用户点
+    // 「刷新市场」时用；页面挂载走缓存（内存→磁盘→负缓存），秒回。
+    const data = await api.orgMarketCatalog(force)
     renderCatalog(data)
   } catch (e) {
     if (list) {
@@ -530,7 +532,8 @@ async function onUpgradeMarket(idx) {
     })
     setLog(res)
     toast.success(`已升级到 v${res?.pack_version || to}`)
-    await refreshCatalog()
+    // 升级内部已 force 刷新过各源缓存，这里走缓存即可拿到新目录。
+    await refreshCatalog(false)
   } catch (e) {
     const detail = e?.detail
     const msg =
@@ -585,7 +588,7 @@ function onClick(e) {
   if (act === 'install') void onInstall()
   if (act === 'install-market') void onInstallMarket(btn.getAttribute('data-pack-idx') || '')
   if (act === 'upgrade-market') void onUpgradeMarket(btn.getAttribute('data-pack-idx') || '')
-  if (act === 'refresh-catalog') void refreshCatalog()
+  if (act === 'refresh-catalog') void refreshCatalog(true)
   if (act === 'refresh-sources') void refreshSources()
   if (act === 'refresh-host') void refreshHost()
   if (act === 'add-source') void onAddSource()

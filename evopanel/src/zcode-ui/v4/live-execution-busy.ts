@@ -159,12 +159,12 @@ export function resolveLiveExecutionBusy(opts: {
   hostExecuting?: boolean | null;
 }): boolean {
   const hostIdle = opts.hostExecuting === false;
+  const terminal = isTerminalControlPhase(opts.phase);
   // 宿主已 idle 时不信滞后 canStop；sse_final 早关仍靠 phase/工具行保活。
-  if (opts.canStop && !hostIdle) return true;
+  // 终态 phase 仍带 canStop=true 是投影不一致（压缩后假停止钮）：落到行启发式。
+  if (opts.canStop && !hostIdle && !terminal) return true;
   if ((opts.runningBackgroundWorkCount || 0) > 0) return true;
   if (String(opts.phase || "") === "running") return true;
-
-  const terminal = isTerminalControlPhase(opts.phase);
 
   // 侧栏已 idle 且控制相终态：只保留 streaming / 待审批；勿钉陈旧 running。
   if (hostIdle && terminal) {

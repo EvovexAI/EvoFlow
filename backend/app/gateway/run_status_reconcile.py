@@ -272,7 +272,9 @@ async def ensure_session_run_active(
     try:
         from evoflow.persistence.session_repositories import get_session_row_for_ui
 
-        row = get_session_row_for_ui(sk) or {}
+        # 本函数在 run attach 热路径上、跑在事件循环线程——同步 DB 会在写路径持锁时
+        # 把 loop 冻 0.5s（0.5s fail-fast），必须 offload 到 worker 线程。
+        row = (await asyncio.to_thread(get_session_row_for_ui, sk)) or {}
     except Exception:
         row = {}
     db_st = str(row.get("run_status") or row.get("runStatus") or "idle").strip().lower()
@@ -285,7 +287,9 @@ async def ensure_session_run_active(
         )
         return active, rid or db_rid
     if not is_run_status_active(db_st) or (rid and db_rid != rid):
-        start_session_turn(session_key=sk, thread_id=tid, run_id=rid, source="ensure_active")
+        await asyncio.to_thread(
+            start_session_turn, session_key=sk, thread_id=tid, run_id=rid, source="ensure_active"
+        )
         _invalidate_active_sessions_cache()
         logger.info(
             "ensure_session_run_active: healed idle->running session=%s thread=%s run=%s",
@@ -461,21 +465,23 @@ async def reconcile_session_run_row(
     if not sk:
         return "skipped"
     if not tid:
-        force_end_session_turn(session_key=sk, source="reconcile_no_thread")
+        await asyncio.to_thread(force_end_session_turn, session_key=sk, source="reconcile_no_thread")
         _invalidate_active_sessions_cache()
         return "cleared"
 
     try:
         from evoflow.persistence.stream_mirror_repositories import clear_mirror, get_mirror_meta
 
-        meta = get_mirror_meta(sk)
+        meta = await asyncio.to_thread(get_mirror_meta, sk)
         if meta and not meta.get("unavailable"):
             updated_ms = int(meta.get("updatedAtMs") or 0)
             if updated_ms and (time.time() * 1000 - updated_ms) >= STREAM_RESUME_INACTIVE_MS:
                 stale_active = await is_thread_run_active(client, tid, run_id=run_id)
                 if stale_active is False:
-                    clear_mirror(sk)
-                    force_end_session_turn(session_key=sk, thread_id=tid, source="reconcile_stale_mirror")
+                    await asyncio.to_thread(clear_mirror, sk)
+                    await asyncio.to_thread(
+                        force_end_session_turn, session_key=sk, thread_id=tid, source="reconcile_stale_mirror"
+                    )
                     _invalidate_active_sessions_cache()
                     return "cleared"
     except Exception:
@@ -488,7 +494,7 @@ async def reconcile_session_run_row(
         try:
             from evoflow.persistence.session_repositories import get_session_row_for_ui
 
-            row = get_session_row_for_ui(sk) or {}
+            row = (await asyncio.to_thread(get_session_row_for_ui, sk)) or {}
             db_st = str(row.get("run_status") or row.get("runStatus") or "idle").strip().lower()
             if is_user_stop_terminal_status(db_st):
                 logger.info(
@@ -499,7 +505,9 @@ async def reconcile_session_run_row(
                 return "kept"
             if not is_run_status_active(db_st):
                 rid = run_id or await discover_active_run_id(client, tid, preferred_run_id=run_id)
-                start_session_turn(session_key=sk, thread_id=tid, run_id=rid, source="reconcile_heal")
+                await asyncio.to_thread(
+                    start_session_turn, session_key=sk, thread_id=tid, run_id=rid, source="reconcile_heal"
+                )
                 _invalidate_active_sessions_cache()
                 return "healed"
 
@@ -524,7 +532,7 @@ async def reconcile_session_run_row(
                     tid,
                 )
                 return "kept"
-            if _live_snapshot_is_stale(sk):
+            if await asyncio.to_thread(_live_snapshot_is_stale, sk):
                 logger.info(
                     "reconcile: cancelling stale run (live snapshot heartbeat lost) session=%s thread=%s run=%s",
                     sk,
@@ -539,7 +547,7 @@ async def reconcile_session_run_row(
             try:
                 from evoflow.persistence.live_run_repositories import get_live_run_snapshot
 
-                if get_live_run_snapshot(sk):
+                if await asyncio.to_thread(get_live_run_snapshot, sk):
                     return "kept"
             except Exception:
                 logger.debug(
@@ -562,10 +570,10 @@ async def reconcile_session_run_row(
     try:
         from evoflow.persistence.stream_mirror_repositories import clear_mirror
 
-        clear_mirror(sk)
+        await asyncio.to_thread(clear_mirror, sk)
     except Exception:
         logger.debug("reconcile clear mirror failed session=%s", sk, exc_info=True)
-    force_end_session_turn(session_key=sk, thread_id=tid, source="reconcile_clear")
+    await asyncio.to_thread(force_end_session_turn, session_key=sk, thread_id=tid, source="reconcile_clear")
     _invalidate_active_sessions_cache()
     return "cleared"
 
@@ -575,9 +583,9 @@ async def reconcile_stale_session_runs(
     wait_for_langgraph: bool = True,
     max_sessions: int = 500,
 ) -> dict[str, int]:
-    """Clear SQLite running/pending rows with no live LangGraph run or proxy stream."""
+    """Clear SQLite ``run_status`` with no live LangGraph run or proxy stream."""
     stats = {"scanned": 0, "kept": 0, "cleared": 0, "cancelled": 0, "healed": 0, "skipped": 0}
-    rows = list_all_active_sessions(limit=max_sessions)
+    rows = await asyncio.to_thread(list_all_active_sessions, limit=max_sessions)
     if not rows:
         return stats
 
@@ -685,7 +693,7 @@ async def notify_attach_run_terminal(
     if not tid:
         return
     try:
-        marked = force_end_session_turn(thread_id=tid, source="attach_terminal")
+        marked = await asyncio.to_thread(force_end_session_turn, thread_id=tid, source="attach_terminal")
         if not marked:
             return
         logger.info("notify_attach_run_terminal: marked idle thread=%s run=%s", tid, run_id or "?")

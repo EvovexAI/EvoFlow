@@ -209,8 +209,10 @@ async def _load_completed_payload(session_key: str) -> dict[str, Any]:
     from evoflow.persistence import session_repositories as sess_repo
     from evoflow.persistence.session_run_state import normalize_run_status
 
-    row = sess_repo.get_session_row_for_ui(session_key) or {}
-    messages = msg_repo.list_messages_for_display(session_key, limit=RUN_COMPLETED_MSG_LIMIT)
+    # 该 payload 在 history 轮询循环里每 poll_ms(~800ms) 重建一次、SSE 生命周期 TTL
+    # 300s——同步 DB 会在写路径持锁时把事件循环冻 0.5s/次，必须 offload。
+    row = (await asyncio.to_thread(sess_repo.get_session_row_for_ui, session_key)) or {}
+    messages = await asyncio.to_thread(msg_repo.list_messages_for_display, session_key, limit=RUN_COMPLETED_MSG_LIMIT)
     raw_status = str(row.get("run_status") or row.get("runStatus") or "").strip()
     run_status = normalize_run_status(raw_status)
     return {
@@ -277,12 +279,12 @@ async def stream_resume_events(
         yield _sse_event("done", "[DONE]")
         return
 
-    if sess_repo.is_session_deleted(sk):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, sk):
         yield _sse_event("error", json.dumps({"message": "session not found"}))
         yield _sse_event("done", "[DONE]")
         return
 
-    row = sess_repo.get_session_row_for_ui(sk) or {}
+    row = (await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)) or {}
     run_status = str(row.get("run_status") or row.get("runStatus") or "idle").strip().lower()
     tid = str(thread_id or row.get("thread_id") or row.get("threadId") or "").strip() or None
     requested_rid = str(run_id or "").strip() or None
@@ -312,7 +314,7 @@ async def stream_resume_events(
         rid = requested_rid
         await _heal_session_run_active_if_needed(session_key=sk, thread_id=tid, run_id=rid)
 
-        row = sess_repo.get_session_row_for_ui(sk) or {}
+        row = (await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)) or {}
         run_status = str(row.get("run_status") or row.get("runStatus") or "idle").strip().lower()
 
         if not is_run_status_active(run_status):
@@ -360,7 +362,7 @@ async def stream_resume_events(
                 continue
             last_status_check_ms = now_ms
 
-            row = sess_repo.get_session_row_for_ui(sk) or {}
+            row = (await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)) or {}
             st = str(row.get("run_status") or row.get("runStatus") or "").strip().lower()
             if is_run_status_active(st):
                 status_seen_idle = False
@@ -381,7 +383,7 @@ async def stream_resume_events(
             idle_grace_remaining = 0
 
         if terminal_seen:
-            row = sess_repo.get_session_row_for_ui(sk) or {}
+            row = (await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)) or {}
             st = str(row.get("run_status") or row.get("runStatus") or "").strip().lower()
             if await _resume_should_finish_async(
                 sk,

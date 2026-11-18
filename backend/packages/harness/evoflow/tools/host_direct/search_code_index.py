@@ -96,6 +96,14 @@ def _format_search_data(data: dict, *, limit: int, verbose: bool = False) -> str
             # 不在这里透传 = 新加的索引新鲜度在工具出口处被丢掉（接线漏最后一米）。
             "index_age_seconds": data.get("index_age_seconds"),
             "index_updated_at": data.get("index_updated_at"),
+            # 【self-evolution-bot · 2026-11-17 · 第38轮】源码漂移同样要透传。
+            # 本轮实测：探针文件 0 行在库、工具却报 ready 且只说「age=475s」看着很新；
+            # 不透传这一栏，输出层就没法提示「你改的代码可能还没进索引」。
+            "index_source_drift": data.get("index_source_drift"),
+            # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+            # 整句标识符字面没命中 → 输出层要明说「库里没有这个名字」，
+            # 而不是把拆词凑出来的 10 条低相关结果当答案递给调用方。
+            "literal_query_missing": data.get("literal_query_missing"),
         },
         label=label,
         limit=limit,

@@ -370,6 +370,19 @@ uiMemoryDiagnosticsRegistry.register("projection", () => {
   return { stores: liveProjectionStores.size, rows, windowBytes, maxRowBytes };
 });
 
+/** 高压时对所有存活投影 store 再裁一遍窗口（含 KeepAlive 隐藏 host）。 */
+export function shrinkAllLiveProjectionWindows(): number {
+  let n = 0;
+  for (const store of liveProjectionStores) {
+    try {
+      if (store.shrinkProjectionWindowForMemory()) n += 1;
+    } catch {
+      /* best-effort */
+    }
+  }
+  return n;
+}
+
 export class ConversationProjectionStore {
   private state: ConversationStoreState = INITIAL_STATE;
   private readonly listeners = new Set<() => void>();
@@ -1790,6 +1803,20 @@ export class ConversationProjectionStore {
       if (bytes > maxRowBytes) maxRowBytes = bytes;
     }
     return { windowBytes, maxRowBytes };
+  }
+
+  /**
+   * 按当前内存水位强制再裁一次已常驻的 rows.window。
+   * 水位升到 high/critical 后，若只等下一帧 delta，旧窗口会一直占着几百行到 OOM。
+   */
+  shrinkProjectionWindowForMemory(): boolean {
+    if (this.closed) return false;
+    const snap = this.state.snapshot;
+    if (!snap?.rows?.window?.length) return false;
+    const next = applySoftCapToSnapshot(snap, "tail");
+    if (next === snap) return false;
+    this.setState({ snapshot: next });
+    return true;
   }
 
   /** 退订并终结本 store（仅 SessionDataLayer 调用）。 */

@@ -56,6 +56,8 @@ import {
   openAiMetaToStreamTurnEvents,
 } from '../react/lib/openai-stream-turn.ts'
 import { logStreamCompareSseRecv, markStreamCompareSession, markStreamCompareRun } from '../react/lib/stream-compare-file-log.ts'
+import { pushViewportStreamAguiTap } from '../react/v4/v4-viewport-stream-tap.ts'
+import { pushViewportApiTap } from '../react/v4/v4-viewport-api-tap.ts'
 import { transportLog, transportRawLog, isTransportLogEnabled } from './transport-log-gate.js'
 import { streamPerfMark } from '../react/lib/stream-perf-trace.ts'
 
@@ -93,6 +95,16 @@ function dispatchAgUiWireFrame(self, key, runId, data, lane) {
     data,
     wire: 'agui',
   })
+  try {
+    pushViewportStreamAguiTap({
+      channel: 'agui',
+      sessionKey: key,
+      runId,
+      data,
+    })
+  } catch {
+    /* overlay tap only */
+  }
 
   if (t === 'TEXT_MESSAGE_CONTENT') {
     const delta = typeof data.delta === 'string' ? data.delta : ''
@@ -787,9 +799,57 @@ export async function evoflowInvokeGatewayJson(url, options = {}) {
 
 /** Tauri: JSON via gatewayProxy/pipe. Browser: relative fetch. */
 export async function evoflowFetch(url, options = {}) {
+  // 浏览器相对路径：原生 fetch 不经 fetchJson，这里单独打点页面相关接口。
   if (!isEvoflowTauri() || !String(url || '').startsWith('/')) {
-    return fetch(url, options)
+    const started = Date.now()
+    const method = String(options?.method || 'GET').toUpperCase()
+    try {
+      const resp = await fetch(url, options)
+      // clone 再读 body，避免消耗调用方后续 json()/text()
+      let responseBody = null
+      try {
+        const ct = String(resp.headers?.get?.('content-type') || '')
+        if (ct.includes('application/json') || ct.includes('+json')) {
+          responseBody = await resp.clone().json()
+        } else {
+          const t = await resp.clone().text()
+          responseBody = t.length > 4000 ? `${t.slice(0, 4000)}…` : t
+        }
+      } catch {
+        responseBody = null
+      }
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody: options?.body,
+          status: resp.status,
+          ok: resp.ok,
+          durationMs: Date.now() - started,
+          response: responseBody,
+        })
+      } catch {
+        /* overlay only */
+      }
+      return resp
+    } catch (e) {
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody: options?.body,
+          status: 0,
+          ok: false,
+          durationMs: Date.now() - started,
+          error: e,
+        })
+      } catch {
+        /* overlay only */
+      }
+      throw e
+    }
   }
+  // Tauri：走 fetchJson（内部已 pushViewportApiTap），避免双记。
   try {
     const data = await fetchJson(url, options)
     const text = data == null ? '' : typeof data === 'string' ? data : JSON.stringify(data)
@@ -2547,6 +2607,20 @@ async function createThreadRobust(sessionKey) {
 }
 
 async function fetchJson(url, options = {}) {
+  const started = Date.now()
+  const method = String(options.method || 'GET').toUpperCase()
+  let requestBody = null
+  if (options.body != null && options.body !== '') {
+    if (typeof options.body === 'string') {
+      try {
+        requestBody = JSON.parse(options.body)
+      } catch {
+        requestBody = options.body
+      }
+    } else {
+      requestBody = options.body
+    }
+  }
   // Desktop: never WebView-fetch Gateway directly — go gatewayProxy (pipe when warm).
   if (isEvoflowTauri() && url.startsWith('/')) {
     const { gatewayProxy } = await import('./tauri-api.js')
@@ -2562,56 +2636,118 @@ async function fetchJson(url, options = {}) {
         query[k] = v
       })
     }
-    const method = String(options.method || 'GET').toUpperCase()
-    let body = null
-    if (options.body != null && options.body !== '') {
-      if (typeof options.body === 'string') {
-        try {
-          body = JSON.parse(options.body)
-        } catch {
-          body = options.body
-        }
-      } else {
-        body = options.body
-      }
-    }
     try {
       /** @type {Record<string, unknown>} */
       const proxyOpts = {}
       if (options.preferGatewayHttp) proxyOpts.preferGatewayHttp = true
       if (options.silent) proxyOpts.silent = true
       if (options.timeoutMs != null) proxyOpts.timeoutMs = options.timeoutMs
-      return await gatewayProxy(
+      const data = await gatewayProxy(
         method,
         pathPart,
-        body,
+        requestBody,
         query,
         Object.keys(proxyOpts).length ? proxyOpts : null,
       )
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody,
+          status: 200,
+          ok: true,
+          durationMs: Date.now() - started,
+          response: data,
+        })
+      } catch {
+        /* overlay only */
+      }
+      return data
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e?.message || e))
       if (e?.status != null) err.status = e.status
       err.url = url
       err.body = e?.gatewayResult ?? e?.body
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody,
+          status: Number(err.status) || 0,
+          ok: false,
+          durationMs: Date.now() - started,
+          response: err.body,
+          error: err,
+        })
+      } catch {
+        /* overlay only */
+      }
       throw err
     }
   }
   // Browser/Vite: must attach WebUI JWT too. Without it, localhost Gateway
   // treats the caller as local-admin and new sessions are stamped to admin
   // while /api/identity/me (via gatewayProxy) still shows user1.
-  const resp = await fetch(url, { ...options, headers: _authHeaders(options) })
-  const text = await resp.text().catch(() => '')
-  const data = text ? safeParseJSON(text, null) : null
-  if (!resp.ok) {
-    const msg = data?.detail || data?.error || data?.message || `HTTP ${resp.status}`
-    const err = new Error(msg)
-    // Attach useful diagnostics for callers (e.g. clear stale threadId on 404).
-    err.status = resp.status
-    err.url = url
-    err.body = data
-    throw err
+  try {
+    const resp = await fetch(url, { ...options, headers: _authHeaders(options) })
+    const text = await resp.text().catch(() => '')
+    const data = text ? safeParseJSON(text, null) : null
+    if (!resp.ok) {
+      const msg = data?.detail || data?.error || data?.message || `HTTP ${resp.status}`
+      const err = new Error(msg)
+      // Attach useful diagnostics for callers (e.g. clear stale threadId on 404).
+      err.status = resp.status
+      err.url = url
+      err.body = data
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody,
+          status: resp.status,
+          ok: false,
+          durationMs: Date.now() - started,
+          response: data,
+          error: err,
+        })
+      } catch {
+        /* overlay only */
+      }
+      throw err
+    }
+    try {
+      pushViewportApiTap({
+        method,
+        url: String(url || ''),
+        requestBody,
+        status: resp.status,
+        ok: true,
+        durationMs: Date.now() - started,
+        response: data,
+      })
+    } catch {
+      /* overlay only */
+    }
+    return data
+  } catch (e) {
+    // 网络层失败（尚未有 HTTP status）也记一笔，便于对照「接口没回来」。
+    if (e?.status == null && e?.url == null) {
+      try {
+        pushViewportApiTap({
+          method,
+          url: String(url || ''),
+          requestBody,
+          status: 0,
+          ok: false,
+          durationMs: Date.now() - started,
+          error: e,
+        })
+      } catch {
+        /* overlay only */
+      }
+    }
+    throw e
   }
-  return data
 }
 
 function isLangGraphThreadOrAssistantMissing(err) {

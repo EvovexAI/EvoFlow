@@ -94,6 +94,29 @@ def format_search_index_body(
         stale_note = " — you may be editing newer content; re-run after the index rebuilds" if age >= 900 else ""
         lines.append(f"[index] last updated {age_txt} ago (age={age}s){stale_note}")
         lines.append("")
+    # 【self-evolution-bot · 2026-11-17 · 第38轮】光报年龄不够 —— 实测一个 22:39 新建的文件
+    # 在库里 0 行，而上面那行照样打印 age=475s（看着很新）。索引是否漏了当前代码，
+    # 必须由「源码漂移」这一栏说话，否则调用方会以为「刚构建完，肯定全在」。
+    # 阈值取 1：只要有 1 个文件比索引新，结果就可能缺东西，宁可提示也不装作完整。
+    drift = data.get("index_source_drift")
+    if isinstance(drift, dict):
+        n_chg = int(drift.get("changed") or 0)
+        n_add = int(drift.get("added") or 0)
+        n_del = int(drift.get("deleted") or 0)
+        if n_chg or n_add or n_del:
+            parts = []
+            if n_add:
+                parts.append(f"{n_add} new file(s) not indexed")
+            if n_chg:
+                parts.append(f"{n_chg} changed")
+            if n_del:
+                parts.append(f"{n_del} deleted")
+            lines.append(
+                f"[index] stale: {', '.join(parts)} since the index was built"
+                f" (disk now has {int(drift.get('total') or 0)} indexable files) —"
+                " files not listed as indexed may be missing from the results below"
+            )
+            lines.append("")
     if rebuild_in_progress:
         lines.append("[index] rebuild in progress — results may be stale")
         lines.append("")
@@ -106,6 +129,21 @@ def format_search_index_body(
             lines.append(f"[hint] {data.get('path_scope_empty_hint')}")
         lines.append("")
     lines.extend([f"Code index results for '{label}':", ""])
+    # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
+    # 查询整句是个标识符、而库里字面没有 → 必须明说，别拿拆词凑数。
+    # 实测依据（大池评测 224 条）：5 条随机不存在标识符，5 条都没有说「没有」，
+    # 其中 4 条照常吐 10 条符号（查一个纯随机串，首条返回的符号是 `note`）。
+    # 这种输出比空结果更坏：调用方会以为「符号存在，只是名字不同」，然后照着改错地方。
+    # 注意：这里刻意不写具体的那几个随机串 —— 注释会被索引，
+    # 写进来就等于让那些串在库里"真实存在"，反向污染本判据（本轮实测踩到）。
+    if data.get("literal_query_missing"):
+        lines.append(
+            f"[not found] no symbol, path, or text in the index contains the exact"
+            f" identifier '{label}'."
+            " The hits below are partial-token matches — treat them as weak hints,"
+            " not as the definition you asked for."
+        )
+        lines.append("")
     if symbols:
         lines.append("Symbols:")
         for s in symbols[:limit]:

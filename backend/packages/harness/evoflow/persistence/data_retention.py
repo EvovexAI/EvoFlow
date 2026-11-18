@@ -161,6 +161,15 @@ def _vacuum_observability_rebuild(obs_path: Path) -> bool:
         return False
     rebuilt = obs_path.with_suffix(".db.rebuild")
     backup = obs_path.with_suffix(".db.bak")
+    # 先关闭本进程的 store 单例连接：Windows 下 rename/unlink 撞上打开中的句柄
+    # 必 PermissionError → 落到 300s busy_timeout 的兜底 VACUUM，observability
+    # 写入方最长被堵 5 分钟；即便重建成功，旧单例也会继续写已分离 inode 丢行。
+    try:
+        from evoflow.observability.recorder import reset_observability_store
+
+        reset_observability_store()
+    except Exception:
+        logger.debug("observability store quiesce before rebuild failed", exc_info=True)
     try:
         if rebuilt.exists():
             rebuilt.unlink()
@@ -615,6 +624,11 @@ def prune_checkpoint_history_per_thread(
                     [tid, *kept_ids],
                 )
                 writes_deleted += int(cur_w2.rowcount or 0)
+            # 逐线程提交，收缩 checkpoints.db 写锁窗口：LG 运行时进程每 superstep
+            # 都要 put（busy_timeout 5s），长事务会让活跃 run 报 database is locked。
+            # 单线程的 checkpoints+writes 删除自洽，分批提交不破坏一致性。
+            if not own_conn:
+                conn.commit()
         if own_conn:
             writes_deleted += prune_orphan_writes(conn)
             conn.commit()
@@ -639,6 +653,7 @@ def run_checkpoint_db_retention(
     if not cp_path.is_file():
         return 0, 0, 0, 0, 0
     conn = sqlite3.connect(str(cp_path), timeout=120.0)
+    conn.execute("PRAGMA busy_timeout=10000")
     threads_purged = 0
     cp_deleted = 0
     writes_deleted = 0
@@ -655,6 +670,9 @@ def run_checkpoint_db_retention(
             writes_deleted += int(cur_w.rowcount or 0)
             cp_deleted += int(cur_c.rowcount or 0)
             threads_purged += 1
+            # 逐线程提交：LG 运行时进程每个 superstep 都会 put（busy_timeout 只有 5s），
+            # 单一长写事务覆盖整轮 purge 会让活跃 run 直接 OperationalError 失败。
+            conn.commit()
         hist_cp, hist_writes = prune_checkpoint_history_per_thread(
             cp_path,
             keep_per_thread=keep_per_thread,
@@ -834,12 +852,18 @@ def run_data_retention(
     try:
 
         def _load_checkpoint_context() -> tuple[set[str], set[str], set[str], set[str]]:
-            app_conn = get_db()
-            protected = _protected_thread_ids(app_conn)
-            any_sessions = _all_session_thread_ids(app_conn)
-            stale_threads = _stale_deleted_session_threads(app_conn, days=cfg.checkpoint_orphan_days)
-            inactive_threads = _inactive_session_threads(app_conn, days=cfg.checkpoint_inactive_session_days)
-            return protected, any_sessions, stale_threads, inactive_threads
+            # 4 次全表扫描改走只读池：原实现持**写锁**跑扫描，retention 期间把全部
+            # 写路径挡 0.1-1s（WAL 下读不阻塞写，读池即可）。
+            from evoflow.persistence.db import run_db_read
+
+            def _read(conn):
+                protected = _protected_thread_ids(conn)
+                any_sessions = _all_session_thread_ids(conn)
+                stale_threads = _stale_deleted_session_threads(conn, days=cfg.checkpoint_orphan_days)
+                inactive_threads = _inactive_session_threads(conn, days=cfg.checkpoint_inactive_session_days)
+                return protected, any_sessions, stale_threads, inactive_threads
+
+            return run_db_read(_read)
 
         protected, any_sessions, stale_threads, inactive_threads = run_db_with_retry(_load_checkpoint_context)
         cp_raw = ""

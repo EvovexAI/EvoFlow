@@ -11,6 +11,7 @@ Phase 2 adds two modes:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -223,7 +224,7 @@ class ProactiveEngine:
         result = await bridge.execute(initiative)
 
         # Bridge may have already marked FAILED; never overwrite that with COMPLETED.
-        current = ProactiveRepository.get_initiative(initiative.id)
+        current = await asyncio.to_thread(ProactiveRepository.get_initiative, initiative.id)
         if current and current.status == InitiativeStatus.FAILED:
             return result
 
@@ -232,7 +233,8 @@ class ProactiveEngine:
             return result
 
         failed = _is_execution_failure(result)
-        ProactiveRepository.update_initiative_status(
+        await asyncio.to_thread(
+            ProactiveRepository.update_initiative_status,
             initiative.id,
             InitiativeStatus.FAILED if failed else InitiativeStatus.COMPLETED,
             execution_result=result,
@@ -264,7 +266,8 @@ class ProactiveEngine:
             memory = ProactiveMemoryRepository.get(role.agent_code)
 
         # 1. Board Tasks (SSOT) + initiative side notes
-        recent_initiatives = ProactiveRepository.list_initiatives(
+        recent_initiatives = await asyncio.to_thread(
+            ProactiveRepository.list_initiatives,
             role_agent_code=role.agent_code,
             limit=20,
         )
@@ -357,14 +360,12 @@ class ProactiveEngine:
         )
 
         # 5. Collect any legacy/round journals for this round (usually empty on Task-only path)
-        round_inits = [
-            i
-            for i in ProactiveRepository.list_initiatives(
-                role_agent_code=role.agent_code,
-                limit=40,
-            )
-            if str(i.round_id or "") == round_id
-        ]
+        _all_round_inits = await asyncio.to_thread(
+            ProactiveRepository.list_initiatives,
+            role_agent_code=role.agent_code,
+            limit=40,
+        )
+        round_inits = [i for i in _all_round_inits if str(i.round_id or "") == round_id]
 
         if run_error:
             # Leave round_inits as-is (usually empty). No synth wrap_up journal.
@@ -498,7 +499,8 @@ class ProactiveEngine:
                             db=db,
                         )
 
-                run_db_transaction(_batch_persist)
+                # 写事务 offload：竞争期 loop 上 0.5s 快败会静默丢值班记忆/cost log。
+                await asyncio.to_thread(run_db_transaction, _batch_persist)
         except Exception:
             logger.debug(
                 "proactive.think.agent_loop: batch persist (memory+cost) failed role=%s",
@@ -695,7 +697,9 @@ class ProactiveEngine:
             except Exception:
                 task_title = ""
         # Bind thread → duty/task conversation session (workspace multi-session)
-        prepare_proactive_chat_session(
+        # load_session_map 全表扫+写事务，offload（loop 直调在写持锁时冻 0.5s）。
+        await asyncio.to_thread(
+            prepare_proactive_chat_session,
             agent_code=role.agent_code,
             role_name=role.role_name,
             thread_id=thread_id,
@@ -901,7 +905,8 @@ class ProactiveEngine:
                 )
                 return format_run_error_detail(err_code, detail), None
         finally:
-            finalize_proactive_chat_session(
+            await asyncio.to_thread(
+                finalize_proactive_chat_session,
                 session_key=session_key,
                 thread_id=thread_id,
                 reason=finalize_reason,
@@ -1040,7 +1045,8 @@ class ProactiveEngine:
             memory = ProactiveMemoryRepository.get(role.agent_code)
 
         # Build work log + board Tasks for context (even in prompt-only mode)
-        recent_initiatives = ProactiveRepository.list_initiatives(
+        recent_initiatives = await asyncio.to_thread(
+            ProactiveRepository.list_initiatives,
             role_agent_code=role.agent_code,
             limit=20,
         )

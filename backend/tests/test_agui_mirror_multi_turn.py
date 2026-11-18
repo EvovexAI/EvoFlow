@@ -246,6 +246,94 @@ def test_finished_then_run_without_user_reuses_turn(mirror_session: str) -> None
 
 
 
+def test_text_after_early_finished_reattaches_to_user_turn(mirror_session: str) -> None:
+    """中途 RUN_FINISHED 清 turn_id 后，迟到 TEXT_* 必须挂回用户轮，不能写成空 turnId 孤儿。
+
+    浮层实锤：turnHeader(completedSuccess)+userInput「重启好了」，无 assistantText——
+    AI 已回复但投影/页面都看不到。
+    """
+    tid = mirror_session + "-late-text"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "重启好了", message_id="u-late-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-early-finish"},
+            # 工具循环中间误发 FINISHED：闩锁清掉，尚无正文
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-early-finish"},
+        ],
+    )
+    headers = _headers(tid)
+    assert len(headers) == 1
+    assert headers[0]["state"] == "completedSuccess"
+    assert headers[0]["turnId"] == "run-early-finish"
+    # 空跑 FINISHED 必须落可见占位，不能只剩用户气泡
+    notices = [
+        r
+        for r in _rows(tid)
+        if r.get("kind") == "assistantText"
+        and str(r.get("entityId") or "").startswith("empty-run-")
+    ]
+    assert len(notices) == 1, notices
+
+    # 无新 RUN_STARTED：迟到正文仍应挂回同一用户轮，并撤掉空跑占位
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-late"},
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": "m-late",
+                "delta": "收到，继续。",
+            },
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-late"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-late-seal"},
+        ],
+    )
+
+    texts = [
+        r
+        for r in _rows(tid)
+        if r.get("kind") == "assistantText"
+        and not str(r.get("entityId") or "").startswith("empty-run-")
+        and str(r.get("text") or "").strip()
+    ]
+    assert len(texts) == 1, texts
+    assert texts[0]["turnId"] == "run-early-finish"
+    assert texts[0]["text"] == "收到，继续。"
+    assert texts[0]["state"] == "complete"
+    assert all(str(r.get("turnId") or "").strip() for r in texts)
+
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1
+    assert users[0]["turnId"] == "run-early-finish"
+    assert _headers(tid)[0]["state"] == "completedSuccess"
+
+
+def test_empty_finished_writes_visible_notice(mirror_session: str) -> None:
+    """用户发了消息但空流 FINISHED：必须有助手占位，禁止 !EMPTY_ASSISTANT 静默成功。"""
+    tid = mirror_session + "-empty-notice"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "太慢了", message_id="u-empty-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-empty"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-empty"},
+        ],
+    )
+    texts = [r for r in _rows(tid) if r.get("kind") == "assistantText"]
+    assert len(texts) == 1
+    assert str(texts[0].get("entityId") or "").startswith("empty-run-")
+    assert "未产出可见回复" in str(texts[0].get("text") or "")
+    assert texts[0]["turnId"] == "run-empty"
+
+
 def test_second_run_gets_fresh_running_turn_header(mirror_session: str) -> None:
     tid = mirror_session
     mirror = V4Mirror(HUB)

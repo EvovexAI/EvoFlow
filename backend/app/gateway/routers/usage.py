@@ -7,6 +7,7 @@ Isolation is always on.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Query, Request
@@ -54,7 +55,10 @@ async def get_usage_summary(
     category: str | None = Query(None),
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
-    return fetch_usage_summary(
+    # usage 首次访问会惰性触发 llm ledger 全量重建（大库分钟级持锁），fetch 本身
+    # 也是多查询——全部 offload，禁止在事件循环线程同步跑。
+    return await asyncio.to_thread(
+        fetch_usage_summary,
         from_day=from_day,
         to_day=to_day,
         category=category,
@@ -71,7 +75,8 @@ async def get_usage_daily(
     category: str | None = Query(None),
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
-    return fetch_usage_daily(
+    return await asyncio.to_thread(
+        fetch_usage_daily,
         from_day=from_day,
         to_day=to_day,
         category=category,
@@ -89,7 +94,8 @@ async def get_usage_daily_by_sku(
     top_n: int = Query(8, ge=1, le=20),
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
-    return fetch_usage_daily_by_sku(
+    return await asyncio.to_thread(
+        fetch_usage_daily_by_sku,
         from_day=from_day,
         to_day=to_day,
         category=category,
@@ -106,7 +112,8 @@ async def get_usage_by_category(
     to_day: str | None = Query(None, alias="to"),
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
-    return fetch_usage_by_category(
+    return await asyncio.to_thread(
+        fetch_usage_by_category,
         from_day=from_day,
         to_day=to_day,
         principal_id=scope["principal_id"],
@@ -123,7 +130,8 @@ async def get_usage_by_module(
 ) -> dict[str, Any]:
     """Settings → 使用统计: chat / employee / workflow / knowledge / media breakdown."""
     scope = _usage_scope(request)
-    return fetch_usage_by_module(
+    return await asyncio.to_thread(
+        fetch_usage_by_module,
         from_day=from_day,
         to_day=to_day,
         top_n=top_n,
@@ -140,7 +148,8 @@ async def get_usage_daily_breakdown(
 ) -> dict[str, Any]:
     """Per-day pivot: chat / image / video / embedding calls + cost (UTC days)."""
     scope = _usage_scope(request)
-    return fetch_usage_daily_breakdown(
+    return await asyncio.to_thread(
+        fetch_usage_daily_breakdown,
         from_day=from_day,
         to_day=to_day,
         principal_id=scope["principal_id"],
@@ -156,7 +165,8 @@ async def get_usage_by_sku(
     category: str | None = Query("llm"),
 ) -> dict[str, Any]:
     scope = _usage_scope(request)
-    return fetch_usage_by_sku(
+    return await asyncio.to_thread(
+        fetch_usage_by_sku,
         from_day=from_day,
         to_day=to_day,
         category=category,
@@ -188,7 +198,8 @@ async def get_usage_by_principal(
         raise
     except Exception:
         raise HTTPException(status_code=403, detail="org_admin required")
-    return fetch_usage_by_principal(
+    return await asyncio.to_thread(
+        fetch_usage_by_principal,
         from_day=from_day,
         to_day=to_day,
         category=category,
@@ -212,7 +223,8 @@ async def get_usage_events(
 ) -> dict[str, Any]:
     """Paginated usage events (default category=media for 生图/生视频记录)."""
     scope = _usage_scope(request)
-    return fetch_usage_events(
+    return await asyncio.to_thread(
+        fetch_usage_events,
         from_day=from_day,
         to_day=to_day,
         category=category,

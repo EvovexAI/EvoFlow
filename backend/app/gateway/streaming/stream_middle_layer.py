@@ -987,7 +987,9 @@ class StreamMiddleLayer:
         try:
             from evoflow.persistence.live_run_repositories import mark_run_completed
 
-            mark_run_completed(
+            # run 终态写事务 offload：每条流结束都走这里，loop 直调在写持锁时冻 0.5s。
+            await asyncio.to_thread(
+                mark_run_completed,
                 thread_id=self.thread_id,
                 run_id=self.run_id,
                 # mark_run_completed 只认 success/error/cancelled → 失败用 "error"
@@ -1194,8 +1196,11 @@ async def resume_middle_layer_tool_approval(
         )
         from evoflow.agents.tool_approval_resume import _build_resume_stream_body
 
+        # _build_resume_stream_body 内部同步 get_tuple：反序列化整个 checkpoint blob
+        # （数百 KB）+ 与 LG 进程 put 跨进程竞争——loop 上直调会让全 Gateway 停摆。
         body = json.dumps(
-            _build_resume_stream_body(
+            await asyncio.to_thread(
+                _build_resume_stream_body,
                 resume_payload=resume_payload or {},
                 run_config=run_config,
                 thread_id=thread_id,

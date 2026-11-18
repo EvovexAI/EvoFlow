@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import sqlite3
@@ -336,7 +337,7 @@ async def set_session_scenario(request: Request, session_key: str, body: SetSess
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     raw = (body.scenario or "").strip().lower()
     valid = {"", "ask", "agent", "plan", "chat", "workspace"}
@@ -356,8 +357,8 @@ async def set_session_scenario(request: Request, session_key: str, body: SetSess
     mode = sess_repo.derive_session_mode(scenarios)
     if mode == "plan":
         mode = "agent"
-    sess_repo.set_session_mode(key, mode)
-    row = sess_repo.get_session_row_for_ui(key)
+    await asyncio.to_thread(sess_repo.set_session_mode, key, mode)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     out_scenario = norm if norm and norm != "ask" else "auto"
     if out_scenario == "plan":
         out_scenario = "agent"
@@ -556,7 +557,7 @@ async def get_titles_by_thread(
 
     for tid in ids:
         require_thread_visible(request, tid)
-    return ThreadTitleMapResponse(titles=sess_repo.resolve_titles_by_thread_ids(ids))
+    return ThreadTitleMapResponse(titles=await asyncio.to_thread(sess_repo.resolve_titles_by_thread_ids, ids))
 
 
 @router.post("", response_model=SessionRowResponse, summary="Create a new chat session")
@@ -609,7 +610,7 @@ async def create_chat_session(request: Request, body: CreateSessionBody) -> Sess
     sk_req = str(body.sessionKey or "").strip()
     if sk_req:
         try:
-            existing = sess_repo.get_session_row_for_ui(sk_req)
+            existing = await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk_req)
         except Exception:
             logger.debug("create_chat_session existing-row probe failed", exc_info=True)
             existing = None
@@ -669,51 +670,56 @@ async def list_messages_by_thread(
 
     # Subtask worker threads ({lead}__sub__{subtask_id}) must not fall through to lead session_key
     # lookup — that would return the entire main chat transcript instead of this node only.
-    if is_collab_executor_thread(tid):
-        messages = msg_repo.conversation_archive_from_thread_id(tid, limit=cap)
-        return MessagesListResponse(
-            sessionKey="",
-            messages=messages,
-            messageCount=len(messages),
-            source="evoflow_chat_messages",
-            hasMore=False,
-            oldestSeq=None,
-        )
+    # 本接口被 collab 子任务面板 2-3s 轮询；7 次同步 DB 调用整体 offload 到 worker 线程，
+    # 否则写路径持锁时每次轮询在事件循环上等锁 0.5s（多面板叠加=loop 被轮询吃满）。
+    def _resolve_messages() -> MessagesListResponse:
+        if is_collab_executor_thread(tid):
+            messages = msg_repo.conversation_archive_from_thread_id(tid, limit=cap)
+            return MessagesListResponse(
+                sessionKey="",
+                messages=messages,
+                messageCount=len(messages),
+                source="evoflow_chat_messages",
+                hasMore=False,
+                oldestSeq=None,
+            )
 
-    sk = sess_repo.find_session_key_by_thread_id(tid)
-    if sk and not sess_repo.is_session_deleted(sk):
-        if all:
-            page = msg_repo.list_messages_for_display_all(sk)
-            messages = list(page.get("messages") or [])
-            if messages:
-                return MessagesListResponse(
-                    sessionKey=sk,
-                    messages=messages,
-                    messageCount=msg_repo.count_lead_messages(sk),
-                    source="evoflow_chat_messages",
-                    hasMore=False,
-                    oldestSeq=None,
-                )
-        else:
-            messages = msg_repo.list_messages_for_display(sk, limit=min(cap, 5000))
-            if messages:
-                return MessagesListResponse(
-                    sessionKey=sk,
-                    messages=messages,
-                    messageCount=msg_repo.count_lead_messages(sk),
-                    source="evoflow_chat_messages",
-                )
-    archived = msg_repo.conversation_archive_from_thread_id(tid, limit=cap)
-    if archived:
-        return MessagesListResponse(
-            sessionKey=sk or "",
-            messages=archived,
-            messageCount=len(archived),
-            source="evoflow_chat_messages",
-            hasMore=False,
-            oldestSeq=None,
-        )
-    return MessagesListResponse(sessionKey=sk or "", messages=[], messageCount=0)
+        sk = sess_repo.find_session_key_by_thread_id(tid)
+        if sk and not sess_repo.is_session_deleted(sk):
+            if all:
+                page = msg_repo.list_messages_for_display_all(sk)
+                messages = list(page.get("messages") or [])
+                if messages:
+                    return MessagesListResponse(
+                        sessionKey=sk,
+                        messages=messages,
+                        messageCount=msg_repo.count_lead_messages(sk),
+                        source="evoflow_chat_messages",
+                        hasMore=False,
+                        oldestSeq=None,
+                    )
+            else:
+                messages = msg_repo.list_messages_for_display(sk, limit=min(cap, 5000))
+                if messages:
+                    return MessagesListResponse(
+                        sessionKey=sk,
+                        messages=messages,
+                        messageCount=msg_repo.count_lead_messages(sk),
+                        source="evoflow_chat_messages",
+                    )
+        archived = msg_repo.conversation_archive_from_thread_id(tid, limit=cap)
+        if archived:
+            return MessagesListResponse(
+                sessionKey=sk or "",
+                messages=archived,
+                messageCount=len(archived),
+                source="evoflow_chat_messages",
+                hasMore=False,
+                oldestSeq=None,
+            )
+        return MessagesListResponse(sessionKey=sk or "", messages=[], messageCount=0)
+
+    return await asyncio.to_thread(_resolve_messages)
 
 
 class ToolResultFullResponse(BaseModel):
@@ -784,10 +790,10 @@ async def get_session_tool_result(request: Request, session_key: str, tool_call_
     tcid = str(tool_call_id or "").strip()
     if not key or not tcid:
         raise HTTPException(status_code=422, detail="session_key and tool_call_id required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     try:
-        payload = msg_repo.get_tool_result_for_display(key, tcid)
+        payload = await asyncio.to_thread(msg_repo.get_tool_result_for_display, key, tcid)
     except sqlite3.OperationalError as e:
         busy = _transcript_db_busy_http(e)
         if busy:
@@ -808,10 +814,10 @@ async def get_session_pending_clarification(request: Request, session_key: str) 
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         return None
     try:
-        payload = msg_repo.get_pending_clarification_for_session(key)
+        payload = await asyncio.to_thread(msg_repo.get_pending_clarification_for_session, key)
     except sqlite3.OperationalError as e:
         busy = _transcript_db_busy_http(e)
         if busy:
@@ -846,9 +852,9 @@ async def compact_session_context(request: Request, session_key: str) -> ManualC
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    row = sess_repo.get_session_row_for_ui(key)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     try:
@@ -860,6 +866,20 @@ async def compact_session_context(request: Request, session_key: str) -> ManualC
         if busy:
             raise busy
         raise
+    # 压缩不是对话 turn；若 V4 投影仍停在 running/canStop，catchup 按 DB 终态收口，
+    # 否则前端停止钮与浮层「运行中」会一直亮着。
+    try:
+        tid = str(row.get("threadId") or row.get("thread_id") or "").strip()
+        if tid:
+            from app.gateway.v4.conversation import HUB
+
+            await asyncio.to_thread(HUB.catchup_from_transcript, tid)
+    except Exception:
+        logger.debug(
+            "compact-context v4 catchup settle skipped session=%s",
+            key[:24],
+            exc_info=True,
+        )
     return ManualContextCompactionResponse(
         ok=result.ok,
         changed=result.changed,
@@ -883,9 +903,9 @@ async def get_session_knowledge_map(request: Request, session_key: str) -> Knowl
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    row = sess_repo.get_session_row_for_ui(key)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     tid = str(row.get("threadId") or row.get("thread_id") or "").strip()
@@ -902,9 +922,9 @@ async def get_session_artifacts(request: Request, session_key: str) -> SessionAr
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    row = sess_repo.get_session_row_for_ui(key)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     tid = str(row.get("threadId") or row.get("thread_id") or "").strip() or None
@@ -936,7 +956,7 @@ async def get_knowledge_map_by_thread(request: Request, thread_id: str) -> Knowl
     from evoflow.authz.http_guard import require_thread_visible
 
     require_thread_visible(request, tid)
-    sk = sess_repo.find_session_key_by_thread_id(tid) or ""
+    sk = await asyncio.to_thread(sess_repo.find_session_key_by_thread_id, tid) or ""
     return _knowledge_map_payload(thread_id=tid, session_key=sk)
 
 
@@ -966,17 +986,17 @@ async def patch_session_knowledge_map_node_status(
     st = normalize_node_status(body.status)
     if not is_user_patchable_status(st):
         raise HTTPException(status_code=422, detail=f"unsupported status: {body.status}")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    row = sess_repo.get_session_row_for_ui(key)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     if not row:
         raise HTTPException(status_code=404, detail="session not found")
     tid = str(row.get("threadId") or row.get("thread_id") or "").strip()
-    scope = resolve_mind_map_thread_id(tid, session_key=key)
+    scope = await asyncio.to_thread(resolve_mind_map_thread_id, tid, session_key=key)
     if not scope:
         raise HTTPException(status_code=404, detail="mind map not found for session")
     try:
-        node = user_patch_node_status(scope, eid, st, session_key=key)
+        node = await asyncio.to_thread(user_patch_node_status, scope, eid, st, session_key=key)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except sqlite3.OperationalError as e:
@@ -986,7 +1006,7 @@ async def patch_session_knowledge_map_node_status(
         raise
     if node is None:
         raise HTTPException(status_code=404, detail="node not found")
-    header = get_graph_header(scope)
+    header = await asyncio.to_thread(get_graph_header, scope)
     return KnowledgeMapNodePatchResponse(
         ok=True,
         node=node.model_dump(mode="json"),
@@ -1162,7 +1182,7 @@ async def session_heartbeat(request: Request, session_key: str) -> dict[str, Any
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
 
-    last_event_at_ms = update_live_run_heartbeat(key)
+    last_event_at_ms = await asyncio.to_thread(update_live_run_heartbeat, key)
     return {"ok": True, "sessionKey": key, "lastEventAtMs": last_event_at_ms}
 
 
@@ -1180,7 +1200,7 @@ async def check_live_run_completed(request: Request, session_key: str) -> dict[s
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
 
-    snapshot = get_live_run_snapshot(key)
+    snapshot = await asyncio.to_thread(get_live_run_snapshot, key)
     if not snapshot:
         return {"completed": False, "status": None, "runId": None}
 
@@ -1433,7 +1453,7 @@ async def enqueue_pending_inject(request: Request, session_key: str, body: Pendi
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
 
     # Generate a message_id if the client didn't supply one.
@@ -1448,7 +1468,8 @@ async def enqueue_pending_inject(request: Request, session_key: str, body: Pendi
     try:
         from evoflow.persistence.pending_inject_repository import enqueue_pending_inject
 
-        result = enqueue_pending_inject(
+        result = await asyncio.to_thread(
+            enqueue_pending_inject,
             key,
             message_id=mid,
             content=body.content,
@@ -1489,7 +1510,7 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
 
     try:
@@ -1498,8 +1519,8 @@ async def get_pending_inject_status(request: Request, session_key: str) -> dict[
             pending_inject_last_consumed_info,
         )
 
-        last_consumed = pending_inject_last_consumed_info(key)
-        items_raw = list_unconsumed_pending_injects(key)
+        last_consumed = await asyncio.to_thread(pending_inject_last_consumed_info, key)
+        items_raw = await asyncio.to_thread(list_unconsumed_pending_injects, key)
     except Exception:
         logger.exception("pending_inject status query error session_key=%s", key)
         raise HTTPException(status_code=500, detail="internal error")
@@ -1556,13 +1577,13 @@ async def restore_pending_injects(request: Request, session_key: str) -> dict[st
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
 
     try:
         from evoflow.persistence.pending_inject_repository import pop_unconsumed_pending_injects
 
-        items_raw = pop_unconsumed_pending_injects(key)
+        items_raw = await asyncio.to_thread(pop_unconsumed_pending_injects, key)
     except Exception:
         logger.exception("pending_inject restore error session_key=%s", key)
         raise HTTPException(status_code=500, detail="internal error")
@@ -1660,7 +1681,7 @@ async def prime_session_hydration(request: Request, session_key: str) -> dict[st
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     try:
         thread_id = await chat_svc.ensure_session_thread(key)
@@ -1689,10 +1710,10 @@ async def prime_session_hydration(request: Request, session_key: str) -> dict[st
 @router.post("/{session_key:path}/bind-thread", summary="Bind task/collab LangGraph thread to session")
 async def bind_session_thread(request: Request, session_key: str, body: BindThreadBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     try:
-        result = chat_svc.bind_session_thread(key, body.threadId.strip(), context=body.context)
+        result = await asyncio.to_thread(chat_svc.bind_session_thread, key, body.threadId.strip(), context=body.context)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
     return result
@@ -1712,11 +1733,12 @@ async def mark_session_run_active(request: Request, session_key: str, body: RunA
     rid = str(body.runId or "").strip()
     if not key or not rid:
         raise HTTPException(status_code=422, detail="session_key and runId required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    row_before = sess_repo.get_session_row_for_ui(key) or {}
+    row_before = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key) or {}
     existing_rid = str(row_before.get("current_run_id") or row_before.get("currentRunId") or "").strip()
-    start_session_turn(
+    await asyncio.to_thread(
+        start_session_turn,
         session_key=key,
         thread_id=str(body.threadId or "").strip() or None,
         run_id=rid,
@@ -1730,7 +1752,7 @@ async def mark_session_run_active(request: Request, session_key: str, body: RunA
             clear_mirror_for_thread(tid, session_key=key)
         except Exception:
             pass
-    row = sess_repo.get_session_row_for_ui(key)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     return {"ok": True, "sessionKey": key, "runId": rid, "session": row}
 
 
@@ -1743,7 +1765,7 @@ async def stop_session_execution_route(
     from evoflow.session_execution import stop_session_execution
 
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     logger.warning("[STOP-TRACE] 1.api-received session=%s userInitiated=%s", key, userInitiated)
     try:
@@ -1764,15 +1786,18 @@ async def stop_session_execution_route(
         from app.gateway.v4.goal_engine import get_v4_goal_engine
         from evoflow.persistence.db import get_db as _get_db
 
-        _row = (
-            _get_db()
-            .execute(
-                "SELECT thread_id FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
-                (key,),
+        def _lookup_thread_id() -> str:
+            _row = (
+                _get_db()
+                .execute(
+                    "SELECT thread_id FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+                    (key,),
+                )
+                .fetchone()
             )
-            .fetchone()
-        )
-        _thread_id = str(_row[0] or "").strip() if _row else ""
+            return str(_row[0] or "").strip() if _row else ""
+
+        _thread_id = await asyncio.to_thread(_lookup_thread_id)
         if _thread_id:
             get_v4_goal_engine().on_stop(_thread_id)
     except Exception:
@@ -1795,7 +1820,7 @@ async def mark_session_run_idle(request: Request, session_key: str) -> dict[str,
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     result = await mark_session_idle(key)
     return {"ok": True, "sessionKey": key, "session": result.session}
@@ -1855,10 +1880,10 @@ async def fork_chat_session(request: Request, session_key: str, body: ForkSessio
 @router.patch("/{session_key:path}/pin", summary="Pin or unpin session in sidebar")
 async def patch_session_pin(request: Request, session_key: str, body: SessionPinBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    sess_repo.set_session_pinned(key, pinned=bool(body.pinned))
-    row = sess_repo.get_session_row_for_ui(key)
+    await asyncio.to_thread(sess_repo.set_session_pinned, key, pinned=bool(body.pinned))
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     return {"ok": True, "sessionKey": key, "session": row}
 
 
@@ -1868,10 +1893,10 @@ async def patch_session_pin(request: Request, session_key: str, body: SessionPin
 )
 async def patch_session_hidden(request: Request, session_key: str, body: SessionHiddenBody) -> dict[str, Any]:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    sess_repo.set_session_hidden_from_list(key, hidden=bool(body.hidden))
-    row = sess_repo.get_session_row_for_ui(key)
+    await asyncio.to_thread(sess_repo.set_session_hidden_from_list, key, hidden=bool(body.hidden))
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     return {"ok": True, "sessionKey": key, "session": row}
 
 
@@ -1881,10 +1906,10 @@ async def patch_session_title(request: Request, session_key: str, body: SessionT
     title = str(body.title or "").strip()
     if not key or not title:
         raise HTTPException(status_code=422, detail="session_key and title required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    sess_repo.update_session_title(key, title)
-    row = sess_repo.get_session_row_for_ui(key)
+    await asyncio.to_thread(sess_repo.update_session_title, key, title)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, key)
     return {"ok": True, "sessionKey": key, "session": row}
 
 
@@ -1895,8 +1920,12 @@ async def put_pinned_session_order(request: Request, body: PinnedOrderBody) -> d
         raise HTTPException(status_code=422, detail="sessionKeys required")
     for k in keys:
         _require_session_access(request, k)
-    sess_repo.reorder_pinned_sessions(keys)
-    rows = sess_repo.list_sessions_for_ui(limit=max(20, len(keys) + 5), **_session_acl_kwargs(request))
+    await asyncio.to_thread(sess_repo.reorder_pinned_sessions, keys)
+    rows = await asyncio.to_thread(
+        sess_repo.list_sessions_for_ui,
+        limit=max(20, len(keys) + 5),
+        **_session_acl_kwargs(request),
+    )
     return {"ok": True, "sessions": rows}
 
 
@@ -1907,11 +1936,11 @@ async def put_pinned_session_order(request: Request, body: PinnedOrderBody) -> d
 )
 async def get_session_workspace_history(request: Request, session_key: str) -> WorkspaceHistoryResponse:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    ws_repo.import_session_current_to_history_if_empty(key)
-    paths = ws_repo.list_session_workspace_paths(key)
-    current = ws_repo.get_session_current_workspace(key)
+    await asyncio.to_thread(ws_repo.import_session_current_to_history_if_empty, key)
+    paths = await asyncio.to_thread(ws_repo.list_session_workspace_paths, key)
+    current = await asyncio.to_thread(ws_repo.get_session_current_workspace, key)
     return WorkspaceHistoryResponse(sessionKey=key, paths=paths, currentPath=current)
 
 
@@ -1926,7 +1955,7 @@ async def put_session_workspace_history(
     body: WorkspaceHistoryPutBody,
 ) -> WorkspaceHistoryResponse:
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     from evoflow.authz.http_guard import require_workspace_path_visible
     from evoflow.authz.resource_visibility import stamp_kwargs_from_request
@@ -1936,8 +1965,8 @@ async def put_session_workspace_history(
         ps = str(p or "").strip()
         if ps:
             require_workspace_path_visible(request, ps)
-    paths = ws_repo.set_session_workspace_paths(key, body.paths or [], stamp=stamp or None)
-    current = ws_repo.get_session_current_workspace(key)
+    paths = await asyncio.to_thread(ws_repo.set_session_workspace_paths, key, body.paths or [], stamp=stamp or None)
+    current = await asyncio.to_thread(ws_repo.get_session_current_workspace, key)
     return WorkspaceHistoryResponse(sessionKey=key, paths=paths, currentPath=current)
 
 
@@ -1956,22 +1985,22 @@ async def bind_session_workspace(
     path = str(body.path or "").strip()
     if not key or not path:
         raise HTTPException(status_code=422, detail="session_key and path required")
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     from evoflow.authz.http_guard import require_workspace_path_visible
     from evoflow.authz.resource_visibility import stamp_kwargs_from_request
 
     require_workspace_path_visible(request, path)
     stamp = stamp_kwargs_from_request(request)
-    paths = ws_repo.touch_session_workspace(key, path, user_pinned=True, stamp=stamp or None)
-    current = ws_repo.get_session_current_workspace(key)
+    paths = await asyncio.to_thread(ws_repo.touch_session_workspace, key, path, user_pinned=True, stamp=stamp or None)
+    current = await asyncio.to_thread(ws_repo.get_session_current_workspace, key)
     # Ensure ``<workspace>/.evoflow/`` skeleton (same memory/craft tree as before).
     try:
         from evoflow.assets.hub import ensure_entity_tree
         from evoflow.assets.paths import workspace_entity_ref
         from evoflow.persistence.workspace_repositories import get_or_create_workspace
 
-        get_or_create_workspace(path)
+        await asyncio.to_thread(get_or_create_workspace, path)
         ensure_entity_tree(workspace_entity_ref(path))
     except Exception:
         logger.debug("workspace .evoflow skeleton on bind skipped", exc_info=True)
@@ -1986,7 +2015,7 @@ async def bind_session_workspace(
 async def get_chat_session(request: Request, session_key: str) -> SessionRowResponse:
     """Load a single sidebar row (modelName / workspace / mode) without list pagination."""
     key = _require_session_access(request, session_key)
-    if sess_repo.is_session_deleted(key):
+    if await asyncio.to_thread(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
     row = await run_db(sess_repo.get_session_row_for_ui, key)
     if not row:

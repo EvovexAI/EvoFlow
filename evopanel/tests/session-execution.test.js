@@ -174,6 +174,36 @@ describe('session-execution', () => {
     expect(isSessionExecuting(sk)).toBe(false)
   })
 
+  it('TURN_IDLE after clearing live wire stamps settled even if already idle', () => {
+    const sk = 'agent:main:test-idle-then-clear-wire'
+    clearSessionRuntime(sk)
+    dispatchSessionTurnEvent(sk, {
+      type: 'RUN_LIVE',
+      runId: 'run-wire-clear',
+      wireSource: 'run',
+    })
+    // 第一次 idle：live wire 仍开 → 不盖 settled（等 SSE final）
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(false)
+    expect(isSessionExecuting(sk)).toBe(true)
+    // 清 wire 后再 idle：必须盖 settled，否则压缩/收尾后假「运行中」
+    markSessionStreamWireSource(sk, null)
+    dispatchSessionTurnEvent(sk, { type: 'TURN_IDLE' })
+    expect(getSessionRuntime(sk).uiTurnSettled).toBe(true)
+    expect(getSessionRuntime(sk).turnPhase).toBe('idle')
+    expect(isSessionExecuting(sk)).toBe(false)
+    clearSessionRuntime(sk)
+  })
+
+  it('setSessionExecutionProbe clears local goal when goalActive falls', () => {
+    const sk = 'agent:main:test-probe-goal-clear'
+    markSessionGoalRunning(sk, true)
+    setSessionExecutionProbe(sk, { executing: false, goalActive: true, runStatus: 'running' })
+    expect(isSessionGoalActive(sk)).toBe(true)
+    setSessionExecutionProbe(sk, { executing: false, goalActive: false, runStatus: 'done' })
+    expect(isSessionGoalActive(sk)).toBe(false)
+  })
+
   it('abortSessionTurnEnded sets turn phase idle', () => {
     const sk = 'agent:main:test-abort-end'
     markSessionSending(sk, true)

@@ -289,7 +289,7 @@ class GoalService:
         # 先从 SQLite 刷新内存 session，获取中间件已写入的 goal_summary
         if sk:
             try:
-                row = goal_repo.load_goal_session(sk)
+                row = await asyncio.to_thread(goal_repo.load_goal_session, sk)
                 if row:
                     self._apply_goal_db_row(session, row)
             except Exception:
@@ -311,7 +311,8 @@ class GoalService:
 
         # 持久化 + 广播完成状态（一次到位，带完整 summary）
         if sk:
-            goal_repo.patch_goal_report_fields(
+            await asyncio.to_thread(
+                goal_repo.patch_goal_report_fields,
                 sk,
                 goal_summary=session.goal_summary,
                 completion_outcome=outcome,
@@ -384,7 +385,8 @@ class GoalService:
         try:
             from evoflow.persistence import goal_repositories as goal_repo
 
-            goal_repo.patch_goal_session_state(
+            await asyncio.to_thread(
+                goal_repo.patch_goal_session_state,
                 sk,
                 state={"status": "idle", "stepCount": 0, "lastError": "", "pending": False},
                 enabled=False,
@@ -394,7 +396,7 @@ class GoalService:
                 goal_summary="",
                 completion_outcome="",
             )
-            goal_repo.upsert_goal_session(sk, goal_session_id="")
+            await asyncio.to_thread(goal_repo.upsert_goal_session, sk, goal_session_id="")
         except Exception:
             logger.debug("hosted: retire patch db failed sk=%s", sk, exc_info=True)
 
@@ -406,7 +408,7 @@ class GoalService:
             logger.warning("retire_all_web_goals: import goal_repositories failed", exc_info=True)
             return []
         try:
-            rows = goal_repo.list_goal_sessions(goal_active_only=True, limit=500)
+            rows = await asyncio.to_thread(goal_repo.list_goal_sessions, goal_active_only=True, limit=500)
         except Exception:
             logger.warning("retire_all_web_goals: list sessions failed", exc_info=True)
             return []
@@ -989,7 +991,8 @@ class GoalService:
         try:
             from evoflow.persistence import goal_repositories as goal_repo
 
-            goal_repo.patch_goal_report_fields(
+            await asyncio.to_thread(
+                goal_repo.patch_goal_report_fields,
                 associated_session_key,
                 goal_summary="",
                 completion_outcome="",
@@ -1006,7 +1009,7 @@ class GoalService:
         try:
             from evoflow.persistence import goal_repositories as goal_repo
 
-            prior = goal_repo.load_goal_session(associated_session_key) or {}
+            prior = await asyncio.to_thread(goal_repo.load_goal_session, associated_session_key) or {}
             next_goal_revision = max(1, int(prior.get("goal_revision") or 0) + 1)
         except Exception:
             pass
@@ -1500,8 +1503,9 @@ class GoalService:
         sk = str(session_key or "").strip()
         if not sk:
             raise ValueError("session_key required")
-        existing = goal_repo.load_goal_session(sk) or {}
-        goal_repo.upsert_goal_session(
+        existing = await asyncio.to_thread(goal_repo.load_goal_session, sk) or {}
+        await asyncio.to_thread(
+            goal_repo.upsert_goal_session,
             sk,
             user_id=(user_id or existing.get("user_id") or ""),
             goal_session_id=str(existing.get("goal_session_id") or ""),
@@ -1524,7 +1528,7 @@ class GoalService:
             system_prompt=str(existing.get("system_prompt") or ""),
             compaction_summary=str(existing.get("compaction_summary") or ""),
         )
-        row = goal_repo.load_goal_session(sk)
+        row = await asyncio.to_thread(goal_repo.load_goal_session, sk)
         return goal_repo.row_to_frontend_settings(row or {})
 
     @staticmethod
@@ -1607,7 +1611,7 @@ class GoalService:
             try:
                 from evoflow.persistence import goal_repositories as goal_repo
 
-                row = goal_repo.load_goal_session(sk)
+                row = await asyncio.to_thread(goal_repo.load_goal_session, sk)
                 if row:
                     self._apply_goal_db_row(session, row)
             except Exception:
@@ -1663,7 +1667,7 @@ class GoalService:
         if not self._recover_scanned:
             self._recover_scanned = True
             try:
-                rows = goal_repo.list_goal_sessions(goal_active_only=True, limit=500)
+                rows = await asyncio.to_thread(goal_repo.list_goal_sessions, goal_active_only=True, limit=500)
             except Exception as e:
                 logger.warning("hosted recover: list sessions failed: %s", e)
                 return 0
@@ -1672,7 +1676,7 @@ class GoalService:
             if not retry_sks:
                 return 0
             try:
-                all_rows = goal_repo.list_goal_sessions(goal_active_only=True, limit=500)
+                all_rows = await asyncio.to_thread(goal_repo.list_goal_sessions, goal_active_only=True, limit=500)
                 rows = [r for r in all_rows if str(r.get("session_key") or "").strip() in retry_sks]
             except Exception as e:
                 logger.warning("hosted recover: list sessions for retry failed: %s", e)
@@ -1978,7 +1982,9 @@ class GoalService:
                 )
 
                 thread_id = await ensure_session_thread(sk)
-                append_message_and_touch_session(
+                # append 是 10-20 条语句的写事务（含 usage ledger），offload 防 loop 等锁。
+                await asyncio.to_thread(
+                    append_message_and_touch_session,
                     sk,
                     role="user",
                     content=str(feedback).strip(),

@@ -31,8 +31,8 @@ import {
 
 /** 与 SessionDataLayer keepWarmMs 同量级：pin 列表挤掉后仍短暂保 UI 挂载。 */
 const HOST_LINGER_MS = 30_000;
-/** 额外 linger 路上限（对齐 ZCode 多 leaf 常驻）；critical 不 linger。 */
-const HOST_LINGER_MAX = 4;
+/** 额外 linger 路上限；high=1、critical=0，避免隐藏 host 把 heap 顶穿。 */
+const HOST_LINGER_MAX = 2;
 
 export type V4ChatHostRenderCtx = {
   threadId: string | null;
@@ -143,8 +143,9 @@ export function V4ChatHostStack(props: {
         if (seen.has(id) || desiredSet.has(id)) continue;
         lingerCandidates.push(id);
       }
+      const memLevel = resolveRendererMemoryLevel();
       const lingerMax =
-        resolveRendererMemoryLevel() === "critical" ? 0 : HOST_LINGER_MAX;
+        memLevel === "critical" ? 0 : memLevel === "high" ? 1 : HOST_LINGER_MAX;
       const keepLinger = lingerCandidates.slice(-lingerMax);
       const keepLingerSet = new Set(keepLinger);
       for (const id of lingerCandidates) {

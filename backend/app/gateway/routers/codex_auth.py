@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -163,7 +164,7 @@ async def codex_ensure_model(http_request: Request, body: EnsureModelRequest) ->
         if body.set_primary:
             config = get_app_config()
             config.primary_model = name
-            cfg_repo.set_app_setting("primary_model", name)
+            await asyncio.to_thread(cfg_repo.set_app_setting, "primary_model", name)
 
         return {
             "ok": True,

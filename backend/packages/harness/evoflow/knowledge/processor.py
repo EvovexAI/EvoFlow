@@ -7,6 +7,7 @@ Internal stages exist for logging; user-facing status is simplified to
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
@@ -52,7 +53,9 @@ async def process_file(
     target_folder = normalize_folder_id(dataset_id, folder_id)
     file_id = _stable_file_id(dataset_id, stable_path_key) if stable_path_key else _make_file_id(dataset_id, p)
 
-    existing = _get_source_file(file_id)
+    # 大文档入库的 DB 段（清向量+chunk 全量 executemany、写 source file）都在
+    # 进程写锁内跑——async 上直调会把事件循环冻住或 0.5s 快败中断入库，全部 offload。
+    existing = await asyncio.to_thread(_get_source_file, file_id)
     if skip_if_unchanged and existing:
         prev_hash = str(existing.get("content_hash") or "")
         prev_status = str(existing.get("status") or "")
@@ -60,9 +63,10 @@ async def process_file(
             return None
 
     if existing:
-        _clear_file_vectors_and_chunks(dataset_id, file_id)
+        await asyncio.to_thread(_clear_file_vectors_and_chunks, dataset_id, file_id)
 
-    _upsert_source_file(
+    await asyncio.to_thread(
+        _upsert_source_file,
         file_id,
         dataset_id,
         p,
@@ -82,7 +86,7 @@ async def process_file(
 
         _update_source_file_status(file_id, "chunking")
         summary_text, summary_index, chunks = await process_document_with_llm(text, file_name=p.name, use_llm=llm_index)
-        _save_file_summary(file_id, summary_text, summary_index)
+        await asyncio.to_thread(_save_file_summary, file_id, summary_text, summary_index)
         use_llm = llm_index if llm_index is not None else kb_llm_enabled()
         logger.info("Indexed %s → %d sections (llm=%s)", p.name, len(chunks), use_llm)
 
@@ -96,7 +100,7 @@ async def process_file(
         dim = ds_row["embedding_dim"]
         vs = VectorStore(dataset_id, dim=dim)
 
-        chunk_ids = _write_chunks(file_id, dataset_id, chunks)
+        chunk_ids = await asyncio.to_thread(_write_chunks, file_id, dataset_id, chunks)
         embed_texts = [embedding_text_for_chunk(c) for c in chunks]
         await _batch_embed_and_store(vs, chunk_ids, embed_texts, dim, mc)
 

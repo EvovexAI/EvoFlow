@@ -18,7 +18,22 @@ class ThreadMissionRuntimeState:
 
 
 _STATE: dict[str, ThreadMissionRuntimeState] = {}
-_LOCK = threading.Lock()
+# 2026-11-18: 全局锁改 per-thread 锁——原实现一把锁包住 load/save（内部再拿 db._lock），
+# 所有 agent worker 的每轮 turn-start 汇于这一个串行点（多并发会话互相排队）。
+# 状态机是 per-thread 的，per-thread 锁既保留单线程内的状态机串行语义，又让不同
+# thread 的 DB IO 并行。锁对象极小且以 thread 数为上界，不做 shed（丢持有的锁会破坏互斥）。
+_PER_THREAD_LOCKS: dict[str, threading.RLock] = {}
+_PER_THREAD_LOCKS_GUARD = threading.Lock()
+
+
+def _per_thread_lock(thread_id: str) -> threading.RLock:
+    tid = str(thread_id or "").strip() or "__global__"
+    with _PER_THREAD_LOCKS_GUARD:
+        lock = _PER_THREAD_LOCKS.get(tid)
+        if lock is None:
+            lock = threading.RLock()
+            _PER_THREAD_LOCKS[tid] = lock
+        return lock
 
 
 def _load_persisted(thread_id: str) -> ThreadMissionRuntimeState | None:
@@ -48,14 +63,14 @@ def _save_persisted(thread_id: str, s: ThreadMissionRuntimeState) -> None:
 
 
 def reset_thread_state(thread_id: str) -> None:
-    with _LOCK:
+    with _per_thread_lock(thread_id):
         s = ThreadMissionRuntimeState(mode="bootstrap", drift_count=0, chat_downgrade_streak=0)
         _STATE[thread_id] = s
         _save_persisted(thread_id, s)
 
 
 def get_thread_state(thread_id: str) -> ThreadMissionRuntimeState:
-    with _LOCK:
+    with _per_thread_lock(thread_id):
         if thread_id in _STATE:
             return _STATE[thread_id]
         persisted = _load_persisted(thread_id)
@@ -64,7 +79,7 @@ def get_thread_state(thread_id: str) -> ThreadMissionRuntimeState:
 
 
 def decide_next_mode(thread_id: str, *, has_existing: bool, low_conf: bool, keyword_hit: bool) -> tuple[Mode, int]:
-    with _LOCK:
+    with _per_thread_lock(thread_id):
         if thread_id not in _STATE:
             _STATE[thread_id] = _load_persisted(thread_id) or ThreadMissionRuntimeState()
         state = _STATE[thread_id]
@@ -116,7 +131,7 @@ def stabilize_intent_transition(
     prev_has_active = any(p.strip() != "chat" for p in prev.split(",") if p.strip())
 
     if change_type == "reset":
-        with _LOCK:
+        with _per_thread_lock(thread_id):
             if thread_id not in _STATE:
                 _STATE[thread_id] = _load_persisted(thread_id) or ThreadMissionRuntimeState()
             state = _STATE[thread_id]
@@ -124,7 +139,7 @@ def stabilize_intent_transition(
             _save_persisted(thread_id, state)
         return cand
 
-    with _LOCK:
+    with _per_thread_lock(thread_id):
         if thread_id not in _STATE:
             _STATE[thread_id] = _load_persisted(thread_id) or ThreadMissionRuntimeState()
         state = _STATE[thread_id]

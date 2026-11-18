@@ -52,6 +52,22 @@ export function isSearchCodeIndexToolCall(toolCall: {
   );
 }
 
+/** 覆盖 search family 默认「只露 Result」：代码索引卡必须能看 Parameters + Result。 */
+export function buildSearchCodeIndexDisplayModel(
+  base: ToolCallBlockRenderContext["displayModel"],
+  toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
+  errorText?: string,
+): ToolCallBlockRenderContext["displayModel"] {
+  return {
+    ...base,
+    inlinePreview: { type: "none" },
+    showSummaryFileLink: false,
+    showInput: toolCall.input !== undefined,
+    showOutput: toolCall.output !== undefined || Boolean(errorText),
+    showKind: false,
+  };
+}
+
 export function SearchCodeIndexToolCallBlock(context: ToolCallBlockRenderContext) {
   const { intl } = useZCodeIntl();
   const { toolCallNode, isRunning, statusLabel, errorText } = context;
@@ -63,6 +79,10 @@ export function SearchCodeIndexToolCallBlock(context: ToolCallBlockRenderContext
   const primaryText = useMemo(
     () => <span className="truncate">{summaryText}</span>,
     [summaryText],
+  );
+  const displayModel = useMemo(
+    () => buildSearchCodeIndexDisplayModel(context.displayModel, toolCall, errorText),
+    [context.displayModel, toolCall, errorText],
   );
 
   return (
@@ -86,7 +106,7 @@ export function SearchCodeIndexToolCallBlock(context: ToolCallBlockRenderContext
         renderContent={() => (
           <ToolCallBody
             childToolList={context.childToolList}
-            displayModel={context.displayModel}
+            displayModel={displayModel}
             toolCall={toolCall}
             workspacePath={context.workspacePath}
             theme={context.theme}

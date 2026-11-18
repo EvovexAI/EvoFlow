@@ -621,7 +621,7 @@ async def check_agent_name(name: str) -> dict:
     """
     _validate_agent_name(name)
     normalized = _normalize_agent_name(name)
-    available = not cfg_repo.agent_exists(normalized)
+    available = not await asyncio.to_thread(cfg_repo.agent_exists, normalized)
     return {"available": available, "name": normalized}
 
 
@@ -765,7 +765,7 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
     _validate_agent_name(request.agent_code)
     normalized_name = _normalize_agent_name(request.agent_code)
 
-    if cfg_repo.agent_exists(normalized_name):
+    if await asyncio.to_thread(cfg_repo.agent_exists, normalized_name):
         raise HTTPException(status_code=409, detail=f"Agent '{normalized_name}' already exists")
 
     try:
@@ -837,7 +837,8 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             pid = str(principal.get("principal_id") or "")
             oid = str(principal.get("org_id") or "local")
             if pid:
-                cfg_repo.set_agent_owner_scope(
+                await asyncio.to_thread(
+                    cfg_repo.set_agent_owner_scope,
                     normalized_name,
                     org_id=oid,
                     owner_scope_id=personal_scope(pid),
@@ -1147,7 +1148,7 @@ async def get_agent_avatar(name: str):
 async def upload_agent_avatar(name: str, file: UploadFile = File(...)):
     _validate_agent_name(name)
     code = _normalize_agent_name(name)
-    if name.lower() != "main" and not cfg_repo.agent_exists(code):
+    if name.lower() != "main" and not await asyncio.to_thread(cfg_repo.agent_exists, code):
         raise HTTPException(status_code=404, detail=f"Agent '{code}' not found")
     data = await file.read()
     try:
@@ -1203,7 +1204,7 @@ async def delete_agent(request: Request, name: str):
     name = _normalize_agent_name(name)
     require_agent_visible(request, name)
 
-    if not cfg_repo.agent_exists(name):
+    if not await asyncio.to_thread(cfg_repo.agent_exists, name):
         raise HTTPException(status_code=404, detail=f"Agent '{name}' not found")
 
     try:

@@ -587,7 +587,8 @@ class V4GoalEngine:
                 self._settle_continuation_time(session_id, row, run_id="", run_failed=False)
                 row = self.get_goal_row(session_id) or row
             iteration = int(row.get("iteration") or 0) + 1
-            patch_v4_goal_atomic(session_id, fields={"status": "verifying"})
+            # loop 线程上禁同步写事务（写持锁时 0.5s 快败丢目标状态流转）。
+            await asyncio.to_thread(patch_v4_goal_atomic, session_id, fields={"status": "verifying"})
             self._emit_goal_patch(session_id)
             marker_row_id = self._append_goal_verify_marker(
                 session_id, iteration=iteration, outcome="running"
@@ -604,7 +605,7 @@ class V4GoalEngine:
             next_action = str(verification.get("nextAction") or "").strip()
             if next_action:
                 entry["nextAction"] = next_action
-            fresh = append_v4_goal_verification(session_id, entry, bump_iteration=True)
+            fresh = await asyncio.to_thread(append_v4_goal_verification, session_id, entry, bump_iteration=True)
             self._append_goal_verify_marker(
                 session_id,
                 iteration=iteration,
@@ -616,7 +617,8 @@ class V4GoalEngine:
                 return
             if verification.get("passed"):
                 # fail-open（含 verifier 故障）与真实通过共用终态：目标完成。
-                patch_v4_goal_atomic(
+                await asyncio.to_thread(
+                    patch_v4_goal_atomic,
                     session_id,
                     fields={"status": "verified", "last_verify_reason": entry["reason"]},
                     where_status_in=("verifying",),
@@ -625,7 +627,8 @@ class V4GoalEngine:
                 return
             # 未通过：无 nextAction（verifier 自身无效输出）→ 停；有效 → 续跑
             if not next_action:
-                patch_v4_goal_atomic(
+                await asyncio.to_thread(
+                    patch_v4_goal_atomic,
                     session_id,
                     fields={"status": "notSatisfied", "last_verify_reason": entry["reason"]},
                     where_status_in=("verifying",),
@@ -635,10 +638,11 @@ class V4GoalEngine:
             streak_fields = self._continuation_guard(session_id, fresh, next_action)
             if streak_fields is not None:
                 streak_fields["last_verify_reason"] = entry["reason"]
-                patch_v4_goal_atomic(session_id, fields=streak_fields, where_status_in=("verifying",))
+                await asyncio.to_thread(patch_v4_goal_atomic, session_id, fields=streak_fields, where_status_in=("verifying",))
                 self._emit_goal_patch(session_id)
                 return
-            patch_v4_goal_atomic(
+            await asyncio.to_thread(
+                patch_v4_goal_atomic,
                 session_id,
                 fields={
                     "status": "active",
@@ -658,7 +662,8 @@ class V4GoalEngine:
             try:
                 from evoflow.persistence.v4_goal_repositories import patch_v4_goal_atomic
 
-                patch_v4_goal_atomic(
+                await asyncio.to_thread(
+                    patch_v4_goal_atomic,
                     session_id,
                     fields={"status": "active"},
                     where_status_in=("verifying",),
@@ -808,7 +813,8 @@ class V4GoalEngine:
             run_config = json_safe_run_dict(run_config)
             merged_context = json_safe_run_dict(merged_context)
             started_ms = int(time.time() * 1000)
-            patch_v4_goal_atomic(
+            await asyncio.to_thread(
+                patch_v4_goal_atomic,
                 session_id,
                 fields={"active_run_started_at_ms": started_ms},
                 where_status_in=("active",),
@@ -836,7 +842,8 @@ class V4GoalEngine:
                         run_id = rid
                         self._continuation_run_ids[session_id] = rid
         except asyncio.CancelledError:
-            patch_v4_goal_atomic(
+            await asyncio.to_thread(
+                patch_v4_goal_atomic,
                 session_id,
                 fields={"active_run_started_at_ms": None},
                 where_status_in=("active",),
@@ -846,7 +853,8 @@ class V4GoalEngine:
             logger.warning(
                 "[v4-goal] continuation start failed session=%s: %s", session_id, exc
             )
-            patch_v4_goal_atomic(
+            await asyncio.to_thread(
+                patch_v4_goal_atomic,
                 session_id,
                 fields={"active_run_started_at_ms": None},
                 where_status_in=("active", "verifying"),

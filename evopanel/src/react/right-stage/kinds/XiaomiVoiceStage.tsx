@@ -35,6 +35,7 @@ import {
 import { XiaomiV4Timeline } from '../../components/XiaomiV4Timeline.js'
 import { VoicePlaybackDiagnostics } from '../../components/VoicePlaybackDiagnostics.js'
 import { VoiceThinkingDiagnostics } from '../../components/VoiceThinkingDiagnostics.js'
+import { XiaomiVoiceSummaryHost } from '../../components/XiaomiVoiceSummaryHost.js'
 import { XiaoxiStagePet, type PetMode } from '../../components/XiaoxiStagePet.js'
 import { apiUrl } from '../../../lib/api-client.js'
 import './xiaomi-voice-stage.css'
@@ -92,6 +93,8 @@ export function XiaomiVoiceStage() {
   const [ledgerOpen, setLedgerOpen] = useState(false)
   /** 思考 wire / 网关守卫调试 */
   const [thinkingDbgOpen, setThinkingDbgOpen] = useState(false)
+  /** 递增 → 强制展开右上角摘要面板（复用 ChatSummaryPanel） */
+  const [summaryExpandSignal, setSummaryExpandSignal] = useState(0)
   /** null=未知 false=关 true=开（最近一次厂商请求） */
   const [modelThinkingOn, setModelThinkingOn] = useState<boolean | null>(null)
   const [gatewayMode, setGatewayMode] = useState('')
@@ -658,13 +661,19 @@ export function XiaomiVoiceStage() {
           思考
         </button>
         {/*
-          语音会话信息条：从底部焦点区（xws-focus）上移到顶部带，与退出/放大/台账/思考同一行。
-          单行不换行、超长截断；session_key 太长不再占正文位，收进 hover title。
-          底部只保留大号状态词 + 实时用户/AI 文本，不再重复模型/会话信息。
+          语音会话信息条：点开 = 展开右上角摘要气泡（ChatSummaryPanel），
+          改模型 / SOUL / 工具 / 调试都复用主聊那一套。
         */}
-        <div
+        <button
+          type="button"
           className={`xws-session-meta${thinkingAlwaysOn ? ' is-warn' : ''}`}
+          onClick={() => {
+            setLedgerOpen(false)
+            setThinkingDbgOpen(false)
+            setSummaryExpandSignal((n) => n + 1)
+          }}
           title={[
+            '点击展开状态面板：改模型 / 提示词 / 工具 / 调试',
             '当前语音会话用的模型；GLM-5.3 等强制思考模型关不掉思考',
             thinkingAlwaysOn
               ? '此模型 default_mode=enabled，语音关思考无效——请换可关思考的模型'
@@ -710,11 +719,16 @@ export function XiaomiVoiceStage() {
               </span>
             </>
           ) : null}
-        </div>
+        </button>
       </div>
 
       <VoicePlaybackDiagnostics open={ledgerOpen} onClose={() => setLedgerOpen(false)} />
       <VoiceThinkingDiagnostics open={thinkingDbgOpen} onClose={() => setThinkingDbgOpen(false)} />
+
+      {/* 右上角摘要气泡：复用主聊 ChatSummaryPanel（智能体/工具/调试） */}
+      {sessionKey ? (
+        <XiaomiVoiceSummaryHost sessionKey={sessionKey} expandSignal={summaryExpandSignal} />
+      ) : null}
 
       {/*
         右上角「对话」区 = V4 时间线。

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
@@ -55,8 +56,10 @@ async def get_principals(request: Request) -> dict[str, Any]:
     ctx = _require_admin(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     items = []
-    for p in principals_mod.list_principals(org_id=org_id, include_deactivated=True):
-        items.append(principals_mod.principal_to_public(p, org_id=org_id))
+    for p in await asyncio.to_thread(
+        principals_mod.list_principals, org_id=org_id, include_deactivated=True
+    ):
+        items.append(await asyncio.to_thread(principals_mod.principal_to_public, p, org_id=org_id))
     return {"orgId": org_id, "principals": items}
 
 
@@ -72,10 +75,10 @@ class CreatePrincipalBody(BaseModel):
 async def get_principal_detail(request: Request, principal_id: str) -> dict[str, Any]:
     ctx = _require_admin(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    p = principals_mod.get_principal(principal_id, org_id=org_id)
+    p = await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id)
     if not p:
         raise HTTPException(status_code=404, detail="principal not found")
-    return principals_mod.principal_to_public(p, org_id=org_id)
+    return await asyncio.to_thread(principals_mod.principal_to_public, p, org_id=org_id)
 
 
 class UpdatePrincipalBody(BaseModel):
@@ -102,7 +105,8 @@ async def patch_principal(
         if "username" in fields_set:
             raise HTTPException(status_code=403, detail="username change requires org_admin")
     try:
-        updated = principals_mod.update_principal(
+        updated = await asyncio.to_thread(
+            principals_mod.update_principal,
             principal_id,
             display_name=body.displayName if "displayName" in fields_set else None,
             primary_email=body.primaryEmail if "primaryEmail" in fields_set else None,
@@ -114,7 +118,7 @@ async def patch_principal(
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
-    return principals_mod.principal_to_public(updated, org_id=org_id)
+    return await asyncio.to_thread(principals_mod.principal_to_public, updated, org_id=org_id)
 
 
 @router.get(
@@ -145,28 +149,28 @@ async def upload_principal_avatar(
 ) -> dict[str, Any]:
     ctx = _require_self_or_admin(request, principal_id)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not principals_mod.get_principal(principal_id, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
     data = await file.read()
     try:
         principal_avatars_mod.save_avatar_bytes(principal_id, data)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    p = principals_mod.get_principal(principal_id, org_id=org_id)
+    p = await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id)
     assert p is not None
-    return principals_mod.principal_to_public(p, org_id=org_id)
+    return await asyncio.to_thread(principals_mod.principal_to_public, p, org_id=org_id)
 
 
 @router.delete("/principals/{principal_id}/avatar", summary="Delete principal avatar")
 async def delete_principal_avatar(request: Request, principal_id: str) -> dict[str, Any]:
     ctx = _require_self_or_admin(request, principal_id)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not principals_mod.get_principal(principal_id, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
     principal_avatars_mod.delete_avatar_file(principal_id)
-    p = principals_mod.get_principal(principal_id, org_id=org_id)
+    p = await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id)
     assert p is not None
-    return principals_mod.principal_to_public(p, org_id=org_id)
+    return await asyncio.to_thread(principals_mod.principal_to_public, p, org_id=org_id)
 
 
 class ResetPasswordBody(BaseModel):
@@ -181,10 +185,11 @@ async def post_reset_password(
 ) -> dict[str, Any]:
     ctx = _require_admin(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not principals_mod.get_principal(principal_id, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
     try:
-        pw = principals_mod.reset_principal_password(
+        pw = await asyncio.to_thread(
+            principals_mod.reset_principal_password,
             principal_id,
             new_password=(body.newPassword if body else None),
             org_id=org_id,
@@ -202,7 +207,8 @@ async def post_principal(request: Request, body: CreatePrincipalBody) -> dict[st
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
     try:
-        created = principals_mod.create_principal(
+        created = await asyncio.to_thread(
+            principals_mod.create_principal,
             display_name=body.displayName,
             org_id=org_id,
             username=body.username,
@@ -213,7 +219,7 @@ async def post_principal(request: Request, body: CreatePrincipalBody) -> dict[st
         raise HTTPException(status_code=400, detail=str(e)) from e
     pid = str(created.get("principal_id") or "")
     if body.promoteAdmin:
-        admin_mod.promote_org_admin(pid, granted_by=actor, org_id=org_id)
+        await asyncio.to_thread(admin_mod.promote_org_admin, pid, granted_by=actor, org_id=org_id)
     initial_pw = None
     attrs = created.get("attrs") or {}
     if isinstance(attrs, dict):
@@ -223,7 +229,7 @@ async def post_principal(request: Request, body: CreatePrincipalBody) -> dict[st
         "displayName": created.get("display_name") or "",
         "username": body.username,
         "initialPassword": initial_pw,
-        "isOrgAdmin": admin_mod.is_org_admin(pid, org_id=org_id),
+        "isOrgAdmin": await asyncio.to_thread(admin_mod.is_org_admin, pid, org_id=org_id),
         "personalScopeId": principals_mod.personal_scope_for(created),
     }
 
@@ -240,7 +246,7 @@ async def post_principal_status(
 ) -> dict[str, Any]:
     ctx = _require_admin(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not principals_mod.set_principal_status(principal_id, body.status, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.set_principal_status, principal_id, body.status, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
     return {"principalId": principal_id, "status": body.status}
 
@@ -250,9 +256,9 @@ async def post_promote_admin(request: Request, principal_id: str) -> dict[str, A
     ctx = _require_admin(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
-    if not principals_mod.get_principal(principal_id, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.get_principal, principal_id, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
-    admin_mod.promote_org_admin(principal_id, granted_by=actor, org_id=org_id)
+    await asyncio.to_thread(admin_mod.promote_org_admin, principal_id, granted_by=actor, org_id=org_id)
     return {"principalId": principal_id, "isOrgAdmin": True}
 
 
@@ -262,7 +268,7 @@ async def delete_admin(request: Request, principal_id: str) -> dict[str, Any]:
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
     try:
-        admin_mod.revoke_org_admin(principal_id, org_id=org_id, actor_id=actor)
+        await asyncio.to_thread(admin_mod.revoke_org_admin, principal_id, org_id=org_id, actor_id=actor)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"principalId": principal_id, "isOrgAdmin": False}
@@ -277,7 +283,7 @@ class CreateGroupBody(BaseModel):
 async def get_groups(request: Request) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    return {"orgId": org_id, "groups": groups_mod.list_groups(org_id=org_id)}
+    return {"orgId": org_id, "groups": await asyncio.to_thread(groups_mod.list_groups, org_id=org_id)}
 
 
 @router.post("/groups")
@@ -287,7 +293,7 @@ async def post_group(request: Request, body: CreateGroupBody) -> dict[str, Any]:
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
     if not actor:
         raise HTTPException(status_code=401, detail="principal required")
-    g = groups_mod.create_group(name=body.name, created_by=actor, org_id=org_id, kind=body.kind)
+    g = await asyncio.to_thread(groups_mod.create_group, name=body.name, created_by=actor, org_id=org_id, kind=body.kind)
     return {
         "groupId": g["group_id"],
         "scopeId": g["scope_id"],
@@ -307,9 +313,15 @@ async def get_group_members(request: Request, group_id: str) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_read_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
+    if not await asyncio.to_thread(
+        membership_mod.can_read_scope, ctx["principal"], scope, org_id=org_id
+    ) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="not a member")
-    return {"groupId": group_id, "scopeId": scope, "members": membership_mod.list_scope_members(scope, org_id=org_id)}
+    return {
+        "groupId": group_id,
+        "scopeId": scope,
+        "members": await asyncio.to_thread(membership_mod.list_scope_members, scope, org_id=org_id),
+    }
 
 
 @router.put("/groups/{group_id}/members")
@@ -317,11 +329,14 @@ async def put_group_member(request: Request, group_id: str, body: GroupMemberBod
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
+    if not await asyncio.to_thread(
+        membership_mod.can_manage_scope, ctx["principal"], scope, org_id=org_id
+    ) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="manager required")
-    if not principals_mod.get_principal(body.principalId, org_id=org_id):
+    if not await asyncio.to_thread(principals_mod.get_principal, body.principalId, org_id=org_id):
         raise HTTPException(status_code=404, detail="principal not found")
-    membership_mod.add_scope_member(
+    await asyncio.to_thread(
+        membership_mod.add_scope_member,
         scope,
         body.principalId,
         role=body.role,  # type: ignore[arg-type]
@@ -335,9 +350,11 @@ async def delete_group_member(request: Request, group_id: str, principal_id: str
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     scope = group_scope(group_id)
-    if not membership_mod.can_manage_scope(ctx["principal"], scope, org_id=org_id) and not ctx.get("is_org_admin"):
+    if not await asyncio.to_thread(
+        membership_mod.can_manage_scope, ctx["principal"], scope, org_id=org_id
+    ) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="manager required")
-    membership_mod.remove_scope_member(scope, principal_id, org_id=org_id)
+    await asyncio.to_thread(membership_mod.remove_scope_member, scope, principal_id, org_id=org_id)
     return {"groupId": group_id, "principalId": principal_id, "removed": True}
 
 
@@ -353,9 +370,12 @@ async def post_grant(request: Request, body: GrantBody) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
     actor = str((ctx.get("principal") or {}).get("principal_id") or "")
-    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get("is_org_admin"):
+    if not await asyncio.to_thread(
+        membership_mod.can_manage_scope, ctx["principal"], body.ownerScopeId, org_id=org_id
+    ) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="cannot manage owner scope")
-    acl_grant(
+    await asyncio.to_thread(
+        acl_grant,
         owner_scope_id=body.ownerScopeId,
         ref=body.ref,
         grantee_scope_id=body.granteeScopeId,
@@ -375,9 +395,12 @@ async def post_grant(request: Request, body: GrantBody) -> dict[str, Any]:
 async def delete_grant(request: Request, body: GrantBody) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    if not membership_mod.can_manage_scope(ctx["principal"], body.ownerScopeId, org_id=org_id) and not ctx.get("is_org_admin"):
+    if not await asyncio.to_thread(
+        membership_mod.can_manage_scope, ctx["principal"], body.ownerScopeId, org_id=org_id
+    ) and not ctx.get("is_org_admin"):
         raise HTTPException(status_code=403, detail="cannot manage owner scope")
-    acl_revoke(
+    await asyncio.to_thread(
+        acl_revoke,
         owner_scope_id=body.ownerScopeId,
         ref=body.ref,
         grantee_scope_id=body.granteeScopeId,
@@ -395,7 +418,7 @@ async def get_grants(
 ) -> dict[str, Any]:
     ctx = resolve_request_authz(request)
     org_id = str(ctx.get("org_id") or DEFAULT_ORG_ID)
-    grants = list_grants_for_ref(ownerScopeId, ref, org_id=org_id)
+    grants = await asyncio.to_thread(list_grants_for_ref, ownerScopeId, ref, org_id=org_id)
     return {
         "ownerScopeId": ownerScopeId,
         "ref": ref,

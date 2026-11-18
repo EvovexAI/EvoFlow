@@ -153,7 +153,8 @@ async def handle_task_authorized(event: TaskAuthorizedEvent) -> None:
             try:
                 from evoflow.persistence import chat_message_repositories as msg_repo
 
-                for msg in reversed(msg_repo.conversation_archive_from_thread_id(lead_thread, limit=200)):
+                # 200 条转录读 offload：任务授权回调在 loop 上，写持锁时会冻 0.5s。
+                for msg in reversed(await asyncio.to_thread(msg_repo.conversation_archive_from_thread_id, lead_thread, limit=200)):
                     if not isinstance(msg, dict):
                         continue
                     role = str(msg.get("role") or msg.get("type") or "").strip().lower()

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from typing import Any, Literal
@@ -113,7 +114,10 @@ def _options_dict(opts: InstallOptions | None) -> dict[str, Any]:
 
 @router.post("/preflight")
 async def api_preflight(body: PreflightRequest) -> dict[str, Any]:
-    return preflight_organization(
+    # preflight 可能下载 zip_url（urlopen 最长 120s+）并整包解包——必须在 worker 线程跑，
+    # 否则资源市场一次预检会把整个网关事件循环卡死。
+    return await asyncio.to_thread(
+        preflight_organization,
         source=_source_dict(body.source),
         workspace_path=body.workspace_path,
         options=_options_dict(body.options),
@@ -123,7 +127,9 @@ async def api_preflight(body: PreflightRequest) -> dict[str, Any]:
 @router.post("/install")
 async def api_install(body: InstallRequest) -> dict[str, Any]:
     try:
-        return install_organization(
+        # install 含 zip 下载 + copytree + 知识库导入，秒~分钟级 FS/网络 IO，禁上事件循环。
+        return await asyncio.to_thread(
+            install_organization,
             source=_source_dict(body.source),
             workspace_path=body.workspace_path,
             options=_options_dict(body.options),
@@ -142,7 +148,11 @@ async def api_list(
     status: str | None = Query("active", description="active|uninstalled|empty for all"),
 ) -> dict[str, Any]:
     st = None if status == "" else status
-    items = list_org_instances(status=st)
+
+    def _list() -> list[dict[str, Any]]:
+        return list_org_instances(status=st)
+
+    items = await asyncio.to_thread(_list)
     return {"items": items, "count": len(items)}
 
 
@@ -273,7 +283,9 @@ async def api_upgrade(body: UpgradeRequest) -> dict[str, Any]:
 
     try:
         src = _source_dict(body.source) if body.source is not None else None
-        return upgrade_organization(
+        # upgrade 内部会 force 重拉市场目录 + 整包安装 + 逐实例卸载，网络+FS 重 IO。
+        return await asyncio.to_thread(
+            upgrade_organization,
             pack_id=body.pack_id,
             source=src,
             workspace_path=body.workspace_path,
@@ -292,7 +304,7 @@ async def api_upgrade(body: UpgradeRequest) -> dict[str, Any]:
 async def api_get(org_instance_id: str) -> dict[str, Any]:
     if org_instance_id in ("market", "upgrade"):
         raise HTTPException(status_code=404, detail="Not found")
-    inst = get_org_instance(org_instance_id)
+    inst = await asyncio.to_thread(get_org_instance, org_instance_id)
     if not inst:
         raise HTTPException(status_code=404, detail=f"Organization not found: {org_instance_id}")
     out = dict(inst)
@@ -331,7 +343,8 @@ async def api_get(org_instance_id: str) -> dict[str, Any]:
 async def api_uninstall(body: UninstallRequest) -> dict[str, Any]:
     try:
         opts = body.options.model_dump() if body.options else {}
-        return uninstall_organization(body.org_instance_id, options=opts)
+        # uninstall 会 rmtree 各实例产物目录，FS 重 IO 不上事件循环。
+        return await asyncio.to_thread(uninstall_organization, body.org_instance_id, options=opts)
     except OrganizationInstallError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
 
@@ -339,7 +352,9 @@ async def api_uninstall(body: UninstallRequest) -> dict[str, Any]:
 @router.post("/export")
 async def api_export(body: ExportRequest) -> dict[str, Any]:
     try:
-        return export_organization(
+        # export 是整包收集+打包（zip），秒级 FS IO。
+        return await asyncio.to_thread(
+            export_organization,
             pack=body.pack.model_dump(),
             include=body.include.model_dump(),
             output=body.output.model_dump(),

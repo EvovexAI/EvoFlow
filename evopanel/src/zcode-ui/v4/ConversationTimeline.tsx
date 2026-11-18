@@ -800,6 +800,8 @@ function ConversationTimelineImpl({
 
   // KeepAlive 切回可见后短暂窗口：宁可信更大几何，也不吃 ≈72 的毒测高。
   const remountMeasureGuardUntilRef = useRef(0);
+  /** KeepAlive 切回可见后贴底；在 scrollToBottom 定义后写入，供上方 layout effect 调用。 */
+  const becomeVisibleFollowBottomRef = useRef<(() => void) | null>(null);
   // 动态测高：virtualizer 对窗口内元素挂 ResizeObserver，流式行长高即回调此处；
   // 同时把真实高度写入稳定的 turnId 缓存。
   // visibility:hidden 时几何仍有效（CDP 实证：正文高 1324 但间距锁 72）。
@@ -850,12 +852,13 @@ function ConversationTimelineImpl({
     scrollMargin: headerSlotHeight,
   });
   const prevLayoutActiveRef = useRef(layoutActive);
+  // KeepAlive 切回可见：heal 低估高度；跟底/guard 在下方 scrollToBottom 定义后再挂（避免 TDZ）。
   useLayoutEffect(() => {
     const wasActive = prevLayoutActiveRef.current;
     prevLayoutActiveRef.current = layoutActive;
     if (!wasActive && layoutActive) {
-      // 切回可见：以 DOM 真实高度 heal（缓存可能已是 72），不要盲 measure() 先。
-      remountMeasureGuardUntilRef.current = performance.now() + 400;
+      remountMeasureGuardUntilRef.current = performance.now() + 450;
+      layoutScrollGuardUntilRef.current = Date.now() + 450;
       const cache = heightCacheRef.current;
       const units = virtualizedUnitsRef.current;
       const root = scrollRef.current;
@@ -878,13 +881,28 @@ function ConversationTimelineImpl({
           virtualizer.resizeItem(i, size);
         }
       }
+      // 仅在「仍跟随 / 记忆贴底」时首帧恢复跟底；rAF 只在 following 仍为 true 时补贴，
+      // 不得再用陈旧 wasPinnedToBottom 把用户已上滚的历史拽回底部。
+      const memoryPinned =
+        !!scrollMemoryKey &&
+        readChatSessionScrollMemoryState(scrollMemoryKey)?.wasPinnedToBottom === true;
+      if (followingRef.current || memoryPinned) {
+        if (!followingRef.current) {
+          followingRef.current = true;
+          setBackToBottomVisible(false);
+        }
+        becomeVisibleFollowBottomRef.current?.();
+      }
       let cancelled = false;
       let raf2 = 0;
       const raf1 = window.requestAnimationFrame(() => {
         raf2 = window.requestAnimationFrame(() => {
           if (cancelled) return;
-          // measureElement 已防 72 毒写；此时再同步一次挂载行。
           virtualizer.measure();
+          layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
+          if (followingRef.current) {
+            becomeVisibleFollowBottomRef.current?.();
+          }
         });
       });
       return () => {
@@ -894,7 +912,7 @@ function ConversationTimelineImpl({
       };
     }
     return undefined;
-  }, [layoutActive, virtualizer]);
+  }, [layoutActive, virtualizer, scrollMemoryKey]);
 
   // 可见态持续 heal：浮层已实证「DOM h=383 但 gap→72」——virtualizer 仍信估高，
   // 仅靠 RO/切会话 heal 不够。挂载行若 rect 明显大于当前 size，强制 resizeItem。
@@ -1302,6 +1320,17 @@ function ConversationTimelineImpl({
     syncTurnNavigatorViewport,
   ]);
 
+  // KeepAlive 切回贴底：只在 following 仍成立时执行。
+  // 禁止读陈旧 wasPinnedToBottom 再 commitFollowing(true)——用户上滚看历史后
+  // rAF/measure 会把人拽回底部，表现为「往上滚历史不显示」。
+  becomeVisibleFollowBottomRef.current = () => {
+    if (!followingRef.current) return;
+    if (userAdjustedScrollSinceRestoreRef.current) return;
+    markLayoutScrollGuard();
+    commitFollowing(true);
+    scrollToBottom();
+  };
+
   useLayoutEffect(() => {
     const contentColumn = virtualHistoryRef.current;
     if (!contentColumn || typeof ResizeObserver === "undefined") return;
@@ -1435,14 +1464,23 @@ function ConversationTimelineImpl({
       programmaticScrollFrameRef.current !== null &&
       Math.abs(element.scrollTop - lastObservedScrollTopRef.current) < 1;
     const userScrollIntent = getActiveUserScrollIntent();
-    // 用户输入优先；其余 scroll 若落在内容/测高 guard 内视为布局补偿，guard 外的
-    // 未分类事件继续按真实用户滚动处理，兼容原生滚动条和辅助技术。
+    // 用户输入优先；guard 内且仍近底的未分类 scroll 视为布局补偿（heal/measure）。
+    // 已离底时不得再当 layout——否则切会话后滚动条上翻会被 450ms remount guard
+    // 吞掉，following 不清、内容 effect 继续贴底，历史像「滚不动/不显示」。
+    const inRemountMeasureGuard =
+      performance.now() <= remountMeasureGuardUntilRef.current;
+    const inLayoutGuard = Date.now() <= layoutScrollGuardUntilRef.current;
+    const nearBottom = isAtBottom({
+      scrollTop: element.scrollTop,
+      viewportHeight: element.clientHeight,
+      contentHeight: element.scrollHeight,
+    });
     const scrollSource =
       userScrollIntent !== "none"
         ? "user"
         : programmaticScroll
           ? "programmatic"
-          : Date.now() <= layoutScrollGuardUntilRef.current
+          : (inLayoutGuard || inRemountMeasureGuard) && nearBottom
             ? "layout"
             : "user";
     // virtualizer 的原生 offset observer 会先于 React onScroll 入账；到这里即可确认它

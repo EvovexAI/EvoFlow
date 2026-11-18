@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -127,10 +128,17 @@ class SourceEnableBody(BaseModel):
     enabled: bool = True
 
 
+async def _host_status_async(request: Request) -> dict[str, Any]:
+    """host_status 会逐包 is_file()/stat() 扫描已发布包目录——放 worker 线程。"""
+    port = _gateway_port(request)
+    base = _request_base(request)
+    return await asyncio.to_thread(host.host_status, gateway_port=port, request_base=base)
+
+
 @router.get("/api/resource-market/host/status")
 async def host_status(request: Request) -> dict[str, Any]:
     _require_local(request)
-    return host.host_status(gateway_port=_gateway_port(request), request_base=_request_base(request))
+    return await _host_status_async(request)
 
 
 @router.post("/api/resource-market/host/enable")
@@ -145,10 +153,7 @@ async def host_enable(request: Request, body: HostEnableBody) -> dict[str, Any]:
         host.set_host_token(None)
     elif body.token is not None:
         host.set_host_token(body.token)
-    return {
-        "ok": True,
-        **host.host_status(gateway_port=_gateway_port(request), request_base=_request_base(request)),
-    }
+    return {"ok": True, **(await _host_status_async(request))}
 
 
 @router.post("/api/resource-market/host/publish")
@@ -164,10 +169,11 @@ async def host_publish(request: Request, body: PublishBody) -> dict[str, Any]:
         "author": body.author,
     }
     try:
-        result = host.publish_pack(source_path=body.path, pack_meta=meta)
+        # publish_pack 会 _zip_directory 压缩整个包目录（秒~分钟级），禁上事件循环。
+        result = await asyncio.to_thread(host.publish_pack, source_path=body.path, pack_meta=meta)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
-    status = host.host_status(gateway_port=_gateway_port(request), request_base=_request_base(request))
+    status = await _host_status_async(request)
     return {**result, "share_urls": status.get("share_urls") or []}
 
 
@@ -175,7 +181,7 @@ async def host_publish(request: Request, body: PublishBody) -> dict[str, Any]:
 async def host_unpublish(request: Request, pack_id: str) -> dict[str, Any]:
     _require_local(request)
     try:
-        return host.unpublish_pack(pack_id)
+        return await asyncio.to_thread(host.unpublish_pack, pack_id)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e)) from e
 

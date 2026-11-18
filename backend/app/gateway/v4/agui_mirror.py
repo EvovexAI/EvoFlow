@@ -30,6 +30,12 @@ logger = logging.getLogger(__name__)
 
 _MIRROR_DISABLED = os.getenv("EVOFLOW_V4_MIRROR", "1").strip().lower() in {"0", "false", "off", "no"}
 
+# 空流 / 过早 RUN_FINISHED / 历史仅 user 轮：与 hydration 共用文案，避免 live 与 remint 口径分裂。
+EMPTY_RUN_NOTICE_TEXT = (
+    "本轮未产出可见回复（空流或过早收尾）。"
+    "若随后仍有模型输出，会继续挂在本轮；也可再发一条重试。"
+)
+
 _AGUI_TO_TOOL_STATUS: dict[str, str] = {
     "inputstreaming": "inputStreaming",
     # AG-UI / sse_ui_normalize 发的是 pending_approval（带下划线）；
@@ -807,6 +813,114 @@ class V4Mirror:
             },
         )
 
+    def _turn_has_assistant_work(self, tid: str, turn_id: str) -> bool:
+        """Hub 上该轮是否已有可见助手产物（正文/思考/工具），不只看 text_acc。"""
+        want = str(turn_id or "").strip()
+        if not want:
+            return False
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return False
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("turnId") or "").strip() != want:
+                continue
+            kind = str(row.get("kind") or "")
+            if kind in ("assistantText", "reasoning", "toolCall", "subagent"):
+                # 空跑占位本身不算「有产出」
+                eid = str(row.get("entityId") or "")
+                if eid.startswith("empty-run-"):
+                    continue
+                if kind == "assistantText" and not str(row.get("text") or "").strip():
+                    continue
+                return True
+        return False
+
+    def _upsert_empty_run_notice(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
+        """空流 / 过早 RUN_FINISHED：写一条可见占位，避免用户轮只剩气泡像「已完成却没回复」。"""
+        turn_id = str(st.turn_id or "").strip()
+        if not turn_id or not st.run_started:
+            return
+        if self._turn_has_assistant_work(tid, turn_id):
+            return
+        mid = f"empty-run-{turn_id}"
+        sess = self._hub.get_session(tid)
+        if sess is not None:
+            for row in sess.rows.values():
+                if (
+                    isinstance(row, dict)
+                    and str(row.get("entityId") or "") == mid
+                    and str(row.get("turnId") or "").strip() == turn_id
+                ):
+                    return
+        rid = self._next_row_id(tid)
+        st.text_row_ids[mid] = rid
+        st.text_acc[mid] = EMPTY_RUN_NOTICE_TEXT
+        self._hub.author_append_row(
+            tid,
+            {
+                "rowId": rid,
+                "turnId": turn_id,
+                "kind": "assistantText",
+                "text": st.text_acc[mid],
+                "state": "complete",
+                "createdAt": now_ms,
+                "createdAtSeq": self._seq_now(tid),
+                "entityId": mid,
+            },
+        )
+
+    def _clear_empty_run_notices(self, tid: str, st: _MirrorState) -> None:
+        """真实正文/工具开始后，撤掉空跑占位，避免和真回复叠两条。"""
+        turn_id = str(st.turn_id or "").strip()
+        if not turn_id:
+            return
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return
+        drop: list[int] = []
+        for rid, row in list(sess.rows.items()):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("turnId") or "").strip() != turn_id:
+                continue
+            eid = str(row.get("entityId") or "")
+            if eid.startswith("empty-run-"):
+                drop.append(int(rid))
+                st.text_row_ids.pop(eid, None)
+                st.text_acc.pop(eid, None)
+        if not drop:
+            return
+        remove = getattr(self._hub, "author_remove_rows", None) or getattr(
+            self._hub, "remove_rows", None
+        )
+        if callable(remove):
+            try:
+                remove(tid, drop)
+                return
+            except Exception:
+                logger.debug(
+                    "[v4-mirror] clear empty-run notice via remove failed thread=%s",
+                    tid,
+                    exc_info=True,
+                )
+        # hub 无删行 API 时：把占位文案清空并标 interrupted，前端折叠健康会弱化空壳。
+        for rid in drop:
+            self._hub.author_upsert_row(
+                tid,
+                {
+                    "rowId": rid,
+                    "turnId": turn_id,
+                    "kind": "assistantText",
+                    "text": "",
+                    "state": "interrupted",
+                    "createdAt": _now_ms(),
+                    "createdAtSeq": self._seq_now(tid),
+                    "entityId": f"empty-run-cleared-{rid}",
+                },
+            )
+
     def _mark_assistant_text_interrupted(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
         """Seal in-flight assistantText rows as interrupted after user stop."""
         if not st.text_row_ids:
@@ -1301,16 +1415,19 @@ class V4Mirror:
         header_origin: str,
         next_run_id: str,
         now_ms: int,
+        reason: str = "RUN_STARTED continuation without userInput",
+        clear_stream_maps: bool = True,
     ) -> None:
         """无新用户输入的内部续跑：挂回上一 product turn，避免左栏 AI 回复被劈成两截。"""
         logger.warning(
-            "[v4-mirror] RUN_STARTED continuation without userInput; "
-            "reuse turn thread=%s turn=%s next_run=%s",
+            "[v4-mirror] %s; reuse turn thread=%s turn=%s next_run=%s",
+            reason,
             tid,
             turn_id,
             next_run_id,
         )
-        self._clear_stream_row_maps(st)
+        if clear_stream_maps:
+            self._clear_stream_row_maps(st)
         st.run_started = True
         st.turn_id = turn_id
         st.last_turn_id = turn_id
@@ -1339,6 +1456,38 @@ class V4Mirror:
             tid,
             _running_control(now_ms=now_ms, last_error=st.sticky_run_error),
         )
+
+    def _ensure_active_turn_for_stream(
+        self, tid: str, st: _MirrorState, *, now_ms: int, via: str
+    ) -> bool:
+        """保证流式正文/工具有可挂的 product turn。
+
+        工具循环中间的 RUN_FINISHED 会 ``_reset_turn_ephemeral`` 清掉 ``turn_id``；
+        若随后 TEXT_*/TOOL_* 仍按空 turnId 落行，助手气泡会成孤儿——用户轮只剩
+        turnHeader(completedSuccess)+userInput，浮层/页面都看不到 AI 回复。
+        """
+        if st.run_started and str(st.turn_id or "").strip() and int(st.turn_header_row_id or 0) > 0:
+            return True
+        cont_tid = str(st.last_turn_id or "").strip() or self._latest_product_turn_id(tid)
+        if not cont_tid:
+            return False
+        cont_rid, cont_started, cont_origin = self._lookup_turn_header(tid, cont_tid)
+        if cont_rid <= 0:
+            return False
+        self._reuse_product_turn(
+            tid,
+            st,
+            turn_id=cont_tid,
+            header_rid=cont_rid,
+            started_at=cont_started,
+            header_origin=cont_origin,
+            next_run_id=f"late-stream:{via}",
+            now_ms=now_ms,
+            reason=f"late {via} after turn sealed",
+            # 迟到 START 时 map 本就空；勿清掉同帧已写入的 mid（防御性）。
+            clear_stream_maps=False,
+        )
+        return bool(str(st.turn_id or "").strip())
 
     def _find_reusable_user_input_row(
         self,
@@ -1567,6 +1716,11 @@ class V4Mirror:
             mid = str(ev.get("messageId") or "").strip()
             if not mid or mid in st.text_row_ids:
                 return
+            if not self._ensure_active_turn_for_stream(
+                tid, st, now_ms=now_ms, via="TEXT_MESSAGE_START"
+            ):
+                return
+            self._clear_empty_run_notices(tid, st)
             # Successful model output starting → clear retry banner + sticky error.
             st.sticky_run_error = None
             self._clear_api_retry(tid, st, now_ms=now_ms)
@@ -1617,7 +1771,7 @@ class V4Mirror:
                 tid,
                 {
                     "rowId": rid,
-                    "turnId": st.turn_id,
+                    "turnId": str(st.turn_id or st.last_turn_id or "").strip(),
                     "kind": "assistantText",
                     "state": "complete",
                     "text": st.text_acc.get(mid, ""),
@@ -1632,6 +1786,11 @@ class V4Mirror:
             mid = str(ev.get("messageId") or "").strip()
             if not mid or mid in st.reasoning_row_ids:
                 return
+            if not self._ensure_active_turn_for_stream(
+                tid, st, now_ms=now_ms, via="REASONING_MESSAGE_START"
+            ):
+                return
+            self._clear_empty_run_notices(tid, st)
             rid = self._next_row_id(tid)
             st.reasoning_row_ids[mid] = rid
             st.reasoning_acc[mid] = ""
@@ -1669,7 +1828,7 @@ class V4Mirror:
                 tid,
                 {
                     "rowId": rid,
-                    "turnId": st.turn_id,
+                    "turnId": str(st.turn_id or st.last_turn_id or "").strip(),
                     "kind": "reasoning",
                     "state": "complete",
                     "text": st.reasoning_acc.get(mid, ""),
@@ -1685,6 +1844,11 @@ class V4Mirror:
             name = str(ev.get("toolCallName") or ev.get("name") or "tool").strip() or "tool"
             if not tcid or tcid in st.tool_row_ids:
                 return
+            if not self._ensure_active_turn_for_stream(
+                tid, st, now_ms=now_ms, via="TOOL_CALL_START"
+            ):
+                return
+            self._clear_empty_run_notices(tid, st)
             rid = self._next_row_id(tid)
             st.tool_row_ids[tcid] = rid
             st.tool_acc[tcid] = ""
@@ -1960,6 +2124,9 @@ class V4Mirror:
                 },
             )
             produced_text = any(str(t or "").strip() for t in st.text_acc.values())
+            has_assistant_work = produced_text or self._turn_has_assistant_work(
+                tid, str(st.turn_id or "")
+            )
             if et == "RUN_ERROR":
                 if user_stopped:
                     # 停止 ≠ 报错：清 sticky / lastError，勿写「详情（可复制反馈）」气泡。
@@ -1972,7 +2139,7 @@ class V4Mirror:
                     st.sticky_run_error = dict(last_error)
                     # 无正文时把详情落到助手气泡，用户不必翻系统日志也能看见/复制。
                     detail = str(last_error.get("detail") or "").strip()
-                    if detail and not produced_text:
+                    if detail and not has_assistant_work:
                         banner = str(last_error.get("message") or "本轮生成失败").strip()
                         self._upsert_error_assistant_text(
                             tid,
@@ -1980,13 +2147,16 @@ class V4Mirror:
                             f"{banner}\n\n详情（可复制反馈）：\n{detail}",
                             now_ms=now_ms,
                         )
-            elif produced_text:
-                # 真正产出正文的成功收尾 → 清 sticky。
+            elif has_assistant_work:
+                # 真正产出正文/工具的成功收尾 → 清 sticky。
                 st.sticky_run_error = None
                 last_error = None
             else:
                 # 空流 FINISHED（常见于 auto-retry 夹缝）：保留上次 RUN_ERROR，横幅别丢。
                 last_error = dict(st.sticky_run_error) if st.sticky_run_error else None
+                # 有用户气泡却无任何助手产物：写可见占位，避免 !EMPTY_ASSISTANT 静默成功。
+                if et == "RUN_FINISHED" and not user_stopped:
+                    self._upsert_empty_run_notice(tid, st, now_ms=now_ms)
             from app.gateway.v4.conversation import _minimal_control
 
             if user_stopped:
@@ -1995,7 +2165,7 @@ class V4Mirror:
                 phase = "error"
             else:
                 phase = "completedSuccess"
-            if et == "RUN_FINISHED" and produced_text:
+            if et == "RUN_FINISHED" and has_assistant_work:
                 phase = "completedSuccess"
             ctrl = _minimal_control(phase)
             # sessionEnded 由 _minimal_control 按终态派生（成功/中断=True；
@@ -2020,7 +2190,7 @@ class V4Mirror:
             # 轮累计 usage 盖轮尾正文行：必须在 seal 之后（行已 complete，否则被整行替换清掉）。
             # failed / 用户停止轮不盖（V4 动作行只渲染 complete 正文，轮尾也不展示失败用量）。
             st.last_turn_success = et == "RUN_FINISHED"
-            if et == "RUN_FINISHED" and produced_text:
+            if et == "RUN_FINISHED" and has_assistant_work and produced_text:
                 self._stamp_turn_usage(tid, st)
             # 会话总计：成功轮的用量并入 sess.usage_state 并发 usage 增量（面板总计条）。
             if et == "RUN_FINISHED":

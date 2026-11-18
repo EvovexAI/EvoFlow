@@ -115,39 +115,68 @@ def _is_trackable(entity: EntityRef, rel_path: str) -> Path | None:
     return path
 
 
-def _ledger_bump(entity: EntityRef, rel_path: str, *, used: bool, cited: bool) -> bool:
-    """Add one use/cite to the ledger entry. Full RMW runs under one lock."""
-    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+def _ledger_bump_many(
+    entity: EntityRef,
+    rel_paths: list[str],
+    *,
+    used: bool,
+    cited: bool,
+) -> int:
+    """Bump several ledger entries in ONE read-modify-write.
+
+    【self-evolution-bot · 2026-11-17 · 第38轮 · 模型:deepseek-v4.1-flash-1017】
+    assets search 命中多少条就要 bump 多少条，而每条旧实现都重新读一遍整份 ledger、
+    改一个键、再整份 atomic_write_text（含 fsync）。实测 20 条路径 56.5ms，其中
+    绝大部分是这 20 轮重复 I/O，与「记 20 次使用」这件事本身无关。
+    改成同一把锁内一次读、改 N 个键、一次写：语义不变（仍是全量 RMW + 原子写），
+    bump 计数逐条 +1 也不变，只是把写盘次数从 N 降到 1。
+    """
+    rels = [str(p or "").replace("\\", "/").lstrip("/") for p in rel_paths]
+    rels = [r for r in rels if r]
+    if not rels:
+        return 0
     try:
         with _LEDGER_GUARD:
             data = _read_ledger(entity)
-            entry = dict(data.get(rel) or {})
-            try:
-                uses = int(entry.get("useCount") or 0)
-            except (TypeError, ValueError):
-                uses = 0
-            try:
-                cites = int(entry.get("citeCount") or 0)
-            except (TypeError, ValueError):
-                cites = 0
             now = _now_iso()
-            changed = False
-            if used:
-                entry["useCount"] = uses + 1
-                entry["lastUsedAt"] = now
-                changed = True
-            if cited:
-                entry["citeCount"] = cites + 1
-                entry["lastCitedAt"] = now
-                changed = True
-            if not changed:
-                return False
-            data[rel] = entry
-            atomic_write_text(_ledger_path(entity), json.dumps(data, ensure_ascii=False))
-            return True
+            bumped = 0
+            dirty = False
+            for rel in dict.fromkeys(rels):
+                entry = dict(data.get(rel) or {})
+                try:
+                    uses = int(entry.get("useCount") or 0)
+                except (TypeError, ValueError):
+                    uses = 0
+                try:
+                    cites = int(entry.get("citeCount") or 0)
+                except (TypeError, ValueError):
+                    cites = 0
+                changed = False
+                if used:
+                    entry["useCount"] = uses + 1
+                    entry["lastUsedAt"] = now
+                    changed = True
+                if cited:
+                    entry["citeCount"] = cites + 1
+                    entry["lastCitedAt"] = now
+                    changed = True
+                if not changed:
+                    continue
+                data[rel] = entry
+                dirty = True
+                bumped += 1
+            if dirty:
+                atomic_write_text(_ledger_path(entity), json.dumps(data, ensure_ascii=False))
+            return bumped
     except OSError as exc:
-        logger.debug("usage ledger bump failed %s: %s", rel, exc)
-        return False
+        logger.debug("usage ledger bump failed %s: %s", ",".join(rels[:3]), exc)
+        return 0
+
+
+def _ledger_bump(entity: EntityRef, rel_path: str, *, used: bool, cited: bool) -> bool:
+    """Add one use/cite to the ledger entry. Full RMW runs under one lock."""
+    rel = str(rel_path or "").replace("\\", "/").lstrip("/")
+    return bool(_ledger_bump_many(entity, [rel], used=used, cited=cited))
 
 
 def _ledger_entry(entity: EntityRef, rel_path: str) -> dict[str, Any]:
@@ -228,16 +257,26 @@ def touch_asset_usage(entity: EntityRef, rel_path: str) -> bool:
 
 
 def touch_asset_usages(entity: EntityRef, rel_paths: list[str]) -> int:
-    n = 0
+    """Bump many paths in one ledger write.
+
+    【self-evolution-bot · 2026-11-17 · 第38轮 · 模型:deepseek-v4.1-flash-1017】
+    原实现逐条调 touch_asset_usage → _ledger_bump，每条都整份读+整份写+fsync。
+    search 一次命中 20 条路径就是 20 轮重复 I/O（实测 56.5ms）。这里保留
+    「逐条判 _is_trackable」的安全语义，只把写盘合并成一次。
+    """
     seen: set[str] = set()
+    trackable: list[str] = []
     for rel in rel_paths:
         key = str(rel or "").replace("\\", "/").lstrip("/")
         if not key or key in seen:
             continue
         seen.add(key)
-        if touch_asset_usage(entity, key):
-            n += 1
-    return n
+        if _is_trackable(entity, key) is None:
+            continue
+        trackable.append(key)
+    if not trackable:
+        return 0
+    return _ledger_bump_many(entity, trackable, used=True, cited=False)
 
 
 def read_usage_meta(entity: EntityRef, rel_path: str) -> dict[str, Any]:

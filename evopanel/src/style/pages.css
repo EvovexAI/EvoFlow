@@ -13977,6 +13977,49 @@ html[data-theme='dark'] .memory-agent-dropdown-panel {
   padding: 8px 20px 28px 4px;
 }
 
+/* 【self-evolution-bot · 2026-11-17 · 第35轮】插件市场 Tab 与上面几个 embed 面板同规格。
+   漏了 --plugin 时面板会沿用 .settings-panel-inner 的 720px 上限 + 内侧 padding，
+   在宽屏上右侧留一大片空白；补进来让四个面板表现一致。 */
+.settings-modal-pane--plugin.settings-embed-wrap {
+  max-width: none;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 20px 28px 4px;
+}
+
+/* 插件面板渲染兜底（见 plugin-management.tsx 的 PluginBridgeErrorBoundary）。
+   样式必须用 class 而不是内联 style 字符串：React 的 style 只收对象，
+   传字符串会让 fallback 自身抛错，boundary 失效、面板继续空白。 */
+.plugin-bridge-error {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid var(--border-primary, #dcdfe6);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f7f8fa);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.plugin-bridge-error-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.plugin-bridge-error-detail {
+  margin: 0;
+  color: var(--text-secondary, #606266);
+  word-break: break-word;
+}
+
+.plugin-bridge-error-retry {
+  margin-top: 8px;
+  padding: 4px 12px;
+  border: 1px solid var(--border-primary, #dcdfe6);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
 .settings-expert-embed {
   display: flex;
   flex-direction: column;

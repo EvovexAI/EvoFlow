@@ -95,28 +95,15 @@ from evoflow.tools.builtins.supervisor.utils import (  # noqa: F401
 
 logger = logging.getLogger(__name__)
 
-_STATUS_ZH_MAP: dict[str, str] = {
-    "inbox": "待办",
-    "pending": "等待中",
-    "planned": "已规划",
-    "planning": "规划中",
-    "executing": "处理中",
-    "waiting_dispatch": "等待派发",
-    "waiting_user": "等待用户输入",
-    "awaiting_close": "待闭环",
-    "reviewed": "已完成",
-    "running": "处理中",
-    "in_progress": "处理中",
-    "completed": "已完成",
-    "failed": "失败",
-    "cancelled": "已取消",
-    "timed_out": "超时",
-}
-
-
-def _status_zh(v: str | None) -> str:
-    s = str(v or "").strip().lower()
-    return _STATUS_ZH_MAP.get(s, "未知")
+# 【2026-11-18】词表/迁移表已下沉到 evoflow.collab.task_status（零依赖常量），
+# 这里只保留别名：admin.tasks 曾为了取一张状态表把 langchain→torch 整链拉进
+# 任务列表热路径。新代码请直接 import evoflow.collab.task_status。
+from evoflow.collab.task_status import (  # noqa: E402
+    ALLOWED_TASK_STATES as _ALLOWED_TASK_STATES,
+    STATUS_ZH_MAP as _STATUS_ZH_MAP,
+    TASK_STATE_TRANSITIONS as _TASK_STATE_TRANSITIONS,
+    status_zh as _status_zh,
+)
 
 
 def _mark_collab_phase_done_for_task(task: dict[str, Any], runtime: ToolRuntime[ContextT, dict] | None) -> None:
@@ -137,80 +124,6 @@ def _mark_collab_phase_done_for_task(task: dict[str, Any], runtime: ToolRuntime[
     except Exception:
         logger.warning("failed to mark collab phase done task_id=%s", task_id, exc_info=True)
 
-
-_ALLOWED_TASK_STATES = {
-    "inbox",
-    "pending",
-    "planned",
-    "planning",
-    "executing",
-    "waiting_dispatch",
-    "waiting_user",
-    "awaiting_close",
-    "reviewed",
-    "completed",
-    "failed",
-    "cancelled",
-}
-
-_TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
-    # 随手待办：分配/升级 → pending；用户勾完成 / 取消
-    "inbox": {"pending", "completed", "cancelled"},
-    # pending/planned/planning 可直接结案：不必先 progress→executing（少仪式感）
-    "pending": {
-        "planned",
-        "planning",
-        "executing",
-        "waiting_user",
-        "awaiting_close",
-        "completed",
-        "failed",
-        "cancelled",
-    },
-    "planned": {
-        "planning",
-        "executing",
-        "awaiting_close",
-        "completed",
-        "failed",
-        "cancelled",
-    },
-    "planning": {
-        "executing",
-        "waiting_user",
-        "awaiting_close",
-        "completed",
-        "failed",
-        "cancelled",
-    },
-    "executing": {
-        "waiting_dispatch",
-        "waiting_user",
-        "awaiting_close",
-        "reviewed",
-        "completed",
-        "failed",
-        "cancelled",
-    },
-    # waiting_dispatch means "needs next dispatch decision", but monitoring can continue.
-    "waiting_dispatch": {
-        "executing",
-        "waiting_user",
-        "awaiting_close",
-        "completed",
-        "failed",
-        "cancelled",
-    },
-    "waiting_user": {"executing", "awaiting_close", "completed", "cancelled", "failed"},
-    # 本岗已交、整单未验收关闭；可验收 completed / 失败 / 返工回 executing
-    "awaiting_close": {"completed", "failed", "cancelled", "executing"},
-    # reviewed kept for legacy rows; treat as terminal success (maps to completed on write)
-    "reviewed": set(),
-    "completed": set(),
-    # Align with collab ALLOWED_TRANSITIONS: failed work items / steps can be retried.
-    "failed": {"pending", "executing"},
-    "cancelled": set(),
-}
 
 
 def _normalize_task_state(v: str | None) -> str:

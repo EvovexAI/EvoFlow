@@ -7,9 +7,13 @@ legacy ``experience_*`` / raw vault dumps for entity assets.
 
 from __future__ import annotations
 
+import asyncio
+import atexit
 import json
 import logging
+import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Annotated
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
@@ -848,3 +852,83 @@ def assets_tool(
         },
         ensure_ascii=False,
     )
+
+
+# 【self-evolution-bot · 2026-11-17 · 第34轮】新增：assets 工具自报「函数体内真实耗时」(body_ms)。
+# 为什么：obs 现网连续实测——一轮里 N 个并发工具调用，每条 duration 都 ≈ 整批墙钟
+#   （6 连发各 ~3.8s、11 连发各 ~9.6-10.5s，同秒起同秒止），而同批 bash 的 exec 只有
+#   35~90ms、queue_wait 0.006ms，assets 单发只有 174ms。于是「慢到底在资产代码里还是
+#   在通道/调度里」一直只能靠推理。这里把本函数进口→出口的真实毫秒写进 tool_timing，
+#   中间件会把它和 duration_ms 并列落进 evoflow_obs_tool_invocations.timing_json。
+# 判读口径（下一批并发直接看数）：
+#   body_ms ≈ duration_ms  ⇒ 慢在资产代码，继续优化 hub
+#   body_ms ≪ duration_ms  ⇒ 慢在通道/调度，差值即排队，别再来资产层找
+# 边界：纯观测，不改变任何返回值/异常/耗时行为；上报失败一律吞掉；
+#   tool_call_id 取不到时不上报（不污染别人的键）；body_ms>0 才写。
+#
+# 【2026-11-17】再挂专用线程池 coroutine：StructuredTool 无 coroutine 时 ainvoke 走
+# ``run_in_executor(None, …)``（事件循环默认池）。桌面 Gateway 上该池常被别的同步活
+# （压缩、MCP sync wrapper、阻塞 I/O）占满，assets 本体 <1ms 却整批卡 2s+（body_ms≪
+# duration）。挂上专用池后 ainvoke 不再跟默认池抢槽。
+
+_assets_body_func = getattr(assets_tool, "func", None)
+if _assets_body_func is not None:  # pragma: no branch - 工具对象形态异常时静默跳过
+
+    def _assets_timed_func(*args: object, **kwargs: object) -> object:
+        import time as _t
+
+        t0 = _t.perf_counter()
+        try:
+            return _assets_body_func(*args, **kwargs)
+        finally:
+            try:
+                from evoflow.observability.tool_timing import note_tool_exec_detail
+
+                tcid = kwargs.get("tool_call_id")
+                if not tcid and len(args) > 2:
+                    tcid = args[2]
+                key = str(tcid or "").strip()
+                if key:
+                    note_tool_exec_detail(
+                        key, {"assets_body_ms": round((_t.perf_counter() - t0) * 1000.0, 2)}
+                    )
+            except Exception:
+                logger.debug("assets body timing skipped", exc_info=True)
+
+    try:
+        assets_tool.func = _assets_timed_func
+    except Exception:  # pragma: no cover - pydantic 冻结时退回原样，不影响功能
+        logger.debug("assets body timing mount skipped", exc_info=True)
+
+
+def _assets_pool_workers() -> int:
+    raw = (os.getenv("EVOFLOW_ASSETS_TOOL_WORKERS") or "8").strip()
+    try:
+        return max(2, min(32, int(raw)))
+    except ValueError:
+        return 8
+
+
+_ASSETS_TOOL_POOL = ThreadPoolExecutor(
+    max_workers=_assets_pool_workers(),
+    thread_name_prefix="assets-tool",
+)
+atexit.register(lambda: _ASSETS_TOOL_POOL.shutdown(wait=False))
+
+
+async def _assets_tool_coroutine(*args: object, **kwargs: object) -> object:
+    """Run the sync assets body on the dedicated pool (not the loop default executor)."""
+    loop = asyncio.get_running_loop()
+    sync_fn = getattr(assets_tool, "func", None) or _assets_body_func
+    if sync_fn is None:  # pragma: no cover
+        raise RuntimeError("assets tool sync func missing")
+    return await loop.run_in_executor(
+        _ASSETS_TOOL_POOL,
+        lambda: sync_fn(*args, **kwargs),
+    )
+
+
+try:
+    assets_tool.coroutine = _assets_tool_coroutine
+except Exception:  # pragma: no cover
+    logger.debug("assets dedicated-pool coroutine mount skipped", exc_info=True)
