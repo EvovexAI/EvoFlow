@@ -13,13 +13,16 @@ def test_persist_title_skips_non_replaceable(monkeypatch):
         "evoflow.persistence.session_repositories.find_session_key_by_thread_id",
         lambda _tid: "agent:xiaomi:new-test",
     )
+    # 【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+    # 被测实现已从 load_session_map() 改为单行 get_session_row_brief()
+    # （前者为读一个 title 全量重建 547 行，实测冷 7673ms/热 121ms；后者 0.037ms）。
+    # mock 必须跟着换，否则这段等于没屏蔽 DB —— 会用真库数据跑，测试变假红。
     monkeypatch.setattr(
-        "evoflow.persistence.session_repositories.load_session_map",
-        lambda: {
-            "agent:xiaomi:new-test": {
-                "title": "小V · 全局助手",
-                "context": {"xiaomi_global_assistant": True, "agent_id": "xiaomi"},
-            }
+        "evoflow.persistence.session_repositories.get_session_row_brief",
+        lambda _sk: {
+            "title": "小V · 全局助手",
+            "context": {"xiaomi_global_assistant": True, "agent_id": "xiaomi"},
+            "thread_id": "thread-1",
         },
     )
     monkeypatch.setattr(
@@ -45,12 +48,11 @@ def test_persist_title_writes_when_placeholder(monkeypatch):
         lambda _tid: "agent:xiaomi:new-test",
     )
     monkeypatch.setattr(
-        "evoflow.persistence.session_repositories.load_session_map",
-        lambda: {
-            "agent:xiaomi:new-test": {
-                "title": "新对话",
-                "context": {"agent_id": "xiaomi"},
-            }
+        "evoflow.persistence.session_repositories.get_session_row_brief",
+        lambda _sk: {
+            "title": "新对话",
+            "context": {"agent_id": "xiaomi"},
+            "thread_id": "thread-1",
         },
     )
     monkeypatch.setattr(

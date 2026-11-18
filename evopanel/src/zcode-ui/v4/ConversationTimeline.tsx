@@ -851,6 +851,18 @@ function ConversationTimelineImpl({
     // 渲染窗口整体偏移一个 header 高度，用户滚到的区域会是空白。
     scrollMargin: headerSlotHeight,
   });
+
+  // 思考行显隐会显著改变 turn 高度。缓存仍按 turnId 键控，不带 reasoning 布局 epoch——
+  // 开启「显示思考过程」后若沿用旧矮缓存，上滚历史会估矮→假贴底→跳回最新。
+  const showReasoningLayout = rowContext.messageStreamShowReasoning === true;
+  const prevShowReasoningLayoutRef = useRef(showReasoningLayout);
+  useLayoutEffect(() => {
+    if (prevShowReasoningLayoutRef.current === showReasoningLayout) return;
+    prevShowReasoningLayoutRef.current = showReasoningLayout;
+    heightCacheRef.current?.clear();
+    virtualizer.measure();
+  }, [showReasoningLayout, virtualizer]);
+
   const prevLayoutActiveRef = useRef(layoutActive);
   // KeepAlive 切回可见：heal 低估高度；跟底/guard 在下方 scrollToBottom 定义后再挂（避免 TDZ）。
   useLayoutEffect(() => {
@@ -1062,12 +1074,15 @@ function ConversationTimelineImpl({
     (intent: TimelineUserScrollIntent) => {
       if (intent === "none") return;
       userScrollIntentRef.current = { intent, observedAt: Date.now() };
-      const element = scrollRef.current;
       // running -> terminal 会在同一帧迁移 live tail、折叠工作历史并触发
       // virtualizer 测高。向上滚动必须在 scroll 事件之前先拿走滚动权，否则终态
       // layout effect 会拿过期的 following=true 把用户重新拽到底部。
-      if (intent === "awayFromBottom" && element && element.scrollHeight > element.clientHeight) {
+      //
+      // 不要再要求 scrollHeight>clientHeight：行高估矮（如思考行显隐变化后缓存偏小）
+      // 时内容「看似」不足一屏，条件失败 → following 粘死 → 只能看见最新、上滚像跳。
+      if (intent === "awayFromBottom") {
         commitFollowing(false);
+        userAdjustedScrollSinceRestoreRef.current = true;
       }
     },
     [commitFollowing],

@@ -2257,8 +2257,10 @@ export function V4ZCodeTimeline(props: {
       theme: hostTheme,
       codePreviewSettings: DEFAULT_CODE_PREVIEW_SETTINGS,
       sessionId: sessionId || null,
-      // 思考默认只保留首条一行摘要（ConversationTurnGroup 注入 firstReasoningRowId）；
-      // 完整多段思考由设置「显示思考过程」控制，这里不硬开。
+      // 对齐 SessionPane：`messageStreamShowReasoning ?? true`。
+      // 此前这里不传 → undefined → isConversationReasoningRowVisible 只放行 firstReasoningRowId，
+      // 表现就是「只有第一次思考，而且只剩一行摘要；后续思考全丢」。
+      messageStreamShowReasoning: true,
       onOpenCodeViewer,
       // 与 onOpenCodeViewer 一并注入：正文 Markdown 路径 pill / Preview Card 共用右栏。
       onOpenFileLink: onOpenCodeViewer || onOpenFileLinkProp ? onOpenFileLink : undefined,

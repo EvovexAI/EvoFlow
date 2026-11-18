@@ -567,3 +567,160 @@ def test_node_repl_cua_display_field_becomes_output_display(mirror_session: str)
     locs = target.get("iconLocators") or []
     assert locs and locs[0].get("kind") == "windows-executable-path"
     assert "feishu.exe" in str(locs[0].get("value") or "").lower()
+
+
+def test_late_tool_result_after_run_finished_recovers_cancelled_row(
+    mirror_session: str,
+) -> None:
+    """RUN_FINISHED 先 seal 成 cancelled 后，迟到的 TOOL_CALL_RESULT 必须回写 output。
+
+    现场：search_code_index 慢路径下 RESULT 偶发晚于 FINISHED；V4 卡面永久 cancelled、
+    展开无结果，索引时效性（[index] age=…）也看不见。模型侧其实已经拿到 ToolMessage。
+    """
+    tid = mirror_session + "-late-result"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "再调用一次")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-late"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-sci",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-sci",
+                "delta": '{"query":"source_drift"}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-sci"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-late"},
+        ],
+    )
+    sealed = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert sealed["status"] == "cancelled", sealed
+    assert not (sealed.get("output") or {}).get("text")
+
+    # RESULT 迟到：map 已清，必须按 toolCallId 找回行并升级为 success + output。
+    mirror.feed_events(
+        tid,
+        [
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-sci",
+                "toolCallName": "search_code_index",
+                "content": "[index] last updated 8m ago (age=481s)\n\nSymbols:\n  - function source_drift",
+                "status": "success",
+            },
+        ],
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert len(tools) == 1, tools
+    tool = tools[0]
+    assert tool["status"] == "success", tool
+    assert tool["toolName"] == "search_code_index"
+    assert tool["inputText"] == '{"query":"source_drift"}'
+    out = (tool.get("output") or {}).get("text") or ""
+    assert "[index] last updated" in out
+    assert "source_drift" in out
+    # startedAt 不得被 RESULT 重置成结束时刻（否则耗时恒为 0）。
+    assert int(tool.get("startedAt") or 0) <= int(tool.get("endedAt") or 0)
+    assert int(tool.get("startedAt") or 0) == int(sealed.get("startedAt") or sealed.get("createdAt") or 0)
+
+
+def test_seal_backfills_output_from_transcript_when_result_missing(
+    mirror_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """wire RESULT 丢失时，RUN_FINISHED seal 必须从 transcript 回填 success+output。
+
+    现网：search_code_index 工具正文已在 evoflow_chat_messages，V4 卡却 cancelled。
+    """
+    tid = mirror_session + "-seal-backfill"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "app.gateway.v4.agui_mirror._transcript_tool_result_text",
+        lambda _tid, tcid: (
+            (
+                "search_code_index",
+                "[index] last updated 7s ago (age=7s)\n\nSymbols:\n  - function zzq_heal",
+            )
+            if tcid == "tc-bf"
+            else None
+        ),
+    )
+
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "搜一下")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-bf"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-bf",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-bf",
+                "delta": '{"query":"zzq_heal"}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-bf"},
+            # 无 TOOL_CALL_RESULT —— 模拟 SSE 丢结果
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-bf"},
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "success", tool
+    assert tool["toolName"] == "search_code_index"
+    out = (tool.get("output") or {}).get("text") or ""
+    assert "[index] last updated" in out
+    assert "zzq_heal" in out
+
+
+def test_reasoning_end_writes_duration_ms(mirror_session: str) -> None:
+    """思考行完成时必须带 durationMs，否则 V4 只显示「几秒」而不是真实秒数。"""
+    tid = mirror_session + "-reasoning-dur"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "想一下")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-r"},
+            {"type": "REASONING_MESSAGE_START", "messageId": "think-1"},
+        ],
+    )
+    rows = _rows(tid)
+    reasoning = next(r for r in rows if r.get("kind") == "reasoning")
+    started = int(reasoning.get("startedAt") or reasoning.get("createdAt") or 0)
+    assert started > 0
+
+    # 模拟思考持续约 3 秒后再 END（直接改 createdAt/startedAt）。
+    reasoning["createdAt"] = started - 3200
+    reasoning["startedAt"] = started - 3200
+    HUB.get_session(tid).rows[int(reasoning["rowId"])] = reasoning  # noqa: SLF001
+
+    mirror.feed_events(
+        tid,
+        [
+            {
+                "type": "REASONING_MESSAGE_CONTENT",
+                "messageId": "think-1",
+                "delta": "thinking…",
+            },
+            {"type": "REASONING_MESSAGE_END", "messageId": "think-1"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-r"},
+        ],
+    )
+    done = next(r for r in _rows(tid) if r.get("kind") == "reasoning")
+    assert done["state"] == "complete"
+    assert isinstance(done.get("durationMs"), int)
+    assert done["durationMs"] >= 3000

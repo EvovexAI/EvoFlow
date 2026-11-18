@@ -258,6 +258,11 @@ if ($useParallel -and $null -ne $ramFreeGb -and $ramFreeGb -lt $minParallelFreeG
   Write-Step "low free RAM (${ramFreeGb} GB < ${minParallelFreeGb} GB) - forcing sequential (avoids vite ACCESS_VIOLATION / -1073741819)"
   $useParallel = $false
 }
+$cFreeForParallel = Get-DriveFreeGb -Path $env:SystemDrive
+if ($useParallel -and $null -ne $cFreeForParallel -and $cFreeForParallel -lt 12) {
+  Write-Step "low system-drive free (${cFreeForParallel} GB < 12 GB) - forcing sequential (avoids link/esbuild TEMP thrash)"
+  $useParallel = $false
+}
 
 Write-Step "repo root: $RepoRoot"
 Write-Step "evopanel dir: $DeerpanelDir"
@@ -279,6 +284,23 @@ finally {
 $cFree = Get-DriveFreeGb -Path $env:SystemDrive
 if ($null -ne $cFree -and $cFree -lt 2) {
   Write-Step "warning: system drive $env:SystemDrive has ${cFree} GB free - build temp uses $GatewayBuildTempRoot on D drive (or repo drive)"
+}
+# Rust link.exe / vite esbuild write under %TEMP%. On a near-full C: that shows up as
+# STATUS_STACK_BUFFER_OVERRUN (0xC0000409) or esbuild "write UNKNOWN" - not a code bug.
+# When C: is tight, force TEMP/TMP onto the repo drive (usually D:) for this process tree.
+$minTempOnSystemDriveGb = 15.0
+$repoDriveFreeGb = Get-DriveFreeGb -Path $RepoRoot
+if (
+  $null -ne $cFree -and
+  $cFree -lt $minTempOnSystemDriveGb -and
+  $null -ne $repoDriveFreeGb -and
+  $repoDriveFreeGb -ge 8
+) {
+  $buildTempRoot = Join-Path $DeerpanelDir ".build-temp\process-temp"
+  New-Item -ItemType Directory -Force -Path $buildTempRoot | Out-Null
+  $env:TEMP = $buildTempRoot
+  $env:TMP = $buildTempRoot
+  Write-Step "system drive ${cFree} GB free (< ${minTempOnSystemDriveGb}) - TEMP/TMP -> $buildTempRoot (repo drive ${repoDriveFreeGb} GB free)"
 }
 if ($useParallel) {
   Write-Step "parallel mode: backend PyInstaller + vite (pass -NoParallel to run sequentially)"

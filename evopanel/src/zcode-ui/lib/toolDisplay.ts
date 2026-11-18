@@ -211,10 +211,7 @@ const executeToolStrategy: ToolDisplayStrategy = {
 
 const searchCodeIndexToolStrategy: ToolDisplayStrategy = {
   matches(context) {
-    // search_code_index 虽被 family 判成 search，但产出是多段检索报告，
-    // 用户点开就是要同时看 queries 入参 + Symbols/Content 结果。
-    // 若走下面 searchToolStrategy（showInput=false），展开区只剩 Result；
-    // 再碰上 output 尚未进投影时，展开就是空白——V4「代码索引下拉无内容」现场。
+    // 专属卡自己画展开区；这里关掉 Parameters/Result 复古分区，避免兜底再摊一遍。
     const name = String(
       context.toolCall.toolName || context.identity.toolName || "",
     )
@@ -222,13 +219,12 @@ const searchCodeIndexToolStrategy: ToolDisplayStrategy = {
       .toLowerCase();
     return name === "search_code_index";
   },
-  build(context) {
+  build() {
     return {
       inlinePreview: { type: "none" },
       showSummaryFileLink: false,
-      showInput: context.toolCall.input !== undefined,
-      showOutput:
-        context.toolCall.output !== undefined || Boolean(context.errorText),
+      showInput: false,
+      showOutput: false,
       showKind: false,
     };
   },
