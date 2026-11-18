@@ -193,6 +193,70 @@ def _export_extensions(
     return refs, exported
 
 
+_SECRET_ENV_RE = re.compile(r"(key|token|secret|password|passwd|credential|auth)", re.I)
+
+
+def _sanitize_mcp_doc(doc: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+    """导出 MCP 配置时清空疑似密钥的 env 值，保留键名以便接收方补全。"""
+    out = dict(doc)
+    env = out.get("env")
+    redacted: list[str] = []
+    if isinstance(env, dict) and env:
+        cleaned: dict[str, Any] = {}
+        for k, v in env.items():
+            key = str(k)
+            if _SECRET_ENV_RE.search(key):
+                cleaned[key] = ""
+                redacted.append(key)
+            else:
+                cleaned[key] = v
+        out["env"] = cleaned
+    return out, redacted
+
+
+def _export_mcp(
+    out_dir: Path,
+    mcp_names: list[str],
+    warnings: list[str],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """把 Agent 绑定的 MCP 服务定义打进包（primitives.mcp），否则对方只有名字、装不上。"""
+    names = [str(n).strip() for n in mcp_names if str(n).strip()]
+    if not names:
+        return [], []
+    try:
+        from evoflow.persistence import config_repositories as cfg_repo
+
+        servers = cfg_repo.list_mcp_servers()
+    except Exception as e:
+        warnings.append(f"mcp export unavailable: {e}")
+        return [], []
+
+    refs: list[dict[str, Any]] = []
+    exported: list[str] = []
+    mcp_dir = out_dir / "mcp"
+    mcp_dir.mkdir(parents=True, exist_ok=True)
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        doc = servers.get(name)
+        if not isinstance(doc, dict):
+            warnings.append(f"mcp server not registered locally: {name}（Agent 仍会写入 mcp_servers 名，接收方需自行配置）")
+            continue
+        safe, redacted = _sanitize_mcp_doc(doc)
+        if redacted:
+            warnings.append(
+                f"mcp '{name}' 已清空疑似密钥 env：{', '.join(redacted)}（分享后请对方补全）"
+            )
+        fname = f"{_safe_id(name, fallback='mcp')}.json"
+        payload = {"name": name, **safe}
+        _write_json(mcp_dir / fname, payload)
+        refs.append({"from": f"./mcp/{fname}"})
+        exported.append(name)
+    return refs, exported
+
+
 def _export_knowledge(
     out_dir: Path,
     kb_names: list[str],
@@ -334,15 +398,23 @@ def export_organization(
     (out_dir / "workspace" / ".gitkeep").write_text("", encoding="utf-8")
 
     agent_refs: list[dict[str, str]] = []
+    mcp_names: list[str] = []
     for code in sorted(agent_codes):
         try:
             data, soul = _agent_to_yaml(code)
         except OrganizationExportError as e:
             warnings.append(str(e))
             continue
+        for m in list(data.get("mcp_servers") or []):
+            mn = str(m or "").strip()
+            if mn and mn not in mcp_names:
+                mcp_names.append(mn)
         _write_yaml(out_dir / "agents" / f"{code}.yaml", data)
         (out_dir / "agents" / f"{code}.SOUL.md").write_text(soul or f"# {code}\n", encoding="utf-8")
         agent_refs.append({"from": f"./agents/{code}.yaml"})
+
+    # MCP 定义先于 Agent 安装；导出时一并打进包，避免「本机挂了 MCP、分享后只剩名字」
+    mcp_refs, mcp_exported = _export_mcp(out_dir, mcp_names, warnings)
 
     # 知识库先于员工导出：员工 JSON 里的 kb id 要改写成 ${KB_REF:ref} 占位符
     knowledge_refs, kb_id_to_ref = _export_knowledge(out_dir, kb_names, warnings)
@@ -416,6 +488,8 @@ def export_organization(
         "agents": agent_refs,
         "skills": skill_refs,
     }
+    if mcp_refs:
+        primitives["mcp"] = mcp_refs
     if knowledge_refs:
         primitives["knowledge"] = knowledge_refs
     if ext_refs:
@@ -479,6 +553,7 @@ def export_organization(
         "skills": [r["from"] for r in skill_refs],
         "extensions": ext_exported,
         "extension_ids": extension_ids,
+        "mcp": mcp_exported,
         "knowledge_bases": [r.get("name") for r in knowledge_refs],
         "vault_ids": vault_ids,
     }

@@ -51,7 +51,7 @@ function shellHtml() {
         <span class="sr-intro__icon">${ICONS.box}</span>
         <div class="sr-intro__text">
           <h2>资源中心</h2>
-          <p>资源包 = 员工 + 工作流 + 技能的一键套装：从市场获取或导入本地包，装好即用；也能把本机资源打包分享给同事。</p>
+          <p>资源包 = BOT（智能体员工）+ 工作流 + 技能 / MCP / 知识库的一键套装。市场包可跨机安装；本机「链接」资源仅本机可用，打包前看清徽章。</p>
         </div>
       </header>
       <div class="sr-subtabs" role="tablist" aria-label="资源分区">
@@ -131,20 +131,23 @@ export async function mountResourcesInto(container, opts = {}) {
   container.innerHTML = shellHtml()
   container.addEventListener('click', onClick)
   container.addEventListener('sr-count', onCount)
+  // 先切到目标分区，避免三个子面板串行等 GitHub 时整页空白转圈
+  setPanel(initial, { sync: true })
 
   const minePane = container.querySelector('[data-sr-pane="mine"]')
   const installedPane = container.querySelector('[data-sr-pane="installed"]')
   const marketPane = container.querySelector('[data-sr-pane="market"]')
+  const tasks = []
   if (minePane instanceof HTMLElement) {
-    await mountMyResourcesInto(minePane, { embedded: true })
+    tasks.push(mountMyResourcesInto(minePane, { embedded: true }))
   }
   if (installedPane instanceof HTMLElement) {
-    await mountInstalledPacksInto(installedPane, { embedded: true })
+    tasks.push(mountInstalledPacksInto(installedPane, { embedded: true }))
   }
   if (marketPane instanceof HTMLElement) {
-    await mountResourceMarketInto(marketPane, { embedded: true })
+    tasks.push(mountResourceMarketInto(marketPane, { embedded: true }))
   }
-  setPanel(initial, { sync: true })
+  await Promise.all(tasks)
 }
 
 export function cleanup() {

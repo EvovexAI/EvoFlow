@@ -293,3 +293,59 @@ def test_live_turn_pins_user_input_squeezed_out_of_tail():
     ]
     assert "请继续排查切换丢气泡" not in idle_texts
     assert idle_window[0]["kind"] != "turnHeader" or idle_window[0].get("rowId") != 1
+
+
+def test_align_keeps_user_input_before_inverted_header():
+    """userInput 行号小于同 turn turnHeader（ensure/remint 颠倒序）时，对齐不得裁掉气泡。"""
+    rows: list[dict] = []
+    for rid in range(1, 40):
+        rows.append(
+            {
+                "rowId": rid,
+                "kind": "assistantText",
+                "turnId": "old",
+                "text": f"pad-{rid}",
+                "state": "complete",
+            }
+        )
+    # 颠倒：先 user 后 header，再正文
+    rows.append(
+        {
+            "rowId": 40,
+            "kind": "userInput",
+            "turnId": "live",
+            "text": "每个部门的负责人都在吗",
+            "origin": "realUser",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 41,
+            "kind": "turnHeader",
+            "turnId": "live",
+            "origin": "userInput",
+            "state": "completedSuccess",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 42,
+            "kind": "assistantText",
+            "turnId": "live",
+            "text": "不全在",
+            "state": "complete",
+        }
+    )
+    # rows 下标：0..38 pad，39=user，40=header，41=assistant
+    header_idx = next(i for i, r in enumerate(rows) if r.get("kind") == "turnHeader" and r.get("turnId") == "live")
+    user_idx = header_idx - 1
+    assert rows[user_idx]["kind"] == "userInput"
+    # 裸截断起点落在 header；对齐后必须把紧前同 turn userInput 收进来。
+    start = V4ConversationHub._align_snapshot_window_start(rows, header_idx)
+    assert start == user_idx
+    assert rows[start]["kind"] == "userInput"
+    span = V4ConversationHub._live_turn_span(rows)
+    assert span is not None
+    turn_start, live_user_idx = span
+    assert live_user_idx == user_idx
+    assert turn_start == user_idx  # 同 turn 首行即颠倒的 userInput

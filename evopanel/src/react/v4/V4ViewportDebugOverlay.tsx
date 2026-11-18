@@ -1,10 +1,11 @@
 /**
  * V4 视口调试浮层：紧凑状态条 + 分页
  * - 运行：SSE / 轮询 / settled
+ * - 消息：投影窗已显示/全序行数、用户气泡、loadOlder 预取带（≤2×视口）
  * - 流式：AG-UI / V4 原始 JSON（一行一条，贴底跟最新）
  * - 接口：页面相关 HTTP（subscribe / messages / catchup…）入参出参表
  * - 视口：DOM ↔ 投影 row
- * 布局诊断（!EST72 / gap）仍在状态条。
+ * 布局诊断（!EST72 / gap / !HISTORY_TOP）仍在状态条。
  *
  * 开启条件：调试模式（运维观测）开着，且 localStorage
  * `EVOFLOW_V4_VIEWPORT_OVERLAY` 不为 `'0'`（默认开）。
@@ -50,6 +51,13 @@ import {
   type ViewportApiTapEntry,
   type ViewportApiTapFamily,
 } from "./v4-viewport-api-tap.js";
+import {
+  hasOlderRows,
+} from "@zcode/ui/v4/conversationProjectionStore.js";
+import {
+  historyPrefetchTriggerPx,
+  shouldTriggerLoadOlder,
+} from "@zcode/ui/v4/timelineScrollAnchor.js";
 
 /** 与 session-reattach.reattachRunningSessionIfNeeded 默认一致。 */
 const HISTORY_WATCH_DEFAULT_POLL_SEC = 1.5;
@@ -109,6 +117,29 @@ type RunStatusProbe = {
   polls: PollLine[];
 };
 
+/** 投影窗口 / 上拉 loadOlder 诊断（对应「总数 vs 已显示」与预取触发带）。 */
+type HistoryLoadProbe = {
+  /** 服务端全序行数（snapshot.rows.totalCount） */
+  totalCount: number | null;
+  /** 客户端当前窗口行数 */
+  windowCount: number;
+  /** 窗口内 realUser 气泡数 */
+  windowUserCount: number;
+  /** 窗口内 turnHeader 数（约等于轮次数） */
+  windowTurnCount: number;
+  firstRowId: number | null;
+  windowFirstRowId: number | null;
+  windowLastRowId: number | null;
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  /** 进入预取带的 scrollTop 上限（约 2×视口，且 ≥64） */
+  triggerPx: number;
+  /** 是否已滚进预取带 */
+  inPrefetchZone: boolean;
+  /** 此刻是否应触发 loadOlder */
+  wouldTrigger: boolean;
+};
+
 type OverlaySnapshot = {
   at: string;
   tid: string;
@@ -119,6 +150,7 @@ type OverlaySnapshot = {
   clientHeight: number;
   layout: V4ChatLayoutDump | null;
   runStatus: RunStatusProbe;
+  history: HistoryLoadProbe;
   turns: VisibleTurnProbe[];
 };
 
@@ -315,6 +347,82 @@ function findConversationScroll(host: Element): HTMLElement | null {
   ) as HTMLElement | null;
 }
 
+function emptyHistoryProbe(clientHeight: number): HistoryLoadProbe {
+  const triggerPx = historyPrefetchTriggerPx(clientHeight);
+  return {
+    totalCount: null,
+    windowCount: 0,
+    windowUserCount: 0,
+    windowTurnCount: 0,
+    firstRowId: null,
+    windowFirstRowId: null,
+    windowLastRowId: null,
+    hasOlder: false,
+    loadingOlder: false,
+    triggerPx,
+    inPrefetchZone: false,
+    wouldTrigger: false,
+  };
+}
+
+function collectHistoryLoadProbe(
+  tid: string,
+  scrollTop: number,
+  clientHeight: number,
+): HistoryLoadProbe {
+  const triggerPx = historyPrefetchTriggerPx(clientHeight);
+  const inPrefetchZone = scrollTop <= triggerPx;
+  const base = emptyHistoryProbe(clientHeight);
+  if (!tid) {
+    return { ...base, inPrefetchZone, wouldTrigger: false };
+  }
+  try {
+    const store = getSharedV4SessionDataLayer().peekStore(tid);
+    const state = store?.getState();
+    const snap = state?.snapshot ?? null;
+    const windowRows = snap?.rows?.window ?? [];
+    const loadingOlder = !!state?.loadingOlder;
+    const hasOlder = hasOlderRows(snap);
+    const wouldTrigger = shouldTriggerLoadOlder({
+      scrollTop,
+      canLoadOlder: hasOlder,
+      loadingOlder,
+      triggerPx,
+    });
+    let windowUserCount = 0;
+    let windowTurnCount = 0;
+    for (const row of windowRows) {
+      if (row.kind === "turnHeader") windowTurnCount += 1;
+      if (
+        row.kind === "userInput" &&
+        (row as { origin?: string }).origin === "realUser"
+      ) {
+        windowUserCount += 1;
+      }
+    }
+    const total =
+      typeof snap?.rows?.totalCount === "number" ? snap.rows.totalCount : null;
+    const firstRowId =
+      typeof snap?.rows?.firstRowId === "number" ? snap.rows.firstRowId : null;
+    return {
+      totalCount: total,
+      windowCount: windowRows.length,
+      windowUserCount,
+      windowTurnCount,
+      firstRowId,
+      windowFirstRowId: windowRows[0]?.rowId ?? null,
+      windowLastRowId: windowRows.at(-1)?.rowId ?? null,
+      hasOlder,
+      loadingOlder,
+      triggerPx,
+      inPrefetchZone,
+      wouldTrigger,
+    };
+  } catch {
+    return { ...base, inPrefetchZone, wouldTrigger: false };
+  }
+}
+
 function collectOverlaySnapshot(): OverlaySnapshot | null {
   if (typeof document === "undefined") return null;
   const host = document.querySelector(
@@ -427,6 +535,7 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
     clientHeight,
     layout,
     runStatus: collectRunStatusProbe(sessionKey, tid),
+    history: collectHistoryLoadProbe(tid, scrollTop, clientHeight),
     turns,
   };
 }
@@ -603,6 +712,22 @@ function buildOverlayDiagnosticText(opts: {
     `- scroll: top=${snapshot.scrollTop} height=${snapshot.scrollHeight} client=${snapshot.clientHeight}`,
   );
 
+  const h = snapshot.history;
+  lines.push("");
+  lines.push("### 消息 / 投影窗口");
+  lines.push(
+    `- rows: 已显示 ${h.windowCount} / 全序 ${h.totalCount ?? "∅"}（user气泡=${h.windowUserCount} turns=${h.windowTurnCount}）`,
+  );
+  lines.push(
+    `- rowId: first=${h.firstRowId ?? "∅"} window=${h.windowFirstRowId ?? "∅"}…${h.windowLastRowId ?? "∅"}`,
+  );
+  lines.push(
+    `- loadOlder: hasOlder=${h.hasOlder ? 1 : 0} loading=${h.loadingOlder ? 1 : 0} triggerPx=${h.triggerPx} inZone=${h.inPrefetchZone ? 1 : 0} wouldTrigger=${h.wouldTrigger ? 1 : 0}`,
+  );
+  lines.push(
+    `- 预取规则: scrollTop ≤ max(64, 2×clientHeight) 才自动 loadOlder；不是一上滚就拉`,
+  );
+
   const rs = snapshot.runStatus;
   lines.push("");
   lines.push("### 运行状态");
@@ -723,6 +848,9 @@ function buildOverlayDiagnosticText(opts: {
   lines.push(
     "- !EMPTY_ASSISTANT → 用户轮已 completed 却无助手行：多为中途 RUN_FINISHED 后迟到 TEXT 挂空 turnId（需 gateway 含 late-stream 挂回修复）；历史孤儿重载后无法自愈。",
   );
+  lines.push(
+    "- 上拉到顶看不到更早消息 → 看「消息/投影窗口」hasOlder、wouldTrigger、!HISTORY_TOP；直播 overflow 尾窗曾整窗替换冲掉 loadOlder（需同 epoch 保历史）。",
+  );
   return lines.join("\n");
 }
 
@@ -753,6 +881,8 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
 function problemBadge(
   layout: V4ChatLayoutDump | null,
   turns?: VisibleTurnProbe[] | null,
+  history?: HistoryLoadProbe | null,
+  scrollTop?: number,
 ): string {
   const parts: string[] = [];
   if (layout) {
@@ -767,6 +897,16 @@ function problemBadge(
   }
   if (turns?.some((t) => t.emptyAssistantCompleted)) {
     parts.push("!EMPTY_ASSISTANT");
+  }
+  // 视觉已到顶，但投影仍声明有更早行 → 预取该响却可能卡住 / 刚被尾窗冲掉
+  if (
+    history &&
+    typeof scrollTop === "number" &&
+    scrollTop <= 8 &&
+    history.hasOlder &&
+    !history.loadingOlder
+  ) {
+    parts.push("!HISTORY_TOP");
   }
   return parts.join(" ");
 }
@@ -1000,7 +1140,13 @@ export function V4ViewportDebugOverlay() {
   const resetPos = () => setPos(defaultOverlayPos());
 
   const problems = useMemo(
-    () => problemBadge(snapshot?.layout ?? null, snapshot?.turns ?? null),
+    () =>
+      problemBadge(
+        snapshot?.layout ?? null,
+        snapshot?.turns ?? null,
+        snapshot?.history ?? null,
+        snapshot?.scrollTop,
+      ),
     [snapshot],
   );
   const visibleHost = snapshot?.layout?.hosts.find((h) => h.visibleAttr === "1");
@@ -1028,6 +1174,8 @@ export function V4ViewportDebugOverlay() {
       problems: problemBadge(
         (fresh ?? snapshot)?.layout ?? null,
         (fresh ?? snapshot)?.turns ?? null,
+        (fresh ?? snapshot)?.history ?? null,
+        (fresh ?? snapshot)?.scrollTop,
       ),
     });
     const ok = await copyTextToClipboard(text);
@@ -1377,6 +1525,58 @@ export function V4ViewportDebugOverlay() {
                       {visibleHost?.medianGap ?? "∅"}
                       {visibleHost?.estimateStuck ? " !EST72" : ""} · 视口 turn=
                       {snapshot.turns.length}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 10,
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        background: "rgba(15, 23, 42, 0.55)",
+                        color: "#cbd5e1",
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      <div style={{ color: "#e2e8f0", fontWeight: 600 }}>
+                        消息计数 · 投影窗{" "}
+                        {snapshot.history.windowCount}/
+                        {snapshot.history.totalCount ?? "∅"}
+                        {" · "}用户气泡 {snapshot.history.windowUserCount}
+                        {" · "}轮 {snapshot.history.windowTurnCount}
+                      </div>
+                      <div style={{ marginTop: 2, color: "#94a3b8" }}>
+                        rowId first={snapshot.history.firstRowId ?? "∅"} · 窗=
+                        {snapshot.history.windowFirstRowId ?? "∅"}…
+                        {snapshot.history.windowLastRowId ?? "∅"}
+                      </div>
+                      <div style={{ marginTop: 4 }}>
+                        上拉预取{" "}
+                        <b
+                          style={{
+                            color: snapshot.history.wouldTrigger
+                              ? "#fbbf24"
+                              : snapshot.history.inPrefetchZone
+                                ? "#67e8f9"
+                                : "#86efac",
+                          }}
+                        >
+                          {snapshot.history.loadingOlder
+                            ? "加载中"
+                            : snapshot.history.wouldTrigger
+                              ? "应触发"
+                              : snapshot.history.inPrefetchZone
+                                ? snapshot.history.hasOlder
+                                  ? "在预取带"
+                                  : "到顶·无更早"
+                                : "未到预取带"}
+                        </b>
+                        {" · "}hasOlder=
+                        {snapshot.history.hasOlder ? "1" : "0"}
+                        {" · "}trigger≤{snapshot.history.triggerPx}px
+                        {" · "}scrollTop={snapshot.scrollTop}
+                      </div>
+                      <div style={{ marginTop: 2, color: "#64748b", fontSize: 10 }}>
+                        规则：scrollTop ≤ max(64, 2×视口高) 才自动 loadOlder，不是一上滚就拉
+                      </div>
                     </div>
                   </div>
                 ) : null}

@@ -161,9 +161,12 @@ _market_catalog_cache: dict[str, Any] | None = None
 避免资源中心/插件市场每次打开都干等外网超时。"""
 
 _market_catalog_failed_until: float = 0.0
-"""负缓存：外网连续不可达时，5 分钟内直接返回空目录，不再每次干等超时。"""
+"""负缓存：外网连续不可达时，5 分钟内直接返回缓存/空目录，不再每次干等超时。"""
 
-_MARKET_CATALOG_TIMEOUT_S = 8
+_market_refresh_task: asyncio.Task | None = None
+"""后台刷新任务（有缓存时立刻回包，后台静默更新）。"""
+
+_MARKET_CATALOG_TIMEOUT_S = 6
 _MARKET_CATALOG_FAILURE_TTL_S = 300
 
 
@@ -211,6 +214,22 @@ def _save_market_cache_to_disk(data: dict[str, Any]) -> None:
         logger.debug("market catalog disk cache write failed", exc_info=True)
 
 
+def _empty_market_catalog(*, offline: bool = False, error: str = "") -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "schema": 1,
+        "marketId": "merged",
+        "packs": [],
+        "configured": True,
+        "sources": [],
+        "errors": [{"sourceId": "official", "error": error}] if error else [],
+        "updates": [],
+    }
+    if offline:
+        out["stale"] = True
+        out["offline"] = True
+    return out
+
+
 def _annotate_catalog_install_state(data: dict[str, Any]) -> dict[str, Any]:
     from evoflow.organizations.pack_upgrade import annotate_catalog_packs
 
@@ -228,38 +247,85 @@ def _annotate_catalog_install_state(data: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-@router.get("/market/catalog")
-async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
-    """Merged catalog from official GitHub + user-added market sources (LAN/custom)."""
-    import asyncio
+def _apply_market_catalog_success(data: dict[str, Any]) -> dict[str, Any]:
+    global _market_catalog_cache, _market_catalog_failed_until
+    annotated = _annotate_catalog_install_state(data)
+    _market_catalog_cache = annotated
+    _market_catalog_failed_until = 0.0
+    _save_market_cache_to_disk(annotated)
+    return annotated
+
+
+async def _refresh_market_catalog_bg() -> None:
+    """有磁盘/内存缓存时：先秒回，后台再拉；失败只延长负缓存，不打断 UI。"""
+    global _market_catalog_failed_until
+    import time
 
     from evoflow.organizations.market_sources import fetch_merged_catalog
 
-    global _market_catalog_cache, _market_catalog_failed_until
+    try:
+        data = await asyncio.wait_for(
+            asyncio.to_thread(lambda: fetch_merged_catalog(force=False)),
+            timeout=_MARKET_CATALOG_TIMEOUT_S,
+        )
+        _apply_market_catalog_success(data)
+    except Exception as e:
+        _market_catalog_failed_until = time.monotonic() + _MARKET_CATALOG_FAILURE_TTL_S
+        logger.info("market catalog background refresh failed: %s", e)
+
+
+@router.get("/market/catalog")
+async def api_market_catalog(force: bool = Query(False)) -> dict[str, Any]:
+    """Merged catalog from official GitHub + user-added market sources (LAN/custom).
+
+    有缓存时立刻返回（stale/refreshing），避免 GitHub 不通时资源中心一直转圈；
+    负缓存命中时也不再干等超时。
+    """
+    import time
+
+    from evoflow.organizations.market_sources import fetch_merged_catalog
+
+    global _market_catalog_cache, _market_catalog_failed_until, _market_refresh_task
+
+    now = time.monotonic()
+    cached = _market_catalog_cache or _load_market_cache_from_disk()
+
+    if not force:
+        if now < _market_catalog_failed_until:
+            if cached:
+                stale = _annotate_catalog_install_state(dict(cached))
+                stale["stale"] = True
+                stale["offline"] = True
+                return stale
+            return _empty_market_catalog(
+                offline=True,
+                error="market recently unreachable; retry after cooldown",
+            )
+
+        if cached:
+            # 秒回缓存，后台刷新（单飞）
+            if _market_refresh_task is None or _market_refresh_task.done():
+                _market_refresh_task = asyncio.create_task(_refresh_market_catalog_bg())
+            out = _annotate_catalog_install_state(dict(cached))
+            out["stale"] = True
+            out["refreshing"] = True
+            return out
 
     def _fetch() -> dict[str, Any]:
         return fetch_merged_catalog(force=bool(force))
 
     try:
-        data = await asyncio.to_thread(_fetch)
-        data = _annotate_catalog_install_state(data)
-        _market_catalog_cache = data
-        _market_catalog_failed_until = 0.0
-        _save_market_cache_to_disk(data)
-        return data
+        data = await asyncio.wait_for(asyncio.to_thread(_fetch), timeout=_MARKET_CATALOG_TIMEOUT_S)
+        return _apply_market_catalog_success(data)
     except Exception as e:
-        import time
-
         _market_catalog_failed_until = time.monotonic() + _MARKET_CATALOG_FAILURE_TTL_S
-        cached = _market_catalog_cache or _load_market_cache_from_disk()
         if cached:
             stale = _annotate_catalog_install_state(dict(cached))
             stale["stale"] = True
+            stale["offline"] = True
             return stale
-        raise HTTPException(
-            status_code=502,
-            detail=f"Failed to fetch market catalog: {e}",
-        ) from e
+        # 无缓存也不 502 卡死 UI：返回空目录 + 错误，前端可提示「官方市场暂不可达」
+        return _empty_market_catalog(offline=True, error=str(e))
 
 
 @router.get("/market/updates")

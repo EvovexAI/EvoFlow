@@ -189,7 +189,7 @@ def append_token_to_url(url: str, token: str) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(q), parts.fragment))
 
 
-def _http_get_json(url: str, *, token: str = "", timeout: float = 12.0) -> dict[str, Any]:
+def _http_get_json(url: str, *, token: str = "", timeout: float = 4.0) -> dict[str, Any]:
     final = append_token_to_url(url, token)
     headers = {"User-Agent": "EvoFlow-ResourceMarket/1.0", "Accept": "application/json"}
     if token:

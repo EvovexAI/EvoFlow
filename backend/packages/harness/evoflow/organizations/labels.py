@@ -15,6 +15,7 @@ _ARTIFACT_KEYS = (
     "skills",
     "extensions",
     "knowledge",
+    "mcp",
 )
 
 
@@ -142,6 +143,21 @@ def _label_app(app_id: str) -> str:
     return ""
 
 
+def _label_mcp(name: str) -> str:
+    try:
+        from evoflow.admin import mcp as mcp_admin
+
+        row = mcp_admin.get_mcp_server(name)
+        cfg = row.get("config") if isinstance(row, dict) else None
+        if isinstance(cfg, dict):
+            desc = str(cfg.get("description") or "").strip()
+            if desc:
+                return _first_phrase(desc, limit=36) or name
+    except Exception:
+        logger.debug("label mcp failed name=%s", name, exc_info=True)
+    return ""
+
+
 _RESOLVERS = {
     "employees": _label_employee,
     "agents": _label_agent,
@@ -149,6 +165,7 @@ _RESOLVERS = {
     "knowledge": _label_knowledge,
     "extensions": _label_extension,
     "apps": _label_app,
+    "mcp": _label_mcp,
 }
 
 

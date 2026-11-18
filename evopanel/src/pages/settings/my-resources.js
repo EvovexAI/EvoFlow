@@ -102,7 +102,7 @@ function shellHtml() {
         <section class="sr-wb-right">
           <div class="sr-draft-head">
             <h3 class="sr-draft-title">打包分享</h3>
-            <p class="sr-muted">把勾选的资源打包成资源包,导出后发给同事,或在另一台设备「获取资源 → 导入本地资源包」安装。</p>
+            <p class="sr-muted">勾选本机资源导出成 zip/目录。带「可分享」的扩展会复制进包；「本机链接」只含你机器上的路径，别人装不到。Agent 绑定的 MCP 会一并打进包。</p>
           </div>
 
           <div class="sr-draft-block">
@@ -192,7 +192,17 @@ function renderList() {
       const on = _selected.has(it.key)
       const tone = KIND_META[it.kind]?.tone || 'slate'
       const badges = (Array.isArray(it.badges) ? it.badges : it.badge ? [it.badge] : [])
-        .map((b) => `<span class="sr-badge sr-badge--muted">${esc(b)}</span>`)
+        .map((b) => {
+          const cls =
+            b === '可分享'
+              ? 'sr-badge sr-badge--portable'
+              : b === '本机链接'
+                ? 'sr-badge sr-badge--local'
+                : b === '含 MCP'
+                  ? 'sr-badge'
+                  : 'sr-badge sr-badge--muted'
+          return `<span class="${cls}">${esc(b)}</span>`
+        })
         .join('')
       return `
       <label class="sr-pick${on ? ' is-selected' : ''}" data-sr-key="${esc(it.key)}">
@@ -244,11 +254,27 @@ function renderBasket() {
   }
   if (deps) {
     const tips = []
-    if (counts.employee) tips.push('员工会自动带上对应 Agent')
+    if (counts.employee) tips.push('员工会自动带上对应 Agent（含 tools / mcp_servers / SOUL）')
     if (counts.app) tips.push('工作流步骤里的 assigned_agent 会自动补入')
     if (counts.skill) tips.push('技能目录会复制进包')
-    if (counts.extension) tips.push('扩展仅写入 id 引用(Gateway 无法拷贝扩展文件)')
+    if (counts.extension) {
+      const linkN = picked.filter((it) => it.kind === 'extension' && it.portable === false).length
+      if (linkN) {
+        tips.push(`${linkN} 个扩展为「本机链接」：导出后别人装不到你的本地路径，请改 copy 或发布 zip`)
+      } else {
+        tips.push('扩展会复制进包（可分享）')
+      }
+    }
     if (counts.knowledge) tips.push('知识库默认只写 vault id,不打包正文')
+    const mcpNames = new Set()
+    for (const it of picked) {
+      for (const m of it.mcp_servers || []) {
+        if (m) mcpNames.add(String(m))
+      }
+    }
+    if (mcpNames.size) {
+      tips.push(`将打包 ${mcpNames.size} 个 MCP 定义（${[...mcpNames].join('、')}）；密钥类 env 会清空`)
+    }
     deps.textContent = tips.length ? `将自动处理：${tips.join('；')}` : ''
   }
 }
@@ -325,18 +351,35 @@ async function loadAllItems() {
     const id = String(a.agent_code || a.name || '').trim()
     if (!id) continue
     const title = String(a.agent_name || a.display_name || a.name || id).trim() || id
-    const meta = [id !== title ? id : '', a.description ? String(a.description).slice(0, 80) : '']
+    const toolsN = Array.isArray(a.tools) ? a.tools.length : 0
+    const mcpN = Array.isArray(a.mcp_servers) ? a.mcp_servers.length : 0
+    const skillN = Array.isArray(a.skills) ? a.skills.length : 0
+    const bindBits = []
+    if (toolsN) bindBits.push(`工具 ${toolsN}`)
+    if (mcpN) bindBits.push(`MCP ${mcpN}`)
+    if (skillN) bindBits.push(`技能 ${skillN}`)
+    const meta = [
+      id !== title ? id : '',
+      bindBits.join(' · '),
+      a.description ? String(a.description).slice(0, 60) : '',
+    ]
       .filter(Boolean)
       .join(' · ')
+    const badges = []
+    if (a.model) badges.push(String(a.model))
+    if (mcpN) badges.push('含 MCP')
     out.push({
       key: `agent:${id}`,
       kind: 'agent',
       id,
       title,
       meta,
-      badge: a.model ? String(a.model) : '',
+      badge: badges[0] || '',
+      badges,
+      mcp_servers: Array.isArray(a.mcp_servers) ? a.mcp_servers : [],
+      tools: Array.isArray(a.tools) ? a.tools : [],
       nav: '/agents',
-      search: `${title} ${id} ${meta}`.toLowerCase(),
+      search: `${title} ${id} ${meta} ${(a.mcp_servers || []).join(' ')}`.toLowerCase(),
     })
   }
 
@@ -347,13 +390,24 @@ async function loadAllItems() {
     const id = String(r.agent_code || '').trim()
     if (!id) continue
     const title = String(r.role_name || r.display_name || r.name || id).trim() || id
+    const agent = agents.find((a) => String(a.agent_code || a.name || '') === id)
+    const mcpN = Array.isArray(agent?.mcp_servers) ? agent.mcp_servers.length : 0
+    const toolsN = Array.isArray(agent?.tools) ? agent.tools.length : 0
+    const bindBits = []
+    if (toolsN) bindBits.push(`工具 ${toolsN}`)
+    if (mcpN) bindBits.push(`MCP ${mcpN}`)
+    const badges = []
+    if (r.status && r.status !== 'active') badges.push(String(r.status))
+    if (mcpN) badges.push('含 MCP')
     out.push({
       key: `employee:${id}`,
       kind: 'employee',
       id,
       title,
-      meta: [id !== title ? id : '', r.status].filter(Boolean).join(' · '),
-      badge: r.status && r.status !== 'active' ? String(r.status) : '',
+      meta: [id !== title ? id : '', bindBits.join(' · '), r.status].filter(Boolean).join(' · '),
+      badge: badges[0] || '',
+      badges,
+      mcp_servers: Array.isArray(agent?.mcp_servers) ? agent.mcp_servers : [],
       nav: '/proactive',
       search: `${title} ${id} ${r.status || ''}`.toLowerCase(),
     })
@@ -427,15 +481,31 @@ async function loadAllItems() {
     const id = String(x.id || x.manifest?.id || '').trim()
     if (!id) continue
     const title = String(x.name || x.manifest?.name || id).trim() || id
+    const source = String(x.source || x.manifest?.source || '')
+    const isLink =
+      source.includes('folder-link') ||
+      !!x.link ||
+      !!(x.manifest?.service && x.manifest.service.link)
+    const badges = []
+    if (x.enabled === false) badges.push('已禁用')
+    if (isLink) badges.push('本机链接')
+    else badges.push('可分享')
     out.push({
       key: `extension:${id}`,
       kind: 'extension',
       id,
       title,
-      meta: id !== title ? id : '',
-      badge: x.enabled === false ? '已禁用' : '',
+      meta: [
+        id !== title ? id : '',
+        isLink ? 'folder-link：换机无效，分享请先复制进包' : '复制安装，适合打包分享',
+      ]
+        .filter(Boolean)
+        .join(' · '),
+      badge: badges[0] || '',
+      badges,
+      portable: !isLink,
       nav: '/extensions',
-      search: `${title} ${id}`.toLowerCase(),
+      search: `${title} ${id} ${isLink ? '本机链接' : '可分享'}`.toLowerCase(),
     })
   }
 

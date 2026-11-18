@@ -1761,18 +1761,6 @@ class V4Mirror:
                         )
                         return
 
-            st.run_started = True
-            st.turn_id = new_turn_id
-            st.last_turn_id = new_turn_id
-            st.turn_started_at_ms = now_ms
-            st.turn_file_changes = {}
-            # 新一轮：上一轮的 usage 盖章上下文作废（上一轮若已盖完就定格在原行）。
-            st.turn_usage = None
-            st.last_text_row_id = 0
-            st.last_turn_success = False
-            st.usage_bumped = False
-            rid = self._next_row_id(tid)
-            st.turn_header_row_id = rid
             user_text = st.user_text
             user_atts = list(st.user_attachments or [])
             user_mid = str(st.user_message_id or "").strip()
@@ -1800,6 +1788,95 @@ class V4Mirror:
             )
             # 无可见 userInput 时不要谎称 origin=userInput（否则浮层右栏有头无气泡、左栏像劈开的回复）。
             header_origin = "userInput" if has_visible_user else "goalContinuation"
+
+            reusable = (
+                self._find_reusable_user_input_row(
+                    tid,
+                    user_mid=user_mid,
+                    user_text=user_text,
+                    prev_turn_id=prev_turn_id if prior_reset else "",
+                )
+                if has_visible_user
+                else None
+            )
+            # ensure_transcript 已落 provisional turnHeader(running)+userInput：复用该头，
+            # 勿再 append 新头（否则 user.rowId < header.rowId，尾窗对齐会裁掉用户气泡）。
+            if reusable is not None:
+                old_turn = str(reusable.get("turnId") or "").strip()
+                old_hdr_rid, old_started, old_origin = (
+                    self._lookup_turn_header(tid, old_turn) if old_turn else (0, 0, "")
+                )
+                sess = self._hub.get_session(tid)
+                old_hdr = (
+                    sess.rows.get(int(old_hdr_rid))
+                    if sess is not None and old_hdr_rid > 0
+                    else None
+                )
+                old_hdr_state = (
+                    str(old_hdr.get("state") or "").strip()
+                    if isinstance(old_hdr, dict)
+                    else ""
+                )
+                user_rid = int(reusable.get("rowId") or 0)
+                if (
+                    old_hdr_rid > 0
+                    and user_rid > old_hdr_rid
+                    and old_hdr_state == "running"
+                    and (
+                        old_turn.startswith("transcript-")
+                        or old_origin in ("", "userInput")
+                    )
+                ):
+                    st.run_started = True
+                    st.turn_id = new_turn_id
+                    st.last_turn_id = new_turn_id
+                    st.turn_started_at_ms = int(old_started or now_ms)
+                    st.turn_file_changes = {}
+                    st.turn_usage = None
+                    st.last_text_row_id = 0
+                    st.last_turn_success = False
+                    st.usage_bumped = False
+                    st.turn_header_row_id = old_hdr_rid
+                    self._hub.author_upsert_row(
+                        tid,
+                        {
+                            "rowId": old_hdr_rid,
+                            "turnId": new_turn_id,
+                            "entityId": new_turn_id,
+                            "kind": "turnHeader",
+                            "origin": header_origin,
+                            "state": "running",
+                            "startedAt": int(old_started or now_ms),
+                            "createdAt": int(old_started or now_ms),
+                            "createdAtSeq": self._seq_now(tid),
+                        },
+                    )
+                    reused = dict(reusable)
+                    reused["turnId"] = new_turn_id
+                    reused["createdAtSeq"] = self._seq_now(tid)
+                    if user_mid:
+                        reused["entityId"] = user_mid
+                    if user_atts:
+                        reused["attachments"] = user_atts
+                    self._hub.author_upsert_row(tid, reused)
+                    self._patch_control(
+                        tid,
+                        _running_control(now_ms=now_ms, last_error=st.sticky_run_error),
+                    )
+                    return
+
+            st.run_started = True
+            st.turn_id = new_turn_id
+            st.last_turn_id = new_turn_id
+            st.turn_started_at_ms = now_ms
+            st.turn_file_changes = {}
+            # 新一轮：上一轮的 usage 盖章上下文作废（上一轮若已盖完就定格在原行）。
+            st.turn_usage = None
+            st.last_text_row_id = 0
+            st.last_turn_success = False
+            st.usage_bumped = False
+            rid = self._next_row_id(tid)
+            st.turn_header_row_id = rid
             self._hub.author_append_row(
                 tid,
                 {
@@ -1816,14 +1893,8 @@ class V4Mirror:
                 },
             )
             if has_visible_user:
-                reusable = self._find_reusable_user_input_row(
-                    tid,
-                    user_mid=user_mid,
-                    user_text=user_text,
-                    prev_turn_id=prev_turn_id if prior_reset else "",
-                )
                 if reusable is not None:
-                    # 空流 auto-retry：同一条用户消息只保留一颗气泡，挂到新 turn。
+                    # 空流 auto-retry / remint：同一条用户消息只保留一颗气泡，挂到新 turn。
                     reused = dict(reusable)
                     reused["turnId"] = st.turn_id
                     reused["createdAtSeq"] = self._seq_now(tid)
@@ -2618,9 +2689,27 @@ def mirror_ensure_transcript_user_input(
             return False
         now_ms = int(time.time() * 1000)
         user_origin = origin if origin in ("realUser", "goalContinuation") else "realUser"
+        # 协议序：turnHeader → userInput。只落 user 会导致后续 RUN_STARTED 新头
+        # rowId 更大，尾窗对齐到 header 时裁掉紧前气泡（浮层孤用户轮错位）。
+        provisional_turn = f"transcript-{now_ms}"
+        header_rid = mirror._next_row_id(tid)  # noqa: SLF001
+        mirror._hub.author_append_row(  # noqa: SLF001
+            tid,
+            {
+                "rowId": header_rid,
+                "turnId": provisional_turn,
+                "entityId": provisional_turn,
+                "kind": "turnHeader",
+                "origin": "userInput",
+                "state": "running",
+                "startedAt": now_ms,
+                "createdAt": now_ms,
+                "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+            },
+        )
         user_row: dict[str, Any] = {
             "rowId": mirror._next_row_id(tid),  # noqa: SLF001
-            "turnId": f"transcript-{now_ms}",
+            "turnId": provisional_turn,
             "kind": "userInput",
             "text": raw,
             "origin": user_origin,

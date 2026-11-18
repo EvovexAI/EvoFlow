@@ -73,9 +73,21 @@
 
 `slug` 形态（从技能市场装）暂未支持（Phase 2）；市场安装始终为 copy。
 
+### mcp（MCP 服务定义）
+
+```json
+[
+  { "from": "./mcp/selfmedia-live-workbench.json" }
+]
+```
+
+- 安装顺序在 Agent **之前**（`create_agent` 会校验 `mcp_servers` 已注册）。
+- 面板「打包分享」会根据 Agent 的 `mcp_servers` **自动导出**对应本机 MCP 配置；疑似密钥的 env 值会清空，只保留键名。
+- 只写 Agent 里的名字、不打 `primitives.mcp` 时：对方装完会看到名字但 MCP 服务本身缺失（这是以前分享丢 MCP 的主因）。
+
 ### agents / 员工 / 应用
 
-- `agents[]`: `{from: "./agents/xxx.yaml"}`（YAML，`system_prompt_file` 支持包内相对路径）
+- `agents[]`: `{from: "./agents/xxx.yaml"}`（YAML，`system_prompt_file` 支持包内相对路径；含 `tools` / `mcp_servers` / `skills`）
 - `team.employees[]`: `{from: "./employees/xxx.json"}`
 - `pipelines.apps[]`: `{from: "./apps/xxx.json"}`
 

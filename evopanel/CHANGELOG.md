@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.35] - 2026-11-18
+
+相对 **1.3.34**：打包分享会自动带上 Agent 绑定的 MCP 配置；上拉加载的更早对话在尾窗刷新后仍保留。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.35.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **资源包导出 MCP**：打包分享时按 Agent 绑定自动导出本机 MCP 定义
+
+### Fixed
+
+- **上拉历史被冲掉**：尾窗快照刷新时保留已加载的更早行
+- **用户气泡被裁掉**：确保 transcript 时复用已有轮次头，尾窗对齐不再裁掉紧前用户气泡
+
+### Changed
+
+- **资源中心**：已装/我的资源与市场页交互与说明更齐
+
 ## [1.3.34] - 2026-11-18
 
 相对 **1.3.33**：资产删写等工具不再莫名卡两秒；新改的代码能更快被索引搜到；开启「显示思考过程」后思考行齐全，上滚历史不再被拽回底部。

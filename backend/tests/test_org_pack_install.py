@@ -270,3 +270,48 @@ def test_zip_install_persists_and_forces_extension_copy(
     copied = json.loads((install_path / "evoflow.extension.json").read_text(encoding="utf-8"))
     assert (copied.get("service") or {}).get("link") in (False, None)
     _ = config_dir  # keep import used for clarity in failures
+
+
+def test_install_registers_mcp_before_agent(isolated_home: Path, tmp_path: Path) -> None:
+    """primitives.mcp 必须在 create_agent 前注册，否则 mcp_servers 校验失败。"""
+    pack, _ = _make_pack(tmp_path)
+    mcp_name = "pack-wire-mcp"
+    mcp_dir = pack / "mcp"
+    mcp_dir.mkdir()
+    (mcp_dir / f"{mcp_name}.json").write_text(
+        json.dumps(
+            {
+                "name": mcp_name,
+                "enabled": True,
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "demo"],
+                "description": "pack mcp",
+            }
+        ),
+        encoding="utf-8",
+    )
+    agent_path = pack / "agents" / "worker.yaml"
+    agent_path.write_text(
+        "agent_code: worker\nagent_name: 测试员工\ndescription: t\n"
+        f"system_prompt: 你是测试员工\nskills: [my-skill]\nmcp_servers: [{mcp_name}]\n",
+        encoding="utf-8",
+    )
+    man = json.loads((pack / "evoflow.organization.json").read_text(encoding="utf-8"))
+    man["primitives"]["mcp"] = [{"from": f"./mcp/{mcp_name}.json"}]
+    (pack / "evoflow.organization.json").write_text(json.dumps(man), encoding="utf-8")
+
+    result = install_organization(source={"type": "path", "path": str(pack)})
+    assert mcp_name in result["artifacts"]["mcp"]
+    assert any(
+        f"mcp registered: {mcp_name}" in w or f"mcp exists, reused: {mcp_name}" in w
+        for w in result["warnings"]
+    )
+
+    from evoflow.admin import agents as agents_admin
+    from evoflow.admin import mcp as mcp_admin
+
+    agent = agents_admin.get_agent("worker")
+    assert mcp_name in (agent.get("mcp_servers") or [])
+    mcp = mcp_admin.get_mcp_server(mcp_name)
+    assert mcp["name"] == mcp_name

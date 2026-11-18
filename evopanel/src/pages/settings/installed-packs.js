@@ -64,6 +64,7 @@ const ARTIFACT_LABELS = [
   ['skills', '技能'],
   ['extensions', '扩展'],
   ['knowledge', '知识库'],
+  ['mcp', 'MCP'],
 ]
 
 function artifactSummary(arts) {
@@ -180,6 +181,83 @@ function artifactRows(arts, details, key) {
   return ids.map((id) => ({ id: String(id), name: String(id) }))
 }
 
+function chipList(items, empty = '无') {
+  const arr = Array.isArray(items) ? items.filter((x) => String(x || '').trim()) : []
+  if (!arr.length) return `<span class="sr-muted">${esc(empty)}</span>`
+  return `<div class="sr-chip-row">${arr
+    .map((x) => `<span class="sr-chip">${esc(String(x))}</span>`)
+    .join('')}</div>`
+}
+
+function truncateText(s, n = 480) {
+  const t = String(s || '').trim()
+  if (!t) return ''
+  if (t.length <= n) return t
+  return `${t.slice(0, n).trim()}…`
+}
+
+function renderPortabilityHints(it) {
+  const bits = []
+  const portable = it?.portable
+  if (portable === false) {
+    bits.push('本包含 folder-link / 本机路径，换机安装可能失效；分享请导出为 zip 或改为包内 copy。')
+  } else if (portable === true) {
+    bits.push('便携安装：扩展/技能已复制到本机数据目录，适合分享给同事。')
+  }
+  const extInstalls = Array.isArray(it?.extension_installs) ? it.extension_installs : []
+  const linkish = extInstalls.some((row) => {
+    const src = String(row?.source || '')
+    return src.includes('folder-link') || src.includes('link')
+  })
+  if (linkish) {
+    bits.push('含本机链接扩展：路径只在你这台机器有效，别人装你的「本机路径」看不到。')
+  }
+  if (!bits.length) return ''
+  return `<div class="sr-detail-block">
+    <h4>分享说明</h4>
+    ${bits.map((b) => `<p class="sr-warn" style="margin:0 0 8px">${esc(b)}</p>`).join('')}
+  </div>`
+}
+
+function renderBotBindingCards(bindings) {
+  const rows = Array.isArray(bindings) ? bindings : []
+  if (!rows.length) return ''
+  return `
+    <div class="sr-detail-block">
+      <h4>BOT / 智能体绑定 <span class="sr-muted">(${rows.length})</span></h4>
+      <p class="sr-muted" style="margin:0 0 10px">BOT 与智能体是同一配置：系统提示词、工具、MCP、技能、知识库都在这里。</p>
+      ${rows
+        .map((b) => {
+          const title = esc(b.name || b.code)
+          const code = esc(b.code || '')
+          const soul = truncateText(b.soul || b.system_prompt || '', 600)
+          const err = b.error ? `<p class="sr-warn">${esc(b.error)}</p>` : ''
+          return `
+        <details class="sr-bot-card" open>
+          <summary>
+            <span class="sr-bot-card__title">${title}</span>
+            ${code && code !== title ? `<code>${code}</code>` : ''}
+            ${b.missing ? '<span class="sr-badge sr-badge--warn">未找到运行态</span>' : ''}
+          </summary>
+          <div class="sr-bot-card__body">
+            ${err}
+            <dl class="sr-kv">
+              <div><dt>工具</dt><dd>${chipList(b.tools, '未绑定工具')}</dd></div>
+              <div><dt>MCP</dt><dd>${chipList(b.mcp_servers, '未绑定 MCP')}</dd></div>
+              <div><dt>技能</dt><dd>${chipList(b.skills, '未绑定技能')}</dd></div>
+              <div><dt>知识库</dt><dd>${chipList(b.knowledge_labels || b.knowledge_vault_ids, '未绑定知识库')}</dd></div>
+            </dl>
+            <div class="sr-bot-soul">
+              <div class="sr-bot-soul__label">系统提示词 / SOUL</div>
+              <pre class="sr-bot-soul__text">${soul ? esc(soul) : '<span class="sr-muted">（空）</span>'}</pre>
+            </div>
+          </div>
+        </details>`
+        })
+        .join('')}
+    </div>`
+}
+
 function renderArtifactBlocks(arts, details) {
   const blocks = ARTIFACT_LABELS.map(([key, label]) => {
     const rows = artifactRows(arts, details, key)
@@ -203,6 +281,65 @@ function renderArtifactBlocks(arts, details) {
     return `<div class="sr-detail-block"><p class="sr-muted">暂无产物记录</p></div>`
   }
   return blocks.join('')
+}
+
+/**
+ * 拉取 BOT/Agent 运行态绑定，便于核对「装完后 MCP/工具是否还在」。
+ * @param {Record<string, any>} it
+ */
+async function loadBotBindings(it) {
+  const arts = it?.artifacts && typeof it.artifacts === 'object' ? it.artifacts : {}
+  const details = it?.artifact_details && typeof it.artifact_details === 'object' ? it.artifact_details : {}
+  const codes = new Set()
+  for (const key of ['employees', 'agents']) {
+    for (const row of artifactRows(arts, details, key)) {
+      if (row.id) codes.add(row.id)
+    }
+  }
+  /** @type {Array<Record<string, any>>} */
+  const out = []
+  for (const code of codes) {
+    try {
+      const agent = await api.getAgent(code)
+      let knowledgeLabels = []
+      try {
+        const role = await api.proactiveGetRole(code)
+        const cfg = role?.config || role || {}
+        const ids = Array.isArray(cfg.knowledge_vault_ids)
+          ? cfg.knowledge_vault_ids
+          : Array.isArray(agent?.knowledge_vault_ids)
+            ? agent.knowledge_vault_ids
+            : []
+        knowledgeLabels = ids.map((id) => String(id))
+      } catch {
+        knowledgeLabels = Array.isArray(agent?.knowledge_vault_ids)
+          ? agent.knowledge_vault_ids.map((id) => String(id))
+          : []
+      }
+      out.push({
+        code,
+        name: agent?.agent_name || agent?.role_name || code,
+        tools: agent?.tools || [],
+        mcp_servers: agent?.mcp_servers || [],
+        skills: agent?.skills || [],
+        knowledge_vault_ids: agent?.knowledge_vault_ids || [],
+        knowledge_labels: knowledgeLabels,
+        soul: agent?.soul || agent?.system_prompt || '',
+        system_prompt: agent?.system_prompt || '',
+      })
+    } catch (e) {
+      out.push({
+        code,
+        name: code,
+        missing: true,
+        error: String(e?.message || e),
+        tools: [],
+        mcp_servers: [],
+        skills: [],
+      })
+    }
+  }
+  return out
 }
 
 function renderList(items) {
@@ -306,6 +443,7 @@ function renderDetail(it) {
           .join('')}
       </div>`
     : ''
+  const botBlock = renderBotBindingCards(it._botBindings)
   host.innerHTML = `
     <div class="sr-detail-hero">
       <div>
@@ -315,6 +453,8 @@ function renderDetail(it) {
           <span class="sr-badge sr-badge--muted">v${esc(it.pack_version)}</span>
           ${upd ? `<span class="sr-badge sr-badge--update">可更新 → v${esc(upd.available_version)}</span>` : ''}
           <span class="sr-badge sr-badge--muted">${esc(it.status || 'active')}</span>
+          ${it.portable === true ? '<span class="sr-badge sr-badge--portable">便携</span>' : ''}
+          ${it.portable === false ? '<span class="sr-badge sr-badge--local">本机链接</span>' : ''}
         </div>
         <p class="sr-card-meta" style="margin:0">${esc(it.description || '无描述')}</p>
         ${updateBanner}
@@ -337,10 +477,12 @@ function renderDetail(it) {
       </dl>
       ${wsWarn}
     </div>
+    ${renderPortabilityHints(it)}
     ${extBlock}
+    ${botBlock}
     <div class="sr-detail-block">
       <h4>已装产物</h4>
-      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / 扩展等;主文案为中文显示名,编码可悬停查看。</p>
+      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / MCP / 扩展等；主文案为中文显示名，编码可悬停查看。</p>
       ${renderArtifactBlocks(it.artifacts, it.artifact_details)}
     </div>
   `
@@ -359,6 +501,12 @@ async function openDetail(orgId) {
     if (remote && typeof remote === 'object') it = { ...(it || {}), ...remote }
     if (!it) throw new Error(`未找到实例：${id}`)
     renderDetail(it)
+    // 绑定详情异步补齐，避免挡住基础信息
+    const bindings = await loadBotBindings(it)
+    if (_detailId === id) {
+      it._botBindings = bindings
+      renderDetail(it)
+    }
   } catch (e) {
     if (host) {
       host.innerHTML = `<div class="sr-empty sr-empty--error">加载失败：${esc(e?.message || e)}</div>`
@@ -385,8 +533,16 @@ async function refresh() {
   const list = _root?.querySelector('[data-ip-list]')
   if (list && !_detailId) list.innerHTML = `<div class="sr-empty">加载中…</div>`
   try {
-    const [res] = await Promise.all([api.orgList('active'), refreshUpdates()])
+    // 已装列表先渲染；市场更新检查走后台，GitHub 不通时不堵列表
+    const res = await api.orgList('active')
     renderList(res?.items || [])
+    void refreshUpdates().then(() => {
+      if (_root && !_detailId) renderList(_items)
+      else if (_detailId) {
+        const still = _items.some((x) => x.org_instance_id === _detailId)
+        if (still) void openDetail(_detailId)
+      }
+    })
     if (_detailId) {
       const still = _items.some((x) => x.org_instance_id === _detailId)
       if (still) await openDetail(_detailId)

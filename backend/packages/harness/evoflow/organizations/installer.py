@@ -206,8 +206,6 @@ def preflight_organization(
             missing_deps.append(f"platform range declared: {deps['platform']} (not enforced in Phase 1)")
 
         warnings: list[str] = []
-        if will.get("mcp"):
-            warnings.append("mcp registration skipped in Phase 1")
         if will.get("vaults"):
             warnings.append("vault import skipped in Phase 1")
         if not (workspace_path or "").strip():
@@ -489,6 +487,65 @@ def install_organization(
 
                     undo.append(("knowledge", _undo_kb))
                 warnings.append(f"knowledge base '{name}' ready ({'created' if created else 'reused'})")
+
+            # 0.5) MCP（必须在 agents 前：create_agent 会校验 mcp_servers 已注册）
+            from evoflow.admin import mcp as mcp_admin
+            from evoflow.admin.errors import NotFoundError as _McpNotFound
+
+            for ref in list(prim.get("mcp") or []):
+                if not isinstance(ref, dict):
+                    continue
+                from_path = str(ref.get("from") or "").strip()
+                if not from_path:
+                    warnings.append("mcp entry missing from, skipped")
+                    continue
+                try:
+                    mcp_doc = load_json_ref(pack, from_path)
+                except Exception as e:
+                    if policy == "fail":
+                        raise OrganizationInstallError(f"mcp load failed: {e}") from e
+                    warnings.append(f"mcp skipped (load failed): {e}")
+                    continue
+                name = str(mcp_doc.get("name") or Path(from_path).stem).strip()
+                if not name:
+                    warnings.append(f"mcp entry missing name: {from_path}")
+                    continue
+                cfg = {k: v for k, v in mcp_doc.items() if k != "name"}
+                if not isinstance(cfg, dict) or not cfg:
+                    warnings.append(f"mcp '{name}' empty config, skipped")
+                    continue
+                existed = False
+                try:
+                    mcp_admin.get_mcp_server(name)
+                    existed = True
+                except _McpNotFound:
+                    existed = False
+                except Exception:
+                    existed = False
+                try:
+                    # MCP 常跨包共用：默认幂等复用；replace 才覆盖配置
+                    if existed and policy != "replace":
+                        warnings.append(f"mcp exists, reused: {name}")
+                        if name not in artifacts["mcp"]:
+                            artifacts["mcp"].append(name)
+                        continue
+                    mcp_admin.add_mcp_server(name, cfg)
+                    artifacts["mcp"].append(name)
+                    warnings.append(f"mcp {'replaced' if existed else 'registered'}: {name}")
+
+                    def _undo_mcp(n: str = name, was_new: bool = not existed) -> None:
+                        if not was_new:
+                            return
+                        try:
+                            mcp_admin.remove_mcp_server(n)
+                        except Exception:
+                            logger.debug("rollback mcp failed name=%s", n, exc_info=True)
+
+                    undo.append(("mcp", _undo_mcp))
+                except Exception as e:
+                    if policy == "fail":
+                        raise OrganizationInstallError(f"mcp install failed: {e}") from e
+                    warnings.append(f"mcp skipped: {e}")
 
             # 1) skills
             for ref in list(prim.get("skills") or []):
@@ -804,8 +861,6 @@ def install_organization(
 
                 undo.append(("extension", _undo_ext))
 
-            if prim.get("mcp"):
-                warnings.append("mcp not registered (Phase 1)")
             if prim.get("vaults"):
                 warnings.append("vaults not imported (Phase 1)")
 
@@ -930,9 +985,19 @@ def uninstall_organization(
             except Exception as e:
                 logger.warning("uninstall skill failed name=%s err=%s", sname, e)
                 kept["skills"].append(sname)
+        # MCP 可能被其他 Agent 共用；仅卸本包登记过的，失败则保留
+        from evoflow.admin import mcp as mcp_admin
+
+        for mname in list(arts.get("mcp") or []):
+            try:
+                mcp_admin.remove_mcp_server(mname)
+                removed["mcp"].append(mname)
+            except Exception as e:
+                logger.warning("uninstall mcp failed name=%s err=%s", mname, e)
     else:
         kept["agents"] = list(arts.get("agents") or [])
         kept["skills"] = list(arts.get("skills") or [])
+        kept["mcp"] = list(arts.get("mcp") or [])
 
     ws = inst.get("workspace_path")
     if ws and not keep_workspace:

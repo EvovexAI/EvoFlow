@@ -152,6 +152,67 @@ def test_export_extensions_and_knowledge(
     assert any("kb_other_9" in w and "未包含" in w for w in result["warnings"])
 
 
+def test_export_includes_mcp_bound_on_agent(
+    isolated_env: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Agent 绑了 MCP 时，导出必须打进 primitives.mcp，否则对方只有名字。"""
+    from evoflow.admin import mcp as mcp_admin
+    from evoflow.persistence.db import reset_db_for_tests
+
+    monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path / "mcp-home"))
+    monkeypatch.delenv("EVOFLOW_DB_PATH", raising=False)
+    reset_db_for_tests()
+    mcp_admin.add_mcp_server(
+        "demo-mcp",
+        {
+            "enabled": True,
+            "type": "stdio",
+            "command": "npx",
+            "args": ["-y", "demo-mcp"],
+            "env": {"DEMO_API_KEY": "secret-should-redact", "SAFE_FLAG": "1"},
+            "description": "演示 MCP",
+        },
+    )
+    monkeypatch.setattr(
+        org_export,
+        "_employee_to_json",
+        lambda code: {"agent_code": code, "role_name": code, "config": {}},
+    )
+    monkeypatch.setattr(
+        org_export,
+        "_agent_to_yaml",
+        lambda code: (
+            {
+                "agent_code": code,
+                "agent_name": code,
+                "skills": [],
+                "tools": ["read"],
+                "mcp_servers": ["demo-mcp"],
+                "system_prompt_file": f"./{code}.SOUL.md",
+            },
+            "soul",
+        ),
+    )
+
+    result = org_export.export_organization(
+        pack={"id": "mcp-pack", "name": "MCP 包", "version": "1.0.0"},
+        include={"employee_codes": ["worker"]},
+        output={"dir": str(tmp_path / "mcp-out")},
+    )
+    out_dir = Path(result["output_dir"])
+    manifest = json.loads((out_dir / "evoflow.organization.json").read_text(encoding="utf-8"))
+    assert manifest["primitives"]["mcp"] == [{"from": "./mcp/demo-mcp.json"}]
+    assert result["mcp"] == ["demo-mcp"]
+    mcp_doc = json.loads((out_dir / "mcp" / "demo-mcp.json").read_text(encoding="utf-8"))
+    assert mcp_doc["name"] == "demo-mcp"
+    assert mcp_doc["env"]["DEMO_API_KEY"] == ""
+    assert mcp_doc["env"]["SAFE_FLAG"] == "1"
+    assert any("DEMO_API_KEY" in w for w in result["warnings"])
+    agent_yaml = (out_dir / "agents" / "worker.yaml").read_text(encoding="utf-8")
+    assert "demo-mcp" in agent_yaml
+    assert "read" in agent_yaml
+
+
 def test_export_extension_missing_from_registry(isolated_env: Path, tmp_path: Path) -> None:
     monkeypatch = pytest.MonkeyPatch()
     try:
