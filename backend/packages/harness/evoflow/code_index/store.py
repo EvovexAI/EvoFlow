@@ -68,6 +68,11 @@ _embed_gate_lock = threading.Lock()
 _embed_gate_open = False        # False=本进程尚未确认嵌入可用，走纯词法
 _embed_warm_last_try = 0.0      # 上次暖机尝试的时间戳（0=从未）
 _EMBED_WARM_RETRY_S = 300.0     # 暖机失败后的重试冷却，避免每次检索都起线程重试
+# 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+# 本次调用「语义为何没参与」的旁路记录。用 thread-local：检索是同步调用、
+# 同线程内 start→collect 成对；且不必给 _embed_query_sync 加参数（那会破坏
+# 既有 monkeypatch 契约，实测 3 个测试当场红）。
+_DEGRADE_STATE = threading.local()
 
 
 def _embed_ready_without_import() -> bool:
@@ -534,11 +539,28 @@ def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
     #   search_index 整体   无 mmap 427ms → mmap 353ms（-21%，4 组交替取中位）
     #   vec0 KNN 单段       embed 6.4ms 不变，KNN 374ms → 66ms（-82%）
     # 语义召回那段几乎全是它，所以不映射就每次白等 0.3s。
-    # 1GB 上限：库当前 999MB 刚好整库可映射；超了也不会报错，只是退化成部分映射。
-    # 与 persistence/db.py 的同名 pragma 保持一致的写法（那边 256MB，因主库更小），
+    # 与 persistence/db.py 的同名 pragma 写法一致（那边 256MB，因主库更小），
     # 失败一律吞掉——映射是纯优化，绝不能让它挡住检索。
+    #
+    # 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：上限从写死 1GiB 改成「按库实际大小取整 + 512MiB 余量」。
+    # 为什么：写死 1GiB 的前提是「库当前 999MB 刚好整库可映射」，而这条前提早在
+    # 库长到 1.72GB 时就失效了——**超上限不报错，只是静默退化成部分映射**，
+    # 于是向量段有 42% 读不到映射，没人会发现。
+    # 同一进程同一份向量、同一台机，只改 mmap 大小的 A/B（k=75）：
+    #   1GiB(现状) 300ms / 2GiB 91ms / 3GiB 89ms / 关掉 646ms
+    # → 现状比整库可映射慢 3.3 倍，且这不是某次调用，是**每次检索都付**。
+    _target = 1073741824
     try:
-        conn.execute("PRAGMA mmap_size=1073741824")
+        _page = int(conn.execute("PRAGMA page_size").fetchone()[0] or 4096)
+        _pages = int(conn.execute("PRAGMA page_count").fetchone()[0] or 0)
+        _db_bytes = _page * _pages
+        if _db_bytes > 0:
+            _target = max(_target, _db_bytes + (512 << 20))
+    except Exception:  # noqa: BLE001 - 纯优化，任何失败都退回固定值
+        pass
+    try:
+        conn.execute(f"PRAGMA mmap_size={int(_target)}")
     except Exception:  # noqa: BLE001 - 纯优化，任何失败都退回普通读
         pass
     _load_sqlite_vec_extension(conn)
@@ -1759,6 +1781,38 @@ def _embed_texts_with_bisect(pairs: list[tuple[str, str]]) -> list[list[float]]:
     return _embed_texts_with_bisect(pairs[:mid]) + _embed_texts_with_bisect(pairs[mid:])
 
 
+def _mark_degraded(diag: dict | None, code: str, detail: str) -> None:
+    """把「本次检索只有词法」这件事记到调用方能看见的地方。
+
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    只在 logger 里说等于没说：语义召回掉线时字面匹配照样能给出结果，
+    返回值看上去完全正常 —— 用户/调用方没有任何线索。
+    code 是稳定标识（便于断言与去重），detail 是给人看的一句话。
+
+    为什么是线程本地而不是加 `diag` 关键字参数：`_embed_query_sync` 的签名
+    被多处测试/调用方 monkeypatch 成单参函数，加 kwarg 会让它们全部 TypeError
+    （本轮实测 3 个测试直接红）。降级原因本来就是「本次调用的旁路信息」，
+    放 thread-local 不用改任何既有签名。
+    """
+    if diag is not None:
+        diag["semantic_degraded"] = code
+        diag["semantic_degraded_detail"] = detail
+    _DEGRADE_STATE.code = code
+    _DEGRADE_STATE.detail = detail
+
+
+def _reset_degraded() -> None:
+    _DEGRADE_STATE.code = ""
+    _DEGRADE_STATE.detail = ""
+
+
+def _collect_degraded() -> dict:
+    return {
+        "semantic_degraded": getattr(_DEGRADE_STATE, "code", "") or "",
+        "semantic_degraded_detail": getattr(_DEGRADE_STATE, "detail", "") or "",
+    }
+
+
 def _embed_query_sync(text: str) -> list[float] | None:
     """Synchronous query embedding — bypasses ``asyncio.to_thread``.
 
@@ -1767,6 +1821,11 @@ def _embed_query_sync(text: str) -> list[float] | None:
     froze the whole UI. Local providers stay sync; remote embeds from a
     running loop are skipped (callers fall back to FTS / overlap).
 
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    返回 None 的**原因**写进 thread-local（见 :func:`_mark_degraded`），
+    由 :func:`_collect_degraded` 取走并随检索结果返回。为什么：这条路径此前只在 `logger.warning` 里说话，而语义召回静默掉线时
+    字面匹配能撑住结果，**工具返回值看起来完全正常**——我是在翻日志时才撞见的。
+    调用方（也是用户）必须能从返回值里看出「这次只有词法」。
     """
     # 【self-evolution-bot · 2026-11-18 · 第50轮 · 模型:deepseek-v4.1-flash-1017】
     # 门未开 = 本进程还没把嵌入栈/权重拉起来。此时**不要**在这里同步 import + load：
@@ -1779,6 +1838,12 @@ def _embed_query_sync(text: str) -> list[float] | None:
             _embed_gate_open = True
         else:
             _start_embed_warmup()
+            _mark_degraded(
+                None,
+                "warming_up",
+                "embedding model is warming up in the background"
+                " (first search after start uses lexical matching only)",
+            )
             return None
     try:
         try:
@@ -1804,6 +1869,12 @@ def _embed_query_sync(text: str) -> list[float] | None:
             logger.debug(
                 "code_index: skip sync remote embed while event loop is running"
             )
+            _mark_degraded(
+                None,
+                "remote_blocked_on_loop",
+                "remote embedding provider is skipped inside a running event loop"
+                " (sync path cannot block); lexical matching only",
+            )
             return None
         return _run_async_in_thread(lambda: _embed_query(text), timeout=8.0)
     except Exception as exc:
@@ -1811,6 +1882,11 @@ def _embed_query_sync(text: str) -> list[float] | None:
             "code_index: sync query embedding failed: %s: %s",
             type(exc).__name__,
             exc,
+        )
+        _mark_degraded(
+            None,
+            "embed_error",
+            f"query embedding failed ({type(exc).__name__}: {exc}); lexical matching only",
         )
         return None
 
@@ -2026,7 +2102,10 @@ def _semantic_recall_sync(
     """Embed query and recall top-k files by vector similarity.
 
     Returns list of ``{path, score, distance, kind: 'semantic'}``.
-    Returns empty list if embedding or vec0 is unavailable.
+    Returns empty list if embedding or vec0 is unavailable — and in that case
+    records the reason via :func:`_mark_degraded` so callers can surface
+    "lexical only" instead of silently pretending the hybrid path ran;
+    read it back with :func:`_collect_degraded`.
     """
     if not cfg.semantic_search_enabled:
         return []
@@ -2036,9 +2115,23 @@ def _semantic_recall_sync(
         query_vec = _embed_query_sync(query_text)
     except Exception as exc:
         logger.warning("code_index: query embedding failed: %s: %s", type(exc).__name__, exc)
+        _mark_degraded(
+            None,
+            "embed_error",
+            f"query embedding failed ({type(exc).__name__}: {exc}); lexical matching only",
+        )
         return []
 
     if not query_vec:
+        # 具体原因已由 _embed_query_sync 写进 thread-local；**不能无条件覆盖**——
+        # 之前这里硬写 no_vector，把更准确的 warming_up 盖掉了（实测：冷启动首查
+        # 明明在暖机，输出却说「返回空向量」，等于把用户往错误方向引）。
+        if not getattr(_DEGRADE_STATE, "code", ""):
+            _mark_degraded(
+                None,
+                "no_vector",
+                "query embedding returned no vector; lexical matching only",
+            )
         return []
 
     # 【self-evolution-bot · 2026-11-16 · 第24轮】召回侧同样以表里声明的维度为准，
@@ -2049,6 +2142,12 @@ def _semantic_recall_sync(
             "code_index: 查询向量维度 %d 与 code_vec 声明维度 %d 不一致，语义召回跳过（需重建索引）",
             len(query_vec),
             table_dim,
+        )
+        _mark_degraded(
+            None,
+            "dim_mismatch",
+            f"query vector is {len(query_vec)}-dim but the index stores {table_dim}-dim;"
+            " semantic recall skipped until the index is rebuilt",
         )
         return []
 
@@ -2064,7 +2163,14 @@ def _semantic_recall_sync(
             "ORDER BY distance",
             (blob, max(top_k, top_k * _SEMANTIC_CHUNK_FANOUT)),
         ).fetchall()
-    except sqlite3.OperationalError:
+    except sqlite3.OperationalError as exc:
+        # vec0 模块缺失 / 表不存在 —— 这是「语义本来就不是这台机器能提供的」，
+        # 不是临时故障，但调用方仍要知道结果只有词法。
+        _mark_degraded(
+            None,
+            "vec_unavailable",
+            f"vector table unusable ({exc}); lexical matching only",
+        )
         return []
 
     # 按文件聚合：同一文件多个块命中时只保留最相似的那块（距离最小）。
@@ -2115,6 +2221,47 @@ def _mark_reindex_if_tokenizer_changed(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _delete_file_vectors(conn: sqlite3.Connection, rel: str) -> int:
+    """按主键删掉某文件的所有向量块，**不做全表扫**。
+
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：从「`DELETE FROM code_vec WHERE path = ?`（辅助列过滤）」
+    改成「先按 id 前缀从 code_vec_rowids 查出 chunk_id，再按主键逐个删」。
+
+    为什么：`code_vec` 是 vec0 虚表，声明成
+    `vec0(chunk_id TEXT PRIMARY KEY, path TEXT, embedding FLOAT[512])` ——
+    `path` 只是**辅助列**，vec0 不为它建索引。于是按 path 删要扫全表。
+    本机实测（119136 行、库 1.84GB）：
+      A 按 path 删           311.4ms  删 12 行   ← 现状，O(全表)
+      B 前缀查 id（走索引）    0.0ms   拿到 12 个
+      C 按 chunk_id 主键删     0.4ms   删 12 行   ← 改后，O(本文件块数)
+      D LIKE 前缀查          129.0ms  拿到 12 个  ← 会走全扫，故不用 LIKE
+    快约 780 倍，且代价与「库里有多少其它文件」无关。
+
+    这段为什么值得修（不只是数字好看）：单文件增量 `index_file` 的删除段
+    原本要 311ms/文件，漂移自愈一轮 24 个文件就是 7.5 秒的写事务；
+    WAL checkpoint 与写锁持有时长同步放大，用户这时搜索就被挡在门外
+    （2026-11-18 20:48 现网实测：重建窗口内一次检索 10245ms）。
+
+    为什么用 `>=` / `<` 半开区间而不是 `LIKE 'rel||::%'`：
+    `id` 上有 UNIQUE 索引，半开区间是纯 B-tree seek（0.0ms）；
+    LIKE 前缀在 sqlite 里无法保证走索引（实测 129ms，等于没优化）。
+    区间上界用 `rel + ":;"`：`;` 是 `:` 的下一个字符，能覆盖所有
+    `rel::序号` 而不会误伤 `rel2::` 这类前缀相同的邻居文件。
+    """
+    lo = f"{rel}::"
+    hi = f"{rel}:;"  # ';' 紧接 ':'，闭开区间覆盖 rel::* 且不碰 rel2::
+    ids = [
+        r[0]
+        for r in conn.execute(
+            "SELECT id FROM code_vec_rowids WHERE id >= ? AND id < ?", (lo, hi)
+        )
+    ]
+    for chunk_id in ids:
+        conn.execute("DELETE FROM code_vec WHERE chunk_id = ?", (chunk_id,))
+    return len(ids)
+
+
 def _delete_path_from_index(conn: sqlite3.Connection, rel: str) -> None:
     conn.execute("DELETE FROM fts_content WHERE path = ?", (rel,))
     conn.execute("DELETE FROM symbols WHERE path = ?", (rel,))
@@ -2122,10 +2269,7 @@ def _delete_path_from_index(conn: sqlite3.Connection, rel: str) -> None:
     conn.execute("DELETE FROM internal_refs WHERE from_path = ? OR to_path = ?", (rel, rel))
     conn.execute("DELETE FROM type_relations WHERE from_path = ? OR to_path = ?", (rel, rel))
     try:
-        # 【self-evolution-bot · 2026-11-16 · 第26轮】块级表按辅助列 path 删（实测 vec0 支持）。
-        # 原来按主键 path 删单条向量；改块级后同一文件有多行，必须按辅助列整体清掉，
-        # 否则文件改动后旧块会残留，召回里出现已删除的行号/内容。
-        conn.execute("DELETE FROM code_vec WHERE path = ?", (rel,))
+        _delete_file_vectors(conn, rel)
     except sqlite3.OperationalError:
         pass  # vec0 table may not exist if sqlite-vec is unavailable
 
@@ -4106,6 +4250,9 @@ def search_index(
 
     # --- Semantic vector recall (hybrid merge) ---
     semantic_hits: list[dict] = []
+    # 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    # 语义召回失败的**原因**必须随结果出到工具出口，不能只在日志里。
+    _reset_degraded()
     if cfg.semantic_search_enabled:
         semantic_hits = _semantic_recall_sync(
             conn,
@@ -4259,6 +4406,10 @@ def search_index(
         "path_scope_empty_hint": path_scope_empty_hint,
         "fts_combine_mode": "or" if synonym_mode else fts_mode,
         "semantic_enabled": cfg.semantic_search_enabled,
+        # 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+        # 非空 = 本次检索**只有词法**（语义召回被跳过/失败），值是稳定原因码；
+        # 空 = 语义正常参与。输出层据此打一行提示，调用方不必去翻日志。
+        **_collect_degraded(),
         "root": root,
         "db_path": str(_db_path(root)),
         "rebuild_in_progress": rebuild_in_progress,
