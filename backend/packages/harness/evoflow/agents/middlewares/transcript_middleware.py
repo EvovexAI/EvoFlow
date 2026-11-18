@@ -192,16 +192,22 @@ def _principal_id_from_runtime(runtime: Runtime | None) -> str | None:
 
 
 def _round_id_from_session_context(session_key: str) -> str | None:
-    """Fallback: session.context.proactive_round_id (latest duty round)."""
+    """Fallback: session.context.proactive_round_id (latest duty round).
+
+    【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+    改用 ``session_repositories.get_proactive_round_id``（单行 SELECT）。
+    旧实现走 ``load_session_map()``：为取**一个字段**全量重建 547 个会话行，
+    实测冷 7673ms / 热 121ms，而单行查询 0.03~0.14ms；它位于
+    ``TranscriptMiddleware.awrap_tool_call`` 返回路径上，直接把工具外层
+    duration_ms 撑到 2~3 秒（同批工具体只有 20~53ms）。
+    """
     sk = str(session_key or "").strip()
     if not sk.startswith("proactive:"):
         return None
     try:
         from evoflow.persistence import session_repositories as sess_repo
 
-        row = sess_repo.load_session_map().get(sk) or {}
-        ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
-        return str(ctx.get("proactive_round_id") or "").strip() or None
+        return sess_repo.get_proactive_round_id(sk)
     except Exception:
         return None
 

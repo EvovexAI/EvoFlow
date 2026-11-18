@@ -46,6 +46,8 @@ export default defineConfig({
       'tests/v4-wire-conformance.test.ts',
       'tests/control-busy.test.ts',
       'tests/v4-running-text-interleave.test.ts',
+      'tests/v4-reasoning-visibility.test.ts',
+      'tests/v4-timeline-scroll-anchor.test.ts',
       'tests/zcode-flat-reasoning.test.js',
       'tests/turn-history-fold.test.tsx',
       'tests/font-size-tokens.test.js',

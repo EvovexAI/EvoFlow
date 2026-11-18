@@ -200,6 +200,17 @@ def index_freshness(root: str) -> dict:
 # 于是「索引过期」在工具输出里完全不可见，只能靠人想起来手查 sqlite。
 _DRIFT_CACHE: dict[str, tuple[float, dict]] = {}
 _DRIFT_CACHE_TTL_SECONDS = 30.0
+# 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:qwen3.8-flash】漂移自愈的两条闸：
+# 一次补录最多吃多少个文件、同一根目录多久才允许再补一轮。
+# 判据（本轮现网实测，别拿"单文件 2~10ms"的老数字定预算）：
+# 本机 semantic_search_enabled=true，index_file 单文件要切块 + 嵌入，实测 **2.5s/个**
+# （11 个 28.1s，含首次载入嵌入权重）。而增量通道 _HOOK_POOL 只有 1 个 worker，
+# 预算给到 80 = 一次独占后台池 ~200s，会把 write/edit 工具的增量入库排在队尾。
+# 给 24：单轮最坏 ~1 分钟，与 120s 冷却配合，常态漂移（几~十几个文件）一轮清完。
+_DRIFT_PATH_CAP = 400
+_CATCHUP_BUDGET_FILES = 24
+_CATCHUP_COOLDOWN_SECONDS = 120.0
+_drift_catchup_cooldown: dict[str, float] = {}
 
 
 def _rel_path_prefix(root_path: Path) -> str:
@@ -251,13 +262,15 @@ def source_drift(root: str, *, since_ts: float | None = None) -> dict:
         try:
             since_ts = dbp.stat().st_mtime
         except OSError:
-            return {"changed": 0, "added": 0, "deleted": 0, "total": 0}
+            return {"changed": 0, "added": 0, "deleted": 0, "total": 0,
+                    "added_paths": [], "changed_paths": [], "deleted_paths": []}
     root_path = Path(root)
     cfg = get_code_index_config()
     try:
         conn = _connect(root)
     except Exception:
-        return {"changed": 0, "added": 0, "deleted": 0, "total": 0}
+        return {"changed": 0, "added": 0, "deleted": 0, "total": 0,
+                "added_paths": [], "changed_paths": [], "deleted_paths": []}
     try:
         rows = conn.execute("SELECT path FROM fts_content").fetchall()
     except sqlite3.Error:
@@ -272,6 +285,13 @@ def source_drift(root: str, *, since_ts: float | None = None) -> dict:
     changed = 0
     added = 0
     seen: set[str] = set()
+    # 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:qwen3.8-flash】
+    # 第38轮只做了「让漂移可见」，明写没做自愈。本轮补自愈时必须知道**具体是哪些文件**，
+    # 光有计数没法增量补录。路径清单封顶 _DRIFT_PATH_CAP：补录每轮只吃这些，
+    # 剩余留给下一轮（避免一次检索被几千个文件拖死），且内存有界。
+    path_cap = _DRIFT_PATH_CAP
+    added_paths: list[str] = []
+    changed_paths: list[str] = []
     root_prefix = _rel_path_prefix(root_path)
     for p in disk_files:
         rel = _relative_source_path(p, root_prefix)
@@ -280,18 +300,26 @@ def source_drift(root: str, *, since_ts: float | None = None) -> dict:
         seen.add(rel)
         if rel not in indexed:
             added += 1
+            if len(added_paths) < path_cap:
+                added_paths.append(rel)
             continue
         try:
             if p.stat().st_mtime > since_ts + 1.0:
                 changed += 1
+                if len(changed_paths) < path_cap:
+                    changed_paths.append(rel)
         except OSError:
             continue
-    deleted = len(indexed - seen)
+    gone = indexed - seen
+    deleted = len(gone)
     return {
         "changed": changed,
         "added": added,
         "deleted": deleted,
         "total": len(seen),
+        "added_paths": added_paths,
+        "changed_paths": changed_paths,
+        "deleted_paths": sorted(gone)[:path_cap],
     }
 
 
@@ -324,6 +352,104 @@ def _source_drift_cached(root: str, db_mtime: float) -> dict | None:
         oldest = min(_DRIFT_CACHE, key=lambda k: _DRIFT_CACHE[k][0])
         _DRIFT_CACHE.pop(oldest, None)
     return drift
+
+
+def _purge_drift_cache(root: str) -> None:
+    """丢掉本 root 的全部漂移缓存（补录后必须重测，不做「计数减法」骗过页脚）。"""
+    prefix = f"{root}\u0000"
+    for k in [k for k in _DRIFT_CACHE if k.startswith(prefix)]:
+        _DRIFT_CACHE.pop(k, None)
+
+
+def _schedule_drift_catchup(root: str, *, st: dict) -> dict:
+    """源码漂移自愈：把「磁盘有、库里没有/不新」的文件增量补录。
+
+    【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:qwen3.8-flash】为什么必须存在：
+    第38轮只做了一半 —— 漂移**可见**（工具首行报 `N new file(s) not indexed`），
+    但 `search_index` 的自愈触发条件是 `not st["ready"]`，而 ready 判定
+    （`stale_reasons`：只看 max_files 上限与向量覆盖率）**从不看源码内容**，
+    于是稳态下每次检索都跳过重建 → 报出来的 stale 永远修不掉。
+    实测坐实（本机 2026-11-18）：config.yaml 里 `auto_index_on_search`/
+    `watcher_enabled` 都是 true，但 `start_index_watch` 只有面板接口会调，
+    进程重启后没人拉起；17:05 之后没有任何 build_worker 存活，
+    新建文件连续两次检索（间隔 100s）都搜不到，页脚 stale 从 7 涨到 8。
+
+    为什么走**单文件增量**而不是重建：`index_file` 与 watcher 同一条入口
+    （含 .gitignore / skipped-segment 过滤），代价 2~10ms/文件；全量重建要 30 分钟
+    且会重烧向量段，为几个新文件烧全仓是把用户当矿工。
+
+    判据与护栏：
+    · 构建中让路（`st["building"]`）—— 不跟 build_worker 抢 sqlite 写锁；
+    · 单轮最多 `_CATCHUP_BUDGET_FILES` 个，剩余留给下一轮（冷却 120s）；
+    · **补录动作不在本函数里跑**，投递到 hooks 的增量线程池。
+      为什么（本轮现网实测，差点把修好的东西变成新的坑）：
+      本机 `semantic_search_enabled=true`，`index_file` 每补一个文件要切块 + 嵌入，
+      11 个文件实测 **28.1s**（含首次载入嵌入模型权重）。挂在检索主路上
+      等于「为了自愈，让这一下搜索卡半分钟」，比原来搜不到更糟。
+      走后台池的代价是「刚写的文件下一次（通常几秒后）才搜得到」，
+      而 write/edit 工具本身已接 `notify_file_changed`（同一条增量通道）当场入库，
+      漂移主要来自 git 检出/外部改动，这类不需要当次就能搜到。
+    · 补完必须 `_purge_drift_cache`，否则页脚会在 30s TTL 内继续报已消失的漂移。
+    """
+    if st.get("building"):
+        return {"ok": True, "status": "skipped", "reason": "building"}
+    now = time.time()
+    last = _drift_catchup_cooldown.get(root)
+    if last is not None and now - last < _CATCHUP_COOLDOWN_SECONDS:
+        return {"ok": True, "status": "skipped", "reason": "cooldown"}
+    dbp = _db_path(root)
+    try:
+        mtime = dbp.stat().st_mtime
+    except OSError:
+        return {"ok": True, "status": "skipped", "reason": "no_db"}
+    drift = _source_drift_cached(root, mtime)
+    if not drift:
+        return {"ok": True, "status": "skipped", "reason": "no_drift_data"}
+    added = list(drift.get("added_paths") or [])
+    changed = list(drift.get("changed_paths") or [])
+    deleted_n = int(drift.get("deleted") or 0)
+    if not (added or changed):
+        # deleted 故意不自动清库：source_drift 的 deleted = 「库里有、磁盘遍历没看见」。
+        # 一旦 root 解析口径与建库时不一致（thread 映射 / 符号链接 / 部分目录不可读），
+        # 整库都会被算成已删除，自愈就会变成自毁。删除交给 watcher 与下次全量重建。
+        return {"ok": True, "status": "skipped", "reason": "no_add_change",
+                "deleted_seen": deleted_n}
+    _drift_catchup_cooldown[root] = now
+
+    queue = (added + changed)[:_CATCHUP_BUDGET_FILES]
+    # 延迟 import：hooks 顶层就 import 了本模块，放模块顶会成环。
+    from evoflow.code_index import hooks as _hooks
+
+    _hooks._HOOK_POOL.submit(_run_drift_catchup, root, queue)
+    return {
+        "ok": True,
+        "status": "queued",
+        "queued": len(queue),
+        "remaining_added": max(0, len(added) - len(queue)),
+        "deleted_seen": deleted_n,
+    }
+
+
+def _run_drift_catchup(root: str, queue: list[str]) -> int:
+    """后台池里真正跑补录的循环（与 watcher 同一条增量通道、同一判据）。"""
+    done = 0
+    for rel in queue:
+        try:
+            r = index_file(root, relative_path=rel)
+            if r.get("ok") and str(r.get("action") or "") != "skipped":
+                done += 1
+        except Exception:  # noqa: BLE001 - 单个文件失败不能带走整轮补录
+            logger.debug("drift catch-up failed for %s", rel, exc_info=True)
+    # 补录写了库 → 缓存必须作废重测。不 purge 的话：写入落在同一个 60s
+    # mtime 桶里时缓存键不变，页脚会继续报已经消失的漂移（假警报）。
+    _purge_drift_cache(root)
+    if done:
+        logger.info(
+            "code_index: 漂移自愈补录 %d 个文件，root=%s",
+            done,
+            root,
+        )
+    return done
 
 
 def _configure_sqlite_connection(conn: sqlite3.Connection) -> None:
@@ -3798,6 +3924,13 @@ def search_index(
         if st.get("building"):
             st = _wait_index_ready(workspace_root, thread_id=thread_id, cfg=cfg, initial=st)
             rebuild_in_progress = bool(st.get("building"))
+        elif not rebuild_in_progress:
+            # 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:qwen3.8-flash】
+            # 稳态（ready 且不在构建）正是「可见但永不修」的那一支：上面调度只会在
+            # `not ready` 时触发，而 ready 判定不看源码内容 → 第38轮报出来的
+            # stale 每轮只会变大。这一支接上 `_schedule_drift_catchup`，
+            # 让「刚写的文件下一次检索就能搜到」不需要人记得重启/手点重建。
+            _schedule_drift_catchup(root, st=st)
         if st.get("building") and not st.get("ready") and int(st.get("files") or 0) == 0:
             return {
                 "hits": [],

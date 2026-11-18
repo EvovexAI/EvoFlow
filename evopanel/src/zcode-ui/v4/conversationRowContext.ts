@@ -259,3 +259,10 @@ export function isConversationReasoningRowVisible(
     visibility.messageStreamFirstReasoningRowId === rowId
   );
 }
+
+/** 模型偶发打出只有句号/省略号的空思考；完成态不应再占一行「思考」芯片。 */
+export function isTrivialReasoningText(text: string | null | undefined): boolean {
+  const raw = String(text ?? "").trim();
+  if (!raw) return true;
+  return /^[.\u3002…·•\s]+$/u.test(raw);
+}

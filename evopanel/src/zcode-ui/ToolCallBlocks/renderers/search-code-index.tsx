@@ -1,31 +1,13 @@
 /**
  * search_code_index 专属工具卡（V4 面板）。
  *
- * 【self-evolution-bot · 2026-11-17 · 第33轮】用户报：「调用 search_code_index 后，
- * V4 面板只能看到工具被调用了，看不到下拉的搜索结果，点了也展不开」。
- *
- * 根因（不是没命中 renderer，是命中了不该命中的那个）：
- * `lib/toolIdentity.ts` 的 `resolveLegacyKindFamily` 用
- *   /^(?:search|grep|find|…)(?:_|$)/
- * 判 family，`search_code_index` 以 `search_` 开头 → 落进 `search` family →
- * `resolveRenderer.ts` 返回 `SearchToolCallBlock`。而那个组件是给「一行摘要式检索」
- * 设计的，写死了 `canToggle={false}` 且 `content={null}`，于是：
- *   - 摘要能显示（所以「能看到工具被调用了」）
- *   - 展开被 `isExpanded = !hasSummaryAction && (forceOpen || (canToggle && isOpen))`
- *     永久压成 false（canToggle=false）→ 点了没反应
- *   - 内容恒为 null → 就算展开也没有东西
- *
- * 为什么不直接把 `search.tsx` 的 canToggle 改成 true：
- * 那个组件同时服务 web_search / grep / find / glob / list 等大量工具，
- * 它们的结果是「一行一条」，展开只会多出一堆噪音；而 search_code_index 的
- * 结果是一份结构化检索报告（Symbols / Content / Imports / Read catalog），
- * 必须能展开读。两者卡面语义不同，按仓库既有惯例「按工具名先分流、排在 family 之前」
- * 单独立卡（同 platform / tasks / assets / knowledge 的做法）。
+ * 必须在 family=search 之前认领：否则会落到不可展开的 SearchToolCallBlock。
+ * 卡面与 assets / platform 对齐——折叠条用 kind + 摘要 + secondary 状态，
+ * 展开区直接出检索报告，不走 ai-elements 那套 Parameters / Result 大写分区。
  */
 import { SearchIcon } from "lucide-react";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
-import { ToolCallBody } from "@/ToolCallBlocks/ToolCallBody.js";
 import { ToolSnapshotFieldNotice } from "@/ToolCallBlocks/ToolSnapshotFieldNotice.js";
 import { getSearchPrimaryText } from "@/ToolCallBlocks/renderers/search.js";
 import { ToolLayout } from "../ToolLayout.js";
@@ -44,7 +26,6 @@ export function isSearchCodeIndexToolCall(toolCall: {
   if (name === "search_code_index") {
     return true;
   }
-  // kind 是数组型（ChatToolCall.kind: string[]）时按任一元素命中；旧投影给的是字符串。
   const rawKind = toolCall.kind as unknown;
   const kindList = Array.isArray(rawKind) ? rawKind : [rawKind];
   return kindList.some(
@@ -52,7 +33,39 @@ export function isSearchCodeIndexToolCall(toolCall: {
   );
 }
 
-/** 覆盖 search family 默认「只露 Result」：代码索引卡必须能看 Parameters + Result。 */
+/** 从工具正文抽出 `[index] …` 时效性行，折叠条旁 / 展开顶栏可复用。 */
+export function readSearchCodeIndexFreshness(output: unknown): string {
+  const text = typeof output === "string" ? output : "";
+  if (!text) return "";
+  const lines = text.split(/\r?\n/);
+  const notes: string[] = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    if (!trimmed.startsWith("[index]")) {
+      if (notes.length > 0) break;
+      continue;
+    }
+    notes.push(trimmed.replace(/^\[index\]\s*/i, "").trim());
+    if (notes.length >= 2) break;
+  }
+  return notes.filter(Boolean).join(" · ");
+}
+
+function readOutputText(output: unknown): string {
+  if (typeof output === "string") return output;
+  if (output == null) return "";
+  try {
+    return JSON.stringify(output, null, 2);
+  } catch {
+    return String(output);
+  }
+}
+
+/**
+ * 与 search family 默认一致：摘要行已有 query，展开只露结果。
+ * 仍导出供单测锁定「不得退回 Parameters 复古分区」。
+ */
 export function buildSearchCodeIndexDisplayModel(
   base: ToolCallBlockRenderContext["displayModel"],
   toolCall: ToolCallBlockRenderContext["toolCallNode"]["toolCall"],
@@ -62,7 +75,7 @@ export function buildSearchCodeIndexDisplayModel(
     ...base,
     inlinePreview: { type: "none" },
     showSummaryFileLink: false,
-    showInput: toolCall.input !== undefined,
+    showInput: false,
     showOutput: toolCall.output !== undefined || Boolean(errorText),
     showKind: false,
   };
@@ -73,58 +86,79 @@ export function SearchCodeIndexToolCallBlock(context: ToolCallBlockRenderContext
   const { toolCallNode, isRunning, statusLabel, errorText } = context;
   const { toolCall } = toolCallNode;
 
-  // 摘要行复用检索族已有的文案解析（识得 query / queries 两种入参形态），
-  // 保证「参数怎么填都能读出一句人话」，而不是把整包 JSON 摊在标题里。
   const summaryText = getSearchPrimaryText(intl, toolCall.input);
+  const outputText = readOutputText(toolCall.output);
+  const freshness = useMemo(
+    () => readSearchCodeIndexFreshness(toolCall.output),
+    [toolCall.output],
+  );
   const primaryText = useMemo(
-    () => <span className="truncate">{summaryText}</span>,
+    () => <span className="min-w-0 truncate text-foreground-subtlest">{summaryText}</span>,
     [summaryText],
   );
-  const displayModel = useMemo(
-    () => buildSearchCodeIndexDisplayModel(context.displayModel, toolCall, errorText),
-    [context.displayModel, toolCall, errorText],
-  );
+
+  const handleLoadFullToolCallFields = context.onLoadFullToolCallFields;
+  const renderContent = useCallback(() => {
+    if (errorText) {
+      return (
+        <div className="max-h-60 overflow-auto rounded-xl border border-border bg-destructive/10 px-3 py-3 text-ui-sm text-destructive whitespace-pre-wrap break-words">
+          {errorText}
+        </div>
+      );
+    }
+    if (!outputText.trim()) {
+      return (
+        <p className="px-1 text-ui-sm text-foreground-subtlest">
+          {isRunning ? "检索中…" : "暂无检索结果"}
+        </p>
+      );
+    }
+    return (
+      <>
+        {freshness ? (
+          <p className="mb-2 px-1 text-ui-sm text-foreground-subtlest">{freshness}</p>
+        ) : null}
+        <pre className="max-h-60 overflow-auto rounded-xl border border-border bg-muted/15 px-3 py-3 text-ui-sm whitespace-pre-wrap break-words text-foreground">
+          {outputText}
+        </pre>
+        <ToolSnapshotFieldNotice
+          refs={toolCall.snapshotRefs ?? []}
+          onLoadFullToolCallFields={
+            handleLoadFullToolCallFields
+              ? () => handleLoadFullToolCallFields(toolCall.toolId)
+              : undefined
+          }
+        />
+      </>
+    );
+  }, [
+    errorText,
+    freshness,
+    handleLoadFullToolCallFields,
+    isRunning,
+    outputText,
+    toolCall.snapshotRefs,
+    toolCall.toolId,
+  ]);
 
   return (
-    <>
-      <ToolLayout
-        toolId={toolCall.toolId}
-        icon={SEARCH_CODE_INDEX_ICON}
-        showIcon={context.showIcon !== false}
-        // 与 search.tsx 的 canToggle={false} 相反：本工具的产出一份结构化检索报告，
-        // 用户的核心诉求就是「点开看命中了哪些文件」。
-        canToggle={context.canToggle ?? true}
-        forceOpen={context.forceOpen ?? false}
-        kindLabel={context.kindLabelOverride ?? "代码索引"}
-        sourceLabel={context.sourceLabel}
-        primaryText={primaryText}
-        statusLabel={statusLabel}
-        statusTooltip={toolCall.status === "failed" ? errorText : undefined}
-        showFailureStatus={toolCall.status === "failed"}
-        isRunning={isRunning}
-        title={toolCall.title}
-        renderContent={() => (
-          <ToolCallBody
-            childToolList={context.childToolList}
-            displayModel={displayModel}
-            toolCall={toolCall}
-            workspacePath={context.workspacePath}
-            theme={context.theme}
-            codePreviewSettings={context.codePreviewSettings}
-            onOpenCodeViewer={context.onOpenCodeViewer}
-            onOpenFileLink={context.onOpenFileLink}
-            onOpenBrowserUrl={context.onOpenBrowserUrl}
-          />
-        )}
-      />
-      <ToolSnapshotFieldNotice
-        refs={toolCall.snapshotRefs ?? []}
-        onLoadFullToolCallFields={
-          context.onLoadFullToolCallFields
-            ? () => context.onLoadFullToolCallFields?.(toolCall.toolId)
-            : undefined
-        }
-      />
-    </>
+    <ToolLayout
+      toolId={toolCall.toolId}
+      icon={SEARCH_CODE_INDEX_ICON}
+      showIcon={context.showIcon !== false}
+      canToggle={context.canToggle ?? true}
+      forceOpen={context.forceOpen ?? false}
+      kindLabel={context.kindLabelOverride ?? "代码索引"}
+      sourceLabel={context.sourceLabel}
+      primaryText={primaryText}
+      // 与 assets / platform 同一套：成功态状态词走 secondary，失败才抬到 statusLabel。
+      secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
+      statusLabel={toolCall.status === "failed" ? statusLabel : undefined}
+      statusTooltip={toolCall.status === "failed" ? errorText : undefined}
+      showFailureStatus={toolCall.status === "failed"}
+      isRunning={isRunning}
+      title={summaryText}
+      renderContent={renderContent}
+    />
   );
 }

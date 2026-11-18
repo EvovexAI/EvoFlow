@@ -12,8 +12,8 @@
  *   1. search_code_index → SearchCodeIndexToolCallBlock（不是 SearchToolCallBlock）
  *   2. 同 family 的普通 search / search_content 仍走 SearchToolCallBlock（别改坏别人）
  *
- * 【续】展开后仍看不到 Parameters/Result：search family 的 displayModel
- * 默认 showInput=false；代码索引必须强制露出输入+输出。
+ * 【续】卡面与 assets/platform 对齐：不走 Parameters/Result 复古分区；
+ * 摘要行带 query，展开区直接出检索报告 + 时效性行。
  */
 import { describe, expect, it } from 'vitest'
 import { buildToolDisplayModel } from '../src/zcode-ui/lib/toolDisplay.ts'
@@ -21,6 +21,7 @@ import { resolveToolCallRenderer } from '../src/zcode-ui/ToolCallBlocks/resolveR
 import {
   buildSearchCodeIndexDisplayModel,
   isSearchCodeIndexToolCall,
+  readSearchCodeIndexFreshness,
   SearchCodeIndexToolCallBlock,
 } from '../src/zcode-ui/ToolCallBlocks/renderers/search-code-index.tsx'
 import {
@@ -88,7 +89,7 @@ describe('V4 search_code_index 工具卡可展开', () => {
     expect(isSearchCodeIndexToolCall({ toolName: 'grep' })).toBe(false)
   })
 
-  it('displayModel 对 search_code_index 同时露出 Parameters + Result', () => {
+  it('displayModel 关掉 Parameters/Result，由专属卡自绘展开区', () => {
     const toolCall = {
       toolId: 'tool-sci',
       toolName: 'search_code_index',
@@ -99,17 +100,14 @@ describe('V4 search_code_index 工具卡可展开', () => {
         read_limit: 3,
       },
       status: 'completed',
-      output: 'Symbols:\n  - function foo @ a.py:1',
+      output: '[index] last updated 8m ago (age=481s)\n\nSymbols:\n  - function foo @ a.py:1',
     }
     const model = buildToolDisplayModel(toolCall as never, '/w')
-    expect(model.showInput).toBe(true)
-    expect(model.showOutput).toBe(true)
+    expect(model.showInput).toBe(false)
+    expect(model.showOutput).toBe(false)
 
-    const overridden = buildSearchCodeIndexDisplayModel(
-      { ...model, showInput: false, showOutput: false },
-      toolCall as never,
-    )
-    expect(overridden.showInput).toBe(true)
+    const overridden = buildSearchCodeIndexDisplayModel(model, toolCall as never)
+    expect(overridden.showInput).toBe(false)
     expect(overridden.showOutput).toBe(true)
   })
 
@@ -125,5 +123,13 @@ describe('V4 search_code_index 工具卡可展开', () => {
         queries: ['模型注入 session prompt model line', 'build session'],
       }),
     ).toBe('find:模型注入 session prompt model line (+1)')
+  })
+
+  it('从结果正文抽出索引时效性', () => {
+    expect(
+      readSearchCodeIndexFreshness(
+        '[index] last updated 8m ago (age=481s)\n\n[index] stale: 1 new file(s) not indexed\n\nSymbols:',
+      ),
+    ).toBe('last updated 8m ago (age=481s) · stale: 1 new file(s) not indexed')
   })
 })

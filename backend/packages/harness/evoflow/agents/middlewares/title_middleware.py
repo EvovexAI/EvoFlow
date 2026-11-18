@@ -100,7 +100,10 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
             sk = sess_repo.find_session_key_by_thread_id(thread_id)
             if not sk:
                 return False
-            row = sess_repo.load_session_map().get(sk) or {}
+            # 【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+            # 原来 load_session_map()：为读一个 title 全量重建 547 个会话行，
+            # 实测冷 7673ms / 热 121ms；单行查询 0.03~0.14ms。此函数每次模型调用都走。
+            row = sess_repo.get_session_row_brief(sk) or {}
             title = str(row.get("title") or "").strip()
             if not title:
                 return False
@@ -198,7 +201,9 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
             try:
                 sk = sess_repo.find_session_key_by_thread_id(thread_id)
                 if sk:
-                    row = sess_repo.load_session_map().get(sk) or {}
+                    # 【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 同上：只读 title + context.source，不要 load_session_map()。
+                    row = sess_repo.get_session_row_brief(sk) or {}
                     ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
                     if str(ctx.get("source") or "").strip() == "automation":
                         return True  # automation session — skip but treat as "done"

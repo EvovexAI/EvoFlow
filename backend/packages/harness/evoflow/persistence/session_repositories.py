@@ -749,6 +749,106 @@ def find_session_key_by_thread_id(thread_id: str) -> str | None:
     return key or None
 
 
+def get_session_row_brief(session_key: str) -> dict[str, Any] | None:
+    """Read the few fields callers actually need for **one** session — single-row query.
+
+    【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+    与 :func:`get_proactive_round_id` 同因：``load_session_map()`` 为了取一个字段
+    会把 547~7000 个会话逐行过 ``_session_row_to_api``（effective_policy/preset/
+    context 重建）。实测冷 7673ms / 热 121ms，而单行 SELECT 0.03~0.14ms。
+
+    调用点纪律：**只要 1~2 个字段就调这里，别调 load_session_map()**。
+    ``load_session_map()`` 只应服务于「确实要整张表」的场景（EvoPanel 侧栏同步等）。
+
+    Returns ``{"title": str, "context": dict, "thread_id": str}``；会话不存在返回 None。
+    ``context`` 与 ``_session_row_to_api`` 同源（``context_from_flat_row``），
+    旧调用方 ``row.get("context")`` 的取值语义因此保持不变。
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return None
+    row = (
+        get_db()
+        .execute(
+            """
+        SELECT session_key, thread_id, title, created_at, updated_at, message_count,
+               context_json, is_deleted, local_workspace_root, use_virtual_paths,
+               model_name, model_pinned, primary_model_name, session_mode,
+               thinking_enabled, reasoning_effort, is_plan_mode, subagent_enabled,
+               include_search, memory_enabled, use_claude_code_chat, collab_phase,
+               collab_task_id, agent_id, permission_preset, tool_approval_policy
+        FROM evoflow_chat_sessions
+        WHERE session_key = ?
+        LIMIT 1
+        """,
+            (sk,),
+        )
+        .fetchone()
+    )
+    if not row:
+        return None
+    d = _row_dict(row)
+    try:
+        from evoflow.persistence.session_context_fields import context_from_flat_row
+
+        ctx = context_from_flat_row(d)
+    except Exception:
+        ctx = {}
+    return {
+        "title": str(d.get("title") or ""),
+        "context": ctx if isinstance(ctx, dict) else {},
+        "thread_id": str(d.get("thread_id") or ""),
+    }
+
+
+def get_proactive_round_id(session_key: str) -> str | None:
+    """Read ``context.proactive_round_id`` for one session — single-row query.
+
+    【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么要有这个函数（本轮现网实测，别再改回 load_session_map）：
+
+    transcript 落库路径要拿「本轮 round_id」，原实现是
+    ``load_session_map().get(sk).context.proactive_round_id`` —— 为了**一个会话的一个
+    字段**，把全部会话行 SELECT 出来、逐行过 ``_session_row_to_api``
+    （含 effective_policy / preset / context 重建），等于每次工具返回都全量重建侧栏。
+
+    实测（本机 547 个会话，2026-11-18 13:26）：
+    · ``load_session_map()`` 冷 **7673ms** / 热 **121ms**；
+    · 本函数单行查询 **0.03~0.14ms**。
+    且它跑在 ``TranscriptMiddleware.awrap_tool_call`` 的返回路径上 ——
+    于是 6 个并发 assets delete 的最内层工具只花 20~53ms，外层 duration_ms 却是
+    2261~2835ms（obs 13:24 那批），写作「删/写好慢」的假象。
+
+    语义与 ``context_from_flat_row`` 保持一致：``proactive_round_id`` 不在
+    ``_FLAT_KEYS`` 里，所以它只会出现在 ``context_json`` 残差里；但残差为空时
+    也不能报错，直接返回 None（与旧行为一致：取不到就是 None）。
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return None
+    row = (
+        get_db()
+        .execute(
+            "SELECT context_json FROM evoflow_chat_sessions WHERE session_key = ? LIMIT 1",
+            (sk,),
+        )
+        .fetchone()
+    )
+    if not row:
+        return None
+    raw = row[0]
+    if not raw:
+        return None
+    try:
+        ctx = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(ctx, dict):
+        return None
+    val = ctx.get("proactive_round_id")
+    return str(val).strip() or None if val else None
+
+
 def get_model_name_for_session_key(session_key: str) -> str | None:
     """Resolve persisted session ``model_name`` by sidebar session key.
 

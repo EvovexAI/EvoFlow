@@ -114,6 +114,7 @@ import { ChatPromptEditor } from "@/prompt-editor/ChatPromptEditor.js";
 import { resolveToolCallIdentity } from "@/lib/toolIdentity.js";
 import {
   isConversationReasoningRowVisible,
+  isTrivialReasoningText,
   type ConversationRowRenderContext,
 } from "@/v4/conversationRowContext.js";
 import { toolCallRowToLegacyNode } from "@/v4/toolCallRowAdapter.js";
@@ -1693,13 +1694,21 @@ const ReasoningRowView = memo(function ReasoningRowView({
   contentVariant?: "default" | "nested";
 }) {
   const streaming = row.state === "streaming";
-  // 外观对齐旧 ThoughtBlock（旧版 chatMessageParts）：ai-elements Reasoning
-  // 折叠组件。交互调整原因：流式 reasoning 默认展开会持续挤压工具和正文空间；
-  // 现在 streaming/complete 都默认收起，只保留运行态文案，用户可手动展开。
-  // autoCollapseKey 仍保证状态边界不会覆盖已经发生过的用户交互。
+  // 折叠语义（用户确认）：默认只留「思考 · 持续了 N 秒」触发行；点 chevron 才摊正文。
+  // 流式中强制收起（触发行可带一行摘要）；完成态默认收起，仅用户手动展开。
+  // 「显示思考过程」只控制这段是否出现，绝不自动 open。
+  const [userOpen, setUserOpen] = useState(false);
+  useEffect(() => {
+    setUserOpen(false);
+  }, [row.rowId, streaming]);
+  const open = streaming ? false : userOpen;
   const durationSeconds =
     row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
   if (streaming && row.text.length === 0) {
+    return null;
+  }
+  // 完成态空壳（如正文只剩「.」）不画芯片——投影里仍有 row，但用户不应看到多出来的「思考」。
+  if (!streaming && isTrivialReasoningText(row.text)) {
     return null;
   }
   return (
@@ -1707,7 +1716,9 @@ const ReasoningRowView = memo(function ReasoningRowView({
       <Reasoning
         className="w-full"
         isStreaming={streaming}
-        autoCollapseKey={streaming ? null : row.state}
+        open={open}
+        onOpenChange={setUserOpen}
+        defaultOpen={false}
         {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}
@@ -2353,6 +2364,7 @@ function ConversationRowViewImpl({
     case "reasoning":
       // 关闭“显示思考过程”只隐藏每轮后续 reasoning；首条 reasoning
       // 是该轮最小必要思考提示，必须由 turn 全序派生的 rowId 保留下来。
+      // 可见块一律默认折叠（只留触发行），点 chevron 才看正文。
       return isConversationReasoningRowVisible(row.rowId, context) ? (
         <ReasoningRowView row={row} contentVariant={reasoningContentVariant} />
       ) : null;
