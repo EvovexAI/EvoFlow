@@ -53,6 +53,77 @@ from evoflow.utils.workspace_browse import resolve_under_workspace
 
 logger = logging.getLogger(__name__)
 
+# 【self-evolution-bot · 2026-11-18 · 第50轮 · 模型:deepseek-v4.1-flash-1017】
+# 嵌入冷启闸门。为什么需要：Windows 上网关**默认跳过**嵌入暖机
+# （background_startup: `win32 default (set EVOFLOW_EMBEDDING_WARMUP=1 to enable)`），
+# 于是 torch / sentence_transformers 的冷导入与权重加载全部落在**第一次检索**的调用栈里。
+# 本机实测：`import local_provider` 3030ms + 首次 `embed_sync` 1669ms，之后每次 3~4ms；
+# 叠加 torch 惰性子模块的首次 encode 初始化，首次检索 9~13s，网关并发时撞满
+# `_MAX_WALL_SECONDS=45` 直接超时（2026-11-18 17:50 现网复现 45021ms error）。
+# 修法：门未开时**不 import、不加载**，本次直接返回纯词法结果（几百 ms），
+# 后台单飞线程暖机；暖成功后自动开门，下一次检索就用上语义召回。
+# 为什么不改成「启动就暖」：那是平台侧行为（改所有 agent 重启后的 GIL 占用），
+# 且 win32 跳过暖机是修另一事故留下的决定，不在本岗单方面推翻。
+_embed_gate_lock = threading.Lock()
+_embed_gate_open = False        # False=本进程尚未确认嵌入可用，走纯词法
+_embed_warm_last_try = 0.0      # 上次暖机尝试的时间戳（0=从未）
+_EMBED_WARM_RETRY_S = 300.0     # 暖机失败后的重试冷却，避免每次检索都起线程重试
+
+
+def _embed_ready_without_import() -> bool:
+    """不 import 嵌入栈，只看模型是否**已经**在本进程里加载好。
+
+    为什么这么绕：判定「能不能语义检索」最便宜的办法是查 `_model_cache`，
+    但拿到它得先 import local_provider = 3030ms（实测），等于为了省一次冷启
+    再付一次冷启。模块已在 sys.modules 时直接查，已加载就开门。
+    """
+    mod = sys.modules.get("evoflow.knowledge.embedding.local_provider")
+    if mod is None:
+        return False
+    return bool(getattr(mod, "_model_cache", None))
+
+
+def _start_embed_warmup() -> None:
+    """后台单飞暖机：只起一个线程，失败只在冷却后重试，绝不阻塞检索。"""
+    global _embed_warm_last_try
+    now = time.time()
+    with _embed_gate_lock:
+        if _embed_warm_last_try and now - _embed_warm_last_try < _EMBED_WARM_RETRY_S:
+            return
+        _embed_warm_last_try = now
+
+    def _run() -> None:
+        global _embed_gate_open
+        try:
+            from evoflow.knowledge.embedding.local_provider import (
+                LocalEmbeddingProvider,
+                warmup_local_model,
+            )
+            from evoflow.knowledge.embedding.registry import (
+                _resolve_provider,
+                get_embedding_config,
+            )
+
+            provider = _resolve_provider(get_embedding_config())
+            if not isinstance(provider, LocalEmbeddingProvider):
+                return  # 远端 provider：不在这里暖，保持原行为
+            warmup_local_model(provider.model_name)
+            _embed_gate_open = True
+        except Exception as exc:  # noqa: BLE001 - 暖机失败只降召回质量，不该打断检索
+            logger.warning(
+                "code_index: 嵌入暖机失败，检索暂时退回纯词法：%s: %s",
+                type(exc).__name__,
+                exc,
+            )
+
+    threading.Thread(
+        target=_run,
+        name="evoflow-code-index-embed-warmup",
+        daemon=True,
+    ).start()
+
+
+
 T = TypeVar("T")
 
 # Porter stemmer hurts code identifiers (CredentialPool, assistant_chunk). unicode61 keeps them.
@@ -1695,7 +1766,20 @@ def _embed_query_sync(text: str) -> list[float] | None:
     that path used to ``Thread.join`` for tens of seconds (429 retries) and
     froze the whole UI. Local providers stay sync; remote embeds from a
     running loop are skipped (callers fall back to FTS / overlap).
+
     """
+    # 【self-evolution-bot · 2026-11-18 · 第50轮 · 模型:deepseek-v4.1-flash-1017】
+    # 门未开 = 本进程还没把嵌入栈/权重拉起来。此时**不要**在这里同步 import + load：
+    # 那是 4.7s 起的冷导入（实测 import local_provider 3030ms + 首次 embed 1669ms），
+    # 会把调用方线程按在池里、顶着 45s 天花板超时。先给词法结果，后台暖机。
+    global _embed_gate_open
+    if not _embed_gate_open:
+        if _embed_ready_without_import():
+            # 本进程之前已把模型加载好（比如建库路径暖过），不必降级。
+            _embed_gate_open = True
+        else:
+            _start_embed_warmup()
+            return None
     try:
         try:
             asyncio.get_running_loop()
