@@ -399,7 +399,50 @@ def source_drift(root: str, *, since_ts: float | None = None) -> dict:
     }
 
 
-def _source_drift_cached(root: str, db_mtime: float) -> dict | None:
+def _spawn_drift_refresh(root: str, key: str, db_mtime: float) -> None:
+    """后台重算漂移结论，**绝不占检索线程**。
+
+    【self-evolution-bot · 2026-11-19 · 第62轮 · 模型:deepseek-v4.1-flash-1017】
+    同一 root 同时只跑一个刷新；用函数自身属性做 inflight 集合，不新增模块级状态
+    （模块级状态要额外的重置路径，本仓已因此踩过坑）。
+
+    失败一律吞掉：漂移是尽力而为的旁路信息，后台刷新挂了就继续用旧值，
+    绝不能因为「算漂移」把检索搞挂。
+    """
+    lock = getattr(_source_drift_cached, "_lock", None)
+    if lock is None:
+        lock = threading.Lock()
+        _source_drift_cached._lock = lock
+    inflight = getattr(_source_drift_cached, "_inflight", None)
+    if inflight is None:
+        inflight = set()
+        _source_drift_cached._inflight = inflight
+    with lock:
+        if root in inflight:
+            return
+        inflight.add(root)
+
+    def _run() -> None:
+        try:
+            drift = source_drift(root, since_ts=db_mtime)
+            _DRIFT_CACHE[key] = (time.time(), drift)
+            if len(_DRIFT_CACHE) > 8:
+                oldest = min(_DRIFT_CACHE, key=lambda k: _DRIFT_CACHE[k][0])
+                _DRIFT_CACHE.pop(oldest, None)
+        except Exception:  # noqa: BLE001 - 后台刷新失败就沿用旧值
+            pass
+        finally:
+            with lock:
+                inflight.discard(root)
+
+    threading.Thread(
+        target=_run, name="code-index-drift-refresh", daemon=True
+    ).start()
+
+
+def _source_drift_cached(
+    root: str, db_mtime: float, *, allow_stale: bool = True
+) -> dict | None:
     """`source_drift` 的进程内缓存（默认 30s），避免每次检索白花 ~230ms。
 
     缓存键含库 mtime：一旦有增量写库（`index_file`）mtime 变化即自动失效，
@@ -413,12 +456,50 @@ def _source_drift_cached(root: str, db_mtime: float) -> dict | None:
     构建期它占检索总耗时的 10%+，而这份漂移信息这 30 秒内根本没变。
     粗化到 60s 桶：真正的增量写库最多晚 60s 才让缓存失效（TTL 30s 本来也在这量级），
     构建期间则稳定命中，省掉每次 290~500ms。
+
+    【self-evolution-bot · 2026-11-19 · 第62轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：缓存未命中时**不再同步 walk 全树**，改为「先返回本 root 上一次的结论
+    （哪怕是旧桶），同时起一个后台线程重算」。`allow_stale=False` 才同步算。
+
+    为什么：缓存 TTL 30s、桶 60s，意味着**每 30~60 秒必有一次检索要付全树 stat**。
+    本机实测（7894 个可索引文件）：
+      · `_iter_source_files` 单次 398ms，其中 17558 次 `nt.stat`
+      · 冷缓存 `index_freshness` 322ms，更早一次量到 2251ms（磁盘冷）
+      · 热缓存 0ms
+    而现网 `search_code_index` 的 P50 是 **6.5s**、P90 13.9s（近 1 天 77 次），
+    用户体感就是「搜个代码要转六秒」。把 0.3~2.2s 的同步 walk 挪出主路，
+    直接砍掉这一段。
+
+    代价（必须明写，不能只说好处）：漂移信息最多晚一次刷新才更新，即
+    「刚改的文件，页脚要下一次检索才提示未索引」。这本来只影响**提示文字**，
+    不影响命中结果——真正的增量入库走 `notify_file_changed` / hooks 那条通道，
+    与漂移检测互不相干；而且第 46 轮已把补录投到后台池，本来就不会当次完成。
+    所以这里牺牲的只是「提示的即时性」，换来的是确定可省的同步阻塞。
+
+    为什么用**函数属性**存 inflight 集合而不是模块级变量：模块级状态要额外的
+    重置路径（测试里已多次因为「模块级缓存没清」造成跨用例污染），
+    函数属性跟着函数走，`delattr` 即可复位。
     """
     key = f"{root}\u0000{int(db_mtime // 60)}"
     now = time.time()
     hit = _DRIFT_CACHE.get(key)
     if hit is not None and now - hit[0] < _DRIFT_CACHE_TTL_SECONDS:
         return hit[1]
+
+    if allow_stale:
+        # 本 root 任意桶的旧结论都可用：漂移是「旁路提示」，旧值远好过阻塞。
+        prefix = f"{root}\u0000"
+        prev = None
+        for k, v in _DRIFT_CACHE.items():
+            if k.startswith(prefix) and (prev is None or v[0] > prev[0]):
+                prev = v
+        if prev is not None:
+            _spawn_drift_refresh(root, key, db_mtime)
+            return prev[1]
+        # 本 root 一次都没算过（进程刚起）：同步算这一次，否则首次检索会
+        # 丢掉全部漂移提示，等于用「信息静默消失」换速度——那是另一种降级。
+        # 之后每次过期都走「旧值 + 后台刷新」，不再阻塞检索。先算出结果再往下走。
+
     try:
         drift = source_drift(root, since_ts=db_mtime)
     except Exception:  # noqa: BLE001 - 漂移检测是尽力而为，绝不能拖垮检索
@@ -2737,9 +2818,34 @@ def _vector_coverage_counts(
     hit = _COVERAGE_CACHE.get(root)
     if hit is not None and hit[0] == key_stat:
         return hit[1]
+    # 【self-evolution-bot · 2026-11-19 · 第63轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：`vec_paths` 不再对 vec0 虚表做 `COUNT(DISTINCT path)`，改为在
+    # `code_vec_rowids` 上数 `substr(id,1,instr(id,'::')-1)`；`denom` 改走
+    # fts5 影子表 `fts_content_docsize`（每文档一行）。
+    # 为什么：`path` 在 vec0 里只是**辅助列**，vec0 不为它建索引，于是
+    # `COUNT(DISTINCT path)` 要扫整张 1.84GB 虚表。本轮本机三次取中位实测：
+    #   现值 COUNT(DISTINCT path) FROM code_vec        334.7ms
+    #   改后 rowids 上数 id 前缀（走 UNIQUE 索引）      13.7ms  (-96%)
+    #   fts_content 上 COUNT(DISTINCT path)             13.8ms
+    #   fts_content_docsize 行数                         0.0ms  (改用影子表)
+    # 等价性**全表对拍**（不是抽样）：vec 侧 7893 / rowids 侧 7893 完全相等，
+    # 且 `instr(id,'::')=0` 的行数实测 0（切前缀不会漏行）。fts 两个数都 7907。
+    # 这段每次检索都要跑，而 `_COVERAGE_CACHE` 判据是 index.db 的 mtime+size——
+    # 后台补录每写一次就整段失效，所以稳态下它并不是「一次性的」开销。
     vec_n = int(conn.execute("SELECT COUNT(*) FROM code_vec").fetchone()[0])
-    vec_paths = int(conn.execute("SELECT COUNT(DISTINCT path) FROM code_vec").fetchone()[0])
-    denom = int(conn.execute("SELECT COUNT(DISTINCT path) FROM fts_content").fetchone()[0])
+    vec_paths = int(
+        conn.execute(
+            # 【self-evolution-bot · 2026-11-19 · 第63轮】`instr` 找不到 '::' 时返回 0，
+            # `substr(id, 1, -1)` 是空串 —— 所有这种行会塌成同一个值，计数悄悄变小
+            # 且不报错（既有测试 tests/test_code_index_coverage_count_cache.py 的
+            # 种子就用无 '::' 的 chunk_id，当场把这条抓出来）。所以没有分隔符时
+            # 退回整串 id，宁可少去重一次也不能静默并成一行。
+            "SELECT COUNT(DISTINCT CASE WHEN instr(id, '::') > 0"
+            " THEN substr(id, 1, instr(id, '::') - 1) ELSE id END)"
+            " FROM code_vec_rowids"
+        ).fetchone()[0]
+    )
+    denom = _fts_doc_count(conn)
     if len(_COVERAGE_CACHE) >= _COVERAGE_CACHE_MAX:
         _COVERAGE_CACHE.pop(next(iter(_COVERAGE_CACHE)), None)
     _COVERAGE_CACHE[root] = (key_stat, (vec_n, vec_paths, denom))
