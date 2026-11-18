@@ -33,10 +33,22 @@ def store_mod():
     mod._embed_gate_open, mod._embed_warm_last_try = saved
 
 
-def test_first_query_does_not_import_torch(store_mod):
-    """门未开的首调必须立刻返回 None，且不把 torch 拉进来。"""
+def test_first_query_does_not_import_torch(store_mod, monkeypatch):
+    """门未开的首调必须立刻返回 None，且不把 torch 拉进来。
+
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：加 `_embed_ready_without_import -> False` 的 monkeypatch。
+    为什么：本测试原来只把 `_embed_gate_open` 摆成 False 就断言返回 None，
+    但闸门里还有一条「本进程已加载模型就直接开门」的合法分支。同一次
+    pytest 会话里只要前面的测试（如 test_code_index_vector_hybrid）已经把
+    模型加载进进程，这条分支就会命中，断言必然失败——**测试依赖执行顺序**。
+    实测：单跑本文件 3 passed；把它排到 vector_hybrid 之后跑就 1 failed。
+    这不是被测代码的缺陷（门开是设计行为），是测试没把前提摆全，
+    典型「测了自己没测被测对象」。
+    """
     store_mod._embed_gate_open = False
     store_mod._embed_warm_last_try = 0.0
+    monkeypatch.setattr(store_mod, "_embed_ready_without_import", lambda: False)
     # 清掉可能已被别的测试加载的嵌入栈，让「没 import」这个断言有意义
     for name in list(sys.modules):
         if name.startswith("sentence_transformers"):
@@ -53,6 +65,9 @@ def test_gate_closed_returns_none_and_opens_after_warmup(store_mod, monkeypatch)
     """门未开 -> 返回 None；暖机成功后门开 -> 恢复语义向量。"""
     store_mod._embed_gate_open = False
     store_mod._embed_warm_last_try = 0.0
+    # 同 test_first_query_does_not_import_torch：也要把「本进程已加载模型」这条
+    # 合法开门分支按住，否则测试依赖执行顺序（第51轮修正）。
+    monkeypatch.setattr(store_mod, "_embed_ready_without_import", lambda: False)
 
     calls: list[int] = []
 
@@ -60,7 +75,6 @@ def test_gate_closed_returns_none_and_opens_after_warmup(store_mod, monkeypatch)
         calls.append(1)
 
     monkeypatch.setattr(store_mod, "_start_embed_warmup", _fake_warm)
-    monkeypatch.setattr(store_mod, "_embed_ready_without_import", lambda: False)
 
     assert store_mod._embed_query_sync("x") is None
     assert calls, "门未开时必须触发一次后台暖机"
