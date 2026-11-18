@@ -285,6 +285,8 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
         _protect_terminal_subtask_rows(conn, mid, parts)
         _protect_missing_subtask_rows(conn, mid, parts)
         delete_task_bundle_children(conn, main_task_id)
+        # executemany 化：大 bundle（50+ 行）逐条 INSERT 会把进程写锁持有时间拉长数倍。
+        _task_rows = []
         for tr in parts["tasks"]:
             _is_app = bool(tr.get("extra_json") and '"app_definition_snapshot"' in str(tr.get("extra_json")))
             if _is_app and str(tr.get("thread_id") or "").strip():
@@ -297,17 +299,7 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
                     tr.get("thread_id"),
                 )
                 tr["thread_id"] = None
-            conn.execute(
-                """
-                INSERT INTO evoflow_collab_tasks (
-                    main_task_id, task_id, name, description, status, parent_id, assigned_to, error_text,
-                    created_at, started_at, completed_at, progress, execution_authorized, thread_id,
-                    authorized_at, authorized_by, result_json,
-                    plan_goal, plan_flowchart_mermaid, plan_validation_json, plan_open_questions,
-                    plan_steps_json, plan_bound_at,
-                    extra_json, sort_order, updated_at, created_by
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+            _task_rows.append(
                 (
                     tr["main_task_id"],
                     tr["task_id"],
@@ -336,30 +328,45 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
                     tr["sort_order"],
                     tr.get("updated_at") or now,
                     tr.get("created_by"),  # Track who created this task
-                ),
+                )
             )
-        for d in parts["task_deps"]:
-            conn.execute(
-                """
-                INSERT INTO evoflow_collab_task_deps (
-                    main_task_id, task_id, depends_on_id, sort_order, updated_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (d["main_task_id"], d["task_id"], d["depends_on_id"], d["sort_order"], now),
-            )
-        for sr in parts["subtasks"]:
-            conn.execute(
-                """
-                INSERT INTO evoflow_collab_subtasks (
-                    main_task_id, parent_task_id, subtask_id, name, description, status, parent_id,
-                    assigned_to, error_text, created_at, started_at, completed_at, progress,
-                    execution_authorized, thread_id, authorized_at, authorized_by, project_path,
-                    claude_session_id, external_session_id, updated_at, result_json, extra_json,
-                    worker_base_subagent, worker_model, worker_instruction, worker_validation,
-                    worker_max_retries, sort_order,
-                    wait_duration_ms, exec_duration_ms, timing_state
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+        conn.executemany(
+            """
+            INSERT INTO evoflow_collab_tasks (
+                main_task_id, task_id, name, description, status, parent_id, assigned_to, error_text,
+                created_at, started_at, completed_at, progress, execution_authorized, thread_id,
+                authorized_at, authorized_by, result_json,
+                plan_goal, plan_flowchart_mermaid, plan_validation_json, plan_open_questions,
+                plan_steps_json, plan_bound_at,
+                extra_json, sort_order, updated_at, created_by
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            _task_rows,
+        )
+        conn.executemany(
+            """
+            INSERT INTO evoflow_collab_task_deps (
+                main_task_id, task_id, depends_on_id, sort_order, updated_at
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            [
+                (d["main_task_id"], d["task_id"], d["depends_on_id"], d["sort_order"], now)
+                for d in parts["task_deps"]
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO evoflow_collab_subtasks (
+                main_task_id, parent_task_id, subtask_id, name, description, status, parent_id,
+                assigned_to, error_text, created_at, started_at, completed_at, progress,
+                execution_authorized, thread_id, authorized_at, authorized_by, project_path,
+                claude_session_id, external_session_id, updated_at, result_json, extra_json,
+                worker_base_subagent, worker_model, worker_instruction, worker_validation,
+                worker_max_retries, sort_order,
+                wait_duration_ms, exec_duration_ms, timing_state
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
                 (
                     sr["main_task_id"],
                     sr["parent_task_id"],
@@ -393,16 +400,18 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
                     sr.get("wait_duration_ms"),
                     sr.get("exec_duration_ms"),
                     sr.get("timing_state"),
-                ),
-            )
-        for d in parts["subtask_deps"]:
-            conn.execute(
-                """
-                INSERT INTO evoflow_collab_subtask_deps (
-                    main_task_id, parent_task_id, subtask_id, depends_on_subtask_id, link_kind, sort_order,
-                    updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
+                )
+                for sr in parts["subtasks"]
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO evoflow_collab_subtask_deps (
+                main_task_id, parent_task_id, subtask_id, depends_on_subtask_id, link_kind, sort_order,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
                 (
                     d["main_task_id"],
                     d["parent_task_id"],
@@ -411,8 +420,10 @@ def save_task_bundle(main_task_id: str, document: dict[str, Any], *, loaded_upda
                     d["link_kind"],
                     d["sort_order"],
                     now,
-                ),
-            )
+                )
+                for d in parts["subtask_deps"]
+            ],
+        )
         for o in parts["subtask_outputs"]:
             conn.execute(
                 """

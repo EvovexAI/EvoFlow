@@ -36,10 +36,12 @@ logger = logging.getLogger(__name__)
 _approval_locks: dict[str, threading.RLock] = {}
 _approval_locks_guard = threading.Lock()
 _APPROVAL_LOCKS_MAX = 4096
+_shed_warning_emitted = False
 
 
 def _get_approval_lock(thread_id: str) -> threading.RLock:
     """Get or create a per-thread reentrant lock for approval operations."""
+    global _shed_warning_emitted
     tid = str(thread_id or "").strip()
     if not tid:
         tid = "__global__"
@@ -48,9 +50,16 @@ def _get_approval_lock(thread_id: str) -> threading.RLock:
         if lock is None:
             lock = threading.RLock()
             _approval_locks[tid] = lock
-            # Shed stale entries when the dict grows too large.
-            if len(_approval_locks) > _APPROVAL_LOCKS_MAX:
-                _approval_locks.clear()
+            # 超 4096 只告警、不清字典：clear() 会丢掉其他线程仍持有的锁对象，
+            # 新线程拿新锁与持旧锁线程并行进同一 tid 临界区 → 重复 grant/replay
+            # （正是本锁要防的 TOCTOU）。每条 ~160B，5000 线程 <1MB，正确性优先。
+            if len(_approval_locks) > _APPROVAL_LOCKS_MAX and not _shed_warning_emitted:
+                _shed_warning_emitted = True
+                logger.warning(
+                    "approval locks dict grew to %d entries (expected bounded by thread count); "
+                    "not shedding held locks to preserve mutual exclusion",
+                    len(_approval_locks),
+                )
         return lock
 
 

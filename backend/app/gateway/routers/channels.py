@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import logging
 import os
@@ -819,7 +820,7 @@ async def weixin_registration_apply(
         try:
             from evoflow.persistence import config_repositories as cfg_repo
 
-            cfg_repo.upsert_channel_config("weixin", payload)
+            await asyncio.to_thread(cfg_repo.upsert_channel_config, "weixin", payload)
         except Exception:
             logger.warning("Failed to persist Weixin config to SQLite database", exc_info=True)
 
@@ -860,7 +861,7 @@ async def _current_weixin_accounts_mirror() -> dict[str, Any]:
     try:
         from evoflow.persistence import config_repositories as cfg_repo
 
-        return dict((cfg_repo.get_channel_config("weixin") or {}).get("accounts") or {})
+        return dict((await asyncio.to_thread(cfg_repo.get_channel_config, "weixin") or {}).get("accounts") or {})
     except Exception:
         return {}
 
@@ -902,7 +903,7 @@ async def _persist_weixin_accounts_mirror_and_restart() -> bool:
         if not ok:
             raise HTTPException(status_code=500, detail="Failed to persist Weixin accounts")
         try:
-            cfg_repo.upsert_channel_config("weixin", payload)
+            await asyncio.to_thread(cfg_repo.upsert_channel_config, "weixin", payload)
         except Exception:
             logger.warning("Failed to persist Weixin config to SQLite database", exc_info=True)
         return True
@@ -1175,7 +1176,7 @@ async def wecom_registration_apply(
             # routes the bot's messages to that proactive employee agent.
             from evoflow.persistence import config_repositories as cfg_repo
 
-            current_cfg = cfg_repo.get_channel_config("wecom") or {}
+            current_cfg = await asyncio.to_thread(cfg_repo.get_channel_config, "wecom") or {}
             accounts = dict(current_cfg.get("accounts") or {})
             accounts[body.agent_code] = {
                 **accounts.get(body.agent_code, {}),
@@ -1198,7 +1199,7 @@ async def wecom_registration_apply(
         try:
             from evoflow.persistence import config_repositories as cfg_repo
 
-            cfg_repo.upsert_channel_config("wecom", payload)
+            await asyncio.to_thread(cfg_repo.upsert_channel_config, "wecom", payload)
         except Exception:
             logger.warning("Failed to persist WeCom config to SQLite database", exc_info=True)
 
@@ -1349,7 +1350,7 @@ async def dingtalk_registration_apply(
         try:
             from evoflow.persistence import config_repositories as cfg_repo
 
-            cfg_repo.upsert_channel_config("dingtalk", payload)
+            await asyncio.to_thread(cfg_repo.upsert_channel_config, "dingtalk", payload)
         except Exception:
             logger.warning("Failed to persist DingTalk config to SQLite database", exc_info=True)
 

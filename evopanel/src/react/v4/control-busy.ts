@@ -58,3 +58,23 @@ export function resolveSessionBusyFromControl(
     hostExecuting: opts.hostExecuting,
   });
 }
+
+/**
+ * 主聊时间线「还有活」——驱动 sessionBusy / 轮尾 ChatLoading。
+ * 点停冷却或 uiTurnSettled 时必须 false：Composer 停止钮已灭时，齿轮不得被
+ * 投影里陈旧 running header/tool 单独钉住。
+ */
+export function resolveHostTimelineBusy(opts: {
+  sessionMatched: boolean;
+  stopRecovering?: boolean;
+  settledIdle?: boolean;
+  snapshot: ControlBusySnapshot;
+  hostExecuting?: boolean | null;
+}): boolean {
+  if (!opts.sessionMatched) return false;
+  if (opts.stopRecovering) return false;
+  if (opts.settledIdle) return false;
+  return resolveSessionBusyFromControl(opts.snapshot, {
+    hostExecuting: opts.hostExecuting,
+  });
+}

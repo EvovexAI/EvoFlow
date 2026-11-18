@@ -603,7 +603,7 @@ async def run_app_endpoint(http_request: Request, app_id: str, request: RunAppRe
     from evoflow.authz.http_guard import require_app_visible
 
     require_app_visible(http_request, app_id)
-    app_row = app_repositories.load_app(app_id)
+    app_row = await asyncio.to_thread(app_repositories.load_app, app_id)
     if app_row is None or str(app_row.get("status") or "") == "deleted":
         raise HTTPException(status_code=404, detail=f"Application not found: {app_id}")
     try:

@@ -8,7 +8,10 @@
  * 运行：npx vitest run tests/control-busy.test.ts
  */
 import { describe, expect, it } from "vitest";
-import { resolveSessionBusyFromControl } from "../src/react/v4/control-busy.js";
+import {
+  resolveHostTimelineBusy,
+  resolveSessionBusyFromControl,
+} from "../src/react/v4/control-busy.js";
 import { resolveLiveExecutionBusyFromSnapshot } from "../src/zcode-ui/v4/live-execution-busy.js";
 
 type Row = { kind?: string; status?: string; state?: string };
@@ -104,5 +107,57 @@ describe("resolveSessionBusyFromControl — control-first 层级", () => {
       backgroundWorks: [{ status: "running", kind: "workflow" }],
     });
     expect(resolveSessionBusyFromControl(wf as never, { hostExecuting: false })).toBe(false);
+  });
+});
+
+describe("resolveHostTimelineBusy — 停止钮灭时齿轮不得空转", () => {
+  it("uiTurnSettled 时强制 idle（即使 canStop/running 工具仍在投影）", () => {
+    const s = snap({
+      control: { canStop: true, phase: "running" },
+      rows: [RUNNING_TOOL, STREAMING_TEXT],
+    });
+    expect(
+      resolveHostTimelineBusy({
+        sessionMatched: true,
+        settledIdle: true,
+        snapshot: s as never,
+        hostExecuting: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("点停冷却时强制 idle", () => {
+    const s = snap({ control: { canStop: true, phase: "running" } });
+    expect(
+      resolveHostTimelineBusy({
+        sessionMatched: true,
+        stopRecovering: true,
+        snapshot: s as never,
+        hostExecuting: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("会话未匹配时不 busy", () => {
+    const s = snap({ control: { canStop: true, phase: "running" } });
+    expect(
+      resolveHostTimelineBusy({
+        sessionMatched: false,
+        snapshot: s as never,
+        hostExecuting: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("未 settled 且 canStop → busy（正常运行）", () => {
+    const s = snap({ control: { canStop: true, phase: "running" } });
+    expect(
+      resolveHostTimelineBusy({
+        sessionMatched: true,
+        settledIdle: false,
+        snapshot: s as never,
+        hostExecuting: false,
+      }),
+    ).toBe(true);
   });
 });

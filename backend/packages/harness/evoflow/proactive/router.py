@@ -308,7 +308,7 @@ async def list_roles(
             status = normalize_role_status(status)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-    roles = ProactiveRepository.list_roles(status=status)
+    roles = await asyncio.to_thread(ProactiveRepository.list_roles, status=status)
     return {
         "roles": [_role_to_dict(r) for r in roles],
         "count": len(roles),
@@ -345,7 +345,7 @@ async def get_org_tree(
             st = normalize_role_status(st)
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
-    full = ProactiveRepository.list_roles(status=None)
+    full = await asyncio.to_thread(ProactiveRepository.list_roles, status=None)
     if st is None:
         roles = full
     else:
@@ -406,7 +406,7 @@ async def list_departments(request: Request) -> dict[str, Any]:
     require_org_admin(request)
     from evoflow.proactive.departments import DepartmentRepository
 
-    items = DepartmentRepository.list_departments(with_members=True)
+    items = await asyncio.to_thread(DepartmentRepository.list_departments, with_members=True)
     return {"departments": items, "count": len(items)}
 
 
@@ -416,7 +416,7 @@ async def create_department(request: Request, body: DepartmentCreateRequest) -> 
     from evoflow.proactive.departments import DepartmentRepository
 
     try:
-        row = DepartmentRepository.create(name=body.name, avatar=body.avatar)
+        row = await asyncio.to_thread(DepartmentRepository.create, name=body.name, avatar=body.avatar)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {
@@ -494,12 +494,12 @@ async def upload_department_avatar(
     from evoflow.config.dept_avatars import delete_avatar_file, save_avatar_bytes
     from evoflow.proactive.departments import DepartmentRepository
 
-    if not DepartmentRepository.get(dept_id):
+    if not await asyncio.to_thread(DepartmentRepository.get, dept_id):
         raise HTTPException(status_code=404, detail="部门不存在")
     data = await file.read()
     try:
         save_avatar_bytes(dept_id, data)
-        row = DepartmentRepository.set_avatar(dept_id, avatar="image")
+        row = await asyncio.to_thread(DepartmentRepository.set_avatar, dept_id, avatar="image")
     except ValueError as e:
         delete_avatar_file(dept_id)
         raise HTTPException(status_code=400, detail=str(e)) from e
@@ -527,20 +527,21 @@ async def update_department(request: Request, dept_id: str, body: DepartmentUpda
     try:
         row: dict[str, Any] | None = None
         if body.name is not None:
-            row = DepartmentRepository.rename(dept_id, name=body.name)
+            row = await asyncio.to_thread(DepartmentRepository.rename, dept_id, name=body.name)
         if body.head_agent_code is not None:
-            row = DepartmentRepository.set_head(
+            row = await asyncio.to_thread(
+                DepartmentRepository.set_head,
                 dept_id,
                 head_agent_code=body.head_agent_code,
                 align_unmanaged=bool(body.align_unmanaged),
             )
         if body.avatar is not None:
-            row = DepartmentRepository.set_avatar(dept_id, avatar=body.avatar)
+            row = await asyncio.to_thread(DepartmentRepository.set_avatar, dept_id, avatar=body.avatar)
         if row is None:
             raise HTTPException(status_code=400, detail="请提供 name、head_agent_code 或 avatar")
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
-    items = DepartmentRepository.list_departments(with_members=True)
+    items = await asyncio.to_thread(DepartmentRepository.list_departments, with_members=True)
     for d in items:
         if str(d.get("id")) == str(row.get("id")):
             return {"ok": True, "department": d}
@@ -553,7 +554,7 @@ async def delete_department(request: Request, dept_id: str) -> dict[str, Any]:
     from evoflow.proactive.departments import DepartmentRepository
 
     try:
-        DepartmentRepository.delete(dept_id, clear_members=True)
+        await asyncio.to_thread(DepartmentRepository.delete, dept_id, clear_members=True)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True}
@@ -566,7 +567,7 @@ async def set_department_members(request: Request, dept_id: str, body: Departmen
     from evoflow.proactive.departments import DepartmentRepository
 
     try:
-        dept = DepartmentRepository.set_members(dept_id, body.agent_codes or [])
+        dept = await asyncio.to_thread(DepartmentRepository.set_members, dept_id, body.agent_codes or [])
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return {"ok": True, "department": dept}
@@ -574,11 +575,13 @@ async def set_department_members(request: Request, dept_id: str, body: Departmen
 
 @router.get("/roles/{agent_code}")
 async def get_role(agent_code: str) -> dict[str, Any]:
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     # Include recent initiatives
-    initiatives = ProactiveRepository.list_initiatives(role_agent_code=agent_code, limit=10)
+    initiatives = await asyncio.to_thread(
+        ProactiveRepository.list_initiatives, role_agent_code=agent_code, limit=10
+    )
     result = _role_to_dict(role)
     result["recent_initiatives"] = [_initiative_to_dict(i) for i in initiatives]
     try:
@@ -587,7 +590,7 @@ async def get_role(agent_code: str) -> dict[str, Any]:
         result["org"] = org_chart_for_role(
             role,
             # 组织关系固定：用全员花名册，不因请假把上级/下级裁掉
-            roster=list(ProactiveRepository.list_roles(status=None)),
+            roster=list(await asyncio.to_thread(ProactiveRepository.list_roles, status=None)),
         )
     except Exception:
         result["org"] = None
@@ -649,7 +652,7 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
     if not agent_code:
         raise HTTPException(status_code=400, detail="agent_code is required")
 
-    existing = ProactiveRepository.get_role(agent_code)
+    existing = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if existing:
         raise HTTPException(status_code=409, detail=f"Role '{agent_code}' already exists")
 
@@ -721,10 +724,10 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
 
         if reports_raw == agent_code:
             raise HTTPException(status_code=400, detail="reports_to cannot be yourself")
-        mgr = ProactiveRepository.get_role(reports_raw)
+        mgr = await asyncio.to_thread(ProactiveRepository.get_role, reports_raw)
         if not mgr:
             raise HTTPException(status_code=400, detail=f"reports_to role '{reports_raw}' not found")
-        roster = ProactiveRepository.list_roles()
+        roster = await asyncio.to_thread(ProactiveRepository.list_roles)
         # Include the new role shell for cycle check once saved; for hire, only check mgr exists.
         if would_create_cycle(agent_code, reports_raw, roster):
             raise HTTPException(status_code=400, detail=f"reports_to '{reports_raw}' would create a cycle")
@@ -758,7 +761,7 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
     )
     if initial_status == "active":
         role.next_heartbeat_at = compute_next_duty_iso(role)
-    ProactiveRepository.save_role(role)
+    await asyncio.to_thread(ProactiveRepository.save_role, role)
     logger.info(
         "proactive.role.created agent_code=%s name=%s status=%s",
         agent_code,
@@ -771,7 +774,7 @@ async def create_role(request: Request, req: CreateRoleRequest) -> dict[str, Any
 @router.put("/roles/{agent_code}")
 async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest) -> dict[str, Any]:
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
 
@@ -793,7 +796,7 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         runner = _get_proactive_runner()
         await runner.cancel_role(agent_code)
         try:
-            role = ProactiveRepository.rebind_role(agent_code, new_code)
+            role = await asyncio.to_thread(ProactiveRepository.rebind_role, agent_code, new_code)
         except ValueError as e:
             raise HTTPException(status_code=409, detail=str(e)) from e
         except KeyError as e:
@@ -903,10 +906,10 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         if mgr and mgr == agent_code:
             raise HTTPException(status_code=400, detail="reports_to cannot be yourself")
         if mgr:
-            target = ProactiveRepository.get_role(mgr)
+            target = await asyncio.to_thread(ProactiveRepository.get_role, mgr)
             if not target:
                 raise HTTPException(status_code=400, detail=f"reports_to role '{mgr}' not found")
-            roster = ProactiveRepository.list_roles()
+            roster = await asyncio.to_thread(ProactiveRepository.list_roles)
             # Apply candidate on a copy of this role for cycle detection
             cfg.reports_to = mgr
             role.config = cfg
@@ -954,7 +957,7 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
         from evoflow.proactive.schedule import compute_next_duty_iso
 
         role.next_heartbeat_at = compute_next_duty_iso(role)
-    ProactiveRepository.save_role(role)
+    await asyncio.to_thread(ProactiveRepository.save_role, role)
 
     # Mirror vaults / kb_injection onto the agent row so live chat middleware
     # sees them immediately (without waiting for startup backfill / restart).
@@ -990,7 +993,7 @@ async def update_role(request: Request, agent_code: str, req: UpdateRoleRequest)
 async def delete_role(request: Request, agent_code: str) -> dict[str, Any]:
     """Hard-delete an employee contract (duty role), not the underlying Agent."""
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     try:
@@ -1013,7 +1016,7 @@ async def delete_role(request: Request, agent_code: str) -> dict[str, Any]:
     except Exception:
         logger.debug("proactive.role.delete feishu account cleanup skipped", exc_info=True)
     try:
-        ProactiveRepository.delete_role(agent_code)
+        await asyncio.to_thread(ProactiveRepository.delete_role, agent_code)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
@@ -1083,7 +1086,7 @@ async def get_role_feishu_binding(request: Request, agent_code: str) -> dict[str
     _require_role_agent(request, agent_code)
     from evoflow.proactive.feishu_binding import feishu_binding_public
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     return {"agent_code": agent_code, "binding": feishu_binding_public(role.config)}
@@ -1148,7 +1151,7 @@ async def get_role_wecom_binding(request: Request, agent_code: str) -> dict[str,
     _require_role_agent(request, agent_code)
     from evoflow.proactive.wecom_binding import wecom_binding_public
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     return {"agent_code": agent_code, "binding": wecom_binding_public(role.config)}
@@ -1214,11 +1217,11 @@ async def get_role_weixin_binding(request: Request, agent_code: str) -> dict[str
     from evoflow.persistence.config_repositories import get_bot_binding
     from evoflow.proactive.weixin_binding import weixin_binding_public
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     account_id = str(getattr(role.config, "weixin_account_id", "") or "").strip()
-    binding = get_bot_binding("weixin", account_id) if account_id else None
+    binding = await asyncio.to_thread(get_bot_binding, "weixin", account_id) if account_id else None
     return {"agent_code": agent_code, "binding": weixin_binding_public(binding)}
 
 
@@ -1309,7 +1312,7 @@ async def debug_push_test_approval(
     )
 
     code = str(agent_code or "").strip()
-    role = ProactiveRepository.get_role(code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{code}' not found")
     if role.status != "active":
@@ -1317,7 +1320,7 @@ async def debug_push_test_approval(
 
     now = utc_now_iso_z()
     init = Initiative(
-        id=ProactiveRepository.new_initiative_id(),
+        id=await asyncio.to_thread(ProactiveRepository.new_initiative_id),
         role_agent_code=code,
         title="【验证】飞书审批卡片一键操作",
         description=("这是一条用于验证飞书审批卡片的测试事项。请在飞书里点「同意」或「拒绝」，或点「在面板查看」打开待审批页。验证完可随意拒绝，不会影响真实业务。"),
@@ -1329,7 +1332,7 @@ async def debug_push_test_approval(
         created_at=now,
         updated_at=now,
     )
-    ProactiveRepository.save_initiative(init)
+    await asyncio.to_thread(ProactiveRepository.save_initiative, init)
 
     gate = DecisionGate()
     approval = await gate.request_approval(role, init)
@@ -1348,7 +1351,7 @@ async def debug_push_test_approval(
 async def push_feishu_for_approval(request: Request, approval_id: str) -> dict[str, Any]:
     """Re-push Feishu interactive card for an existing pending approval."""
     try:
-        _ap = ProactiveRepository.get_approval(approval_id)
+        _ap = await asyncio.to_thread(ProactiveRepository.get_approval, approval_id)
         _code = str(getattr(_ap, "role_agent_code", None) or getattr(_ap, "agent_code", None) or "").strip() if _ap else ""
         if _code:
             _require_role_agent(request, _code)
@@ -1362,19 +1365,19 @@ async def push_feishu_for_approval(request: Request, approval_id: str) -> dict[s
     from evoflow.proactive.work_items import load_work_item_task, task_to_bridge_initiative
 
     aid = str(approval_id or "").strip()
-    approval = ProactiveRepository.get_approval(aid)
+    approval = await asyncio.to_thread(ProactiveRepository.get_approval, aid)
     if not approval:
         raise HTTPException(status_code=404, detail=f"Approval '{approval_id}' not found")
     if str(getattr(approval.status, "value", approval.status) or "").lower() != "pending":
         raise HTTPException(status_code=400, detail="Only pending approvals can be re-pushed")
 
-    role = ProactiveRepository.get_role(approval.role_agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, approval.role_agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{approval.role_agent_code}' not found")
 
     initiative = None
     if approval.initiative_id:
-        initiative = ProactiveRepository.get_initiative(approval.initiative_id)
+        initiative = await asyncio.to_thread(ProactiveRepository.get_initiative, approval.initiative_id)
     if initiative is None and approval.task_id:
         task = load_work_item_task(approval.task_id)
         if task:
@@ -1384,12 +1387,12 @@ async def push_feishu_for_approval(request: Request, approval_id: str) -> dict[s
 
     gate = DecisionGate()
     await gate._push_feishu(role, initiative, approval, triggered_by="manual_repush")
-    refreshed = ProactiveRepository.get_approval(aid) or approval
+    refreshed = await asyncio.to_thread(ProactiveRepository.get_approval, aid) or approval
     push_log: list[dict] = []
     try:
         from evoflow.persistence.channel_push_repositories import list_by_approval
 
-        push_log = list_by_approval(aid, limit=20)
+        push_log = await asyncio.to_thread(list_by_approval, aid, limit=20)
     except Exception:
         push_log = []
     return {
@@ -1406,7 +1409,7 @@ async def check_role_overlap(req: OverlapCheckRequest) -> dict[str, Any]:
     """O5.3: detect duty/domain overlap with existing employees."""
     from evoflow.proactive.overlap import find_overlaps
 
-    roles = ProactiveRepository.list_roles()
+    roles = await asyncio.to_thread(ProactiveRepository.list_roles)
     overlaps = find_overlaps(
         {
             "agent_code": req.agent_code,
@@ -1440,7 +1443,7 @@ async def get_role_performance(
     _require_role_agent(request, agent_code)
     from evoflow.proactive.kpi_checker import build_performance_report
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     report = build_performance_report(role, days=days, run_probes=run_probes)
@@ -1455,7 +1458,7 @@ async def get_role_growth(
 ) -> dict[str, Any]:
     """Person Kernel: identity + lessons + person_memory + proposals + craft."""
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     from evoflow.person_kernel import get_growth_snapshot
@@ -1467,13 +1470,13 @@ async def get_role_growth(
 @router.post("/roles/{agent_code}/proposals/{proposal_id}/approve")
 async def approve_role_proposal(request: Request, agent_code: str, proposal_id: str) -> dict[str, Any]:
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     from evoflow.persistence.person_metabolism_repositories import get_evolution_proposal
     from evoflow.person_kernel import approve_evolution_proposal
 
-    prop = get_evolution_proposal(proposal_id)
+    prop = await asyncio.to_thread(get_evolution_proposal, proposal_id)
     if not prop or str(prop.get("agent_code") or "").lower() != role.agent_code.lower():
         raise HTTPException(status_code=404, detail="proposal not found for role")
     result = approve_evolution_proposal(proposal_id, resolved_by="user")
@@ -1485,13 +1488,13 @@ async def approve_role_proposal(request: Request, agent_code: str, proposal_id: 
 @router.post("/roles/{agent_code}/proposals/{proposal_id}/reject")
 async def reject_role_proposal(request: Request, agent_code: str, proposal_id: str) -> dict[str, Any]:
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     from evoflow.persistence.person_metabolism_repositories import get_evolution_proposal
     from evoflow.person_kernel import reject_evolution_proposal
 
-    prop = get_evolution_proposal(proposal_id)
+    prop = await asyncio.to_thread(get_evolution_proposal, proposal_id)
     if not prop or str(prop.get("agent_code") or "").lower() != role.agent_code.lower():
         raise HTTPException(status_code=404, detail="proposal not found for role")
     result = reject_evolution_proposal(proposal_id, resolved_by="user")
@@ -1520,7 +1523,7 @@ async def emit_proactive_event(request: Request, req: EventEmitRequest) -> dict[
             status_code=400,
             detail=f"event_type must be one of: {', '.join(sorted(_DEBOUNCE_DELAYS))}",
         )
-    role = ProactiveRepository.get_role(code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{code}' not found")
     if role.status != "active":
@@ -1651,7 +1654,7 @@ async def roles_busy_batch(
     busy_roles = {str(r.get("agent_code") or ""): r for r in runner.busy_roles()}
     out: dict[str, Any] = {}
     for code in requested:
-        role = ProactiveRepository.get_role(code)
+        role = await asyncio.to_thread(ProactiveRepository.get_role, code)
         if not role:
             out[code] = {
                 "agent_code": code,
@@ -1667,7 +1670,7 @@ async def roles_busy_batch(
             try:
                 from evoflow.proactive.chat_session import list_employee_conversation_sessions
 
-                convs = list_employee_conversation_sessions(code, limit=20)
+                convs = await asyncio.to_thread(list_employee_conversation_sessions, code, limit=20)
                 running = [
                     c
                     for c in convs
@@ -1685,7 +1688,7 @@ async def roles_busy_batch(
                     try:
                         from evoflow.persistence import session_repositories as sess_repo
 
-                        row = sess_repo.load_session_map().get(current_session_key or "") or {}
+                        row = (await asyncio.to_thread(sess_repo.load_session_map)).get(current_session_key or "") or {}
                         ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
                         current_round_id = str(ctx.get("proactive_round_id") or "").strip()
                     except Exception:
@@ -1709,7 +1712,7 @@ async def roles_busy_batch(
 async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
     """Whether this employee currently has an in-flight patrol."""
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     runner = _get_proactive_runner()
@@ -1729,7 +1732,7 @@ async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
         try:
             from evoflow.proactive.chat_session import list_employee_conversation_sessions
 
-            convs = list_employee_conversation_sessions(agent_code, limit=20)
+            convs = await asyncio.to_thread(list_employee_conversation_sessions, agent_code, limit=20)
             running = [c for c in convs if str(c.get("run_status") or "").strip().lower() in {"running", "pending"}]
 
             # Prefer task/duty over legacy when reporting the live conversation.
@@ -1746,7 +1749,7 @@ async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
                 try:
                     from evoflow.persistence import session_repositories as sess_repo
 
-                    row = sess_repo.load_session_map().get(current_session_key or "") or {}
+                    row = (await asyncio.to_thread(sess_repo.load_session_map)).get(current_session_key or "") or {}
                     ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
                     current_round_id = str(ctx.get("proactive_round_id") or "").strip()
                 except Exception:
@@ -1777,7 +1780,8 @@ async def list_initiatives(
     limit: int = Query(50, ge=1, le=500),
     offset: int = Query(0, ge=0),
 ) -> dict[str, Any]:
-    inits = ProactiveRepository.list_initiatives(
+    inits = await asyncio.to_thread(
+        ProactiveRepository.list_initiatives,
         role_agent_code=role_agent_code,
         status=status,
         limit=limit,
@@ -1803,7 +1807,7 @@ async def get_role_work_board(
     """
     _require_role_agent(request, agent_code)
     code = str(agent_code or "").strip()
-    role = ProactiveRepository.get_role(code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{code}' not found")
 
@@ -1878,13 +1882,17 @@ async def get_role_work_board(
     try:
         from evoflow.proactive.duty_runs import list_duty_rounds_for_board
 
-        rounds = list_duty_rounds_for_board(code, limit=min(limit, 80))
+        rounds = await asyncio.to_thread(list_duty_rounds_for_board, code, limit=min(limit, 80))
     except Exception:
         rounds = []
     if not rounds:
         rounds = _synthesize_round_journals_from_chat(code, limit=min(limit, 40))
 
-    pending_approvals = [_approval_to_dict(a, enrich=True) for a in ProactiveRepository.list_pending_approvals() if a.role_agent_code == code]
+    pending_approvals = [
+        _approval_to_dict(a, enrich=True)
+        for a in await asyncio.to_thread(ProactiveRepository.list_pending_approvals)
+        if a.role_agent_code == code
+    ]
 
     # Enrich display fields so Panel never has to show raw agent_code / risk enum.
     try:
@@ -1928,12 +1936,12 @@ async def migrate_work_items(
 
 @router.get("/initiatives/{initiative_id}")
 async def get_initiative(initiative_id: str) -> dict[str, Any]:
-    init = ProactiveRepository.get_initiative(initiative_id)
+    init = await asyncio.to_thread(ProactiveRepository.get_initiative, initiative_id)
     if not init:
         raise HTTPException(status_code=404, detail=f"Initiative '{initiative_id}' not found")
     result = _initiative_to_dict(init)
     # Include approval if exists
-    approval = ProactiveRepository.get_approval_by_initiative(initiative_id)
+    approval = await asyncio.to_thread(ProactiveRepository.get_approval_by_initiative, initiative_id)
     if approval:
         result["approval"] = _approval_to_dict(approval)
     return result
@@ -1949,7 +1957,7 @@ async def list_approvals(
     status: str | None = Query(None),
     limit: int = Query(50, ge=1, le=500),
 ) -> dict[str, Any]:
-    approvals = ProactiveRepository.list_approvals(status=status, limit=limit)
+    approvals = await asyncio.to_thread(ProactiveRepository.list_approvals, status=status, limit=limit)
     return {
         "approvals": [_approval_to_dict(a, enrich=True) for a in approvals],
         "count": len(approvals),
@@ -2031,7 +2039,7 @@ async def _safe_execute_approved_initiative(engine: Any, initiative: Any) -> str
         logger.warning("Execution of initiative %s was cancelled", initiative.id)
         try:
             initiative.status = InitiativeStatus.FAILED
-            ProactiveRepository.save_initiative(initiative)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, initiative)
         except Exception:
             pass
         raise
@@ -2045,7 +2053,7 @@ async def _safe_execute_approved_initiative(engine: Any, initiative: Any) -> str
         )
         try:
             initiative.status = InitiativeStatus.FAILED
-            ProactiveRepository.save_initiative(initiative)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, initiative)
         except Exception:
             pass
         return f"error: {exc}"
@@ -2067,11 +2075,15 @@ async def process_approval(
 
     _code = ""
     try:
-        _ap = ProactiveRepository.get_approval(item_id) or ProactiveRepository.get_approval_by_initiative(item_id) or ProactiveRepository.get_approval_by_task(item_id)
+        _ap = (
+            await asyncio.to_thread(ProactiveRepository.get_approval, item_id)
+            or await asyncio.to_thread(ProactiveRepository.get_approval_by_initiative, item_id)
+            or await asyncio.to_thread(ProactiveRepository.get_approval_by_task, item_id)
+        )
         if _ap:
             _code = str(getattr(_ap, "role_agent_code", None) or "").strip()
         if not _code:
-            _init = ProactiveRepository.get_initiative(item_id)
+            _init = await asyncio.to_thread(ProactiveRepository.get_initiative, item_id)
             if _init:
                 _code = str(getattr(_init, "role_agent_code", None) or "").strip()
         if not _code:
@@ -2103,7 +2115,7 @@ async def process_approval(
     if raw_id.startswith("task:"):
         raw_id = raw_id[5:]
 
-    init = ProactiveRepository.get_initiative(raw_id)
+    init = await asyncio.to_thread(ProactiveRepository.get_initiative, raw_id)
     task = None if init else load_work_item_task(raw_id)
 
     if not init and not task:
@@ -2115,15 +2127,17 @@ async def process_approval(
 
     if task:
         tid = str(task.get("id") or raw_id).strip()
-        approval = ProactiveRepository.get_approval_by_task(tid)
+        approval = await asyncio.to_thread(ProactiveRepository.get_approval_by_task, tid)
         if not approval:
-            role = ProactiveRepository.get_role(str(task.get("assigned_to") or "").strip())
+            role = await asyncio.to_thread(ProactiveRepository.get_role, str(task.get("assigned_to") or "").strip())
             if not role:
-                role = ProactiveRepository.get_role(
+                roles_roster = await asyncio.to_thread(ProactiveRepository.list_roles)
+                role = await asyncio.to_thread(
+                    ProactiveRepository.get_role,
                     next(
-                        (r.agent_code for r in ProactiveRepository.list_roles() if str(r.role_name or "").strip().lower() == str(task.get("assigned_role") or "").strip().lower()),
+                        (r.agent_code for r in roles_roster if str(r.role_name or "").strip().lower() == str(task.get("assigned_role") or "").strip().lower()),
                         "",
-                    )
+                    ),
                 )
             if not role:
                 raise HTTPException(status_code=404, detail="Role for work item not found")
@@ -2148,7 +2162,7 @@ async def process_approval(
             if not role_agent_code:
                 # Fallback: derive from the task's assigned_to role.
                 try:
-                    role = ProactiveRepository.get_role(str(task.get("assigned_to") or "").strip())
+                    role = await asyncio.to_thread(ProactiveRepository.get_role, str(task.get("assigned_to") or "").strip())
                     if role:
                         role_agent_code = role.agent_code
                 except Exception:
@@ -2194,18 +2208,18 @@ async def process_approval(
             detail=f"Initiative is in status '{init.status.value}', not pending approval",
         )
 
-    approval = ProactiveRepository.get_approval_by_initiative(raw_id)
+    approval = await asyncio.to_thread(ProactiveRepository.get_approval_by_initiative, raw_id)
     if not approval:
         # Orphaned pending_approval (pre-fix) or early approve of PROPOSED:
         # create the Approval row silently so the decision can proceed.
-        role = ProactiveRepository.get_role(init.role_agent_code)
+        role = await asyncio.to_thread(ProactiveRepository.get_role, init.role_agent_code)
         if not role:
             raise HTTPException(status_code=404, detail="Role for initiative not found")
         if init.status == InitiativeStatus.PROPOSED:
             approval = await gate.request_approval(role, init)
         else:
             approval = Approval(
-                id=ProactiveRepository.new_approval_id(),
+                id=await asyncio.to_thread(ProactiveRepository.new_approval_id),
                 initiative_id=init.id,
                 role_agent_code=init.role_agent_code,
                 channel="desktop",
@@ -2213,9 +2227,9 @@ async def process_approval(
                 created_at=utc_now_iso_z(),
                 updated_at=utc_now_iso_z(),
             )
-            ProactiveRepository.save_approval(approval)
+            await asyncio.to_thread(ProactiveRepository.save_approval, approval)
             init.approval_id = approval.id
-            ProactiveRepository.save_initiative(init)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, init)
 
     updated_init = await gate.process_decision(
         approval.id,
@@ -2235,13 +2249,13 @@ async def process_approval(
                 raw_id,
             )
             updated_init.status = InitiativeStatus.PENDING
-            ProactiveRepository.save_initiative(updated_init)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, updated_init)
         else:
             from evoflow.proactive.engine import ProactiveEngine
 
             engine = ProactiveEngine()
             updated_init.status = InitiativeStatus.EXECUTING
-            ProactiveRepository.save_initiative(updated_init)
+            await asyncio.to_thread(ProactiveRepository.save_initiative, updated_init)
             # Execute in background (non-blocking)
             import asyncio
 
@@ -2270,9 +2284,10 @@ async def list_channel_push_log(
 
     aid = str(approval_id or "").strip()
     if aid:
-        items = list_by_approval(aid, limit=limit)
+        items = await asyncio.to_thread(list_by_approval, aid, limit=limit)
     else:
-        items = list_recent(
+        items = await asyncio.to_thread(
+            list_recent,
             limit=limit,
             channel=channel,
             task_id=str(task_id or "").strip(),
@@ -2335,11 +2350,11 @@ async def get_memory(request: Request, agent_code: str) -> dict[str, Any]:
     _require_role_agent(request, agent_code)
     from evoflow.proactive.repositories import ProactiveMemoryRepository
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
 
-    mem = ProactiveMemoryRepository.get(agent_code)
+    mem = await asyncio.to_thread(ProactiveMemoryRepository.get, agent_code)
     return {
         "role_agent_code": agent_code,
         "observations": mem.observations,
@@ -2366,11 +2381,11 @@ async def list_role_conversations(
     _require_role_agent(request, agent_code)
     from evoflow.proactive.chat_session import list_employee_conversation_sessions
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     kinds = [k.strip() for k in str(kind or "").split(",") if k.strip()] or None
-    rows = list_employee_conversation_sessions(agent_code, limit=limit, kinds=kinds)
+    rows = await asyncio.to_thread(list_employee_conversation_sessions, agent_code, limit=limit, kinds=kinds)
     return {
         "agent_code": agent_code,
         "role_name": role.role_name,
@@ -2408,7 +2423,7 @@ async def get_role_messages(
         resolve_transcript_round_id,
     )
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
 
@@ -2418,7 +2433,8 @@ async def get_role_messages(
         raise HTTPException(status_code=400, detail="session_key does not belong to this agent")
     requested = str(round_id or "").strip() or None
     rid = resolve_transcript_round_id(sk, requested) if requested else None
-    result = list_messages_for_display_all(
+    result = await asyncio.to_thread(
+        list_messages_for_display_all,
         sk,
         max_rows=200,
         round_id=rid,
@@ -2429,10 +2445,10 @@ async def get_role_messages(
         from evoflow.proactive.repositories import ProactiveCostRepository
 
         if rid:
-            cost_info = ProactiveCostRepository.get_round_cost(agent_code, rid)
+            cost_info = await asyncio.to_thread(ProactiveCostRepository.get_round_cost, agent_code, rid)
         else:
-            today = ProactiveCostRepository.get_daily_cost(agent_code)
-            today_tokens = ProactiveCostRepository.get_daily_tokens(agent_code)
+            today = await asyncio.to_thread(ProactiveCostRepository.get_daily_cost, agent_code)
+            today_tokens = await asyncio.to_thread(ProactiveCostRepository.get_daily_tokens, agent_code)
             cost_info = {
                 "role_agent_code": agent_code,
                 "round_id": "",
@@ -2473,13 +2489,13 @@ async def get_role_cost(request: Request, agent_code: str, days: int = Query(7, 
     _require_role_agent(request, agent_code)
     from evoflow.proactive.repositories import ProactiveCostRepository
 
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
 
-    summary = ProactiveCostRepository.get_cost_summary(agent_code, days=days)
-    today_cost = ProactiveCostRepository.get_daily_cost(agent_code)
-    today_tokens = ProactiveCostRepository.get_daily_tokens(agent_code)
+    summary = await asyncio.to_thread(ProactiveCostRepository.get_cost_summary, agent_code, days=days)
+    today_cost = await asyncio.to_thread(ProactiveCostRepository.get_daily_cost, agent_code)
+    today_tokens = await asyncio.to_thread(ProactiveCostRepository.get_daily_tokens, agent_code)
     return {
         "ok": True,
         "agent_code": agent_code,
@@ -2508,18 +2524,18 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
         ProactiveRepository,
     )
 
-    roles = _filter_roles_for_request(request, ProactiveRepository.list_roles())
+    roles = _filter_roles_for_request(request, await asyncio.to_thread(ProactiveRepository.list_roles))
     role_summaries: list[dict[str, Any]] = []
     alerts: list[dict[str, Any]] = []
 
     for role in roles:
         code = role.agent_code
-        today_cost = ProactiveCostRepository.get_daily_cost(code)
-        today_tokens = ProactiveCostRepository.get_daily_tokens(code)
-        cost_7d = ProactiveCostRepository.get_cost_summary(code, days=7)
+        today_cost = await asyncio.to_thread(ProactiveCostRepository.get_daily_cost, code)
+        today_tokens = await asyncio.to_thread(ProactiveCostRepository.get_daily_tokens, code)
+        cost_7d = await asyncio.to_thread(ProactiveCostRepository.get_cost_summary, code, days=7)
 
         # Initiative stats (last 50)
-        inits = ProactiveRepository.list_initiatives(role_agent_code=code, limit=50)
+        inits = await asyncio.to_thread(ProactiveRepository.list_initiatives, role_agent_code=code, limit=50)
         status_counts: dict[str, int] = {}
         no_op_count = 0
         for init in inits:
@@ -2534,11 +2550,11 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
         no_op_pct = round(100 * no_op_count / completed, 1) if completed else 0.0
 
         # Stale executing (zombie) count
-        stale = ProactiveRepository.list_stale_executing(max_age_minutes=45, limit=200)
+        stale = await asyncio.to_thread(ProactiveRepository.list_stale_executing, max_age_minutes=45, limit=200)
         zombie_count = sum(1 for s in stale if s.role_agent_code == code)
 
         # Approval stats
-        all_approvals = ProactiveRepository.list_approvals(limit=200)
+        all_approvals = await asyncio.to_thread(ProactiveRepository.list_approvals, limit=200)
         role_approvals = [a for a in all_approvals if a.role_agent_code == code]
         appr_total = len(role_approvals)
         appr_approved = sum(1 for a in role_approvals if a.status.value == "approved")
@@ -2548,7 +2564,7 @@ async def get_dashboard(request: Request) -> dict[str, Any]:
 
         consecutive_noop = 0
         try:
-            mem = ProactiveMemoryRepository.get(code)
+            mem = await asyncio.to_thread(ProactiveMemoryRepository.get, code)
             consecutive_noop = int((mem.extra or {}).get("consecutive_noop_count", 0) or 0)
         except Exception:
             consecutive_noop = 0
@@ -2676,7 +2692,7 @@ async def disable_runner(request: Request) -> dict[str, Any]:
 async def pause_role(request: Request, agent_code: str) -> dict[str, Any]:
     """Pause a specific role (stops heartbeat + cancels in-flight patrol)."""
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     runner = _get_proactive_runner()
@@ -2684,7 +2700,7 @@ async def pause_role(request: Request, agent_code: str) -> dict[str, Any]:
     role.status = "paused"
     role.config.auto_patrol_suspended = True
     role.next_heartbeat_at = None
-    ProactiveRepository.save_role(role)
+    await asyncio.to_thread(ProactiveRepository.save_role, role)
 
     async def _cancel_in_background() -> None:
         try:
@@ -2717,14 +2733,14 @@ async def stop_role_work(request: Request, agent_code: str) -> dict[str, Any]:
     so due heartbeats will not fire.
     """
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     runner = _get_proactive_runner()
     cancel_info = await runner.cancel_role(agent_code)
     role.config.auto_patrol_suspended = True
     role.next_heartbeat_at = None
-    ProactiveRepository.save_role(role)
+    await asyncio.to_thread(ProactiveRepository.save_role, role)
     logger.info(
         "proactive.role.stop agent_code=%s was_busy=%s status=%s auto_patrol_suspended=true",
         agent_code,
@@ -2745,7 +2761,7 @@ async def stop_role_work(request: Request, agent_code: str) -> dict[str, Any]:
 async def resume_role(request: Request, agent_code: str) -> dict[str, Any]:
     """Resume a paused / draft role back to active (上岗)."""
     _require_role_agent(request, agent_code)
-    role = ProactiveRepository.get_role(agent_code)
+    role = await asyncio.to_thread(ProactiveRepository.get_role, agent_code)
     if not role:
         raise HTTPException(status_code=404, detail=f"Role '{agent_code}' not found")
     prev = role.status
@@ -2756,7 +2772,7 @@ async def resume_role(request: Request, agent_code: str) -> dict[str, Any]:
         from evoflow.proactive.schedule import compute_next_duty_iso
 
         role.next_heartbeat_at = compute_next_duty_iso(role)
-    ProactiveRepository.save_role(role)
+    await asyncio.to_thread(ProactiveRepository.save_role, role)
     logger.info("proactive.role.resumed agent_code=%s from=%s", agent_code, prev)
     return {"ok": True, "agent_code": agent_code, "status": "active", "from_status": prev}
 

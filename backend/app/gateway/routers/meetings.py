@@ -11,6 +11,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
@@ -94,7 +95,7 @@ async def create_meeting_endpoint(request: Request, req: CreateMeetingRequest) -
     # Build participant metadata
     participants_meta: list[dict[str, Any]] = []
     for code in req.participants:
-        card = get_agent_card(code)
+        card = await asyncio.to_thread(get_agent_card, code)
         if card:
             participants_meta.append(
                 {
@@ -106,7 +107,8 @@ async def create_meeting_endpoint(request: Request, req: CreateMeetingRequest) -
         else:
             participants_meta.append({"agent_code": code, "role_name": code, "agent_card": None})
 
-    create_meeting(
+    await asyncio.to_thread(
+        create_meeting,
         meeting_id=meeting_id,
         session_key=req.session_key,
         title=req.title,
@@ -129,7 +131,7 @@ async def get_meeting_endpoint(request: Request, meeting_id: str) -> dict[str, A
     # Enrich participants with agent cards
     participants_meta: list[dict[str, Any]] = []
     for code in meeting.get("participants", []):
-        card = get_agent_card(code)
+        card = await asyncio.to_thread(get_agent_card, code)
         if card:
             participants_meta.append(
                 {
@@ -198,19 +200,23 @@ async def meeting_mention_endpoint(request: Request, meeting_id: str, req: Menti
 async def list_turns_endpoint(request: Request, meeting_id: str) -> dict[str, Any]:
     """List all discussion turns for a meeting."""
     _require_meeting_visible(request, meeting_id)
-    rows = (
-        get_db()
-        .execute(
-            """
+
+    def _fetch_turn_rows() -> list[dict[str, Any]]:
+        return (
+            get_db()
+            .execute(
+                """
         SELECT turn_id, meeting_id, topic, speaker_order, status, created_at
         FROM evoflow_meeting_turns
         WHERE meeting_id = ?
         ORDER BY created_at
         """,
-            (meeting_id,),
+                (meeting_id,),
+            )
+            .fetchall()
         )
-        .fetchall()
-    )
+
+    rows = await asyncio.to_thread(_fetch_turn_rows)
 
     turns = []
     for row in rows:
@@ -228,20 +234,24 @@ async def list_turns_endpoint(request: Request, meeting_id: str) -> dict[str, An
 async def list_meeting_tasks_endpoint(request: Request, meeting_id: str) -> dict[str, Any]:
     """List all A2A tasks associated with a meeting."""
     _require_meeting_visible(request, meeting_id)
-    rows = (
-        get_db()
-        .execute(
-            """
+
+    def _fetch_task_rows() -> list[dict[str, Any]]:
+        return (
+            get_db()
+            .execute(
+                """
         SELECT task_id, agent_code, meeting_id, session_id, state,
                goal, context_summary, result_text, created_at, updated_at, completed_at
         FROM evoflow_a2a_tasks
         WHERE meeting_id = ?
         ORDER BY created_at
         """,
-            (meeting_id,),
+                (meeting_id,),
+            )
+            .fetchall()
         )
-        .fetchall()
-    )
+
+    rows = await asyncio.to_thread(_fetch_task_rows)
 
     tasks = [dict(row) for row in rows]
     return {"meeting_id": meeting_id, "tasks": tasks}

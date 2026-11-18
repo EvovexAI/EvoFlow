@@ -633,3 +633,102 @@ def test_vectors_only_embeds_only_files_missing_vectors(
         assert p not in sent, (
             f"已有向量的 {p} 被重复嵌入（vectors-only 应当只补缺的）：{sorted(sent)}"
         )
+
+
+def test_whole_query_anchor_finds_target_beyond_first_token_flood(tmp_path: Path) -> None:
+    """整句档粗筛必须把所有词元 AND 起来，不能只拿首词元当唯一锚点。
+
+    【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+    实测缺陷（冻结池 59 可评、改前 hit@1 55/59，4 条 miss@1 里 3 条同源）：
+      查询 `build Diff Summary` / `build overlay` / `load Role Schedule Preview`
+      的首词元是 build / load —— 真实库里分别命中 1212 / 1212 / 1168 个符号，
+      旧实现粗筛 `LIMIT lim*40`（lim=20 → 800）直接截断，
+      真目标实测 pos = -1（**压根不在候选集**），整句档 mr=5 形同虚设，
+      答案只能靠后面的短泛词档捞（首条给的是 `build`，不是 `buildDiffSummary`）。
+    改法：每个词元都必须是「去分隔符后名字」的子串，AND 起来做粗筛。
+    同库实测候选数从 1212 降到 1~8 条，8/8 目标落进候选前 5，单次 13.6~15.7ms。
+
+    【第46轮·我在这条用例上连错两次，记下来免得再犯】
+      错法一：夹具只放 build_noise_*，没有名叫 `build` 的短泛名竞争符号
+              → 反证（拆掉 AND）**全绿**，用例根本没锁住缺陷。
+      错法二：噪音数量不够。粗筛窗口是 `lim*40`，我用 limit=10（fetch_lim=20）
+              只造了 502 条匹配，离 800 的截断线还差得远 → 反证又全绿。
+      现在：limit=3（fetch_lim=6 → 窗口 240），噪音 450 条，稳定越过截断线。
+    """
+    noise = {
+        f"noise/n{i:03d}.py": f"def build_noise_{i:03d}():\n    return {i}\n"
+        for i in range(450)
+    }
+    files = dict(noise)
+    # 短泛名竞争符号：真实库里首位正是 `build`（toolDisplay.ts），
+    # term='build' 精确命中拿 mr=3，稳压前缀档。没有它就不算复现现场。
+    files["aaa/tool.py"] = "def build():\n    return 0\n"
+    files["real/target.py"] = "def build_diff_summary():\n    return 1\n"
+    root = _build_workspace(tmp_path, files)
+    S.build_index(workspace_root=root, force=True)
+
+    res = S.search_index(workspace_root=root, query="build Diff Summary", limit=3)
+    syms = [(s.get("name"), s.get("match_rank")) for s in (res.get("symbols") or [])]
+    assert syms, "符号层无结果"
+    assert syms[0][0] == "build_diff_summary", (
+        f"真目标没进候选/没排第一（首词元 build 命中 450+ 条把粗筛窗口烧光是旧缺陷），"
+        f"实际前 3={syms[:3]}"
+    )
+    assert syms[0][1] == 5, f"整句命中应给 match_rank=5，实际={syms[0][1]}"
+
+
+def test_whole_query_anchor_matches_names_with_separators(tmp_path: Path) -> None:
+    """粗筛 SQL 必须比对「去分隔符后的名字」，不能拿归一化锚点去比原始 name。
+
+    【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+    实测缺陷：旧实现的首锚点是 `_name_tokens(q)[0][:6]`，对 `end session turn`
+    算出来是 `end`（3 字符），按「<4 字符无筛选力」的兜底规则改用
+    `_whole_norm[:8]` = **`endsessi`** —— 而符号名 `end_session_turn`
+    原始形式带下划线，`name LIKE '%endsessi%'` 命中 0 条，
+    真目标永远进不了候选集，该查询在冻结池里稳定 miss@1（答案落到 `_Session`）。
+    判据：SQL 侧必须用 `replace(replace(lower(name),'_',''),'-','')` 做比对列。
+    """
+    files = {
+        # 短泛名竞争符号：真实库里首个是 `_Session`（orchestrator.py），
+        # 靠 `_norm_terms` 归一化全等拿 mr=4。没有它反证不会红。
+        "aaa/session.py": "class _Session:\n    pass\n",
+        "aaa/end.py": "def end():\n    return 0\n",
+        "bbb/lifecycle.py": "def end_session_turn():\n    return 1\n",
+    }
+    root = _build_workspace(tmp_path, files)
+    S.build_index(workspace_root=root, force=True)
+
+    res = S.search_index(workspace_root=root, query="end session turn", limit=3)
+    syms = [(s.get("name"), s.get("match_rank")) for s in (res.get("symbols") or [])]
+    assert syms, "符号层无结果"
+    assert syms[0][0] == "end_session_turn", (
+        f"带下划线的真目标没被粗筛捞到（归一化锚点撞原始 name = 旧缺陷），实际前 3={syms[:3]}"
+    )
+    assert syms[0][1] == 5, f"整句命中应给 match_rank=5，实际={syms[0][1]}"
+
+
+def test_output_layer_tiebreak_is_casefolded(tmp_path: Path) -> None:
+    """_score 完全并列时，tie-break 必须用 casefold 后的名字。
+
+    【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+    实测缺陷（冻结池修完粗筛后的最后一条 miss@1）：查 `build overlay` 时
+    `_build_overlay`（逐字全等）与 `_buildOverlays`（靠单复数容错才相等）
+    都拿 mr=5、_score 同为 337，只能靠名字排序分胜负；
+    而 'O'(79) < 'o'(111)，**全是小写的真目标反倒排在后面**，首条给的是别的文件里的
+    `_buildOverlays`。检索层 _exact/_fuzzy 分档本来排对了，被这一行 tie-break 又推翻。
+    本用例把两条同分候选直接喂给 _rerank_index_rows，断言逐字全等的在前。
+    """
+    rows = [
+        {"path": "a/engine.js", "name": "_buildOverlays", "kind": "function", "line": 1, "match_rank": 5},
+        {"path": "b/init.py", "name": "_build_overlay", "kind": "function", "line": 2, "match_rank": 5},
+    ]
+    _, syms = S._rerank_index_rows(
+        [],
+        [dict(r) for r in rows],
+        terms=["build", "overlay"],
+        path_prefix=None,
+        query_body="build overlay",
+    )
+    assert [s["name"] for s in syms][0] == "_build_overlay", (
+        f"同分时大小写 tie-break 把真目标压下去了，实际顺序={[s['name'] for s in syms]}"
+    )

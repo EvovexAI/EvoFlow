@@ -14,6 +14,8 @@ to ``evoflow_chat_messages`` so partial AI output survives mid-stream interrupts
 from __future__ import annotations
 
 import asyncio
+import contextvars
+import functools
 import json
 import logging
 import threading
@@ -68,17 +70,49 @@ def _transcript_pool() -> ThreadPoolExecutor:
 
 
 async def _run_in_transcript_pool(fn: Callable[..., Any], /, *args: Any) -> Any:
-    """Run blocking transcript persistence off the loop, on the private pool."""
+    """Run blocking transcript persistence off the loop, on the private pool.
+
+    Must copy ``contextvars`` like ``asyncio.to_thread`` does. Live runs put
+    ``thread_id`` in LangGraph config / runtime contextvars; without the copy,
+    pool workers see empty ``get_config()`` and skip all AI/tool writes
+    (user HTTP path still works → DB looks user-only).
+    """
     loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_transcript_pool(), lambda: fn(*args))
+    ctx = contextvars.copy_context()
+    call = functools.partial(ctx.run, fn, *args)
+    return await loop.run_in_executor(_transcript_pool(), call)
+
+
+def _context_get(ctx: Any, key: str) -> Any:
+    """Read dict or LeadAgentRuntimeContext (dataclass with ``.get``)."""
+    if ctx is None:
+        return None
+    if isinstance(ctx, dict):
+        return ctx.get(key)
+    getter = getattr(ctx, "get", None)
+    if callable(getter):
+        try:
+            return getter(key)
+        except Exception:
+            pass
+    return getattr(ctx, key, None)
 
 
 def _thread_id_from_runtime(runtime: Runtime) -> str:
-    ctx = getattr(runtime, "context", None) or {}
-    if isinstance(ctx, dict):
-        tid = ctx.get("thread_id")
+    ctx = getattr(runtime, "context", None)
+    tid = _context_get(ctx, "thread_id")
+    if tid:
+        return str(tid).strip()
+    # mapping helper covers dataclass + nested carriers
+    try:
+        from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
+
+        mapped = runtime_context_mapping(runtime)
+        tid = mapped.get("thread_id") if isinstance(mapped, dict) else None
         if tid:
             return str(tid).strip()
+    except Exception:
+        pass
     try:
         from langgraph.config import get_config
 
@@ -93,11 +127,19 @@ def _thread_id_from_runtime(runtime: Runtime) -> str:
 def _parent_thread_id_from_runtime(runtime: Runtime | None) -> str | None:
     if runtime is None:
         return None
-    ctx = getattr(runtime, "context", None) or {}
-    if isinstance(ctx, dict):
-        p = ctx.get("parent_thread_id")
+    ctx = getattr(runtime, "context", None)
+    p = _context_get(ctx, "parent_thread_id")
+    if p:
+        return str(p).strip() or None
+    try:
+        from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
+
+        mapped = runtime_context_mapping(runtime)
+        p = mapped.get("parent_thread_id") if isinstance(mapped, dict) else None
         if p:
             return str(p).strip() or None
+    except Exception:
+        pass
     try:
         from langgraph.config import get_config
 
@@ -485,6 +527,10 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             return
         thread_id = _thread_id_from_runtime(runtime)
         if not thread_id:
+            logger.warning(
+                "tool transcript persist skipped: empty thread_id (runtime.context=%s)",
+                type(getattr(runtime, "context", None)).__name__,
+            )
             return
         tcid = str(getattr(result, "tool_call_id", None) or "").strip()
         mid_s = str(getattr(result, "id", None) or "").strip()
@@ -494,6 +540,10 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             return
         session_key = _session_key_for_thread(thread_id)
         if not session_key:
+            logger.warning(
+                "tool transcript persist skipped: no session_key for thread=%s",
+                thread_id,
+            )
             return
         msg_dict = self._message_to_dict(result)
         if mid_s:
@@ -790,14 +840,28 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
                 principal_id=pid,
             )
         except Exception:
-            logger.debug("transcript batch persist failed thread=%s", thread_id, exc_info=True)
+            logger.warning(
+                "transcript batch persist failed thread=%s session=%s n=%s",
+                thread_id,
+                session_key,
+                len(messages),
+                exc_info=True,
+            )
 
     def _persist_messages(self, state: AgentState, runtime: Runtime) -> None:
         thread_id = _thread_id_from_runtime(runtime)
         if not thread_id:
+            logger.warning(
+                "transcript persist skipped: empty thread_id (runtime.context=%s)",
+                type(getattr(runtime, "context", None)).__name__,
+            )
             return
         session_key = _session_key_for_thread(thread_id)
         if not session_key:
+            logger.warning(
+                "transcript persist skipped: no session_key for thread=%s",
+                thread_id,
+            )
             return
         parent_thread_id = _parent_thread_id_from_runtime(runtime)
 

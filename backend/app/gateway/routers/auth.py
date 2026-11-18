@@ -16,6 +16,7 @@ minted token can be round-trip verified.
 from __future__ import annotations
 
 import hashlib
+import asyncio
 import logging
 from typing import Any
 
@@ -108,7 +109,8 @@ async def create_token(body: CreateTokenRequest) -> CreateTokenResponse:
     Returns:
         The plaintext token and its hash.
     """
-    plaintext = token_repository.create_token(
+    plaintext = await asyncio.to_thread(
+        token_repository.create_token,
         name=body.name,
         identity_type=body.identity_type,
         identity_id=body.identity_id,
@@ -144,7 +146,7 @@ async def revoke_token(token_hash: str) -> RevokeTokenResponse:
     Raises:
         HTTPException: 404 when the token does not exist or is already revoked.
     """
-    revoked = token_repository.revoke_token(token_hash)
+    revoked = await asyncio.to_thread(token_repository.revoke_token, token_hash)
     if not revoked:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -165,7 +167,7 @@ async def list_tokens() -> ListTokensResponse:
     Returns:
         ``{tokens, count}`` where each token entry is a :class:`TokenInfo`.
     """
-    rows = token_repository.list_tokens()
+    rows = await asyncio.to_thread(token_repository.list_tokens)
     tokens = [TokenInfo(**row) for row in rows]
     return ListTokensResponse(tokens=tokens, count=len(tokens))
 

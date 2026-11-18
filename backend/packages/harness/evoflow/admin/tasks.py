@@ -162,27 +162,25 @@ def _summary_patch(summary: str | None, *, target_status: str | None = None) -> 
 
 
 def _status_zh(v: str | None) -> str:
-    from evoflow.tools.builtins.supervisor_tool import _STATUS_ZH_MAP
+    # 【2026-11-18 perf】此处原先 import supervisor_tool 取映射表，会把
+    # tools/builtins/__init__ → langchain → transformers → torch 整条链拉进来，
+    # 于是「每渲染一行状态中文」= 付一次模型导入的钱（实测首调 5456ms / 次调 18ms）。
+    # 状态词表是无依赖常量，落在 evoflow.collab.task_status（导入 149ms、不碰 torch）。
+    from evoflow.collab.task_status import status_zh
 
-    return _STATUS_ZH_MAP.get(_normalize_status(v), "未知")
+    return status_zh(v)
 
 
 def _can_transition(current: str, target: str) -> bool:
-    from evoflow.tools.builtins.supervisor_tool import _TASK_STATE_TRANSITIONS
+    from evoflow.collab.task_status import can_transition
 
-    if current == target:
-        return True
-    allowed = _TASK_STATE_TRANSITIONS.get(current)
-    if allowed is None:
-        return False
-    return target in allowed
+    return can_transition(current, target)
 
 
 def _next_states(current: str) -> list[str]:
-    from evoflow.tools.builtins.supervisor_tool import _TASK_STATE_TRANSITIONS
+    from evoflow.collab.task_status import next_states
 
-    allowed = _TASK_STATE_TRANSITIONS.get(current) or set()
-    return sorted(allowed)
+    return next_states(current)
 
 
 def _illegal_transition_message(current: str, target: str) -> str:
@@ -192,10 +190,10 @@ def _illegal_transition_message(current: str, target: str) -> str:
 
 
 def _validate_target_state(target: str) -> None:
-    from evoflow.tools.builtins.supervisor_tool import _ALLOWED_TASK_STATES
+    from evoflow.collab.task_status import ALLOWED_TASK_STATES
 
-    if target not in _ALLOWED_TASK_STATES:
-        raise ValidationError(f"invalid status '{target}'; allowed: {sorted(_ALLOWED_TASK_STATES)}")
+    if target not in ALLOWED_TASK_STATES:
+        raise ValidationError(f"invalid status '{target}'; allowed: {sorted(ALLOWED_TASK_STATES)}")
 
 
 def _row_matches(

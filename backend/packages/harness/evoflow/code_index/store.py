@@ -1384,10 +1384,22 @@ def _rerank_index_rows(
             score += 4.0
         return score
 
+    # 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+    # 同分并列时的 tie-break 必须用 casefold 后的名字，不能用原始 name。
+    # 实测（`build overlay`，冻结池残留的唯一一条 miss@1）：`_build_overlay`
+    # （逐字全等）与 `_buildOverlays`（靠单复数容错才相等）都拿 mr=5、_score 同为 337，
+    # 只能靠名字排序分胜负；而 'O'(79) < 'o'(111)，于是全是小写下划线的**真目标
+    # 反倒排在后面**，首条给的是另一个文件里的 `_buildOverlays`。
+    # 检索层的 _exact/_fuzzy 分档本来是排对的（_build_overlay 在前），
+    # 被这一行 tie-break 又推翻 —— 与第34轮「分档必须单调」是同一类错。
     hits_out = sorted(hits, key=lambda r: (-_score(r), str(r.get("path") or "")))
     symbols_out = sorted(
         symbols,
-        key=lambda r: (-_score(r), str(r.get("name") or ""), str(r.get("path") or "")),
+        key=lambda r: (
+            -_score(r),
+            str(r.get("name") or "").casefold(),
+            str(r.get("path") or ""),
+        ),
     )
     return hits_out, symbols_out
 
@@ -2338,6 +2350,48 @@ def _iter_source_files(root: Path, max_files: int) -> list[Path]:
     return found
 
 
+_COVERAGE_CACHE: dict[str, tuple[tuple[float, int], tuple[int, int, int]]] = {}
+_COVERAGE_CACHE_MAX = 8
+
+
+def _vector_coverage_counts(
+    conn: sqlite3.Connection, root: str, dbp: Path
+) -> tuple[int, int, int]:
+    """``(vec_n, vec_paths, denom)`` —— 向量覆盖率判据要的三个数。
+
+    【self-evolution-bot · 2026-11-18 · 第45轮 · 模型:deepseek-v4.1-flash-1017】
+
+    为什么单独抽出来并缓存：这两条 ``COUNT(DISTINCT path)`` 是 `index_status` 里
+    唯一的重活，而 `index_status` 一次 `search_index` 会调 3 次。逐条 SQL 归因实测
+    （1.84GB 库、118605 块、7841 文件）：
+
+    - ``SELECT COUNT(DISTINCT path) FROM code_vec``  **548ms**
+    - ``SELECT COUNT(DISTINCT path) FROM fts_content``  **51ms**
+    - 对照 ``SELECT COUNT(*) FROM code_vec`` 只要 **32ms**（走覆盖索引）
+
+    即 600ms 全部花在「数有多少个不同文件」上，占稳态 1.36s 检索的 44%。
+    这三条数只在**索引被写过**时才可能变，而索引被写必然会改 ``index.db`` 的 mtime，
+    所以判据取 ``(st_mtime, st_size)``——与 catalog / search 的行缓存同一手法，
+    也覆盖「同一秒内重写、mtime 秒级不变」的情况。
+    命中缓存时 0 次 SQL；未命中才回原路径，语义完全不变。
+    """
+    try:
+        db_stat = dbp.stat()
+        key_stat = (db_stat.st_mtime, db_stat.st_size)
+    except OSError:
+        key_stat = (0.0, 0)
+    hit = _COVERAGE_CACHE.get(root)
+    if hit is not None and hit[0] == key_stat:
+        return hit[1]
+    vec_n = int(conn.execute("SELECT COUNT(*) FROM code_vec").fetchone()[0])
+    vec_paths = int(conn.execute("SELECT COUNT(DISTINCT path) FROM code_vec").fetchone()[0])
+    denom = int(conn.execute("SELECT COUNT(DISTINCT path) FROM fts_content").fetchone()[0])
+    if len(_COVERAGE_CACHE) >= _COVERAGE_CACHE_MAX:
+        _COVERAGE_CACHE.pop(next(iter(_COVERAGE_CACHE)), None)
+    _COVERAGE_CACHE[root] = (key_stat, (vec_n, vec_paths, denom))
+    return vec_n, vec_paths, denom
+
+
 def _fts_doc_count(conn: sqlite3.Connection) -> int:
     """FTS5 里「有多少条文档」，优先走影子表，别每次全表数。
 
@@ -2407,20 +2461,11 @@ def _read_index_status_unlocked(root: str, dbp: Path, *, building: bool) -> dict
                 # （那才是「库里有多少篇文档」的语义）。顺带花 99ms，只在残缺判定路径上跑一次。
                 denom = 0
                 try:
-                    vec_n = int(conn.execute("SELECT COUNT(*) FROM code_vec").fetchone()[0])
-                    # 【self-evolution-bot · 2026-11-17 · 第41轮】按**不同文件数**判，不按块数判。
-                    # 为什么原来那条判据永远判「完整」：它是 `vec_n < n`（块数 < 文件数），
-                    # 而一文件多块，块数天然远大于文件数——实测 7839 个文件、
-                    # code_vec 20389 块但 distinct path 只有 1394，
-                    # **6446 个文件（82%）没有向量**，判据却报完整、ready=True，
-                    # 于是每次检索都不补、语义召回长期只覆盖 18% 且无人察觉。
-                    # 换成 distinct path 直接对 n。
-                    vec_paths = int(
-                        conn.execute("SELECT COUNT(DISTINCT path) FROM code_vec").fetchone()[0]
-                    )
-                    denom = int(
-                        conn.execute("SELECT COUNT(DISTINCT path) FROM fts_content").fetchone()[0]
-                    )
+                    # 【self-evolution-bot · 2026-11-18 · 第45轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 三条计数改走 `_vector_coverage_counts`（带「索引库没被写过就复用」缓存）。
+                    # 原来这里直接跑两条 COUNT(DISTINCT path)，实测合计 599ms，
+                    # 而 `index_status` 一次检索要被调 3 次、本函数在每个调用里都跑一遍。
+                    vec_n, vec_paths, denom = _vector_coverage_counts(conn, root, dbp)
                 except sqlite3.OperationalError:
                     vec_n = 0
                     vec_paths = 0
@@ -3558,31 +3603,49 @@ def _search_symbols(
         # 只做尾部，不做词干提取：词干会把 progress/progresses 之外的东西也吃掉，
         # 引入不可控的误匹配。
         # 【self-evolution-bot · 2026-11-17 · 第36轮】SQL 只做粗筛：候选名必须
-        # 「词元数相同」且首词元前 6 个字符相同（走 name 索引前缀，避免全表 Python 扫）。
-        # 精确判定交给 _whole_name_matches（逐词元比对 + 单复数归一）。
+        # 含查询词元；精确判定交给 _whole_name_matches（逐词元比对 + 单复数归一）。
         # 粗筛用「子串」而不是「前缀」：前缀会漏掉带前导下划线的 `_build_overlay`，
         # 也会漏掉大写缩写连写的 `ZCodeBackgroundTaskControlItem`（实测这两类共退化 4 条）。
-        # 5.2 万行子串扫描在 SQLite 上是几十毫秒量级，相比整体 p50 ~600ms 可忽略。
-        _q_tokens = _name_tokens(whole_query)
-        _head = (_q_tokens[0][:6] if _q_tokens else "") or _whole_norm[:6]
-        # 【self-evolution-bot · 2026-11-17 · 第40轮 · 模型:deepseek-v4.1-flash-1017】
-        # 上面这行 `_q_tokens[0][:6]` 对「大写缩写连写」是致命的：
-        # `ZCode Background Task Control Item` 的首词元被拆成 `z`，
-        # 于是粗筛变成 `name LIKE '%z%'` —— 5.2 万个符号里几乎全中，
-        # 候选被 LIMIT 400 截断，**真目标压根没进候选集**，整句档（rank=5）
-        # 形同虚设，答案只能靠后面的模糊档捞，位置从第 1 掉到第 2。
-        # 判据：首词元太短（<4 字符）时不拿它当锚点，改用整串归一后的前缀。
-        # 单字/双字词元做 LIKE 锚点没有任何筛选力，只会把 LIMIT 烧光。
-        if len(_head) < 4:
-            _head = _whole_norm[:8] or _head
-        _cand_sql = (
-            "SELECT path, name, kind, line FROM symbols"
-            " WHERE name LIKE ?"
-            " ORDER BY CASE WHEN kind IN"
-            " ('function','class','method','constructor','interface','type','struct')"
-            " THEN 0 ELSE 1 END"
-            " LIMIT ?"
-        )
+        #
+        # 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+        # 粗筛判据从「单锚点 LIKE」改为「每个词元都必须是去分隔符后名字的子串，AND 起来」。
+        # 理由是实测（冻结池 59 可评、改前 hit@1 55/59）4 条 miss@1 里 2 条同一根因：
+        #   ① 锚点归一化、SQL 却比对**原始** name —— `end session turn` 的锚点是
+        #      `endsessi`（已去分隔符），而 `end_session_turn` 原始名里有下划线，
+        #      `name LIKE '%endsessi%'` **命中 0 条**，目标永远进不了候选集；
+        #   ② 锚点只取首词元 → 泛词烧光 LIMIT —— `build Diff Summary` / `build overlay` /
+        #      `load Role Schedule Preview` 的首词元是 build/load，分别命中
+        #      1212 / 1212 / 1168 个符号，`LIMIT 400` 直接截断，目标实测 pos=-1
+        #      （压根不在前 400），整句档形同虚设，答案靠后面的短泛词档捞。
+        # 同一库同一 8 条查询实测对比：AND 粗筛候选数 1~8 条，8/8 目标落在候选前 5 位
+        # （改前 3/8 根本不在候选里），单次 13.6~15.7ms —— 相比整体 p50 ~600ms 可忽略。
+        _q_tokens = [t for t in _name_tokens(whole_query) if len(t) >= 2]
+        _norm_col = "replace(replace(lower(name),'_',''),'-','')"
+        _cand_rows: list = []
+        if _q_tokens:
+            # 单复数归一后再当子串：`plugins uninstall` 用 'plugin' 也命中
+            # `plugins_uninstall`，反之亦然。只做词尾单数化，不做词干提取。
+            _pats = ["%" + _strip_seps(_sing_tok(t)) + "%" for t in _q_tokens]
+            _cand_sql = (
+                "SELECT path, name, kind, line FROM symbols"
+                " WHERE " + " AND ".join([_norm_col + " LIKE ?"] * len(_pats)) +
+                " ORDER BY CASE WHEN kind IN"
+                " ('function','class','method','constructor','interface','type','struct')"
+                " THEN 0 ELSE 1 END"
+                " LIMIT ?"
+            )
+            _cand_rows = conn.execute(_cand_sql, (*_pats, lim * 40)).fetchall()
+        elif _whole_norm[:8]:
+            # 兜底：查询里没有任何 ≥2 字符的词元（极短/纯符号查询）时退回整串子串。
+            _cand_rows = conn.execute(
+                "SELECT path, name, kind, line FROM symbols"
+                " WHERE name LIKE ?"
+                " ORDER BY CASE WHEN kind IN"
+                " ('function','class','method','constructor','interface','type','struct')"
+                " THEN 0 ELSE 1 END"
+                " LIMIT ?",
+                ("%" + _whole_norm[:8] + "%", lim * 40),
+            ).fetchall()
         # 【self-evolution-bot · 2026-11-17 · 第36轮】同一档（rank=5）内还要再排一次：
         # 去分隔符**全等**的必须排在「靠单复数容错才相等」的前面。
         # 实测教训：查 `build overlay` 时 `_buildOverlays`（复数容错命中）排在
@@ -3590,7 +3653,7 @@ def _search_symbols(
         # 复数容错本是为了补召回，不该抢走逐字命中的首位。
         _exact: list = []
         _fuzzy: list = []
-        for row in conn.execute(_cand_sql, ("%" + _head + "%", lim * 40)).fetchall():
+        for row in _cand_rows:
             name = str(row["name"] or "")
             if _strip_seps(whole_query) == _strip_seps(name):
                 _exact.append(row)

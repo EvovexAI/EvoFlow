@@ -1003,6 +1003,15 @@ async function _handleTurnEndLocalOrEnqueue(text) {
       _logDialogue(`本地口令退出（不经模型）：「${t}」`)
       return
     }
+    if (handled === 'new_round') {
+      clearXiaomiVoiceCommittedTurns()
+      _sending = false
+      _awaitingReply = false
+      _turnAwaitingPlay = ''
+      _logDialogue(`本地口令新开一轮（不经模型）：「${t}」`)
+      _refreshTray()
+      return
+    }
     if (handled === 'tts_stopped') {
       _logDialogue(`本地口令停播报（不经模型）：「${t}」`)
       _refreshTray()
@@ -1019,19 +1028,27 @@ async function _enqueueTurn(text) {
   if (!t) return
   // 双保险：排队迟到句若是退出口令，也绝不发给模型（避免绕过 turn_end 闸）
   try {
-    const { isXiaomiVoiceExitCommand } = await import('../xiaomi-voice-close.js')
+    const {
+      isXiaomiVoiceExitCommand,
+      isXiaomiVoiceNewRoundCommand,
+      tryHandleXiaomiVoiceLocalCommand,
+    } = await import('../xiaomi-voice-close.js')
     const { isStopTtsOnlyCommand } = await import('../voice-listen-control.js')
-    if (isXiaomiVoiceExitCommand(t) || isStopTtsOnlyCommand(t)) {
+    if (
+      isXiaomiVoiceExitCommand(t) ||
+      isStopTtsOnlyCommand(t) ||
+      isXiaomiVoiceNewRoundCommand(t)
+    ) {
       voiceFeLog('用户输入', `排队句命中本地口令 → 改走闸门：「${t.slice(0, 40)}」`)
       _clearCoalesce()
       // 直接走闸门，勿再 _handleTurnEndLocalOrEnqueue→_enqueueTurn 递归
-      const { tryHandleXiaomiVoiceLocalCommand } = await import('../xiaomi-voice-close.js')
       const handled = await tryHandleXiaomiVoiceLocalCommand(t, { source: 'frame-enqueue' })
-      if (handled === 'exited') {
+      if (handled === 'exited' || handled === 'new_round') {
         _pendingTurns.length = 0
         _sending = false
         _awaitingReply = false
         _turnAwaitingPlay = ''
+        if (handled === 'new_round') clearXiaomiVoiceCommittedTurns()
         return
       }
       if (handled === 'tts_stopped') {
@@ -1207,9 +1224,10 @@ async function _sendTurn(text) {
   try {
     const { tryHandleXiaomiVoiceLocalCommand } = await import('../xiaomi-voice-close.js')
     const handled = await tryHandleXiaomiVoiceLocalCommand(text, { source: 'frame-sendTurn' })
-    if (handled === 'exited' || handled === 'tts_stopped') {
+    if (handled === 'exited' || handled === 'tts_stopped' || handled === 'new_round') {
       _pendingTurns.length = 0
       _awaitingReply = false
+      if (handled === 'new_round') clearXiaomiVoiceCommittedTurns()
       _refreshTray()
       return
     }
@@ -1302,15 +1320,22 @@ async function _sendTurn(text) {
   }
 }
 
+/** 新开一轮 / 换会话：清 ASR 粘连剥前缀环，避免旧「查天气」粘到下一句。 */
+export function clearXiaomiVoiceCommittedTurns() {
+  _lastCommittedTurn = ''
+  _lastCommittedAtMs = 0
+  _committedTurns.length = 0
+  _clearCoalesce()
+  _pendingTurns.length = 0
+}
+
 export function stopXiaomiFramePipeline() {
   if (_running) voiceFeLog('会话', '前端停止语音管线')
   _running = false
   _pendingTurns.length = 0
   _sending = false
   _clearCoalesce()
-  _lastCommittedTurn = ''
-  _lastCommittedAtMs = 0
-  _committedTurns.length = 0
+  clearXiaomiVoiceCommittedTurns()
   _wakeAckUntilMs = 0
   // 退出小微对话后不再 prefer 小V，避免迟到 ASR 仍标小V 或误路由
   void import('../background-voice-bridge.js')

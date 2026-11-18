@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 from typing import Any
 
@@ -56,11 +57,11 @@ async def create_share(request: Request, body: CreateShareBody) -> CreateShareRe
     if not sk:
         raise HTTPException(status_code=400, detail="session_key is required")
     require_session_visible(request, sk)
-    row = sess_repo.get_session_row_for_ui(sk)
+    row = await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
     title = str(row.get("title") or row.get("session_title") or "").strip() or "未命名会话"
-    packed = msg_repo.list_messages_for_display_all(sk)
+    packed = await asyncio.to_thread(msg_repo.list_messages_for_display_all, sk)
     raw_messages = list(packed.get("messages") or [])
     messages = share_repo.build_share_snapshot_messages(
         raw_messages,
@@ -71,7 +72,8 @@ async def create_share(request: Request, body: CreateShareBody) -> CreateShareRe
     token = secrets.token_urlsafe(24)
     stamp = stamp_kwargs_from_request(request)
     try:
-        created = share_repo.create_share(
+        created = await asyncio.to_thread(
+            share_repo.create_share,
             token=token,
             session_key=sk,
             title=title,
@@ -103,7 +105,7 @@ async def latest_share_for_session(
     if not sk:
         raise HTTPException(status_code=400, detail="session_key is required")
     require_session_visible(request, sk)
-    row = share_repo.latest_share_for_session(sk)
+    row = await asyncio.to_thread(share_repo.latest_share_for_session, sk)
     if not row:
         return {"ok": True, "share": None}
     return {
@@ -122,7 +124,7 @@ async def latest_share_for_session(
 
 @router.get("/{token}", response_model=PublicShareResponse)
 async def get_share(token: str) -> PublicShareResponse:
-    data = share_repo.get_public_share(token)
+    data = await asyncio.to_thread(share_repo.get_public_share, token)
     if data is None:
         raise HTTPException(status_code=404, detail="分享不存在或已失效")
     if not data.get("ok"):
@@ -142,13 +144,13 @@ async def get_share(token: str) -> PublicShareResponse:
 
 @router.delete("/{token}")
 async def revoke_share(request: Request, token: str) -> dict[str, Any]:
-    row = share_repo.get_share_row(token)
+    row = await asyncio.to_thread(share_repo.get_share_row, token)
     if not row:
         raise HTTPException(status_code=404, detail="分享不存在")
     sk = str(row.get("session_key") or "").strip()
     if sk:
         require_session_visible(request, sk)
-    ok = share_repo.revoke_share(token)
+    ok = await asyncio.to_thread(share_repo.revoke_share, token)
     if not ok:
         raise HTTPException(status_code=404, detail="分享不存在")
     return {"ok": True, "revoked": True, "token": str(token or "").strip()}

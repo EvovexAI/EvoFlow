@@ -560,8 +560,18 @@ def _open_shared_connection(path: Path) -> sqlite3.Connection:
 
 
 def run_db_with_retry[T](fn: Callable[[], T], *, max_attempts: int | None = None) -> T:
-    """Run a DB closure with process lock + sqlite busy / stale-cursor retry."""
+    """Run a DB closure with process lock + sqlite busy / stale-cursor retry.
+
+    On the asyncio event-loop thread, busy/locked errors are NOT retried with
+    ``time.sleep``: the 0.5s lock fail-fast in ``_acquire_process_db_lock``
+    exists precisely so the loop never waits on a long writer, and sleeping
+    here (up to ~12s across 8 attempts) would defeat it and freeze the whole
+    Gateway (2026-11-15 298s hang variant). Callers on the loop must offload
+    to a worker thread (``asyncio.to_thread`` / ``db_async.run_db``) to get
+    retry semantics.
+    """
     attempts = _DEFAULT_MAX_ATTEMPTS if max_attempts is None else max_attempts
+    on_loop = _on_asyncio_loop_thread()
     last: BaseException | None = None
     for attempt in range(max(1, int(attempts))):
         try:
@@ -570,6 +580,8 @@ def run_db_with_retry[T](fn: Callable[[], T], *, max_attempts: int | None = None
         except sqlite3.OperationalError as e:
             last = e
             if not _is_sqlite_busy_error(e) or attempt >= attempts - 1:
+                raise
+            if on_loop:
                 raise
             delay = min(0.05 * (2**attempt), 2.5)
             logger.debug(
@@ -1048,11 +1060,13 @@ def run_deferred_full_preflight(*, base_dir: Path | None = None) -> dict[str, bo
     return results
 
 
-def checkpoint_all_databases() -> dict[str, dict[str, int]]:
-    """Run ``PRAGMA wal_checkpoint(TRUNCATE)`` on all 3 SQLite databases.
+def checkpoint_all_databases(mode: str = "truncate") -> dict[str, dict[str, int]]:
+    """Run ``PRAGMA wal_checkpoint`` on all 3 SQLite databases.
 
-    Called periodically (~hourly) by the data retention scheduler to prevent
-    WAL files from growing unbounded. Returns a summary dict per database.
+    ``mode="truncate"``（默认，保持旧行为）回收 WAL 磁盘空间但需短暂独占——
+    与写繁忙互锁（成功=写排队窗口，失败=WAL 继续膨胀）。``mode="passive"``
+    不阻塞写入方，适合常规整点例行 checkpoint；磁盘回收交给尺寸保险触发的
+    TRUNCATE。Called periodically (~hourly) by the data retention scheduler.
     """
     from evoflow.config.data_paths import (
         checkpoints_db_path,
@@ -1083,7 +1097,10 @@ def checkpoint_all_databases() -> dict[str, dict[str, int]]:
         try:
             conn = sqlite3.connect(str(path), timeout=30.0)
             conn.execute("PRAGMA busy_timeout=5000")
-            busy, log_frames, ckpt_frames = _wal_checkpoint_truncate(conn)
+            if mode == "passive":
+                busy, log_frames, ckpt_frames = _wal_checkpoint_passive(conn)
+            else:
+                busy, log_frames, ckpt_frames = _wal_checkpoint_truncate(conn)
             summary[label] = {"busy": busy, "log": log_frames, "checkpointed": ckpt_frames}
             logger.debug(
                 "wal_checkpoint %s: busy=%s log=%s checkpointed=%s",

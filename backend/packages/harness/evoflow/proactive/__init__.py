@@ -10,10 +10,29 @@ Public API:
         ProactiveRole, Initiative, Approval, ProactiveMemory,
         ProactiveEngine, DecisionGate, ProactiveRunner,
     )
+
+Lazy attributes (PEP 562) — 2026-11-18 perf fix
+-----------------------------------------------
+``engine`` and ``runner`` import ``evoflow.models`` (→ langchain → transformers
+→ ``torch``) at module scope: 2.5s / 2.4s cold. This package used to re-export
+them eagerly, so *any* submodule import — e.g. the
+``from evoflow.proactive.repositories import ProactiveRepository`` that runs
+inside ``tasks`` list row projection — first executed this ``__init__`` and made
+the whole task board pay for the model stack (measured: first
+``list_tasks(limit=10)`` 5.4s, subsequent 18ms).
+
+Attributes now resolve on first access, so light consumers (repositories,
+models, decision_gate) never touch torch. Behaviour is unchanged for
+``from evoflow.proactive import ProactiveEngine`` / ``*`` / attribute access;
+tests that ``monkeypatch.setattr`` a real submodule path are unaffected.
 """
 
+from __future__ import annotations
+
+from typing import Any
+
+# 轻量子模块：无模型依赖，保持 eager（也是历史调用方最常走的路径）。
 from evoflow.proactive.decision_gate import DecisionGate
-from evoflow.proactive.engine import ProactiveEngine
 from evoflow.proactive.models import (
     Approval,
     ApprovalStatus,
@@ -22,6 +41,7 @@ from evoflow.proactive.models import (
     InitiativeRiskLevel,
     InitiativeStatus,
     ProactiveAutonomyLevel,
+    ProactiveMemory,
     ProactiveRole,
     ProactiveRoleConfig,
 )
@@ -29,7 +49,12 @@ from evoflow.proactive.repositories import (
     ProactiveMemoryRepository,
     ProactiveRepository,
 )
-from evoflow.proactive.runner import ProactiveRunner
+
+# 重量子模块：只在被真正用到时才加载。
+_LAZY: dict[str, tuple[str, str]] = {
+    "ProactiveEngine": ("evoflow.proactive.engine", "ProactiveEngine"),
+    "ProactiveRunner": ("evoflow.proactive.runner", "ProactiveRunner"),
+}
 
 __all__ = [
     "ProactiveRole",
@@ -48,3 +73,20 @@ __all__ = [
     "DecisionGate",
     "ProactiveRunner",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    target = _LAZY.get(name)
+    if target is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    module_name, attr = target
+    value = getattr(importlib.import_module(module_name), attr)
+    globals()[name] = value  # cache: only the first access pays
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY))
+

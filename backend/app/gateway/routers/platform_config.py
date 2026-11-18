@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -52,14 +53,14 @@ async def reload_config_caches(request: Request) -> dict[str, str]:
 @router.get("/models")
 async def list_config_models(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    get_db()
-    return {"models": cfg_repo.list_models()}
+    await asyncio.to_thread(get_db)
+    return {"models": await asyncio.to_thread(cfg_repo.list_models)}
 
 
 @router.get("/models/{name}")
 async def get_config_model(request: Request, name: str) -> dict[str, Any]:
     require_org_admin(request)
-    doc = cfg_repo.get_model(name.strip())
+    doc = await asyncio.to_thread(cfg_repo.get_model, name.strip())
     if doc is None:
         raise HTTPException(status_code=404, detail=f"Model {name!r} not found")
     return doc
@@ -69,7 +70,7 @@ async def get_config_model(request: Request, name: str) -> dict[str, Any]:
 async def put_config_model(request: Request, name: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     require_org_admin(request)
     doc = {**body, "name": name.strip()}
-    cfg_repo.upsert_model(doc)
+    await asyncio.to_thread(cfg_repo.upsert_model, doc)
     _reload_runtime_caches()
     return {"success": True, "model": doc}
 
@@ -77,7 +78,7 @@ async def put_config_model(request: Request, name: str, body: dict[str, Any] = B
 @router.delete("/models/{name}")
 async def delete_config_model(request: Request, name: str) -> dict[str, Any]:
     require_org_admin(request)
-    if not cfg_repo.delete_model(name.strip()):
+    if not await asyncio.to_thread(cfg_repo.delete_model, name.strip()):
         raise HTTPException(status_code=404, detail=f"Model {name!r} not found")
     _reload_runtime_caches()
     return {"success": True}
@@ -89,15 +90,15 @@ async def delete_config_model(request: Request, name: str) -> dict[str, Any]:
 @router.get("/tools")
 async def list_config_tools(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    get_db()
-    return {"tools": cfg_repo.list_tools()}
+    await asyncio.to_thread(get_db)
+    return {"tools": await asyncio.to_thread(cfg_repo.list_tools)}
 
 
 @router.put("/tools/{name}")
 async def put_config_tool(request: Request, name: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     require_org_admin(request)
     doc = {**body, "name": name.strip()}
-    cfg_repo.upsert_tool(doc)
+    await asyncio.to_thread(cfg_repo.upsert_tool, doc)
     _reload_runtime_caches()
     return {"success": True, "tool": doc}
 
@@ -105,7 +106,7 @@ async def put_config_tool(request: Request, name: str, body: dict[str, Any] = Bo
 @router.delete("/tools/{name}")
 async def delete_config_tool(request: Request, name: str) -> dict[str, Any]:
     require_org_admin(request)
-    if not cfg_repo.delete_tool(name.strip()):
+    if not await asyncio.to_thread(cfg_repo.delete_tool, name.strip()):
         raise HTTPException(status_code=404, detail=f"Tool {name!r} not found")
     _reload_runtime_caches()
     return {"success": True}
@@ -117,14 +118,14 @@ async def delete_config_tool(request: Request, name: str) -> dict[str, Any]:
 @router.get("/tool-groups")
 async def list_config_tool_groups(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    return {"tool_groups": cfg_repo.list_tool_groups()}
+    return {"tool_groups": await asyncio.to_thread(cfg_repo.list_tool_groups)}
 
 
 @router.put("/tool-groups/{name}")
 async def put_config_tool_group(request: Request, name: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     require_org_admin(request)
     doc = {**body, "name": name.strip()}
-    cfg_repo.upsert_tool_group(doc)
+    await asyncio.to_thread(cfg_repo.upsert_tool_group, doc)
     _reload_runtime_caches()
     return {"success": True, "tool_group": doc}
 
@@ -132,7 +133,7 @@ async def put_config_tool_group(request: Request, name: str, body: dict[str, Any
 @router.delete("/tool-groups/{name}")
 async def delete_config_tool_group(request: Request, name: str) -> dict[str, Any]:
     require_org_admin(request)
-    if not cfg_repo.delete_tool_group(name.strip()):
+    if not await asyncio.to_thread(cfg_repo.delete_tool_group, name.strip()):
         raise HTTPException(status_code=404, detail=f"Tool group {name!r} not found")
     _reload_runtime_caches()
     return {"success": True}
@@ -144,13 +145,13 @@ async def delete_config_tool_group(request: Request, name: str) -> dict[str, Any
 @router.get("/channels")
 async def list_config_channels(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    return {"channels": cfg_repo.get_all_channel_configs()}
+    return {"channels": await asyncio.to_thread(cfg_repo.get_all_channel_configs)}
 
 
 @router.get("/channels/{platform}")
 async def get_config_channel(request: Request, platform: str) -> dict[str, Any]:
     require_org_admin(request)
-    ch = cfg_repo.get_all_channel_configs().get(platform.strip())
+    ch = (await asyncio.to_thread(cfg_repo.get_all_channel_configs)).get(platform.strip())
     if ch is None:
         raise HTTPException(status_code=404, detail=f"Channel platform {platform!r} not found")
     return {"platform": platform.strip(), "config": ch}
@@ -165,9 +166,9 @@ class ChannelUpdateBody(BaseModel):
 async def put_config_channel(request: Request, platform: str, body: ChannelUpdateBody) -> dict[str, Any]:
     require_org_admin(request)
     plat = platform.strip()
-    existing = cfg_repo.get_all_channel_configs().get(plat) or {}
+    existing = (await asyncio.to_thread(cfg_repo.get_all_channel_configs)).get(plat) or {}
     doc = {**existing, **body.config} if body.merge else dict(body.config)
-    cfg_repo.upsert_channel_config(plat, doc)
+    await asyncio.to_thread(cfg_repo.upsert_channel_config, plat, doc)
     _reload_runtime_caches()
     return {"success": True, "platform": plat, "config": doc}
 
@@ -176,10 +177,10 @@ async def put_config_channel(request: Request, platform: str, body: ChannelUpdat
 async def delete_config_channel(request: Request, platform: str) -> dict[str, Any]:
     require_org_admin(request)
     plat = platform.strip()
-    all_ch = cfg_repo.get_all_channel_configs()
+    all_ch = await asyncio.to_thread(cfg_repo.get_all_channel_configs)
     if plat not in all_ch:
         raise HTTPException(status_code=404, detail=f"Channel platform {plat!r} not found")
-    cfg_repo.replace_channel_configs({k: v for k, v in all_ch.items() if k != plat})
+    await asyncio.to_thread(cfg_repo.replace_channel_configs, {k: v for k, v in all_ch.items() if k != plat})
     _reload_runtime_caches()
     return {"success": True}
 
@@ -190,7 +191,7 @@ async def delete_config_channel(request: Request, platform: str) -> dict[str, An
 @router.get("/skills")
 async def list_config_skills(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    return {"skills": cfg_repo.list_skill_registry()}
+    return {"skills": await asyncio.to_thread(cfg_repo.list_skill_registry)}
 
 
 class SkillEnableBody(BaseModel):
@@ -200,8 +201,9 @@ class SkillEnableBody(BaseModel):
 @router.put("/skills/{name}")
 async def put_config_skill(request: Request, name: str, body: SkillEnableBody) -> dict[str, Any]:
     require_org_admin(request)
-    reg = cfg_repo.get_skill_registry(name.strip()) or {}
-    cfg_repo.upsert_skill_registry(
+    reg = await asyncio.to_thread(cfg_repo.get_skill_registry, name.strip()) or {}
+    await asyncio.to_thread(
+        cfg_repo.upsert_skill_registry,
         name.strip(),
         enabled=body.enabled,
         skill_md=reg.get("skill_md"),
@@ -219,13 +221,13 @@ async def put_config_skill(request: Request, name: str, body: SkillEnableBody) -
 @router.get("/mcp-servers")
 async def list_config_mcp(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    return {"mcp_servers": cfg_repo.list_mcp_servers()}
+    return {"mcp_servers": await asyncio.to_thread(cfg_repo.list_mcp_servers)}
 
 
 @router.put("/mcp-servers/{name}")
 async def put_config_mcp(request: Request, name: str, body: dict[str, Any] = Body(default_factory=dict)) -> dict[str, Any]:
     require_org_admin(request)
-    cfg_repo.upsert_mcp_server(name.strip(), body)
+    await asyncio.to_thread(cfg_repo.upsert_mcp_server, name.strip(), body)
     _reload_runtime_caches()
     return {"success": True, "name": name.strip()}
 
@@ -233,7 +235,7 @@ async def put_config_mcp(request: Request, name: str, body: dict[str, Any] = Bod
 @router.delete("/mcp-servers/{name}")
 async def delete_config_mcp(request: Request, name: str) -> dict[str, Any]:
     require_org_admin(request)
-    if not cfg_repo.delete_mcp_server(name.strip()):
+    if not await asyncio.to_thread(cfg_repo.delete_mcp_server, name.strip()):
         raise HTTPException(status_code=404, detail=f"MCP server {name!r} not found")
     _reload_runtime_caches()
     return {"success": True}
@@ -245,14 +247,14 @@ async def delete_config_mcp(request: Request, name: str) -> dict[str, Any]:
 @router.get("/app-settings")
 async def list_config_app_settings(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    return {"settings": cfg_repo.list_app_settings()}
+    return {"settings": await asyncio.to_thread(cfg_repo.list_app_settings)}
 
 
 @router.put("/app-settings/{key}")
 async def put_config_app_setting(request: Request, key: str, body: Any = Body(...)) -> dict[str, Any]:
     require_org_admin(request)
     setting_key = key.strip()
-    cfg_repo.set_app_setting(setting_key, body)
+    await asyncio.to_thread(cfg_repo.set_app_setting, setting_key, body)
     if setting_key in ("primary_model", "tools_mode", "channels.global") or setting_key.startswith("runtime."):
         _reload_runtime_caches()
     return {"success": True, "key": setting_key}
@@ -261,7 +263,7 @@ async def put_config_app_setting(request: Request, key: str, body: Any = Body(..
 @router.get("/primary-model")
 async def get_primary_model(request: Request) -> dict[str, Any]:
     require_org_admin(request)
-    pm = cfg_repo.get_app_setting("primary_model")
+    pm = await asyncio.to_thread(cfg_repo.get_app_setting, "primary_model")
     if pm is None:
         pm = get_app_config().primary_model
     return {"primary_model": pm}
@@ -273,6 +275,6 @@ async def put_primary_model(request: Request, body: dict[str, Any] = Body(...)) 
     name = body.get("primary_model") if isinstance(body, dict) else body
     if not str(name or "").strip():
         raise HTTPException(status_code=400, detail="primary_model required")
-    cfg_repo.set_app_setting("primary_model", str(name).strip())
+    await asyncio.to_thread(cfg_repo.set_app_setting, "primary_model", str(name).strip())
     _reload_runtime_caches()
     return {"success": True, "primary_model": str(name).strip()}

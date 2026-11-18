@@ -269,6 +269,7 @@ def sync_model_connections(desired: list[dict[str, Any]]) -> dict[str, dict[str,
         normalized.append(payload)
 
     existing = list_model_connections()
+    plan_key_syncs: list[dict[str, str]] = []
 
     def _write(db: Any) -> None:
         for key in existing:
@@ -320,14 +321,23 @@ def sync_model_connections(desired: list[dict[str, Any]]) -> dict[str, dict[str,
                 now=now,
             )
             if update_api_key:
-                _maybe_sync_active_plan_binding_key(
-                    key=key,
-                    base_url=payload["base_url"],
-                    api_key=api_key,
-                    update_api_key=True,
+                # 2026-11-18: plan binding 同步挪出事务——它内部会 httpx GET /models
+                # （chat+embedding 两次，timeout 12s）+ rematerialize，在事务里跑会把
+                # 全进程写锁持住 5-25s（保存一次模型连接=全网关冻结）。事务内只登记，
+                # commit 后统一执行。
+                plan_key_syncs.append(
+                    {"key": key, "base_url": str(payload["base_url"] or ""), "api_key": api_key}
                 )
 
     run_db_transaction(_write)
+
+    for sync_item in plan_key_syncs:
+        _maybe_sync_active_plan_binding_key(
+            key=sync_item["key"],
+            base_url=sync_item["base_url"],
+            api_key=sync_item["api_key"],
+            update_api_key=True,
+        )
 
     # Remove models owned by connections that were dropped during sync.
     removed_keys = [key for key in existing if key not in desired_keys]

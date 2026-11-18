@@ -568,11 +568,14 @@ html[data-xw-voice='1'] .react-chat-panel-resize-handle {
 }
 
 /*
- * 状态卡（智能体/进程/产物/平台/调试）默认不要叠在语音球上。
- * 平台工具落地后设 data-xw-voice-summary=1 再露出。
+ * 主聊状态卡：语音模式下默认藏掉（会话可能不是小V）。
+ * 语音摘要 portal 到 body（.xws-summary-portal），不受宿主 overflow 裁切。
  */
 html[data-xw-voice='1']:not([data-xw-voice-summary='1']) .chat-summary-float {
   display: none !important;
+}
+html[data-xw-voice='1'] .xws-summary-portal .chat-summary-float {
+  display: flex !important;
 }
 
 /* 右栏标签区：由固定宽侧栏变为铺满剩余宽度的主体（勿吃 --chat-right-panel-width 像素锁） */
@@ -1477,4 +1480,59 @@ html[data-xw-voice='1'] .react-chat-main-body {
 }
 .xws-clean .xws-playback-errline {
   color: #a33b2b;
+}
+
+/* ── 会话信息条改为可点按钮（展开摘要面板） ───────────────────── */
+.xws-clean button.xws-session-meta {
+  appearance: none;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.xws-clean button.xws-session-meta:hover {
+  border-color: color-mix(in srgb, var(--xws-txt) 30%, transparent);
+  color: var(--xws-txt);
+}
+
+/*
+ * 摘要 portal：fixed 挂到 body，避开 .xws-root overflow:hidden。
+ * 气泡跟语音域右上；窄左栏展开时 is-overlay 贴视口右侧（可盖住右侧栏）。
+ */
+.xws-summary-portal {
+  position: fixed;
+  z-index: 12040;
+  pointer-events: none;
+  max-width: min(var(--chat-summary-card-width, 360px), calc(100vw - 24px));
+}
+.xws-summary-portal .chat-summary-float {
+  pointer-events: auto;
+  padding: 0;
+  width: auto;
+  align-self: flex-start;
+}
+.xws-summary-portal .chat-summary-float.is-open {
+  width: min(var(--chat-summary-card-width, 360px), calc(100vw - 24px));
+}
+.xws-summary-portal .chat-summary-float.is-open .chat-summary-panel {
+  width: 100%;
+  max-height: min(calc(100dvh - 72px), 640px);
+}
+.xws-summary-portal .chat-summary-float.is-bubble {
+  width: auto;
+  padding: 0;
+}
+.xws-summary-portal-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: color-mix(in srgb, #0a0e15 28%, transparent);
+  cursor: pointer;
+  pointer-events: auto;
+}
+.xws-summary-portal.is-overlay.is-open {
+  /* 叠在右侧栏上时抬一层，避免被 right-stage 标题栏盖住 */
+  z-index: 12060;
 }

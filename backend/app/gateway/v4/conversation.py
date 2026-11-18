@@ -1062,7 +1062,9 @@ class V4ConversationHub:
                         sub.pending_bytes = 0
                         sub.overflowed = True
                         continue
-                    self._schedule_flush(sub)
+                    # authoring 可能来自 feed-to-thread worker 线程——必须走线程安全调度，
+                    # 裸 loop.call_later 跨线程 push TimerHandle 会与 loop._run_once 竞争。
+                    self._schedule_flush_threadsafe(sub)
             logger.debug(
                 "[v4.author] session=%s ops=%d seq=%d subs=%d",
                 sess.session_id,

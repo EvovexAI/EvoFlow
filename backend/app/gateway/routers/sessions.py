@@ -1,5 +1,6 @@
 """Gateway router for session search."""
 
+import asyncio
 import logging
 from typing import Any
 
@@ -85,11 +86,27 @@ async def search_sessions(http_request: Request, request: SessionSearchRequest) 
 
         search = get_session_search()
 
-        # Perform search
-        results = search.search(query=request.query, limit=request.limit, offset=request.offset, assistant_id=request.assistant_id, date_from=request.date_from, date_to=request.date_to, search_in=request.search_in)
+        # session_search 直连 checkpoints.db：首搜含 DDL 写事务，FTS MATCH 与 LG
+        # 运行时进程的 checkpoint put 跨进程竞争（busy 最长 30s）——同步跑在 loop
+        # 上会把整条 Gateway 冻住，必须 offload。
+        results = await asyncio.to_thread(
+            search.search,
+            query=request.query,
+            limit=request.limit,
+            offset=request.offset,
+            assistant_id=request.assistant_id,
+            date_from=request.date_from,
+            date_to=request.date_to,
+            search_in=request.search_in,
+        )
 
         # Get total count
-        total = search.get_session_count(assistant_id=request.assistant_id, date_from=request.date_from, date_to=request.date_to)
+        total = await asyncio.to_thread(
+            search.get_session_count,
+            assistant_id=request.assistant_id,
+            date_from=request.date_from,
+            date_to=request.date_to,
+        )
 
         filtered = _filter_search_hits(http_request, results)
         return SessionSearchResponse(results=[SessionSearchResult(**r) for r in filtered], total=len(filtered) if filtered != results else total, query=request.query, limit=request.limit, offset=request.offset)
@@ -129,7 +146,8 @@ async def rebuild_search_index(http_request: Request) -> dict[str, Any]:
         from evoflow.agents.checkpointer.session_search import get_session_search
 
         search = get_session_search()
-        count = search.rebuild_index()
+        # rebuild_index 是全量重扫+DDL 写事务，秒~分钟级——offload 到 worker 线程。
+        count = await asyncio.to_thread(search.rebuild_index)
 
         return {"success": True, "message": "搜索索引重建成功", "indexed_sessions": count}
 
@@ -150,7 +168,7 @@ async def get_session_stats(http_request: Request) -> dict[str, Any]:
         from evoflow.agents.checkpointer.session_search import get_session_search
 
         search = get_session_search()
-        total = search.get_session_count()
+        total = await asyncio.to_thread(search.get_session_count)
 
         return {"total_sessions": total, "index_initialized": search._initialized}
 

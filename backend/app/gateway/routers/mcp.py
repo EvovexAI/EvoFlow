@@ -251,7 +251,7 @@ async def update_mcp_configuration(http_request: Request, request: McpConfigUpda
         if not unwrapped and raw:
             unwrapped = raw
 
-        cfg_repo.replace_mcp_servers(unwrapped)
+        await asyncio.to_thread(cfg_repo.replace_mcp_servers, unwrapped)
         logger.info("MCP configuration updated in SQLite (%d servers)", len(unwrapped))
         reset_mcp_tools_cache()
         reload_extensions_config()

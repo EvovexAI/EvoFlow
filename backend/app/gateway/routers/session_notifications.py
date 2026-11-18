@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -59,8 +60,8 @@ async def get_session_notifications(request: Request) -> SessionNotificationList
     """List visible (non-cleared) notifications for the current principal."""
     kw = _owner_kwargs(request)
     return SessionNotificationListResponse(
-        notifications=list_session_notifications(**kw),
-        unread_count=get_unread_count(**kw),
+        notifications=await asyncio.to_thread(list_session_notifications, **kw),
+        unread_count=await asyncio.to_thread(get_unread_count, **kw),
     )
 
 
@@ -71,7 +72,8 @@ async def create_session_notification(request: Request, body: PushNotificationBo
     if sk:
         require_session_visible(request, sk)
     stamp = stamp_kwargs_from_request(request)
-    created = push_session_notification(
+    created = await asyncio.to_thread(
+        push_session_notification,
         session_key=body.session_key,
         session_title=body.session_title,
         kind=body.kind,
@@ -88,22 +90,22 @@ async def create_session_notification(request: Request, body: PushNotificationBo
 @router.patch("/read", response_model=dict)
 async def mark_read(request: Request, body: MarkReadBody) -> dict[str, Any]:
     kw = _owner_kwargs(request)
-    updated = mark_session_notification_read(body.notification_id, **kw)
-    return {"updated": updated, "unread_count": get_unread_count(**kw)}
+    updated = await asyncio.to_thread(mark_session_notification_read, body.notification_id, **kw)
+    return {"updated": updated, "unread_count": await asyncio.to_thread(get_unread_count, **kw)}
 
 
 @router.patch("/read-all", response_model=dict)
 async def mark_all_read(request: Request) -> dict[str, Any]:
     kw = _owner_kwargs(request)
-    updated = mark_all_session_notifications_read(**kw)
-    return {"updated": updated, "unread_count": get_unread_count(**kw)}
+    updated = await asyncio.to_thread(mark_all_session_notifications_read, **kw)
+    return {"updated": updated, "unread_count": await asyncio.to_thread(get_unread_count, **kw)}
 
 
 @router.delete("", response_model=dict)
 async def clear_all(request: Request) -> dict[str, Any]:
     """Soft-delete visible notifications for the current principal."""
     kw = _owner_kwargs(request)
-    deleted = clear_all_session_notifications(**kw)
+    deleted = await asyncio.to_thread(clear_all_session_notifications, **kw)
     return {"deleted": deleted}
 
 
@@ -114,5 +116,5 @@ async def clear_session(request: Request, session_key: str = "") -> dict[str, An
     if sk:
         require_session_visible(request, sk)
     kw = _owner_kwargs(request)
-    deleted = clear_session_notifications(sk, **kw)
+    deleted = await asyncio.to_thread(clear_session_notifications, sk, **kw)
     return {"deleted": deleted}

@@ -5,11 +5,43 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
-from evoflow.observability.sqlite_store import ObservabilitySqliteStore
+from evoflow.observability.sqlite_store import ObservabilitySqliteStore, new_row_id
 
 logger = logging.getLogger(__name__)
+
+_obs_write_executor: ThreadPoolExecutor | None = None
+_obs_write_executor_lock = threading.Lock()
+
+
+def _obs_submit_ordered(fn: Any, /, *args: Any, **kwargs: Any) -> None:
+    """单线程 FIFO 提交 observability 写入（从不阻塞调用线程）。
+
+    pending INSERT 与 complete UPDATE 必须保序（complete 依赖 pending 先落行），
+    asyncio.to_thread 默认线程池不保证提交顺序 → 单 worker 队列串行化。执行器
+    独立于主库写锁：retention/VACUUM 长事务期间模型请求线程只入队不等锁。
+    """
+    global _obs_write_executor
+    try:
+        with _obs_write_executor_lock:
+            if _obs_write_executor is None:
+                _obs_write_executor = ThreadPoolExecutor(
+                    max_workers=1,
+                    thread_name_prefix="obs-write",
+                )
+            _obs_write_executor.submit(_run_quietly, fn, *args, **kwargs)
+    except RuntimeError:
+        # 解释器已在关闭，执行器不可用——尽力同步兜底。
+        _run_quietly(fn, *args, **kwargs)
+
+
+def _run_quietly(fn: Any, /, *args: Any, **kwargs: Any) -> None:
+    try:
+        fn(*args, **kwargs)
+    except Exception:
+        logger.debug("observability background write failed", exc_info=True)
 
 
 def _fire_and_forget(fn: Any, **kwargs: Any) -> None:
@@ -313,17 +345,23 @@ class ObservabilityRecorder:
         agent_code: str | None = None,
         position_code: str | None = None,
     ) -> str | None:
-        """Phase 1: insert a *running* row synchronously and return its id.
+        """Phase 1: schedule the *running* row insert and return its id immediately.
 
-        Runs synchronously (not fire-and-forget) because the caller needs the
-        ``row_id`` to pass to :meth:`record_model_invocation_complete`.
-        The INSERT itself is sub-millisecond so blocking is negligible.
+        History: this used to INSERT synchronously "because the caller needs the
+        row_id" — but the id is generated client-side, so the row_id is known
+        without waiting. A synchronous INSERT here runs on the asyncio loop
+        thread inside ``_astream``; when observability retention DELETE/VACUUM
+        holds the store lock (60s timeout), the whole streaming first-token
+        stalled on telemetry. Now the insert goes through the single-worker
+        FIFO executor (ordering vs Phase-2 complete is preserved).
         """
         st = _store_for_config()
         if st is None:
             return None
+        rid = new_row_id()
         try:
-            return st.insert_model_invocation_pending(
+            _obs_submit_ordered(
+                st.insert_model_invocation_pending,
                 thread_id=thread_id,
                 run_id=run_id,
                 model_call_seq=model_call_seq,
@@ -343,7 +381,9 @@ class ObservabilityRecorder:
                 session_mode=session_mode,
                 agent_code=agent_code,
                 position_code=position_code,
+                row_id=rid,
             )
+            return rid
         except Exception:
             logger.debug("observability model invocation pending insert failed", exc_info=True)
             return None
@@ -375,7 +415,9 @@ class ObservabilityRecorder:
         st = _store_for_config()
         if st is None:
             return
-        _fire_and_forget(
+        # 用与 Phase-1 pending 相同的单 worker FIFO 队列，保证 complete 不会抢在
+        # pending INSERT 之前执行（默认线程池无顺序保证，会丢 complete）。
+        _obs_submit_ordered(
             st.complete_model_invocation,
             row_id=row_id,
             latency_ms=latency_ms,
@@ -395,8 +437,8 @@ class ObservabilityRecorder:
         )
 
 
-def reset_observability_store_for_tests() -> None:
-    """Close singleton (tests only)."""
+def reset_observability_store() -> None:
+    """Close the in-process store singleton (rebuild/maintenance quiesce + tests)."""
     global _store, _store_path
     with _lock:
         if _store is not None:
@@ -406,3 +448,9 @@ def reset_observability_store_for_tests() -> None:
                 pass
         _store = None
         _store_path = None
+
+
+def reset_observability_store_for_tests() -> None:
+    """Back-compat alias for :func:`reset_observability_store`."""
+    reset_observability_store()
+

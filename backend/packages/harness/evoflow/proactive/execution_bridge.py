@@ -11,6 +11,7 @@ Reuses the same LangGraph client + automation patterns as automation_runner.
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import os
 from typing import Any
@@ -204,7 +205,9 @@ class ExecutionBridge:
             except Exception:
                 task_title = ""
 
-        prepare_proactive_chat_session(
+        # load_session_map 全表扫+写事务，offload（与 engine.py 同款修复）。
+        await asyncio.to_thread(
+            prepare_proactive_chat_session,
             agent_code=role_agent_code,
             role_name=role_name,
             thread_id=thread_id,

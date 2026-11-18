@@ -1642,7 +1642,15 @@ async def serve_workspace_file(
         # Hang dumps (2026-10-30): two concurrent mp4 serves @43s/69s while a chat
         # stream ran → event_loop_stall and /health/liveness timeouts. Queue extras.
         slot = _serve_file_large_slot()
-        await slot.acquire()
+        try:
+            # 无超时 acquire + finally 泄漏即永久占死两槽 → 之后所有大文件 serve 永挂
+            # （loop 上无限等）。30s 拿不到槽直接 503，客户端可重试。
+            await asyncio.wait_for(slot.acquire(), timeout=30.0)
+        except asyncio.TimeoutError as exc:
+            raise HTTPException(
+                status_code=503,
+                detail="大文件传输通道繁忙，请稍后重试",
+            ) from exc
 
         async def _release_large_slot() -> None:
             slot.release()
@@ -1849,7 +1857,9 @@ async def workspace_index_status(
     try:
         from evoflow.code_index.store import index_status
 
-        data = index_status(root_s, thread_id=tid)
+        # 每次调用都会开 SQLite 连接 + schema 检查 + 全表 COUNT；前端 building 时 2s/稳态 15s
+        # 轮询本端点——禁止同步跑在事件循环上（历史上是网关周期性卡顿来源）。
+        data = await asyncio.to_thread(index_status, root_s, thread_id=tid)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     return _index_build_response(data)
@@ -1865,7 +1875,10 @@ async def warm_workspace_index(body: IndexBuildRequest) -> IndexBuildResponse:
     try:
         from evoflow.code_index.store import schedule_build_index
 
-        data = schedule_build_index(root_s, thread_id=thread_id, force=bool(body.force))
+        # 非 force 时 schedule 内部先跑一次 index_status（SQLite COUNT），放线程。
+        data = await asyncio.to_thread(
+            schedule_build_index, root_s, thread_id=thread_id, force=bool(body.force)
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except OSError as e:
@@ -1916,7 +1929,9 @@ async def index_workspace_file(body: IndexFileRequest) -> IndexFileResponse:
     try:
         from evoflow.code_index.store import index_file
 
-        data = index_file(
+        # 单文件解析 + SQLite 写，放 worker 线程。
+        data = await asyncio.to_thread(
+            index_file,
             root_s,
             relative_path=rel,
             thread_id=thread_id,
@@ -2034,13 +2049,16 @@ async def search_workspace_index(
     try:
         from evoflow.code_index.store import index_status, search_index
 
-        data = search_index(root_s, query, thread_id=tid, limit=limit)
+        # 全网关最重的同步端点：FTS + 语义 encode + 索引未就绪时 _wait_index_ready 会
+        # time.sleep 轮询（traffic_lanes 记录过 200s+ 占用）+ 30s 一次的全仓 source_drift
+        # 扫描——必须整体放 worker 线程，否则一次搜索冻结全部事件循环。
+        data = await asyncio.to_thread(search_index, root_s, query, thread_id=tid, limit=limit)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     hits = [IndexSearchHit(**h) for h in (data.get("hits") or [])]
     symbols = [IndexSymbolHit(**s) for s in (data.get("symbols") or [])]
     related = [IndexSearchHit(**h) for h in (data.get("related_files") or []) if isinstance(h, dict)]
-    st = index_status(workspace_root=root_s, thread_id=tid)
+    st = await asyncio.to_thread(index_status, workspace_root=root_s, thread_id=tid)
     ready = bool(data.get("ready")) if data.get("ready") is not None else bool(st.get("ready"))
     building = bool(data.get("building")) if data.get("building") is not None else bool(st.get("building"))
     rebuild_in_progress = bool(data.get("rebuild_in_progress"))
@@ -2079,7 +2097,7 @@ async def put_user_workspace_history(request: Request, body: UserWorkspaceHistor
         ps = str(p or "").strip()
         if ps:
             require_workspace_path_visible(request, ps)
-    ws_repo.set_global_workspace_paths(body.paths or [], stamp=stamp or None)
+    await asyncio.to_thread(ws_repo.set_global_workspace_paths, body.paths or [], stamp=stamp or None)
     return UserWorkspaceHistoryResponse(paths=_visible_history_paths(request))
 
 
@@ -2088,7 +2106,7 @@ async def remove_user_workspace_path(request: Request, body: RemoveWorkspacePath
     path = str(body.path or "").strip()
     if path:
         require_workspace_path_visible(request, path)
-        ws_repo.remove_workspace_path_everywhere(path)
+        await asyncio.to_thread(ws_repo.remove_workspace_path_everywhere, path)
     return UserWorkspaceHistoryResponse(paths=_visible_history_paths(request))
 
 

@@ -238,7 +238,7 @@ async def update_skill(http_request: Request, skill_name: str, request: SkillUpd
         from evoflow.config.extensions_config import save_extensions_to_db
         from evoflow.persistence import config_repositories as cfg_repo
 
-        cfg_repo.set_skill_enabled(skill_name, request.enabled)
+        await asyncio.to_thread(cfg_repo.set_skill_enabled, skill_name, request.enabled)
         extensions_config = get_extensions_config()
         extensions_config.skills[skill_name] = SkillStateConfig(enabled=request.enabled)
         save_extensions_to_db(extensions_config)
@@ -284,7 +284,7 @@ async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteRes
         if skill is None:
             raise HTTPException(status_code=404, detail=f"Skill '{skill_name}' not found")
 
-        reg = cfg_repo.get_skill_registry(skill_name) or {}
+        reg = await asyncio.to_thread(cfg_repo.get_skill_registry, skill_name) or {}
         bound = is_bound_registry(reg)
 
         if skill.category not in ("custom", "personal") and not bound:
@@ -296,7 +296,7 @@ async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteRes
                 )
 
         if bound:
-            cfg_repo.delete_skill_registry(skill_name)
+            await asyncio.to_thread(cfg_repo.delete_skill_registry, skill_name)
             reload_extensions_config()
             clear_skills_cache()
             logger.info("Unregistered bound skill '%s' (source left in place)", skill_name)
@@ -330,7 +330,7 @@ async def delete_skill(http_request: Request, skill_name: str) -> SkillDeleteRes
             await asyncio.to_thread(shutil.rmtree, skill_dir, ignore_errors=False)
             _prune_empty_parents_under_custom(skill_dir, custom_root)
 
-        cfg_repo.delete_skill_registry(skill_name)
+        await asyncio.to_thread(cfg_repo.delete_skill_registry, skill_name)
         reload_extensions_config()
         logger.info("Removed skill '%s' from SQLite registry", skill_name)
 

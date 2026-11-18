@@ -58,7 +58,9 @@ async def list_runs(
     from evoflow.agents.checkpointer.provider import get_checkpointer
 
     try:
-        get_checkpointer()
+        # get_checkpointer() 在 _init_lock 内做 config 读取+SqliteSaver setup（慢 IO），
+        # 且别的线程可能正在重建连接——loop 上裸调会无限等锁，必须 offload。
+        await asyncio.to_thread(get_checkpointer)
 
         # Get all runs from checkpointer
         # Note: This is a simplified implementation

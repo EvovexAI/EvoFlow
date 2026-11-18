@@ -139,18 +139,110 @@ export function isXiaomiVoiceExitCommand(text) {
   return false
 }
 
+/** 本地「新开一轮」口令：清空小V 对话上下文，不经模型（否则会带着旧天气历史乱答）。 */
+const NEW_ROUND_PHRASES = [
+  '开新对话',
+  '开一下新的对话',
+  '开一下新对话',
+  '新开对话',
+  '新开一轮',
+  '新开一论', // ASR 常把「轮」听成「论」
+  '重新开一轮',
+  '重新开始',
+  '清空对话',
+  '清空上下文',
+  '换个话题',
+  '换一个话题',
+  'new chat',
+  'new conversation',
+]
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isXiaomiVoiceNewRoundCommand(text) {
+  const n = normalizeZh(text)
+  if (!n || n.length > 24) return false
+  for (const phrase of NEW_ROUND_PHRASES) {
+    const p = normalizeZh(phrase)
+    if (!p) continue
+    if (n === p || n === `请${p}` || n === `${p}吧` || n === `${p}呀` || n === `${p}啊`) {
+      return true
+    }
+  }
+  // 「开一下新的对话吧 / 我说让你把新对话开一下」
+  if (
+    (n.includes('新对话') || n.includes('新的对话') || n.includes('新一轮') || n.includes('新一论')) &&
+    (n.includes('开') || n.includes('清空') || n.includes('重新'))
+  ) {
+    return n.length <= 28
+  }
+  return false
+}
+
 /**
  * Frame / continuous 共用：本地口令闸（不经模型）。
  * - 退出/停止类 → 中断任务 + 停播 + 关语音舞台
+ * - 新对话 → 清空上下文（防旧天气/旧题粘在线程里）
  * - 仅停播报 → 停 TTS，继续听
  * @param {string} text
  * @param {{ source?: string }} [opts]
- * @returns {Promise<'exited' | 'tts_stopped' | 'none'>}
+ * @returns {Promise<'exited' | 'tts_stopped' | 'new_round' | 'none'>}
  */
 export async function tryHandleXiaomiVoiceLocalCommand(text, opts = {}) {
   const cleaned = String(text || '').trim()
   if (!cleaned) return 'none'
   const source = String(opts.source || 'local-command')
+
+  if (isXiaomiVoiceNewRoundCommand(cleaned)) {
+    try {
+      const { voiceFeLog } = await import('./xiaomi-voice/voice-file-log.js')
+      voiceFeLog(
+        '会话',
+        `本地口令新开一轮（不经模型）source=${source}：「${cleaned.slice(0, 40)}」`,
+      )
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { stopAllAssistantSpeech } = await import('./speech-client.js')
+      stopAllAssistantSpeech({ reason: 'voice-new-round', forceFrame: true })
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { clearXiaomiVoiceCommittedTurns, interruptXiaomiFrame } = await import(
+        './xiaomi-voice/index.js'
+      )
+      clearXiaomiVoiceCommittedTurns?.()
+      await interruptXiaomiFrame?.('voice-new-round')
+    } catch {
+      /* ignore */
+    }
+    try {
+      const { startXiaomiNewRound } = await import(
+        '../components/global-assistant/assistant-session.js'
+      )
+      await startXiaomiNewRound()
+    } catch (e) {
+      console.warn('[xiaomi-voice-close] startXiaomiNewRound failed', e?.message || e)
+      try {
+        const { toast } = await import('../components/toast.js')
+        toast(String(e?.message || e || '新开一轮失败'), 'error')
+      } catch {
+        /* ignore */
+      }
+      return 'none'
+    }
+    try {
+      const { toast } = await import('../components/toast.js')
+      toast('已新开一轮，旧上下文已清空', 'success')
+    } catch {
+      /* ignore */
+    }
+    return 'new_round'
+  }
 
   if (isXiaomiVoiceExitCommand(cleaned)) {
     try {

@@ -17,7 +17,7 @@ import { V4ChatHostStack } from '../../v4/V4ChatHostStack.js'
 import { V4ViewportDebugOverlay } from '../../v4/V4ViewportDebugOverlay.js'
 import { V4ZCodeTimeline } from '../../v4/V4ZCodeTimeline.js'
 import { ConversationCompactTipBanner } from '../../v4/ConversationCompactTipBanner.js'
-import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
+import { resolveHostTimelineBusy } from '../../v4/control-busy.js'
 import { getV4TimelineBusy, setV4TimelineBusy } from '../../v4/v4-timeline-busy-store.js'
 import { isSessionRecoveryCooldownActive } from '../../lib/stream-reattach-cooldown.js'
 import { XiaomiVoiceStage } from '../../right-stage/kinds/XiaomiVoiceStage.js'
@@ -761,12 +761,16 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     rtForBusy &&
                     (isTurnBusy(rtForBusy) || isLivePostStreamOpen(rtForBusy))
                   )
-                  const timelineBusy =
-                    !stopRecovering &&
-                    v4SessionMatched &&
-                    resolveSessionBusyFromControl(v4Payload?.snapshot, {
-                      hostExecuting: wireHostExecuting,
-                    })
+                  // 与 Composer 停止钮同源：uiTurnSettled / 点停冷却时，投影里陈旧
+                  // running header/tool 不得再把 sessionBusy 钉成 true，否则会出现
+                  // 「右下角已停、轮尾 ChatLoading 齿轮还在转」。
+                  const timelineBusy = resolveHostTimelineBusy({
+                    sessionMatched: v4SessionMatched,
+                    stopRecovering,
+                    settledIdle: !!rtForBusy?.uiTurnSettled,
+                    snapshot: v4Payload?.snapshot,
+                    hostExecuting: wireHostExecuting,
+                  })
                   // 焦点栏：wire busy ∪ 时间线；分屏副栏/隐藏 host 只看本会话 control。
                   const uiBusy = hostFocused
                     ? !!(

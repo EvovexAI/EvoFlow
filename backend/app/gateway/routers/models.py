@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 from typing import Any
@@ -217,7 +218,7 @@ async def set_primary_model(http_request: Request, request: SetPrimaryModelReque
             raise HTTPException(status_code=404, detail=f"Model '{model_name}' not found")
 
         config.primary_model = model_name
-        cfg_repo.set_app_setting("primary_model", model_name)
+        await asyncio.to_thread(cfg_repo.set_app_setting, "primary_model", model_name)
         logger.info("Primary model set to: %s", model_name)
 
         return {
@@ -535,9 +536,9 @@ async def clear_model_unavailable_status(request: Request, model_name: str) -> M
     name = str(model_name or "").strip()
     if not name:
         raise HTTPException(status_code=422, detail="model_name required")
-    if not cfg_repo.get_model(name):
+    if not await asyncio.to_thread(cfg_repo.get_model, name):
         raise HTTPException(status_code=404, detail=f"Model '{name}' not found")
-    cfg_repo.clear_model_unavailable(name)
+    await asyncio.to_thread(cfg_repo.clear_model_unavailable, name)
     reload_models_from_db()
     cfg = get_app_config()
     mc = cfg.get_model_config(name)
@@ -844,7 +845,7 @@ async def test_model_connection(http_request: Request, request: TestModelRequest
                         from evoflow.config import reload_models_from_db
                         from evoflow.persistence import config_repositories as cfg_repo
 
-                        if cfg_repo.clear_model_unavailable(config_name):
+                        if await asyncio.to_thread(cfg_repo.clear_model_unavailable, config_name):
                             reload_models_from_db()
                     except Exception:
                         logger.debug(
@@ -1092,7 +1093,7 @@ async def list_model_connections(request: Request) -> ModelConnectionsListRespon
     require_org_admin(request)
     from evoflow.persistence import model_connections as conn_repo
 
-    rows = conn_repo.list_model_connections()
+    rows = await asyncio.to_thread(conn_repo.list_model_connections)
     return ModelConnectionsListResponse(
         connections=[_connection_to_response(r) for r in rows.values()],
     )
@@ -1110,9 +1111,11 @@ async def sync_model_connections(http_request: Request, request: ModelConnection
     from evoflow.persistence import model_connections as conn_repo
 
     payload = [c.model_dump(exclude_none=True) for c in request.connections]
-    rows = conn_repo.sync_model_connections(payload)
+    # 写事务 + reload + plan binding 网络同步是秒级同步活，offload 到 worker
+    # 线程——loop 上直调会在写锁竞争时冻住事件循环或 0.5s 快败报错。
+    rows = await asyncio.to_thread(conn_repo.sync_model_connections, payload)
     # Connection api_key/base_url are mirrored onto evoflow_models; refresh process cache.
-    reload_models_from_db()
+    await asyncio.to_thread(reload_models_from_db)
     return ModelConnectionsListResponse(
         connections=[_connection_to_response(r) for r in rows.values()],
     )
@@ -1128,11 +1131,11 @@ async def delete_model_connection(request: Request, key: str) -> dict:
     from evoflow.config import reload_models_from_db
     from evoflow.persistence import model_connections as conn_repo
 
-    conn = conn_repo.get_model_connection(key)
+    conn = await asyncio.to_thread(conn_repo.get_model_connection, key)
     if conn is None:
         raise HTTPException(status_code=404, detail=f"Connection '{key}' not found")
 
-    deleted_models = conn_repo.delete_model_connection(key)
+    deleted_models = await asyncio.to_thread(conn_repo.delete_model_connection, key)
     reload_models_from_db()
     return {
         "ok": True,

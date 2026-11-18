@@ -66,7 +66,11 @@ def _guess_workspace_for_path(abs_path: str) -> tuple[str | None, str | None]:
         return None, None
     for dbp in base.glob("*.db"):
         try:
-            conn = sqlite3.connect(str(dbp))
+            # 【self-evolution-bot · 2026-11-18 · 第46轮 · 模型:deepseek-v4.1-flash-1017】
+            # 显式 timeout：裸 connect 默认 5s，与构建子进程写锁互撞时 hook 线程会卡满 5s。
+            # 这个循环要扫 base 下所有 *.db，其中一个被建库进程独占写锁，就把整条 hook 拖住。
+            conn = sqlite3.connect(str(dbp), timeout=2.0)
+            conn.execute("PRAGMA busy_timeout=2000")
             row = conn.execute("SELECT value FROM meta WHERE key='root'").fetchone()
             conn.close()
             if not row:

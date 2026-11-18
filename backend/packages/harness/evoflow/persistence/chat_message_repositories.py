@@ -1045,6 +1045,11 @@ def append_messages_batch(
                     token_totals[key] += int(res.get(key) or 0)
             else:
                 skipped += 1
+        # 大批量（迁移/导入千条）分批提交：每 50 行 commit 一次，把 checkpoints/主库
+        # 跨进程写竞争窗口从「整批」缩到「单批」。条目幂等（skip_if_message_id_exists），
+        # 中途失败重放安全。
+        if conn is None and (appended + skipped) and (appended + skipped) % 50 == 0:
+            db.commit()
         batch_run = str(run_id or "").strip() or None
         if batch_run:
             _backfill_run_id_on_turn_tail(sk, batch_run, thread_id=thread_id, conn=db)

@@ -613,3 +613,6 @@ evopanel/src-tauri/gen/
 /craft/
 /backend/memory/
 /assets/employees/**/memory/journal/
+
+# Local voice TTS fix scratch logs (never ship)
+.tmp_voice_tts_fix/
