@@ -1508,6 +1508,7 @@ function ConversationTimelineImpl({
     const following = resolveFollowingAfterScroll({
       following: followingRef.current,
       source: scrollSource,
+      userScrollIntent,
       metrics: {
         scrollTop: element.scrollTop,
         viewportHeight: element.clientHeight,

@@ -50,14 +50,26 @@ type TimelineScrollEventSource = "user" | "programmatic" | "layout";
 /**
  * scroll 事件后的滚动权裁决。布局/程序化 scroll 不得改变用户意图；只有用户输入
  * 才按最终落点决定是否跟随。
+ *
+ * 上滚意图优先于瞬时几何：虚高估矮 / 未测高 turn 换入时 scrollHeight 会短暂塌缩，
+ * 浏览器把 scrollTop 钳到「看似贴底」。若此时仍按 isAtBottom 恢复跟随，随后测高
+ * 撑高 + stickToBottom 会把用户从历史拽回底部（结束态上滚最常见）。
+ *
+ * 已解除跟随后：intent=none 的「假贴底」不得自动恢复；只有向底部的用户输入
+ * （wheel/键盘 towardBottom，或拖动滚动条 unknown）在真贴底时才恢复。
  */
 export function resolveFollowingAfterScroll(input: {
   following: boolean;
   metrics: TimelineScrollMetrics;
   source: TimelineScrollEventSource;
+  /** 与 capture 层登记的 wheel/touch/keyboard 意图对齐；省略时只看落点。 */
+  userScrollIntent?: TimelineUserScrollIntent;
   epsilonPx?: number;
 }): boolean {
   if (input.source !== "user") return input.following;
+  const intent = input.userScrollIntent ?? "unknown";
+  if (intent === "awayFromBottom") return false;
+  if (!input.following && intent === "none") return false;
   return nextFollowingAfterScroll(input.metrics, input.epsilonPx);
 }
 

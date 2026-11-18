@@ -29,7 +29,19 @@ export type ViewportApiTapEntry = {
   errorText: string;
   /** query 字符串（无 ?） */
   query: string;
+  /** body.sessionId / topic conversation/{id}，供按当前页签过滤 */
+  sessionId: string;
 };
+
+function sessionIdFromApiBody(body: unknown): string {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return "";
+  const o = body as Record<string, unknown>;
+  const sid = String(o.sessionId || o.threadId || "").trim();
+  if (sid) return sid;
+  const topic = String(o.topic || "").trim();
+  const m = /^conversation\/([^/?#]+)/i.exec(topic);
+  return m?.[1]?.trim() || "";
+}
 
 const MAX_RING = 80;
 const MAX_REQ_CHARS = 6_000;
@@ -261,6 +273,7 @@ export function pushViewportApiTap(opts: {
     .filter(Boolean)
     .join(" · ");
 
+  const sessionId = sessionIdFromApiBody(req);
   ring.push({
     id: nextId++,
     atMs: Date.now(),
@@ -286,6 +299,7 @@ export function pushViewportApiTap(opts: {
       : safeJson(res, MAX_RES_CHARS),
     errorText: errText,
     query,
+    sessionId,
   });
   while (ring.length > MAX_RING) ring.shift();
   notify();
@@ -293,11 +307,22 @@ export function pushViewportApiTap(opts: {
 
 export function listViewportApiTapEntries(opts?: {
   family?: ViewportApiTapFamily | "all" | null;
+  /** 当前页签 tid；有值时默认只看本会话（prefetch/旁路会话另计） */
+  sessionId?: string | null;
+  includeForeign?: boolean;
   limit?: number;
 }): ViewportApiTapEntry[] {
   const limit = Math.max(1, Math.min(MAX_RING, opts?.limit ?? MAX_RING));
   const family = opts?.family && opts.family !== "all" ? opts.family : null;
-  const source = family ? ring.filter((e) => e.family === family) : ring;
+  const sid = String(opts?.sessionId || "").trim();
+  let source = family ? ring.filter((e) => e.family === family) : ring;
+  if (sid && !opts?.includeForeign) {
+    source = source.filter((e) => {
+      if (e.sessionId) return e.sessionId === sid;
+      // 旧环未打 sessionId：从 requestText 兜底，避免把别的会话 rows_range 混进来
+      return e.requestText.includes(sid);
+    });
+  }
   return source.slice(-limit);
 }
 

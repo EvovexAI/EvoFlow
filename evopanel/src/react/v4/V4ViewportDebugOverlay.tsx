@@ -851,6 +851,9 @@ function buildOverlayDiagnosticText(opts: {
   lines.push(
     "- 上拉到顶看不到更早消息 → 看「消息/投影窗口」hasOlder、wouldTrigger、!HISTORY_TOP；直播 overflow 尾窗曾整窗替换冲掉 loadOlder（需同 epoch 保历史）。",
   );
+  lines.push(
+    "- 页面已停但浮层仍见 SSE/接口 → 先对 tid 与 stream topic / rows_range.sessionId：常是旁路会话或 prefetch，不是本页还在跑。",
+  );
   return lines.join("\n");
 }
 
@@ -993,19 +996,21 @@ export function V4ViewportDebugOverlay() {
     setStreamEntries(
       listViewportStreamTapEntries({
         sessionKey: snapshot?.sessionKey ?? null,
+        sessionId: snapshot?.tid ?? null,
         limit: 48,
       }),
     );
-  }, [snapshot?.sessionKey]);
+  }, [snapshot?.sessionKey, snapshot?.tid]);
 
   const refreshApi = useCallback(() => {
     setApiEntries(
       listViewportApiTapEntries({
         family: apiFamily,
+        sessionId: snapshot?.tid ?? null,
         limit: 64,
       }),
     );
-  }, [apiFamily]);
+  }, [apiFamily, snapshot?.tid]);
 
   const active = obsEnabled && prefOn;
 
@@ -1165,10 +1170,12 @@ export function V4ViewportDebugOverlay() {
       snapshot: fresh ?? snapshot,
       streamEntries: listViewportStreamTapEntries({
         sessionKey: (fresh ?? snapshot)?.sessionKey ?? null,
+        sessionId: (fresh ?? snapshot)?.tid ?? null,
         limit: 48,
       }),
       apiEntries: listViewportApiTapEntries({
         family: apiFamily,
+        sessionId: (fresh ?? snapshot)?.tid ?? null,
         limit: 64,
       }),
       problems: problemBadge(
@@ -1607,7 +1614,7 @@ export function V4ViewportDebugOverlay() {
                         fontSize: 11,
                       }}
                     >
-                      <span>最新在底 · 上滚看旧 · 点行展开 JSON</span>
+                      <span>最新在底 · 一行看清 思考/正文/工具+内容 · 点开 JSON</span>
                       <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                         <button
                           type="button"
@@ -1695,6 +1702,7 @@ export function V4ViewportDebugOverlay() {
                                   boxSizing: "border-box",
                                   padding: "3px 6px",
                                   color: newest ? "#f5f3ff" : "#c4b5fd",
+                                  // 一行摘要必须看得见思考/正文/工具内容；过长才省略。
                                   whiteSpace: "nowrap",
                                   overflow: "hidden",
                                   textOverflow: "ellipsis",

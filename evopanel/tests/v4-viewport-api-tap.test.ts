@@ -63,6 +63,39 @@ describe("v4-viewport-api-tap", () => {
     expect(rows[0]?.label).toBe("subscribe");
     expect(rows[0]?.requestText).toContain("topic");
     expect(rows[0]?.responseText).toContain("live");
+    expect(rows[0]?.sessionId).toBe("t1");
+    clearViewportApiTap();
+  });
+
+  it("filters rows_range by sessionId so foreign prefetch does not pollute", () => {
+    clearViewportApiTap();
+    pushViewportApiTap({
+      method: "POST",
+      url: "/api/v4/conversation/rows_range",
+      requestBody: { sessionId: "mine-tid", beforeRowId: 10, limit: 60 },
+      status: 200,
+      ok: true,
+      durationMs: 5,
+      response: { rows: [] },
+    });
+    pushViewportApiTap({
+      method: "POST",
+      url: "/api/v4/conversation/rows_range",
+      requestBody: { sessionId: "other-tid", beforeRowId: 99, limit: 60 },
+      status: 200,
+      ok: true,
+      durationMs: 5,
+      response: { rows: [{ rowId: 1 }] },
+    });
+    const mine = listViewportApiTapEntries({ sessionId: "mine-tid", limit: 10 });
+    expect(mine).toHaveLength(1);
+    expect(mine[0]?.sessionId).toBe("mine-tid");
+    const all = listViewportApiTapEntries({
+      sessionId: "mine-tid",
+      includeForeign: true,
+      limit: 10,
+    });
+    expect(all).toHaveLength(2);
     clearViewportApiTap();
   });
 });

@@ -31,6 +31,7 @@ import {
   capAndLightenProjectionWindow,
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
+  liveTurnSpan,
   resolveProjectionWindowSoftCap,
 } from "@/v4/projectionWindowCap.js";
 
@@ -349,11 +350,22 @@ function mergeOlderRows(
   const merged = [...older, ...window];
   const softCap = opts?.softCap ?? resolveProjectionWindowSoftCap();
   const prefer = opts?.prefer ?? "head";
-  const capped = capAndLightenProjectionWindow(merged, { softCap, prefer });
+  // 上拉刚拿到的更早行若仍按原 softCap 钉直播轮，会被「上一轮尾部残片」挤掉
+  // （现场：rows_range 已返回 1…55，窗口仍卡在 56…）。给本页 older 留出预算。
+  const live = liveTurnSpan(merged);
+  const liveLen = live ? merged.length - live.turnStart : 0;
+  const effectiveCap =
+    prefer === "head"
+      ? Math.max(softCap, Math.min(liveLen + older.length, softCap + older.length))
+      : softCap;
+  const capped = capAndLightenProjectionWindow(merged, {
+    softCap: effectiveCap,
+    prefer,
+  });
   // prefer=head 会裁掉窗尾：直播中必须把当前轮钉回，否则尾仍是上轮正文（stale_prev_turn_tail）。
   const next =
     prefer === "head"
-      ? ensureLiveTurnInProjectionWindow(merged, capped, softCap)
+      ? ensureLiveTurnInProjectionWindow(merged, capped, effectiveCap)
       : capped;
   return next === merged ? merged : [...next];
 }
@@ -365,7 +377,10 @@ function applySoftCapToSnapshot(
   softCap: number = resolveProjectionWindowSoftCap(),
 ): ConversationSnapshot {
   const prev = snapshot.rows.window;
-  const next = capAndLightenProjectionWindow(prev, { softCap, prefer });
+  const capped = capAndLightenProjectionWindow(prev, { softCap, prefer });
+  // 尾窗裁切后必须钉回直播轮 in-flight（思考/工具进行中），否则 shrink/snapshot
+  // 一刀切掉中间思考行 → V4 仍推 row.delta，apply 找不到行，页面空白。
+  const next = ensureLiveTurnInProjectionWindow(prev, capped, softCap);
   if (next === prev) return snapshot;
   if (next.length < prev.length) {
     logger.info("[v4-store] projection window soft-capped", {

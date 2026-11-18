@@ -74,8 +74,154 @@ export function liveTurnSpan(
 }
 
 /**
+ * 在 softCap 内从直播轮向前挑「完整 turn」片段，禁止窗顶落在半截轮。
+ *
+ * 旧逻辑按行从尾截 older，长上一轮会被截成 mid-tool 开头（现场 window=56…809、
+ * !HISTORY_TOP）；loadOlder 刚并进的更早行也会被同一刀吃掉。
+ */
+export function selectOlderCompleteTurnsWithinBudget(
+  full: readonly ConversationRow[],
+  liveStartRowId: number,
+  budget: number,
+): ConversationRow[] {
+  const cap = Math.max(0, Math.floor(budget));
+  if (cap <= 0) return [];
+  const olderFull = full.filter((row) => row.rowId < liveStartRowId);
+  if (olderFull.length === 0) return [];
+  if (olderFull.length <= cap) {
+    return olderFull[0]?.kind === "turnHeader" ? [...olderFull] : alignLeadingToTurnHeader(full, olderFull, cap);
+  }
+
+  const headers: number[] = [];
+  for (let i = 0; i < olderFull.length; i += 1) {
+    if (olderFull[i]?.kind === "turnHeader") headers.push(i);
+  }
+  if (headers.length === 0) {
+    // 整段 older 都无 turnHeader：宁可空，也不把 mid-turn 挂到窗顶。
+    return [];
+  }
+
+  let startIdx = headers[headers.length - 1]!;
+  for (let h = headers.length - 1; h >= 0; h -= 1) {
+    const candidate = headers[h]!;
+    if (olderFull.length - candidate <= cap) startIdx = candidate;
+    else break;
+  }
+  const slice = olderFull.slice(startIdx);
+  if (slice.length <= cap) return slice;
+
+  // 上一整轮仍超预算：只留该轮 turnHeader + realUser（认得出「上一问」），
+  // 不要把几百条 tool 残片挂在顶上。
+  const compact: ConversationRow[] = [];
+  for (const row of slice) {
+    if (compact.length === 0 && row.kind !== "turnHeader") continue;
+    if (row.kind === "turnHeader" || row.kind === "userInput") {
+      compact.push(row);
+      if (compact.length >= Math.min(cap, 4)) break;
+      continue;
+    }
+    break;
+  }
+  return compact[0]?.kind === "turnHeader" ? compact : [];
+}
+
+/**
+ * 窗首若落在半截 turn：能小成本补到 turnHeader 就补；否则丢掉残片，
+ * 让窗顶落到下一个 turnHeader（或空，交给直播轮）。
+ */
+export function alignLeadingToTurnHeader(
+  full: readonly ConversationRow[],
+  rows: readonly ConversationRow[],
+  maxBackfill: number,
+): ConversationRow[] {
+  if (rows.length === 0) return [];
+  if (rows[0]?.kind === "turnHeader") return [...rows];
+
+  const headerInRows = rows.findIndex((row) => row.kind === "turnHeader");
+  if (headerInRows > 0) return rows.slice(headerInRows);
+
+  const lead = rows[0];
+  const leadTurnId = String(lead?.turnId || "");
+  const leadRowId = lead?.rowId ?? 0;
+  if (!leadTurnId || leadRowId <= 0) return [];
+
+  let headerIdx = -1;
+  for (let i = 0; i < full.length; i += 1) {
+    const row = full[i];
+    if (row?.kind === "turnHeader" && String(row.turnId || "") === leadTurnId) {
+      headerIdx = i;
+      break;
+    }
+  }
+  if (headerIdx < 0) return [];
+
+  const headerRowId = full[headerIdx]?.rowId ?? 0;
+  const backfill = full.filter((row) => row.rowId >= headerRowId && row.rowId < leadRowId);
+  if (backfill.length === 0) return [];
+  if (backfill.length > Math.max(0, Math.floor(maxBackfill))) return [];
+  return [...backfill, ...rows];
+}
+
+/** 进行中的行：软顶绝不能裁掉，否则 V4 还在 Δ、页面却没思考/工具卡。 */
+export function isInFlightProjectionRow(row: ConversationRow | undefined): boolean {
+  if (!row) return false;
+  if (row.kind === "reasoning" || row.kind === "assistantText") {
+    return String((row as { state?: string }).state || "") === "streaming";
+  }
+  if (row.kind === "toolCall") {
+    const status = String((row as { status?: string }).status || "");
+    return (
+      status === "inputStreaming" ||
+      status === "running" ||
+      status === "pendingApproval" ||
+      status === "awaitingInput"
+    );
+  }
+  if (row.kind === "subagent") {
+    const status = String((row as { status?: string }).status || "");
+    return status === "running" || status === "streaming";
+  }
+  return false;
+}
+
+/**
+ * 直播轮超 softCap：保留轮头+用户 + 全部 in-flight + 尽量多的尾部完成行。
+ * 旧逻辑只 head+tail，会把中间正在流的思考行裁掉 → wire 仍有思考 Δ，页面空白。
+ */
+export function selectLiveTurnWithinBudget(
+  live: readonly ConversationRow[],
+  userIdxInFull: number,
+  turnStartInFull: number,
+  softCap: number,
+): ConversationRow[] {
+  const cap = Math.max(MIN_KEEP, Math.floor(softCap));
+  if (live.length <= cap) return [...live];
+
+  const userIdxInLive = Math.max(0, userIdxInFull - turnStartInFull);
+  const head = live.slice(0, userIdxInLive + 1);
+  const after = live.slice(userIdxInLive + 1);
+  const inFlight = after.filter((row) => isInFlightProjectionRow(row));
+  const inFlightIds = new Set(inFlight.map((row) => row.rowId));
+  const settled = after.filter((row) => !inFlightIds.has(row.rowId));
+
+  const reserved = head.length + inFlight.length;
+  if (reserved >= cap) {
+    // in-flight 本身已顶满：保头 + in-flight（可略超 cap，优先可见性）
+    return [...head, ...inFlight];
+  }
+  const tailBudget = cap - reserved;
+  const tail = tailBudget > 0 ? settled.slice(-tailBudget) : [];
+  const keepIds = new Set<number>([
+    ...head.map((r) => r.rowId),
+    ...inFlight.map((r) => r.rowId),
+    ...tail.map((r) => r.rowId),
+  ]);
+  return live.filter((row) => keepIds.has(row.rowId));
+}
+
+/**
  * prefer=head 裁掉直播轮尾时：在 softCap 内把头窗与直播轮拼回。
- * 不是按埋深「只留当前轮」重建——有预算就尽量保留 capped 里更早的行。
+ * 不是按埋深「只留当前轮」重建——有预算就尽量保留更早的完整 turn。
  */
 export function ensureLiveTurnInProjectionWindow(
   full: readonly ConversationRow[],
@@ -83,29 +229,57 @@ export function ensureLiveTurnInProjectionWindow(
   softCap: number,
 ): readonly ConversationRow[] {
   const span = liveTurnSpan(full);
-  if (!span) return capped;
+  if (!span) {
+    // 无直播轮（纯历史窗）：能对齐 turnHeader 就对齐；对齐不了别掏空窗口。
+    const aligned = alignLeadingToTurnHeader(
+      full,
+      capped,
+      Math.max(MIN_KEEP, Math.floor(softCap)),
+    );
+    return aligned.length > 0 ? aligned : capped;
+  }
   const live = full.slice(span.turnStart);
   if (live.length === 0) return capped;
+  const liveStartRowId = live[0]?.rowId ?? 0;
   const present = new Set(capped.map((r) => r.rowId));
-  if (live.every((r) => present.has(r.rowId))) return capped;
+  const liveMissing = live.some((r) => !present.has(r.rowId));
+  const inFlightMissing = live.some(
+    (r) => isInFlightProjectionRow(r) && !present.has(r.rowId),
+  );
+
+  // 直播轮已完整在窗内，且没有 in-flight 被裁掉：只修窗顶半截轮。
+  if (!liveMissing && !inFlightMissing) {
+    const aligned = alignLeadingToTurnHeader(
+      full,
+      capped,
+      Math.max(MIN_KEEP, Math.floor(softCap) - live.length),
+    );
+    if (aligned.length === capped.length && aligned.every((row, i) => row.rowId === capped[i]?.rowId)) {
+      return capped;
+    }
+    // align 若丢光 older 残片，保留原 capped 里的直播段 + 尽可能的完整 older。
+    if (aligned.length === 0 || aligned[0]?.rowId === liveStartRowId) {
+      const olderKeep = selectOlderCompleteTurnsWithinBudget(
+        full,
+        liveStartRowId,
+        Math.max(0, Math.floor(softCap) - live.length),
+      );
+      return olderKeep.length === 0 ? capped : [...olderKeep, ...live];
+    }
+    return aligned;
+  }
 
   const cap = Math.max(MIN_KEEP, Math.floor(softCap));
-  if (live.length >= cap) {
-    const head = full.slice(span.turnStart, span.userIdx + 1);
-    const after = full.slice(span.userIdx + 1);
-    const tailBudget = Math.max(0, cap - head.length);
-    const tail = tailBudget > 0 ? after.slice(-tailBudget) : [];
-    return [...head, ...tail];
+  const liveKept = selectLiveTurnWithinBudget(live, span.userIdx, span.turnStart, cap);
+  if (liveKept.length >= cap) {
+    return liveKept;
   }
-  const olderBudget = cap - live.length;
-  const older = capped.filter((r) => r.rowId < (live[0]?.rowId ?? 0));
-  let olderKeep =
-    older.length > olderBudget ? older.slice(older.length - olderBudget) : older;
-  if (olderKeep.length > 0 && olderKeep[0]?.kind !== "turnHeader") {
-    const idx = olderKeep.findIndex((r) => r.kind === "turnHeader");
-    if (idx > 0) olderKeep = olderKeep.slice(idx);
-  }
-  return [...olderKeep, ...live];
+  const olderKeep = selectOlderCompleteTurnsWithinBudget(
+    full,
+    liveStartRowId,
+    cap - liveKept.length,
+  );
+  return [...olderKeep, ...liveKept];
 }
 
 /**

@@ -7,6 +7,8 @@ import {
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
   lightenProjectionRowsForMemory,
+  selectLiveTurnWithinBudget,
+  selectOlderCompleteTurnsWithinBudget,
 } from '../src/zcode-ui/v4/projectionWindowCap.ts'
 import type { ConversationRow } from '../src/zcode-shared/zcode-protocol-v4/index.ts'
 
@@ -185,6 +187,85 @@ describe('ensureLiveTurnInProjectionWindow', () => {
   it('no-ops when live turn already in capped window', () => {
     const rows = [row(1, 'turnHeader'), row(2, 'userInput', 'realUser'), row(3)]
     expect(ensureLiveTurnInProjectionWindow(rows, rows, 40)).toBe(rows)
+  })
+
+  it('does not leave window starting mid previous turn after soft-cap', () => {
+    const rows: ConversationRow[] = []
+    // 超长上一轮（模拟电脑控制长跑）
+    rows.push(row(1, 'turnHeader'))
+    rows.push(row(2, 'userInput', 'realUser'))
+    for (let i = 3; i <= 120; i += 1) rows.push(row(i, 'toolCall'))
+    // 新开一轮（用户追问）
+    rows.push(row(121, 'turnHeader'))
+    rows.push(row(122, 'userInput', 'realUser'))
+    for (let i = 123; i <= 160; i += 1) rows.push(row(i, 'assistantText'))
+    for (const r of rows) {
+      if (r.rowId <= 120) (r as { turnId: string }).turnId = 'prev'
+      else (r as { turnId: string }).turnId = 'live'
+    }
+    // 模拟软顶后窗顶落在上一轮 mid-tool（现场 window=56…）
+    const midPrev = rows.filter((r) => r.rowId >= 56)
+    const pinned = ensureLiveTurnInProjectionWindow(rows, midPrev, 100)
+    expect(pinned[0]?.kind).toBe('turnHeader')
+    expect(pinned.some((r) => r.rowId === 122)).toBe(true)
+    expect(pinned[0]?.rowId).not.toBe(56)
+  })
+})
+
+describe('selectLiveTurnWithinBudget', () => {
+  it('keeps mid-turn streaming reasoning that head+tail would drop', () => {
+    const live: ConversationRow[] = []
+    live.push(row(1, 'turnHeader'))
+    live.push(row(2, 'userInput', 'realUser'))
+    live.push({
+      ...row(3, 'reasoning'),
+      state: 'streaming',
+      text: '正在核实插件',
+    } as ConversationRow)
+    for (let i = 4; i <= 120; i += 1) {
+      live.push({ ...row(i, 'toolCall'), status: 'success' } as ConversationRow)
+    }
+    for (const r of live) (r as { turnId: string }).turnId = 'live'
+
+    // 模拟 prefer=tail 只留尾部，思考行落在窗外
+    const tailOnly = live.slice(-40)
+    expect(tailOnly.some((r) => r.kind === 'reasoning')).toBe(false)
+
+    const pinned = ensureLiveTurnInProjectionWindow(live, tailOnly, 50)
+    const reasoning = pinned.find((r) => r.kind === 'reasoning')
+    expect(reasoning).toBeTruthy()
+    expect(reasoning?.state).toBe('streaming')
+    expect(String((reasoning as { text?: string }).text || '')).toContain('核实')
+
+    const kept = selectLiveTurnWithinBudget(live, 1, 0, 50)
+    expect(kept.some((r) => r.kind === 'reasoning' && r.state === 'streaming')).toBe(
+      true,
+    )
+  })
+})
+
+describe('selectOlderCompleteTurnsWithinBudget', () => {
+  it('picks complete trailing turns instead of mid-turn row slices', () => {
+    const rows: ConversationRow[] = [
+      row(1, 'turnHeader'),
+      row(2, 'userInput', 'realUser'),
+      row(3, 'toolCall'),
+      row(4, 'turnHeader'),
+      row(5, 'userInput', 'realUser'),
+      row(6, 'toolCall'),
+      row(7, 'toolCall'),
+      row(8, 'turnHeader'),
+      row(9, 'userInput', 'realUser'),
+    ]
+    for (const r of rows) {
+      if (r.rowId <= 3) (r as { turnId: string }).turnId = 'a'
+      else if (r.rowId <= 7) (r as { turnId: string }).turnId = 'b'
+      else (r as { turnId: string }).turnId = 'live'
+    }
+    const older = selectOlderCompleteTurnsWithinBudget(rows, 8, 4)
+    expect(older[0]?.kind).toBe('turnHeader')
+    expect(older[0]?.rowId).toBe(4)
+    expect(older.every((r) => r.rowId < 8)).toBe(true)
   })
 })
 
