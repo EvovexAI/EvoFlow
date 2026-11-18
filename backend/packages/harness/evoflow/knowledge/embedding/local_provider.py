@@ -74,7 +74,11 @@ def probe_local_embedding_deps() -> str | None:
     # triggers scipy.linalg._fblas which hangs on Windows when the OpenMP/MKL DLL
     # is broken or missing.  Use file/directory existence as a proxy to avoid
     # any import machinery whatsoever.
-    import sys
+    # 【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+    # 删掉这里的函数内 `import sys`：模块顶部已 import 过，此处重复触发 ruff
+    # F811（redefinition of unused 'sys'）。sys 是内建模块，函数内再 import
+    # 唯一的历史理由是「避免 import machinery」，但 `import sys` 走的是
+    # sys.modules 直取，不触发任何第三方依赖加载，不影响本函数的设计意图。
     if getattr(sys, "frozen", False):
         # Frozen bundle: ST is absent by design on lean desktop.
         return _MISSING_ST_HINT
@@ -183,6 +187,53 @@ def _model_is_cached(model_id: str) -> bool:
     return False
 
 
+# 【self-evolution-bot · 2026-11-18 · 第47轮 · 模型:deepseek-v4.1-flash-1017】
+# 缓存加载失败要**立即重试一次**，不能直接把失败抛上去。
+#
+# 现场（2026-11-18 17:50，网关 1.3.35，同一 venv、同一模型）：
+#   code_index: sync query embedding failed: EmbeddingError:
+#   Failed to load local embedding model 'BAAI/bge-small-zh-v1.5':
+#   Pooling.__init__() missing 1 required positional argument: 'embedding_dimension'
+# 而同一条命令单独跑、多线程跑、三进程并发跑全部成功（dim=512）。
+#
+# 根因不是签名不兼容，是**缓存目录被并发写**：
+#   sentence_transformers 5.6 的 `Pooling.config_keys` 已换成
+#   ['embedding_dimension','pooling_mode','include_prompt']，而 bge 缓存的
+#   `1_Pooling/config.json` 仍是旧格式（word_embedding_dimension /
+#   pooling_mode_cls_token ...）。首次加载时新版 `Pooling.load_config` 会
+#   `_convert_legacy_pooling_kwargs` 迁移并**回写该文件**；两个进程同时首次加载，
+#   一方读到的就是另一方写到一半的 json —— 字段缺失 → `cls(**config)` 缺参。
+#   实证：该文件 mtime 恰好落在两个任务并发首次加载的同一秒（17:50:44）。
+#
+# 为什么必须修：这次失败不是一次性的。`store._start_embed_warmup` 失败后会进
+# `_EMBED_WARM_RETRY_S=300` 秒冷却，期间每次检索都静默退回纯词法——
+# 用户看到的结果「还是对的」（字面匹配撑着），但语义召回整整 5 分钟不在线，
+# 且日志里只有一行 warning。半写状态是瞬时的，隔几百毫秒再读就是完整的。
+_LOAD_RETRY_ATTEMPTS = 2
+_LOAD_RETRY_DELAY_S = 0.6
+
+
+def _is_transient_load_error(exc: BaseException) -> bool:
+    """只对「读到的缓存不完整」这类瞬时错误重试，不做无差别重试。
+
+    判据取**异常文案里的结构缺陷**而不是异常类型：ST 把缓存解析失败统一包成
+    TypeError / KeyError / RuntimeError 等，类型无法区分「配置半写」与「模型真的坏」。
+    模型真坏时重试一次也只是多 0.6 秒，且失败仍照原样上报，不会掩盖问题。
+    """
+    text = f"{type(exc).__name__}: {exc}".lower()
+    for needle in (
+        "missing 1 required positional argument",
+        "unexpected keyword argument",
+        "keyerror",
+        "json",
+        "truncated",
+        "expecting value",
+    ):
+        if needle in text:
+            return True
+    return False
+
+
 def _build_sentence_transformer(model_id: str, device: str):
     ensure_hf_hub_env()
     from sentence_transformers import SentenceTransformer
@@ -199,7 +250,10 @@ def _build_sentence_transformer(model_id: str, device: str):
             model_id,
             endpoint,
         )
-        return SentenceTransformer(model_id, device=device, local_files_only=True)
+        return _load_with_retry(
+            lambda: SentenceTransformer(model_id, device=device, local_files_only=True),
+            model_id,
+        )
 
     logger.info(
         "Loading local embedding model '%s' on %s (first use downloads via %s)...",
@@ -207,7 +261,34 @@ def _build_sentence_transformer(model_id: str, device: str):
         device,
         endpoint,
     )
-    return SentenceTransformer(model_id, device=device)
+    return _load_with_retry(
+        lambda: SentenceTransformer(model_id, device=device),
+        model_id,
+    )
+
+
+def _load_with_retry(build, model_id: str):
+    """调一次 ``build()``；仅当失败像「缓存半写」时，短暂等待后再试一次。"""
+    import time as _time
+
+    last: BaseException | None = None
+    for attempt in range(_LOAD_RETRY_ATTEMPTS):
+        try:
+            return build()
+        except Exception as exc:
+            last = exc
+            if attempt + 1 >= _LOAD_RETRY_ATTEMPTS or not _is_transient_load_error(exc):
+                raise
+            logger.info(
+                "Local embedding model '%s' load hit a transient cache error "
+                "(%s: %s); retrying in %.1fs",
+                model_id,
+                type(exc).__name__,
+                exc,
+                _LOAD_RETRY_DELAY_S,
+            )
+            _time.sleep(_LOAD_RETRY_DELAY_S)
+    raise last if last else RuntimeError("unreachable")
 
 
 def _get_device(model_config: ModelConfig) -> str:
@@ -321,7 +402,11 @@ class LocalEmbeddingProvider(EmbeddingProvider):
                 asyncio.to_thread(_encode),
                 timeout=encode_timeout_s,
             )
-        except asyncio.TimeoutError as exc:
+        # 【self-evolution-bot · 2026-11-18 · 第50轮 · 模型:deepseek-v4.1-flash-1017】
+        # `asyncio.TimeoutError` 自 3.11 起就是内建 `TimeoutError` 的别名，
+        # ruff UP041 要求用内建名。改的只是名字，捕获的异常类型逐字节等价；
+        # 之所以顺手改：本轮要提交本文件的缓存半写重试，门禁会因这条既有告警变红。
+        except TimeoutError as exc:
             raise EmbeddingError(
                 f"Local embedding inference timed out after {encode_timeout_s:.0f}s "
                 f"for '{model_id}' on batch of {len(texts)} texts; consider a smaller batch."
