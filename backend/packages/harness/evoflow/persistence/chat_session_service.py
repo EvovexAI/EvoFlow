@@ -611,7 +611,10 @@ def bind_session_thread(
     tid = resolve_langgraph_lead_thread_id(thread_id)
     if not sk or not tid:
         raise ValueError("session_key and valid LangGraph lead thread_id required")
-    existing = sess_repo.load_session_map().get(sk) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第49轮 · 模型:deepseek-v4.1-flash-1017】
+    # 只取 context 合并进 merged_ctx，原实现调 load_session_map()（全表 547 行、
+    # 冷 6976ms / 热 124ms vs 单行 0.017ms）。返回形状不变。
+    existing = sess_repo.get_session_map_entry(sk) or {}
     ui_row = sess_repo.get_session_row_for_ui(sk)
     now = _now_ms()
     merged_ctx = dict(existing.get("context") if isinstance(existing.get("context"), dict) else {})
@@ -667,8 +670,11 @@ async def ensure_session_thread(
         raise ValueError("session_key required")
     _t0 = _time.perf_counter()
     _phase_ms: dict[str, float] = {}
-    # load_session_map 是 7k+ 行全表扫且本函数在 stream 起点——offload。
-    existing = (await asyncio.to_thread(sess_repo.load_session_map)).get(sk) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第49轮 · 模型:deepseek-v4.1-flash-1017】
+    # 原来这里为读一个 threadId 调 load_session_map()（全表 547 行、冷 6976ms / 热
+    # 124ms），而本函数在每次发消息的 stream 起点 —— 是本类缺陷里调用最频繁的一处。
+    # 改单行查询（0.017ms），返回形状仍是侧栏 map 的那一行，取值语义不变。
+    existing = (await asyncio.to_thread(sess_repo.get_session_map_entry, sk)) or {}
     tid = resolve_langgraph_lead_thread_id(str(existing.get("threadId") or "").strip()) or ""
     if tid:
         try:
@@ -834,7 +840,10 @@ async def delete_session_full(session_key: str) -> dict[str, Any]:
     sk = str(session_key or "").strip()
     if not sk:
         raise ValueError("session_key required")
-    row = (await asyncio.to_thread(sess_repo.load_session_map)).get(sk) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第49轮 · 模型:deepseek-v4.1-flash-1017】
+    # 只取 threadId，原实现调 load_session_map()（全表 547 行、冷 6976ms / 热 124ms
+    # vs 单行 0.017ms）。返回形状不变（侧栏 map 那一行）。
+    row = (await asyncio.to_thread(sess_repo.get_session_map_entry, sk)) or {}
     tid = str(row.get("threadId") or "").strip()
 
     # 删除链路 6+ 次写事务，全部 offload（角色删除几百 session 时在 loop 上会秒级冻结）。
@@ -992,7 +1001,7 @@ async def fork_session_full(
 
     parent = (
         await asyncio.to_thread(sess_repo.get_session_row_for_ui, src)
-        or (await asyncio.to_thread(sess_repo.load_session_map)).get(src)
+        or (await asyncio.to_thread(sess_repo.get_session_map_entry, src))
         or {}
     )
     if not parent:
@@ -1125,7 +1134,9 @@ async def reset_session_full(session_key: str) -> dict[str, Any]:
     if not sk:
         raise ValueError("session_key required")
 
-    row = (await asyncio.to_thread(sess_repo.load_session_map)).get(sk) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第49轮 · 模型:deepseek-v4.1-flash-1017】
+    # 只取 threadId + context，原实现调 load_session_map()（全表 547 行）。
+    row = (await asyncio.to_thread(sess_repo.get_session_map_entry, sk)) or {}
     old_tid = str(row.get("threadId") or "").strip()
     ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
 
@@ -1178,7 +1189,7 @@ async def truncate_session_from_message(
 
     row = (
         await asyncio.to_thread(sess_repo.get_session_row_for_ui, sk)
-        or (await asyncio.to_thread(sess_repo.load_session_map)).get(sk)
+        or (await asyncio.to_thread(sess_repo.get_session_map_entry, sk))
         or {}
     )
     if not row:

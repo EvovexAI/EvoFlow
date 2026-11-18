@@ -73,11 +73,15 @@ def str_replace_hd(
                 edit_guard_failure,
             )
 
-            guard_err = edit_guard_failure(str(p))
+            # 【self-evolution-bot · 2026-11-19 · 第61轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：把 old_string/regex 传进守卫，让「字面串在当前内容里唯一命中」可以放行。
+            # 为什么：不传的话，write_file 里已实现的放行分支在 replace 上永远走不到
+            # （改判定不接调用点 = 没改）。现网 35 次 STALE 里 32 次是 replace(old_string)。
+            guard_err = edit_guard_failure(str(p), old_string=old_string, regex=regex)
             if guard_err and EDIT_NOT_READ_MESSAGE in guard_err:
                 if auto_register_full_read_for_edit(str(p)):
                     auto_read_healed = True
-                    guard_err = edit_guard_failure(str(p))
+                    guard_err = edit_guard_failure(str(p), old_string=old_string, regex=regex)
             if guard_err:
                 emit_write_progress(
                     tool_call_id=tool_call_id,

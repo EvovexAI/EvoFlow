@@ -120,6 +120,15 @@ def format_search_index_body(
     if rebuild_in_progress:
         lines.append("[index] rebuild in progress — results may be stale")
         lines.append("")
+    # 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    # 语义召回掉线时字面匹配照样能给出结果，输出看上去完全正常 —— 我上一轮就是在
+    # 翻日志时才撞见「每次查询都在报 Pooling 加载失败」。既然用户看的是这段文本，
+    # 降级就必须出现在这里，而不是只在 logger 里。
+    # 只在非空时打，正常路径零噪声。
+    degraded_detail = str(data.get("semantic_degraded_detail") or "").strip()
+    if degraded_detail:
+        lines.append(f"[index] {degraded_detail}")
+        lines.append("")
     path_prefix = str(data.get("path_prefix") or "").strip()
     if path_prefix:
         lines.append(f"[path scope] {path_prefix}")

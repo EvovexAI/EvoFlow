@@ -626,6 +626,25 @@ class V4ConversationHub:
         ):
             run_status = str((read_run_status_row(tid) or {}).get("status") or "").strip().lower()
             mapped = _phase_for_run_status(run_status)
+            # 工具授权闸仍 pending 时 DB 常被标 done/idle；不得把投影收成 completedSuccess，
+            # 否则页面像「自己停了」、待批工具卡被误当成终态。
+            if mapped == _PHASE_COMPLETED:
+                try:
+                    from evoflow.agents.tool_approval_service import thread_has_pending_approvals
+
+                    if thread_has_pending_approvals(tid):
+                        mapped = ""
+                        logger.info(
+                            "[v4.catchup] skip settle: pending tool approval session=%s db_status=%s",
+                            tid,
+                            run_status,
+                        )
+                except Exception:
+                    logger.debug(
+                        "[v4.catchup] pending-approval check failed session=%s",
+                        tid,
+                        exc_info=True,
+                    )
             if mapped:
                 self.patch_phase(tid, mapped)
                 settled_phase = mapped

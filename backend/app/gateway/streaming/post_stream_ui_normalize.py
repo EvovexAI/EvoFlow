@@ -852,12 +852,19 @@ class PostStreamUiTransform:
                     for out_msg in self._asgi_body_messages(frame, more_body=True):
                         yield out_msg
         # 非 lane-owned 路径若仍未结算镜像，补一刀，避免空流后闩锁粘住。
+        # 仍有 pending 授权 / resume 时不要硬封——否则 V4 会把待批轮误标失败/成功。
         if self.thread_id:
             try:
                 from app.gateway.v4.agui_mirror import mirror_channel_run_finished, mirror_thread_is_live
 
                 if mirror_thread_is_live(self.thread_id):
-                    mirror_channel_run_finished(self.thread_id, error=True)
+                    if await _should_defer_run_finished_async(self.thread_id):
+                        logger.info(
+                            "【流式UI】close_stream 跳过 mirror seal thread=%s（pending 授权/resume）",
+                            self.thread_id,
+                        )
+                    else:
+                        mirror_channel_run_finished(self.thread_id, error=True)
             except Exception:
                 logger.debug(
                     "close_stream mirror seal failed thread=%s", self.thread_id, exc_info=True

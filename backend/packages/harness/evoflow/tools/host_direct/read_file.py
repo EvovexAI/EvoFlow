@@ -151,6 +151,28 @@ def _list_symbols_in_file(content: str, language: str = "python", limit: int = 1
     return names
 
 
+def _background_task_output_hint(target: Path) -> str:
+    """后台 bash 任务输出路径的专属提示 —— 这种「找不到」的正确动作不是换个路径。
+
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    实证：近 7 天 obs 里 `read` 的 file-not-found 后半期 12 次（前半期 1 次），
+    抽样 5 条有 4 条读的是 `…/evoflow-bash-tasks/<id>.output`。这类文件由后台任务
+    写出，刚被后台化时是空文件甚至尚未创建；正确的下一步是等任务完成再读
+    （或直接看任务结果的 outputFile），不是换措辞再试一次路径。
+    """
+    try:
+        parts = {p.lower() for p in target.parts}
+    except Exception:  # noqa: BLE001
+        return ""
+    if "evoflow-bash-tasks" not in parts:
+        return ""
+    return (
+        "；这看起来是**后台 bash 任务的输出文件**：它在任务还没产出时可能为空或尚未创建。"
+        "请等任务完成后重读该路径，或用 taskoutput/task 通知里的 outputFile，"
+        "不要换措辞重试同一个路径。"
+    )
+
+
 def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
     """Resolve *path* to a host file without workspace confinement (IDE-like)."""
     raw = str(path or "").strip()
@@ -185,6 +207,14 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
             # 绑定工作区下的另一条路径，此时只报入参就是在误导。仅在两者不同时补一句。
             if str(target) != str(Path(expanded).resolve()):
                 return f"Error: File not found: {path}（实际查找的绝对路径：{target}）"
+            # 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+            # 后台任务输出文件是个高频特例：文件由 bash 后台任务写出，**还没写完**或
+            # 已被清理时读它就是 File not found，而正确动作是去等任务完成，不是换路径重试。
+            # 实证（近7天 obs）：read::file 错误后半期 12 次 / 前半期 1 次，抽样 5 条里
+            # 4 条都是 evoflow-bash-tasks 下的 *.output。只报「找不到」等于逼我自己再绕一步。
+            hint = _background_task_output_hint(target)
+            if hint:
+                return f"Error: File not found: {path}（实际查找的绝对路径：{target}）{hint}"
             return f"Error: File not found: {path}"
         return target
 
@@ -251,6 +281,14 @@ def _resolve_image_ref(ref: str, *, runtime: ToolRuntime) -> str:
     resolved = _resolve_read_target(ref, runtime=runtime)
     if isinstance(resolved, str):
         return resolved  # read-style error string, returned verbatim
+    # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+    # 同 read_file_hd 的 Text path：`str(None)` 会变成字符串 "None"，下游再拿它
+    # 当路径去猜后缀，报出来的错和真实原因毫无关系。这里当场戳穿。
+    if not isinstance(resolved, Path):
+        return (
+            f"Error: could not resolve image ref {ref!r} "
+            f"(resolver returned {type(resolved).__name__})."
+        )
     return str(resolved)
 
 
@@ -303,6 +341,19 @@ def read_file_hd(
     resolved = _resolve_read_target(path, runtime=runtime)
     if isinstance(resolved, str):
         return resolved
+    # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+    # 上一行只挡了 str，于是 None（或任何非 Path 意外值）会一路裸奔到下面的
+    # ``resolved.suffix``，在现网炸成「Tool 'read' failed with AttributeError:
+    # 'NoneType' object has no attribute 'suffix'」——调用方只看到一句没有路径、
+    # 没有下一步的崩溃，只能换个写法重试（今天 obs 实测 6 次，09:57~16:03）。
+    # 这里用**正向断言**而不是 ``if resolved is None``：判据是「必须拿到 Path」，
+    # 任何意外类型都该被这条挡住并说清是哪条入参，而不是由下游某行代为崩溃。
+    if not isinstance(resolved, Path):
+        return (
+            f"Error: could not resolve path {path!r} to a file "
+            f"(resolver returned {type(resolved).__name__}). "
+            "Check the path spelling, or pass an absolute D:/... path."
+        )
     # ── PDF path (zcode Read PDF alignment) ──
     # Dispatched before symbol/offset/limit: those are line-oriented and
     # meaningless for PDFs; ``pages`` is the PDF-native page range parameter.
@@ -361,10 +412,14 @@ def read_file_hd(
                 text = gated
                 full_read = False
         # Hash only meaningful for full views; partial views never qualify for edit.
+        # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        # 必须按**磁盘原文**算，不能用上面（已 CRLF 归一化/加行号/可能被门禁截断的）
+        # 渲染文本。守卫 edit_guard_failure 比对时读的是磁盘原文，两边口径不一致时
+        # CRLF 文件永远比不平 —— 「内容没变」也会被判 stale，逼我重读一遍。
         content_hash = None
         if full_read:
-            import hashlib
+            from evoflow.tools.zcode_port.read_file_state import file_content_hash
 
-            content_hash = hashlib.md5(str(text).encode("utf-8", errors="replace")).hexdigest()
+            content_hash = file_content_hash(resolved)
         _note_model_read(resolved, full_read=full_read, content_hash=content_hash)
     return text

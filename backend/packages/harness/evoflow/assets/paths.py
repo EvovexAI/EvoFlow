@@ -34,7 +34,10 @@ _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$", re.I)
 # to ASCII made every non-ASCII asset unreadable even though the write succeeded.
 # ``\w`` (Unicode-aware) still rejects separators, control chars and the
 # Windows-reserved set ``<>:"|?*``, and traversal is checked separately below.
-_SAFE_REL_PATH = re.compile(r"^[\w./\-]+$", re.UNICODE)
+# 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+# 加入 ``+``：现网 obs 里两次 ``invalid characters in path`` 中，一次是文件名含 ``20+``。
+# ``+`` 在 NTFS/ext4/APFS 上都是普通合法字符、不在任何保留集里，拦它只换来一次重试。
+_SAFE_REL_PATH = re.compile(r"^[\w./\-+]+$", re.UNICODE)
 
 # Best-effort cache: ws-{hash} -> absolute workspace path (filled by workspace_entity_ref).
 _WS_PATH_BY_ID: dict[str, str] = {}
@@ -221,11 +224,18 @@ def resolve_entity_file(entity: EntityRef, rel_path: str) -> Path:
         # 【self-evolution-bot · 2026-11-16 · 第19轮】原来只说 "invalid characters in path"，
         # 不告诉调用方是哪个字符、允许哪些字符 —— 第19轮我写一个含 "+" 的 journal 文件名，
         # 连试 3 次才摸到规则，纯属让人猜。改为点名非法字符 + 附允许集合。
-        _bad = sorted({ch for ch in rel if not re.match(r"[\w./\-]", ch)})
+        #
+        # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把 "+" 加进合法集合。
+        # 为什么：现网 obs 实证两次 `invalid characters in path`，其中一次是我写
+        # `第19轮-我写了个20+-实测是13-...`（`20+` 是我的常用写法）。而 `+` 在 NTFS /
+        # ext4 / APFS 上都是普通合法字符，不在任何保留集里，拦住它没有任何收益，
+        # 只是把「换个名字」变成必须重试一次。白名单其余部分一个字没动。
+        _bad = sorted({ch for ch in rel if not re.match(r"[\w./\-+]", ch)})
         raise ValueError(
             "invalid characters in path: "
             + (", ".join(repr(ch) for ch in _bad) if _bad else repr(rel))
-            + r" (allowed: letters, digits, underscore, dot, slash, hyphen)"
+            + r" (allowed: letters, digits, underscore, dot, slash, hyphen, plus)"
         )
     root = entity_root(e).resolve()
     target = (root / rel).resolve()
@@ -327,13 +337,27 @@ def resolve_asset_rel(entity: EntityRef, path: str) -> str:
     e = entity.normalized()
     root = entity_root(e)
     hits: list[str] = []
-    for dirname in _BASENAME_LOOKUP_DIRS:
-        candidate = root / dirname / name
-        try:
-            if candidate.is_file():
-                hits.append(f"{dirname}/{name}".replace("\\", "/"))
-        except OSError:
-            continue
+    # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：裸名不带 `.md` 时，用「补了后缀的名字」再查一次已存在文件。
+    # 为什么：现网 obs 实证——`path='系统优化清单-按可证伪性排序'`（少了 .md）
+    # 被拒 `write_path_not_allowed`，而 `memory/episodic/系统优化清单-按可证伪性排序.md`
+    # 就在盘上，5 秒后我手动补全前缀重试才成功。资产文件全是 Markdown，后缀
+    # 只是书写习惯差异、不携带落点信息，没理由让它把一次写入变成一次往返。
+    # 边界：只在「补后缀后恰好命中已存在文件」时改写；新建文件（盘上没有）
+    # 仍原样返回裸名，交给调用方用 kind / 前缀指明落点，不静默猜目录。
+    lookup_names = [name]
+    if name and not name.lower().endswith(".md"):
+        lookup_names.append(f"{name}.md")
+    for candidate_name in lookup_names:
+        for dirname in _BASENAME_LOOKUP_DIRS:
+            candidate = root / dirname / candidate_name
+            try:
+                if candidate.is_file():
+                    hits.append(f"{dirname}/{candidate_name}".replace("\\", "/"))
+            except OSError:
+                continue
+        if hits:
+            break
     if len(hits) == 1:
         return hits[0]
     if len(hits) > 1:

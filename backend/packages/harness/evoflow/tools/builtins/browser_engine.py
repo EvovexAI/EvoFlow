@@ -464,15 +464,50 @@ _SNAPSHOT_JS = r"""
         return t.toLowerCase();
     }
     function accessibleName(el) {
+        // # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：补 aria-labelledby → 内嵌图片 alt → input/button 的 value → a[href] 兜底。
+        // 为什么：快照里出现过大量 `link ""`（现网实测 [e3] link "" x=31,y=58）——
+        // 纯图标链接没有 innerText，名字成空串，模型认不出是哪个元素，
+        // 只能凭坐标或猜 CSS 去点，点错再重试。
         const aria = el.getAttribute('aria-label') || '';
         if (aria.trim()) return aria.trim().slice(0, 120);
+        const labelledBy = el.getAttribute('aria-labelledby') || '';
+        if (labelledBy.trim()) {
+            const parts = labelledBy.split(/\s+/).map((id) => {
+                const n = document.getElementById(id);
+                return n ? (n.innerText || n.textContent || '').trim() : '';
+            }).filter(Boolean);
+            if (parts.length) return parts.join(' ').slice(0, 120);
+        }
         const title = el.getAttribute('title') || '';
         if (title.trim()) return title.trim().slice(0, 120);
         const placeholder = el.getAttribute('placeholder') || '';
         if (placeholder.trim()) return placeholder.trim().slice(0, 120);
         let text = '';
         try { text = (el.innerText || el.textContent || '').trim(); } catch (_) {}
-        return text.slice(0, 120);
+        if (text) return text.slice(0, 120);
+        // 图标链接：取内嵌图片的 alt
+        try {
+            const img = el.querySelector ? el.querySelector('img[alt]') : null;
+            if (img) {
+                const alt = String(img.getAttribute('alt') || '').trim();
+                if (alt) return alt.slice(0, 120);
+            }
+        } catch (_) {}
+        const tag = (el.tagName || '').toLowerCase();
+        if (tag === 'input' || tag === 'button') {
+            const v = String(el.value || '').trim();
+            if (v) return v.slice(0, 120);
+        }
+        // 最后一档：链接用 href 的尾部，至少让模型分得清「哪个链接」
+        if (tag === 'a') {
+            const href = String(el.getAttribute('href') || '').trim();
+            if (href && href !== '#' && !href.startsWith('javascript:')) {
+                const tail = href.split('#')[0].split('?')[0].split('/').filter(Boolean).pop() || href;
+                return ('\u2192' + tail).slice(0, 120);
+            }
+        }
+        return '';
     }
     function isInteractive(el) {
         const t = el.tagName;

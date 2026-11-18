@@ -38,6 +38,8 @@ import os
 import time
 from typing import Any
 
+from evoflow.models.think_tags import merge_reasoning, strip_inline_think_tags
+
 logger = logging.getLogger(__name__)
 
 _HYDRATION_MAX_MESSAGES = 2000
@@ -940,14 +942,19 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                 rows.append(row)
             elif role == "assistant":
                 reasoning = str((payload or {}).get("reasoning") or "") if isinstance(payload, dict) else ""
-                if reasoning:
+                text_raw = _text_from_message_content(
+                    payload.get("content") if isinstance(payload, dict) else None
+                )
+                text, inline_think = strip_inline_think_tags(text_raw)
+                reasoning_merged = merge_reasoning(reasoning or None, inline_think) or ""
+                if reasoning_merged:
                     created_at = _next_created_at()
                     rows.append(
                         {
                             "rowId": next_row_id(),
                             "turnId": turn_id,
                             "kind": "reasoning",
-                            "text": reasoning,
+                            "text": reasoning_merged,
                             "state": "complete",
                             "createdAt": created_at,
                             "createdAtSeq": 0,
@@ -957,6 +964,10 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                     if not isinstance(tc, dict):
                         continue
                     tcid = str(tc.get("id") or "").strip()
+                    # 失败轮 / remint 偶发把上一轮 tool_call id 再挂到新 assistant；
+                    # 同 id 已有行则跳过，避免再开一张空红卡。
+                    if tcid and tcid in tool_row_by_call_id:
+                        continue
                     args = tc.get("args")
                     try:
                         args_text = (
@@ -994,8 +1005,8 @@ def hydrate_session_from_transcript(hub: Any, thread_id: str) -> int:
                                 "subagentType": sa_type or "general",
                                 "summary": desc or "子任务",
                             }
-                text = _text_from_message_content(payload.get("content") if isinstance(payload, dict) else None)
-                if text:
+                # strip_inline_think_tags 故意不 .strip()（保流式换行）；此处只判断是否有可见正文。
+                if text.strip():
                     created_at = _next_created_at()
                     row = {
                         "rowId": next_row_id(),

@@ -381,6 +381,7 @@ def list_agents(
     limit: int | None = None,
     offset: int | None = None,
     include_soul: bool = False,
+    include_prompt: bool = False,
 ) -> dict[str, Any]:
     """List all agents (main + custom/subagent).
 
@@ -391,6 +392,11 @@ def list_agents(
         limit: Optional max rows (``>= 0``). ``None`` = no cap.
         offset: Optional skip count (``>= 0``).
         include_soul: When True, include ``soul`` / ``identity`` (heavier).
+        include_prompt: When True, keep each row's full ``system_prompt``.
+            Default False → ``system_prompt`` is nulled and replaced by
+            ``system_prompt_chars`` (list is "who", not "everyone's full text";
+            measured 133KB of 183KB on 57 agents). Read the body via
+            ``get_agent`` / ``include_prompt=true``.
     """
     extras_by_code: dict[str, dict[str, Any]] | None = None
     try:
@@ -433,6 +439,22 @@ def list_agents(
         if lim < 0:
             raise ValidationError("limit must be >= 0")
         agents = agents[:lim]
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：list 默认不再回传每个 agent 的完整 ``system_prompt``，只给
+    # ``system_prompt_chars`` 长度提示；要看正文用 ``include_prompt=true`` 或 get_agent。
+    # 为什么：现网实测 57 个 agent / 183KB 返回，其中 **133KB（73%）是 system_prompt**，
+    # 单条最长上万字。而 ``settings.list_models`` 同类的坑是「读一次塞满上下文」——
+    # list 的语义是"有谁"，不是"每人全文"；同函数里 ``include_soul`` 早就按这个思路
+    # 把重字段关默认，唯独 system_prompt 漏了控制。消费方核查：内部调用
+    # （_assert_agent_name_unique / namespaces_api / business_quality / module_agents）
+    # 只用 agent_code 与 agent_name，需要提示词正文的走 get_agent(include_soul=True)，
+    # 故默认收窄不破坏任何现有读侧。
+    if not include_prompt:
+        for row in agents:
+            if "system_prompt" in row:
+                text = str(row.get("system_prompt") or "")
+                row["system_prompt_chars"] = len(text)
+                row["system_prompt"] = None
     # ``count`` = page size; ``total`` = full filtered set (CORE-AGENT-01).
     return {
         "agents": agents,

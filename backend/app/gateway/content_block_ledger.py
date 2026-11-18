@@ -162,6 +162,38 @@ class ContentBlockLedger:
         blk["text"] = str(blk.get("text") or "") + text
         return self.meta_for(self._open_text_id)
 
+    def _last_reasoning_id(self) -> str | None:
+        for bid in reversed(self.order):
+            blk = self.blocks.get(bid)
+            if blk and blk.get("kind") == BLOCK_KIND_REASONING:
+                return str(bid)
+        return None
+
+    def _has_body_text_block(self) -> bool:
+        return any(
+            (self.blocks.get(bid) or {}).get("kind") == BLOCK_KIND_BODY for bid in self.order
+        )
+
+    def _reasoning_reopen_candidate_after_body(self) -> str | None:
+        """正文刚关掉思考后的尾巴增量可并回上一张；工具轮之后的新思考必须新开卡。
+
+        现场：多轮工具穿插时 V4 仍推思考 Δ，但 ledger 把内容并进第一张思考卡，
+        用户只在轮头看到一次思考、工具中间再也看不到。
+        """
+        if not self._has_body_text_block():
+            return None
+        prev = self._last_reasoning_id()
+        if not prev:
+            return None
+        try:
+            prev_idx = self.order.index(prev)
+        except ValueError:
+            return None
+        for bid in self.order[prev_idx + 1 :]:
+            if (self.blocks.get(bid) or {}).get("kind") == BLOCK_KIND_TOOLS:
+                return None
+        return prev
+
     def reasoning_delta(self, piece: str) -> BlockWireMeta | None:
         text = str(piece or "")
         if not text:
@@ -171,9 +203,17 @@ class ContentBlockLedger:
         # thinks while tool_calls are still streaming). Tools block is
         # closed when body_text starts (post_tools phase) or on finalize.
         if not self._open_reasoning_id or self.blocks.get(self._open_reasoning_id, {}).get("status") != "open":
-            self._close_open_reasoning()
-            meta = self._alloc(BLOCK_KIND_REASONING)
-            self._open_reasoning_id = meta.block_id
+            # 仅「正文尾巴孤儿思考」并回上一张；工具之后一律新开。
+            prev = self._reasoning_reopen_candidate_after_body()
+            if prev and prev in self.blocks:
+                self._pending_closes = [m for m in self._pending_closes if m.block_id != prev]
+                self.blocks[prev]["status"] = "open"
+                self.blocks[prev]["ended_at_ms"] = None
+                self._open_reasoning_id = prev
+            else:
+                self._close_open_reasoning()
+                meta = self._alloc(BLOCK_KIND_REASONING)
+                self._open_reasoning_id = meta.block_id
         blk = self.blocks[self._open_reasoning_id]
         blk["text"] = str(blk.get("text") or "") + text
         return self.meta_for(self._open_reasoning_id)

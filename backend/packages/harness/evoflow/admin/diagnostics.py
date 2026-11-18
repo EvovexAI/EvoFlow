@@ -635,7 +635,18 @@ def scan_errors(
         "sources_scanned": [s.id for s in wanted],
         "unknown_sources": unknown,
         "counts_by_source": dict(per_source),
-        "sources_with_errors": [s for s, n in per_source.items() if n > 0],
+        "sources_with_errors": [
+            s
+            for s, n in sorted(per_source.items(), key=lambda kv: (-kv[1], kv[0]))
+            if n > 0
+        ],
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：`sources_with_errors` 改为**按报错条数降序**。
+        # 为什么：原来按 LOG_SOURCES 的声明顺序输出，而 `anomaly_timeline` 的结论
+        # 直接取 `with_err[0]` 说「异常主要出现在 X」。现网实测最近 1 小时
+        # frontend 604 条、plugin-control 418 条、gateway 25 条，结论却是
+        # 「异常主要出现在 **gateway**」——**把第 3 名说成第一名**，因为它排在第 0 位。
+        # 「主要」这个词必须由数量决定，不能由配置顺序决定。
         "event_count": len(events),
         "truncated": truncated,
         "events": events,
@@ -690,8 +701,39 @@ def anomaly_timeline(
             "用 diagnostics.scan 指定 source=gateway 并加大 hours",
         ]
     else:
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：在消费侧按计数重排后再取「主要源」，不再信上游列表顺序。
+        # 为什么：我第一版只改了 `scan_errors` 的 `sources_with_errors` 排序，
+        # 写完的回归测试立刻红了——因为 `anomaly_timeline` 拿的是外部传入的
+        # `scan` 字典，**不保证排过序**；只改生产侧等于判据寄存在上游。
+        # 现网实测 frontend 610 条却报 gateway（配置顺序第 0 位），就是这条路径。
+        _counts_all = scan.get("counts_by_source") or {}
+        with_err = sorted(
+            with_err,
+            key=lambda s: (-int(_counts_all.get(s) or 0), str(s)),
+        )
         top = with_err[0]
-        conclusion = f"异常主要出现在 **{top}**" + (f" 等 {len(with_err)} 个源" if len(with_err) > 1 else "") + "。请优先把该源末尾日志与本时间线一起转发。"
+        counts = scan.get("counts_by_source") or {}
+        top_n = counts.get(top)
+        bits = [f"异常主要出现在 **{top}**"]
+        if top_n is not None:
+            bits.append(f"（{top_n} 条）")
+        if len(with_err) > 1:
+            bits.append(f"，共 {len(with_err)} 个源有报错")
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把「总量 vs 展示条数」的差值写进结论。
+        # 为什么：现网实测 `max_events=3` 时 event_count=3，但 counts_by_source 里
+        # frontend 604 / plugin-control 418。用户只看到 3 行表格，会以为一共就 3 个异常
+        # ——实际是**被 max_events 截断了**，而 `truncated` 标记只放在结构体里、结论里不提。
+        total_events = sum(counts.values()) if counts else 0
+        shown = scan.get("event_count") or 0
+        tail = ""
+        if scan.get("truncated") or (total_events and total_events > shown):
+            tail = (
+                f"（本次只列出最近 {shown} 条去重事件，窗口内共匹配 {total_events} 条；"
+                "要看更多请调大 max_events）"
+            )
+        conclusion = "".join(bits) + tail + "。请优先把该源末尾日志与本时间线一起转发。"
         suggestions = [
             f'优先查看 platform diagnostics.scan sources=["{top}"] 或 evoflow logs scan --source {top}',
             "把本 markdown 时间线原样转发给协助排查的人",

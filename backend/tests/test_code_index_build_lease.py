@@ -305,6 +305,68 @@ def test_drift_cache_hits_across_mtime_jitter(tmp_path, monkeypatch):
     assert calls["n"] == 1, f"同一分钟内的 mtime 抖动应命中缓存，实际重算 {calls['n']} 次"
 
 
+def test_drift_cache_expired_returns_stale_without_blocking(tmp_path, monkeypatch):
+    """缓存过期后**不许**同步 walk 全树：先给旧值，后台再刷新。
+
+    【self-evolution-bot · 2026-11-19 · 第62轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么这条必须存在（这是接线判据，不是函数层判据）：
+    改之前 TTL 30s / 桶 60s，意味着每 30~60 秒必有一次检索要付全树 stat。
+    本机实测 `_iter_source_files` 单次 398ms（17558 次 nt.stat）、
+    冷缓存 `index_freshness` 322~2251ms，而现网 `search_code_index`
+    P50 是 6.5s。把它挪出主路是这一轮唯一的实质改动。
+
+    判据两条，缺一条就测不出缺陷：
+      ① 过期后调用要**立刻**返回旧值（用 0.3s 的假 source_drift 卡住，
+         若实现退化成同步，耗时会 ≥300ms，断言必然失败）；
+      ② 不能「快但丢数据」——后台刷新必须真的跑完并把新值写回缓存。
+    只测①的话，一个「永远返回 None」的实现也能全绿。
+    """
+    store._DRIFT_CACHE.clear()
+    monkeypatch.setattr(store, "_DRIFT_CACHE_TTL_SECONDS", 0.0)  # 让缓存必然过期
+    root = "/tmp/ws-drift-stale"
+
+    old = {"changed": 0, "added": 7, "deleted": 0, "total": 100}
+    store._DRIFT_CACHE[f"{root}\u0000{0}"] = (time.time() - 999, old)
+
+    fresh = {"changed": 0, "added": 0, "deleted": 0, "total": 111}
+    done = {"n": 0}
+
+    def _slow_drift(r, *, since_ts=None):
+        time.sleep(0.3)  # 模拟全树 stat
+        done["n"] += 1
+        return fresh
+
+    monkeypatch.setattr(store, "source_drift", _slow_drift)
+
+    t0 = time.perf_counter()
+    got = store._source_drift_cached(root, 1_700_000_100.0)
+    elapsed = time.perf_counter() - t0
+
+    assert got == old, f"过期时应先给旧结论，实际 {got}"
+    assert elapsed < 0.15, (
+        f"过期后仍同步算漂移：{elapsed * 1000:.0f}ms。必须走「旧值 + 后台刷新」。"
+    )
+
+    # ② 后台刷新真的跑完并落缓存（最多等 3s）
+    deadline = time.time() + 3.0
+    while time.time() < deadline and done["n"] == 0:
+        time.sleep(0.02)
+    assert done["n"] >= 1, "后台刷新线程没跑起来——这就是「快但丢数据」"
+    values = [v[1] for k, v in store._DRIFT_CACHE.items() if k.startswith(f"{root}\u0000")]
+    assert fresh in values, f"后台刷新的结果没写回缓存，现有 {values}"
+
+
+def test_drift_cache_first_call_still_computes(tmp_path, monkeypatch):
+    """进程刚起、本 root 一次都没算过时必须同步算 —— 不许用「不知道」冒充「没漂移」。"""
+    store._DRIFT_CACHE.clear()
+    monkeypatch.setattr(store, "_DRIFT_CACHE_TTL_SECONDS", 0.0)
+    real = {"changed": 1, "added": 2, "deleted": 3, "total": 100}
+    monkeypatch.setattr(store, "source_drift", lambda r, *, since_ts=None: real)
+
+    got = store._source_drift_cached("/tmp/ws-drift-first", 1_700_000_200.0)
+    assert got == real, f"首次必须返回真实结论，实际 {got}"
+
+
 # ------------------------------------------ 子进程视角：租约真的跨进程生效
 
 

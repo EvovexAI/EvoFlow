@@ -611,6 +611,12 @@ def evf_payload_to_agui_events(
         if not isinstance(preview, str) or not preview:
             return out
         block_id = str(payload.get("block_id") or "").strip() or "reasoning-default"
+        # 同一 block 曾 END 后又来增量（ledger 复用 id）：当作新阶段，重新 START，
+        # 让镜像开新思考行，而不是静默灌进已完成的轮头思考卡。
+        if block_id in state.reasoning_ended:
+            state.reasoning_ended.discard(block_id)
+            state.reasoning_started.discard(block_id)
+            state.reasoning_message_started.discard(block_id)
         if block_id not in state.reasoning_started:
             state.reasoning_started.add(block_id)
             out.append(_attach_block_meta({"type": REASONING_START, "messageId": block_id}, payload))

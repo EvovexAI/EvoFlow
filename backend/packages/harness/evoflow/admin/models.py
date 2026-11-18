@@ -14,7 +14,28 @@ from evoflow.utils.model_context_length import context_length_from_model_config
 
 
 def _mask_api_key(api_key: str | None) -> str | None:
-    return api_key if api_key else None
+    """Mask a stored API key for read-back surfaces (platform / CLI / HTTP).
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：原来这个函数是 ``return api_key if api_key else None`` —— **名字叫 mask，
+    实际原样返回**。于是 ``settings.list_models`` / ``settings.get_model`` 把明文密钥
+    直接吐进模型上下文（现网实测：``sk-sp-H.HHRLYH.Jxpb.MEUCIDwleak…`` 68 字符全裸、
+    另一条 ``123``），任何一次「看看我配了哪些模型」都会把凭据写进会话记录与日志。
+    为什么在这里改而不是只改 handler：``admin/models.py`` 是 platform、CLI
+    (``evoflow models list/get``)、HTTP 路由共用的唯一序列化点（``_model_row``），
+    单点改动覆盖全部三个出口；同仓 ``models/credential_sanitize.is_masked_api_key``
+    与 ``gateway/routers/models._mask_api_key`` 早就这么做了，此处属漏接。
+
+    掩码格式与网关侧保持一致（首4…末4），保留可辨识度；``len<=8`` 只露末4 位。
+    配套：``settings_update_model`` 已用 ``is_masked_api_key`` 丢弃掩码回填，
+    所以「读出来是掩码 → 原样写回」不会把 ``****`` 存进配置。
+    """
+    if not api_key:
+        return None
+    text = str(api_key)
+    if len(text) <= 8:
+        return f"****{text[-4:]}" if len(text) > 4 else "****"
+    return f"{text[:4]}****{text[-4:]}"
 
 
 def _model_row(model: Any) -> dict[str, Any]:
@@ -42,11 +63,36 @@ def list_models() -> dict[str, Any]:
     return {"models": [_model_row(m) for m in config.models]}
 
 
+def _model_not_found(name: str, config: Any) -> NotFoundError:
+    """「Model 'x' not found」必须自带可用的模型名 + 下一步动作。
+
+    【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+    现网 obs 实证：`platform` 的 5 次报错里有这条
+    ``{"ok": false, "error": "Model 'qwen3.8-flash' not found", "action": "settings.get_model"}``
+    ——它只说了「没有」，没说「有的是哪些」，于是调用方只能先调一次
+    ``settings.list_models`` 再回来，白绕一步。同文件里 ``unknown action`` 分支
+    （platform_actions.py:1585）早就带 ``suggestions``，这条却没带，属同一套能力的漏接。
+    """
+    names = [str(getattr(m, "name", "") or "") for m in (getattr(config, "models", None) or [])]
+    names = [n for n in names if n]
+    if not names:
+        return NotFoundError(
+            f"Model '{name}' not found, and no models are configured. "
+            "Add one with settings.create_model before using it."
+        )
+    shown = ", ".join(names[:20])
+    more = "" if len(names) <= 20 else f" (and {len(names) - 20} more)"
+    return NotFoundError(
+        f"Model '{name}' not found. Configured models: {shown}{more}. "
+        "Call settings.list_models to see full config, or settings.create_model to add it."
+    )
+
+
 def get_model(name: str) -> dict[str, Any]:
     config = get_app_config()
     model = config.get_model_config(name)
     if model is None:
-        raise NotFoundError(f"Model '{name}' not found")
+        raise _model_not_found(name, config)
     return _model_row(model)
 
 
@@ -65,7 +111,9 @@ def set_primary_model(model_name: str) -> dict[str, Any]:
     config = get_app_config()
     name = model_name.strip()
     if config.get_model_config(name) is None:
-        raise NotFoundError(f"Model '{name}' not found")
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 同 get_model：报「没有」时一并给出已配置的模型名，避免调用方多绕一步。
+        raise _model_not_found(name, config)
     config.primary_model = name
     cfg_repo.set_app_setting("primary_model", name)
     return {

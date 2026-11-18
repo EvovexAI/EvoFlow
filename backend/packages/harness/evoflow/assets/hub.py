@@ -442,7 +442,17 @@ def write_text_file(entity: EntityRef, rel_path: str, content: str) -> dict[str,
     ensure_entity_tree(entity)
     target = resolve_entity_file(entity, rel_path)
     if target.suffix.lower() not in _TEXT_SUFFIXES:
-        raise ValueError("only text assets can be written via API")
+        # 【self-evolution-bot · 2026-11-18 · 第56轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：报错从一句无信息量的「only text assets can be written via API」改成点名
+        #   具体文件名、它当前的后缀、以及允许的后缀清单。
+        # 为什么：原文案不带文件名也不带后缀，导致 2026-11-17 那条
+        #   `kind='reflection'` + 裸名 的 14 次写入失败在观测库里挂了整整两天没人归因——
+        #   看报错根本不知道被拒的是哪个文件、缺的是什么。留着原文案还会继续吞掉同类问题。
+        _allowed = ", ".join(sorted(_TEXT_SUFFIXES))
+        raise ValueError(
+            f"only text assets can be written via API: {rel_path!r} has suffix "
+            f"{target.suffix.lower() or '(none)'} , allowed suffixes are {_allowed}"
+        )
     text = content if content is not None else ""
     # 路径锁：UI 保存 / 对话写入 / Phase2 对同一文件的写相互串行，
     # 原子写走唯一 tmp + fsync + replace（不再共用固定 .tmp 名）。
@@ -925,7 +935,12 @@ def delete_text_file(entity: EntityRef, rel_path: str) -> dict[str, Any]:
     if not target.is_file():
         raise FileNotFoundError(rel)
     if target.suffix.lower() not in _TEXT_SUFFIXES:
-        raise ValueError("only text assets can be deleted via API")
+        # 【self-evolution-bot · 2026-11-18 · 第56轮 · 模型:deepseek-v4.1-flash-1017】同 write 分支的文案缺陷：不点名文件与后缀。
+        raise ValueError(
+            f"only text assets can be deleted via API: {rel!r} has suffix "
+            f"{target.suffix.lower() or '(none)'} , allowed suffixes are "
+            f"{', '.join(sorted(_TEXT_SUFFIXES))}"
+        )
     target.unlink()
     # clean empty parent if under craft/{name}/
     parent = target.parent
@@ -973,7 +988,12 @@ def rename_text_file(entity: EntityRef, rel_path: str, new_name: str) -> dict[st
     if not target.is_file():
         raise FileNotFoundError(rel)
     if target.suffix.lower() not in _TEXT_SUFFIXES:
-        raise ValueError("only text assets can be renamed via API")
+        # 【self-evolution-bot · 2026-11-18 · 第56轮 · 模型:deepseek-v4.1-flash-1017】同 write 分支的文案缺陷：不点名文件与后缀。
+        raise ValueError(
+            f"only text assets can be renamed via API: {rel!r} has suffix "
+            f"{target.suffix.lower() or '(none)'} , allowed suffixes are "
+            f"{', '.join(sorted(_TEXT_SUFFIXES))}"
+        )
 
     raw_new = str(new_name or "").strip().replace("\\", "/").lstrip("/")
     if not raw_new:

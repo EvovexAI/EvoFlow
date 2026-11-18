@@ -63,9 +63,12 @@ _EVOFLOW_COMPACT_BROWSER_DOCS = """# Selected Browser
 EvoFlow compact API guide (full ZCode dump omitted — this is the complete host guide).
 
 ## Fast path (prefer one js cell)
-1. Host auto-bootstraps `browser-client.mjs` (also shims `require('browser-use')`). Prefer still writing the bootstrap for clarity when unsure.
-2. `const browser = await agent.browsers.getForUrl(url)` or `get("iab")` (or use global `browser`).
-3. Navigate: `await agent.browsers.open(url)` **or** `const tab = await browser.tabs.get("tab-0"); await tab.goto(url)`.
+1. **`globalThis.browser` and `globalThis.tab` already exist — they are injected before your code
+   runs. Do NOT write bootstrap boilerplate** (`pathToFileURL` / `setupBrowserRuntime` / `getForUrl`
+   / `tabs.list` / `tabs.get`). That block costs ~50ms of round-trips plus ~500 chars on *every*
+   call, and is measured as the single largest repeated waste in this tool. Use `browser` / `tab`.
+2. Only if `typeof browser === "undefined"` (fresh kernel) fall back to `agent.browsers.get("iab")`.
+3. Navigate: `await tab.goto(url)` — or `await agent.browsers.open(url)`.
 4. `await tab.playwright.waitForLoadState({ state: "domcontentloaded" })`.
 5. Read with `await tab.playwright.domSnapshot()`; act via getByRole/getByText/… from snapshot facts.
 6. Screenshot only when visual evidence is required: `nodeRepl.emitImage(await tab.screenshot())`.
@@ -73,9 +76,13 @@ Do **not** invent APIs like `tab.waitForLoadState` / `tab.domSnapshot` — use `
 **Critical:** return the full `domSnapshot()` string (or answer the user from its `text:` section). Never `.slice()` / truncate it — the host already budgets the payload. If `text:` has the answer, stop and reply; do not re-open the same URL.
 
 ## Single-tab rules
-- One in-app WebView. Do **not** spend a dedicated js call only to `tabs.list()` or re-dump documentation after this guide.
-- `tabs.new()` without url is a no-op reclaim (same page). Prefer `open(url)` / `tabs.get("tab-0").goto(url)`.
-- Recreate the browser wrapper each js call; tab id is usually `tab-0`.
+- One in-app WebView. Use `globalThis.tab` directly — do **not** spend a dedicated js call on
+  `tabs.list()` / `tabs.get()`. Warning: `globalThis.tab.id` is the bridge's synthetic id
+  (`primary`), while `browser.tabs.list()[0].id` is `tab-0`; these two are **not interchangeable**,
+  so never take an id from `list()` and feed it back to `tabs.get()` as a validity check — just use
+  `globalThis.tab`.
+- `tabs.new()` without url is a no-op reclaim (same page). Prefer `open(url)` / `tab.goto(url)`.
+- Locator results: `await tab.playwright.locator("a").count()` returns a real number. If count is 0 the page genuinely has no match — take a fresh domSnapshot to see what is there instead of re-running count with a reworded selector.
 
 ## Lookups
 - Screenshots: `await agent.documentation.get("screenshots")`

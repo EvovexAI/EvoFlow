@@ -1357,7 +1357,9 @@ async def append_session_message(request: Request, session_key: str, body: Appen
         try:
             tid = str(body.threadId or (result or {}).get("threadId") or "").strip()
             if not tid:
-                row = (await run_db(sess_repo.load_session_map) or {}).get(key) or {}
+                # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+                # 只取 threadId，原实现把整张会话表拉出来再 get(key)。
+                row = await run_db(sess_repo.get_session_map_entry, key) or {}
                 tid = str(row.get("threadId") or "").strip()
             text = ""
             if isinstance(body.content, str):
@@ -1613,8 +1615,10 @@ async def ensure_session_thread(
     key = _require_session_access(request, session_key)
     if await run_db(sess_repo.is_session_deleted, key):
         raise HTTPException(status_code=404, detail="session not found")
-    session_map = await run_db(sess_repo.load_session_map)
-    row = session_map.get(key) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+    # 只取 threadId/messageCount 两个字段，原实现 load_session_map() 重建整张会话表
+    # ——这是每次发消息都走的 /ensure-thread 热路径（实测 2023~3927ms）。
+    row = await run_db(sess_repo.get_session_map_entry, key) or {}
     prev_tid = str(row.get("threadId") or "").strip()
     _t0 = _time.perf_counter()
     try:
@@ -1645,8 +1649,9 @@ async def ensure_session_thread(
     message_count = int(row.get("messageCount") or 0)
     if force_recreate and new_tid and new_tid != prev_tid:
         # Remint 后 session 行已更新；刷新 messageCount 以免返回陈旧值。
-        session_map = await run_db(sess_repo.load_session_map)
-        row = session_map.get(key) or {}
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 同上：重取一行 messageCount，不必重建全表。
+        row = await run_db(sess_repo.get_session_map_entry, key) or {}
         message_count = int(row.get("messageCount") or 0)
     try:
         from evoflow.observability.run_latency_trace import write_run_latency_event

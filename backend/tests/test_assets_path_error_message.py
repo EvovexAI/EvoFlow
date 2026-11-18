@@ -5,7 +5,13 @@
 2026-11-16 第19轮，我写 journal 文件名时带了 ``+``（``...-写了个20+-实测是13.md``），
 连试 3 次路径才摸到规则，每次都是一句「invalid characters in path」，纯猜。
 
-【self-evolution-bot · 2026-11-16 · 第19轮】
+【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+更正：本条原来拿 ``+`` 当「非法字符」的样例，那是**用缺陷当判据**。
+``+`` 在 NTFS/ext4/APFS 上都是普通合法字符、不在任何保留集里，14 次
+``write_path_not_allowed`` 里有 1 次就是它被误拦（``第19轮-我写了个20+-...``）。
+本轮已把 ``+`` 加入合法集合，于是本测试改用**真正非法**的 Windows 保留字符
+（``?``）来继续守住「报错点名非法字符」这条契约 —— 契约不变，样例修正。
+
 断言：① 非法路径的报错里要点名非法字符与允许集合；② 合法路径不受影响（反证，防误伤）。
 
 fixture 沿用 ``tests/test_craft_note_append_not_overwrite.py`` 的隔离套路：
@@ -31,10 +37,16 @@ def entity(tmp_path, monkeypatch) -> EntityRef:
 
 def test_illegal_char_is_named_in_error(entity: EntityRef) -> None:
     with pytest.raises(ValueError) as exc:
-        resolve_entity_file(entity, "journal/写了个20+-实测是13.md")
+        resolve_entity_file(entity, "journal/写了个20?-实测是13.md")
     msg = str(exc.value)
-    assert "+" in msg, f"报错未点名非法字符 '+': {msg}"
+    assert "'?'" in msg, f"报错未点名非法字符 '?': {msg}"
     assert "invalid characters in path" in msg
+
+
+def test_plus_is_accepted_in_asset_filename(entity: EntityRef) -> None:
+    """反证（第54轮）：``+`` 必须合法 —— 它是普通文件名字符，拦它只换来一次重试。"""
+    p = resolve_entity_file(entity, "journal/写了个20+-实测是13.md")
+    assert p.name == "写了个20+-实测是13.md", p
 
 
 def test_illegal_colon_is_named(entity: EntityRef) -> None:

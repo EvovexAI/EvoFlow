@@ -205,7 +205,15 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
     } catch {}
   };
   // 页内定位：CSS / xpath / Playwright internal:role|text。返回 Element[] 的函数源码。
-  const __MATCH_FN = `
+  // 【self-evolution-bot · 2026-11-18 · 第58轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：普通模板字面量 → String.raw 模板。
+  // 为什么：这段源码里有 14 个反斜杠（正则 `/^\\/([\\s\\S]*)\\/([a-z]*)$/` 等）。普通模板字面量
+  // 会把 `\/` 吃成 `/`、`\s` 吃成 `s`，拼出来的页内表达式变成 `s.match(/^/([sS]*)/([a-z]*)$/)`
+  // —— 整段 IIFE 直接 Unexpected token ')'。而 Runtime.evaluate 在「表达式本身语法错」时报
+  // ok:true + value=undefined（不像页面抛错那样给 exceptionDetails），于是桥把 undefined 当 0：
+  // 现网实测页面 querySelectorAll('a')=77 而 locator('a').count() 恒为 0，模型据此反复重试。
+  // 用 String.raw 后反斜杠原样保留（13518 字符整段可 parse），实测 count('a')=77。
+  const __MATCH_FN = String.raw`
     function __evoMatch(sel) {
       sel = String(sel || "");
       const visible = (el) => {
@@ -219,23 +227,100 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
         el.getAttribute("aria-label") || el.getAttribute("placeholder") || el.getAttribute("title")
         || (el.innerText || el.value || "")
       ).trim();
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 parseMatcher/matchValue，统一解析 Playwright 传给桥的 matcher 串。
+      // 为什么：桥原先把 name 的 "Github"i 后缀当字面量比对，于是 getByRole("link",{name:/GitHub/i})
+      // 这种正则形式实测 count=0（真值 5）——正则被当普通文本，静默匹配不到任何元素。
+      // 约定：JSON 字符串 + 后缀 s=精确 / i=不区分大小写；斜杠包裹的 /re/flags 形式按正则。
+      const parseMatcher = (raw) => {
+        let s = String(raw == null ? "" : raw);
+        const m = s.match(/^\/([\s\S]*)\/([a-z]*)$/);
+        if (m) {
+          try { return { re: new RegExp(m[1], m[2].replace(/[^gimsuy]/g, "")), exact: false, text: s }; }
+          catch (e) { /* 落到字面量 */ }
+        }
+        let exact = false;
+        const flag = s.slice(-1);
+        let literal = s;
+        if (flag === "s" || flag === "i") { exact = flag === "s"; literal = s.slice(0, -1); }
+        let value = literal;
+        try { value = JSON.parse(literal); } catch (e) { value = literal; }
+        return { exact, text: String(value) };
+      };
+      const matchValue = (matcher, candidate) => {
+        const c = String(candidate == null ? "" : candidate);
+        if (!matcher) return true;
+        if (matcher.re) { matcher.re.lastIndex = 0; return matcher.re.test(c); }
+        const t = String(matcher.text || "");
+        if (!t) return true;
+        if (matcher.exact) return c === t;
+        return c.toLowerCase().includes(t.toLowerCase());
+      };
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：把 roleOf 从「只看 tag/type」升级为 ARIA 隐式角色映射，并补 roleAlias。
+      // 为什么：原实现让 h1..h6→"h1"、input[search]→"textbox"、li→"li"、ul/ol/table 无 role，
+      // 而 Playwright getByRole 的契约是 heading/searchbox/listitem/list/table…
+      // 现网实测：cn.bing.com 结果页 h1*13 却 getByRole("heading").count()=0、
+      // getByRole("searchbox")=0、getByRole("listitem")=0 —— 定位直接失效，模型只能退回 CSS。
       const roleOf = (el) => {
-        const r = (el.getAttribute("role") || "").toLowerCase();
-        if (r) return r;
-        const tag = el.tagName;
+        const r = (el.getAttribute("role") || "").toLowerCase().trim();
+        if (r) return r.split(/\s+/)[0];
+        const tag = el.tagName.toLowerCase();
         const type = (el.getAttribute("type") || "").toLowerCase();
-        if (tag === "TEXTAREA" || el.isContentEditable) return "textbox";
-        if (tag === "INPUT") {
+        if (tag === "textarea") return "textbox";
+        if (el.isContentEditable) return "textbox";
+        if (tag === "input") {
           if (type === "checkbox") return "checkbox";
           if (type === "radio") return "radio";
-          if (type === "button" || type === "submit" || type === "reset") return "button";
+          if (type === "range") return "slider";
+          if (type === "number") return "spinbutton";
+          if (type === "button" || type === "submit" || type === "reset" || type === "image") return "button";
+          if (type === "search") return "searchbox";
           if (type === "hidden" || type === "file") return type;
           return "textbox";
         }
-        if (tag === "BUTTON") return "button";
-        if (tag === "A") return "link";
-        if (tag === "SELECT") return "combobox";
-        return tag.toLowerCase();
+        if (tag === "button") return "button";
+        if (tag === "a" && el.hasAttribute("href")) return "link";
+        if (tag === "select") return el.multiple ? "listbox" : "combobox";
+        if (/^h[1-6]$/.test(tag)) return "heading";
+        if (tag === "img") return el.getAttribute("alt") === null ? "presentation" : "img";
+        if (tag === "hr") return "separator";
+        if (tag === "ul" || tag === "ol" || tag === "menu") return "list";
+        if (tag === "li") return "listitem";
+        if (tag === "table") return "table";
+        if (tag === "tr") return "row";
+        if (tag === "td") return "cell";
+        if (tag === "th") return "columnheader";
+        if (tag === "nav") return "navigation";
+        if (tag === "main") return "main";
+        if (tag === "header") return "banner";
+        if (tag === "footer") return "contentinfo";
+        if (tag === "aside") return "complementary";
+        if (tag === "section") return el.hasAttribute("aria-label") || el.hasAttribute("aria-labelledby") ? "region" : "generic";
+        if (tag === "form") return "form";
+        if (tag === "summary") return "button";
+        if (tag === "dialog") return "dialog";
+        if (tag === "progress") return "progressbar";
+        if (tag === "output") return "status";
+        if (tag === "option") return "option";
+        if (tag === "label") return "generic";
+        return tag;
+      };
+      // Playwright 家族别名：getByRole("heading") 应同时匹配 role=heading 与显式 role="heading" 的 h 元素；
+      // 反向也允许用 tag 名当 role 查（历史行为，别让老调用突然全 0）。
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 更正：本方法第一版让 searchbox 也接受普通 textbox，导致 internal:role=searchbox
+      // 在只有 text 输入框的页面上也命中——回归测试 test_searchbox_role_matches_input_search
+      // 立刻把它抓成 2 vs 1。方向只能是单向继承：textbox ⊃ searchbox（ARIA 里 searchbox 是
+      // textbox 的子类），反向不成立。
+      const roleAlias = (want, have, tag) => {
+        if (have === want) return true;
+        if (want === "img") return have === "img" || tag === "img";
+        if (want === "heading") return have === "heading" || /^h[1-6]$/.test(tag);
+        if (want === "list") return have === "list" || have === "ul" || have === "ol" || tag === "ul" || tag === "ol";
+        if (want === "listitem") return have === "listitem" || tag === "li";
+        if (want === "textbox") return have === "textbox" || have === "searchbox";
+        return have === want || tag === want;
       };
       if (sel.startsWith("xpath=") || sel.startsWith("//") || sel.startsWith("(//")) {
         const xp = sel.startsWith("xpath=") ? sel.slice(6) : sel;
@@ -250,53 +335,185 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
       if (sel.startsWith("internal:role=")) {
         const raw = sel.slice("internal:role=".length);
         const bracket = raw.indexOf("[name=");
-        const role = (bracket >= 0 ? raw.slice(0, bracket) : raw).toLowerCase();
-        let want = "";
-        let exact = false;
-        if (bracket >= 0 && raw.endsWith("]")) {
-          const body = raw.slice(bracket + 6, -1);
-          exact = body.endsWith("s");
-          const literal = exact || body.endsWith("i") ? body.slice(0, -1) : body;
-          try { want = JSON.parse(literal); } catch (e) { want = literal; }
-        }
-        const all = Array.from(document.querySelectorAll("a,button,input,textarea,select,[role],[contenteditable='true']"));
+        const role = (bracket >= 0 ? raw.slice(0, bracket) : raw).toLowerCase().trim();
+        const matcher = bracket >= 0 ? parseMatcher(raw.slice(bracket + 6, raw.endsWith("]") ? -1 : undefined)) : null;
+        // 候选集要覆盖所有能承载隐式角色的标签（h1..h6/li/td/th/ul/table/img/summary…），
+        // 只查 a,button,input 会让 heading/listitem/table 这些角色永远为 0。
+        const all = Array.from(document.querySelectorAll(
+          "a,button,input,textarea,select,summary,option,img,hr,ul,ol,menu,li,table,tbody,thead,tr,td,th,form,nav,main,header,footer,aside,section,dialog,progress,output,h1,h2,h3,h4,h5,h6,[role],[contenteditable='true'],label"
+        ));
         return all.filter((el) => {
-          if (roleOf(el) !== role || !visible(el)) return false;
-          if (!want) return true;
+          if (!roleAlias(role, roleOf(el), el.tagName.toLowerCase())) return false;
+          if (!visible(el)) return false;
+          if (!matcher) return true;
           const n = nameOf(el);
-          return exact ? n === String(want) : n.toLowerCase().includes(String(want).toLowerCase());
+          return matchValue(matcher, n) || matchValue(matcher, String(el.innerText || "").trim());
         });
       }
       if (sel.startsWith("internal:text=")) {
-        const raw = sel.slice("internal:text=".length);
-        const flag = raw.slice(-1);
-        let want = raw.slice(0, -1);
-        try { want = JSON.parse(want); } catch (e) {}
-        const exact = flag === "s";
-        const needle = String(want);
+        const matcher = parseMatcher(sel.slice("internal:text=".length));
         const nodes = Array.from(document.querySelectorAll("a,button,h1,h2,h3,h4,h5,p,span,li,td,label,div"));
         const hits = [];
         for (const el of nodes) {
           const t = String(el.innerText || "").trim();
           if (!t || !visible(el)) continue;
-          const ok = exact ? t === needle : t.toLowerCase().includes(needle.toLowerCase());
-          if (!ok) continue;
+          if (!matchValue(matcher, t)) continue;
+          // 精确匹配时排除「父节点文本等于子节点文本」的重复命中，否则 exact 会一次报 2 个。
+          if (matcher.exact && el.querySelector && Array.from(el.children).some((c) => String(c.innerText || "").trim() === t)) continue;
           hits.push(el);
           if (hits.length >= 8) break;
         }
         return hits;
       }
-      try { return Array.from(document.querySelectorAll(sel)); }
-      catch (e) { return []; }
+      // internal:label= / internal:attr=[placeholder=..] / internal:testid=[..] 三个家族
+      // 以前直接报「暂未实现」，模型只能退回猜 CSS。这里按语义补齐。
+      if (sel.startsWith("internal:label=")) {
+        const matcher = parseMatcher(sel.slice("internal:label=".length));
+        const out = [];
+        for (const label of Array.from(document.querySelectorAll("label"))) {
+          if (!visible(label)) continue;
+          if (!matchValue(matcher, String(label.innerText || label.textContent || "").replace(/\s+/g, " ").trim())) continue;
+          const forId = label.getAttribute("for");
+          let target = forId ? document.getElementById(forId) : null;
+          if (!target) target = label.querySelector("input,textarea,select,button");
+          if (target && !out.includes(target)) out.push(target);
+        }
+        return out;
+      }
+      if (sel.startsWith("internal:attr=")) {
+        // 形状：internal:attr=[placeholder="x"i] 或 [aria-label="y"s]
+        const body = sel.slice("internal:attr=".length).trim();
+        const m = body.match(/^\[([^=\]]+)=([\s\S]*)\]$/);
+        if (!m) return [];
+        const attr = m[1].toLowerCase();
+        const matcher = parseMatcher(m[2]);
+        return Array.from(document.querySelectorAll("[" + attr + "]")).filter((el) => visible(el) && matchValue(matcher, String(el.getAttribute(attr) || "")));
+      }
+      if (sel.startsWith("internal:testid=")) {
+        const matcher = parseMatcher(sel.slice("internal:testid=".length).replace(/^\[/, "").replace(/\]$/, "").replace(/^data-testid=/, ""));
+        return Array.from(document.querySelectorAll("[data-testid]")).filter((el) => visible(el) && matchValue(matcher, String(el.getAttribute("data-testid") || "")));
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：补 "internal:has-text=" / "internal:has-not-text=" 与裸 "text=" 前缀，
+      // 以及 ">>" 串联选择器（locator().getByText() 编译出来的形状）。
+      // 为什么：这三种都是插件把一个合法 Playwright 调用编译成的串，桥之前全落进
+      // querySelectorAll 兜底 → 抛错被吞 → **静默 0 命中**。现网实测 count 恒 0
+      // （text=EvoFlow、h2:has-text('EvoFlow')、getByRole('link').filter({hasText}) 三条全 0），
+      // 模型只能怀疑自己写错了，然后换写法重试 —— 这就是"反复"。
+      if (sel.startsWith("internal:has-text=") || sel.startsWith("internal:has-not-text=")) {
+        const neg = sel.startsWith("internal:has-not-text=");
+        const prefix = neg ? "internal:has-not-text=" : "internal:has-text=";
+        const matcher = parseMatcher(sel.slice(prefix.length));
+        // Playwright 的 has-text 是「元素自身包含该文本」，若它只在子节点里出现，
+        // 命中应落在那个子节点上。全量祖先链命中会让 filter() 返回整棵树（实测 139 个），
+        // 于是「收窄」动作反而扩大范围。这里只保留最内层命中。
+        const all = Array.from(document.querySelectorAll("*"));
+        const hit = all.filter((el) => {
+          if (el.nodeType !== 1 || !visible(el)) return false;
+          const t = String(el.innerText || el.textContent || "").trim();
+          return neg ? !matchValue(matcher, t) : matchValue(matcher, t);
+        });
+        if (neg) return hit;
+        return hit.filter((el) => !hit.some((other) => other !== el && el.contains(other)));
+      }
+      if (sel.startsWith("text=")) {
+        // Playwright 的 text= 引擎：默认子串、引号内为精确、前缀正则 /.../。
+        const raw = sel.slice(5).trim();
+        const matcher = parseMatcher(raw.startsWith("/") || /^["']/.test(raw) ? raw : JSON.stringify(raw) + "i");
+        const all = Array.from(document.querySelectorAll("a,button,h1,h2,h3,h4,h5,h6,p,span,li,td,label,div,em,strong"));
+        return all.filter((el) => visible(el) && matchValue(matcher, String(el.innerText || "").trim()));
+      }
+      if (sel.includes(">>")) {
+        // 串联：A >> B 语义是「在 A 的命中里再做 B」。取第一个可解析的 A 递归收窄。
+        const parts = sel.split(">>").map((x) => x.trim()).filter(Boolean);
+        let pool = Array.from(document.querySelectorAll("*")).filter((el) => el.nodeType === 1);
+        for (const part of parts) {
+          if (/^nth=-?\d+$/.test(part)) {
+            const n = Number(part.slice(4));
+            const i = n < 0 ? pool.length + n : n;
+            pool = i >= 0 && i < pool.length ? [pool[i]] : [];
+            continue;
+          }
+          // 只做交集：A >> B 表示「A 的命中里同时满足 B」。
+          // 之前额外允许 el.contains(命中) 会让 B 的祖先也算命中，
+          // 于是 h2 >> has-text 返回 28（真值应在 11 以内），收窄变成放大。
+          const inner = __evoMatch(part);
+          const set = new Set(inner);
+          pool = pool.filter((el) => set.has(el));
+        }
+        return pool;
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：CSS 兜底前先剥掉 Playwright 的 css= 引擎前缀。
+      // 为什么：这里原先**没有 css= 分支**，css=a 会直达 querySelectorAll("css=a")。
+      // 注意：必须放在 >> 串联分支之后，否则 css=a >> nth=0 会被整串剥成 a >> nth=0 再走串联，
+      // 语义虽等价但会绕过串联分支对 nth 的既有处理，属于不必要的风险。
+      //
+      // 【self-evolution-bot · 2026-11-18 · 第58轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：删掉这里两处 catch (e) { return []; }，让非法选择器**抛出去**。
+      // 为什么：a:::bogus((( 在页内裸 querySelectorAll 下抛 SyntaxError（实测），
+      // 但被这两行 catch 吞成空数组，于是 locator.count() 返回 0 —— 模型看到「0 个元素」，
+      // 以为选择器写对了只是页面没这东西，于是换个写法再试一遍（=反复）。
+      // 判据：语法非法 ≠ 命中为零。前者要模型改选择器，后者要模型换策略，混在一起就没法区分。
+      // 抛出去之后，引擎 _wv2_evaluate 会经 exceptionDetails 转成 ok:false，
+      // count 分支的 r.ok === false 判定再把它变成带原因的 execution_error。
+      if (sel.startsWith("css=")) {
+        return Array.from(document.querySelectorAll(sel.slice(4).trim()));
+      }
+      return Array.from(document.querySelectorAll(sel));
     }
   `;
+  // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：新增 ref 选择器识别（"ref=e5" / "aria-ref=e5" / 裸 "e5"），把快照里的
+  // [eNN] 接进 Playwright 定位链，转发给引擎的 ref 命令面（click/fill support ref）。
+  // 为什么：domSnapshot 一直打印 "[e21] link "...""，看上去就是"点它"，但 playwright 侧
+  // 没有任何入口——"locator("aria-ref=e21").count()" 实测 0，模型只能放弃 ref 改用
+  // 猜 CSS/角色，猜错再换写法 = 反复试。引擎侧 "{method:"click", ref:"e5"}" 实测 ok:true，
+  // 通道本来就通，只是没接线。
+  const __refOf = (sel) => {
+    const m = String(sel || "").trim().match(/^(?:aria-ref=|ref=|@)?(e\d+)$/);
+    return m ? m[1] : "";
+  };
   const __locatorMode = (sel) => {
     const s = String(sel || "");
+    if (__refOf(s)) return "ref";
     if (s.startsWith("internal:role=")) return "role";
     if (s.startsWith("internal:text=")) return "text";
+    if (s.startsWith("internal:label=")) return "label";
+    if (s.startsWith("internal:attr=")) return "attr";
+    if (s.startsWith("internal:testid=")) return "testid";
     if (s.startsWith("xpath=") || s.startsWith("//") || s.startsWith("(//")) return "xpath";
     if (s.startsWith("internal:")) return "internal-other";
     return "css";
+  };
+  // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：新增 __splitNth/__pickExpr，把 Playwright 的 `>> nth=N` 链接尾翻译成页内索引；
+  // 并新增 __strictPick 判定，多重命中且未指定 nth 时报错而不是静默取第 0 个。
+  // 为什么：locator.first()/nth(i) 编译成 `<sel> >> nth=0`，桥原来把它整串当 CSS 或
+  // internal:role 名去匹配 → 永远 0 命中；而多重命中的 click 会静默点到 DOM 顺序第一个
+  // （现网实测 name=Github 命中 5 个，点击直接跳到 github.com，Playwright 本应报 strict 冲突）。
+  const __splitNth = (sel) => {
+    const m = String(sel || "").match(/^(.*?)\s*>>\s*nth=(-?\d+)\s*$/);
+    if (!m) return { base: String(sel || ""), nth: null };
+    return { base: m[1].trim(), nth: Number(m[2]) };
+  };
+  // 页内取元素表达式：命中数组 →（可选）按 nth 取一个。
+  const __pickExpr = (sel) => {
+    const { base, nth } = __splitNth(sel);
+    const baseJson = JSON.stringify(base);
+    if (nth === null) return `__evoMatch(${baseJson})`;
+    const i = nth < 0 ? `(__a.length+${nth})` : String(nth);
+    return `(function(){const __a=__evoMatch(${baseJson});const __i=${i};return (__i>=0&&__i<__a.length)?[__a[__i]]:[];})()`;
+  };
+  // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：__countExpr 尊重 `>> nth=N`；只有无 nth 时才返回基准选择器的全量长度。
+  // 为什么：原实现一律用 base，于是 locator.first().count() / .nth(i).count()
+  // 永远返回全量命中数（复算实测 nth=0 仍为 5，真值应为 1），
+  // 模型无法确认自己“取第几个”到底有没有生效。
+  const __countExpr = (sel) => {
+    const { nth } = __splitNth(sel);
+    if (nth === null) return `__evoMatch(${JSON.stringify(__splitNth(sel).base)}).length`;
+    return `(${__pickExpr(sel)}).length`;
   };
     // ── playwright 命令面（browser-use 插件 Tab API 的核心操作面）──
     // 插件运行时把所有 Tab 操作发成 { method:"playwright", action:{name,...} }，
@@ -312,12 +529,92 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
       }
       const act = act0;
       const an = act.name || "";
-      const engine = (command) => __gwFetch("/api/browser/execute", { method: "POST", body: JSON.stringify({ command }) });
+      // 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：所有 `method:"evaluate"` 的表达式在**发送前**统一包一层 try/catch，
+      // 页内异常变成正常返回值 `{__evoEvalErr:"..."}`，不再走异常回传通道。
+      // 为什么：重启后实测同一个非法选择器——example.com 780ms、bing 864ms 就报真实错误，
+      // 而 github.com 稳定卡 16049/16183ms 才报 `embed HTTP bridge timed out waiting for guest poll`。
+      // 该站点钳断了异常回传通道，宿主只能等兜底超时。一次白等 16 秒，模型还会重试。
+      // 包一层后：任何站点、任何页内异常，都在毫秒级拿到原因，且错误文案能指对方向。
+      // 判据：这不是「让异常消失」，异常原因原样回传给调用方，只是换了条不依赖异常通道的路。
+      const __wrapEval = (command) => {
+        try {
+          if (!command || command.method !== "evaluate") return command;
+          const expr = command.expression;
+          if (typeof expr !== "string" || !expr.trim()) return command;
+          if (expr.indexOf("__evoEvalErr") !== -1) return command; // 已包过，别套第二层
+          // 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+          // 改了什么：`awaitPromise:true` 的命令用**async** IIFE 包，并把内层值 await 出来再装信封。
+          // 为什么：同步 IIFE 在 `awaitPromise:true` 下只会被宿主 await 到「外层普通对象」，
+          // 里面的 Promise 不会被 await，序列化后成 `{}` —— async 页面函数（playwright.evaluate
+          // 那条路径，第 785 行恒为 awaitPromise:true）会从「拿到结果」退化成「拿到 {}」。
+          // 判据：这是一处真回归，改动前后 envelope 的形状必须对 awaitPromise 分开取样。
+          const body = command.awaitPromise
+            ? "(async function(){ try { return { __evoEvalOk: 1, v: (await (\n" + expr + "\n)) }; }"
+              + " catch (e) { return { __evoEvalErr: String((e && e.message) || e) }; } })()"
+            : "(function(){ try { return { __evoEvalOk: 1, v: (\n" + expr + "\n) }; }"
+              + " catch (e) { return { __evoEvalErr: String((e && e.message) || e) }; } })()";
+          return Object.assign({}, command, { expression: body });
+        } catch (_) {
+          return command;
+        }
+      };
+      const engine = (command) => __gwFetch("/api/browser/execute", { method: "POST", body: JSON.stringify({ command: __wrapEval(command) }) })
+        .then((r) => {
+          // 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+          // 改了什么：在这里把 __wrapEval 的信封**统一拆掉**，还原成调用方原本期望的形状：
+          // 页内异常 → {ok:false, error:{code:"execution_error", ...}}；正常值 → {ok:true, value}。
+          // 为什么：evaluate 有 17 个调用点，逐个改解包必然漏；在唯一入口拆封，
+          // 所有调用点（含直接 await engine(...) 的）拿到的形状与修复前完全一致，零改动风险。
+          try {
+            const v = r && r.value;
+            if (v && typeof v === "object" && typeof v.__evoEvalErr === "string") {
+              return { ok: false, error: { code: "execution_error", message: `页面内执行失败：${v.__evoEvalErr.slice(0, 300)}` } };
+            }
+            if (v && typeof v === "object" && v.__evoEvalOk === 1) {
+              return Object.assign({}, r, { value: v.v === undefined ? null : v.v });
+            }
+          } catch (_) {}
+          return r;
+        });
+      // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 __engineRead，统一把引擎 ok:false 变成可见错误。
+      // 为什么：evaluate/textContent/innerText/getAttribute/isVisible/isEnabled/count 六条读路径
+      // 原先一律 `value: r.value ?? null`；引擎返回 ok:false 时 value 是 undefined，
+      // 于是「页面报错」在模型侧长成「结果是 null / 0」，它只能换个写法再试一遍（=反复）。
+      const __engineRead = async (command, what) => {
+        const r = await engine(command);
+        if (r && r.ok === false) {
+          const e = r.error || {};
+          const msg = String(e.message || e.code || "browser engine returned ok=false").slice(0, 300);
+          await __bridgeLog(`[browser-bridge] ${what} FAILED err=${msg}`);
+          return { ok: false, error: { code: "execution_error", message: `${what} 执行失败：${msg}` } };
+        }
+        // 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：解包 __wrapEval 的信封。页内异常现在以 {__evoEvalErr} 正常返回，
+        // 在这里必须变成 ok:false 的可见错误；否则「页面报错」会长成「值是 null / 0」。
+        // 为什么：这是上一行注释里同一个坑——错误被静默成正常值，模型只能换个写法重试。
+        const v = r ? r.value : null;
+        if (v && typeof v === "object" && typeof v.__evoEvalErr === "string") {
+          const msg = v.__evoEvalErr.slice(0, 300);
+          await __bridgeLog(`[browser-bridge] ${what} PAGE_ERROR err=${msg}`);
+          return { ok: false, error: { code: "execution_error", message: `${what} 页面内执行失败：${msg}` } };
+        }
+        if (v && typeof v === "object" && v.__evoEvalOk === 1) {
+          return { ok: true, value: v.v === undefined ? null : v.v };
+        }
+        return { ok: true, value: r ? (r.value ?? null) : null };
+      };
       const rawSel = () => String(act.locator?.selector || act.selector || "");
       if (an === "domSnapshot") {
         // 引擎 snapshot 返回结构化 {url,title,elements[],dom[]}；运行时契约要字符串。
         // 正文大纲必须排在交互元素之前：模型常对返回值 .slice(0,1000)，否则只剩顶栏链接会空转重试。
         const r = await engine({ method: "snapshot", maxElements: 400 });
+        // 快照失败不能装成空页：否则模型会以为“这页真没东西”然后反复重试。
+        if (r && r.ok === false) {
+          const e = r.error || {};
+          return { ok: false, error: { code: "execution_error", message: `domSnapshot 执行失败：${String(e.message || e.code || "browser engine returned ok=false").slice(0, 300)}` } };
+        }
         const snap = r.snapshot || {};
         const els = Array.isArray(snap.elements) ? snap.elements : [];
         const outline = Array.isArray(snap.dom) ? snap.dom.slice() : [];
@@ -327,18 +624,49 @@ const __evoflowBridgeSymbol = Symbol.for("zcode.node-repl.browser-control-bridge
           if (av !== bv) return av - bv;
           return (Number(a && a.depth) || 0) - (Number(b && b.depth) || 0);
         });
-        const textLines = outline.slice(0, 100).map((node) => {
+        // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：① 正文大纲去重（连续同文只留一条）+ 视口内优先；② 交互元素视口内优先排序；
+        // ③ 超出上限的元素不再只印「(N more interactive)」——改为紧凑行（无坐标、名字截短）全量列出，
+        //    并给出一句「怎么取到全部」的用法提示。
+        // 为什么：现网快照 6861 字符里正文 100 条吃掉大半，交互元素只印 36 条就写
+        // 「... (46 more interactive)」——剩下 46 个 ref 模型**没有任何办法在同一轮拿到**，
+        // 只能重新 domSnapshot 或凭猜去点，点不到再重试，这就是最典型的「反复」。
+        // 只合并「连续重复」——嵌套元素把同一段文字重复上报是常态；
+        // 但页面上两个不同位置的同名链接（如多个「阅读全文」）必须都留着，
+        // 否则模型数不清条目。用全局去重会误删后者（本条判据来自本节自查）。
+        const textLines = [];
+        let __lastKey = null;
+        for (const node of outline) {
+          if (textLines.length >= 100) break;
+          const t = String(node.text || "").replace(/\s+/g, " ").trim();
+          if (!t) continue;
+          const key = (node.tag || "") + "|" + t;
+          if (key === __lastKey) continue;
+          __lastKey = key;
           const pad = "  ".repeat(Math.min(Number(node.depth) || 0, 6));
-          return `${pad}${node.tag || "text"} "${String(node.text || "").slice(0, 160)}"`;
-        });
+          textLines.push(pad + (node.tag || "text") + " \"" + t.slice(0, 140) + "\"");
+        }
+        // 视口内的元素先列：模型 90% 的动作落在当前可见区，先看到它就不用滚动/重读。
+        const elsSorted = els.slice().sort((a, b) => ((a && a.inViewport ? 0 : 1) - (b && b.inViewport ? 0 : 1)));
         const maxInteractive = textLines.length ? 36 : 80;
-        const lines = els.slice(0, maxInteractive).map((el) => {
+        const one = (el, compact) => {
           const ref = el.ref ? `[${el.ref}]` : "";
-          const geo = el.x != null ? ` x=${Math.round(el.x)},y=${Math.round(el.y)}` : "";
-          const box = el.rect && el.rect.x != null ? ` x=${Math.round(el.rect.x)},y=${Math.round(el.rect.y)}` : geo;
-          return `${ref} ${el.role || el.tag || "node"} "${String(el.name || el.text || "").slice(0, 80)}"${box}`.trim();
-        });
-        const more = els.length > maxInteractive ? `${String.fromCharCode(10)}... (${els.length - maxInteractive} more interactive)` : "";
+          const label = String(el.name || el.text || "").replace(/\s+/g, " ").trim().slice(0, compact ? 40 : 80);
+          const geo = compact ? "" : (el.rect && el.rect.x != null
+            ? ` x=${Math.round(el.rect.x)},y=${Math.round(el.rect.y)}`
+            : (el.x != null ? ` x=${Math.round(el.x)},y=${Math.round(el.y)}` : ""));
+          return `${ref} ${el.role || el.tag || "node"} "${label}"${geo}`.trim();
+        };
+        const head = elsSorted.slice(0, maxInteractive);
+        const rest = elsSorted.slice(maxInteractive);
+        const lines = head.map((el) => one(el, false));
+        const compactLines = rest.slice(0, 80).map((el) => one(el, true));
+        const restMore = rest.length > 80 ? `${
+          String.fromCharCode(10)}... (还有 ${rest.length - 80} 个交互元素未列出，可先滚动或用具体 selector 收窄)` : "";
+        const more = rest.length
+          ? String.fromCharCode(10) + `... (另有 ${rest.length} 个交互元素，紧凑列出：ref 可直接用于 click/fill)` +
+            String.fromCharCode(10) + compactLines.join(String.fromCharCode(10)) + restMore
+          : "";
         const value = `page: ${snap.url || ""} | ${snap.title || ""}
 ${textLines.length ? "text:" + String.fromCharCode(10) + textLines.join(String.fromCharCode(10)) + String.fromCharCode(10) : ""}interactive:
 ${lines.join(String.fromCharCode(10))}${more}`;
@@ -346,34 +674,112 @@ ${lines.join(String.fromCharCode(10))}${more}`;
         return { ok: true, value };
       }
       if (an === "waitForLoadState") {
-        // 真正等到 readyState，并给 SPA/动态正文一小段 settle（以前直接 return 导致 snapshot 读到空壳）。
+        // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：① 轮询期间用页面内 document.readyState 兜底（原来只认 getState.state.ready，
+        // 探针一失败就空转满 15s——现网实测一次 waitForLoadState 花 16016ms）；
+        // ② 目标态已达成时不再无条件补眠 500ms，改为「已达成→立即返回，未达成→短 settle」；
+        // ③ settle 可被 timeout 约束（原来 timeoutMs:200 也要花 534ms）。
+        // 为什么：goto+wait+snapshot 是每轮固定开销，空转一项就吃掉 0.5~16s。
+        // 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：① 默认预算 15000ms → 3000ms（与插件自带口径「routine URL/load-state waits remain capped at 3000ms」一致）；
+        // ② 等不到目标态时不再 `return ok:true` —— 改为如实报 timeout，并带上当前 readyState/资源数 + 下一步怎么走。
+        // 为什么：现网实测 github.com 在 IAB 里 goto 1474ms 返回后，12 秒仍停在 readyState=interactive
+        // （146 个锚点、页面早已可用），一次不带 timeout 的 waitForLoadState 实测 **20163ms 打满预算**，
+        // 然后照样回 ok:true。模型白等 20s 且拿到的是谎报的成功 —— 这既是每轮固定开销，也是"以为还没就绪"的反复来源。
+        // 只压预算不报错会留下"真没就绪也报成功"，只报错不压预算会继续白等，两条必须一起改。
         const state = String(act.state || "load").toLowerCase();
-        const timeout = Math.min(Number(act.timeout) || Number(act.timeoutMs) || 15000, 30000);
+        const timeout = Math.min(Number(act.timeout) || Number(act.timeoutMs) || 3000, 30000);
         const deadline = Date.now() + timeout;
+        const probeReady = async () => {
+          try {
+            const rs = await engine({ method: "evaluate", expression: "document.readyState" });
+            const v = typeof rs.value === "string" ? rs.value : "";
+            if (v) return v;
+          } catch (e) { /* 落到 getState */ }
+          try {
+            const st = await engine({ method: "getState" });
+            return String(st.state?.ready || st.state?.readyState || "");
+          } catch (e) { return ""; }
+        };
+        // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：networkidle 不再等价于 load —— 除 readyState=complete 外，
+        // 还要求「资源条目数连续 400ms 不再增长」才算安静；其余状态语义不变。
+        // 为什么：原实现把 networkidle 直接判成 `ready === "complete"`，等同于 load，
+        // 但调用方用 networkidle 恰恰是想要「等动态内容静下来」。它立刻就返回"成功了"，
+        // 模型随即读到还在渲染的页面、拿不到目标元素，再重读再重试 —— 这是"反复"的隐蔽来源。
+        const resourceCount = async () => {
+          try {
+            const r = await engine({ method: "evaluate", expression: "performance.getEntriesByType('resource').length" });
+            const n = Number(r && r.value);
+            return Number.isFinite(n) ? n : -1;
+          } catch (e) { return -1; }
+        };
+        const satisfied = (ready) => {
+          if (!ready) return false;
+          if (state === "domcontentloaded" || state === "interactive") return ready === "interactive" || ready === "complete";
+          return ready === "complete";
+        };
         let lastReady = "";
+        let lastCount = -1, stableSince = 0;
         while (Date.now() < deadline) {
-          const st = await engine({ method: "getState" });
-          lastReady = String(st.state?.ready || st.state?.readyState || "");
-          if (state === "domcontentloaded" || state === "interactive") {
-            if (lastReady === "interactive" || lastReady === "complete") break;
-          } else if (lastReady === "complete") {
-            break;
+          lastReady = await probeReady();
+          if (satisfied(lastReady)) {
+            if (state !== "networkidle") break;
+            // networkidle：还得等资源不再增长
+            const c = await resourceCount();
+            if (c < 0) break;                       // 探针不可用就别假装等到了，按 complete 收
+            if (c !== lastCount) { lastCount = c; stableSince = Date.now(); }
+            else if (Date.now() - stableSince >= 400) break;
           }
-          await new Promise((r) => setTimeout(r, 200));
+          await new Promise((r) => setTimeout(r, 100));
         }
-        const settleMs = state === "networkidle" ? 1200 : 500;
-        await new Promise((r) => setTimeout(r, settleMs));
-        await __bridgeLog(`[browser-bridge] waitForLoadState state=${state} ready=${lastReady || "?"} settleMs=${settleMs}`);
-        return { ok: true, value: true };
+        if (satisfied(lastReady) && (state !== "networkidle" || lastCount < 0 || Date.now() - stableSince >= 400)) {
+          await __bridgeLog(`[browser-bridge] waitForLoadState state=${state} ready=${lastReady} resources=${lastCount} settled=immediate`);
+          return { ok: true, value: true };
+        }
+        // 只有等不到目标态时才补一小段 settle，且不超过剩余预算。
+        const settleMs = Math.max(0, Math.min(state === "networkidle" ? 600 : 300, deadline - Date.now()));
+        if (settleMs) await new Promise((r) => setTimeout(r, settleMs));
+        // 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：超时分支从 `return ok:true` 改成带证据的 ok:false。
+        // 为什么：原来等不到也报成功，模型无从判断"是还没就绪还是真没有"，只能再 wait 一次；
+        // 而且 SPA（github.com 实测全程停在 interactive）永远到不了 load，
+        // 报错里必须直接告诉它「现在该继续，不要再等」——否则又是一次空转。
+        await __bridgeLog(`[browser-bridge] waitForLoadState state=${state} ready=${lastReady || "?"} settleMs=${settleMs} timedOut=1`);
+        const hint = (lastReady === "interactive" || lastReady === "complete")
+          ? "页面 DOM 已可用（readyState=" + lastReady + "），SPA 可能永远不会到 load；直接 domSnapshot 读取即可，不要再重复等"
+          : "当前 readyState=" + (lastReady || "?") + "；可稍后重试或改用 waitForTimeout + domSnapshot 轮询";
+        return {
+          ok: false,
+          error: {
+            code: "timeout",
+            message: `waitForLoadState(${state}) 超时 ${timeout}ms：ready=${lastReady || "?"} resources=${lastCount}。${hint}`,
+          },
+        };
       }
       if (an === "waitForURL") {
+        // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：用页面内 location.href 真等（支持字符串前缀与正则），超时返回错误并带上当前 URL。
+        // 为什么：原实现固定循环 10×300ms（最坏 3s）后**无条件** `return ok:true`——
+        // 即使 URL 压根没变也报成功。模型据此以为导航完成，读到的却是旧页内容，
+        // 于是"点了没反应"→ 再点 → 再读，形成反复。
         const want = String(act.url || "");
-        for (let i = 0; i < 10; i++) {
-          const st = await engine({ method: "getState" });
-          if (st.state?.url && st.state.url.startsWith(want)) break;
-          await new Promise((r) => setTimeout(r, 300));
+        const budget = Math.min(Number(act.timeout) || Number(act.timeoutMs) || 3000, 30000);
+        const deadline = Date.now() + budget;
+        const matchUrl = (href) => {
+          if (!want) return true;
+          const m = want.match(/^\/([\s\S]*)\/([a-z]*)$/);
+          if (m) { try { return new RegExp(m[1], m[2]).test(href); } catch (e) { /* 落到前缀 */ } }
+          return href === want || href.startsWith(want);
+        };
+        let href = "";
+        while (Date.now() < deadline) {
+          const r = await engine({ method: "evaluate", expression: "location.href" });
+          href = String((r && r.value) || "");
+          if (matchUrl(href)) return { ok: true, value: true };
+          await new Promise((res) => setTimeout(res, 100));
         }
-        return { ok: true, value: true };
+        return { ok: false, error: { code: "timeout", message: `waitForURL 超时 ${budget}ms：期望 ${want.slice(0, 120)}，当前 ${href.slice(0, 160)}` } };
       }
       if (an === "evaluate") {
         // Playwright 把函数源码标成 expressionKind=function。原样丢给 Runtime.evaluate
@@ -385,37 +791,114 @@ ${lines.join(String.fromCharCode(10))}${more}`;
           expression = `(${expression})(${argJson})`;
         }
         await __bridgeLog(`[browser-bridge] evaluate kind=${kind} awaitPromise=1 head=${expression.replace(/\s+/g, " ").slice(0, 160)}`);
-        const r = await engine({ method: "evaluate", expression, awaitPromise: true });
+        const rd = await __engineRead({ method: "evaluate", expression, awaitPromise: true }, "playwright.evaluate");
+        if (!rd.ok) return rd;
         let preview = "";
-        try { preview = JSON.stringify(r.value).slice(0, 180); } catch (e) { preview = String(r.value); }
-        await __bridgeLog(`[browser-bridge] evaluate done valueType=${typeof r.value} preview=${preview}`);
-        return { ok: true, value: r.value ?? null };
+        try { preview = JSON.stringify(rd.value).slice(0, 180); } catch (e) { preview = String(rd.value); }
+        await __bridgeLog(`[browser-bridge] evaluate done valueType=${typeof rd.value} preview=${preview}`);
+        return { ok: true, value: rd.value };
       }
       if (an === "elementInfo") {
-        return await engine({ method: "elementInfo", ...(act.options || {}) });
+        return await __engineRead({ method: "elementInfo", ...(act.options || {}) }, "playwright.elementInfo");
       }
       if (an === "waitForTimeout") {
         await new Promise((r) => setTimeout(r, Math.min(Number(act.timeoutMs) || 0, 3000)));
         return { ok: true, value: true };
       }
       const sel = rawSel();
-      const needsSelector = ["click", "dblclick", "fill", "type", "selectOption", "textContent", "innerText", "allTextContents", "getAttribute", "isVisible", "isEnabled", "count"].includes(an);
+      const needsSelector = ["click", "dblclick", "fill", "type", "selectOption", "textContent", "innerText", "allTextContents", "getAttribute", "isVisible", "isEnabled", "count", "waitFor"].includes(an);
       if (needsSelector && !sel) {
         return { ok: false, error: { code: "unsupported", message: `EvoFlow 浏览器桥缺少 selector（${an}）。action=${JSON.stringify(act).slice(0, 200)}` } };
       }
       if (needsSelector && __locatorMode(sel) === "internal-other") {
         await __bridgeLog(`[browser-bridge] locator unsupported mode=internal-other op=${an} sel=${sel.slice(0, 160)}`);
-        return { ok: false, error: { code: "unsupported", message: `EvoFlow 浏览器桥暂未实现该 Playwright 定位器（${sel.slice(0, 80)}）。role/text/xpath/css 可用。` } };
+        return { ok: false, error: { code: "unsupported", message: `EvoFlow 浏览器桥暂未实现该 Playwright 定位器（${sel.slice(0, 80)}）。role/text/label/placeholder/testid/xpath/css 可用。` } };
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：动作类操作统一走 __pickExpr（支持 `>> nth=N`）+ __STRICT 严格模式；
+      // 结果类操作（textContent/innerText/getAttribute/isVisible/isEnabled/count）同样受 nth 约束。
+      // 为什么：原来清一色 `__evoMatch(sel)[0]`——多重命中静默取第 0 个（现网实测点错链接），
+      // 而 first()/nth(i) 生成的 `>> nth=N` 后缀被当整串选择器，永远 0 命中。
+      const strict = act.strict !== false;
+      // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：把 __pickExpr/__countExpr 从「页面表达式内」提到「Node 侧先求值」。
+      // 为什么：它们是桥侧的表达式生成器，写进页内模板后在页面里就是未定义标识符，
+      // 每次调用都抛 ReferenceError；复启后现网实测 locator("a").count()=0
+      // （页内 querySelectorAll('a') 真值 66），heading/list/link 全 0 —— 比修复前更糟。
+      const pickExprJs = __pickExpr(sel);
+      const countExprJs = __countExpr(sel);
+      // 【self-evolution-bot · 2026-11-18 · 第53轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：ref 选择器直接转发引擎 ref 命令面（click/fill/type 支持 ref）。
+      // 为什么：快照打印的 [eNN] 必须真能用，否则模型每轮都在"读得到、点不到"之间反复。
+      const refId = __refOf(sel);
+      if (refId && ["click", "dblclick", "fill", "type"].includes(an)) {
+        await __bridgeLog(`[browser-bridge] locator op=${an} mode=ref ref=${refId}`);
+        if (an === "fill" || an === "type") {
+          const r = await engine({ method: "fill", ref: refId, value: String(act.text ?? act.value ?? "") });
+          if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `ref ${refId} fill failed` } };
+          return { ok: true, value: true };
+        }
+        const r = await engine({ method: an === "dblclick" ? "dblclick" : "click", ref: refId });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `ref ${refId} ${an} failed` } };
+        return { ok: true, value: true };
+      }
+      if (refId) {
+        // 读类操作：ref -> 引擎快照里的 selector，再走普通 CSS 读。
+        const snapRes = await engine({ method: "snapshot", maxElements: 600 });
+        const els = (snapRes && snapRes.snapshot && snapRes.snapshot.elements) || [];
+        const hit = els.find((e) => e.ref === refId);
+        if (!hit || !hit.selector) {
+          return { ok: false, error: { code: "execution_error", message: `ref ${refId} 已失效（快照已被后续导航/刷新作废），请重新 domSnapshot 取新 ref` } };
+        }
+        const selJson = JSON.stringify(hit.selector);
+        let readExpr = "";
+        if (an === "count") {
+          readExpr = `document.querySelectorAll(${selJson}).length`;
+        } else if (an === "isVisible") {
+          readExpr = `(function(){const el=document.querySelector(${selJson});`;
+          readExpr += "if(!el)return false;const s=getComputedStyle(el);";
+          readExpr += "return s.display!=='none'&&s.visibility!=='hidden';})()";
+        } else if (an === "isEnabled") {
+          readExpr = `(function(){const el=document.querySelector(${selJson});return el?!el.disabled:false;})()`;
+        } else if (an === "getAttribute") {
+          // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+          // 改了什么：只读 act.attribute。
+          // 为什么：上游 把动作名存在 act.name（=="getAttribute"），
+          // 原写法 `act.attribute || act.name` 的顺序倒了，且 act.name 恒真，
+          // 于是 getAttribute("href") 实际取的是属性名 "getAttribute" → 永远 null。
+          // locator("a").getAttribute("href") 永返 null，模型只能改用 evaluate 重查。
+          const attrJson = JSON.stringify(String(act.attribute || ""));
+          readExpr = `(function(){const el=document.querySelector(${selJson});`;
+          readExpr += `return el?el.getAttribute(${attrJson}):null;})()`;
+        } else {
+          const prop = an === "innerText" ? "innerText" : "textContent";
+          const wrap = an === "allTextContents";
+          readExpr = `(function(){const el=document.querySelector(${selJson});if(!el)return null;`;
+          readExpr += wrap ? `return [el.${prop}];})()` : `return el.${prop};})()`;
+        }
+        // 与主读路径统一：ref 读失败也要把错误原文回给模型，而不是 null。
+        const rd = await __engineRead({ method: "evaluate", expression: readExpr }, `locator(${refId}).${an}`);
+        if (!rd.ok) return rd;
+        return { ok: true, value: rd.value };
       }
       if (an === "click" || an === "dblclick") {
         await __bridgeLog(`[browser-bridge] locator op=${an} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const el=__evoMatch(${JSON.stringify(sel)})[0]; if(!el)return null; el.scrollIntoView({block:'center'}); const rc=el.getBoundingClientRect(); return {x:rc.left+rc.width/2,y:rc.top+rc.height/2,n:__evoMatch(${JSON.stringify(sel)}).length}; })()`,
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0]; el.scrollIntoView({block:'center'});
+            const rc=el.getBoundingClientRect();
+            return {x:rc.left+rc.width/2,y:rc.top+rc.height/2,total}; })()`,
         });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `${an} evaluate failed` } };
         const pt = r.value && typeof r.value === "object" ? r.value : null;
-        await __bridgeLog(`[browser-bridge] locator ${an} hits=${pt ? pt.n : 0}`);
-        if (!pt) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}` } };
+        await __bridgeLog(`[browser-bridge] locator ${an} result=${JSON.stringify(pt).slice(0, 200)}`);
+        if (!pt || pt.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}（命中 0 个）` } };
+        if (pt.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pt.ambiguous} 个元素匹配 ${sel}；用 .nth(i)/.first() 指定，或用 name/更具体的定位收窄` } };
         const out = { ok: true, value: true };
         await engine({ method: an === "dblclick" ? "dblclick" : "click", x: pt.x, y: pt.y });
         return out;
@@ -425,57 +908,392 @@ ${lines.join(String.fromCharCode(10))}${more}`;
         await __bridgeLog(`[browser-bridge] locator op=${an} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const el=__evoMatch(${JSON.stringify(sel)})[0]; if(!el)throw new Error('element not found'); el.focus(); const d=Object.getOwnPropertyDescriptor((el.__proto__||Object.getPrototypeOf(el)),'value'); if(d&&d.set)d.set.call(el,${JSON.stringify(text)}); else el.value=${JSON.stringify(text)}; el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); return true; })()`,
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0]; el.focus();
+            const d=Object.getOwnPropertyDescriptor((el.__proto__||Object.getPrototypeOf(el)),'value');
+            if(d&&d.set)d.set.call(el,${JSON.stringify(text)}); else el.value=${JSON.stringify(text)};
+            el.dispatchEvent(new Event('input',{bubbles:true}));
+            el.dispatchEvent(new Event('change',{bubbles:true}));
+            return {ok:true}; })()`,
         });
-        return { ok: true, value: r.value ?? true };
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `${an} evaluate failed` } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}（命中 0 个）` } };
+        if (pv.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pv.ambiguous} 个元素匹配 ${sel}；用 .nth(i)/.first() 指定` } };
+        return { ok: true, value: true };
       }
       if (an === "press") {
-        return await engine({ method: "press", key: String(act.key || "Enter") });
+        // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：press 先聚焦定位器命中的元素，再派发按键；无 selector 时才打到当前焦点。
+        // 为什么：Playwright 语义是 locator.press()＝「聚焦该元素再按键」。
+        // 原实现直接转发 key，落在**残留焦点**上：模型刚 fill 过 A 输入框、再去
+        // locator("搜索框").press("Enter")，回车其实发给了 A —— 页面没反应，
+        // 模型以为定位错，换写法重试（实测机型下的典型"反复"）。
+        const key = String(act.key || act.value || "Enter");
+        if (sel) {
+          const rf = await engine({
+            method: "evaluate",
+            expression: `(function(){${__MATCH_FN};
+              const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+              if(!els.length)return {missing:true};
+              const el=els[0]; el.focus();
+              return {focused: document.activeElement === el, tag: el.tagName.toLowerCase()}; })()`,
+          });
+          const pf = (rf && rf.value && typeof rf.value === "object") ? rf.value : {};
+          if (pf.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}（命中 0 个）` } };
+        }
+        return await engine({ method: "press", key });
       }
       if (an === "selectOption") {
         await __bridgeLog(`[browser-bridge] locator op=selectOption mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
+        // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：重写 selectOption —— 按 Playwright 语义真正选中 option 并**回读校验**。
+        // 为什么（现网实测假成功）：原实现只做 `el.value = "b"` + dispatch change。
+        // 实测 `<select multiple>` 传 ["b"] 后 `selectedOptions` 为空，而桥返回 ok:true ——
+        // 模型以为选好了，接着提交表单，结果全是空值，然后再重试一遍（=反复）。
+        // 根因有二：① 多选/按 label 选择时 `el.value=` 不生效；② 从不回读，未选中也算成功。
+        const wanted = [];
+        const pushVal = (v) => { if (v != null) wanted.push(v); };
+        if (Array.isArray(act.values)) act.values.forEach(pushVal);
+        if (Array.isArray(act.options)) {
+          for (const o of act.options) {
+            if (o && typeof o === "object") { pushVal(o.value); pushVal(o.label); }
+            else pushVal(o);
+          }
+        }
+        pushVal(act.value); pushVal(act.label);
+        const wantJson = JSON.stringify(wanted.map((v) => String(v)));
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const el=__evoMatch(${JSON.stringify(sel)})[0]; if(!el)throw new Error('element not found'); el.value=${JSON.stringify(String(act.value ?? ""))}; el.dispatchEvent(new Event('change',{bubbles:true})); return true; })()`,
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0];
+            if(!el || el.tagName!=='SELECT') return {notSelect:true, tag: el && el.tagName};
+            const wanted=${wantJson};
+            const norm=(s)=>String(s==null?'':s).replace(/\\s+/g,' ').trim();
+            const want=wanted.map(norm).filter(Boolean);
+            const opts=Array.from(el.options||[]);
+            const hit=[];
+            for(const w of want){
+              const o=opts.find(x=>norm(x.value)===w) || opts.find(x=>norm(x.label)===w) ||
+                      opts.find(x=>norm(x.text)===w);
+              if(o && !hit.includes(o)) hit.push(o);
+            }
+            if(!hit.length) return {noMatch:true, wanted:want, available:opts.slice(0,12).map(o=>({v:o.value,l:norm(o.label)}))};
+            const multi=!!el.multiple;
+            for(const o of opts) o.selected=false;
+            hit.forEach(o=>{o.selected=true;});
+            if(!multi && hit.length>1) hit.slice(1).forEach(o=>{o.selected=false;});
+            el.dispatchEvent(new Event('input',{bubbles:true}));
+            el.dispatchEvent(new Event('change',{bubbles:true}));
+            const got=Array.from(el.selectedOptions||[]).map(o=>o.value);
+            return {ok:true, selected:got, wanted:hit.map(o=>o.value), value:el.value}; })()`,
         });
-        return { ok: true, value: r.value ?? true };
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `${an} evaluate failed` } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}` } };
+        if (pv.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pv.ambiguous} 个元素匹配 ${sel}` } };
+        if (pv.notSelect) return { ok: false, error: { code: "execution_error", message: `selectOption 目标不是 <select>（实际 ${pv.tag}）：${sel}` } };
+        if (pv.noMatch) {
+          // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】只做折行，不改文案；原单行 244 字符超出本仓 240 上限
+          const __nm = `selectOption 没有匹配的 option：想要 ${JSON.stringify(pv.wanted)}，`
+            + `可选项 ${JSON.stringify(pv.available)}（${sel}）。`
+            + `别重复同一参数，改 value/label 或先读 options。`;
+          return { ok: false, error: { code: "execution_error", message: __nm } };
+        }
+        // 回读校验：这是本条修复的核心——未真正选中就不许报成功。
+        if (!Array.isArray(pv.selected) || pv.selected.length === 0) {
+          return { ok: false, error: { code: "execution_error", message: `selectOption 回读为空：写入后 selectedOptions 仍为空（${sel}）。目标可能被 JS 重置，别重复调用。` } };
+        }
+        await __bridgeLog(`[browser-bridge] locator selectOption selected=${JSON.stringify(pv.selected)} sel=${sel.slice(0, 120)}`);
+        return { ok: true, value: true };
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 setChecked / check / uncheck（Playwright 的勾选语义）。
+      // 为什么：客户端 Locator.setChecked() 直接发 operation="setChecked"，桥无此分支 →
+      // 现网实测返回 `unsupported`。而表单场景里勾选框是最常见操作，模型只能退化成
+      // "click 一下试试"，却无法指定「确保勾上 / 确保取消」，点错状态后又要反复点。
+      if (an === "setChecked" || an === "check" || an === "uncheck") {
+        const wantChecked = an === "check" ? true : an === "uncheck" ? false : act.checked !== false;
+        await __bridgeLog(`[browser-bridge] locator op=${an} want=${wantChecked} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
+        const r = await engine({
+          method: "evaluate",
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0];
+            const want=${wantChecked ? "true" : "false"};
+            const isCheckable = el && (el.tagName==='INPUT') && ['checkbox','radio'].includes(String(el.type||'').toLowerCase());
+            if(!isCheckable) return {notCheckable:true, tag: el && el.tagName, type: el && el.type};
+            if(!!el.checked !== want){
+              el.focus();
+              el.click();
+            }
+            const after=!!el.checked;
+            return {ok:true, checked:after, wanted:want}; })()`,
+        });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `${an} evaluate failed` } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}` } };
+        if (pv.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pv.ambiguous} 个元素匹配 ${sel}` } };
+        if (pv.notCheckable) {
+          return { ok: false, error: { code: "execution_error", message: `${an} 目标不是 checkbox/radio（实际 ${pv.tag}${pv.type ? "/" + pv.type : ""}）：${sel}` } };
+        }
+        // 回读校验：点了但状态没变（被 JS 拦掉 / disabled）必须报错，不能装作成功。
+        if (pv.checked !== pv.wanted) {
+          return { ok: false, error: { code: "execution_error", message: `${an} 未生效：点击后 checked=${pv.checked}，期望 ${pv.wanted}（${sel}）。元素可能被 JS 拦截或 disabled，别重复点击。` } };
+        }
+        return { ok: true, value: true };
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 hover（桥层之前没接，虽然引擎明明有 _wv2_hover）。
+      // 为什么：现网实测 locator.hover() 返回 `unsupported`。悬停是菜单/下拉/提示气泡的
+      // 唯一入口，缺了它模型只能改用 click 去"撞"菜单，点开又点关，反复。
+      if (an === "hover") {
+        await __bridgeLog(`[browser-bridge] locator op=hover mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
+        const r = await engine({
+          method: "evaluate",
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0]; el.scrollIntoView({block:'center'});
+            const rc=el.getBoundingClientRect();
+            const x=rc.left+rc.width/2, y=rc.top+rc.height/2;
+            const opts={bubbles:true, cancelable:true, clientX:x, clientY:y, view:window};
+            el.dispatchEvent(new MouseEvent('mouseover',opts));
+            el.dispatchEvent(new MouseEvent('mouseenter',{...opts,bubbles:false}));
+            el.dispatchEvent(new MouseEvent('mousemove',opts));
+            return {ok:true, x:Math.round(x), y:Math.round(y)}; })()`,
+        });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: "hover evaluate failed" } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}` } };
+        if (pv.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pv.ambiguous} 个元素匹配 ${sel}` } };
+        return { ok: true, value: true };
       }
       if (an === "textContent" || an === "innerText" || an === "allTextContents") {
         const prop = an === "innerText" ? "innerText" : "textContent";
         const many = an === "allTextContents";
-        await __bridgeLog(`[browser-bridge] locator op=${an} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
+        await __bridgeLog(`[browser-bridge] locator op=${an} prop=${prop} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const els=__evoMatch(${JSON.stringify(sel)}); ${many ? "return els.map(e=>e." + prop + ");" : "return els.length ? els[0]." + prop + " : null;"} })()`,
+          expression: many
+            ? `(function(){${__MATCH_FN}; return __evoMatch(${JSON.stringify(__splitNth(sel).base)}).map(e=>e.${prop}); })()`
+            : `(function(){${__MATCH_FN}; const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[]; return els.length?els[0].${prop}:null; })()`,
         });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `locator.${an} evaluate failed` } };
         return { ok: true, value: r.value ?? null };
       }
       if (an === "getAttribute") {
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const el=__evoMatch(${JSON.stringify(sel)})[0]; return el ? el.getAttribute(${JSON.stringify(String(act.name || act.attribute || ""))}) : null; })()`,
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const el=els[0];
+            return el ? el.getAttribute(${JSON.stringify(String(act.attribute || ""))}) : null; })()`,
         });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: "getAttribute failed" } };
         return { ok: true, value: r.value ?? null };
       }
       if (an === "isVisible" || an === "isEnabled") {
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; const el=__evoMatch(${JSON.stringify(sel)})[0]; if(!el)return false; ${an === "isEnabled" ? "return !el.disabled;" : "const s=getComputedStyle(el); return s.display!=='none'&&s.visibility!=='hidden'&&el.getBoundingClientRect().width>0;"} })()`,
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const el=els[0]; if(!el)return false;
+            ${an === "isEnabled" ? "return !el.disabled;" : "const s=getComputedStyle(el); return s.display!=='none'&&s.visibility!=='hidden'&&el.getBoundingClientRect().width>0;"} })()`,
         });
+        // 引擎失败时 value 是 undefined，`!!undefined` = false —— 会被模型读成「元素不可见/不可用」，
+        // 于是它去滚动、重试、换定位器。这类假阴性必须显式报错。
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: `locator.${an} evaluate failed` } };
         return { ok: true, value: !!r.value };
       }
       if (an === "count") {
-        await __bridgeLog(`[browser-bridge] locator op=count mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
+        // 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：非法选择器不再走「异常回传 → 卡到超时」，改由 engine 的 __wrapEval 统一捕获，
+        // 这里只需辨型：真数字才算命中数，其余一律显式报错。
+        // 为什么：重启后实测同一个非法选择器——example.com 780ms、bing 864ms 就报真实错误，
+        // 而 github.com 稳定卡 16049/16183ms；连测三次共 48 秒全白等。
         const r = await engine({
           method: "evaluate",
-          expression: `(function(){${__MATCH_FN}; return __evoMatch(${JSON.stringify(sel)}).length; })()`,
+          expression: `(function(){${__MATCH_FN}; return ${countExprJs}; })()`,
         });
-        const n = Number(r.value) || 0;
-        await __bridgeLog(`[browser-bridge] locator count=${n} mode=${__locatorMode(sel)}`);
+        // 【self-evolution-bot · 2026-11-18 · 第58轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：① 正常路径只留一条日志（原来每次 count 连打 3 条，每条一个 HTTP POST）；
+        // ② 结果必须辨型：只有 typeof === "number" 才算命中数，undefined/null/其它一律显式报错。
+        // 为什么：原 `Number(r.value) || 0` 把「压根没算出数值」压成 0，和「真的没有匹配元素」同形。
+        // 插件 guidance 又规定 count()=0 → 不要再等、直接重新 domSnapshot，于是模型陷入
+        // 「快照 → count=0 → 再快照」的反复。现网实测：页面 querySelectorAll('a')=77 而
+        // count('a')=0，引擎侧 valueType=NoneType preview=null —— 就是这个洞。
+        if (r && r.ok === false) {
+          const msg = String((r.error && (r.error.message || r.error.code)) || "evaluate failed").slice(0, 300);
+          await __bridgeLog(`[browser-bridge] locator count FAILED mode=${__locatorMode(sel)} err=${msg}`);
+          return { ok: false, error: { code: "execution_error", message: `locator count 执行失败（${sel.slice(0, 120)}）：${msg}` } };
+        }
+        const value = r ? r.value : undefined;
+        if (typeof value !== "number") {
+          const got = value === null ? "null" : (value === undefined ? "no response" : typeof value);
+          await __bridgeLog(`[browser-bridge] locator count NOT_A_NUMBER mode=${__locatorMode(sel)} got=${got} sel=${sel.slice(0, 160)} expr=${String(countExprJs).slice(0, 140)}`);
+          return {
+            ok: false,
+            error: {
+              code: "execution_error",
+              message: `locator count 没有返回数值（${sel.slice(0, 120)}）：页面表达式返回了 ${got}。`
+                + "这不是「0 个匹配」，别再重复 count —— 改用 domSnapshot 看页面结构，或用 evaluate 自己数。",
+            },
+          };
+        }
+        const n = value;
+        await __bridgeLog(`[browser-bridge] locator count=${n} mode=${__locatorMode(sel)} sel=${sel.slice(0, 160)}`);
         return { ok: true, value: n };
       }
-      if (an === "waitFor") {
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 drag（拖拽）。支持 {fromRef/toRef} 与 {from:{x,y}/to:{x,y}} 两种线格式。
+      // 为什么：现网实测 `Tab.drag()` 与 `Locator.dragTo()` 都返回 `unsupported`。
+      // 拖拽是排序、看板、滑块、拖拽上传的唯一入口；缺了它模型只能去点「上移」按钮，
+      // 遇到纯拖拽界面就彻底卡住并反复重试。
+      if (an === "drag") {
+        const pick = (refKey, objKey, xKey, yKey) => {
+          const ref = act[refKey];
+          if (ref) return { ref: String(ref) };
+          const o = act[objKey];
+          if (o && typeof o === "object") {
+            const x = Number(o.x ?? o[0] ?? act[xKey]);
+            const y = Number(o.y ?? o[1] ?? act[yKey]);
+            if (Number.isFinite(x) && Number.isFinite(y)) return { x, y };
+          }
+          const fx = Number(act[xKey]), fy = Number(act[yKey]);
+          if (Number.isFinite(fx) && Number.isFinite(fy)) return { x: fx, y: fy };
+          return null;
+        };
+        const from = pick("fromRef", "from", "fromX", "fromY");
+        const to = pick("toRef", "to", "toX", "toY");
+        if (!from || !to) {
+          return { ok: false, error: { code: "execution_error", message: `drag 缺少起点/终点（需要 fromRef/toRef 或 from{x,y}/to{x,y}）：${JSON.stringify(act).slice(0, 200)}` } };
+        }
+        await __bridgeLog(`[browser-bridge] drag from=${JSON.stringify(from)} to=${JSON.stringify(to)}`);
+        const r = await engine({ method: "evaluate", expression: `(function(){${__MATCH_FN};
+          const center=(t)=>{
+            if(t==null) return null;
+            if(t.ref){
+              const els=__evoMatch(String(t.ref));
+              if(!els.length) return null;
+              const el=els[0]; el.scrollIntoView({block:'center'});
+              const rc=el.getBoundingClientRect();
+              return {el, x:rc.left+rc.width/2, y:rc.top+rc.height/2};
+            }
+            return {el:null, x:Number(t.x), y:Number(t.y)};
+          };
+          const a=center(${JSON.stringify(from)}), b=center(${JSON.stringify(to)});
+          if(!a||!b) return {missing:true};
+          const src=a.el||document.elementFromPoint(a.x,a.y);
+          const tgt=b.el||document.elementFromPoint(b.x,b.y);
+          if(!src||!tgt) return {missing:true};
+          const mk=(type,x,y,extra)=>new DragEvent(type,{bubbles:true,cancelable:true,clientX:x,clientY:y,...(extra||{})});
+          const dt=new DataTransfer();
+          src.dispatchEvent(new DragEvent('dragstart',{bubbles:true,cancelable:true,clientX:a.x,clientY:a.y,dataTransfer:dt}));
+          for(let i=1;i<=4;i++){
+            const x=a.x+(b.x-a.x)*i/4, y=a.y+(b.y-a.y)*i/4;
+            src.dispatchEvent(new DragEvent('drag',{bubbles:true,cancelable:true,clientX:x,clientY:y,dataTransfer:dt}));
+            tgt.dispatchEvent(new DragEvent('dragenter',{bubbles:true,cancelable:true,clientX:x,clientY:y,dataTransfer:dt}));
+            tgt.dispatchEvent(new DragEvent('dragover',{bubbles:true,cancelable:true,clientX:x,clientY:y,dataTransfer:dt}));
+          }
+          tgt.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,clientX:b.x,clientY:b.y,dataTransfer:dt}));
+          src.dispatchEvent(new DragEvent('dragend',{bubbles:true,cancelable:true,clientX:b.x,clientY:b.y,dataTransfer:dt}));
+          return {ok:true, from:{x:Math.round(a.x),y:Math.round(a.y)}, to:{x:Math.round(b.x),y:Math.round(b.y)}}; })()` });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: "drag evaluate failed" } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `drag 起点或终点找不到元素：from=${JSON.stringify(from)} to=${JSON.stringify(to)}` } };
         return { ok: true, value: true };
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 scroll（滚动）。支持 {x,y}/{scrollX,scrollY} 与方向语义。
+      // 为什么：现网实测 Tab.scroll() 返回 `unsupported`。长页面里「看不到就点不到」，
+      // 缺滚动时模型只能靠 evaluate 手写 window.scrollTo，多一轮往返且常常滚错容器。
+      if (an === "scroll") {
+        const num = (...vs) => { for (const v of vs) { const n = Number(v); if (Number.isFinite(n)) return n; } return null; };
+        const dx = num(act.scrollX, act.x, act.dx) ?? 0;
+        const dy = num(act.scrollY, act.y, act.dy) ?? 0;
+        const amount = num(act.amount);
+        const dir = String(act.direction || "").toLowerCase();
+        await __bridgeLog(`[browser-bridge] scroll dx=${dx} dy=${dy} amount=${amount} dir=${dir}`);
+        const r = await engine({ method: "evaluate", expression: `(function(){
+          const dir=${JSON.stringify(dir)}, amount=${amount === null ? "null" : amount};
+          let dx=${dx}, dy=${dy};
+          if(amount!==null&&dir){ if(dir==='down')dy=amount; else if(dir==='up')dy=-amount;
+            else if(dir==='right')dx=amount; else if(dir==='left')dx=-amount; }
+          const before={x:Math.round(window.scrollX),y:Math.round(window.scrollY)};
+          window.scrollBy({left:dx,top:dy,behavior:'instant'});
+          const after={x:Math.round(window.scrollX),y:Math.round(window.scrollY)};
+          return {ok:true, before, after, moved:(after.x!==before.x||after.y!==before.y)}; })()` });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: "scroll evaluate failed" } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        // 页面已到顶/底时滚不动是正常现象，但要如实告诉模型「没动」，否则它会以为滚过了。
+        return { ok: true, value: true, state: pv.moved === false ? "not_moved_top_or_bottom" : "moved", scroll: pv.after };
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：新增 elementScreenshot（元素级截图）。
+      // 为什么：客户端 Locator.elementScreenshot() 会发 operation="elementScreenshot"，
+      // 桥无此分支 → `unsupported`。整页截图看不出单个控件是否渲染正确，
+      // 模型只能截全页再猜位置，白烧一次大图。
+      if (an === "elementScreenshot") {
+        const r = await engine({
+          method: "evaluate",
+          expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            const total=${countExprJs};
+            if(!els.length)return {missing:true,total};
+            if(els.length>1&&${strict ? "true" : "false"})return {ambiguous:els.length,total};
+            const el=els[0]; el.scrollIntoView({block:'center'});
+            const rc=el.getBoundingClientRect();
+            return {ok:true, clip:{x:Math.max(0,rc.left),y:Math.max(0,rc.top),width:Math.max(1,rc.width),height:Math.max(1,rc.height)}}; })()`,
+        });
+        if (r && r.ok === false) return { ok: false, error: r.error || { code: "execution_error", message: "elementScreenshot bounds failed" } };
+        const pv = r.value && typeof r.value === "object" ? r.value : {};
+        if (pv.missing) return { ok: false, error: { code: "execution_error", message: `element not found: ${sel}` } };
+        if (pv.ambiguous) return { ok: false, error: { code: "strict_mode_violation", message: `strict mode violation: ${pv.ambiguous} 个元素匹配 ${sel}` } };
+        const shot = await engine({ method: "screenshot", clip: pv.clip });
+        if (shot && shot.ok === false) return { ok: false, error: shot.error || { code: "execution_error", message: "elementScreenshot failed" } };
+        return { ok: true, value: (shot && (shot.data || shot.image || shot.value)) ?? null };
+      }
+      if (an === "waitFor") {
+        // 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：按 state（attached/visible/hidden/detached）真轮询，超时报错。
+        // 为什么：原实现直接 `return { ok:true, value:true }`——不等一毫秒就告诉模型“等到了”，
+        // 模型以为页面已就绪去点，点不到再重试 = 反复。
+        const want = String(act.state || "visible").toLowerCase();
+        const budget = Math.min(Number(act.timeout) || Number(act.timeoutMs) || 3000, 30000);
+        const deadline = Date.now() + budget;
+        const probe = async () => {
+          const r = await engine({ method: "evaluate", expression: `(function(){${__MATCH_FN};
+            const __all=${pickExprJs}; const els=Array.isArray(__all)?__all:[];
+            if(!els.length) return {n:0, vis:false};
+            const el=els[0]; const s=getComputedStyle(el); const rc=el.getBoundingClientRect();
+            return {n:els.length, vis: !(s.display==='none'||s.visibility==='hidden'||rc.width<=0||rc.height<=0)}; })()` });
+          return (r && r.value && typeof r.value === "object") ? r.value : { n: 0, vis: false };
+        };
+        let last = { n: 0, vis: false };
+        while (Date.now() < deadline) {
+          last = await probe();
+          const done =
+            want === "attached" ? last.n > 0 :
+            want === "detached" ? last.n === 0 :
+            want === "hidden" ? !last.vis : last.vis;
+          if (done) return { ok: true, value: true };
+          await new Promise((res) => setTimeout(res, 50));
+        }
+        return { ok: false, error: { code: "timeout", message: `locator.waitFor(${want}) 超时 ${budget}ms：${sel.slice(0, 120)}（命中 ${last.n} 个，可见=${last.vis}）` } };
       }
       return { ok: false, error: { code: "unsupported", message: `EvoFlow v1 暂不支持 playwright.${an}；可用：domSnapshot/click/dblclick/fill/type/press/selectOption/textContent/innerText/getAttribute/isVisible/isEnabled/count/evaluate/waitForLoadState/waitForURL/waitForTimeout。action=${JSON.stringify(act).slice(0, 160)}` } };
     };
@@ -635,6 +1453,24 @@ _BROWSER_AUTO_BOOTSTRAP_JS = r"""
 await (async () => {
   // Re-wrap if an older kernel left browser without .bootstrap (frozen runtime object).
   if (globalThis.__evoflowBrowserBootstrapped && typeof globalThis.browser?.bootstrap === "function") {
+    // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：短路分支里补一次 globalThis.tab 兜底解析。
+    // 为什么：本次新增的 tab 预解析写在下面主流程里，而这里会先 return —— 不补这一手，
+    // 只要内核曾 bootstrap 过，globalThis.tab 就永远是 undefined，文档承诺落空。
+    if (!globalThis.tab) {
+      try {
+        const b = globalThis.browser;
+        const list = b && b.tabs ? await b.tabs.list() : [];
+        const first = list && list[0];
+        if (first) {
+          const t = await b.tabs.get(first.id);
+          if (t) {
+            globalThis.tab = t;
+            try { global.tab = t; } catch (_) {}
+          }
+        }
+      } catch (_) {}
+    }
     return;
   }
   const root = String(process.env.ZCODE_PLUGIN_ROOT || process.env.CLAUDE_PLUGIN_ROOT || "").trim();
@@ -668,6 +1504,25 @@ await (async () => {
       if (b.tabs) {
         globalThis.tabs = b.tabs;
         try { global.tabs = b.tabs; } catch (_) {}
+      }
+      // 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：预先把唯一的 tab 解析成 globalThis.tab（并同时挂 global.tab）。
+      // 为什么：EvoFlow 只有一个内置 WebView，但模型每个 js cell
+      // 都要自己走 tabs.list() → tabs.get() 才能拿到 tab。实测这三步固定开销
+      // getForUrl 12.5ms + tabs.list 13.7ms + tabs.get 25.0ms ≈ 51ms，且 308 次调用里
+      // 107 次手写了整段 bootstrap 前言（每次 ~494 字符）。预先解析后复用为 0ms。
+      try {
+        const list = await b.tabs.list();
+        const first = list && list[0];
+        if (first) {
+          const t = await b.tabs.get(first.id);
+          if (t) {
+            globalThis.tab = t;
+            try { global.tab = t; } catch (_) {}
+          }
+        }
+      } catch (_) {
+        // 解析失败不致命：模型仍可自行 tabs.list()。
       }
     }
     try {

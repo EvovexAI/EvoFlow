@@ -329,6 +329,48 @@ def format_tool_path_label(resolved: Path, *, runtime: Any = None) -> str:
         return resolved.as_posix()
 
 
+def _not_found_detail(p: Path, label: str) -> str:
+    r"""路径不存在时的报错：回显入参 + 实际查找的绝对路径。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：原本只回显 `label`（即调用方传进来的原始路径），现在补上实际
+    查找的绝对路径。为什么：相对路径会被拼到工作区根下（本岗那根是
+    C:/Users/admin/.evoflow/profiles/default），而传相对路径的人心里想的往往是仓库根；
+    只报入参就分不清“路径写错”还是“根不对”，只能猜一次再绕一步。
+    实证：2026-11-19 00:31 本岗 replace("craft/电脑控制写入长文本-记事本实测.md")
+    报“Path not found”，没说查的是哪，只能去槽位本地反复确认目录。
+    与 read_file.py 第20轮的修法同一口径（“实际查找的绝对路径”），保持全仓一致。
+
+    不变部分：第一行仍然以 `Error: Path not found: <入参>` 开头。
+    evopanel/src/lib/chat-normalize.js:1221 用
+    /Error: (?:Path not found|File not found):\s*(.+?)(?:\r?\n|$)/ 从这句里抽路径显示给用户，
+    操作端只读第一行；补充信息必须放第二行起，否则前端会把整段当成路径。
+    """
+    base = f"Error: Path not found: {label}"
+    try:
+        actual = str(p)
+    except (OSError, ValueError):
+        return base
+    if not actual:
+        return base
+    raw = str(label or "").replace("\\", "/")
+    is_absolute = bool(raw) and (raw[1:3] == ":/" or raw.startswith("//"))
+    # 绝对路径入参：只有在真被重映射时才补一句，否则只回显入参。
+    # 否则就是把「相对路径按工作区根拼」这句无关话术塞给绝对路径调用方
+    # —— read_file.py 第20轮的反证用例已经把它钉死了（本轮我自己先踩一次）。
+    if is_absolute:
+        if actual.replace("\\", "/").lower() == raw.lower():
+            return base
+        return f"{base}\n（实际查找的绝对路径：{actual}）"
+    if actual == str(label):
+        return base
+    return (
+        f"{base}\n"
+        f"（实际查找的绝对路径：{actual}；相对路径是按会话工作区根拼的，"
+        f"如果你想指的是仓库，请改用 D:/ 开头的绝对路径）"
+    )
+
+
 def _finalize_path(
     p: Path,
     *,
@@ -338,7 +380,7 @@ def _finalize_path(
     label: str,
 ) -> Path | str:
     if must_exist and not p.exists():
-        return f"Error: Path not found: {label}"
+        return _not_found_detail(p, label)
     if must_be_file and p.exists() and not p.is_file():
         hint = " Use terminal (e.g. dir / ls) to browse a directory, or read with a concrete file path (e.g. outputs/result.txt), not the workspace root '.'." if p.is_dir() else ""
         return f"Error: Path is not a file: {label}.{hint}" if hint else f"Error: Path is not a file: {label}"

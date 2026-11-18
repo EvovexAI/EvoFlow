@@ -330,10 +330,34 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
     hint = _first_str(result.get("hint"))
     if hint and len(hint) <= 120:
         return hint
-    if action.startswith("items."):
-        return "已记入任务中心 · 我的事项"
-    if action.startswith("tasks."):
-        return "已记入任务中心 · 协作任务"
+    if action.startswith("items.") or action.startswith("tasks."):
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：按动作名判「有没有真的写入」，不再按域前缀无条件说「已记入」。
+        # 为什么：原来 `action.startswith("tasks.")` / `("items.")` 一律返回
+        # 「已记入任务中心」，于是一次 `tasks.list`（total 291，纯读取）、
+        # `tasks.get`、`tasks.execution_trail`、`items.list`、`items.get` 都在面板上
+        # 显示「已记入任务中心 · 协作任务」——**没发生任何写操作却说记入了**。
+        # 现网实测（第60轮逐个真调）这 5 个只读动作全中招。这是假的状态变更提示，
+        # 用户会以为刚建了单。改为：只有真正落库的动作才说「已记入」。
+        leaf = action.split(".", 1)[-1]
+        wrote = leaf in {
+            "create",
+            "update",
+            "progress",
+            "set_state",
+            "dispatch",
+            "delete",
+            "cleanup_noise",
+            "reclaim_zombies",
+        }
+        entity_zh = "协作任务" if action.startswith("tasks.") else "我的事项"
+        if wrote:
+            return f"已记入任务中心 · {entity_zh}"
+        total = result.get("total")
+        count = result.get("count")
+        if total is not None:
+            return f"{entity_zh}共 {total} 条" + (f"，本页 {count} 条" if count is not None else "")
+        return f"可在任务中心查看 · {entity_zh}"
     if action == "employees.bind_channel_begin":
         ch = _first_str(result.get("channel")).lower()
         label = {"feishu": "飞书", "wecom": "企微"}.get(ch, "IM")

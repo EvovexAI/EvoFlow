@@ -1,0 +1,242 @@
+[
+ {
+  "name": "_normalize_boundary",
+  "path": "backend/scripts/context_cache_effect_report.py"
+ },
+ {
+  "name": "add_scope_member",
+  "path": "backend/packages/harness/evoflow/authz/membership.py"
+ },
+ {
+  "name": "test_different_calls_different_hash",
+  "path": "backend/tests/test_loop_detection_middleware.py"
+ },
+ {
+  "name": "buildGoalResultPayload",
+  "path": "evopanel/src/zcode-ui/ToolCallBlocks/renderers/goal.tsx"
+ },
+ {
+  "name": "resolve_data_paths",
+  "path": "backend/packages/harness/evoflow/admin/system_status.py"
+ },
+ {
+  "name": "MentionResultGroup",
+  "path": "evopanel/src/zcode-ui/mentions/mentionSearch.ts"
+ },
+ {
+  "name": "reset_registry_cache",
+  "path": "backend/packages/harness/evoflow/admin/platform_actions.py"
+ },
+ {
+  "name": "gatewayProxyWithRetry",
+  "path": "evopanel/src/lib/tauri-api.js"
+ },
+ {
+  "name": "ZCodeAgentConversationWorkflowRunEventsParams",
+  "path": "evopanel/src/zcode-services/zcode-agent/zcodeAgent.ts"
+ },
+ {
+  "name": "ResourceSelectionRow",
+  "path": "evopanel/src/zcode-ui/settings/ExternalAgentImportDialog.tsx"
+ },
+ {
+  "name": "buildJobArtifacts",
+  "path": "website/packages/ai/src/jobs/demo-jobs.ts"
+ },
+ {
+  "name": "test_write_replace_overwrites_only_when_explicit",
+  "path": "backend/tests/test_assets_write_no_silent_overwrite.py"
+ },
+ {
+  "name": "apply_windows_langgraph_runtime_fixes",
+  "path": "backend/packages/harness/evoflow/platform/asyncio_windows.py"
+ },
+ {
+  "name": "assertNotBuiltInName",
+  "path": "evopanel/src/zcode-services/subagents/subagentsService.ts"
+ },
+ {
+  "name": "readSkillMetadataFromMarkdown",
+  "path": "evopanel/src/zcode-services/settings-sync/settingsSyncService.ts"
+ },
+ {
+  "name": "buildDiffSummary",
+  "path": "evopanel/src/zcode-services/git/gitCommitMessageGenerator.ts"
+ },
+ {
+  "name": "mapWorkspaceFileToMentionItem",
+  "path": "evopanel/src/zcode-ui/mentions/providers/fileMentionProvider.ts"
+ },
+ {
+  "name": "plugins_uninstall",
+  "path": "backend/packages/harness/evoflow/admin/platform_handlers.py"
+ },
+ {
+  "name": "_synthesize_filesystem_entries",
+  "path": "backend/packages/harness/evoflow/plugins/builtin.py"
+ },
+ {
+  "name": "_normalize_reasoning_effort",
+  "path": "backend/packages/harness/evoflow/models/factory.py"
+ },
+ {
+  "name": "isContextCompactionContent",
+  "path": "evopanel/src/lib/chat-normalize.js"
+ },
+ {
+  "name": "ZCodeAutomationUpdateParams",
+  "path": "evopanel/src/zcode-shared/automation-types.ts"
+ },
+ {
+  "name": "StorageManagementApi",
+  "path": "evopanel/src/zcode-shared/storage.ts"
+ },
+ {
+  "name": "codeCommentRangeToSelectedRange",
+  "path": "evopanel/src/zcode-ui/components/ui/code-viewer.tsx"
+ },
+ {
+  "name": "SavedWorkflowMoveDialog",
+  "path": "evopanel/src/zcode-ui/settings/saved-workflows/SavedWorkflowMoveDialog.tsx"
+ },
+ {
+  "name": "useSavedWorkflowPromote",
+  "path": "evopanel/src/zcode-ui/settings/saved-workflows/useSavedWorkflowPromote.ts"
+ },
+ {
+  "name": "ZCodeBackgroundTaskControlItem",
+  "path": "evopanel/src/zcode-shared/background-task-controls.ts"
+ },
+ {
+  "name": "sanitizeUnsupportedShareArtifacts",
+  "path": "evopanel/src/zcode-services/conversation-share/conversationShareService.ts"
+ },
+ {
+  "name": "_seal_agui_run",
+  "path": "backend/app/gateway/agui_stream_normalizer.py"
+ },
+ {
+  "name": "isValidWslUser",
+  "path": "evopanel/src/zcode-shared/wslUserValidation.ts"
+ },
+ {
+  "name": "end_session_turn",
+  "path": "backend/packages/harness/evoflow/session_execution/lifecycle.py"
+ },
+ {
+  "name": "trace_events_by_lane",
+  "path": "backend/packages/harness/evoflow/observability/agent_trace_load.py"
+ },
+ {
+  "name": "DraftModelReadinessStatus",
+  "path": "evopanel/src/zcode-ui/v4/composer/useDraftModelReadinessGate.ts"
+ },
+ {
+  "name": "employees_stop",
+  "path": "backend/packages/harness/evoflow/admin/platform_handlers.py"
+ },
+ {
+  "name": "_inner_tools_from_subagent",
+  "path": "backend/packages/harness/evoflow/tools/builtins/worker_tool.py"
+ },
+ {
+  "name": "_build_overlay",
+  "path": "backend/packages/harness/evoflow/agents/memory_plugins/memory_port/plugins_memory/retaindb/__init__.py"
+ },
+ {
+  "name": "loadRoleSchedulePreview",
+  "path": "evopanel/src/pages/proactive-employee.js"
+ },
+ {
+  "name": "ToolDisplayStrategy",
+  "path": "evopanel/src/zcode-ui/lib/toolDisplay.ts"
+ },
+ {
+  "name": "createWhiteboardPngFile",
+  "path": "evopanel/src/zcode-ui/lib/whiteboard.ts"
+ },
+ {
+  "name": "ImportStatusBadge",
+  "path": "evopanel/src/zcode-ui/settings/ExternalAgentImportDialog.tsx"
+ },
+ {
+  "name": "_handle_edit_queue_item",
+  "path": "backend/app/gateway/v4/conversation.py"
+ },
+ {
+  "name": "_probe_tectonic",
+  "path": "backend/packaging/official-plugins-bundle/pdf/0.1.8/skills/pdf/scripts/pdf.py"
+ },
+ {
+  "name": "parseWorkbenchSessionDragPayload",
+  "path": "evopanel/src/zcode-ui/v4/workbenchDragDrop.ts"
+ },
+ {
+  "name": "renderShellInner",
+  "path": "evopanel/src/components/global-assistant/GlobalAssistant.js"
+ },
+ {
+  "name": "_tool_call_args_dict",
+  "path": "backend/packages/harness/evoflow/agents/middlewares/invalid_tool_call_middleware.py"
+ },
+ {
+  "name": "shouldForceOpenAbnormalHistory",
+  "path": "evopanel/src/zcode-ui/v4/conversationTurnRenderUnits.ts"
+ },
+ {
+  "name": "getSourcesForDomains",
+  "path": "skills/public/technology-news-search/scripts/shared/domain_classifier.js"
+ },
+ {
+  "name": "normalize_invocation_kind",
+  "path": "backend/packages/harness/evoflow/observability/invocation_kinds.py"
+ },
+ {
+  "name": "vendor_has_usable_credentials",
+  "path": "backend/packages/harness/evoflow/persistence/media_settings.py"
+ },
+ {
+  "name": "workspaceKeyOf",
+  "path": "evopanel/src/zcode-services/conversation-share/conversationShareService.ts"
+ },
+ {
+  "name": "_search_preview_from_output",
+  "path": "backend/packages/harness/evoflow/tools/builtins/worker_tool.py"
+ },
+ {
+  "name": "iter_run_status",
+  "path": "backend/packages/harness/evoflow/collab/app_openai_compat.py"
+ },
+ {
+  "name": "FileRewindPreviewFile",
+  "path": "evopanel/src/zcode-ui/v4/ConversationFileRewindDialog.tsx"
+ },
+ {
+  "name": "resolveProviderBaseURL",
+  "path": "evopanel/src/zcode-ui/lib/registryProviderView.ts"
+ },
+ {
+  "name": "getMcpServerRequestHeaders",
+  "path": "evopanel/src/zcode-shared/mcp.ts"
+ },
+ {
+  "name": "schedule_soul_summary_consolidate",
+  "path": "backend/packages/harness/evoflow/assets/soul_summary.py"
+ },
+ {
+  "name": "reconcileOptimistic",
+  "path": "evopanel/src/zcode-ui/v4/conversationProjectionStore.ts"
+ },
+ {
+  "name": "_format_session_status",
+  "path": "backend/packages/harness/evoflow/tools/builtins/process_tool.py"
+ },
+ {
+  "name": "getPluginManagementClient",
+  "path": "evopanel/src/zcode-services/zcode-agent/zcodeAgentService.ts"
+ },
+ {
+  "name": "test_record_task_episode",
+  "path": "backend/tests/test_memory_episodes_and_atoms_api.py"
+ }
+]

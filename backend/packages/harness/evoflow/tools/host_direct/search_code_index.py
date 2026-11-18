@@ -35,6 +35,51 @@ atexit.register(lambda: _SEARCH_POOL.shutdown(wait=False, cancel_futures=True))
 atexit.register(lambda: _READ_POOL.shutdown(wait=False, cancel_futures=True))
 
 
+def _now_ms() -> float:
+    """单调时钟毫秒（wall clock 会被系统时间调整影响，计时段一律用它）。"""
+    import time as _t
+
+    return _t.perf_counter() * 1000.0
+
+
+def _note_search_timing(
+    tool_call_id: str,
+    *,
+    search_ms: float,
+    fmt_ms: float,
+    read_ms: float,
+    total_ms: float,
+    read_limit: int,
+    semantic_degraded: str,
+) -> None:
+    """把分段耗时交给中间件，落进 obs 的 timing_json。
+
+    【self-evolution-bot · 2026-11-19 · 第63轮】纯观测：任何异常都吞掉，
+    绝不允许「记日志」把检索搞挂（本仓因旁路逻辑拖垮主路栽过）。
+    key 取不到就不上报，避免污染别人的键。
+    """
+    key = str(tool_call_id or "").strip()
+    if not key:
+        return
+    try:
+        from evoflow.observability.tool_timing import note_tool_exec_detail
+
+        note_tool_exec_detail(
+            key,
+            {
+                "kind": "search_code_index",
+                "search_ms": round(search_ms, 1),
+                "format_ms": round(max(0.0, fmt_ms), 1),
+                "follow_read_ms": round(read_ms, 1),
+                "body_ms": round(total_ms, 1),
+                "read_limit": int(read_limit),
+                "semantic_degraded": semantic_degraded or "",
+            },
+        )
+    except Exception:
+        pass
+
+
 def _cap_read_limit(read_limit: int, read_offset: int) -> tuple[int, str]:
     """Return (capped read_limit, optional hint suffix)."""
     if read_limit <= _MAX_READ_LIMIT:
@@ -166,6 +211,7 @@ def _search_code_index_wallclock(
     *,
     root: str,
     thread_id: str | None,
+    tool_call_id: str = "",
     query: str,
     queries: list[str] | str | None,
     read_offset: int,
@@ -174,6 +220,14 @@ def _search_code_index_wallclock(
     verbose: bool = False,
 ) -> str:
     """Run indexed search with a wall-clock timeout; batch reads use a separate budget."""
+    # 【self-evolution-bot · 2026-11-19 · 第63轮 · 模型:deepseek-v4.1-flash-1017】
+    # 分段计时写进 obs 的 timing_json。为什么必须做：本轮我为了定位「检索 P50
+    # 6.5s 落在哪一段」，现写了 4 个探针、发了十几次 bash —— 而 obs 里这张表的
+    # `timing_json` 一直是 **null**（bash/assets 都有分段，只有它没有）。
+    # 少一个字段 = 每轮都得重新猜，这本身就是「工具慢」的一部分（我的探针
+    # 一天 1345 次、平均 2.4s）。补上之后同类归因一次查询就能出结论。
+    # 边界：纯观测，失败一律吞掉，绝不改变返回值/异常/耗时行为。
+    _t0 = _now_ms()
     try:
         fut = _SEARCH_POOL.submit(
             _run_search_index_lookup,
@@ -189,11 +243,14 @@ def _search_code_index_wallclock(
     except Exception as e:
         return f"Error: search_code_index failed: {e}"
 
+    _search_ms = _now_ms() - _t0
+
     if msg is not None:
         return msg
     assert data is not None
 
     out = _format_search_data(data, limit=limit, verbose=verbose)
+    _fmt_ms = _now_ms() - _t0 - _search_ms
 
     read_root = root
     if not read_root and thread_id:
@@ -203,7 +260,9 @@ def _search_code_index_wallclock(
             read_root = str(resolve_index_root(workspace_root=None, thread_id=thread_id))
         except ValueError:
             read_root = ""
+    _read_ms = 0.0
     if read_root:
+        _rt = _now_ms()
         out += _follow_read_with_timeout(
             data=data,
             read_root=read_root,
@@ -211,8 +270,21 @@ def _search_code_index_wallclock(
             read_offset=read_offset,
             read_limit=read_limit,
         )
+        _read_ms = _now_ms() - _rt
     elif read_limit > 0:
         out += "\n\n[hint] post-search reads skipped: workspace root unavailable."
+    # 【self-evolution-bot · 2026-11-19 · 第63轮】把三段耗时挂到本次调用上。
+    # 判读口径：search_ms ≫ 其余 ⇒ 慢在检索本体；read_ms ≫ 其余 ⇒ 慢在附赠读取；
+    # 三段之和 ≪ duration_ms ⇒ 慢在调度/排队，别再来检索代码里找。
+    _disabled_for_reverse_verify(
+        tool_call_id,
+        search_ms=_search_ms,
+        fmt_ms=_fmt_ms,
+        read_ms=_read_ms,
+        total_ms=_now_ms() - _t0,
+        read_limit=read_limit,
+        semantic_degraded=data.get("semantic_degraded") or "",
+    )
     return out
 
 
@@ -290,10 +362,15 @@ def search_code_index_hd(
         if budget_err:
             return budget_err
 
+    # 【self-evolution-bot · 2026-11-19 · 第63轮】tool_call_id 走 runtime 取
+    # （与 read_file 同一手法）：不新增 InjectedToolCallId 形参，
+    # 否则直接 .invoke() 的既有调用会因缺参失败。
+    _tcid = str(getattr(runtime, "tool_call_id", "") or "").strip()
     return (
         _search_code_index_wallclock(
             root=root,
             thread_id=thread_id,
+            tool_call_id=_tcid,
             query=query,
             queries=queries,
             read_offset=read_offset,

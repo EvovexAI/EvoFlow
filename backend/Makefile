@@ -27,5 +27,15 @@ lint:
 lint-fatal:
 	uv run ruff check --select F821 .
 
+# Retrieval recall baseline: one command, prints hit@1, red below baseline.
+# 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+# Why this exists: the 60-query frozen pool + evaluator used to live only in
+# .gitignore'd outputs/, so "is search still accurate?" had no answer nobody
+# could reproduce — I once reported a fake 55/59 and nearly reverted a correct
+# fix. Pool now lives in tests/fixtures/code_index_recall_pool.json.
+# Skips (not passes) on a clean checkout with no .evoflow/code_index/index.db.
+recall:
+	PYTHONPATH=packages/harness:. uv run pytest tests/test_code_index_recall_baseline.py -q -s
+
 format:
 	uv run ruff check . --fix && uv run ruff format .

@@ -519,6 +519,57 @@ def test_pending_approval_from_envelope_when_wire_status_ok(mirror_session: str)
     assert tool["status"] == "pendingApproval", tool
 
 
+def test_run_finished_soft_pauses_when_pending_approval(mirror_session: str) -> None:
+    """待授权时 RUN_FINISHED 不得 completedSuccess / 不得把工具卡封成 success。
+
+    浏览器插件轮现场：末两卡仍是 pending_approval，审批表 pending，但轮次被标成功 →
+    页面像「自己停了」。
+    """
+    tid = mirror_session + "-pa-soft-pause"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "查 browser-client roleSelector")
+    content = (
+        '{"_evoflow_tool":{"status":"pending_approval"},'
+        '"message":"[pending_approval] mcp__node_repl__js",'
+        '"approval":{"title":"需要您的授权","tool_name":"mcp__node_repl__js","risk":"confirm"}}'
+    )
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-pa-pause"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-mcp",
+                "toolCallName": "mcp__node_repl__js",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-mcp"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-mcp",
+                "content": content,
+                "status": "pending_approval",
+            },
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-pa-pause"},
+        ],
+    )
+    headers = _headers(tid)
+    assert len(headers) == 1
+    assert headers[0]["state"] == "running", headers[0]
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "pendingApproval", tool
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    assert sess.phase == "running"
+    ctrl = dict(sess.control_override) if sess.control_override else sess.control()
+    assert ctrl.get("canStop") is True
+    assert ctrl.get("phase") == "running"
+    # 闩锁仍开，便于批准后续跑同一轮
+    st = mirror._states.get(tid)  # noqa: SLF001
+    assert st is not None and st.run_started is True
+
+
 def test_node_repl_cua_display_field_becomes_output_display(mirror_session: str) -> None:
     """TOOL_CALL_RESULT.cua_display（标记已被剥）必须投影到 output.display，供 V4 图标/截图。"""
     tid = mirror_session + "-cua-display"
@@ -724,3 +775,100 @@ def test_reasoning_end_writes_duration_ms(mirror_session: str) -> None:
     assert done["state"] == "complete"
     assert isinstance(done.get("durationMs"), int)
     assert done["durationMs"] >= 3000
+
+
+def test_reasoning_restart_same_message_id_opens_new_row(mirror_session: str) -> None:
+    """工具轮后再用同一 messageId START：必须新开思考行，不能灌进已完成的第一张。"""
+    tid = mirror_session + "-reasoning-reopen"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "多轮工具")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-rr"},
+            {"type": "REASONING_MESSAGE_START", "messageId": "think-reuse"},
+            {
+                "type": "REASONING_MESSAGE_CONTENT",
+                "messageId": "think-reuse",
+                "delta": "第一段思考",
+            },
+            {"type": "REASONING_MESSAGE_END", "messageId": "think-reuse"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-1",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-1"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-1",
+                "content": "ok",
+                "status": "success",
+            },
+            {"type": "REASONING_MESSAGE_START", "messageId": "think-reuse"},
+            {
+                "type": "REASONING_MESSAGE_CONTENT",
+                "messageId": "think-reuse",
+                "delta": "工具后的第二段思考",
+            },
+            {"type": "REASONING_MESSAGE_END", "messageId": "think-reuse"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-rr"},
+        ],
+    )
+    reasonings = [r for r in _rows(tid) if r.get("kind") == "reasoning"]
+    assert len(reasonings) == 2, reasonings
+    assert reasonings[0]["text"] == "第一段思考"
+    assert reasonings[1]["text"] == "工具后的第二段思考"
+    assert reasonings[0]["rowId"] != reasonings[1]["rowId"]
+
+
+def test_tool_call_start_does_not_duplicate_prior_turn_tcid(mirror_session: str) -> None:
+    """失败轮重放上一轮 toolCallId 时，不得再开一张空 error 卡。"""
+    tid = mirror_session + "-no-dup-tcid"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "第一问")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-same",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-same",
+                "delta": '{"query":"x"}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-same"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-same",
+                "content": "hit",
+                "status": "success",
+            },
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
+        ],
+    )
+    mirror.note_user_input(tid, "那你有优化吧")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-2"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-same",
+                "toolCallName": "search_code_index",
+            },
+            {"type": "RUN_ERROR", "threadId": tid, "runId": "run-2", "message": "boom"},
+        ],
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert len(tools) == 1, tools
+    assert tools[0]["status"] == "success"
+    assert tools[0]["turnId"] == "run-1"

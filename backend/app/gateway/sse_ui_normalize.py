@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.gateway.content_block_ledger import BlockWireMeta, ContentBlockLedger
+from evoflow.models.think_tags import strip_inline_think_tags
 from evoflow.tools.chat_panel_tools import tool_omit_from_chat_panel
 
 logger = logging.getLogger(__name__)
@@ -2022,6 +2023,9 @@ class UiStreamNormalizer:
                 return out
 
             piece = _message_text(root)
+            # DeepSeek 等会把 CoT 塞进 content 的 <think>…</think>；不剥就会进正文，
+            # 看起来像跟上一轮「串了」。完整块 + 未闭合开标签都抽到 reasoning。
+            piece, inline_think = strip_inline_think_tags(piece)
             eff = self._effective_prev_prefix()
             msg_id = str(root.get("id") or "").strip() or "__noid__"
             if msg_id == self.prev_turn_assistant_id:
@@ -2031,6 +2035,35 @@ class UiStreamNormalizer:
             else:
                 piece_use = piece
             has_tools = _message_has_tool_signal(root)
+
+            # 同帧先思考、后正文：body_text 会关掉 open reasoning。
+            # 若先发正文再发 reasoning_content 增量，ledger 会新开一张思考卡挂在
+            # 结论下面（现场：结论文本后多出「take effect.」孤儿思考）。
+            ak = root.get("additional_kwargs")
+            rc_raw = ""
+            if isinstance(ak, dict) and isinstance(ak.get("reasoning_content"), str):
+                rc_raw = ak["reasoning_content"]
+            if inline_think:
+                # 内联 think 与 API reasoning_content 合并后再做增量去重。
+                if rc_raw.strip():
+                    if inline_think not in rc_raw:
+                        rc_raw = f"{rc_raw.rstrip()}\n\n{inline_think}"
+                else:
+                    rc_raw = inline_think
+            if rc_raw:
+                rc = self._strip_prior_reasoning_cumulative(rc_raw)
+                if rc and self.anchored:
+                    merged, delta = _reasoning_stream_delta(self.reasoning_accum, rc)
+                    self.reasoning_accum = merged
+                    if delta:
+                        reasoning_payload: dict[str, Any] = {
+                            "type": "reasoning",
+                            "preview": delta[:8000],
+                        }
+                        block_meta = self.block_ledger.reasoning_delta(delta)
+                        self._wire_block(reasoning_payload, block_meta)
+                        out.append(reasoning_payload)
+                        self._emit_content_activity(out, kind="model", detail="思考中…")
 
             if has_tools:
                 # Write-tool args (and any content echoed while tool_call_chunks stream)
@@ -2048,22 +2081,6 @@ class UiStreamNormalizer:
                     out.extend(self._emit_delta_raw(piece_use, message_id=msg_id))
 
             out.extend(self._emit_tools_passthrough(root, source="messages"))
-
-            ak = root.get("additional_kwargs")
-            if isinstance(ak, dict) and isinstance(ak.get("reasoning_content"), str):
-                rc = self._strip_prior_reasoning_cumulative(ak["reasoning_content"])
-                if rc and self.anchored:
-                    merged, delta = _reasoning_stream_delta(self.reasoning_accum, rc)
-                    self.reasoning_accum = merged
-                    if delta:
-                        reasoning_payload: dict[str, Any] = {
-                            "type": "reasoning",
-                            "preview": delta[:8000],
-                        }
-                        block_meta = self.block_ledger.reasoning_delta(delta)
-                        self._wire_block(reasoning_payload, block_meta)
-                        out.append(reasoning_payload)
-                        self._emit_content_activity(out, kind="model", detail="思考中…")
             self._extend_block_close_frames(out)
             return out
 

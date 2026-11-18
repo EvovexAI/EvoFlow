@@ -74,8 +74,20 @@ def _acquire_process_db_lock() -> bool:
         return False
     if _on_asyncio_loop_thread():
         if not _lock.acquire(timeout=_ASYNCIO_LOCK_TIMEOUT_S):
+            # 【self-evolution-bot · 2026-11-19 · 第58轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：文案不再以 ``database is locked`` 开头，改成自曝「这是进程内线程锁」
+            # 并给出唯一正确的下一步（重试），同时保留原文案作检索词。
+            # 为什么：这句话的成因**不是** sqlite 库锁，而是本进程内 Python ``RLock`` 没抢到；
+            # 同一个库里 sqlite 自己的 busy 会等 60s（busy_timeout），这里 0.5s 就抛。
+            # 现网实证：2026-11-17 四次，模型（我自己）看到 ``database is locked`` 的第一反应
+            # 是去查「库文件是不是被别的进程占了」——查了一圈全错，白绕一步。
+            # 判据：错误文案是模型唯一能据以行动的东西，写错成因 = 直接误导动作。
             raise sqlite3.OperationalError(
-                f"database is locked (asyncio thread waited {_ASYNCIO_LOCK_TIMEOUT_S:.2f}s for process lock)"
+                "db_process_lock_timeout: 另一个线程正持有进程内数据库锁（不是 sqlite 的库文件锁，"
+                "不要去找别的进程/删 .db-wal）；等 "
+                f"{_ASYNCIO_LOCK_TIMEOUT_S:.2f}s 未拿到，"
+                "直接重试这条操作即可 —— 原错误：database is locked "
+                f"(asyncio thread waited {_ASYNCIO_LOCK_TIMEOUT_S:.2f}s for process lock)"
             )
         return True
     _lock.acquire()

@@ -2807,6 +2807,31 @@ def list_chat_messages(
         return ""
 
     # Keep last N user/assistant only; slim for tool consumption
+    def _row_ts(row: dict[str, Any]) -> str | None:
+        """Prefer explicit ISO strings; else format ``created_at_ms``.
+
+        【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        改了什么：取值链补 ``timestamp``（display 行的原生 ISO 键）。
+        为什么：``rows`` 来自 ``list_messages_for_display_all`` → ``_row_to_display_dict``，
+        那一层的 ISO 时间键就叫 ``timestamp``，既不叫 ``created_at`` 也不叫 ``createdAt``
+        ⇒ 现网实测每条 ``created_at: null``，「最近几条对话」看不出先后。
+        现在 display 行也补了原始 ``created_at_ms``，两条路都留。
+        """
+        for key in ("created_at", "createdAt", "created_at_iso", "timestamp"):
+            v = str(row.get(key) or "").strip()
+            if v:
+                return v
+        ms = row.get("created_at_ms")
+        if ms is None:
+            return None
+        try:
+            from datetime import datetime, timedelta, timezone
+
+            ts = datetime.fromtimestamp(float(ms) / 1000.0, tz=timezone(timedelta(hours=8)))
+            return ts.strftime("%Y-%m-%dT%H:%M:%S+08:00")
+        except (TypeError, ValueError, OSError):
+            return None
+
     slim: list[dict[str, Any]] = []
     for row in rows:
         if not isinstance(row, dict):
@@ -2821,7 +2846,7 @@ def list_chat_messages(
             {
                 "role": "user" if role_name in {"user", "human"} else "assistant",
                 "content": content[:4000],
-                "created_at": str(row.get("created_at") or row.get("createdAt") or "").strip() or None,
+                "created_at": _row_ts(row),
             }
         )
     slim = slim[-lim:]

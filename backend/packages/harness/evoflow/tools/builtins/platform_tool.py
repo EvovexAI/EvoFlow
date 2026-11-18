@@ -8,6 +8,7 @@ from typing import Annotated, Any
 
 from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langgraph.typing import ContextT
+from pydantic import BaseModel, ConfigDict, Field
 
 logger = logging.getLogger(__name__)
 
@@ -147,14 +148,17 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
 
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
-action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*). Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
+action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*).
+Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
 sessions.status = current conversation run/context usage; sessions.compact (confirm=true) = manually compress context (same as /compact; applies to later turns).
 Right panel: ui.show kind+data (collab-workflow / collabSubtaskTranscript / employeeProcess / web-embed / artifacts…); ui.hide to close. Read-risk, no confirm. Only when user should watch progress — not after every write.
 OpenAI-compat analysis (CLI evoflow openai / models invoke): openai.models → openai.chat (confirm=true) for text; openai.vision (confirm=true, image+message) for vision; settings.invoke_model also covers text invoke.
-Media: media.catalog → media.generate_image (confirm=true, sync poll) / media.generate_video (confirm=true, async) → media.task_wait. Default Volcengine jimeng (Agent Plan Seedream/Seedance). Do not call retired media_* tool names. UI shows image/video preview from absolute_path — do not paste ![markdown] again. Generated-image pixels are auto-staged into your next turn (vision models) — do not re-read the file to see it; absolute_path is for UI preview and image2image references.
+Media: media.catalog → media.generate_image (confirm=true, sync poll) / media.generate_video (confirm=true, async) → media.task_wait. Default Volcengine jimeng (Agent Plan Seedream/Seedance). Do not call retired media_* tool names.
+UI shows image/video preview from absolute_path — do not paste ![markdown] again.
+Generated-image pixels are auto-staged into your next turn (vision models) — do not re-read the file to see it; absolute_path is for UI preview and image2image references.
 When result has assistant_guide.say_to_user: tell the user that text.
 employees.create/hire → relay say_to_user; bind channel with employees.bind_channel_begin (not channels.registration_*; not ui.show/artifacts QR png; not Markdown ![](url)). UI renders QR under the tool result.
 settings.* also covers web-search setup (Agent Plan Doubao Harness key / Tavily / Bocha…): prefer settings.get_web_search → follow assistant_guide → patch/test; do not push users into the complex Settings UI.
@@ -199,19 +203,79 @@ def _note_platform_timing(tool_call_id: str, **fields: object) -> None:
         return
 
 
-@tool("platform", description=_PLATFORM_TOOL_DESCRIPTION, parse_docstring=False)
+class _PlatformArgsSchema(BaseModel):
+    """platform 工具入参 schema：允许额外字段，不让顶层多传的参数被静默丢弃。
+
+    【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+    默认 ``extra='ignore'`` 会把模型放在工具顶层的 ``title`` / ``notes`` / ``text``
+    直接吃掉（现网 4 次 ``title is required`` 就是这么来的），然后工具再回一句
+    「你没传」。改成 allow 后由 ``platform_tool`` 把它们并进 args_json。
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    action: str = Field(..., description="平台动作，形如 items.create / settings.get_model")
+    args_json: str | dict | list | None = Field("", description="该 action 的参数对象")
+    domain: str = Field("", description="可选：仅传叶子动作名时用域限定")
+    confirm: bool = Field(False, description="写操作确认闸门")
+    # 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：把 tool_call_id 补进 args_schema。
+    # 为什么：langchain 只在 **args_schema 的注解里**看到 InjectedToolCallId 时才注入
+    # 这个参数（见 langchain_core.tools.base 里 `get_all_basemodel_annotations(input_args)`
+    # 那段）。第54轮引入自定义 schema 后它不在 schema 里，注入链直接断掉，真实调用一律
+    # 报 `platform_tool() missing 1 required positional argument: 'tool_call_id'`
+    # —— 现网 2026-11-18 23:2x 重启后实测 2 次，工具完全不可用。
+    # 这是「自定义 args_schema」的通用坑：函数签名里的注入参数必须在 schema 里登记一份。
+    tool_call_id: Annotated[str, InjectedToolCallId] = Field(
+        "", description="由运行时注入的调用 id，调用方不要传"
+    )
+    
+
+
+@tool("platform", args_schema=_PlatformArgsSchema, description=_PLATFORM_TOOL_DESCRIPTION, parse_docstring=False)
 def platform_tool(
     action: str,
-    runtime: ToolRuntime[ContextT, dict],
     tool_call_id: Annotated[str, InjectedToolCallId],
+    runtime: ToolRuntime[ContextT, dict] | None = None,
     args_json: str | dict | list | None = "",
     domain: str = "",
     confirm: bool = False,
+    **extra_args: Any,
 ) -> str:
     """Platform admin dispatch (policy in tool description)."""
     import time
 
     from evoflow.admin.platform_actions import dispatch_platform_action
+
+    # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：接住模型放在**工具顶层**的额外字段（title / notes / text / path …），
+    # 合并进 args_json，而不是让它们被 pydantic 静默丢弃。
+    # 为什么：现网 obs 实证，`items.create` 报 `title is required` 5 次，其中 **4 次
+    # title 就在工具顶层**（input_json 顶层键里有 title，args_json 里没有）。签名里没有
+    # 这些参数、model_config 又是默认 extra='ignore'，于是字段被无声吃掉，工具再回一句
+    # 「你没传 title」——调用方看到的却是"我明明传了"。这不是报错文案问题，是**静默丢数据**，
+    # 必须在这里接住。合并规则：args_json 已有的键不被顶层覆盖（显式容器优先），
+    # 只补空位；runtime / tool_call_id / domain / confirm 属工具自身参数，不参与合并。
+    _TOOL_OWN_KEYS = {"action", "args_json", "domain", "confirm", "runtime", "tool_call_id"}
+    _extra = {
+        str(k): v for k, v in (extra_args or {}).items() if str(k) not in _TOOL_OWN_KEYS and v is not None
+    }
+    if _extra:
+        _merged: dict[str, Any] = {}
+        if isinstance(args_json, dict):
+            _merged.update(args_json)
+        elif isinstance(args_json, str) and args_json.strip():
+            try:
+                _parsed = json.loads(args_json)
+                if isinstance(_parsed, dict):
+                    _merged.update(_parsed)
+            except Exception:
+                logger.debug("platform: args_json not a JSON object, extra merge skipped", exc_info=True)
+        for _k, _v in _extra.items():
+            _merged.setdefault(_k, _v)
+        if _merged:
+            args_json = _merged
+            logger.info("platform: merged %d top-level arg(s) into args_json: %s", len(_extra), sorted(_extra))
 
     act = str(action or "").strip()
     dom = str(domain or "").strip()

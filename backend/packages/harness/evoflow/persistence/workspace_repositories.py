@@ -370,7 +370,10 @@ def touch_session_workspace(
     next_paths = [p, *prev][:limit]
     set_session_workspace_paths(sk, next_paths, limit=limit, stamp=stamp)
     if set_current:
-        row = sess_repo.load_session_map().get(sk) or {}
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 只取 context/threadId/createdAt/messageCount，原实现 load_session_map()
+        # 重建全部会话行（547 会话冷 6976ms / 热 124ms vs 单行 0.017ms）。
+        row = sess_repo.get_session_map_entry(sk) or {}
         ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
         if is_workspace_user_pinned(ctx) and not user_pinned:
             set_current = False

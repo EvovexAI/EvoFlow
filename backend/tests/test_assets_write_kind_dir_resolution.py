@@ -102,3 +102,80 @@ def test_still_rejects_disallowed_target_with_actionable_hint(asset_home: Path) 
     assert out.get("error") == "write_path_not_allowed", out
     assert out.get("received_path") == "docs/不该写这里.md", out
     assert out.get("examples"), out
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+# 现网 obs：self-evolution-bot 近7天 write_path_not_allowed 14 次，回执原文**完全一样**
+# （只列白名单目录 + 3 个示例），于是我每次只能靠猜自己错在哪，同一类坑踩了 14 次。
+#
+# 逐条取 input_json 复核后，真实原因分布（此前的三分类有一处判错，这里已更正）：
+#   ① 裸名 + 盘上无同名文件 + 未给 kind ......... 7 条  ← 占最多，修法=补 kind
+#   ② 少 .md 后缀，但同名 .md 就在盘上 ......... 1 条  ← 修法=解析器补后缀重试
+#   ③ 传绝对路径 / 含 '..' .................... 1 条
+#   ④ 真越界（outputs/、memory/_inbox/）....... 5 条  ← 拒得对
+# 更正点：'系统优化清单-按可证伪性排序' 原来被归成「①少后缀」，实际它盘上存在的是
+# `memory/episodic/系统优化清单-按可证伪性排序.md`，真因是**裸名没给 kind**（类①）。
+# 按旧分类去补后缀，补了仍然没有目录信息，照样被拒 —— 分类错会把人引向无效动作。
+#
+# 注意：allow 判定集合一个字都没动 —— 只改"说不说清为什么"。
+
+# 现网原件（2026-11-16 ~ 2026-11-18 self-evolution-bot 的真实 path 值）
+REAL_REJECTED_PATHS = {
+    # 类①：裸名、无 kind、且测试环境里确实没有同名文件
+    "bare_no_kind": "第19轮-我写了个20+-实测是13-数量词必须来自当轮命令stdout",
+    "absolute_or_dotdot": "D:/dev/github/EvoFlow/../检索效果AB的池规模口径.md",
+    "outside_whitelist": "outputs/_perf_probe_w.md",
+    "inbox_not_writable": "memory/_inbox/probe_lat_r3.md",
+}
+
+
+def _reject(runtime, path: str):
+    out = _write(runtime, path=path, content="正文")
+    assert out.get("ok") is False, out
+    assert out.get("error") == "write_path_not_allowed", out
+    return out
+
+
+def test_bare_name_without_kind_names_kind_not_whitelist(asset_home: Path) -> None:
+    """类①：裸名 + 无 kind → hint 必须点名 kind 这一条修法，而不是让调用方核对白名单。"""
+    out = _reject(_runtime(), REAL_REJECTED_PATHS["bare_no_kind"])
+    hint = str(out.get("hint") or "")
+    assert "kind" in hint, out
+    assert "找不到同名已有文件" in hint, hint
+    # 不许把「少给参数」说成「写到白名单外」
+    assert "不在可写目录内" not in hint, hint
+
+
+def test_absolute_path_is_named_as_absolute(asset_home: Path) -> None:
+    """② 绝对路径/..：必须说清"资产只收 entity 相对路径"。"""
+    out = _reject(_runtime(), REAL_REJECTED_PATHS["absolute_or_dotdot"])
+    hint = str(out.get("hint") or "")
+    assert "绝对路径" in hint or ".." in hint, out
+    assert "相对路径" in hint, out
+
+
+def test_outside_whitelist_points_at_examples(asset_home: Path) -> None:
+    """③ 真越界：原样拒，且示例仍然给到位（这条行为不许被上面的细化改坏）。"""
+    out = _reject(_runtime(), REAL_REJECTED_PATHS["outside_whitelist"])
+    assert out.get("examples"), out
+    assert "可写" in str(out.get("hint") or ""), out
+
+
+def test_probe_style_inbox_path_still_rejected(asset_home: Path) -> None:
+    """反证：收件箱不因 hint 变详细就被放行。"""
+    out = _reject(_runtime(), REAL_REJECTED_PATHS["inbox_not_writable"])
+    assert out.get("received_path") == REAL_REJECTED_PATHS["inbox_not_writable"], out
+
+
+def test_hint_reasons_are_mutually_exclusive(asset_home: Path) -> None:
+    """各类原因不许串味：各自只命中自己的那条提示。"""
+    bare = str(_reject(_runtime(), REAL_REJECTED_PATHS["bare_no_kind"]).get("hint") or "")
+    absp = str(_reject(_runtime(), REAL_REJECTED_PATHS["absolute_or_dotdot"]).get("hint") or "")
+    outside = str(_reject(_runtime(), REAL_REJECTED_PATHS["outside_whitelist"]).get("hint") or "")
+    # 裸名无 kind 那档不能提到后缀/绝对路径
+    assert "绝对路径" not in bare and "缺少 .md" not in bare, bare
+    # 绝对路径那档不能提到 kind 修法
+    assert "找不到同名已有文件" not in absp, absp
+    # 真越界那档不许把两种修法混进来
+    assert "找不到同名已有文件" not in outside and "绝对路径" not in outside, outside

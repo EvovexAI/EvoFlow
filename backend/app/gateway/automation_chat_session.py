@@ -89,7 +89,10 @@ def prepare_automation_chat_session(
             trigger_type=trigger_type,
             run_id=run_id,
         )
-        existing = sess_repo.load_session_map().get(sk) or {}
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 只取 createdAt 判断新旧，原实现 load_session_map() 重建全部会话行
+        # （547 会话冷 6976ms / 热 124ms vs 单行 0.017ms）。
+        existing = sess_repo.get_session_map_entry(sk) or {}
         created_ms = int(existing.get("createdAt") or 0) or now_ms
         from evoflow.agents.automation_runtime import automation_default_scenario_keys
 

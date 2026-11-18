@@ -406,7 +406,9 @@ def pinned_session_thread_id(session_key: str) -> str:
     try:
         from evoflow.persistence import session_repositories as sess_repo
 
-        row = sess_repo.load_session_map().get(sk) or {}
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 只取 threadId，原实现 load_session_map() 重建全部会话行。
+        row = sess_repo.get_session_map_entry(sk) or {}
         return str(row.get("threadId") or row.get("thread_id") or "").strip()
     except Exception:
         logger.debug("pinned_session_thread_id failed session_key=%s", sk, exc_info=True)
@@ -712,7 +714,9 @@ def prepare_proactive_chat_session(
         from evoflow.persistence import session_repositories as sess_repo
 
         now_ms = int(time.time() * 1000)
-        existing = sess_repo.load_session_map().get(sk) or {}
+        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+        # 只取 createdAt，原实现 load_session_map() 重建全部会话行。
+        existing = sess_repo.get_session_map_entry(sk) or {}
         created_ms = int(existing.get("createdAt") or 0) or now_ms
 
         rid = str(round_id or "").strip() or None

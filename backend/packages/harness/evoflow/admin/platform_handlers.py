@@ -81,11 +81,37 @@ def _workflow_app_result(data: dict[str, Any]) -> dict[str, Any]:
 # ── knowledge ──────────────────────────────────────────────────────────────
 
 
-def knowledge_list(_args: dict[str, Any]) -> dict[str, Any]:
+def knowledge_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出平台自有知识库；默认去掉与 ``storageDir`` 逐字相同的 ``resolvedStorageDir``。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：默认对每条库做去重（``resolvedStorageDir`` 与 ``storageDir`` 同值时删掉
+    前者），``full=true`` 回 service 原文。
+    为什么：现网 7 个库实测 **10235 字节**，其中 ``storageDir`` 686 + ``resolvedStorageDir``
+    686，而 **7/7 两条逐字相同**——`resolvedStorageDir` 只在「存储根被重定向」时才有
+    存在的必要。真正需要的是 ``id``（``platform_workflow_schema`` 明写
+    ``knowledge.list → 知识库 id``），不是同一路径说两遍。
+    注意：``owned_service.list_bases()`` 可能返回进程内缓存，**必须复制**后再删键，
+    否则会把下游读到的对象一起改掉。
+    """
     from evoflow.admin import knowledge as kn
 
     data = kn.list_bases()
-    return {"ok": True, **data}
+    if _arg_bool(args, "full", False):
+        return {"ok": True, **data}
+    items: list[dict[str, Any]] = []
+    for row in data.get("items") or []:
+        copy = dict(row) if isinstance(row, dict) else row
+        if isinstance(copy, dict) and copy.get("resolvedStorageDir") == copy.get("storageDir"):
+            copy.pop("resolvedStorageDir", None)
+        items.append(copy)
+    return {
+        "ok": True,
+        **{k: v for k, v in data.items() if k != "items"},
+        "items": items,
+        "deduped": True,
+        "note": "resolvedStorageDir 与 storageDir 相同时已省略；要原文传 full=true。",
+    }
 
 
 def knowledge_search(args: dict[str, Any]) -> dict[str, Any]:
@@ -606,16 +632,82 @@ def workflow_restore_revision(args: dict[str, Any]) -> dict[str, Any]:
 # ── settings / models ──────────────────────────────────────────────────────
 
 
-def settings_list_models(_args: dict[str, Any]) -> dict[str, Any]:
+# 【self-evolution-bot · 2026-11-19 · 第62轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：``settings.list_models`` 默认不再逐条回「模型实例化开关」
+# （``thinking`` / ``when_thinking_enabled`` / ``use``），改为顶层 ``sharedConfig``
+# 去重存放 + ``configOmitted`` 说明；``include_config=true`` 逐字还原旧输出。
+# 为什么：现网 43 个模型实测返回 **26486 字节**，三项合计 6816（26%），
+# 且高度同质（``thinking`` 36/43 完全相同、``when_thinking_enabled`` 25/43、
+# ``use`` 42/43 都是 ``langchain_openai:ChatOpenAI``）。这三个键是**建客户端时传给
+# LangChain 的参数**，不是「我配了哪些模型」的判断依据；看能力看
+# ``supports_thinking`` / ``supports_vision`` 布尔即可，真要调参用 ``settings.get_model``。
+_MODEL_INSTANCE_CONFIG_KEYS = ("thinking", "when_thinking_enabled", "use")
+_MODEL_LIST_SHARED_THRESHOLD = 0.8
+
+
+def settings_list_models(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import models as models_admin
 
     primary = models_admin.get_primary_model()
     listed = models_admin.list_models()
-    return {
+    models = list(listed.get("models") or [])
+    if _arg_bool(args, "include_config", False):
+        return {
+            "ok": True,
+            "primary_model": primary.get("primary_model"),
+            "models": models,
+            "count": len(models),
+            "configIncluded": True,
+        }
+
+    # 找出「取值在大多少模型上相同」的实例化开关 → 提到顶层 sharedConfig，条目里删掉。
+    # 少数派取值（如某个模型的 thinking default_level 是 low）不回顶层，保留在条目上，
+    # 绝不静默丢差异：宁可多回几个字节，也不许让调用方以为所有模型都长一样。
+    total = len(models)
+    hoisted: dict[str, Any] = {}
+    drop_from_rows: set[tuple[int, str]] = set()
+    if total >= 2:
+        for key in _MODEL_INSTANCE_CONFIG_KEYS:
+            buckets: dict[str, list[int]] = {}
+            for idx, row in enumerate(models):
+                if not isinstance(row, dict) or key not in row:
+                    continue
+                sig = json.dumps(row.get(key), sort_keys=True, ensure_ascii=False, default=str)
+                buckets.setdefault(sig, []).append(idx)
+            if not buckets:
+                continue
+            sig, idxs = max(buckets.items(), key=lambda kv: len(kv[1]))
+            if len(idxs) / total < _MODEL_LIST_SHARED_THRESHOLD:
+                continue
+            hoisted[key] = json.loads(sig)
+            drop_from_rows.update((idx, key) for idx in idxs)
+
+    slim: list[Any] = []
+    for idx, row in enumerate(models):
+        if not isinstance(row, dict):
+            slim.append(row)
+            continue
+        copy = dict(row)
+        for key in _MODEL_INSTANCE_CONFIG_KEYS:
+            if (idx, key) in drop_from_rows:
+                copy.pop(key, None)
+        slim.append(copy)
+
+    out: dict[str, Any] = {
         "ok": True,
         "primary_model": primary.get("primary_model"),
-        "models": listed.get("models") or [],
+        "models": slim,
+        "count": total,
+        "configOmitted": sorted(hoisted.keys()),
+        "note": (
+            "条目内已省去与多数模型相同的实例化开关（thinking / when_thinking_enabled / use），"
+            "它们的共同取值见 sharedConfig；某个模型自己的差异值仍留在该条目上。"
+            "要看全部逐条配置传 include_config=true，或对单个模型用 settings.get_model。"
+        ),
     }
+    if hoisted:
+        out["sharedConfig"] = hoisted
+    return out
 
 
 def settings_get_default_model(_args: dict[str, Any]) -> dict[str, Any]:
@@ -786,9 +878,57 @@ def openai_vision(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def assets_get_profile(args: dict[str, Any]) -> dict[str, Any]:
+    """查看用户画像；``principal_id`` 缺失时必须大声说，不许回空白模板冒充「画像」。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：``principal_id`` 为空时不再静默落到默认 entity 的**空白模板**，改为
+    返回 ``ok`` 仍 True 但带 ``empty_template: true`` + ``degraded_reason``，并在
+    ``hint`` 里明说「这不是某个人的画像」。``principal_id`` 有值时照旧。
+    为什么：现网实测 ``assets_get_profile({})`` 返回的 USER.md 是**未填写的模板**
+    （「（希望 Agent 如何称呼您；…）」），而 ``assets_get_profile({"principal_id":
+    "admin"})`` 才拿到真画像（「称呼：**银泰**…」）。两者都是 ``ok: true`` 和
+    ``dimensions``，调一次根本分不出「这人还没写」和「我没找对人」——
+    这类数据必须自带「我读的是谁的」标识。
+    """
     from evoflow.admin import profile as profile_admin
 
-    return {"ok": True, **profile_admin.get_user_profile(principal_id=_arg_str(args, "principal_id"))}
+    principal = _arg_str(args, "principal_id", "principalId", "user_id", "user")
+    data = profile_admin.get_user_profile(principal_id=principal)
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：``dimensions["USER.md"]`` 与 ``fields["USER.md"]`` **逐字相同**时删掉
+    # ``dimensions``，改为 ``dimensionsAliasOfFields: true``；``full=true`` 还原。
+    # 为什么：重启后真调实测本动作 **4907 字节**，``dimensions`` 1401 全用在把
+    # ``fields["USER.md"]``（565 字）再抄一遍——``dimensions`` 只是历史兼容视角
+    # （``read_user_profile_dimensions`` 的 docstring 自称 "Compat: returns {USER.md: text}"）。
+    if _arg_bool(args, "full", False):
+        out = {"ok": True, "principal_id": principal, **data}
+        return out
+    dims = data.get("dimensions") if isinstance(data.get("dimensions"), dict) else {}
+    fields = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+    if dims and all(fields.get(k) == v for k, v in dims.items()):
+        data = {k: v for k, v in data.items() if k != "dimensions"}
+        data["dimensionsAliasOfFields"] = True
+    if principal:
+        return {"ok": True, "principal_id": principal, **data}
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 判「是不是空白模板」只认 USER.md 这一份：``fields`` 里还含 README.md / affect.md，
+    # 那两份有内容，混进来会把空白模板判成「已填写」（我第一版就这么写错了，
+    # 无参分支的 empty_template 从 True 变成 False）。
+    source = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+    user_md = str((source or {}).get("USER.md") or "").strip()
+    blank = (not user_md) or ("填写后" in user_md[:200]) or ("（希望 Agent" in user_md)
+    return {
+        "ok": True,
+        "principal_id": "",
+        **data,
+        "empty_template": blank,
+        "degraded_reason": (
+            "没拿到 principal_id，读的是默认 entity 下的 USER.md；"
+            + ("内容仍是未填写的空白模板，" if blank else "")
+            + "这**不代表某个人没画像**，也不代表画像为空。"
+        ),
+        "hint": "要读某个人的画像请传 principal_id（如 admin）；对话内注入的画像走 assets profile，与这里同源。",
+    }
 
 
 def assets_update_profile(args: dict[str, Any]) -> dict[str, Any]:
@@ -797,9 +937,26 @@ def assets_update_profile(args: dict[str, Any]) -> dict[str, Any]:
     path = _arg_str(args, "path", "dimension", "dim")
     content = args.get("content")
     if content is None:
-        content = args.get("text") or args.get("profile")
+        # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        # 补 ``append`` / ``body`` 作为 content 的别名。
+        # 为什么：现网 obs 里 ``assets.update_profile`` 的 2 次 ``content is required``，
+        # 其中一次入参是 ``{"path": "...", "append": "..."}`` —— ``append`` 是 ``assets``
+        # 工具 write 分支的参数名，模型把两个工具的键混用了。语义完全一致（都是正文），
+        # 没有理由因为键名不同就退一次。
+        content = args.get("text") or args.get("profile") or args.get("append") or args.get("body")
     if content is None or not str(content).strip():
-        raise ValidationError("content is required")
+        # 另一次是 ``content=""`` 配 ``remove_agent_note_contains``：想在档案里「删一段」。
+        # 本 action 只做写入，不提供删除语义；如实说明，不假装支持。
+        _extra_keys = sorted(k for k in ("remove_agent_note_contains", "remove", "delete") if k in args)
+        raise ValidationError(
+            "content is required — 传要写入的正文（content / text / profile / append 均可）。"
+            + (
+                f" 注意：本次带上了 {_extra_keys}，但 assets.update_profile 只做写入、"
+                "不支持按内容删除；要改档案请整段改写（mode=replace）后重传。"
+                if _extra_keys
+                else ""
+            )
+        )
     mode = _arg_str(args, "mode") or "append"
     return {
         "ok": True,
@@ -943,12 +1100,16 @@ def agents_list(args: dict[str, Any]) -> dict[str, Any]:
     tag = _arg_str(args, "tag", "tags") or None
     agent_name = _arg_str(args, "agent_name", "agentName", "name_cn") or None
     include_soul = _arg_bool(args, "include_soul", False)
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # list 默认收窄（不回每个 agent 的 system_prompt 全文）；确要全文才显式打开。
+    include_prompt = _arg_bool(args, "include_prompt", False)
     limit = args.get("limit")
     offset = args.get("offset")
     kwargs: dict[str, Any] = {
         "tag": tag,
         "agent_name": agent_name or None,
         "include_soul": include_soul,
+        "include_prompt": include_prompt,
     }
     if limit is not None:
         try:
@@ -1049,12 +1210,31 @@ def agents_delete(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def employees_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出智能体员工岗位；同一批数据只回一份。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：默认不再返回 ``employees`` 与 ``items`` 两个**与 ``roles`` 同一对象**的
+    别名键（实测 ``d["roles"] is d["employees"] is d["items"]`` 为 True）；要旧别名
+    传 ``legacy_keys=true``。
+    为什么：现网 23 个岗位实测返回 **37309 字节**，``roles`` / ``employees`` / ``items``
+    各 12333——**同一份 list 被序列化了三遍**，白占 24666 字节（66%）。
+    别名本身是历史兼容（三个名字指同一批数据），不是三份不同的事实；
+    留一个权威键 ``roles`` 就够，调用方按名字取哪个都能从它推出来。
+    """
     from evoflow.admin import employees as emp
 
     status = _arg_str(args, "status") or None
     data = emp.list_roles(status=status)
     roles = data.get("roles") if isinstance(data.get("roles"), list) else []
-    return {"ok": True, **data, "employees": roles, "items": roles}
+    if _arg_bool(args, "legacy_keys", False):
+        return {"ok": True, **data, "employees": roles, "items": roles}
+    return {
+        "ok": True,
+        **{k: v for k, v in data.items() if k not in ("employees", "items")},
+        "roles": roles,
+        "aliases": {"employees": "roles", "items": "roles"},
+        "note": "employees/items 与 roles 是同一批数据，已不再重复返回；要旧键传 legacy_keys=true。",
+    }
 
 
 def employees_departments(_args: dict[str, Any]) -> dict[str, Any]:
@@ -1656,7 +1836,41 @@ def employees_bind_channel_apply(args: dict[str, Any]) -> dict[str, Any]:
 # ── tasks ──────────────────────────────────────────────────────────────────
 
 
+def _clip_long_text(text: Any, limit: int, hint: str = "") -> tuple[Any, int]:
+    """把过长的正文裁成预览，返回 (裁剪后的值, 原字符数)。非字符串原样返回。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    配套 ``tasks.list`` 的减重：裁剪**必须在返回里显式标记**（``*Chars`` 字段 +
+    结尾「…（共 N 字，正文用 X）」），不许静默砍成半句让人以为原文就这么短。
+
+    【同上·更正】``hint`` 必须由调用方传 **本动作真正对应的详情动作名**。
+    我第一版把它写死成「正文用 tasks.get」，复用给 ``items.list`` 时提示就成了
+    「…正文用 tasks.get」——**指错地方比不说更糟**，我自己写的回归测试当场抓红。
+    """
+    if not isinstance(text, str):
+        return text, 0
+    n = len(text)
+    if n <= limit:
+        return text, n
+    where = f"，正文用 {hint}" if hint else ""
+    return f"{text[:limit]}…（共 {n} 字{where}）", n
+
+
+_TASKS_LIST_TEXT_LIMIT = 200
+
+
 def tasks_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出协作任务；默认把 ``description`` / ``summary`` 裁成 200 字预览。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``full_text`` 开关（默认 False）。为 False 时把每条任务的
+    ``description`` / ``summary`` 裁到 200 字并附 ``descriptionChars`` /
+    ``summaryChars`` + 顶层 ``textSlim: true`` 说明；``full_text=true`` 逐字还原。
+    为什么：现网默认 50 条实测返回 **200865 字节**，其中 ``description`` 91524、
+    ``summary`` 39945，两项占 **65%**；而 `tasks.list` 的语义是「有哪些任务、什么状态」，
+    正文是 `tasks.get` 的事。之前只加了「limit 上限 200」防百万 token 转储，
+    但 50 条就已经 200KB——上限挡不住单条正文本身有多长。
+    """
     from evoflow.admin import tasks as tasks_admin
 
     # Default include_subtasks=false; hard-cap limit at 200 to avoid million-token dumps (DEF-03).
@@ -1675,17 +1889,57 @@ def tasks_list(args: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError) as e:
         raise ValidationError("offset must be an integer") from e
 
+    data = tasks_admin.list_tasks(
+        status=_arg_str(args, "status") or None,
+        assignee=_arg_str(args, "assignee", "agent_code", "agentCode") or None,
+        role=_arg_str(args, "role", "role_name") or None,
+        source=_arg_str(args, "source") or None,
+        main_task_id=_arg_str(args, "main_task_id", "mainTaskId") or None,
+        include_subtasks=_arg_bool(args, "include_subtasks", False),
+        limit=limit,
+        offset=offset,
+    )
+    if _arg_bool(args, "full_text", False):
+        return {"ok": True, **data}
+
+    slimmed: list[Any] = []
+    for row in data.get("tasks") or []:
+        if not isinstance(row, dict):
+            slimmed.append(row)
+            continue
+        copy = dict(row)
+        for field, chars_key in (("description", "descriptionChars"), ("summary", "summaryChars")):
+            value, chars = _clip_long_text(copy.get(field), _TASKS_LIST_TEXT_LIMIT, "tasks.get")
+            if chars > _TASKS_LIST_TEXT_LIMIT:
+                copy[field] = value
+                copy[chars_key] = chars
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # handlers[].content 是「派给下游的指令正文」，单条约 700 字。列表里 50 条
+        # 实测占 17399 字节，而列表只需看清「派给了谁、有没有派出去」。
+        # 同样裁成预览并给 handlerContentChars，不许静默截断。
+        handlers = copy.get("handlers")
+        if isinstance(handlers, list) and handlers:
+            new_handlers: list[Any] = []
+            for handler in handlers:
+                if not isinstance(handler, dict):
+                    new_handlers.append(handler)
+                    continue
+                h = dict(handler)
+                value, chars = _clip_long_text(h.get("content"), _TASKS_LIST_TEXT_LIMIT, "tasks.get")
+                if chars > _TASKS_LIST_TEXT_LIMIT:
+                    h["content"] = value
+                    h["contentChars"] = chars
+                new_handlers.append(h)
+            copy["handlers"] = new_handlers
+        slimmed.append(copy)
     return {
         "ok": True,
-        **tasks_admin.list_tasks(
-            status=_arg_str(args, "status") or None,
-            assignee=_arg_str(args, "assignee", "agent_code", "agentCode") or None,
-            role=_arg_str(args, "role", "role_name") or None,
-            source=_arg_str(args, "source") or None,
-            main_task_id=_arg_str(args, "main_task_id", "mainTaskId") or None,
-            include_subtasks=_arg_bool(args, "include_subtasks", False),
-            limit=limit,
-            offset=offset,
+        **{k: v for k, v in data.items() if k != "tasks"},
+        "tasks": slimmed,
+        "textSlim": True,
+        "note": (
+            f"description/summary 已裁到 {_TASKS_LIST_TEXT_LIMIT} 字预览（字数见 "
+            "descriptionChars/summaryChars）；要看全文传 full_text=true 或 tasks.get。"
         ),
     }
 
@@ -2031,7 +2285,42 @@ def eval_progress(args: dict[str, Any]) -> dict[str, Any]:
 def skills_list(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import skills as skills_admin
 
-    return {"ok": True, **skills_admin.list_skills(enabled_only=_arg_bool(args, "enabled_only", False))}
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：接上 ``limit`` / ``offset``，并在返回里带 ``count`` / ``total`` / ``has_more``。
+    # 为什么：注册表原先只有 ``enabled_only?``，``limit`` 传了也没人读——现网实测
+    # 传 ``limit=2`` 与不传完全同款 **97 条 / 60071 字节**，调用方以为截断了其实
+    # 一次吞满上下文。同域 ``tasks.list`` 早就有 limit/offset，属同能力漏接。
+    # 语义：先按 ``enabled_only`` 过滤，再截断（先过滤后分页，避免「前2条都停用」）。
+    raw_limit = args.get("limit", args.get("max_results"))
+    limit: int | None
+    if raw_limit in (None, ""):
+        limit = None
+    else:
+        try:
+            limit = max(1, int(raw_limit))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("limit must be an integer") from e
+    try:
+        offset = max(0, int(args.get("offset", 0) or 0))
+    except (TypeError, ValueError) as e:
+        raise ValidationError("offset must be an integer") from e
+
+    data = skills_admin.list_skills(enabled_only=_arg_bool(args, "enabled_only", False))
+    skills = list(data.get("skills") or [])
+    total = len(skills)
+    page = skills[offset:]
+    if limit is not None:
+        page = page[:limit]
+    out: dict[str, Any] = {"ok": True, **{k: v for k, v in data.items() if k != "skills"}}
+    out.update(
+        {
+            "skills": page,
+            "count": len(page),
+            "total": total,
+            "has_more": offset + len(page) < total,
+        }
+    )
+    return out
 
 
 def skills_get(args: dict[str, Any]) -> dict[str, Any]:
@@ -2379,12 +2668,21 @@ def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def items_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出用户事项；默认把 ``notes`` 裁成预览（列表页用不上正文）。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``full_text`` 开关（默认 False）。为 False 时每条 ``notes`` 裁到
+    200 字并附 ``notesChars``；``full_text=true`` 逐字还原 service 输出。
+    为什么：现网 13 条实测返回 **14679 字节**，``notes`` 一项就 **7443（51%）**，
+    而 ``title`` 才 827。列表要回答「记了哪些事项、什么状态」，正文是 ``items.get``
+    的事；已有 ``page_size`` 挡条数，挡不住单条正文长度。
+    """
     from evoflow.admin import items as items_admin
 
     include_done = _arg_bool(args, "include_done", True)
     page = int(args.get("page") or 1)
     page_size = int(args.get("page_size") or args.get("limit") or 50)
-    return items_admin.list_items(
+    data = items_admin.list_items(
         status=_arg_str(args, "status") or None,
         priority=_arg_str(args, "priority") or None,
         tag=_arg_str(args, "tag") or None,
@@ -2393,6 +2691,25 @@ def items_list(args: dict[str, Any]) -> dict[str, Any]:
         page=page,
         page_size=page_size,
     )
+    if _arg_bool(args, "full_text", False):
+        return data
+    slim: list[Any] = []
+    for row in data.get("items") or []:
+        if not isinstance(row, dict):
+            slim.append(row)
+            continue
+        copy = dict(row)
+        value, chars = _clip_long_text(copy.get("notes"), _TASKS_LIST_TEXT_LIMIT, "items.get")
+        if chars > _TASKS_LIST_TEXT_LIMIT:
+            copy["notes"] = value
+            copy["notesChars"] = chars
+        slim.append(copy)
+    return {
+        **{k: v for k, v in data.items() if k != "items"},
+        "items": slim,
+        "textSlim": True,
+        "note": "notes 已裁成预览；要看全文传 full_text=true 或 items.get。",
+    }
 
 
 def items_get(args: dict[str, Any]) -> dict[str, Any]:
@@ -2409,7 +2726,16 @@ def items_create(args: dict[str, Any]) -> dict[str, Any]:
 
     title = _arg_str(args, "title", "name")
     if not title:
-        raise ValidationError("title is required")
+        # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：**先别再断言「你放顶层了」**——复核现网原件发现，5 次里有 4 次
+        # title 确实在顶层（那已被 platform_tool 的 extra 合并接住），剩下真的没传。
+        # 原来的文案把唯一原因说成「放在顶层会被忽略」，对真没传的那次是**指错方向**。
+        # 现在按「没给」说，并给出最小可用样例。
+        raise ValidationError(
+            "title is required — items.create 需要一个标题。"
+            '把它放进 args_json，例如 args_json={"title":"...","notes":"..."}'
+            "（放在工具顶层的散字段现在也会被自动并入 args_json）。"
+        )
     return {
         **items_admin.create_item(
             {
@@ -3045,7 +3371,19 @@ def _remote_extension_manifest(*, ext_id: str, name: str, entry: str) -> dict[st
     }
 
 
-def extensions_list(_args: dict[str, Any]) -> dict[str, Any]:
+def extensions_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出 Agent应用；默认只给摘要，``include_manifest=true`` 才带整份 manifest。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``include_manifest`` 开关，默认 False 时不返回完整 ``manifest``，
+    改为 ``manifestKeys`` / ``manifestBytes`` / ``name`` / ``description`` / ``ui`` /
+    ``service.mode`` 等摘要字段；传 ``include_manifest=true`` 逐字还原旧输出。
+    为什么：现网 11 个扩展实测返回 **19867 字节**，其中 ``extensions`` 占 13068，
+    而单个 manifest 里 ``service.start.default`` 与 ``service.start.windows``
+    重复、``bridge``/``permissions``/``schema``/``icon`` 这些**列表页根本不用**的
+    部署细节占了七成。反问「装了哪些 Agent应用」不该顺带灌 13KB 启动参数，
+    要单看详情有 ``extensions.get``，要全量有开关。
+    """
     from evoflow.admin.ui_extensions_registry import read_registry, registry_path
 
     try:
@@ -3053,11 +3391,42 @@ def extensions_list(_args: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:
         _map_extension_error(exc)
         raise
+    include_manifest = _arg_bool(args, "include_manifest", False)
+    if not include_manifest:
+        slim: list[dict[str, Any]] = []
+        for row in rows:
+            manifest = row.get("manifest") if isinstance(row.get("manifest"), dict) else {}
+            service = manifest.get("service") if isinstance(manifest.get("service"), dict) else {}
+            slim.append(
+                {
+                    "id": row.get("id") or manifest.get("id"),
+                    "name": manifest.get("name") or row.get("id"),
+                    "version": manifest.get("version"),
+                    "enabled": row.get("enabled"),
+                    "description": manifest.get("description") or "",
+                    "ui": manifest.get("ui") or None,
+                    "serviceMode": service.get("mode") or "none",
+                    "manifestKeys": sorted(manifest.keys()),
+                    "manifestBytes": len(json.dumps(manifest, ensure_ascii=False, default=str).encode()),
+                    "install_path": row.get("install_path"),
+                    "installed_at": row.get("installed_at"),
+                    "source": row.get("source"),
+                }
+            )
+        return {
+            "ok": True,
+            "extensions": slim,
+            "count": len(slim),
+            "registry_path": str(registry_path()),
+            "full": False,
+            "note": "默认只给摘要；完整 manifest 传 include_manifest=true，单个详情用 extensions.get。",
+        }
     return {
         "ok": True,
         "extensions": rows,
         "count": len(rows),
         "registry_path": str(registry_path()),
+        "full": True,
     }
 
 
@@ -3180,13 +3549,57 @@ def _map_plugin_error(exc: Exception) -> None:
     raise exc
 
 
-def plugins_overview(_args: dict[str, Any]) -> dict[str, Any]:
+def plugins_overview(args: dict[str, Any]) -> dict[str, Any]:
+    """插件总览；默认把「可装」与「已装」里逐字重复的字段去掉，``full=true`` 还原。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``full`` 开关（默认 False）。为 False 时从 ``availablePlugins[]``
+    的 ``listing`` 里删掉与父级 **逐字相同** 的 ``description`` / ``displayName``
+    （父级 ``description`` / ``name`` 已有），从 ``installedPlugins[]`` 的同上两处
+    以及与其在 ``availablePlugins`` 中同 id 条目重复的 ``listing``。``full=true``
+    返回 service 原样（逐字还原）。
+    为什么：现网实测本动作 **11248 字节**（availablePlugins 4349 + installedPlugins
+    6445），其中 ``listing`` 共 3660 字节、**1978 字节是与父级字段逐字重复的同一句话**；
+    9 个插件的 available/installed 两个数组装的是同一个 id 集合（实测 installed 是
+    available 的子集，无差异项），同一份 ``listing`` 被序列化了两遍。宿主面板读的是
+    Gateway 的 ``/plugins`` 路由（``_plugins_service().overview()`` 原文），不受影响。
+    """
     try:
         data = _plugins_service().overview()
     except Exception as exc:
         _map_plugin_error(exc)
         raise
-    return {"ok": True, **data}
+    if _arg_bool(args, "full", False):
+        return {"ok": True, **data}
+
+    def _slim(item: dict[str, Any], drop_listing: bool = False) -> dict[str, Any]:
+        out = dict(item)
+        listing = out.get("listing")
+        if isinstance(listing, dict):
+            listing = dict(listing)
+            if drop_listing:
+                out.pop("listing", None)
+            else:
+                if listing.get("description") == out.get("description"):
+                    listing.pop("description", None)
+                if listing.get("displayName") == out.get("name"):
+                    listing.pop("displayName", None)
+                if listing:
+                    out["listing"] = listing
+                else:
+                    out.pop("listing", None)
+        return out
+
+    available = [_slim(item) for item in (data.get("availablePlugins") or []) if isinstance(item, dict)]
+    avail_ids = {item.get("id") for item in available}
+    installed = [
+        _slim(item, drop_listing=item.get("id") in avail_ids)
+        for item in (data.get("installedPlugins") or [])
+        if isinstance(item, dict)
+    ]
+    out = {"ok": True, **data, "availablePlugins": available, "installedPlugins": installed}
+    out["note"] = "default 已去掉与父级逐字重复的 listing 字段；需要与 service 逐字一致传 full=true。"
+    return out
 
 
 def plugins_list(_args: dict[str, Any]) -> dict[str, Any]:
@@ -3391,13 +3804,43 @@ def org_install(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def org_list(args: dict[str, Any]) -> dict[str, Any]:
+    """列出资源包实例；默认不逐条回整份 ``manifest``（换 ``manifestKeys/Bytes``）。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``include_manifest`` 开关（默认 False）。为 False 时每条实例的
+    ``manifest`` 换成 ``manifestKeys`` + ``manifestBytes``；``include_manifest=true``
+    逐字还原。
+    为什么：现网 6 个实例实测返回 **9024 字节**，``manifest`` 一项 **4432（49%）**；
+    ``org.list`` 的问题是「装了哪些包、什么状态」，包清单正文是 ``org.get`` 的事。
+    """
     from evoflow.organizations.registry import list_org_instances
 
     status = _arg_str(args, "status") or "active"
     if status == "all":
         status = ""
     items = list_org_instances(status=status or None)
-    return {"ok": True, "items": items, "count": len(items)}
+    if _arg_bool(args, "include_manifest", False):
+        return {"ok": True, "items": items, "count": len(items), "full": True}
+    slim: list[Any] = []
+    for row in items or []:
+        if not isinstance(row, dict):
+            slim.append(row)
+            continue
+        copy = dict(row)
+        manifest = copy.pop("manifest", None)
+        if isinstance(manifest, dict):
+            copy["manifestKeys"] = sorted(manifest.keys())
+            copy["manifestBytes"] = len(
+                json.dumps(manifest, ensure_ascii=False, default=str).encode()
+            )
+        slim.append(copy)
+    return {
+        "ok": True,
+        "items": slim,
+        "count": len(slim),
+        "full": False,
+        "note": "默认不回 manifest 正文（只给键与体积）；要整份传 include_manifest=true 或 org.get。",
+    }
 
 
 def org_get(args: dict[str, Any]) -> dict[str, Any]:
@@ -3477,13 +3920,33 @@ def org_export(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def org_market_catalog(_args: dict[str, Any]) -> dict[str, Any]:
+    """资源市场目录（合并所有已启用源）。
+
+    【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：全部源都抓取失败且一个包都没拿到时，补 ``degraded=true`` +
+    ``degraded_reason``（**保留 ok=true 不动**，避免破坏既有调用方语义）。
+    为什么：现网实测该动作返回 ``{"ok": true, "packs": [], "errors": [{"sourceId":"official",
+    "error":"<urlopen error timed out>"}]}`` 且耗时 4026ms。``ok:true`` 是第一眼信号，
+    调用方据此往下走「市场里没有资源包」这条错误结论——真实原因是**没连上**。
+    错误信息本来就在 errors 里，缺的是一句能被一眼读到的判断，故只加标记不改 ok。
+    """
     from evoflow.organizations.market_sources import fetch_merged_catalog
 
     try:
         data = fetch_merged_catalog(force=bool(_args.get("force")))
-        return {"ok": True, **data}
     except Exception as exc:
         raise ValidationError(f"Failed to fetch market catalog: {exc}") from exc
+    errors = data.get("errors") or []
+    source_count = len(data.get("sources") or [])
+    if errors and not data.get("packs") and len(errors) >= source_count:
+        data = dict(data)
+        data["degraded"] = True
+        data["degraded_reason"] = (
+            f"全部 {source_count} 个市场源都没抓通（拿不到任何资源包）；"
+            "这**不代表市场为空**，是网络/源不可达。"
+            f"首个错误：{errors[0].get('error') if isinstance(errors[0], dict) else errors[0]}"
+        )
+    return {"ok": True, **data}
 
 
 def org_market_install(args: dict[str, Any]) -> dict[str, Any]:

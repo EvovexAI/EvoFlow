@@ -180,6 +180,28 @@ def _preview_tool_output_text(content: str) -> str:
     )
 
 
+def _tool_content_is_pending_approval(content: object) -> bool:
+    """True when tool body is the approval-gate envelope (not a real result)."""
+    raw = str(content or "").strip()
+    if not raw:
+        return False
+    if "[pending_approval]" in raw:
+        return True
+    if not raw.startswith("{"):
+        return False
+    try:
+        blob = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    if not isinstance(blob, dict):
+        return False
+    meta = blob.get("_evoflow_tool")
+    if not isinstance(meta, dict):
+        return False
+    st = str(meta.get("status") or "").strip().lower().replace("-", "").replace("_", "")
+    return st == "pendingapproval"
+
+
 def _transcript_tool_result_text(
     thread_id: str, tool_call_id: str
 ) -> tuple[str, str] | None:
@@ -1042,8 +1064,42 @@ class V4Mirror:
         {"", "inputStreaming", "pendingApproval", "running", "in_progress"}
     )
 
+    def _tool_row_is_pending_approval(self, existing: dict[str, Any] | None) -> bool:
+        if not isinstance(existing, dict):
+            return False
+        if str(existing.get("status") or "").strip() == "pendingApproval":
+            return True
+        out = existing.get("output")
+        text = ""
+        if isinstance(out, dict):
+            text = str(out.get("text") or "")
+        elif out is not None:
+            text = str(out)
+        return _tool_content_is_pending_approval(text)
+
+    def _turn_has_pending_approval_tools(self, tid: str, st: _MirrorState) -> bool:
+        """本轮是否仍有待授权工具卡（含信封误标 success 的滞后态）。"""
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return False
+        turn = str(st.turn_id or "").strip()
+        for row in sess.rows.values():
+            if not isinstance(row, dict) or row.get("kind") != "toolCall":
+                continue
+            if turn and str(row.get("turnId") or "").strip() not in ("", turn):
+                continue
+            if self._tool_row_is_pending_approval(row):
+                return True
+        return False
+
     def _seal_open_tool_calls(
-        self, tid: str, st: _MirrorState, *, now_ms: int, status: str
+        self,
+        tid: str,
+        st: _MirrorState,
+        *,
+        now_ms: int,
+        status: str,
+        preserve_pending_approval: bool = False,
     ) -> None:
         """RUN 收尾时封掉未 RESULT 的工具卡。
 
@@ -1053,6 +1109,8 @@ class V4Mirror:
 
         正常 FINISHED 且 wire RESULT 丢失时：Transcript 往往已有 ToolMessage
         （middleware 先落库）。此时不要硬盖 cancelled——回填 success+output。
+        但 pending_approval 信封不是真结果：回填必须保持 pendingApproval，
+        否则授权闸门轮会被误标成功、页面像「自己停了」。
         """
         if not st.tool_row_ids:
             return
@@ -1069,8 +1127,18 @@ class V4Mirror:
                 if isinstance(existing, dict)
                 else ""
             )
+            if preserve_pending_approval and self._tool_row_is_pending_approval(
+                existing if isinstance(existing, dict) else None
+            ):
+                continue
             if cur and cur not in self._OPEN_TOOL_STATUSES:
                 continue
+            # map 回填到上一轮工具行时：禁止用本轮 seal 改它的 turnId/status。
+            if isinstance(existing, dict):
+                row_turn = str(existing.get("turnId") or "").strip()
+                cur_turn = str(st.turn_id or "").strip()
+                if row_turn and cur_turn and row_turn != cur_turn:
+                    continue
             created_at, started_at = self._preserve_tool_timestamps(
                 existing if isinstance(existing, dict) else None, now_ms=now_ms
             )
@@ -1100,8 +1168,14 @@ class V4Mirror:
                         row_out["toolName"] = bf_name
                         if tcid not in st.tool_names:
                             st.tool_names[tcid] = bf_name
-                    row_out["status"] = "success"
-                    row_out["output"] = {"text": _preview_tool_output_text(bf_body)}
+                    if _tool_content_is_pending_approval(bf_body):
+                        # 授权闸：保留待批，勿当成成功结果。
+                        row_out["status"] = "pendingApproval"
+                        row_out["output"] = {"text": _preview_tool_output_text(bf_body)}
+                        row_out.pop("endedAt", None)
+                    else:
+                        row_out["status"] = "success"
+                        row_out["output"] = {"text": _preview_tool_output_text(bf_body)}
             self._hub.author_upsert_row(tid, row_out)
 
     def _seal_streaming_assistant_text(
@@ -2007,8 +2081,31 @@ class V4Mirror:
 
         if et == "REASONING_MESSAGE_START":
             mid = str(ev.get("messageId") or "").strip()
-            if not mid or mid in st.reasoning_row_ids:
+            if not mid:
                 return
+            if mid in st.reasoning_row_ids:
+                # 同 messageId 仍在 streaming → 忽略重复 START。
+                # 若上一张已 complete（工具轮后再开思考 / 复用 block id），必须新开行，
+                # 否则内容会继续灌进轮头那张卡，中间工具区看不到思考。
+                try:
+                    prev_rid = int(st.reasoning_row_ids[mid])
+                except (TypeError, ValueError):
+                    prev_rid = 0
+                sess = self._hub.get_session(tid)
+                prev_row = (
+                    sess.rows.get(prev_rid)
+                    if sess is not None and prev_rid > 0
+                    else None
+                )
+                prev_state = (
+                    str(prev_row.get("state") or "").strip()
+                    if isinstance(prev_row, dict)
+                    else ""
+                )
+                if prev_state == "streaming":
+                    return
+                st.reasoning_row_ids.pop(mid, None)
+                st.reasoning_acc.pop(mid, None)
             if not self._ensure_active_turn_for_stream(
                 tid, st, now_ms=now_ms, via="REASONING_MESSAGE_START"
             ):
@@ -2077,6 +2174,21 @@ class V4Mirror:
             tcid = str(ev.get("toolCallId") or "").strip()
             name = str(ev.get("toolCallName") or ev.get("name") or "tool").strip() or "tool"
             if not tcid or tcid in st.tool_row_ids:
+                return
+            # remint / catchup / 失败轮回放常会重放上一轮的 toolCallId。
+            # 若会话里已有该 id 的工具行，只回填 map，禁止再开一张空红卡
+            # （现场：短问失败轮挂出上一轮同 id 的 error 工具）。
+            found_rid, found_row = self._lookup_tool_row(tid, tcid)
+            if found_rid is not None and found_row is not None:
+                st.tool_row_ids[tcid] = int(found_rid)
+                if name and name != "tool":
+                    st.tool_names[tcid] = name
+                elif tcid not in st.tool_names:
+                    prev_name = str(found_row.get("toolName") or "").strip()
+                    if prev_name:
+                        st.tool_names[tcid] = prev_name
+                if tcid not in st.tool_acc:
+                    st.tool_acc[tcid] = str(found_row.get("inputText") or "")
                 return
             if not self._ensure_active_turn_for_stream(
                 tid, st, now_ms=now_ms, via="TOOL_CALL_START"
@@ -2326,6 +2438,63 @@ class V4Mirror:
                     and str(existing.get("state") or "") == "completedSuccess"
                 ):
                     return
+            # 工具授权闸：上游常在 pending_approval 后仍发 RUN_FINISHED（interrupt 当结束）。
+            # 若此时把轮次封成 completedSuccess，页面像「自己停了」，授权卡也难点。
+            # 软暂停：保留 running + pendingApproval，等用户批/拒后再真正收尾。
+            if (
+                et == "RUN_FINISHED"
+                and not user_stopped
+                and self._turn_has_pending_approval_tools(tid, st)
+            ):
+                from app.gateway.v4.conversation import _PHASE_RUNNING, _minimal_control
+
+                self._seal_streaming_assistant_text(tid, st, now_ms=now_ms, state="complete")
+                self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="complete")
+                self._seal_open_tool_calls(
+                    tid,
+                    st,
+                    now_ms=now_ms,
+                    status="cancelled",
+                    preserve_pending_approval=True,
+                )
+                sess_for_origin = self._hub.get_session(tid)
+                existing_header = (
+                    sess_for_origin.rows.get(int(st.turn_header_row_id))
+                    if sess_for_origin is not None and st.turn_header_row_id
+                    else None
+                )
+                header_origin = "userInput"
+                if isinstance(existing_header, dict):
+                    prev_origin = str(existing_header.get("origin") or "").strip()
+                    if prev_origin:
+                        header_origin = prev_origin
+                self._hub.author_upsert_row(
+                    tid,
+                    {
+                        "rowId": st.turn_header_row_id,
+                        "turnId": st.turn_id,
+                        "entityId": st.turn_id,
+                        "kind": "turnHeader",
+                        "origin": header_origin,
+                        "state": "running",
+                        "startedAt": st.turn_started_at_ms or now_ms,
+                        "createdAt": st.turn_started_at_ms or now_ms,
+                        "createdAtSeq": self._seq_now(tid),
+                    },
+                )
+                ctrl = _minimal_control(
+                    _PHASE_RUNNING, run_started_at=st.turn_started_at_ms or now_ms
+                )
+                ctrl["lastError"] = None
+                ctrl["apiRetry"] = None
+                self._patch_control(tid, ctrl)
+                logger.info(
+                    "[v4-mirror] soft-pause for pendingApproval thread=%s turn=%s",
+                    tid,
+                    st.turn_id,
+                )
+                # 不清 ephemeral：批准续跑仍挂同一 turn；真 FINISHED / 停止再 reset。
+                return
             if et == "RUN_FINISHED":
                 v4_state = "completedSuccess"
             elif user_stopped:

@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Any
@@ -381,6 +382,103 @@ def _cleanup_excluded_installed_plugins(storage_root: Path) -> None:
         logger.info("Cleaned up %d excluded installed plugin(s).", original_count - len(state.plugins))
 
 
+# 【self-evolution-bot · 2026-11-18 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增「已安装官方插件的内容收敛」——启动时比对 bundle 源目录与运行副本的
+# (相对路径, 大小, mtime_ns) 签名，不一致就重新 copytree 覆盖运行副本。
+# 为什么：原来 seed_official_marketplace 在 __seededVersion 命中时直接 return，
+# 且 _install_default_enabled_plugins 对已存在记录一律 continue，于是
+# packaging/official-plugins-bundle 里改过的任何技能/文档**永远不会**进入
+# ~/.evoflow/.../cache/evoflow-plugins-official/<name>/<version> 这个真正被读取的副本。
+# 本轮实测：control-browser/SKILL.md 缓存副本停在 2026-10-13，仍硬性要求
+# 「每次 js 调用开头都 bootstrap」，宿主文案改成「不要写 bootstrap」后两者直接矛盾，
+# 观测到的 107/308 次重复 bootstrap 因此不会下降。这是「改了代码 ≠ 它在跑」的系统级成因。
+# shutil.copytree 用 copy2 保留 mtime，所以签名比对在收敛后天然稳定，不会每次启动重拷。
+_PLUGIN_SYNC_SKIP_DIRS = {".git", "__pycache__", "node_modules", ".ruff_base"}
+
+
+def _stale_bundle_files(source: Path, target: Path) -> list[str]:
+    """bundle 中比运行副本更新（或缺失）的文件；None 源目录不存在时返回 []。
+
+    只认「bundle 更新才覆盖」这一方向：用户在运行副本上做的后手修改
+    （mtime 晚于 bundle）不会被冲掉，避免为了修文档把用户改动抹掉。
+    """
+    if not source.is_dir() or not target.is_dir():
+        return []
+    stale: list[str] = []
+    for dirpath, dirnames, filenames in os.walk(source):
+        dirnames[:] = [d for d in dirnames if d not in _PLUGIN_SYNC_SKIP_DIRS]
+        for filename in filenames:
+            src_file = Path(dirpath) / filename
+            try:
+                src_stat = src_file.stat()
+            except OSError:
+                continue
+            rel = src_file.relative_to(source)
+            dst_file = target / rel
+            try:
+                dst_stat = dst_file.stat()
+            except OSError:
+                stale.append(str(rel).replace(os.sep, "/"))
+                continue
+            if src_stat.st_mtime_ns > dst_stat.st_mtime_ns:
+                stale.append(str(rel).replace(os.sep, "/"))
+    return stale
+
+
+def _sync_bundled_plugin_content(storage_root: Path) -> list[str]:
+    """把 bundle 里比运行副本更新的官方插件内容刷进去；返回被刷新的插件名。
+
+    逐文件复制而不是整树 copytree：只覆盖确实「bundle 更新/副本缺失」的文件，
+    用户在运行副本上后改的文件即使同一插件里另有文件被刷新也不会被连带覆盖。
+    """
+    from .storage import copytree_atomic  # noqa: F401  (保留给整目录缺文件的场景)
+
+    bundle_root = discover_bundled_official_cache()
+    if bundle_root is None:
+        return []
+    try:
+        state = load_installed_plugins_state(storage_root)
+    except Exception:  # noqa: BLE001 - 收敛失败绝不能影响启动
+        logger.debug("plugin content sync: state unreadable", exc_info=True)
+        return []
+    refreshed: list[str] = []
+    for record in state.plugins:
+        if getattr(record, "marketplace", None) != EVOFLOW_OFFICIAL_PLUGIN_MARKETPLACE:
+            continue
+        if not getattr(record, "installPath", None):
+            continue
+        source = bundle_root / record.name / record.version
+        target = Path(record.installPath)
+        try:
+            if source.resolve() == target.resolve():
+                continue
+            stale = _stale_bundle_files(source, target)
+            if not stale:
+                continue
+            copied = 0
+            for rel in stale:
+                src_file = source / Path(rel)
+                dst_file = target / Path(rel)
+                try:
+                    dst_file.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src_file, dst_file)
+                    copied += 1
+                except OSError:
+                    logger.warning("plugin content sync: copy failed %s/%s", record.name, rel, exc_info=True)
+            if copied:
+                refreshed.append(record.name)
+                logger.info(
+                    "Refreshed bundled plugin %s@%s into runtime copy: %d file(s), e.g. %s",
+                    record.name,
+                    record.version,
+                    copied,
+                    stale[:3],
+                )
+        except Exception:  # noqa: BLE001 - 单个插件失败不影响其它插件
+            logger.warning("plugin content sync failed for %s", record.name, exc_info=True)
+    return refreshed
+
+
 def seed_official_marketplace(storage_root: Path) -> dict[str, Any]:
     """Ensure the official marketplace manifest cache exists and default-enabled
     plugins are installed; returns the raw manifest."""
@@ -395,6 +493,8 @@ def seed_official_marketplace(storage_root: Path) -> dict[str, Any]:
         and existing_plugins
     ):
         _cleanup_excluded_installed_plugins(storage_root)
+        # 即使清单已播种过，bundle 内容变更也必须能进到运行副本。
+        _sync_bundled_plugin_content(storage_root)
         return existing.raw
     manifest = build_official_marketplace_manifest()
     manifest["__seededVersion"] = SEED_MANIFEST_VERSION
@@ -402,6 +502,8 @@ def seed_official_marketplace(storage_root: Path) -> dict[str, Any]:
     _seed_local_plugin_icons(storage_root, manifest)
     save_marketplace_manifest_cache(storage_root, manifest)
     _install_default_enabled_plugins(storage_root, manifest)
+    # 首次/版本变更播种后同样收敛一次内容，避免 bundle 里的文档修复滞留。
+    _sync_bundled_plugin_content(storage_root)
     _cleanup_excluded_installed_plugins(storage_root)
     return manifest
 

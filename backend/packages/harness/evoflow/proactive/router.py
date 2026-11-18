@@ -1688,9 +1688,15 @@ async def roles_busy_batch(
                     try:
                         from evoflow.persistence import session_repositories as sess_repo
 
-                        row = (await asyncio.to_thread(sess_repo.load_session_map)).get(current_session_key or "") or {}
-                        ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
-                        current_round_id = str(ctx.get("proactive_round_id") or "").strip()
+                        # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+                        # 只取 context.proactive_round_id，改用专用单行函数
+                        # （原 load_session_map() 为 1 个字段重建 547 行，冷 6976ms）。
+                        current_round_id = (
+                            await asyncio.to_thread(
+                                sess_repo.get_proactive_round_id, current_session_key or ""
+                            )
+                            or ""
+                        )
                     except Exception:
                         current_round_id = ""
             except Exception:
@@ -1749,9 +1755,14 @@ async def role_busy(request: Request, agent_code: str) -> dict[str, Any]:
                 try:
                     from evoflow.persistence import session_repositories as sess_repo
 
-                    row = (await asyncio.to_thread(sess_repo.load_session_map)).get(current_session_key or "") or {}
-                    ctx = row.get("context") if isinstance(row.get("context"), dict) else {}
-                    current_round_id = str(ctx.get("proactive_round_id") or "").strip()
+                    # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 同上：只要一个 proactive_round_id，别重建 547 行会话表。
+                    current_round_id = (
+                        await asyncio.to_thread(
+                            sess_repo.get_proactive_round_id, current_session_key or ""
+                        )
+                        or ""
+                    )
                 except Exception:
                     current_round_id = ""
         except Exception:

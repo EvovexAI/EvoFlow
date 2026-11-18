@@ -2993,7 +2993,10 @@ class ChannelManager:
             pretty = _default_channel_session_title(msg, agent_name=agent_code)
             from evoflow.persistence import session_repositories as sess_repo
 
-            existing = (sess_repo.load_session_map().get(session_key) or {}) if session_key else {}
+            # 【self-evolution-bot · 2026-11-18 · 第52轮 · 模型:deepseek-v4.1-flash-1017】
+            # 只取 title 一个字段，原实现 load_session_map() 每次重建全部会话行
+            # （本机 547 会话实测冷 6976ms / 热 124ms，单行 0.017ms）。
+            existing = (sess_repo.get_session_map_entry(session_key) or {}) if session_key else {}
             old_title = str(existing.get("title") or "").strip()
             weak = (not old_title) or (
                 old_title.startswith(("飞书 · ", "微信 · ", "Slack · ", "Telegram · ")) and ("主对话" not in old_title and "小V" not in old_title and "（" not in old_title) and len([p for p in old_title.split("·")]) <= 3

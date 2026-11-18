@@ -1158,6 +1158,15 @@ def _row_to_display_dict(row: dict[str, Any]) -> dict[str, Any]:
         msg["round_id"] = row["round_id"]
     if row.get("thread_id"):
         msg["thread_id"] = row["thread_id"]
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：display dict 补回 ``created_at_ms``（原始毫秒）。
+    # 为什么：此前本函数只在**末尾**产出 ``timestamp``（ISO 串），而
+    # ``employees.messages`` 读 ``created_at`` / ``created_at_ms`` ⇒ 现网实测每条
+    # 消息时间全为 null，「最近几条对话」看不出先后、判断不了哪条是新回复。
+    # 上游行本来就有 ``created_at_ms``，是这一层丢掉的。给毫秒原值（下游可精确
+    # 格式化），``timestamp`` 保持不动以免影响既有读侧。
+    if row.get("created_at_ms") is not None:
+        msg["created_at_ms"] = row["created_at_ms"]
     if row.get("parent_thread_id"):
         msg["parent_thread_id"] = row["parent_thread_id"]
     if row.get("model_name"):

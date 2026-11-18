@@ -308,7 +308,15 @@ def _A(
 def _build_registry() -> dict[str, PlatformAction]:
     items: list[PlatformAction] = [
         # knowledge
-        _A("knowledge.list", "knowledge", "列出平台自有知识库", "read", "无", H.knowledge_list, "有哪些知识库"),
+        _A(
+            "knowledge.list",
+            "knowledge",
+            "列出平台自有知识库；默认省略与 storageDir 相同的 resolvedStorageDir",
+            "read",
+            "full?（默认 false，去重版）",
+            H.knowledge_list,
+            "有哪些知识库",
+        ),
         _A("knowledge.search", "knowledge", "检索自有知识库（默认 hybrid 多库扇出）", "read", "query, vaultId?/kbId?, top_k?, mode?, category?", H.knowledge_search, "怎么配置 MCP"),
         _A("knowledge.create", "knowledge", "新建平台自有知识库", "write", "name, description?, embeddingModelRef?", H.knowledge_create, "建个英语单词库"),
         _A("knowledge.ingest", "knowledge", "写入一篇笔记", "write", "title, content, vaultId?/kbId?, inboxPath?", H.knowledge_ingest, "把大纲写进库"),
@@ -363,7 +371,7 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A("workflow.run_status", "workflow", "查看运行状态", "read", "runId", H.workflow_run_status, "那个运行到哪了"),
         _A("workflow.list_runs", "workflow", "查看应用运行历史", "read", "appId, limit?, page?", H.workflow_list_runs, "这个应用跑过几次"),
         # settings
-        _A("settings.list_models", "settings", "列出模型与默认模型", "read", "无", H.settings_list_models, "有哪些模型"),
+        _A("settings.list_models", "settings", "列出模型与默认模型（默认省去逐条实例化开关，共同取值收在 sharedConfig）", "read", "include_config?（默认 false）", H.settings_list_models, "有哪些模型"),
         _A("settings.get_default_model", "settings", "查看默认模型", "read", "无", H.settings_get_default_model, "默认模型是啥"),
         _A("settings.set_default_model", "settings", "设置默认模型", "write", "model", H.settings_set_default_model, "默认改成 glm-5.2"),
         _A("settings.get_model", "settings", "查看单个模型配置", "read", "model", H.settings_get_model, "glm 怎么配的"),
@@ -421,9 +429,9 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "assets.get_profile",
             "assets",
-            "查看用户画像（资产中心：profile/USER.md）",
+            "查看用户画像（资产中心：profile/USER.md）；不传 principal_id 会标注读到的是默认档案",
             "read",
-            "无",
+            "principal_id?（强烈建议传，否则读默认 entity）",
             H.assets_get_profile,
             "我的用户画像",
         ),
@@ -592,7 +600,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             "刷新节点进度面板数据",
         ),
         # agents
-        _A("agents.list", "agents", "列出智能体角色", "read", "tag?, agent_name?, limit?, offset?, include_soul?", H.agents_list, "有哪些智能体"),
+        _A(
+            "agents.list",
+            "agents",
+            "列出智能体角色（默认不含各自 system_prompt 全文，只给字数；要正文传 include_prompt=true 或用 agents.get）",
+            "read",
+            "tag?, agent_name?, limit?, offset?, include_soul?, include_prompt?",
+            H.agents_list,
+            "有哪些智能体",
+        ),
         _A("agents.get", "agents", "查看智能体详情", "read", "name/agent_code", H.agents_get, "main 配了啥"),
         _A(
             "agents.bindings",
@@ -631,7 +647,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             "删掉测试智能体",
         ),
         # employees
-        _A("employees.list", "employees", "列出智能体员工岗位", "read", "status?", H.employees_list, "现在有哪些员工"),
+        _A(
+            "employees.list",
+            "employees",
+            "列出智能体员工岗位（同一批数据只在 roles 返回一次）",
+            "read",
+            "status?, legacy_keys?（默认 false，不再重复回 employees/items 别名）",
+            H.employees_list,
+            "现在有哪些员工",
+        ),
         _A(
             "employees.departments",
             "employees",
@@ -809,9 +833,11 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "tasks.list",
             "tasks",
-            "列出协作 Task 台账（行政视角；默认不含子任务，limit 默认 50、上限 200）",
+            "列出协作 Task 台账（行政视角；默认不含子任务，limit 默认 50、上限 200；"
+            "description/summary 默认裁成 200 字预览）",
             "read",
-            "status?, assignee?, role?, source?, main_task_id?, limit?, offset?, include_subtasks?",
+            "status?, assignee?, role?, source?, main_task_id?, limit?, offset?, "
+            "include_subtasks?, full_text?（默认 false，只给预览）",
             H.tasks_list,
             "未结任务有哪些",
             "最近 5 条主任务",
@@ -878,9 +904,10 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "items.list",
             "items",
-            "列出用户事项/备忘（持久化；≠ 对话 todo、≠ Task）",
+            "列出用户事项/备忘（持久化；≠ 对话 todo、≠ Task）；notes 默认裁成预览",
             "read",
-            "status?, priority?, tag?, q?, include_done?, page?, page_size?/limit?",
+            "status?, priority?, tag?, q?, include_done?, page?, page_size?/limit?, "
+            "full_text?（默认 false，notes 只给预览）",
             H.items_list,
             "我有哪些待办事项",
             "只要高优先级未完成",
@@ -907,7 +934,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             "让拆解岗处理这条事项",
         ),
         # skills
-        _A("skills.list", "skills", "列出技能", "read", "enabled_only?", H.skills_list, "装了哪些技能"),
+        _A(
+            "skills.list",
+            "skills",
+            "列出技能（大列表用 limit/offset 分页；先按 enabled_only 过滤再截断）",
+            "read",
+            "enabled_only?, limit?, offset?",
+            H.skills_list,
+            "装了哪些技能",
+        ),
         _A("skills.get", "skills", "查看技能详情", "read", "name", H.skills_get, "evoflow-admin 技能说啥"),
         _A("skills.enable", "skills", "启用/停用技能", "write", "name, enabled", H.skills_enable, "关掉某技能"),
         _A("skills.install", "skills", "安装技能（path 或市场 slug；本地 path 可 link=true 挂载）", "write", "path 或 slug, owner?, link?", H.skills_install, "装这个技能包"),
@@ -926,9 +961,9 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "extensions.list",
             "extensions",
-            "列出已安装的 Agent应用（侧栏扩展）",
+            "列出已安装的 Agent应用（侧栏扩展）；默认摘要",
             "read",
-            "无",
+            "include_manifest?（默认 false，只给摘要）",
             H.extensions_list,
             "装了哪些 Agent应用",
             "侧栏有哪些扩展网页",
@@ -974,9 +1009,9 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "plugins.overview",
             "plugins",
-            "插件总览：市场 + 可装 + 已装",
+            "插件总览：市场 + 可装 + 已装；默认去掉重复字段",
             "read",
-            "无",
+            "full?（默认 false，去重版）",
             H.plugins_overview,
             "插件市场里有啥",
             "现在装了哪些插件",
@@ -1108,7 +1143,15 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.org_install,
             "装这个内容运营资源包",
         ),
-        _A("org.list", "org", "列出已装资源包实例", "read", "status?=active|uninstalled|all", H.org_list, "装过哪些资源包"),
+        _A(
+            "org.list",
+            "org",
+            "列出已装资源包实例；默认只给 manifest 键与体积",
+            "read",
+            "status?=active|uninstalled|all, include_manifest?（默认 false）",
+            H.org_list,
+            "装过哪些资源包",
+        ),
         _A("org.get", "org", "查看资源包实例详情", "read", "org_instance_id", H.org_get, "这个资源包装了啥"),
         _A(
             "org.uninstall",
@@ -1683,9 +1726,23 @@ def dispatch_platform_action(
         known_domains = {d.lower() for d in PLATFORM_DOMAINS}
         matches: list[str] = []
         basis = "无相近动作"
+        # 【self-evolution-bot · 2026-11-18 · 第57轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：只传域本身（如 action="agents"、domain 省略）时，把 act 当域处理。
+        # 为什么：`agents` 是 PLATFORM_DOMAINS 里的合法域、注册表里有 5 个 agents.* 动作，
+        # 但原判据写的是 `if raw_dom and raw_dom in known_domains`，而 raw_dom 只在
+        # act 含 "." 时才非空 —— 于是 action="agents" 走进"无相近动作"分支，
+        # suggestions=[] 且 basis 谎称「无相近动作」（现网 2026-11-17T21:42 实测，
+        # 返回 domains 里明明列着 agents）。模型据此只能盲猜或去翻 catalog。
+        if not raw_dom and key in known_domains:
+            raw_dom = key
+            leaf = ""
         if raw_dom and raw_dom in known_domains:
             matches = [n for n in reg if n.split(".", 1)[0].lower() == raw_dom]
-            basis = f"域 {raw_dom!r} 下的已注册动作（域存在，但没有 {leaf!r}）"
+            basis = (
+                f"域 {raw_dom!r} 下的已注册动作（域存在，但没有 {leaf!r}）"
+                if leaf
+                else f"域 {raw_dom!r} 下的全部已注册动作（你只给了域名，没给具体动作）"
+            )
             # leaf 的近邻排前：employees.status → employees.org_status 才该被第一眼看到。
             if leaf:
                 matches.sort(key=lambda n: (leaf not in n.split(".", 1)[-1].lower(), n))

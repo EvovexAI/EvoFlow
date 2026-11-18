@@ -12,7 +12,6 @@ which EvoFlow already understands.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -26,9 +25,8 @@ from langchain_openai.chat_models.base import (
 )
 
 from evoflow.models.request_payload_logger import log_model_request_payload
+from evoflow.models.think_tags import merge_reasoning, strip_inline_think_tags
 from evoflow.models.vendor_roundtrip import VendorRoundtripChatMixin
-
-_THINK_TAG_RE = re.compile(r"<think>\s*(.*?)\s*</think>", re.DOTALL)
 
 
 def _extract_reasoning_text(
@@ -52,31 +50,6 @@ def _extract_reasoning_text(
     return "\n\n".join(parts) if parts else None
 
 
-def _strip_inline_think_tags(content: str) -> tuple[str, str | None]:
-    reasoning_parts: list[str] = []
-
-    def _replace(match: re.Match[str]) -> str:
-        reasoning = match.group(1).strip()
-        if reasoning:
-            reasoning_parts.append(reasoning)
-        return ""
-
-    cleaned = _THINK_TAG_RE.sub(_replace, content).strip()
-    reasoning = "\n\n".join(reasoning_parts) if reasoning_parts else None
-    return cleaned, reasoning
-
-
-def _merge_reasoning(*values: str | None) -> str | None:
-    merged: list[str] = []
-    for value in values:
-        if not value:
-            continue
-        normalized = value.strip()
-        if normalized and normalized not in merged:
-            merged.append(normalized)
-    return "\n\n".join(merged) if merged else None
-
-
 def _with_reasoning_content(
     message: AIMessage | AIMessageChunk,
     reasoning: str | None,
@@ -91,8 +64,10 @@ def _with_reasoning_content(
         existing = additional_kwargs.get("reasoning_content")
         additional_kwargs["reasoning_content"] = f"{existing}{reasoning}" if isinstance(existing, str) else reasoning
     else:
-        additional_kwargs["reasoning_content"] = _merge_reasoning(
-            additional_kwargs.get("reasoning_content"),
+        additional_kwargs["reasoning_content"] = merge_reasoning(
+            additional_kwargs.get("reasoning_content")
+            if isinstance(additional_kwargs.get("reasoning_content"), str)
+            else None,
             reasoning,
         )
     return message.model_copy(update={"additional_kwargs": additional_kwargs})
@@ -224,11 +199,11 @@ class PatchedChatMiniMax(VendorRoundtripChatMixin, ChatOpenAI):
                 cleaned_content = content
                 inline_reasoning = None
                 if isinstance(content, str):
-                    cleaned_content, inline_reasoning = _strip_inline_think_tags(content)
+                    cleaned_content, inline_reasoning = strip_inline_think_tags(content)
 
                 choice_message = choice.get("message", {}) if isinstance(choice, Mapping) else {}
                 split_reasoning = _extract_reasoning_text(choice_message.get("reasoning_details"))
-                merged_reasoning = _merge_reasoning(split_reasoning, inline_reasoning)
+                merged_reasoning = merge_reasoning(split_reasoning, inline_reasoning)
 
                 updated_message = message
                 if cleaned_content is not None and cleaned_content != message.content:

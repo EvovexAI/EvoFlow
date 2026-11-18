@@ -73,6 +73,20 @@ def set_global_default_policy(mode: str) -> str:
     policy = normalize_policy(mode)
     cfg_repo.set_app_setting(APP_SETTING_KEY, {"mode": policy})
     reconcile_soft_session_overrides_with_global(policy)
+    # 切到完全访问后，继承全局的会话不应再挂着待批幽灵行。
+    if policy == POLICY_GRANT_ALL:
+        try:
+            from evoflow.persistence.tool_approval_repositories import (
+                cancel_pending_for_sessions_inheriting_grant_all,
+            )
+
+            cancel_pending_for_sessions_inheriting_grant_all()
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).debug(
+                "cancel pending after grant_all global failed", exc_info=True
+            )
     return policy
 
 

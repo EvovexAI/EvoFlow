@@ -212,11 +212,14 @@ def list_api_catalog(
             if q not in hay:
                 continue
         guide = domain_guide(action.domain)
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：逐条不再重复 ``featureTitle``（域标题在域节点 ``title`` 里已给一次）。
+        # 为什么：172 个条目各带一遍同一个域标题，纯冗余；``feature``（=域名）保留，
+        # 因为 ``start_round`` 落库时读 ``it["feature"]``（verification.py:497）。
         items.append(
             {
                 "api": action.name,
                 "feature": action.domain,
-                "featureTitle": guide.get("title") or action.domain,
                 "summary": action.summary,
                 "risk": action.risk,
                 "params": action.params,
@@ -235,6 +238,12 @@ def list_api_catalog(
     domains_out = []
     for d, acts in by_domain.items():
         guide = domain_guide(d)
+        # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：域节点不再挂整份 ``items``（原样又序列化一遍），只留 ``apis`` 短名单。
+        # 为什么：现网实测本函数返回 **101420 字节**，而顶层 ``items`` 与各域 ``items``
+        # 是**同一批字典对象重复两遍**，白占 45931 字节；随域给的 ``title`` / ``when``
+        # 已能表达域信息，「域→逐条明细」这层是纯冗余。``start_round`` 读的是顶层
+        # ``items``（verification.py:452 ``catalog["items"]``），故顶层保留不动。
         domains_out.append(
             {
                 "domain": d,
@@ -242,16 +251,32 @@ def list_api_catalog(
                 "when": guide.get("when") or "",
                 "count": len(acts),
                 "apis": [a["api"] for a in acts],
-                "items": acts,
             }
         )
     domains_out.sort(key=lambda x: domain_order.get(x["domain"], 999))
 
+    # 【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：把「被排除的域 / 动作」显式写进返回。
+    # 为什么：``include_verification`` 默认 False 会把整个 ``verification`` 域藏掉，
+    # 于是本动作报 172 而 ``platform.catalog`` 报 180，**谁也不说差在哪**——现网实测
+    # 我第一眼以为漏了 8 个 action，逐个对集合才查出是它自己那个域。
+    # 「少给了什么」必须能一眼看到，否则调用方只能自己猜或再拉一份全量对比。
+    excluded_domains = sorted(
+        {a.domain for a in reg.values() if not include_verification and a.domain in _SEED_EXCLUDE_DOMAINS}
+    )
     return {
         "total": len(items),
+        "registryTotal": len(reg),
         "domainCount": len(domains_out),
         "domains": domains_out,
         "items": items,
+        "excludedDomains": excluded_domains,
+        "excludedNote": (
+            f"默认排除了域 {excluded_domains}（共 {len(reg) - len(items)} 个动作）；"
+            "要包含它们传 include_verification=true"
+            if excluded_domains
+            else ""
+        ),
         "filters": {
             "domain": domains_filter,
             "risk": risks_filter,

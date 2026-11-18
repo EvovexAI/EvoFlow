@@ -415,7 +415,10 @@ def _ensure_transcript_session(session_key: str, *, role_agent_code: str = "") -
     sk = str(session_key or "").strip()
     if not sk:
         return None
-    existing = sess_repo.load_session_map().get(sk) or {}
+    # 【self-evolution-bot · 2026-11-18 · 第49轮 · 模型:deepseek-v4.1-flash-1017】
+    # 只取 threadId/createdAt/title 三个字段，原实现却调 load_session_map()（全表 547 行、
+    # 冷 6976ms / 热 124ms vs 单行 0.017ms）。返回形状不变（侧栏 map 那一行）。
+    existing = sess_repo.get_session_map_entry(sk) or {}
     thread_id = str(existing.get("threadId") or existing.get("thread_id") or "").strip() or None
     now_ms = int(time.time() * 1000)
     created_ms = int(existing.get("createdAt") or 0) or now_ms

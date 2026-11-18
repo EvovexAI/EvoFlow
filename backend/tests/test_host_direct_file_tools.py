@@ -295,3 +295,41 @@ def test_read_missing_absolute_path_does_not_blame_workspace_root(tmp_path):
     assert "File not found" in body, body
     # 绝对路径入参 target 与入参一致时不该啰嗦；被工作区重映射时才必须点出真实位置。
     assert "按工作区根拼接" not in body or "实际查找的绝对路径" in body, body
+
+
+# ─────────────────── 缺路径报错必须点名「实际查的是哪」 ───────────────────
+
+
+def test_path_not_found_reports_resolved_absolute_for_relative_input(tmp_path):
+    """缺文件时只回显入参 = 调用方只能靠猜再绕一步（第60轮修）。
+
+    与 read_file 第20轮修的是同一族：read 报 ``File not found`` 时会带上
+    「实际查找的绝对路径」，而 replace / delete / glob 共用的 ``_finalize_path``
+    只回显入参。本岗真机实证（2026-11-19 00:31）：
+    ``replace("craft/电脑控制写入长文本-记事本实测.md")`` → ``Path not found``，
+    没说是拼到工作区根还是仓库根，只能去本地反复确认目录才敢重写。
+    """
+    rt = _rt(tmp_path)
+    out = _invoke_injected(str_replace_hd, path="craft/__definitely_missing__.md",
+                           old_string="a", new_string="b", runtime=rt)
+    body = out if isinstance(out, str) else str(out)
+
+    assert "Path not found" in body, body
+    # 第一行保持原样：evopanel/src/lib/chat-normalize.js:1221 从这里抽路径显示
+    assert body.splitlines()[0] == "Error: Path not found: craft/__definitely_missing__.md", body
+    # 第二行必须点名实际查找的绝对路径 + 说明按哪个根拼的
+    assert "实际查找的绝对路径" in body, body
+    assert str(tmp_path).replace("\\", "/").lower() in body.replace("\\", "/").lower(), body
+    assert "工作区根" in body, body
+
+
+def test_path_not_found_absolute_input_does_not_blame_workspace_root(tmp_path):
+    """反证：绝对路径入参没被重映射时，不许塞「按工作区根拼接」这种无关话术。"""
+    rt = _rt(tmp_path)
+    missing = (tmp_path / "definitely_missing_xyz.md").as_posix()
+    out = _invoke_injected(str_replace_hd, path=missing, old_string="a", new_string="b", runtime=rt)
+    body = out if isinstance(out, str) else str(out)
+
+    assert "Path not found" in body, body
+    assert body.strip() == f"Error: Path not found: {missing}", body
+    assert "工作区根" not in body, body

@@ -492,6 +492,24 @@ def _probe_web_search_status() -> dict[str, Any]:
         }
 
 
+def _probe_version_info() -> dict[str, Any]:
+    """运行态版本探针；任何失败都只记原因，不许影响整个状态快照。
+
+    【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+    """
+    try:
+        from evoflow.runtime.version_info import (
+            build_runtime_version_info,
+            format_runtime_version_markdown,
+        )
+
+        info = build_runtime_version_info()
+        info["markdown"] = format_runtime_version_markdown(info)
+        return info
+    except Exception as exc:  # noqa: BLE001 - 诊断信息永远不许把状态接口打挂
+        return {"probe_errors": [f"version probe crashed: {type(exc).__name__}: {exc}"]}
+
+
 def build_system_status_snapshot() -> dict[str, Any]:
     """Assemble a structured live status payload + markdown summary."""
     ports = resolve_ports()
@@ -523,6 +541,11 @@ def build_system_status_snapshot() -> dict[str, Any]:
         "ready": ready,
         "runtime": runtime,
         "web_search": web_search,
+        # 【self-evolution-bot · 2026-11-18 · 第51轮 · 模型:deepseek-v4.1-flash-1017】
+        # 「现在在跑的是哪一版 / 源码改过没重启没」——此前只能靠人查进程
+        # CreationDate 再比对文件 mtime，我为此误报过两次。探针失败时如实返回
+        # 原因（绝不编一个 commit，也绝不把「不知道」当「干净」）。
+        "version": _probe_version_info(),
     }
     snap["markdown"] = format_system_status_markdown(snap)
     return snap

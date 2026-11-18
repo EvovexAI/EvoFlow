@@ -364,6 +364,38 @@ def cancel_pending_and_approved_for_thread(thread_id: str) -> int:
     return int(cur.rowcount or 0)
 
 
+def cancel_pending_for_sessions_inheriting_grant_all() -> int:
+    """Clear PENDING rows for sessions that resolve to full-access / grant_all.
+
+    Used when the global default flips to ``grant_all``: soft sessions (null /
+    empty preset+policy) and explicit full-access sessions must not keep ghost
+    approval cards. Explicit read-only / default sessions keep their pending.
+    """
+    cur = get_db().execute(
+        """
+        UPDATE evoflow_tool_approvals
+        SET status = ?, updated_at = ?
+        WHERE status = ?
+          AND session_key IN (
+            SELECT session_key FROM evoflow_chat_sessions
+            WHERE is_deleted = 0
+              AND LOWER(TRIM(COALESCE(permission_preset, ''))) NOT IN (
+                'read-only', 'readonly', 'read_only', 'default'
+              )
+              AND (
+                LOWER(TRIM(COALESCE(permission_preset, ''))) IN (
+                  '', 'full-access', 'full_access', 'grant_all'
+                )
+                OR LOWER(TRIM(COALESCE(tool_approval_policy, ''))) IN ('', 'grant_all')
+              )
+          )
+        """,
+        (STATUS_CANCELLED, utc_now_iso_z(), STATUS_PENDING),
+    )
+    get_db().commit()
+    return int(cur.rowcount or 0)
+
+
 def cancel_pending_outside_ids(thread_id: str, keep_tool_call_ids: list[str] | None = None) -> int:
     """Cancel PENDING rows for this thread that are not in the current interrupt batch.
 

@@ -178,6 +178,68 @@ def _normalize_asset_rel(path: str, entity=None) -> str:
         return f"memory/{rel}"
     return rel
 
+def _not_found_payload(entity, rel: str) -> dict:
+    """read/delete/list 命中不到文件时，给出**相近候选**而不是光说 not_found。
+
+    【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：not_found 时扫描所在目录，按文件名相似度回 3 条候选 + 该目录的文件数。
+    为什么：7 天现网观测里 assets 的 not_found 共 48 次（其中我自己的探针 20 次，
+    真实失败 28 次），失败形态高度一致——`read` 一个"我记得它叫…"的文件名。
+    本仓资产文件名由正文首行标题自动生成，记不准是常态；而原报错只有
+    `{"ok":false,"error":"not_found","path":"craft/xxx.md"}`，
+    模型唯一的出路就是再猜一次，等于用一轮调用试错一次。
+    期望效果：候选里直接出现正确名字，下一轮 read 一次命中。
+    """
+    out: dict = {"ok": False, "error": "not_found", "path": rel}
+    try:
+        # 【self-evolution-bot · 2026-11-19 · 第59轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：补上 list_tree 的局部 import。
+        # 为什么：本文件里 evoflow.assets.* 的 import 一律在函数内局部进行（避免工具加载期
+        # 拉起资产层），我第一版却在模块级直接调用 list_tree → NameError 被下面的
+        # `except Exception` 兜底吞掉，候选列表**一次都没生效过**，只剩那句兜底文案。
+        # 判据：静默兜底必须能被测试看见——见 tests/test_assets_not_found_suggests_candidates.py。
+        from evoflow.assets.hub import list_tree
+
+        parent = rel.rsplit("/", 1)[0] if "/" in rel else ""
+        base = rel.rsplit("/", 1)[-1]
+        stem = base[:-3] if base.lower().endswith(".md") else base
+        tree = list_tree(entity, parent)
+        entries = tree.get("entries") or tree.get("files") or []
+        names: list[str] = []
+        for ent in entries:
+            if isinstance(ent, dict):
+                name = str(ent.get("name") or ent.get("path") or "").strip()
+            else:
+                name = str(ent or "").strip()
+            if name:
+                names.append(name.rsplit("/", 1)[-1])
+        if names:
+            def _score(n: str) -> int:
+                ns = n[:-3] if n.lower().endswith(".md") else n
+                if ns == stem:
+                    return 100
+                if ns.startswith(stem) or stem.startswith(ns):
+                    return 80
+                common = len(set(stem) & set(ns))
+                return common
+
+            ranked = sorted(names, key=_score, reverse=True)[:3]
+            out["hint"] = (
+                f"该目录没有 {base}。本仓文件名由正文首行标题自动生成，"
+                "记不准很常见——下面是最相近的 3 个，直接挑一个再 read，别再猜别的名字。"
+            )
+            out["candidates"] = [f"{parent}/{n}" if parent else n for n in ranked]
+            out["dir_file_count"] = len(names)
+        else:
+            out["hint"] = (
+                f"目录 {parent or 'memory'} 是空的或不存在。"
+                "用 action=list 看实际有哪些文件，或 action=search 按关键词找。"
+            )
+    except Exception:  # noqa: BLE001 - 提示生成失败绝不能盖掉主错误
+        out["hint"] = "该路径不存在。可用 action=list 或 action=search 确认实际文件名。"
+    return out
+
+
 def _slug(text: str, *, fallback: str = "note") -> str:
     s = _SLUG_RE.sub("-", str(text or "").strip()).strip("-_")[:48]
     return s or fallback
@@ -365,7 +427,7 @@ def assets_tool(
                 ensure_ascii=False,
             )
         except FileNotFoundError:
-            return json.dumps({"ok": False, "error": "not_found", "path": rel}, ensure_ascii=False)
+            return json.dumps(_not_found_payload(entity, rel), ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -386,7 +448,7 @@ def assets_tool(
                 )
             return json.dumps({"ok": True, "action": "list", **data}, ensure_ascii=False)
         except FileNotFoundError:
-            return json.dumps({"ok": False, "error": "not_found", "path": rel}, ensure_ascii=False)
+            return json.dumps(_not_found_payload(entity, rel), ensure_ascii=False)
         except Exception as exc:
             return json.dumps({"ok": False, "error": str(exc)}, ensure_ascii=False)
 
@@ -555,6 +617,28 @@ def assets_tool(
             if "/" not in rel:
                 rel = f"{kind_dir}{rel}"
                 resolved_from_kind = True
+        # 【self-evolution-bot · 2026-11-18 · 第55轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：补完 kind 目录后，若**后缀不在文本后缀集里**就补 `.md`。
+        # 为什么：现网 obs 实证——`path='第31轮-…判据'` + `kind='reflection'` 被补成
+        #   `memory/journal/第31轮-…判据`，紧接着被 `hub.write_text_file` 的
+        #   `_TEXT_SUFFIXES` 拒掉，回 `only text assets can be written via API`。
+        #   这条错误既不说后缀也不说 .md，而第54轮我刚写的那条 reject hint 还写着
+        #   「补 kind 即可自动补目录写成功」—— 等于我把一个不解决问题的动作指给了调用方，
+        #   当轮实测一次就撞上了。根因是 write 分支只补目录、不补后缀，跟 note 分支不同口径
+        #   （note 走 build_ad_hoc_filename，那里一定会加 .md）。
+        # 判据用「后缀是否属于文本后缀」而不是「有没有点」：`发布流程v1.2` 的 `.2`
+        #   不是文本后缀，同样要补成 `发布流程v1.2.md`——写成「没有点才补」会漏这一类
+        #   （我第一版就是这么写的，新测试当场变红）。
+        try:
+            from evoflow.assets.hub import _TEXT_SUFFIXES as _TEXT_SUFFIX_SET
+        except Exception:  # pragma: no cover - hub 恒存在，兜底只为不吃异常
+            _TEXT_SUFFIX_SET = {".md", ".markdown", ".mdx", ".txt", ".yaml", ".yml", ".json"}
+        suffix_added = False
+        _base_name = rel.rsplit("/", 1)[-1] if rel else ""
+        _suffix = ("." + _base_name.rsplit(".", 1)[-1].lower()) if "." in _base_name else ""
+        if _suffix not in _TEXT_SUFFIX_SET:
+            rel = f"{rel}.md"
+            suffix_added = True
         allowed = rel.startswith(("craft/", "memory/episodic/", "memory/journal/", "memory/standing")) or rel in (
             "memory/standing.md",
             "memory/MEMORY.md",
@@ -562,14 +646,62 @@ def assets_tool(
         )
         if not allowed:
             # 顺带把「该往哪写」直接说出来：原来只说白名单目录，不给可落点示例。
+            #
+            # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：拒写时先判出**具体哪一条**不成立，并把这一条的修法放到 hint 首句。
+            # 为什么：我自己的现网 obs 里这个错 14 次，原文回报全是同一句话（只列白名单
+            # 目录 + 三个示例），于是我每次都只能靠猜"我到底错在哪"，同一条坑踩了 14 次。
+            # 真正的原因其实只有三种，且都能从入参一眼判出来：
+            #   ① 少写 `.md` 后缀 —— '系统优化清单-按可证伪性排序'，磁盘上无同名文件，
+            #      resolve_asset_rel 的 basename 查找自然落空，裸名原样返回 → 被拒；
+            #   ② 传了绝对路径 —— 'D:/dev/github/EvoFlow/../检索效果AB的池规模口径.md'，
+            #      资产是 entity 相对路径，盘符/..  一律不参与解析；
+            #   ③ 确实写到了白名单外 —— 'outputs/_perf_probe_w.md'、'memory/_inbox/...'
+            #      （探针/收件箱不属于四个可写目录），这类原样拒是对的。
+            # 判据只读入参形态，不改 allow 判定本身（允许集合一个字都没动）。
+            _p = str(path or "").strip().replace("\\", "/")
+            if ":" in _p[:3] or _p.startswith("/") or "/../" in f"/{_p}/":
+                _why = (
+                    f"path={path!r} 是绝对路径或含 '..'；资产只能写 entity 相对路径"
+                    "（如 craft/xxx.md），盘符与 '..' 不参与解析。"
+                )
+            elif "/" not in rel:
+                # 【self-evolution-bot · 2026-11-18 · 第54轮 · 模型:deepseek-v4.1-flash-1017】
+                # 这一档必须排在「缺 .md 后缀」**之前**：裸文件名的真正修法是补 kind，
+                # 不是补后缀。缺后缀只是让「按已存在文件反查目录」这一步落空，
+                # 补上后缀依然没有目录信息，仍会被拒 —— 先说后缀等于把调用方引向
+                # 一个不解决问题的动作。这是 14 次里占比最高的一类（7 条），
+                # 而它跟「写到白名单外」在入参上完全不同：名字合法，只是工具无从
+                # 判断该落 craft 还是 journal。原来一律归到「不在可写目录内」，
+                # 等于把「你少给了一个参数」说成「你想越权写」，我据此改错过方向。
+                _why = (
+                    f"裸文件名 {rel!r} 在此 entity 下找不到同名已有文件，且没传 kind，"
+                    "工具无法判断该落哪个目录。补 kind=<episodic|journal|craft> 即可自动补目录写成功"
+                    "（或直接写成 craft/xxx.md 这种带前缀的形式）。"
+                )
+            elif not rel.lower().endswith(".md"):
+                # 【self-evolution-bot · 2026-11-18 · 第55轮 · 模型:deepseek-v4.1-flash-1017】
+                # 这条分支现在只可能落在「文本后缀但不是 .md，且不在可写目录内」上
+                # （缺后缀的已被上方自动补掉、裸名已在上一档拦下），所以文案按这个写。
+                # 改前它说的是「补上 .md 后如果已存在会反查目录」—— 补后缀已由工具自己做，
+                # 让调用方去做等于白跑一次。
+                _why = (
+                    f"{rel} 的后缀不是 .md（资产条目统一用 Markdown），且它不在可写目录内；"
+                    "两个问题都要改：换成 .md 文件名 + 落到 craft/ 或 memory/ 下的可写目录。"
+                )
+            else:
+                _why = (
+                    f"{rel} 不在可写目录内（outputs/、memory/_inbox/ 等不属于资产落点）；"
+                    "四个可写目录见下方 examples。"
+                )
             return json.dumps(
                 {
                     "ok": False,
                     "error": "write_path_not_allowed",
                     "received_path": path,
                     "hint": (
-                        "write only craft / memory/episodic / memory/journal / memory/standing* / "
-                        "memory/MEMORY.md / profile/affect.md；"
+                        f"{_why} 可写范围：craft / memory/episodic / memory/journal / "
+                        "memory/standing* / memory/MEMORY.md / profile/affect.md；"
                         "传裸文件名时同时给 kind（episodic|journal|craft）可自动补目录"
                     ),
                     "examples": [
@@ -630,6 +762,10 @@ def assets_tool(
                     # 【self-evolution-bot · 2026-11-16 · 第20轮】按 kind 补目录时必须回显，
                     # 否则调用方以为自己写的是 path=裸名，下次 update_path 又得猜一遍。
                     **({"resolved_path": rel, "resolved_from_kind": True} if resolved_from_kind else {}),
+                    # 【self-evolution-bot · 2026-11-18 · 第55轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 补后缀必须回显：否则调用方以为落的是 `memory/journal/x`（无后缀），
+                    # 下次 update_path / read 又拿原串来查，落空一次再猜一次。
+                    **({"suffix_added": ".md"} if suffix_added else {}),
                     "updated": True,
                     "mode": write_mode,
                     "hint": (
