@@ -276,7 +276,7 @@ def _search_code_index_wallclock(
     # 【self-evolution-bot · 2026-11-19 · 第63轮】把三段耗时挂到本次调用上。
     # 判读口径：search_ms ≫ 其余 ⇒ 慢在检索本体；read_ms ≫ 其余 ⇒ 慢在附赠读取；
     # 三段之和 ≪ duration_ms ⇒ 慢在调度/排队，别再来检索代码里找。
-    _disabled_for_reverse_verify(
+    _note_search_timing(
         tool_call_id,
         search_ms=_search_ms,
         fmt_ms=_fmt_ms,
