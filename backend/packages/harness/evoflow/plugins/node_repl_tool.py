@@ -75,7 +75,8 @@ EvoFlow compact API guide (full ZCode dump omitted — this is the complete host
 5. Read with `await tab.playwright.domSnapshot()`; act via getByRole/getByText/… from snapshot facts.
 6. Screenshot only when visual evidence is required: `nodeRepl.emitImage(await tab.screenshot())`.
 Do **not** invent APIs like `tab.waitForLoadState` / `tab.domSnapshot` — use `tab.playwright.*`.
-**Critical:** return the full `domSnapshot()` string (or answer the user from its `text:` section). Never `.slice()` / truncate it — the host already budgets the payload. If `text:` has the answer, stop and reply; do not re-open the same URL.
+**Critical:** return the full `domSnapshot()` string (or answer the user from its `text:` section). Never `.slice()` / truncate it — the host already budgets the payload.
+If `text:` has the answer, stop and reply; do not re-open the same URL.
 
 ## Single-tab rules
 - One in-app WebView. Use `globalThis.tab` directly — do **not** spend a dedicated js call on
@@ -355,6 +356,26 @@ def _emit_cua_glow(thread_id: str, *, active: bool, tool_call_id: str = "") -> N
     2) Best-effort ``panel:cua_glow`` SSE (may no-op if broadcaster absent)
     """
     tid = str(thread_id or "").strip()
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 提示条上的「解除控制」必须停**正在操作电脑的那个会话**。原来状态里只有
+    # keys（tool_call_id），前端拿不到会话标识，只能猜 —— 多会话时会停错。
+    # 这里把 thread_id 一并记进状态，前端点按钮时原样带回来。
+    if tid:
+        try:
+            from evoflow.collab.cua_glow_state import set_cua_glow_thread
+            from evoflow.persistence.session_repositories import find_session_key_by_thread_id
+
+            # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+            # 前端「解除控制」只能靠 session_key 停会话（thread_id 是 UUID，停链不认）。
+            # 这里顺手查一次映射；查不到就算了，不阻塞 CUA 主路径。
+            sk = ""
+            try:
+                sk = str(find_session_key_by_thread_id(tid) or "")
+            except Exception:
+                logger.debug("cua glow session_key lookup failed", exc_info=True)
+            set_cua_glow_thread(tid, sk)
+        except Exception:
+            logger.debug("cua glow thread update failed", exc_info=True)
     call_id = str(tool_call_id or "").strip()
     key = call_id or (f"thread:{tid}" if tid else "default")
     status: dict[str, Any] = {}
@@ -398,6 +419,162 @@ def _emit_cua_glow(thread_id: str, *, active: bool, tool_call_id: str = "") -> N
         logger.debug("cua glow broadcast failed thread=%s active=%s", tid, active, exc_info=True)
 
 
+def _emit_cua_glow_step(code: str, *, key: str = "", title: str = "") -> None:
+    """把「这一步在做什么」推进给顶部提示条。
+
+    【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    【第69轮据此改造：改抄 ZCode 的做法，不再从代码里猜动作】
+
+    用户反馈「不知道 AI 操作到哪一步了」。我第一版是拿关键词表去匹配 js 源码
+    （screenshot/left_click/type_text…）—— 抄 ZCode 的历史教训前先看清楚：
+    **ZCode 2026-09-14 已把这条路整条删掉**（
+    `docs/cua/2026-09-14-windows-cua-indicator-repair-spec.md`），理由是词表
+    锚在「会随 SDK 演化的东西」上：它原来正则锚 `agent.computerUse.left_click(…)`，
+    SDK 改成 `agent.computerUse.computer.left_click({…})` 之后一个都匹配不上，
+    提示条静默失效两个月，而 CI 全程绿（夹具虚构了调用形态）。
+
+    正确来源是**模型自己写的 `title`**：`node_repl` 的 `title` 是契约必填
+    （`title: str = Field(min_length=1)`，提示词也明确要求「short user-facing
+    description in the user's language」），本函数按 cell 触发，天然是
+    「一个 cell 一个 title」，不需要任何词表，也不会随 SDK 变形而失效。
+
+    边界：`title` 为空（老调用方 / 测试直调）时退回关键词表，再认不出就返回空串
+    交给上层兜底文案 —— 绝不编造一个看起来更详细的假步骤。
+    """
+    try:
+        from evoflow.collab.cua_glow_state import set_cua_glow_step
+
+        label = _sanitize_cua_step_title(title) or _describe_cua_code(code)
+        set_cua_glow_step(label, key=key)
+    except Exception:
+        logger.debug("cua glow step update failed", exc_info=True)
+
+
+# 标题里不该出现在提示条上的实现术语（契约本身要求模型不写，但兜一层）。
+_STEP_TITLE_BANNED = (
+    "node_repl",
+    "node-repl",
+    "javascript",
+    "js ",
+    "js(",
+    "screenshot-scale",
+)
+
+
+def _sanitize_cua_step_title(title: str) -> str:
+    """把模型给的 title 收敛成提示条能显示的一句人话。
+
+    【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么还要洗：`title` 契约要求「不含 js / JavaScript / node_repl」等实现术语，
+    但契约是软约束（模型不一定每次遵守），而这句话会直接投到用户屏幕上。
+    清洗策略取「宁短勿假」：命中实现术语就整条丢弃，退回关键词表或空串，
+    而不是把词抠掉拼一句读不通的话。
+    """
+    text = " ".join(str(title or "").split())
+    if not text:
+        return ""
+    low = text.lower()
+    if any(bad in low for bad in _STEP_TITLE_BANNED):
+        return ""
+    # 【self-evolution-bot · 2026-11-19 · 第71轮】
+    # 原实现按**字符数**截到 24，而注释写「一行约 12 个汉字」——
+    # ① 注释与代码打架；② 按字符数对中英混排是错判据：
+    #    「点击 Chrome 地址栏」只有 5 汉字 + 6 西文 = 121px（放得下），
+    #    却被当成 12 字符截断 —— 用户看到无谓的「点击 Chrome 地址…」。
+    # 改成按**显示宽度**截：`.step { max-width: 156px }`，汉字≈13px、西文≈7.2px，
+    # 预留省略号 13px。这样放得下的标题原样保留，放不下的才截。
+    max_px = 156.0 - 13.0  # 预留一个省略号宽度
+    if _text_display_px(text) <= max_px:
+        return text
+    out = ""
+    used = 0.0
+    for ch in text:
+        w = 13.0 if ord(ch) > 0x2E7F else 7.2
+        if used + w > max_px:
+            break
+        out += ch
+        used += w
+    return out.rstrip() + "…"
+
+
+def _text_display_px(text: str) -> float:
+    """粗估一句话在 13px 卡片上的显示宽度（只用来决定截不截，不追求像素级精确）。
+
+    汉字/全角 ≈ 13px，西文/半角 ≈ 7.2px —— 与 `cua-glow-overlay.html`
+    的 `font-size: 13px` 对齐；与 CSS 的 ellipsis 形成双保险，不是替代。
+    """
+    return sum(13.0 if ord(ch) > 0x2E7F else 7.2 for ch in text)
+
+
+_CUA_STEP_RULES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("screenshot", "domSnapshot", "captureScreenshot"), "正在截图查看屏幕"),
+    (("left_click", "right_click", "middle_click", "double_click", ".click(", "click("), "正在点击"),
+    (("type_text", "typeText", ".type(", "key(", "hotkey("), "正在输入 / 按键"),
+    (("scroll",), "正在滚动页面"),
+    (("drag",), "正在拖拽"),
+    (("get_app_state", "list_apps", "get_window"), "正在查看当前窗口"),
+    (("setupComputerUseRuntime", "computer-use-client"), "正在连接电脑控制"),
+)
+
+
+def _describe_cua_code(code: str) -> str:
+    """从一段 CUA js 里提炼一句人话步骤。认不出返回空串（交给上层兜底文案）。"""
+    raw = str(code or "")
+    if not raw:
+        return ""
+    for needles, label in _CUA_STEP_RULES:
+        if any(n in raw for n in needles):
+            return label
+    return ""
+
+
+def _cua_control_revoked(thread_id: str) -> bool:
+    """用户是否已收回**本会话**的电脑操作权（不影响其它工具、其它会话、AI 回合）。
+
+    【self-evolution-bot · 2026-11-19 · 第72轮】必须按会话判定：
+    端到端实测发现传空 session_key 时，A 会话解除控制会把 B 会话一起拦掉 ——
+    用户开着两个对话，另一个会莫名开始「电脑控制被收回」。
+    这里用 thread_id 反查 session_key（与提示条同一套映射），查不到才退回全局判定。
+    """
+    tid = str(thread_id or "").strip()
+    try:
+        from evoflow.collab.cua_glow_state import is_cua_control_revoked
+
+        sk = ""
+        if tid:
+            try:
+                from evoflow.persistence.session_repositories import (
+                    find_session_key_by_thread_id,
+                )
+
+                sk = str(find_session_key_by_thread_id(tid) or "")
+            except Exception:
+                logger.debug("cua revoke: session_key lookup failed tid=%s", tid, exc_info=True)
+        return bool(is_cua_control_revoked(session_key=sk))
+    except Exception:
+        # 取证失败绝不拦住用户收回控制：宁可少拦一次，也不能让「解除」失效。
+        logger.debug("cua control revoked check failed thread=%s", thread_id, exc_info=True)
+        return False
+
+
+def _cua_control_revoked_payload() -> str:
+    """模型可见文案：说清「谁做的、现在不能做什么、怎么继续」。
+
+    【self-evolution-bot · 2026-11-19 · 第72轮】三条都必要：
+      ① 不告诉它「用户按的不是停止 AI」，它会以为自己被整体终止而收尾；
+      ② 不说「别重试」，它会换个坐标继续点到超时；
+      ③ 不说「用户发新消息即恢复」，它会叫用户重新开会话（其实不用）。
+    注意：这不是工具失败，别拼 "[node_repl] call failed." —— 那会被判成错误。
+    """
+    return (
+        "[CUA_CONTROL_REVOKED] 用户刚刚点「解除控制」，收回了电脑操作权。\n"
+        "现在起**不要**再调用电脑控制（不要点击/输入/截图操作桌面），本次调用已被跳过，不需要重试。\n"
+        "这只是取消电脑控制，**不是**停止你：你仍然可以继续用其它工具或用文字回答用户。\n"
+        "如果任务必须碰电脑，请用文字告诉用户「已停止操作电脑，需要继续请再发一条消息」——"
+        "用户发出新消息后，电脑操作权会自动恢复。"
+    )
+
+
 def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any, Any] | None, tool_call_id: str) -> str | Command:
     # `title` 仅用于面板显示，不转发给 node-repl-host。
     import time as _time
@@ -413,9 +590,25 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
     # （两个对话同时开电脑控制时，后到的拿到 CONTROLLER_BUSY 而不是互相打断）。
     kwargs["session_id"] = f"evoflow-thread:{thread_id}"
     cua_cell = _code_touches_computer_use(code)
+    # 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
+    # 用户点「解除控制」= 只收回电脑操作权（不是停 AI，用户原话纠正过）。
+    # 收回后必须**在工具返回里明说**，否则模型看不到这个事实，
+    # 会一次次重试 CUA 直到超时，用户看到的是「卡住」而不是「已解除」。
+    if cua_cell and _cua_control_revoked(thread_id):
+        _mcp_log(
+            f"CALL skipped control_revoked thread={thread_id} title={title!r} "
+            f"code({len(code)} chars)=" + code.replace("\n", "\\n")[:600]
+        )
+        return _cua_control_revoked_payload()
     if cua_cell:
         # 权威触发：工具真正开跑时亮顶部提示（不依赖前端 AG-UI / V4 识别）。
         _emit_cua_glow(thread_id, active=True, tool_call_id=tool_call_id)
+        # 【self-evolution-bot · 2026-11-19 · 第71轮】同时推进「这一步在做什么」。
+        # 必须把 title 一起传下去：title 是契约必填（min_length=1）、模型每次调用
+        # 都自己写的一句话人话，是最准的步骤来源。漏传它就只剩关键词表兜底，
+        # 认不出（比如 CUA 用的自定义 API 组合）时提示条就退回「正在操作电脑」，
+        # 用户看不到具体在做什么 —— 函数支持但调用点不传，等于没实现。
+        _emit_cua_glow_step(code, key=tool_call_id, title=title)
     # MCP 调用日志：完整输入（代码全文截断 3000 字符）+ 标题 + 会话。
     _mcp_log(
         f"CALL start title={title!r} thread={thread_id} code({len(code)} chars)="

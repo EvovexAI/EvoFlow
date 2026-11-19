@@ -55,6 +55,21 @@ class LangGraphRouteLoggerMiddleware:
                     lg_run_id = parts[i + 1]
                     break
 
+        # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+        # 本中间件是最外层（install_pre_start_middleware 晚于 setup_middleware 注册），
+        # 在这里把 thread_id 挂到 scope，内层 GatewayRequestLoggingMiddleware 落库时
+        # 就能带上它 —— 这是「只写一条」仍然保留 LangGraph 元信息的关键。
+        if lg_thread_id:
+            try:
+                _extra = scope.get("evoflow_obs_extra")
+                if not isinstance(_extra, dict):
+                    _extra = {}
+                    scope["evoflow_obs_extra"] = _extra
+                _extra["thread_id"] = lg_thread_id
+                _extra["source"] = "langgraph_mount"
+            except Exception:
+                pass
+
         # Set the stream-trace contextvar early so the chat-model layer
         # (vendor_roundtrip) can find the thread id even when its async
         # stack does not carry langgraph's runnable config.
@@ -332,15 +347,38 @@ class LangGraphRouteLoggerMiddleware:
         _gs_thread_id = lg_thread_id  # capture for heartbeat
 
         def _record_langgraph_obs(*, stream_status: str | None = None) -> None:
+            """Fallback writer — only fires when the HTTP middleware did NOT record.
+
+            【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+            缺陷（现网实证）：`/api/langgraph/threads/{id}/runs/stream` 被记两次 —
+            本中间件记一条 `source=langgraph_mount`，外层
+            `GatewayRequestLoggingMiddleware` 又记一条 `source=gateway`，时长几乎相同
+            （653,493ms vs 653,500ms），实测 161 对 161 完全对齐。按路由聚合时
+            调用量与总耗时都翻倍。
+
+            修法：**由外层中间件作为唯一写入方**（它测的是整条 HTTP 请求，口径统一），
+            本层只在发现外层没写时才补一条 —— 既去掉重复行，又不会因外层被排除/
+            异常而丢掉 LangGraph 路由的可见性。线程 id 已在请求开始时装进
+            ``scope["evoflow_obs_extra"]``，由外层带入。
+            """
             nonlocal obs_logged
             if obs_logged:
                 return
             obs_logged = True
             try:
+                if scope.get("evoflow_obs_recorded"):
+                    return
+                status = int(response_status or 500)
+                # 1xx/204/304 之类没有 body 的响应不该被记成 500（旧实现按 `or 500`）。
+                if response_status is None:
+                    status = 500 if not response_started else 200
                 from app.gateway.gateway_obs_record import build_gateway_obs_payload, schedule_gateway_observability_record
 
                 elapsed_ms = (_lg_time.monotonic() - t0) * 1000
                 meta: dict[str, object] = {"source": "langgraph_mount"}
+                # 兜底写入也打标记，重启后能直接从库里数出
+                # 「谁写的这条」，不用靠时长猜（第68轮）。
+                meta["obs_writer"] = "langgraph_fallback"
                 if stream_status:
                     meta["stream_status"] = stream_status
                 if lg_thread_id:
@@ -349,7 +387,7 @@ class LangGraphRouteLoggerMiddleware:
                     build_gateway_obs_payload(
                         method=method,
                         path=path,
-                        status_code=int(response_status or 500),
+                        status_code=status,
                         duration_ms=elapsed_ms,
                         query_string=query or None,
                         metadata=meta,

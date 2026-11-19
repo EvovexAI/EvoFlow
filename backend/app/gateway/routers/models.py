@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -581,28 +582,91 @@ class EmbeddingProbeRequest(BaseModel):
     model_name: str = Field(..., description="Configured model name (evoflow_models.name)")
 
 
+def _embedding_probe_timeout_s() -> float:
+    """Wall clock for UI probe — first local load can be slow; never hang forever."""
+    raw = (os.getenv("EVOFLOW_EMBEDDING_PROBE_TIMEOUT_SEC") or "12").strip()
+    try:
+        return max(3.0, min(60.0, float(raw)))
+    except ValueError:
+        return 12.0
+
+
 @router.post(
     "/models/embedding-probe",
     summary="Probe Embedding Model",
     description="Run a lightweight embedding call to verify the model is ready.",
 )
 async def probe_embedding_model(http_request: Request, request: EmbeddingProbeRequest) -> dict:
-    """Return whether the named embedding model is usable."""
+    """Return whether the named embedding model is usable.
+
+    Bound by ``EVOFLOW_EMBEDDING_PROBE_TIMEOUT_SEC`` (default 12s) and classified
+    as best-effort traffic so a cold local-model import cannot wedge CONTROL.
+    """
     require_org_admin(http_request)
     from evoflow.config import get_app_config
-    from evoflow.knowledge.embedding import get_embedding
 
     config = get_app_config()
     mc = config.get_model_config(request.model_name.strip())
     if mc is None:
         raise HTTPException(status_code=404, detail=f"Model '{request.model_name}' not found")
+
+    # Windows: never start ST import in Gateway — wait_for cannot kill GIL-held
+    # worker (2026-11-19 15:03 hang: embedding-probe → stall 132s).
+    vendor = str(getattr(mc, "vendor", "") or "").strip().lower()
+    if vendor == "local":
+        from evoflow.knowledge.embedding.local_provider import (
+            _WIN32_INPROCESS_BLOCK_MSG,
+            inprocess_local_embed_allowed,
+        )
+
+        if not inprocess_local_embed_allowed():
+            return {"ok": False, "message": _WIN32_INPROCESS_BLOCK_MSG}
+
+    timeout_s = _embedding_probe_timeout_s()
+
+    async def _probe() -> list[float]:
+        # Import inside the task so first-hit registry/torch cost is cancellable
+        # with the wait_for budget (module import of embedding pulls heavy deps).
+        from evoflow.knowledge.embedding import get_embedding
+
+        return await get_embedding("probe", mc, purpose="probe")
+
+    slot = None
     try:
-        vec = await get_embedding("probe", mc, purpose="probe")
+        from app.gateway.traffic_lanes import best_effort_lane_slot
+
+        slot = best_effort_lane_slot()
+        await asyncio.wait_for(slot.acquire(), timeout=2.0)
+    except TimeoutError:
+        return {
+            "ok": False,
+            "message": "Gateway 正忙，向量探测已暂缓（稍后重试）",
+        }
+    except Exception:
+        slot = None
+
+    try:
+        try:
+            vec = await asyncio.wait_for(_probe(), timeout=timeout_s)
+        except TimeoutError:
+            return {
+                "ok": False,
+                "message": (
+                    f"探测超时（{timeout_s:.0f}s）。本地向量模型首次加载可能仍在后台进行，"
+                    "请稍后再试；知识库可先用关键词检索。"
+                ),
+            }
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
         if vec and len(vec) > 0:
             return {"ok": True}
         return {"ok": False, "message": "返回向量为空"}
-    except Exception as exc:
-        return {"ok": False, "message": str(exc)}
+    finally:
+        if slot is not None:
+            try:
+                slot.release()
+            except Exception:
+                pass
 
 
 class LocalEmbeddingHubRequest(BaseModel):

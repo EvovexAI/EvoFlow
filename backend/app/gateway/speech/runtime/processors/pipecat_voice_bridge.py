@@ -26,32 +26,53 @@ from typing import Any
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.audio.vad.vad_analyzer import VADParams
 from pipecat.frames.frames import (
+    BotStartedSpeakingFrame as PipeBotStartedSpeakingFrame,
+)
+from pipecat.frames.frames import (
+    BotStoppedSpeakingFrame as PipeBotStoppedSpeakingFrame,
+)
+from pipecat.frames.frames import (
     EndFrame as PipeEndFrame,
 )
 from pipecat.frames.frames import (
-    BotStartedSpeakingFrame as PipeBotStartedSpeakingFrame,
-    BotStoppedSpeakingFrame as PipeBotStoppedSpeakingFrame,
     ErrorFrame as PipeErrorFrame,
+)
+from pipecat.frames.frames import (
     InputAudioRawFrame,
     InterimTranscriptionFrame,
-    InterruptionFrame as PipeInterruptionFrame,
     LLMFullResponseEndFrame,
     LLMFullResponseStartFrame,
-    LLMTextFrame as PipeLLMTextFrame,
     STTMuteFrame,
-    TranscriptionFrame as PipeTranscriptionFrame,
-    TTSAudioRawFrame as PipeTTSAudioRawFrame,
-    TTSSpeakFrame as PipeTTSSpeakFrame,
     TTSStartedFrame,
     TTSStoppedFrame,
-    UserStartedSpeakingFrame as PipeUserStartedSpeakingFrame,
-    UserStoppedSpeakingFrame as PipeUserStoppedSpeakingFrame,
     VADUserStartedSpeakingFrame,
     VADUserStoppedSpeakingFrame,
 )
+from pipecat.frames.frames import (
+    InterruptionFrame as PipeInterruptionFrame,
+)
+from pipecat.frames.frames import (
+    LLMTextFrame as PipeLLMTextFrame,
+)
+from pipecat.frames.frames import (
+    TranscriptionFrame as PipeTranscriptionFrame,
+)
+from pipecat.frames.frames import (
+    TTSAudioRawFrame as PipeTTSAudioRawFrame,
+)
+from pipecat.frames.frames import (
+    TTSSpeakFrame as PipeTTSSpeakFrame,
+)
+from pipecat.frames.frames import (
+    UserStartedSpeakingFrame as PipeUserStartedSpeakingFrame,
+)
+from pipecat.frames.frames import (
+    UserStoppedSpeakingFrame as PipeUserStoppedSpeakingFrame,
+)
 from pipecat.observers.user_bot_latency_observer import UserBotLatencyObserver
 from pipecat.pipeline.pipeline import Pipeline as PipePipeline
-from pipecat.pipeline.worker import PipelineParams, PipelineWorker as PipeWorker
+from pipecat.pipeline.worker import PipelineParams
+from pipecat.pipeline.worker import PipelineWorker as PipeWorker
 from pipecat.processors.audio.vad_processor import VADProcessor
 from pipecat.processors.frame_processor import FrameDirection as PipeDirection
 from pipecat.processors.frame_processor import FrameProcessor as PipeFrameProcessor
@@ -110,9 +131,12 @@ _INTERJECTION_TOKENS = {
     "嗯", "嗯嗯", "嗯呐", "啊", "啊啊", "啊哈", "哦", "哦哦", "噢", "喔", "呃", "呃呃",
     "诶", "欸", "唉", "哎", "哈", "哈哈", "哈哈哈", "嘿", "呀", "哇", "唔", "哟",
 }
-# 语音播报预算：超过后停止播正文，改播收尾提示（长回复干听是「不丝滑」的最大来源；
-# 完整文本仍在上屏/聊天区）。约 25s 语音。
-_VOICE_SPEAK_MAX_CHARS = 120
+# 语音播报预算（可读字）：软上限后若尾段仍短 → 直接念完，勿插「发到聊天」；
+# 尾段够长才截断改提示。硬上限防软尾一直滴字拖播。完整文本仍在上屏/聊天区。
+# 旧值 120 + 无软尾：日志常见「已播=120 后续≈6字 → 收尾提示」，听感像念完前卡住。
+_VOICE_SPEAK_MAX_CHARS = 160
+_VOICE_SPEAK_SOFT_TAIL = 80
+_VOICE_SPEAK_HARD_MAX = 260
 _VOICE_SPEAK_TRIM_NOTICE = "详细内容我发到聊天里了。"
 
 
@@ -208,7 +232,7 @@ def _peel_committed_asr_prefix(text: str, committed: list[str]) -> str:
     return t
 
 
-def _remember_committed_turn(host: "PipecatVoiceBridge", text: str) -> None:
+def _remember_committed_turn(host: PipecatVoiceBridge, text: str) -> None:
     t = (text or "").strip()
     if not t:
         return
@@ -343,8 +367,8 @@ def _build_user_turn_strategies(
     }
     if use_smart:
         try:
-            from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
             from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+            from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
             from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 
             # stop_secs：喂给分析器的静默窗口。旧值 max(3.0, …) 是 pipecat 库默认，
@@ -693,10 +717,26 @@ class PipecatVoiceBridge(FrameProcessor):
         self._stream_buf += text
         await self._flush_stream_sentences(force=False)
 
+    def _remaining_speak_chars(self, buf: str | None = None) -> int:
+        """缓冲 + 合并区里还没送合成的可读字数。"""
+        raw = f"{self._stream_merge or ''}{buf if buf is not None else self._stream_buf or ''}"
+        return _readable_len(raw)
+
+    async def _trim_speak_with_notice(self, *, dropped: int, reason: str) -> None:
+        self._turn_trimmed = True
+        self._stream_buf = ""
+        self._stream_merge = ""
+        voice_log(
+            "播报",
+            f"长回复播报截断 turn={self._turn} 已播={self._turn_spoken_chars}字 "
+            f"后续≈{dropped}字 ({reason}) → 改播收尾提示",
+        )
+        await self._push_hold_body_to_tts(_VOICE_SPEAK_TRIM_NOTICE)
+
     async def _flush_stream_sentences(self, *, force: bool) -> None:
         """从缓冲切出可合成的句段（强标点/首句快切/超长硬切），推 TTS。
 
-        超出播报预算后停止播正文（完整文本仍在上屏/聊天区），改播一句收尾提示。
+        软预算用尽后：尾段短 → 继续念完；尾段长 / 触硬顶 → 截断并播收尾提示。
         """
         buf = self._stream_buf
         if not buf or not _has_readable(buf):
@@ -706,19 +746,25 @@ class PipecatVoiceBridge(FrameProcessor):
             self._stream_buf = ""
             self._stream_merge = ""
             return
-        if self._turn_spoken_chars >= _VOICE_SPEAK_MAX_CHARS:
+
+        remaining = self._remaining_speak_chars(buf)
+        spoken = self._turn_spoken_chars
+        if spoken >= _VOICE_SPEAK_HARD_MAX:
+            await self._trim_speak_with_notice(dropped=remaining, reason="硬顶")
+            return
+        if spoken >= _VOICE_SPEAK_MAX_CHARS and remaining > _VOICE_SPEAK_SOFT_TAIL:
             # 预算已用完且后面还有实质内容 → 截断 + 收尾提示
-            self._turn_trimmed = True
-            self._stream_buf = ""
-            self._stream_merge = ""
-            dropped = len(_READABLE.findall(buf))
+            await self._trim_speak_with_notice(dropped=remaining, reason="软预算+长尾")
+            return
+        if spoken >= _VOICE_SPEAK_MAX_CHARS and remaining > 0:
+            # 尾段不长：把剩余念完，不插「发到聊天」（今日日志：后续≈6 字仍截断）
             voice_log(
                 "播报",
-                f"长回复播报截断 turn={self._turn} 已播={self._turn_spoken_chars}字 "
-                f"后续≈{dropped}字 → 改播收尾提示",
+                f"软预算超限但尾段短 turn={self._turn} 已播={spoken}字 "
+                f"后续≈{remaining}字≤{_VOICE_SPEAK_SOFT_TAIL} → 继续念完"
+                f"{'（End冲尾）' if force else ''}",
             )
-            await self._push_hold_body_to_tts(_VOICE_SPEAK_TRIM_NOTICE)
-            return
+
         cut = -1
         strong_cut = False
         for m in _STREAM_SENT_END_RE.finditer(buf):
@@ -742,6 +788,14 @@ class PipecatVoiceBridge(FrameProcessor):
                     cut = len(buf)
             if cut < 0 and force and _has_readable(buf):
                 cut = len(buf)
+            # 已超软预算且尾段短：不必等强句号，尽快把剩余送出去（避免干等 End）
+            if (
+                cut < 0
+                and spoken >= _VOICE_SPEAK_MAX_CHARS
+                and remaining <= _VOICE_SPEAK_SOFT_TAIL
+                and _has_readable(buf)
+            ):
+                cut = len(buf)
         if cut <= 0:
             return
         chunk, self._stream_buf = buf[:cut], buf[cut:]
@@ -753,7 +807,9 @@ class PipecatVoiceBridge(FrameProcessor):
         # 合并：软切/硬切只攒字；中途送合成必须强句号且够长，否则等 End 整段一次。
         pending = f"{self._stream_merge}{body}" if self._stream_merge else body
         readable = _readable_len(pending)
-        should_emit = force or (
+        # 软超预算收尾：允许低于 MIN_EMIT 也送，避免尾巴卡在 merge 里再触发收尾提示
+        soft_finish = spoken >= _VOICE_SPEAK_MAX_CHARS and remaining <= _VOICE_SPEAK_SOFT_TAIL
+        should_emit = force or soft_finish or (
             strong_cut and readable >= _STREAM_MIN_EMIT_CHARS
         )
         if not should_emit:
@@ -774,10 +830,10 @@ class PipecatVoiceBridge(FrameProcessor):
             f"流式切句 turn={self._turn} len={len(pending)}："
             f"「{pending[:60]}」"
             + ("…" if len(pending) > 60 else "")
-            + ("" if pending == body else f"（合并自短句）"),
+            + ("" if pending == body else "（合并自短句）"),
         )
         await self._push_hold_body_to_tts(pending)
-        self._turn_spoken_chars += len(pending)
+        self._turn_spoken_chars += readable
 
     async def inject_assistant_end(self) -> None:
         plain = (self._assistant_plain or "").strip()
@@ -809,15 +865,31 @@ class PipecatVoiceBridge(FrameProcessor):
             # force 冲完 stream_buf 后，仍可能有未达阈值的 merge 残段
             if self._stream_merge and _has_readable(self._stream_merge):
                 tail = self._stream_merge
-                self._stream_merge = ""
-                self._stream_opened = True
-                voice_log(
-                    "分句",
-                    f"冲刷合并残句 turn={self._turn} len={len(tail)}：「{tail[:60]}」"
-                    + ("…" if len(tail) > 60 else ""),
-                )
-                await self._push_hold_body_to_tts(tail)
-                self._turn_spoken_chars += len(tail)
+                tail_n = _readable_len(tail)
+                # End 残句：超软预算但尾短 → 念完；尾长/硬顶 → 收尾提示（与流式闸门一致）
+                if (
+                    not self._turn_trimmed
+                    and self._turn_spoken_chars >= _VOICE_SPEAK_MAX_CHARS
+                    and (
+                        self._turn_spoken_chars >= _VOICE_SPEAK_HARD_MAX
+                        or tail_n > _VOICE_SPEAK_SOFT_TAIL
+                    )
+                ):
+                    self._stream_merge = ""
+                    await self._trim_speak_with_notice(
+                        dropped=tail_n,
+                        reason="End残句过长" if tail_n > _VOICE_SPEAK_SOFT_TAIL else "End硬顶",
+                    )
+                else:
+                    self._stream_merge = ""
+                    self._stream_opened = True
+                    voice_log(
+                        "分句",
+                        f"冲刷合并残句 turn={self._turn} len={len(tail)}：「{tail[:60]}」"
+                        + ("…" if len(tail) > 60 else ""),
+                    )
+                    await self._push_hold_body_to_tts(tail)
+                    self._turn_spoken_chars += tail_n
         if self._turn_trimmed:
             tail = self._stream_buf
             if _has_readable(tail):

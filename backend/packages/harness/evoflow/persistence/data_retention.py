@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -110,18 +111,48 @@ def strip_gateway_request_heavy_columns(conn: sqlite3.Connection, *, json_limit:
     return int(cur.rowcount or 0)
 
 
-def _delete_oldest_rows(conn: sqlite3.Connection, table: str, *, batch: int, time_col: str = "occurred_at") -> int:
-    cur = conn.execute(
-        f"""
-        DELETE FROM {table}
-        WHERE rowid IN (
-            SELECT rowid FROM {table}
-            ORDER BY {time_col} ASC
-            LIMIT ?
+def _delete_oldest_rows(
+    conn: sqlite3.Connection,
+    table: str,
+    *,
+    batch: int,
+    time_col: str = "occurred_at",
+    older_than: str | None = None,
+) -> int:
+    """Delete the oldest ``batch`` rows; ``older_than`` makes that a hard floor.
+
+    【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    ``older_than`` 新增：体积上限压缩时必须能给"保留天数"留一条硬底线，
+    否则 2GB 上限会把 7 天接口历史削成 13 小时（11-19 实测：235,970 行全在同一天）。
+
+    时间比较用 ``julianday()`` 而不是字符串排序：``occurred_at`` 存的是
+    ``+08:00`` 偏移，而 ``_cutoff_iso`` 产出 ``Z`` 后缀，同一天内直接比字符串会错 8 小时。
+    """
+    if older_than:
+        cur = conn.execute(
+            f"""
+            DELETE FROM {table}
+            WHERE rowid IN (
+                SELECT rowid FROM {table}
+                WHERE julianday({time_col}) < julianday(?)
+                ORDER BY {time_col} ASC
+                LIMIT ?
+            )
+            """,
+            (older_than, max(1, int(batch))),
         )
-        """,
-        (max(1, int(batch)),),
-    )
+    else:
+        cur = conn.execute(
+            f"""
+            DELETE FROM {table}
+            WHERE rowid IN (
+                SELECT rowid FROM {table}
+                ORDER BY {time_col} ASC
+                LIMIT ?
+            )
+            """,
+            (max(1, int(batch)),),
+        )
     conn.commit()
     return int(cur.rowcount or 0)
 
@@ -151,6 +182,44 @@ def strip_model_invocation_heavy_columns(conn: sqlite3.Connection, *, json_limit
     return int(cur.rowcount or 0)
 
 
+def _vacuum_max_bytes() -> int:
+    """Max SQLite file size allowed for in-process VACUUM (0 = unlimited).
+
+    Multi-GB VACUUM holds an exclusive lock for minutes and stalls every Gateway
+    REST that touches the DB (2026-11-19 15:03: proactive/approvals 86s while
+    evoflow.db / observability.db were vacuumed). Override with
+    ``EVOFLOW_VACUUM_MAX_BYTES`` (bytes).
+    """
+    raw = (os.getenv("EVOFLOW_VACUUM_MAX_BYTES") or "").strip()
+    if raw:
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            pass
+    return 256 * 1024 * 1024
+
+
+def _skip_vacuum_due_to_size(path: Path) -> bool:
+    """True when *path* is too large for safe in-process VACUUM."""
+    max_b = _vacuum_max_bytes()
+    if max_b <= 0:
+        return False
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return False
+    if size <= max_b:
+        return False
+    logger.warning(
+        "skip in-process VACUUM for %s (size=%.2f GB > limit %.2f GB); "
+        "set EVOFLOW_VACUUM_MAX_BYTES=0 to force, or compact offline",
+        path,
+        size / (1024**3),
+        max_b / (1024**3),
+    )
+    return True
+
+
 def _vacuum_observability_rebuild(obs_path: Path) -> bool:
     """Rebuild observability.db via ``VACUUM INTO`` (compact file, drop WAL).
 
@@ -158,6 +227,8 @@ def _vacuum_observability_rebuild(obs_path: Path) -> bool:
     file replaced the original.
     """
     if not obs_path.is_file():
+        return False
+    if _skip_vacuum_due_to_size(obs_path):
         return False
     rebuilt = obs_path.with_suffix(".db.rebuild")
     backup = obs_path.with_suffix(".db.bak")
@@ -207,9 +278,24 @@ def enforce_observability_db_size_cap(
     max_bytes: int,
     min_gateway_days: int = 3,
     model_json_limit: int = 32 * 1024,
+    min_model_days: int = 3,
 ) -> tuple[int, int, bool]:
-    """Shrink observability.db when it exceeds *max_bytes*. Returns (stripped, deleted, vacuumed)."""
-    _ = min_gateway_days  # reserved for future soft-retention tuning
+    """Shrink observability.db when it exceeds *max_bytes*. Returns (stripped, deleted, vacuumed).
+
+    【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    ``min_gateway_days`` / ``min_model_days`` 从"保留参数（空实现）"变成**真硬底线**。
+
+    缺陷（现网实证 2026-11-19）：配置里 ``gateway_requests_days=7``，实际
+    ``evoflow_obs_gateway_requests`` 只剩当天 13 小时（235,970 行全在 11-19）。
+    根因是本函数按 ``target_ratio`` 等比删最旧行、且**先删网关请求再删模型 JSON**，
+    2GB 上限打满时把「最能说明接口问题的表」删成 0，却保住了 912MB 的模型请求体。
+
+    修复口径：
+    ① 先剥大字段（模型 request/response JSON）——这是体积大头，不丢耗时数字；
+    ② 删行只在「超过底线天数」的行里删，绝不碰底线内的数据；
+    ③ 若守住底线后仍超上限，**明确 warning 报超出多少**，由人决定调高
+       ``observability_max_size_gb`` 或缩短保留天数，而不是静默削掉近期历史。
+    """
     if not obs_path.is_file() or max_bytes <= 0:
         return (0, 0, False)
     before = _observability_db_bytes(obs_path)
@@ -241,12 +327,15 @@ def enforce_observability_db_size_cap(
             keep_gateway = max(5_000, keep_gateway)
         keep_gateway = min(gw_count, keep_gateway)
         to_delete = max(0, gw_count - keep_gateway)
+        # 硬底线：底线天数内的行一条都不许删（2026-11-19 实测 7 天被削成 13 小时）。
+        gw_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
         batch = 50_000
         while to_delete > 0:
             n = _delete_oldest_rows(
                 conn,
                 ObservabilityTable.GATEWAY_REQUESTS,
                 batch=min(batch, to_delete),
+                older_than=gw_floor,
             )
             if n <= 0:
                 break
@@ -261,12 +350,14 @@ def enforce_observability_db_size_cap(
                 keep_model = max(2_000, keep_model)
             keep_model = min(model_count, keep_model)
             model_to_delete = max(0, model_count - keep_model)
+            model_floor = _cutoff_iso(max(1, int(min_model_days))) if min_model_days > 0 else None
             while model_to_delete > 0:
                 n = _delete_oldest_rows(
                     conn,
                     ObservabilityTable.MODEL_INVOCATIONS,
                     batch=min(batch, model_to_delete),
                     time_col="requested_at",
+                    older_than=model_floor,
                 )
                 if n <= 0:
                     break
@@ -278,11 +369,13 @@ def enforce_observability_db_size_cap(
             trace_count = int(trace_count_row[0] or 0) if trace_count_row else 0
             keep_trace = max(10_000, int(trace_count * target_ratio * 0.85))
             trace_to_delete = max(0, trace_count - keep_trace)
+            trace_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
             while trace_to_delete > 0:
                 n = _delete_oldest_rows(
                     conn,
                     ObservabilityTable.TRACE_EVENTS,
                     batch=min(batch, trace_to_delete),
+                    older_than=trace_floor,
                 )
                 if n <= 0:
                     break
@@ -296,7 +389,7 @@ def enforce_observability_db_size_cap(
 
     if stripped > 0 or deleted > 0:
         vacuumed = _vacuum_observability_rebuild(obs_path)
-        if not vacuumed:
+        if not vacuumed and not _skip_vacuum_due_to_size(obs_path):
             try:
                 conn = sqlite3.connect(str(obs_path), timeout=300.0)
                 conn.execute("PRAGMA busy_timeout=300000")
@@ -318,6 +411,19 @@ def enforce_observability_db_size_cap(
         before / (1024**3),
         after / (1024**3),
     )
+    # 【self-evolution-bot · 2026-11-19 · 第68轮】守住底线仍超上限 → 必须**明确报出来**。
+    # 旧行为是默默把近期历史削到 0 行，运维看面板只看到"统计没了"，查不到原因。
+    if after > max_bytes:
+        logger.warning(
+            "observability.db still %.2f GB over cap %.2f GB after compaction; "
+            "recent history preserved by floor (gateway>=%dd, model>=%dd). "
+            "Raise data_retention.observability_max_size_gb or lower retention days — "
+            "NOT silently dropping recent rows.",
+            after / (1024**3),
+            max_bytes / (1024**3),
+            int(min_gateway_days),
+            int(min_model_days),
+        )
     return (stripped, deleted, vacuumed)
 
 
@@ -722,6 +828,8 @@ def _vacuum_paths(paths: list[Path]) -> list[str]:
     done: list[str] = []
     for p in paths:
         if not p.is_file():
+            continue
+        if _skip_vacuum_due_to_size(p):
             continue
         try:
             conn = sqlite3.connect(str(p), timeout=120.0)

@@ -122,6 +122,24 @@ def test_execution_state_and_index_status_are_best_effort() -> None:
     )
 
 
+def test_embedding_probe_is_best_effort_not_control() -> None:
+    """Local embedding probe must not sit under /api/models CONTROL prefix."""
+    assert (
+        classify_path("/api/models/embedding-probe", method="POST").lane == Lane.BEST_EFFORT
+    )
+    assert (
+        classify_path("/api/models/local-embedding/download", method="POST").lane
+        == Lane.BEST_EFFORT
+    )
+    assert (
+        classify_path("/api/models/local-embedding/runtime", method="GET").lane
+        == Lane.BEST_EFFORT
+    )
+    # Ordinary model list stays CONTROL (composer snappy).
+    assert classify_path("/api/models", method="GET").lane == Lane.CONTROL
+    assert classify_path("/api/models/foo", method="GET").lane == Lane.CONTROL
+
+
 def test_sessions_list_slot_reusable() -> None:
     from app.gateway.traffic_lanes import sessions_list_slot
 
