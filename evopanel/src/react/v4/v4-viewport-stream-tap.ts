@@ -2,8 +2,8 @@
  * 视口调试浮层用：AG-UI / V4 流式原始帧环形缓冲。
  * 在 wire 入口轻量落盘（裁剪大字段），供浮层滚动查看「流式长什么样」。
  *
- * 一行 headline 必须能看清：序号 + 思考/正文/工具 + 内容摘要。
- * V4 的 row.delta 只有 path/append（没有 text 字段）；靠旁路记住 rowId→kind。
+ * 浮层默认只看：序号 + 时间 + 类型(用户/正文/思考/工具) + 摘要；
+ * 点开才展开 JSON。V4 有 deltas 时按条落环，避免挤成一坨。
  * 同时按会话写入 stream-compare/{sid}/overlay/viewport-stream.log。
  */
 
@@ -20,6 +20,11 @@ export type ViewportStreamTapEntry = {
   sessionId: string;
   runId: string;
   type: string;
+  /** 类型短标：用户 / 正文 / 思考 / 工具 / 开跑… */
+  kindLabel: string;
+  /** 给人看的摘要：用户文案 / 正文前几句 / 工具名 / 思考开头 */
+  summary: string;
+  /** 兼容旧诊断复制：kindLabel + summary */
   headline: string;
   jsonText: string;
 };
@@ -34,8 +39,9 @@ export function sessionIdFromV4Topic(topic: unknown): string {
 const MAX_RING = 200;
 const MAX_JSON_CHARS = 48_000;
 const MAX_DELTA_CHARS = 400;
-const MAX_HEAD_SNIPPET = 240;
-const MAX_HEAD_DELTAS = 8;
+/** 摘要约前 2 句 / ~120 字，够扫一眼 */
+const MAX_HEAD_SNIPPET = 120;
+const MAX_HEAD_DELTAS = 12;
 
 let nextId = 1;
 const ring: ViewportStreamTapEntry[] = [];
@@ -49,6 +55,28 @@ function clipText(raw: unknown, max: number): string {
   const s = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (s.length <= max) return s;
   return `${s.slice(0, max)}[+${s.length - max}]`;
+}
+
+/** 取前几句（中英文句号），再按字数封顶。 */
+function firstSentences(raw: unknown, maxChars = MAX_HEAD_SNIPPET): string {
+  const s = String(raw ?? "").replace(/\s+/g, " ").trim();
+  if (!s) return "";
+  let cut = s.length;
+  let breaks = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "。" || ch === "！" || ch === "？" || ch === "." || ch === "!" || ch === "?") {
+      breaks += 1;
+      if (breaks >= 2) {
+        cut = i + 1;
+        break;
+      }
+    }
+  }
+  const head = s.slice(0, Math.min(cut, maxChars)).trim();
+  if (head.length >= s.length) return head;
+  if (head.length >= maxChars) return `${head}[+${s.length - head.length}]`;
+  return head.length < s.length ? `${head}[+${s.length - head.length}]` : head;
 }
 
 function safeJson(value: unknown, max = MAX_JSON_CHARS): string {
@@ -134,17 +162,28 @@ function labelForDeltaPath(
 }
 
 function rowBodySnippet(row: Record<string, unknown>): string {
+  const kind = String(row.kind || "");
+  const toolName = String(row.toolName || row.name || "").trim();
+  if (kind === "toolCall") {
+    const status = typeof row.status === "string" ? row.status : "";
+    const bits = [toolName || "（未命名工具）"];
+    if (status) bits.push(status);
+    if (typeof row.inputText === "string" && row.inputText.trim()) {
+      bits.push(firstSentences(row.inputText, 80));
+    }
+    return bits.join(" · ");
+  }
   if (typeof row.text === "string" && row.text.trim()) {
-    return clipText(row.text, MAX_HEAD_SNIPPET);
+    return firstSentences(row.text);
   }
   if (typeof row.inputText === "string" && row.inputText.trim()) {
-    return clipText(row.inputText, MAX_HEAD_SNIPPET);
+    return firstSentences(row.inputText);
   }
   const output = row.output;
   if (output && typeof output === "object") {
     const text = (output as { text?: unknown }).text;
     if (typeof text === "string" && text.trim()) {
-      return clipText(text, MAX_HEAD_SNIPPET);
+      return firstSentences(text);
     }
   }
   if (typeof row.status === "string" && row.status) return row.status;
@@ -152,14 +191,25 @@ function rowBodySnippet(row: Record<string, unknown>): string {
   return "";
 }
 
-/** 单条 V4 delta → 一行可读摘要（供 headline / JSON sample）。 */
+function kindLabelFromMeta(
+  kind: string,
+  toolName?: string,
+): string {
+  // 工具名放到 summary，标签只写「工具」方便扫
+  if (kind === "toolCall") return "工具";
+  return labelForRowKind(kind, toolName);
+}
+
+/** 单条 V4 delta → 类型 + 摘要（供浮层分行 / JSON sample）。 */
 export function summarizeV4Delta(delta: unknown): {
   line: string;
+  kindLabel: string;
+  summary: string;
   sample: Record<string, unknown>;
 } {
   if (!delta || typeof delta !== "object") {
     const raw = clipText(delta, 80);
-    return { line: raw, sample: { raw } };
+    return { line: raw, kindLabel: "其它", summary: raw, sample: { raw } };
   }
   const o = delta as Record<string, unknown>;
   const op = String(o.op || o.kind || o.type || "?").trim();
@@ -171,12 +221,33 @@ export function summarizeV4Delta(delta: unknown): {
     const meta =
       Number.isFinite(rowId) && rowId > 0 ? rowMetaById.get(rowId) : undefined;
     const label = labelForDeltaPath(path, meta);
-    const snip = clipText(append, MAX_HEAD_SNIPPET);
+    const kindLabel =
+      meta?.kind === "toolCall"
+        ? "工具"
+        : label.startsWith("工具")
+          ? "工具"
+          : label.startsWith("思考")
+            ? "思考"
+            : label.startsWith("正文")
+              ? "正文"
+              : label.startsWith("用户")
+                ? "用户"
+                : label;
+    const snip = firstSentences(append);
+    const summaryBits = [
+      Number.isFinite(rowId) ? `row#${rowId}` : null,
+      meta?.toolName || null,
+      append ? `Δ${append.length}` : null,
+      snip || null,
+    ].filter(Boolean);
+    const summary = summaryBits.join(" · ");
     const line = `#${Number.isFinite(rowId) ? rowId : "?"} ${label} Δ${append.length}${
       snip ? ` ${snip}` : ""
     }`;
     return {
       line,
+      kindLabel,
+      summary,
       sample: {
         op,
         rowId: Number.isFinite(rowId) ? rowId : null,
@@ -198,22 +269,31 @@ export function summarizeV4Delta(delta: unknown): {
     const kind = row ? String(row.kind || "") : "";
     const toolName = row ? String(row.toolName || row.name || "") : "";
     if (rowId != null) rememberRowMeta(rowId, kind, toolName);
-    const label = labelForRowKind(kind, toolName || undefined);
+    const kindLabel = kindLabelFromMeta(kind, toolName || undefined);
     const snip = row ? rowBodySnippet(row) : "";
     const mark = op === "row.appended" ? "+" : "~";
     const status =
       row && typeof row.status === "string" ? row.status : "";
-    const line = `${mark}#${rowId ?? "?"} ${label}${
+    const legacyLabel = labelForRowKind(kind, toolName || undefined);
+    const line = `${mark}#${rowId ?? "?"} ${legacyLabel}${
       status && kind === "toolCall" ? `[${status}]` : ""
     }${snip ? ` ${snip}` : ""}`;
+    const summary =
+      kind === "toolCall"
+        ? snip
+        : [rowId != null ? `row#${rowId}` : null, snip || null]
+            .filter(Boolean)
+            .join(" · ");
     return {
       line,
+      kindLabel,
+      summary: summary || legacyLabel,
       sample: {
         op,
         rowId,
         kind: kind || null,
         toolName: toolName || null,
-        label,
+        label: legacyLabel,
         status: status || null,
         text: snip || undefined,
       },
@@ -222,25 +302,39 @@ export function summarizeV4Delta(delta: unknown): {
 
   if (op === "row.removed") {
     const from = o.fromRowId;
+    const summary = `removed ≥#${from ?? "?"}`;
     return {
-      line: `removed ≥#${from ?? "?"}`,
+      line: summary,
+      kindLabel: "移除",
+      summary,
       sample: { op, fromRowId: from ?? null },
     };
   }
 
   if (op === "state.updated") {
-    return { line: "state.updated", sample: { op } };
+    return {
+      line: "state.updated",
+      kindLabel: "状态",
+      summary: "state.updated",
+      sample: { op },
+    };
   }
 
   if (op.startsWith("workflowRun.")) {
+    const summary = `${op}${o.runId ? ` ${String(o.runId).slice(0, 10)}` : ""}`;
     return {
-      line: `${op}${o.runId ? ` ${String(o.runId).slice(0, 10)}` : ""}`,
+      line: summary,
+      kindLabel: "工作流",
+      summary,
       sample: { op, runId: o.runId ?? null },
     };
   }
 
+  const line = clipText(op, 80);
   return {
-    line: clipText(op, 80),
+    line,
+    kindLabel: "其它",
+    summary: line,
     sample: {
       op,
       rowId: o.rowId ?? null,
@@ -251,12 +345,21 @@ export function summarizeV4Delta(delta: unknown): {
 }
 
 function pushEntry(
-  entry: Omit<ViewportStreamTapEntry, "id" | "atMs" | "sessionId"> & {
+  entry: Omit<ViewportStreamTapEntry, "id" | "atMs" | "sessionId" | "headline"> & {
     sessionId?: string;
+    headline?: string;
   },
 ): void {
+  const kindLabel = String(entry.kindLabel || "").trim() || "其它";
+  const summary = String(entry.summary || "").trim();
+  const headline =
+    String(entry.headline || "").trim() ||
+    [kindLabel, summary].filter(Boolean).join(" · ");
   const full: ViewportStreamTapEntry = {
     ...entry,
+    kindLabel,
+    summary,
+    headline,
     sessionId: String(entry.sessionId || "").trim(),
     id: nextId++,
     atMs: Date.now(),
@@ -273,6 +376,8 @@ function pushEntry(
       sessionId: full.sessionId || undefined,
       runId: full.runId || undefined,
       type: full.type,
+      kindLabel: full.kindLabel,
+      summary: full.summary,
       headline: full.headline,
       jsonText: full.jsonText,
     });
@@ -345,16 +450,28 @@ export function pushViewportStreamAguiTap(opts: {
     compact.value = data.value;
   }
 
-  const bits: string[] = [channel];
-  if (typeLabel) bits.push(typeLabel);
-  bits.push(type);
-  if (typeof data.toolCallName === "string" && data.toolCallName) {
-    bits.push(data.toolCallName);
-  }
-  if (typeof data.delta === "string" && data.delta) {
-    bits.push(`Δ${data.delta.length} ${clipText(data.delta, MAX_HEAD_SNIPPET)}`);
+  const kindLabel = typeLabel || type || "其它";
+  const toolName =
+    (typeof data.toolCallName === "string" && data.toolCallName) ||
+    (typeof data.name === "string" && data.name) ||
+    "";
+  let summary = "";
+  if (kindLabel === "工具" || toolName) {
+    const bits = [toolName || null];
+    if (typeof data.delta === "string" && data.delta) {
+      bits.push(`Δ${data.delta.length}`, firstSentences(data.delta, 80));
+    } else if (typeof data.content === "string" && data.content) {
+      bits.push(firstSentences(data.content, 80));
+    }
+    summary = bits.filter(Boolean).join(" · ");
+  } else if (typeof data.delta === "string" && data.delta) {
+    summary = `Δ${data.delta.length} · ${firstSentences(data.delta)}`;
   } else if (typeof data.content === "string" && data.content) {
-    bits.push(clipText(data.content, MAX_HEAD_SNIPPET));
+    summary = firstSentences(data.content);
+  } else if (typeof data.status === "string" && data.status) {
+    summary = data.status;
+  } else {
+    summary = type;
   }
 
   const threadId =
@@ -365,7 +482,9 @@ export function pushViewportStreamAguiTap(opts: {
     sessionId: threadId,
     runId,
     type,
-    headline: bits.join(" · "),
+    kindLabel,
+    summary,
+    headline: [kindLabel, summary].filter(Boolean).join(" · "),
     jsonText: safeJson(compact),
   });
 }
@@ -407,12 +526,13 @@ export function pushViewportStreamV4Tap(opts: {
   const toSeq = frame?.toSeq ?? null;
 
   const deltaSummaries = deltas.map((d) => summarizeV4Delta(d));
-  const headLines = deltaSummaries
-    .slice(0, MAX_HEAD_DELTAS)
-    .map((s) => s.line)
-    .filter(Boolean);
+  const sessionId = sessionIdFromV4Topic(topic);
+  const seqBit =
+    fromSeq != null || toSeq != null
+      ? `seq=${fromSeq ?? "?"}→${toSeq ?? "?"}`
+      : "";
 
-  const compact: Record<string, unknown> = {
+  const frameMeta: Record<string, unknown> = {
     channel: "v4",
     kind,
     deliveryKind: opts.deliveryKind || null,
@@ -426,44 +546,56 @@ export function pushViewportStreamV4Tap(opts: {
     deltaCount,
     wireBytes: opts.wireBytes ?? null,
   };
-  if (deltaSummaries.length > 0) {
-    compact.deltaSample = deltaSummaries
-      .slice(0, 4)
-      .map((s) => s.sample);
+
+  // 有 deltas：一条 delta 落一条环，序号/时间/类型/摘要分开看，不挤成一坨
+  const shown = deltaSummaries.slice(0, MAX_HEAD_DELTAS);
+  if (shown.length > 0) {
+    for (const ds of shown) {
+      pushEntry({
+        channel: "v4",
+        sessionKey: "",
+        sessionId,
+        runId: "",
+        type: kind,
+        kindLabel: ds.kindLabel,
+        summary: [seqBit || null, ds.summary].filter(Boolean).join(" · "),
+        headline: ds.line,
+        jsonText: safeJson({
+          ...frameMeta,
+          delta: ds.sample,
+          deltaSample: deltaSummaries.slice(0, 4).map((s) => s.sample),
+        }),
+      });
+    }
+    if (deltaCount > MAX_HEAD_DELTAS) {
+      pushEntry({
+        channel: "v4",
+        sessionKey: "",
+        sessionId,
+        runId: "",
+        type: kind,
+        kindLabel: "其它",
+        summary: `本帧还有 ${deltaCount - MAX_HEAD_DELTAS} 条 delta 未展开`,
+        headline: `v4 · ${kind} · [+${deltaCount - MAX_HEAD_DELTAS}]`,
+        jsonText: safeJson(frameMeta),
+      });
+    }
+    return;
   }
 
-  const sessionId = sessionIdFromV4Topic(topic);
-  const seqBit =
-    fromSeq != null || toSeq != null
-      ? `seq=${fromSeq ?? "?"}→${toSeq ?? "?"}`
-      : "";
-  const detailBit =
-    headLines.length > 0
-      ? headLines.join(" | ")
-      : windowRows
-        ? `rows=${windowRows}`
-        : kind;
-  const more =
-    deltaCount > MAX_HEAD_DELTAS
-      ? ` [+${deltaCount - MAX_HEAD_DELTAS}]`
-      : "";
-
+  const summary = windowRows
+    ? `rows=${windowRows}${seqBit ? ` · ${seqBit}` : ""}`
+    : seqBit || kind;
   pushEntry({
     channel: "v4",
     sessionKey: "",
     sessionId,
     runId: "",
     type: kind,
-    headline: [
-      "v4",
-      kind,
-      seqBit,
-      detailBit + more,
-      sessionId ? sessionId.slice(0, 8) : "",
-    ]
-      .filter(Boolean)
-      .join(" · "),
-    jsonText: safeJson(compact),
+    kindLabel: kind === "snapshot" ? "快照" : "帧",
+    summary,
+    headline: ["v4", kind, seqBit, summary].filter(Boolean).join(" · "),
+    jsonText: safeJson(frameMeta),
   });
 }
 
