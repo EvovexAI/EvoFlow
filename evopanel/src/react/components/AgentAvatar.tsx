@@ -64,8 +64,14 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
     )
   }
 
-  const showImage = resolved.kind === 'image' && !imageFailed && (Boolean(imageSrcOverride) || ready)
   const src = imageSrc
+  // Relative `/api/...` works same-origin without waiting for Gateway base.
+  // Waiting + falling through to「首字母」会造成岗位页头像「闪一下又变回来」。
+  const srcOkWithoutBase =
+    Boolean(imageSrcOverride) ||
+    (Boolean(src) && (src.startsWith('/') || /^https?:\/\//i.test(src)))
+  const showImage =
+    resolved.kind === 'image' && !imageFailed && (ready || srcOkWithoutBase)
 
   if (showImage && resolved.kind === 'image' && resolved.meta) {
     return (
@@ -96,7 +102,22 @@ const AgentAvatar: React.FC<AgentAvatarProps> = ({
     )
   }
 
-  // Initial fallback (also used while Gateway base is resolving, or after img error).
+  // 已判定是图片、只是 Gateway base 还在解析：占位，不要先画首字母再切图。
+  if (resolved.kind === 'image' && !imageFailed) {
+    return (
+      <span
+        className={`agent-avatar agent-avatar--pending ${className}`.trim()}
+        style={{
+          ...wrapStyle,
+          background: 'var(--bg-secondary, #f4f4f5)',
+        }}
+        title={title}
+        aria-hidden="true"
+      />
+    )
+  }
+
+  // Initial fallback（真·无头像，或图片加载失败后）。
   const initial =
     resolved.kind === 'initial'
       ? resolved.initial

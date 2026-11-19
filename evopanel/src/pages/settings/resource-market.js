@@ -553,7 +553,7 @@ async function onUpgradeMarket(idx) {
   const from = p._installedVersion || '?'
   const to = p.version || '?'
   const ok = await showConfirm(
-    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 Agent / 员工 / 扩展（保留工作区与知识库数据）。`,
+    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 BOT / Agent应用（保留工作区与知识库数据）。`,
   )
   if (!ok) return
   try {

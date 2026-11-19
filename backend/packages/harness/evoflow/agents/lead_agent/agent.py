@@ -871,17 +871,23 @@ def _build_middlewares(config: RunnableConfig, model_name: str | None, agent_nam
     from evoflow.agents.middlewares.session_budget_middleware import SessionBudgetMiddleware
 
     middlewares.append(SessionBudgetMiddleware())
+    # 思维导图 soft hint 已默认关闭（soft_hints=False）：勿再挂
+    # MindMapEvidenceHintMiddleware——会把「本批未并发 mind_map…」缝进
+    # search_code_index / read / rg 正文尾，V4 卡面当成检索结果展示。
     try:
-        from evoflow.exploration_graph.config import is_exploration_graph_enabled
+        from evoflow.exploration_graph.config import (
+            get_exploration_graph_config,
+            is_exploration_graph_enabled,
+        )
 
-        if is_exploration_graph_enabled():
-            from evoflow.agents.middlewares.mind_map_evidence_hint_middleware import MindMapEvidenceHintMiddleware
+        if is_exploration_graph_enabled() and get_exploration_graph_config().soft_hints:
+            from evoflow.agents.middlewares.mind_map_evidence_hint_middleware import (
+                MindMapEvidenceHintMiddleware,
+            )
 
             middlewares.append(MindMapEvidenceHintMiddleware())
     except Exception:
-        from evoflow.agents.middlewares.mind_map_evidence_hint_middleware import MindMapEvidenceHintMiddleware
-
-        middlewares.append(MindMapEvidenceHintMiddleware())
+        pass
 
     # Inject custom middlewares before ClarificationMiddleware
     if custom_middlewares:

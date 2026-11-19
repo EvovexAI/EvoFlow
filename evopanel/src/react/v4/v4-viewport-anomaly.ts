@@ -21,6 +21,7 @@ export type ViewportAnomalyCode =
   | "EMPTY_ASSISTANT"
   | "EST72"
   | "STACK"
+  | "DOM_OVERLAP"
   | "COMPOSER_DRIFT";
 
 export type ViewportAnomaly = {
@@ -56,6 +57,9 @@ export type ViewportAnomalyInput = {
     orphanHeaderNoUser: boolean;
     emptyAssistantCompleted: boolean;
     hasUserInput: boolean;
+    /** 本卡底边压住下一卡（肉眼叠字） */
+    overlapsNext?: boolean;
+    spaceToNext?: number | null;
   }>;
   layout?: {
     estimateStuck: boolean;
@@ -327,6 +331,20 @@ export function collectViewportAnomalies(
       detail: `stackedHostCount=${input.layout?.stackedHostCount}`,
     });
   }
+  const overlapTurns = input.turns.filter((t) => t.overlapsNext === true);
+  if (overlapTurns.length > 0) {
+    const worst = Math.min(
+      ...overlapTurns.map((t) =>
+        typeof t.spaceToNext === "number" ? t.spaceToNext : 0,
+      ),
+    );
+    out.push({
+      code: "DOM_OVERLAP",
+      severity: "error",
+      title: "视口卡片叠字",
+      detail: `叠层×${overlapTurns.length} · 最严重 space→下=${worst}（负=压住下一卡；估高/virtualizer）`,
+    });
+  }
   if (input.layout?.composerDrifted) {
     out.push({
       code: "COMPOSER_DRIFT",
@@ -544,4 +562,81 @@ export function formatAnomalyBadge(anomalies: readonly ViewportAnomaly[]): strin
   const more =
     anomalies.length > codes.length ? ` +${anomalies.length - codes.length}` : "";
   return `${codes.join(" ")}${more}`;
+}
+
+/** 浮层用：error/warn 锁定，避免 700ms 轮询 + 时间窗证据滑出后标题栏一闪一闪。 */
+export type StickyViewportAnomaly = ViewportAnomaly & {
+  firstSeenAt: number;
+  lastSeenAt: number;
+  /** 本轮 collect 是否仍命中 */
+  live: boolean;
+};
+
+/**
+ * 把本帧 live 异常并入锁定表。
+ * - tid 变了 → 清空重来
+ * - error/warn：锁定到手动清或换会话；live=false 时仍展示（标「曾现」）
+ * - info：不锁定，只跟本帧
+ */
+export function mergeStickyViewportAnomalies(input: {
+  tid: string;
+  prevTid: string | null;
+  prev: readonly StickyViewportAnomaly[];
+  live: readonly ViewportAnomaly[];
+  nowMs?: number;
+}): { tid: string; items: StickyViewportAnomaly[] } {
+  const now = input.nowMs ?? Date.now();
+  const liveCodes = new Set(input.live.map((a) => a.code));
+  const base =
+    input.prevTid && input.prevTid === input.tid ? [...input.prev] : [];
+  const byCode = new Map(base.map((a) => [a.code, a] as const));
+
+  for (const a of input.live) {
+    if (a.severity === "info") {
+      // info 不进锁定表；展示层会把 live info 另拼
+      continue;
+    }
+    const prev = byCode.get(a.code);
+    byCode.set(a.code, {
+      ...a,
+      firstSeenAt: prev?.firstSeenAt ?? now,
+      lastSeenAt: now,
+      live: true,
+    });
+  }
+
+  const items: StickyViewportAnomaly[] = [];
+  for (const sticky of byCode.values()) {
+    if (sticky.severity === "info") continue;
+    items.push({
+      ...sticky,
+      live: liveCodes.has(sticky.code),
+      // 仍 live 时用最新 title/detail；已熄灭保留最后一次证据
+      ...(liveCodes.has(sticky.code)
+        ? (input.live.find((x) => x.code === sticky.code) ?? {})
+        : {}),
+      firstSeenAt: sticky.firstSeenAt,
+      lastSeenAt: liveCodes.has(sticky.code) ? now : sticky.lastSeenAt,
+    });
+  }
+
+  // 本帧 info 附在末尾（不锁定）
+  for (const a of input.live) {
+    if (a.severity !== "info") continue;
+    items.push({
+      ...a,
+      firstSeenAt: now,
+      lastSeenAt: now,
+      live: true,
+    });
+  }
+
+  const rank = { error: 0, warn: 1, info: 2 };
+  items.sort(
+    (a, b) =>
+      rank[a.severity] - rank[b.severity] ||
+      a.code.localeCompare(b.code) ||
+      b.lastSeenAt - a.lastSeenAt,
+  );
+  return { tid: input.tid, items };
 }

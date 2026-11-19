@@ -1470,6 +1470,12 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  /* 挂载前 / pending 占位，避免空心闪一下再出图或首字母 */
+  background: var(--bg-secondary, #f4f4f5);
+}
+
+.pro-duty-sheet-avatar .agent-avatar--pending {
+  background: color-mix(in srgb, var(--bg-secondary, #f4f4f5) 88%, var(--pro-teal, #0d9488) 12%);
 }
 
 .pro-duty-sheet-text {

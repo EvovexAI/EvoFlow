@@ -443,6 +443,13 @@ def append_evidence_tool_mind_map_hints(
 ) -> ToolMessage | Any:
     if not isinstance(result, ToolMessage):
         return result
+    try:
+        from evoflow.exploration_graph.config import get_exploration_graph_config
+
+        if not get_exploration_graph_config().soft_hints:
+            return result
+    except Exception:
+        return result
     if str(getattr(result, "status", None) or "") == "error":
         return result
     content = str(result.content or "")
@@ -481,6 +488,13 @@ def append_mind_map_hints(
     thread_id: str,
 ) -> ToolMessage | Any:
     if not isinstance(result, ToolMessage):
+        return result
+    try:
+        from evoflow.exploration_graph.config import get_exploration_graph_config
+
+        if not get_exploration_graph_config().soft_hints:
+            return result
+    except Exception:
         return result
     if str(getattr(result, "status", None) or "") == "error":
         return result

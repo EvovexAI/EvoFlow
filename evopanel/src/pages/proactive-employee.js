@@ -1320,19 +1320,21 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
     ).trim()
     const avatarHost = page.querySelector('[data-avatar-agent]')
     if (avatarHost) {
+      // 必须带完整 agent 行（含 avatar / has_avatar_file）；缺字段会只画首字母。
+      // 先立刻 mount（相对 /api 路径可先出图），再补 Gateway base（Tauri 绝对址）。
       const agent = capability.agent || { agent_code: code }
+      mountAgentAvatar(avatarHost, { agent, agentCode: code, size: 64 })
       void getGatewayBaseUrl()
         .then((baseUrl) => {
+          if (!baseUrl) return
           mountAgentAvatar(avatarHost, {
             agent,
             agentCode: code,
             size: 64,
-            baseUrl: baseUrl || '',
+            baseUrl,
           })
         })
-        .catch(() => {
-          mountAgentAvatar(avatarHost, { agent, agentCode: code, size: 64 })
-        })
+        .catch(() => {})
     }
     page._dutyProfileCtx = {
       busy,
@@ -2367,18 +2369,22 @@ function showDispatchModalEmployee(role, agent) {
     if (avatarHost) {
       const agentRow = agent || { agent_code: role.agent_code, agent_name: name }
       void import('../lib/mount-agent-ui.js').then((m) => {
+        m.mountAgentAvatar(avatarHost, {
+          agent: agentRow,
+          agentCode: role.agent_code,
+          size: 40,
+        })
         return getGatewayBaseUrl()
           .then((baseUrl) => {
+            if (!baseUrl) return
             m.mountAgentAvatar(avatarHost, {
               agent: agentRow,
               agentCode: role.agent_code,
               size: 40,
-              baseUrl: baseUrl || '',
+              baseUrl,
             })
           })
-          .catch(() => {
-            m.mountAgentAvatar(avatarHost, { agent: agentRow, agentCode: role.agent_code, size: 40 })
-          })
+          .catch(() => {})
       }).catch(() => {})
     }
 

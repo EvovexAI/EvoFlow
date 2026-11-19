@@ -2026,7 +2026,9 @@ export function useChatAppController() {
   const [turnPlatformEntries, setTurnPlatformEntries] = useState<PlatformRunEntry[]>([])
   const [turnArtifacts, setTurnArtifacts] = useState<ChatArtifact[]>([])
   const [artifactFocusId, setArtifactFocusId] = useState('')
-  const publishPlatformEntriesRef = useRef<(entries: PlatformRunEntry[], focusEntryId?: string) => void>(() => {})
+  const publishPlatformEntriesRef = useRef<
+    (entries: PlatformRunEntry[], focusEntryId?: string, opts?: { announce?: boolean }) => void
+  >(() => {})
   const publishArtifactsRef = useRef<
     (opts?: { focusId?: string; hint?: string; force?: boolean }) => void
   >(() => {})
@@ -2459,6 +2461,7 @@ export function useChatAppController() {
       setTurnArtifacts,
       setArtifactFocusId,
       setTurnPlatformEntries,
+      platformFeedbackSeenRef,
       evoflowInvokeGatewayJson,
       normalizeChatArtifacts,
       platformRunEntriesFromChatArtifacts,
@@ -2930,7 +2933,11 @@ export function useChatAppController() {
     })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount: drop leftover summary tab
   }, [])
-  const publishPlatformEntries = useCallback((entries: PlatformRunEntry[], focusEntryId?: string) => {
+  const publishPlatformEntries = useCallback((
+    entries: PlatformRunEntry[],
+    focusEntryId?: string,
+    opts?: { announce?: boolean },
+  ) => {
     publishPlatformEntriesImpl(
       {
         turnPlatformEntriesRef,
@@ -2946,6 +2953,7 @@ export function useChatAppController() {
       },
       entries,
       focusEntryId,
+      opts,
     )
   }, [setChatPanelDisplayMode])
   // 同步挂 ref：流式首帧若等 useEffect，publish 仍是 noop，平台通知会丢
@@ -6212,7 +6220,6 @@ export function useChatAppController() {
       setExpectedChatRunId,
       setLiveTurnAssistantRunId,
       setLiveTurnTokens,
-      setPlatformFocusEntryId,
       setPluginComposerPillsVisible,
       setPreferHomeDashboard,
       setPendingOptimisticUserText,

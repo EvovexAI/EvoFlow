@@ -30,13 +30,16 @@ const ICONS = {
   extension: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v3m0 12v3M3 12h3m12 0h3M7 7l2 2m6 6 2 2m0-10-2 2m-6 6-2 2"/><circle cx="12" cy="12" r="3"/></svg>',
 }
 
+// 【self-evolution-bot · 2026-11-19 · 第76轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：ui-extension 一律叫「Agent应用」（KIND_META / FILTERS / 导语 / 打包提示）。
+// 为什么：用户定名「扩展」改叫「Agent应用」，与「设置→已装资源」同一口径，避免同一零件两个名字。
 const KIND_META = {
   employee: { label: 'BOT', tone: 'violet' },
   agent: { label: 'Agent', tone: 'sky' },
   app: { label: '工作流', tone: 'amber' },
   skill: { label: '技能', tone: 'emerald' },
   knowledge: { label: '知识库', tone: 'rose' },
-  extension: { label: '扩展', tone: 'slate' },
+  extension: { label: 'Agent应用', tone: 'slate' },
 }
 
 function kindLabel(kind) {
@@ -50,7 +53,7 @@ const FILTERS = [
   { id: 'app', label: '工作流' },
   { id: 'skill', label: '技能' },
   { id: 'knowledge', label: '知识库' },
-  { id: 'extension', label: '扩展' },
+  { id: 'extension', label: 'Agent应用' },
 ]
 
 function esc(s) {
@@ -102,7 +105,7 @@ function shellHtml() {
         <section class="sr-wb-right">
           <div class="sr-draft-head">
             <h3 class="sr-draft-title">打包分享</h3>
-            <p class="sr-muted">勾选本机资源导出成 zip/目录。带「可分享」的扩展会复制进包；「本机链接」只含你机器上的路径，别人装不到。Agent 绑定的 MCP 会一并打进包。</p>
+            <p class="sr-muted">勾选本机资源导出成 zip/目录。带「可分享」的 Agent应用会复制进包；「本机链接」只含你机器上的路径，别人装不到。Agent 绑定的 MCP 会一并打进包。</p>
           </div>
 
           <div class="sr-draft-block">
@@ -260,9 +263,9 @@ function renderBasket() {
     if (counts.extension) {
       const linkN = picked.filter((it) => it.kind === 'extension' && it.portable === false).length
       if (linkN) {
-        tips.push(`${linkN} 个扩展为「本机链接」：导出后别人装不到你的本地路径，请改 copy 或发布 zip`)
+        tips.push(`${linkN} 个 Agent应用为「本机链接」：导出后别人装不到你的本地路径，请改 copy 或发布 zip`)
       } else {
-        tips.push('扩展会复制进包（可分享）')
+        tips.push('Agent应用会复制进包（可分享）')
       }
     }
     if (counts.knowledge) tips.push('知识库默认只写 vault id,不打包正文')

@@ -57,21 +57,44 @@ function fmtTime(iso) {
   }
 }
 
-const ARTIFACT_LABELS = [
-  ['employees', 'BOT'],
-  ['agents', '智能体'],
-  ['apps', '工作流'],
-  ['skills', '技能'],
-  ['extensions', '扩展'],
-  ['knowledge', '知识库'],
-  ['mcp', 'MCP'],
+/**
+ * 产物分组：一个标签可以覆盖多个 artifacts 键。
+ * 【self-evolution-bot · 2026-11-19 · 第76轮 · 模型:deepseek-v4.1-flash-1017】
+ * 改了什么：BOT 与「智能体」合并成一组（keys 同时吃 employees / agents，按 id 去重），
+ * extensions 的标签由「扩展」改为「Agent应用」。
+ * 为什么：员工就是智能体，是同一份配置，包内两个键写的是同一个对象；
+ * 分开列会让同一个 BOT 显示成「BOT 1 · 智能体 1」两遍。
+ */
+const ARTIFACT_GROUPS = [
+  { keys: ['employees', 'agents'], label: 'BOT' },
+  { keys: ['apps'], label: '工作流' },
+  { keys: ['skills'], label: '技能' },
+  { keys: ['extensions'], label: 'Agent应用' },
+  { keys: ['knowledge'], label: '知识库' },
+  { keys: ['mcp'], label: 'MCP' },
 ]
 
-function artifactSummary(arts) {
+/** 把多个 artifacts 键的 id 合成一份去重列表（顺序保持：先 employees 后 agents）。 */
+function groupIds(arts, keys) {
   const a = arts && typeof arts === 'object' ? arts : {}
+  const out = []
+  const seen = new Set()
+  for (const key of keys) {
+    const ids = Array.isArray(a[key]) ? a[key] : []
+    for (const raw of ids) {
+      const id = String(raw ?? '').trim()
+      if (!id || seen.has(id)) continue
+      seen.add(id)
+      out.push(id)
+    }
+  }
+  return out
+}
+
+function artifactSummary(arts) {
   const parts = []
-  for (const [key, label] of ARTIFACT_LABELS) {
-    const n = Array.isArray(a[key]) ? a[key].length : 0
+  for (const { keys, label } of ARTIFACT_GROUPS) {
+    const n = groupIds(arts, keys).length
     if (n) parts.push(`${label} ${n}`)
   }
   return parts.length ? parts.join(' · ') : '无产物记录'
@@ -165,20 +188,33 @@ function showDetailPane() {
   if (detailPane) detailPane.hidden = false
 }
 
-function artifactRows(arts, details, key) {
-  const detailed = details && Array.isArray(details[key]) ? details[key] : null
-  if (detailed && detailed.length) {
-    return detailed
-      .map((row) => {
-        const id = String(row?.id || '').trim()
-        const name = String(row?.name || '').trim()
-        if (!id && !name) return null
-        return { id, name: name || id }
-      })
-      .filter(Boolean)
+/**
+ * 取一组的产物行：多个键（如 employees + agents）合并后按 id 去重。
+ * 有 artifact_details 时优先用带显示名的行。
+ */
+function groupRows(arts, details, keys) {
+  const out = []
+  const seen = new Set()
+  for (const key of keys) {
+    const detailed = details && Array.isArray(details[key]) ? details[key] : null
+    const rows = detailed && detailed.length
+      ? detailed
+          .map((row) => {
+            const id = String(row?.id || '').trim()
+            const name = String(row?.name || '').trim()
+            if (!id && !name) return null
+            return { id, name: name || id }
+          })
+          .filter(Boolean)
+      : (Array.isArray(arts?.[key]) ? arts[key] : []).map((id) => ({ id: String(id), name: String(id) }))
+    for (const row of rows) {
+      const dedupeKey = row.id || row.name
+      if (seen.has(dedupeKey)) continue
+      seen.add(dedupeKey)
+      out.push(row)
+    }
   }
-  const ids = arts && Array.isArray(arts[key]) ? arts[key] : []
-  return ids.map((id) => ({ id: String(id), name: String(id) }))
+  return out
 }
 
 function chipList(items, empty = '无') {
@@ -202,7 +238,7 @@ function renderPortabilityHints(it) {
   if (portable === false) {
     bits.push('本包含 folder-link / 本机路径，换机安装可能失效；分享请导出为 zip 或改为包内 copy。')
   } else if (portable === true) {
-    bits.push('便携安装：扩展/技能已复制到本机数据目录，适合分享给同事。')
+    bits.push('便携安装：Agent应用/技能已复制到本机数据目录，适合分享给同事。')
   }
   const extInstalls = Array.isArray(it?.extension_installs) ? it.extension_installs : []
   const linkish = extInstalls.some((row) => {
@@ -210,7 +246,7 @@ function renderPortabilityHints(it) {
     return src.includes('folder-link') || src.includes('link')
   })
   if (linkish) {
-    bits.push('含本机链接扩展：路径只在你这台机器有效，别人装你的「本机路径」看不到。')
+    bits.push('含本机链接 Agent应用：路径只在你这台机器有效，别人装你的「本机路径」看不到。')
   }
   if (!bits.length) return ''
   return `<div class="sr-detail-block">
@@ -224,8 +260,8 @@ function renderBotBindingCards(bindings) {
   if (!rows.length) return ''
   return `
     <div class="sr-detail-block">
-      <h4>BOT / 智能体绑定 <span class="sr-muted">(${rows.length})</span></h4>
-      <p class="sr-muted" style="margin:0 0 10px">BOT 与智能体是同一配置：系统提示词、工具、MCP、技能、知识库都在这里。</p>
+      <h4>BOT 绑定 <span class="sr-muted">(${rows.length})</span></h4>
+      <p class="sr-muted" style="margin:0 0 10px">BOT（原「智能体」）是同一份配置：系统提示词、工具、MCP、技能、知识库都在这里。</p>
       ${rows
         .map((b) => {
           const title = esc(b.name || b.code)
@@ -259,8 +295,8 @@ function renderBotBindingCards(bindings) {
 }
 
 function renderArtifactBlocks(arts, details) {
-  const blocks = ARTIFACT_LABELS.map(([key, label]) => {
-    const rows = artifactRows(arts, details, key)
+  const blocks = ARTIFACT_GROUPS.map(({ keys, label }) => {
+    const rows = groupRows(arts, details, keys)
     if (!rows.length) return ''
     const chips = rows
       .map((row) => {
@@ -291,10 +327,8 @@ async function loadBotBindings(it) {
   const arts = it?.artifacts && typeof it.artifacts === 'object' ? it.artifacts : {}
   const details = it?.artifact_details && typeof it.artifact_details === 'object' ? it.artifact_details : {}
   const codes = new Set()
-  for (const key of ['employees', 'agents']) {
-    for (const row of artifactRows(arts, details, key)) {
-      if (row.id) codes.add(row.id)
-    }
+  for (const row of groupRows(arts, details, ['employees', 'agents'])) {
+    if (row.id) codes.add(row.id)
   }
   /** @type {Array<Record<string, any>>} */
   const out = []
@@ -429,7 +463,7 @@ function renderDetail(it) {
     : ''
   const extBlock = extInstalls.length
     ? `<div class="sr-detail-block">
-        <h4>Agent 应用安装目录</h4>
+        <h4>Agent应用安装目录</h4>
         <p class="sr-muted" style="margin:0 0 10px">市场安装会复制到本机；首次打开时会自动准备 npm/pip 环境。</p>
         ${extInstalls
           .map((row) => {
@@ -482,7 +516,7 @@ function renderDetail(it) {
     ${botBlock}
     <div class="sr-detail-block">
       <h4>已装产物</h4>
-      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的员工 / 智能体 / 技能 / MCP / 扩展等；主文案为中文显示名，编码可悬停查看。</p>
+      <p class="sr-muted" style="margin:0 0 10px">安装时写入系统的 BOT / 工作流 / 技能 / MCP / Agent应用等；主文案为中文显示名，编码可悬停查看。</p>
       ${renderArtifactBlocks(it.artifacts, it.artifact_details)}
     </div>
   `
@@ -565,7 +599,7 @@ async function upgradePack(packId) {
   const from = upd?.installed_version || cached?.pack_version || '?'
   const to = upd?.available_version || '?'
   const ok = await showConfirm(
-    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 Agent / 员工 / 扩展（保留工作区与知识库数据）。`,
+    `升级「${label}」？\n${from} → ${to}\n将用新包覆盖同名 BOT / Agent应用（保留工作区与知识库数据）。`,
   )
   if (!ok) return
   try {

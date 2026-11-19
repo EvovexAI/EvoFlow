@@ -627,6 +627,62 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
     expect(toast).toHaveBeenCalledWith('扫码绑定本岗 AI 员工', 'success')
   })
 
+  it('发消息后不清 seen：同 toolCallId 不再 toast', () => {
+    // 模拟 handle-send 旧 bug：每发清空 seen → 历史平台结果再弹。
+    // 正确行为：seen 跨回合保留，RESULT / tools-scan 同 id 只补 autoOpen、不 publish/toast。
+    const seen = new Set()
+    const publish = vi.fn()
+    const toast = vi.fn()
+    const content = JSON.stringify({
+      ok: true,
+      action: 'employees.hire',
+      ui: {
+        kind: 'success',
+        title: '已添加智能体员工「小助手」',
+        domain: 'employees',
+        action: 'employees.hire',
+      },
+    })
+    expect(
+      publishPlatformFromAgUiResult({
+        isBackground: false,
+        aguiEvent: {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: 'tc-hire-sticky',
+          toolCallName: 'platform',
+          content,
+        },
+        platformFeedbackSeenRef: { current: seen },
+        turnPlatformEntriesRef: { current: [] },
+        publishPlatformEntries: publish,
+        toast,
+      }),
+    ).toBe(true)
+    expect(toast).toHaveBeenCalledTimes(1)
+    expect(publish).toHaveBeenCalledTimes(1)
+
+    // 模拟「下一轮发送」：seen 保留（不再 new Set()）
+    publish.mockClear()
+    toast.mockClear()
+    expect(
+      publishPlatformFromAgUiResult({
+        isBackground: false,
+        aguiEvent: {
+          type: EventType.TOOL_CALL_RESULT,
+          toolCallId: 'tc-hire-sticky',
+          toolCallName: 'platform',
+          content,
+        },
+        platformFeedbackSeenRef: { current: seen },
+        turnPlatformEntriesRef: { current: [] },
+        publishPlatformEntries: publish,
+        toast,
+      }),
+    ).toBe(true)
+    expect(toast).not.toHaveBeenCalled()
+    expect(publish).not.toHaveBeenCalled()
+  })
+
   it('后台会话不发布；同 id 不重复', () => {
     expect(
       publishPlatformFromAgUiResult({

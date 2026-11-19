@@ -122,7 +122,6 @@ export async function handleSend(
     setExpectedChatRunId,
     setLiveTurnAssistantRunId,
     setLiveTurnTokens,
-    setPlatformFocusEntryId,
     setPluginComposerPillsVisible,
     setRoleUiNonce,
     setPreferHomeDashboard,
@@ -546,7 +545,8 @@ export async function handleSend(
     rtSend.seenRunIds = []
     rightStageRunIdRef.current = `run-${Date.now()}`
     dismissedRightStageKindsRef.current = new Set()
-    platformFeedbackSeenRef.current = new Set()
+    // 平台 toast / 摘要「平台」tab：seen 跨回合保留（对齐 seenArtifacts）。
+    // 旧逻辑每发必清空 → tools-scan / chat_artifacts / RESULT 把历史平台结果当新通知再推一遍。
     writeStreamDismissedRef.current = false
     turnRunArtifactsRef.current = []
     turnPlatformEntriesRef.current = []
@@ -628,7 +628,8 @@ export async function handleSend(
         if (!tailSame) setRows([...next])
       }
       setTurnPlatformEntries([])
-      setPlatformFocusEntryId('')
+      // 勿清 platformFocus：清掉后再被 chat_artifacts/历史扫描写回同 id，
+      // ChatSummaryPanel 会当成「新通知」再撑开右上角平台卡。
       setTurnArtifacts([])
       setArtifactFocusId('')
       setStreamingWritePreview(null)

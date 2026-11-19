@@ -3,6 +3,7 @@ import {
   classifyEmptyAssistantCompleted,
   collectViewportAnomalies,
   formatAnomalyBadge,
+  mergeStickyViewportAnomalies,
 } from '../src/react/v4/v4-viewport-anomaly.ts'
 
 describe('collectViewportAnomalies', () => {
@@ -139,6 +140,76 @@ describe('collectViewportAnomalies', () => {
       ],
     })
     expect(anomalies.some((a) => a.code === 'PAINT_MEDIA_BURIED')).toBe(true)
+  })
+
+  it('sticky merge keeps error after live evidence leaves the time window', () => {
+    const live = collectViewportAnomalies({
+      ...base,
+      executing: false,
+      turns: [
+        {
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+          overlapsNext: true,
+          spaceToNext: -40,
+        },
+      ],
+    })
+    const first = mergeStickyViewportAnomalies({
+      tid: 'tid-1',
+      prevTid: null,
+      prev: [],
+      live,
+      nowMs: 1_000_000,
+    })
+    expect(first.items.some((a) => a.code === 'DOM_OVERLAP' && a.live)).toBe(true)
+    const held = mergeStickyViewportAnomalies({
+      tid: 'tid-1',
+      prevTid: 'tid-1',
+      prev: first.items,
+      live: [],
+      nowMs: 1_000_500,
+    })
+    const stuck = held.items.find((a) => a.code === 'DOM_OVERLAP')
+    expect(stuck?.live).toBe(false)
+    expect(stuck?.detail).toContain('叠层')
+    const cleared = mergeStickyViewportAnomalies({
+      tid: 'tid-2',
+      prevTid: 'tid-1',
+      prev: held.items,
+      live: [],
+      nowMs: 1_001_000,
+    })
+    expect(cleared.items).toHaveLength(0)
+  })
+
+  it('flags DOM_OVERLAP when visible cards crush the next card', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      executing: false,
+      turns: [
+        {
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+          overlapsNext: true,
+          spaceToNext: -120,
+        },
+        {
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+          overlapsNext: false,
+          spaceToNext: null,
+        },
+      ],
+    })
+    const hit = anomalies.find((a) => a.code === 'DOM_OVERLAP')
+    expect(hit?.severity).toBe('error')
+    expect(hit?.detail).toContain('叠层×1')
+    expect(hit?.detail).toContain('-120')
+    expect(formatAnomalyBadge(anomalies)).toContain('DOM_OVERLAP')
   })
 
   it('returns empty badge when healthy', () => {

@@ -81,6 +81,8 @@ import {
   classifyEmptyAssistantCompleted,
   collectViewportAnomalies,
   formatAnomalyBadge,
+  mergeStickyViewportAnomalies,
+  type StickyViewportAnomaly,
   type ViewportAnomaly,
 } from "./v4-viewport-anomaly.js";
 import {
@@ -91,6 +93,7 @@ import {
 import {
   clearViewportPageSnap,
   listViewportPageSnapEntries,
+  pageVisibleBitsFromRawRows,
   pushViewportPageSnap,
   subscribeViewportPageSnap,
   turnsFromWindowRows,
@@ -109,10 +112,19 @@ type VisibleTurnProbe = {
   turnId: string;
   dataIndex: string | null;
   top: number;
+  /** 底边 Y（top+height），用于叠层判定 */
+  bottom: number;
   height: number;
   displayText: string;
   /** 与下一 turn 的 top 差；末条为 null */
   gapToNext: number | null;
+  /**
+   * 下一卡 top − 本卡 bottom：负值=肉眼重叠（估高叠字现场）。
+   * 末条为 null。
+   */
+  spaceToNext: number | null;
+  /** spaceToNext &lt; -8 → 与下一卡在屏幕上叠在一起 */
+  overlapsNext: boolean;
   rawRows: Array<Record<string, unknown>>;
   /** 右栏有 turnHeader(origin=userInput) 却无 userInput → 左栏易被劈成两截 */
   orphanHeaderNoUser: boolean;
@@ -576,7 +588,13 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
   const turns: VisibleTurnProbe[] = visibleEls.map(({ el, r }, i) => {
     const turnId = String(el.getAttribute("data-turn-id") || "").trim();
     const next = visibleEls[i + 1];
+    const top = Math.round(r.top);
+    const height = Math.round(r.height);
+    const bottom = top + height;
     const gapToNext = next ? Math.round(next.r.top - r.top) : null;
+    const spaceToNext = next ? Math.round(next.r.top - r.bottom) : null;
+    // 允许 8px 缝；再负就是绝对定位叠在一起（肉眼重叠）。
+    const overlapsNext = spaceToNext != null && spaceToNext < -8;
     const raw = turnId ? rawByTurn.get(turnId) ?? [] : [];
     const hasUserInput = raw.some((row) => row.kind === "userInput");
     const header = raw.find((row) => row.kind === "turnHeader");
@@ -635,10 +653,14 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
     return {
       turnId: turnId || `anon-${i}`,
       dataIndex: el.getAttribute("data-index"),
-      top: Math.round(r.top),
-      height: Math.round(r.height),
-      displayText: clip(el.innerText || "", 320),
+      top,
+      bottom,
+      height,
+      // 肉眼所见：截长一点，复制诊断靠这段对齐屏幕
+      displayText: clip(el.innerText || "", 480),
       gapToNext,
+      spaceToNext,
+      overlapsNext,
       rawRows: raw.map(summarizeRow),
       orphanHeaderNoUser,
       hasUserInput,
@@ -939,17 +961,21 @@ function pickDiagnosticTurns(
 ): OverlaySnapshot["turns"] {
   if (turns.length === 0) return turns;
   const flagged = turns.filter(
-    (t) => t.orphanHeaderNoUser || t.emptyAssistantCompleted,
+    (t) =>
+      t.orphanHeaderNoUser ||
+      t.emptyAssistantCompleted ||
+      t.overlapsNext ||
+      (t.spaceToNext != null && t.spaceToNext < 24 && t.height > 120),
   );
   if (flagged.length > 0) {
-    // 异常轮 + 其前后各一（上下文），去重保序，最多 4
+    // 异常/叠层轮 + 其前后各一（上下文），去重保序，最多 6（叠字要多看几卡）
     const want = new Set(flagged);
     for (const t of flagged) {
       const i = turns.indexOf(t);
       if (i > 0) want.add(turns[i - 1]!);
       if (i >= 0 && i < turns.length - 1) want.add(turns[i + 1]!);
     }
-    return turns.filter((t) => want.has(t)).slice(0, 4);
+    return turns.filter((t) => want.has(t)).slice(0, 6);
   }
   // 健康时只留末 2 轮，够对「最新气泡 / 空回复」
   return turns.slice(-2);
@@ -1003,6 +1029,12 @@ function buildOverlayDiagnosticText(opts: {
   lines.push(
     `- ${new Date().toISOString()} · tab=${tab} · ${problems || "OK"} · 异常=${anomalies.length}`,
   );
+  lines.push("");
+  lines.push("### 怎么用");
+  lines.push(
+    "- 复现「叠字/错位」后立刻点「复制诊断」贴给 Agent——下面「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想。",
+  );
+  lines.push("- 不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。");
   if (!snapshot) {
     lines.push("- 快照: （无可见对话）");
     return lines.join("\n");
@@ -1010,13 +1042,75 @@ function buildOverlayDiagnosticText(opts: {
 
   const h = snapshot.history;
   const rs = snapshot.runStatus;
+  const pageSeen = pageVisibleBitsFromRawRows(snapshot.windowRows || []);
+  const pageSeenLine = [pageSeen.user, pageSeen.text, pageSeen.tool]
+    .filter(Boolean)
+    .join(" | ");
+  const host = snapshot.layout?.hosts.find((x) => x.visibleAttr === "1");
+  const eyeTurns = snapshot.turns;
+  const overlapCount = eyeTurns.filter((t) => t.overlapsNext).length;
+  const tight72 =
+    host?.estimateStuck === true ||
+    eyeTurns.filter(
+      (t) => t.gapToNext != null && t.gapToNext >= 60 && t.gapToNext <= 84,
+    ).length >= 2;
+  const eyeVerdict = [
+    overlapCount > 0 ? `!叠层×${overlapCount}` : "",
+    host?.stacked ? "!STACK(多卡同Y)" : "",
+    tight72 ? "!EST72(间距≈72估高)" : "",
+    overlapCount === 0 && !host?.stacked && !tight72 ? "排列正常" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  // —— 肉眼所见必须最先：Agent 先对屏幕再对投影 ——
   lines.push("");
-  lines.push("### 会话");
+  lines.push("### 肉眼所见（视口 DOM · 从上到下）");
+  lines.push(`- 总判: ${eyeVerdict || "∅"}`);
+  lines.push(
+    `- 视口 turn=${eyeTurns.length} · scroll ${snapshot.scrollTop}/${snapshot.scrollHeight} · client=${snapshot.clientHeight}`,
+  );
+  if (eyeTurns.length === 0) {
+    lines.push("- （视口无可见 turn 节点）");
+  } else {
+    const list =
+      overlapCount > 0 || host?.stacked
+        ? eyeTurns.slice(0, 10)
+        : pickDiagnosticTurns(eyeTurns);
+    for (let i = 0; i < list.length; i++) {
+      const t = list[i]!;
+      const flags = [
+        t.overlapsNext ? "!叠下一卡" : "",
+        t.spaceToNext != null && t.spaceToNext < 24 && t.spaceToNext >= -8
+          ? "!贴太近"
+          : "",
+        t.orphanHeaderNoUser ? "!NO_USER" : "",
+        t.emptyAssistantCompleted ? "!EMPTY_ASSISTANT" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const space =
+        t.spaceToNext == null
+          ? ""
+          : ` space→下=${t.spaceToNext}${t.overlapsNext ? "(负=重叠)" : ""}`;
+      lines.push(
+        `- [#${t.dataIndex ?? "∅"}] y=${t.top}→${t.bottom} h=${t.height}${space}${flags ? ` ${flags}` : ""} tid=${t.turnId.slice(0, 10)}`,
+      );
+      lines.push(`  屏上字: ${clip(t.displayText, 220) || "（空）"}`);
+    }
+    if (list.length < eyeTurns.length) {
+      lines.push(`- …另有 ${eyeTurns.length - list.length} 卡未展开（无叠层时只留异常/末轮）`);
+    }
+  }
+
+  lines.push("");
+  lines.push("### 会话 / 投影摘要");
   lines.push(
     `- ${snapshot.title || "∅"} · tid=${snapshot.tid} · sk=${snapshot.sessionKey || "∅"}`,
   );
+  lines.push(`- 页面所见(段末): ${pageSeenLine || "（空）"}`);
   lines.push(
-    `- scroll ${snapshot.scrollTop}/${snapshot.scrollHeight} client=${snapshot.clientHeight} · ${formatConversationRecordCounts({
+    `- ${formatConversationRecordCounts({
       windowCount: h.windowCount,
       totalCount: h.totalCount,
       windowTurnCount: h.windowTurnCount,
@@ -1032,8 +1126,6 @@ function buildOverlayDiagnosticText(opts: {
       `- polls: ${activePolls.map((p) => `${p.owner}@${p.intervalSec}s`).join(", ")}`,
     );
   }
-
-  const host = snapshot.layout?.hosts.find((x) => x.visibleAttr === "1");
   const layoutBad =
     !!host?.estimateStuck ||
     !!host?.stacked ||
@@ -1041,7 +1133,7 @@ function buildOverlayDiagnosticText(opts: {
     !!snapshot.layout?.composer?.drifted;
   if (host) {
     lines.push(
-      `- layout turns=${host.turnCount} gap=${host.medianGap ?? "∅"} stuck=${host.estimateStuck ? 1 : 0} stacked=${host.stacked ? 1 : 0} hosts=${snapshot.layout?.stackedHostCount ?? 0} composerDrift=${snapshot.layout?.composer?.drifted ? 1 : 0}${layoutBad ? " ←" : ""}`,
+      `- layout turns=${host.turnCount} uniqueY=${host.uniqueTops} gap=${host.medianGap ?? "∅"} stuck=${host.estimateStuck ? 1 : 0} stacked=${host.stacked ? 1 : 0} hosts=${snapshot.layout?.stackedHostCount ?? 0} composerDrift=${snapshot.layout?.composer?.drifted ? 1 : 0}${layoutBad ? " ←" : ""}`,
     );
   }
 
@@ -1058,13 +1150,14 @@ function buildOverlayDiagnosticText(opts: {
   const turns = pickDiagnosticTurns(snapshot.turns);
   lines.push("");
   lines.push(
-    `### 视口 turn（${turns.length}/${snapshot.turns.length}，异常优先）`,
+    `### 投影对照（${turns.length}/${snapshot.turns.length}，异常优先）`,
   );
   if (turns.length === 0) {
     lines.push("- （视口无 turn）");
   } else {
     for (const t of turns) {
       const flags = [
+        t.overlapsNext ? "!叠下一卡" : "",
         t.orphanHeaderNoUser ? "!NO_USER" : "",
         t.emptyAssistantCompleted ? "!EMPTY_ASSISTANT" : "",
       ]
@@ -1073,7 +1166,7 @@ function buildOverlayDiagnosticText(opts: {
       lines.push(
         `- #${t.dataIndex ?? "∅"} ${t.turnId.slice(0, 12)} h=${t.height}${flags ? ` ${flags}` : ""}${t.headerState ? ` ${t.headerState}` : ""}`,
       );
-      lines.push(`  DOM: ${clip(t.displayText, 120) || "（空）"}`);
+      lines.push(`  DOM: ${clip(t.displayText, 160) || "（空）"}`);
       lines.push(`  ROW: ${summarizeTurnRows(t.rawRows)}`);
     }
   }
@@ -1333,6 +1426,11 @@ export function V4ViewportDebugOverlay() {
   const pageSnapScrollRef = useRef<HTMLDivElement | null>(null);
   const pageSnapFollowBottomRef = useRef(true);
   const [copyHint, setCopyHint] = useState<string | null>(null);
+  /** error/warn 锁定：避免 700ms 刷新 + 时间窗证据滑出后标题栏闪灭 */
+  const [stickyAnomalies, setStickyAnomalies] = useState<StickyViewportAnomaly[]>(
+    [],
+  );
+  const stickyTidRef = useRef<string | null>(null);
   const [size, setSize] = useState<OverlaySize>(readOverlaySize);
   const [pos, setPos] = useState(() => defaultOverlayPos(readOverlaySize()));
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -1743,7 +1841,7 @@ export function V4ViewportDebugOverlay() {
     setPos(defaultOverlayPos(next));
   };
 
-  const anomalies = useMemo(
+  const liveAnomalies = useMemo(
     () =>
       buildViewportAnomalies({
         snapshot,
@@ -1753,8 +1851,55 @@ export function V4ViewportDebugOverlay() {
       }),
     [snapshot, streamEntries, apiEntries, scrollEntries],
   );
+  useEffect(() => {
+    const tid = snapshot?.tid ?? "";
+    if (!tid) {
+      stickyTidRef.current = null;
+      setStickyAnomalies([]);
+      return;
+    }
+    setStickyAnomalies((prev) => {
+      const merged = mergeStickyViewportAnomalies({
+        tid,
+        prevTid: stickyTidRef.current,
+        prev,
+        live: liveAnomalies,
+      });
+      stickyTidRef.current = merged.tid;
+      const next = merged.items;
+      const same =
+        next.length === prev.length &&
+        next.every((a, i) => {
+          const b = prev[i];
+          return (
+            !!b &&
+            a.code === b.code &&
+            a.live === b.live &&
+            a.detail === b.detail &&
+            a.title === b.title &&
+            a.severity === b.severity
+          );
+        });
+      return same ? prev : next;
+    });
+  }, [liveAnomalies, snapshot?.tid]);
+  // 展示 / 标题栏：优先锁定表（含「曾现」），不再跟 700ms 时间窗闪灭
+  const anomalies = stickyAnomalies;
   const problems = useMemo(() => problemBadge(anomalies), [anomalies]);
   const visibleHost = snapshot?.layout?.hosts.find((h) => h.visibleAttr === "1");
+  const clearStickyAnomalies = useCallback(() => {
+    stickyTidRef.current = snapshot?.tid ?? null;
+    setStickyAnomalies(
+      liveAnomalies
+        .filter((a) => a.severity === "info")
+        .map((a) => ({
+          ...a,
+          firstSeenAt: Date.now(),
+          lastSeenAt: Date.now(),
+          live: true,
+        })),
+    );
+  }, [liveAnomalies, snapshot?.tid]);
 
   const flashCopyHint = useCallback((ok: boolean, label: string) => {
     setCopyHint(ok ? label : "复制失败");
@@ -1776,24 +1921,30 @@ export function V4ViewportDebugOverlay() {
       sessionId: (fresh ?? snapshot)?.tid ?? null,
       limit: 24,
     });
-    const anomaliesForCopy = buildViewportAnomalies({
+    const liveForCopy = buildViewportAnomalies({
       snapshot: fresh ?? snapshot,
       streamEntries: streamForCopy,
       apiEntries: apiForCopy,
       scrollEntries: scrollForCopy,
     });
+    const stickyForCopy = mergeStickyViewportAnomalies({
+      tid: (fresh ?? snapshot)?.tid ?? "",
+      prevTid: stickyTidRef.current,
+      prev: stickyAnomalies,
+      live: liveForCopy,
+    }).items;
     const text = buildOverlayDiagnosticText({
       tab,
       snapshot: fresh ?? snapshot,
       streamEntries: streamForCopy,
       scrollEntries: scrollForCopy,
       apiEntries: apiForCopy,
-      anomalies: anomaliesForCopy,
-      problems: problemBadge(anomaliesForCopy),
+      anomalies: stickyForCopy,
+      problems: problemBadge(stickyForCopy),
     });
     const ok = await copyTextToClipboard(text);
     flashCopyHint(ok, "已复制诊断");
-  }, [snapshot, tab, apiFamily, flashCopyHint]);
+  }, [snapshot, tab, apiFamily, flashCopyHint, stickyAnomalies]);
 
   const copySessionId = useCallback(
     async (kind: "tid" | "sk") => {
@@ -1857,7 +2008,7 @@ export function V4ViewportDebugOverlay() {
             onClick={() => {
               void copyDiagnostic();
             }}
-            title="复制精简诊断：异常优先 + 短证据（不含流式整段 JSON / 滚轮流水账）"
+            title="复现叠字/错位后点：复制「肉眼所见」DOM 文案+坐标+叠层标记，再贴给 Agent"
           >
             {copyHint || "复制诊断"}
           </button>
@@ -3414,6 +3565,14 @@ export function V4ViewportDebugOverlay() {
                         (lastUserText === sendText ||
                           lastUserText.includes(sendText) ||
                           sendText.includes(lastUserText));
+                      const pageSeen = pageVisibleBitsFromRawRows(sourceRows);
+                      const pageSeenLine = [
+                        pageSeen.user,
+                        pageSeen.text,
+                        pageSeen.tool,
+                      ]
+                        .filter(Boolean)
+                        .join(" | ");
                       return (
                         <>
                           <div
@@ -3442,6 +3601,22 @@ export function V4ViewportDebugOverlay() {
                           </div>
                           <div
                             style={{
+                              ...mono,
+                              marginBottom: 8,
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              border: "1px solid rgba(125,211,252,0.45)",
+                              background: "rgba(12,74,110,0.35)",
+                              color: "#e0f2fe",
+                              fontSize: 12,
+                            }}
+                            title="与时间线同一套 renderUnits：段末正文才是页面折叠外能看见的"
+                          >
+                            页面所见（应对齐聊天区）：
+                            {pageSeenLine || "（空）"}
+                          </div>
+                          <div
+                            style={{
                               display: "grid",
                               gridTemplateColumns: "1fr 1fr",
                               gap: 8,
@@ -3454,7 +3629,7 @@ export function V4ViewportDebugOverlay() {
                             }}
                           >
                             <div style={{ ...colHeadStyle, color: "#86efac" }}>
-                              左 · 投影窗这一条（面板内容）
+                              左 · 投影原行（含已折进「已工作」的中间正文；≠页面所见）
                             </div>
                             <div style={{ ...colHeadStyle, color: "#c4b5fd" }}>
                               右 · 这一条的 JSON
@@ -3585,9 +3760,34 @@ export function V4ViewportDebugOverlay() {
                       padding: "4px 2px",
                     }}
                   >
-                    <div style={{ marginBottom: 8, color: "#94a3b8" }}>
-                      机器可判异常（流式无画面 / 最新气泡 / loadOlder 不前进 /
-                      绘画埋没 / 跟底猛跳…）。标题栏问题标记优先吃本表。
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        color: "#94a3b8",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        gap: 8,
+                        justifyContent: "space-between",
+                      }}
+                    >
+                      <span>
+                        error/warn{" "}
+                        <b style={{ color: "#e2e8f0" }}>锁定显示</b>
+                        （证据滑出时间窗也不灭）；「现」=本帧仍命中，「曾」=曾现已安静。换会话自动清；也可手动清。
+                      </span>
+                      <button
+                        type="button"
+                        style={{
+                          ...btnStyle,
+                          flexShrink: 0,
+                          opacity: anomalies.length ? 1 : 0.45,
+                        }}
+                        disabled={anomalies.length === 0}
+                        onClick={clearStickyAnomalies}
+                        title="清除锁定的异常（本帧仍命中的 info 会留下）"
+                      >
+                        清除锁定
+                      </button>
                     </div>
                     {anomalies.length === 0 ? (
                       <div style={{ color: "#86efac" }}>暂无异常 · OK</div>
@@ -3611,10 +3811,11 @@ export function V4ViewportDebugOverlay() {
                         <tbody>
                           {anomalies.map((a) => (
                             <tr
-                              key={a.code + a.detail}
+                              key={a.code}
                               style={{
                                 borderTop: "1px solid rgba(148,163,184,0.18)",
                                 verticalAlign: "top",
+                                opacity: a.live ? 1 : 0.72,
                               }}
                             >
                               <td
@@ -3639,6 +3840,15 @@ export function V4ViewportDebugOverlay() {
                                 }}
                               >
                                 {a.code}
+                                <div
+                                  style={{
+                                    marginTop: 2,
+                                    fontSize: 10,
+                                    color: a.live ? "#86efac" : "#94a3b8",
+                                  }}
+                                >
+                                  {a.live ? "现·仍命中" : "曾·已安静"}
+                                </div>
                               </td>
                               <td style={{ padding: "6px" }}>
                                 <div style={{ color: "#e2e8f0" }}>{a.title}</div>

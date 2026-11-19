@@ -155,9 +155,9 @@ function isVisibleConversationRow(row: ConversationRow): boolean {
 }
 
 /**
- * 软顶 / late-mirror 偶发：同一 turnId 下 toolCall 的 rowId 落在 realUser 之前。
- * flow 按 orderedRows 原序渲染 → 「已工作」跑到用户气泡上面（上下割裂）。
- * 把首个可见 realUser 之前的工作行挪到该气泡之后，轻边界仍留在轮顶。
+ * 同一 turnId 下 tool/正文 rowId &lt; realUser.rowId = 历史工具被错误挂靠（mirror
+ * 迟到 RESULT 用新 turnId 覆盖旧行；钉尾后又排到用户气泡后面）。
+ * 丢掉这些错挂行，只保留轻边界 + 用户及 rowId ≥ 用户的本轮产物。
  */
 export function normalizeOrderedRowsUserFirst(
   rows: readonly ConversationRow[],
@@ -165,34 +165,43 @@ export function normalizeOrderedRowsUserFirst(
   if (!Array.isArray(rows) || rows.length < 2) {
     return Array.isArray(rows) ? [...rows] : [];
   }
-  let firstUserIdx = -1;
-  for (let i = 0; i < rows.length; i += 1) {
-    const row = rows[i];
+  let firstUser: UserInputRow | null = null;
+  for (const row of rows) {
     if (!isUserInputRow(row) || isHiddenProviderContextUserInput(row)) continue;
     if (row.origin !== "realUser") continue;
     if (!String(row.text || "").trim()) continue;
-    firstUserIdx = i;
+    firstUser = row;
     break;
   }
-  if (firstUserIdx <= 0) return [...rows];
+  if (!firstUser) return [...rows];
 
-  const before = rows.slice(0, firstUserIdx);
-  const user = rows[firstUserIdx]!;
-  const after = rows.slice(firstUserIdx + 1);
+  const userRowId = Number(firstUser.rowId) || 0;
   const leadingBoundaries: ConversationRow[] = [];
-  const misplacedWork: ConversationRow[] = [];
-  for (const row of before) {
+  const kept: ConversationRow[] = [];
+  let dropped = 0;
+  for (const row of rows) {
     if (
       row.kind === "timelineMarker" &&
       (row as TimelineMarkerRow).lane === "lightBoundary"
     ) {
       leadingBoundaries.push(row);
-    } else {
-      misplacedWork.push(row);
+      continue;
     }
+    if (
+      row.rowId !== firstUser.rowId &&
+      !isUserInputRow(row) &&
+      !isTurnHeaderRow(row) &&
+      (Number(row.rowId) || 0) < userRowId
+    ) {
+      dropped += 1;
+      continue;
+    }
+    kept.push(row);
   }
-  if (misplacedWork.length === 0) return [...rows];
-  return [...leadingBoundaries, user, ...misplacedWork, ...after];
+  if (dropped === 0 && leadingBoundaries.length === 0) {
+    return [...rows];
+  }
+  return [...leadingBoundaries, ...kept];
 }
 
 // 落位语义（lane）由 CLI 投影裁决下发（UI 不得按 marker type 自行推断）。
@@ -426,7 +435,16 @@ function materializeDraftUnit(
   const visibleUserInputs = renderedRows.filter(
     (row): row is UserInputRow => isUserInputRow(row) && !isHiddenProviderContextUserInput(row),
   );
-  const visibleAssistantWorkRows = draft.assistantWorkRows.filter(isVisibleAssistantWorkRow);
+  const firstRealUserRowId =
+    visibleUserInputs.find(
+      (row) => row.origin === "realUser" && String(row.text || "").trim(),
+    )?.rowId ?? 0;
+  // 与 normalizeOrderedRowsUserFirst 同语义：丢掉 rowId < 用户气泡的错挂历史工具。
+  const visibleAssistantWorkRows = draft.assistantWorkRows.filter((row) => {
+    if (!isVisibleAssistantWorkRow(row)) return false;
+    if (!firstRealUserRowId) return true;
+    return (Number(row.rowId) || 0) >= Number(firstRealUserRowId);
+  });
   const visibleOrderedRows = renderedRows.filter(isVisibleConversationRow);
   const timelineOnly =
     visibleUserInputs.length === 0 &&

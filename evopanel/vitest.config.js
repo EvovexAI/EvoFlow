@@ -301,6 +301,8 @@ export default defineConfig({
       'tests/stream-stop-log.test.ts',
       'tests/run-page-load-resume.test.ts',
       'tests/settings-modal-tauri-drag.test.js',
+      // 设置→已装资源：「已装产物」分组（BOT 合并 employees+agents 去重、extensions 叫「Agent应用」）
+      'tests/installed-packs-artifact-labels.test.js',
       'tests/task-duration.test.js',
       'tests/replay-real-run-133609527d1f.test.js',
       'tests/replay-real-run-81320d61e8cc-diag.test.js',

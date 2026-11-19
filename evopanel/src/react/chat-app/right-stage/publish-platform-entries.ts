@@ -27,6 +27,7 @@ export function publishPlatformEntries(
   ctx: PublishPlatformEntriesCtx,
   entries: any[],
   focusEntryId?: string,
+  opts?: { announce?: boolean },
 ): void {
   ctx.turnPlatformEntriesRef.current = entries
   ctx.setTurnPlatformEntries([...entries])
@@ -37,6 +38,15 @@ export function publishPlatformEntries(
     return Array.from(map.values()).sort((a, b) => b.appliedAt - a.appliedAt)
   })
   if (!entries.length) return
+
+  // announce=false：历史回放 / 已见过合并，只写条目，不切 focus、不撑开摘要卡
+  const announce = opts?.announce !== false
+  if (!announce) {
+    logRightStage('publishPlatformEntries:SILENT_MERGE', {
+      entryCount: entries.length,
+    }, { store: ctx.rightStageStore })
+    return
+  }
 
   const focus = String(focusEntryId || ctx.latestPlatformRunEntryId(entries)).trim()
   if (focus) ctx.setPlatformFocusEntryId(focus)

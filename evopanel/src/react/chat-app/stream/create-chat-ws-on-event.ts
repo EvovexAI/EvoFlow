@@ -1201,12 +1201,23 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                 } else merged.push(row)
               }
               merged.sort((a, b) => b.appliedAt - a.appliedAt)
+              // 仅「未见过」的平台产物才 announce（撑开右上角 / 切 tab）。
+              // 新回合 SSE 若回放历史 platform artifacts，已见过的静默合并，勿再当新通知。
+              const freshArtifactRows = fromArtifacts.filter((row) => {
+                const id = String(row.toolCallId || row.id || '').trim()
+                return id && !platformFeedbackSeenRef.current.has(id)
+              })
               for (const row of fromArtifacts) {
-                platformFeedbackSeenRef.current.add(String(row.toolCallId || row.id))
+                const id = String(row.toolCallId || row.id || '').trim()
+                if (id) platformFeedbackSeenRef.current.add(id)
               }
               publishPlatformEntriesRef.current(
                 merged,
-                latestPlatformRunEntryId(fromArtifacts) || latestPlatformRunEntryId(merged),
+                freshArtifactRows.length
+                  ? latestPlatformRunEntryId(freshArtifactRows) ||
+                      latestPlatformRunEntryId(merged)
+                  : undefined,
+                { announce: freshArtifactRows.length > 0 },
               )
             }
           }

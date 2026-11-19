@@ -785,6 +785,74 @@ def test_late_tool_result_after_run_finished_recovers_cancelled_row(
     assert int(tool.get("startedAt") or 0) == int(sealed.get("startedAt") or sealed.get("createdAt") or 0)
 
 
+def test_late_tool_end_result_does_not_steal_into_new_turn(mirror_session: str) -> None:
+    """新轮已开时，上一轮 toolCallId 的迟到 END/RESULT 不得改写 turnId。
+
+    现场：user#2162 turn=run-4a35… 下挂 row#2007 旧 bash（RESULT 用 st.turn_id 覆盖）。
+    """
+    tid = mirror_session + "-no-steal"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "查蓝光")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-old"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-old-bash",
+                "toolCallName": "bash",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-old-bash",
+                "delta": '{"command":"grep glow"}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-old-bash"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-old-bash",
+                "content": "ring show ok",
+                "status": "success",
+            },
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-old"},
+        ],
+    )
+    old_tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert old_tool["turnId"] == "run-old"
+    old_rid = int(old_tool["rowId"])
+
+    mirror.note_user_input(tid, "我已经重启好了，你试一下")
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-4a35a33d4ff8"}],
+    )
+    # 新轮进行中：重放/迟到的旧 tool END+RESULT（map 已清，按 toolCallId 找回旧行）
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-old-bash"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-old-bash",
+                "content": "ring show ok (late)",
+                "status": "success",
+            },
+        ],
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert len(tools) == 1, tools
+    tool = tools[0]
+    assert int(tool["rowId"]) == old_rid
+    assert tool["turnId"] == "run-old", tool
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    new_user = next(r for r in users if "重启好了" in str(r.get("text") or ""))
+    assert new_user["turnId"] == "run-4a35a33d4ff8"
+    assert int(tool["rowId"]) < int(new_user["rowId"])
+
+
 def test_seal_backfills_output_from_transcript_when_result_missing(
     mirror_session: str,
     monkeypatch: pytest.MonkeyPatch,

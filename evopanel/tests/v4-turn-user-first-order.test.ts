@@ -52,7 +52,7 @@ function assistantText(rowId: number, turnId: string, text: string): Conversatio
 }
 
 describe('normalizeOrderedRowsUserFirst', () => {
-  it('moves work rows that precede realUser to after the bubble', () => {
+  it('drops stolen work rows with rowId before realUser (not relocate into turn)', () => {
     const turnId = 'run-split'
     const rows: ConversationRow[] = [
       toolCall(10, turnId),
@@ -61,16 +61,24 @@ describe('normalizeOrderedRowsUserFirst', () => {
       assistantText(13, turnId, '验完了'),
     ]
     const next = normalizeOrderedRowsUserFirst(rows)
-    expect(next.map((r) => r.kind)).toEqual([
-      'userInput',
-      'toolCall',
-      'toolCall',
-      'assistantText',
-    ])
+    expect(next.map((r) => r.kind)).toEqual(['userInput', 'assistantText'])
+    expect(next.map((r) => r.rowId)).toEqual([12, 13])
     expect(next[0]?.kind === 'userInput' && next[0].text).toContain('啥意思')
   })
 
-  it('no-ops when user already leads', () => {
+  it('drops stolen tools even when pinned after the user bubble', () => {
+    const turnId = 'run-4a35a33d4ff8'
+    const rows: ConversationRow[] = [
+      userInput(2162, turnId, '我已经重启好了，你试一下'),
+      toolCall(2007, turnId),
+      toolCall(2008, turnId),
+      assistantText(2165, turnId, '正在验证'),
+    ]
+    const next = normalizeOrderedRowsUserFirst(rows)
+    expect(next.map((r) => r.rowId)).toEqual([2162, 2165])
+  })
+
+  it('no-ops when user already leads with later tools only', () => {
     const turnId = 'run-ok'
     const rows: ConversationRow[] = [
       userInput(1, turnId, 'hello'),
@@ -153,9 +161,8 @@ describe('buildConversationTurnRenderUnits empty-run strip', () => {
 })
 
 describe('buildConversationTurnRenderUnits tools-before-user', () => {
-  it('renders user bubble before 已工作 tools (no vertical split)', () => {
-    // 现场 dump：ROW = toolCall×N | turnHeader | userInput | assistant…
-    // 同源 turnId 下工具 rowId 小于用户气泡 → 旧逻辑先画「已工作」再画用户气泡。
+  it('hides stolen pre-user tools so new turn does not show prior bash', () => {
+    // 现场 dump：新用户 2162 + 旧工具 2007… 同 turnId（RESULT 偷挂）
     const turnId = 'run-a244892b'
     const rows: ConversationRow[] = [
       toolCall(100, turnId),
@@ -172,7 +179,10 @@ describe('buildConversationTurnRenderUnits tools-before-user', () => {
     expect(units).toHaveLength(1)
     const flowKinds = (units[0]?.workSegments?.[0]?.flowItems ?? []).map((item) => item.kind)
     expect(flowKinds[0]).toBe('userInput')
-    expect(flowKinds.slice(1)).toContain('assistantHistory')
+    expect(flowKinds).not.toContain('assistantHistory')
+    expect(units[0]?.assistantWorkRows.every((r) => (Number(r.rowId) || 0) >= 104)).toBe(
+      true,
+    )
     const firstUser = units[0]?.workSegments?.[0]?.flowItems.find((i) => i.kind === 'userInput')
     expect(firstUser?.kind === 'userInput' && firstUser.row.text).toContain('啥意思')
   })

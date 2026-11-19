@@ -1820,6 +1820,22 @@ class V4Mirror:
         return created_at, started_at
 
     @staticmethod
+    def _preserve_tool_turn_id(
+        existing: dict[str, Any] | None, st: _MirrorState
+    ) -> str:
+        """已落盘工具行保留原 turnId，禁止 END/RESULT 把历史工具偷进当前轮。
+
+        ``_lookup_tool_row`` 按 toolCallId 扫全会话；迟到 RESULT / catchup 重放时
+        ``st.turn_id`` 已是新轮，若仍写 st.turn_id 会出现：新用户气泡下突然刷出
+        上一轮 bash（rowId 远小于用户行）。与 ``_seal_open_tool_calls`` 的跨轮跳过同语义。
+        """
+        if isinstance(existing, dict):
+            old = str(existing.get("turnId") or "").strip()
+            if old:
+                return old
+        return str(st.turn_id or "").strip()
+
+    @staticmethod
     def _reasoning_duration_ms(
         existing: dict[str, Any] | None, *, now_ms: int
     ) -> int | None:
@@ -2529,8 +2545,7 @@ class V4Mirror:
                 tid,
                 {
                     "rowId": rid,
-                    "turnId": st.turn_id
-                    or (str(existing.get("turnId") or "") if isinstance(existing, dict) else ""),
+                    "turnId": self._preserve_tool_turn_id(existing, st),
                     "kind": "toolCall",
                     "toolCallId": tcid,
                     "toolName": self._tool_name(st, tcid, ev),
@@ -2664,9 +2679,7 @@ class V4Mirror:
             input_text = st.tool_acc.get(tcid, "") or (
                 str(existing.get("inputText") or "") if isinstance(existing, dict) else ""
             )
-            turn_id = str(st.turn_id or "").strip() or (
-                str(existing.get("turnId") or "").strip() if isinstance(existing, dict) else ""
-            )
+            turn_id = self._preserve_tool_turn_id(existing, st)
             result_row: dict[str, Any] = {
                 "rowId": rid,
                 "turnId": turn_id,

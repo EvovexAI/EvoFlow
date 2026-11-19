@@ -157,7 +157,7 @@ _ACT_OR_PROGRESS_TOOLS = frozenset(
         "platform",  # includes ui.show / ui.hide (ex panel_set)
     }
 )
-_EXPLORE_STREAK_WARN_MSG = "[探索过久] 本轮已连续多次只读探索且未落地修改。若用户要求改代码/修 UI/修 bug：立即 replace/write 或 ask_clarification；禁止再为记账调用 mind_map。若仅调研则收口总结。"
+_EXPLORE_STREAK_WARN_MSG = "[探索过久] 本轮已连续多次只读探索且未落地修改。若用户要求改代码/修 UI/修 bug：立即 replace/write 或 ask_clarification。若仅调研则收口总结。"
 _EXPLORE_STREAK_BLOCK_MSG = "[探索过久·已拦截] 连续探索未改代码已达上限，本次探索工具未执行。请立即 replace/write，或 ask_clarification，或根据已有结果总结。"
 
 # Search / discovery — never hard-blocked by explore streak or explore-loop limits.

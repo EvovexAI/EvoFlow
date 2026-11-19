@@ -32,8 +32,12 @@ class ExplorationGraphConfig(BaseModel):
     inject_max_edges: int = Field(default=16, ge=0, le=80)
     node_body_max_chars: int = Field(default=200, ge=80, le=2000)
     soft_hints: bool = Field(
-        default=True,
-        description="Append non-blocking mind-map quality hints to successful mind_map tool results.",
+        default=False,
+        description=(
+            "Append non-blocking mind-map quality hints to tool results "
+            "(evidence tools + mind_map). Default off — 导图提示已过时，"
+            "会污染 search_code_index 等正文（「已执行」卡尾挂「思维导图提示」）。"
+        ),
     )
 
 

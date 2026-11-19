@@ -2,8 +2,13 @@
  * 视口调试：页面「画面快照」环。
  * 只在对话内容真变了才记一帧（用户/正文/思考/工具），不变不刷。
  * 用来排查「乱套时屏幕/投影到底画了啥」。
+ *
+ * 头条用「页面所见」（renderUnits 段末正文），明细仍列投影原行——避免把已折进
+ * 「已工作」的中间正文/偷挂旧工具当成页面上在显示的内容。
  */
 
+import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
+import { buildConversationTurnRenderUnits } from "@zcode/ui/v4/conversationTurnRenderUnits.js";
 import { persistViewportTap } from "./v4-viewport-tap-persist.js";
 
 export type ViewportPageSnapTurn = {
@@ -192,6 +197,34 @@ export function turnsFromWindowRows(
   });
 }
 
+/** 与时间线同一套 renderUnits：段末正文 / 过滤后的工具，才是「页面上能看见的」。 */
+export function pageVisibleBitsFromRawRows(
+  rawRows: ReadonlyArray<Record<string, unknown>>,
+): { user: string; text: string; tool: string } {
+  try {
+    const units = buildConversationTurnRenderUnits(rawRows as ConversationRow[], {
+      sessionBusy: false,
+    });
+    const unit = units.at(-1);
+    if (!unit) return { user: "", text: "", tool: "" };
+    const userRow = unit.visibleUserInputs.find(
+      (row) =>
+        (!row.origin || row.origin === "realUser") &&
+        Boolean(String(row.text || "").trim()),
+    );
+    const user = userRow ? `用户 ${clip(userRow.text, 80)}` : "";
+    const latest = unit.latestAssistantTextRow;
+    const text = latest?.text?.trim() ? `正文 ${clip(latest.text, 80)}` : "";
+    const tools = unit.assistantWorkRows.filter((row) => row.kind === "toolCall");
+    const lastTool = tools.at(-1) as { toolName?: string; name?: string } | undefined;
+    const toolName = String(lastTool?.toolName || lastTool?.name || "").trim();
+    const tool = toolName ? `工具 ${toolName}` : "";
+    return { user, text, tool };
+  } catch {
+    return { user: "", text: "", tool: "" };
+  }
+}
+
 function buildDetail(
   turns: ViewportPageSnapTurn[],
   meta: { runLabel: string; scrollTop: number; scrollHeight: number },
@@ -218,21 +251,26 @@ function buildDetail(
     if (t.orphanHeaderNoUser) flags.push("!孤儿头");
     if (t.emptyAssistantCompleted) flags.push("!空回复");
     if (t.live) flags.push("!直播中");
-    let user = "";
-    let text = "";
-    let tool = "";
+    let rawUser = "";
+    let rawText = "";
+    let rawTool = "";
     const bits: string[] = [];
     for (const row of t.rawRows) {
       const b = rowBits(row);
       if (b) {
         bits.push(b);
-        if (b.startsWith("用户 ")) user = b;
-        else if (b.startsWith("正文 ")) text = b;
-        else if (b.startsWith("工具 ")) tool = b;
+        if (b.startsWith("用户 ")) rawUser = b;
+        else if (b.startsWith("正文 ")) rawText = b;
+        else if (b.startsWith("工具 ")) rawTool = b;
       }
       const sb = rowSigBits(row);
       if (sb) sigParts.push(sb);
     }
+    const page = pageVisibleBitsFromRawRows(t.rawRows);
+    // 头条跟页面：优先段末正文；原行最后一条正文常是中间汇报，会对不上页面。
+    const user = page.user || rawUser;
+    const text = page.text || rawText;
+    const tool = page.tool || rawTool;
     if (bits.length === 0 && flags.length === 0) {
       lines.push(
         `  turn#${t.dataIndex ?? "∅"} ${t.turnId.slice(0, 8)} （仅轮头/空）`,
@@ -244,7 +282,11 @@ function buildDetail(
         flags.length ? ` ${flags.join("")}` : ""
       }`,
     );
-    for (const b of bits) lines.push(`    ${b}`);
+    lines.push(
+      `    【页面所见】${[user, text, tool].filter(Boolean).join(" | ") || "（空）"}`,
+    );
+    lines.push(`    【投影原行】`);
+    for (const b of bits) lines.push(`      ${b}`);
     sigParts.push(`turn:${t.turnId}${flags.join("")}`);
     const pack = {
       user,

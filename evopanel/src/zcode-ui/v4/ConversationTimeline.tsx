@@ -114,6 +114,12 @@ const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_PX = 96;
 const COMPOSER_MESSAGE_MASK_TRANSPARENT_HEIGHT_EXTERNAL_PX = 20;
 const USER_SCROLL_INTENT_TTL_MS = 1200;
 const LAYOUT_SCROLL_GUARD_MS = 250;
+/**
+ * 程序化贴底 / 恢复后的 scroll 归因窗。
+ * 旧逻辑只靠「下一帧 rAF + |Δ|&lt;1」：内容暴涨时 scrollToBottom 的后续测高/前插
+ * 会在 rAF 清掉后被当成 user → follow=0 → 预取雪崩 → 估高叠字（现场 #856）。
+ */
+const PROGRAMMATIC_SCROLL_HOLD_MS = 400;
 const CONTENT_WIDTH_RESIZE_SETTLE_MS = 120;
 const SCROLL_MEMORY_RESTORE_TOLERANCE_PX = 1;
 
@@ -1066,14 +1072,25 @@ function ConversationTimelineImpl({
   }, [layoutActive, healMountedTurnHeights, sessionKey]);
 
 
+  const programmaticScrollUntilRef = useRef(0);
   const markProgrammaticScroll = useCallback(() => {
+    programmaticScrollUntilRef.current = performance.now() + PROGRAMMATIC_SCROLL_HOLD_MS;
     if (programmaticScrollFrameRef.current !== null) {
       window.cancelAnimationFrame(programmaticScrollFrameRef.current);
     }
-    programmaticScrollFrameRef.current = window.requestAnimationFrame(() => {
+    const tick = () => {
+      if (performance.now() < programmaticScrollUntilRef.current) {
+        programmaticScrollFrameRef.current = window.requestAnimationFrame(tick);
+        return;
+      }
       programmaticScrollFrameRef.current = null;
-    });
+    };
+    programmaticScrollFrameRef.current = window.requestAnimationFrame(tick);
   }, []);
+  const isProgrammaticScrollActive = useCallback(
+    () => performance.now() < programmaticScrollUntilRef.current,
+    [],
+  );
 
   const commitFollowing = useCallback((following: boolean) => {
     if (followingRef.current === following) return;
@@ -1399,6 +1416,7 @@ function ConversationTimelineImpl({
     const element = scrollRef.current;
     if (!element) return;
     markProgrammaticScroll();
+    markLayoutScrollGuard();
     // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
     // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
     recordScrollWrite("scrollToBottom", element);
@@ -1411,6 +1429,7 @@ function ConversationTimelineImpl({
     notifyScrollObserversAfterCommit(element);
   }, [
     cacheCurrentScrollMemoryState,
+    markLayoutScrollGuard,
     responsiveCenteredEmptyLayout,
     markProgrammaticScroll,
     notifyScrollObserversAfterCommit,
@@ -1653,9 +1672,9 @@ function ConversationTimelineImpl({
   const handleScroll = useCallback(() => {
     const element = scrollRef.current;
     if (!element) return;
-    const programmaticScroll =
-      programmaticScrollFrameRef.current !== null &&
-      Math.abs(element.scrollTop - lastObservedScrollTopRef.current) < 1;
+    // 程序化窗内一律认 programmatic（含大 Δ）：勿要求 |Δ|&lt;1，否则贴底后的
+    // 测高/前插 scroll 会被误判 user → 丢 follow → loadOlder 雪崩叠字。
+    const programmaticScroll = isProgrammaticScrollActive();
     const userScrollIntent = getActiveUserScrollIntent();
     // 用户输入优先；guard 内且仍近底的未分类 scroll 视为布局补偿（heal/measure）。
     // 已离底时不得再当 layout——否则切会话后滚动条上翻会被 450ms remount guard
@@ -1705,6 +1724,7 @@ function ConversationTimelineImpl({
   }, [
     commitFollowing,
     getActiveUserScrollIntent,
+    isProgrammaticScrollActive,
     saveCurrentScrollMemory,
     syncTurnNavigatorViewport,
     tryLoadOlderNearTop,
@@ -2169,6 +2189,29 @@ function ConversationTimelineImpl({
       syncTurnNavigatorViewport(scrollRef.current);
     }
   }, [pendingGuideKey, rowCount, syncTurnNavigatorViewport, totalSize]);
+
+  // 尾窗暴涨（切会话 catchup / soft-cap 合并）：跟底中强制再测高+贴底，
+  // 避免估高 72 叠字；并拉长 programmatic 窗挡住误判 user。
+  const prevRowsLengthForBalloonRef = useRef(0);
+  useLayoutEffect(() => {
+    const prev = prevRowsLengthForBalloonRef.current;
+    prevRowsLengthForBalloonRef.current = rows.length;
+    if (!followingRef.current) return;
+    if (prev <= 0 || rows.length < prev + 40) return;
+    markProgrammaticScroll();
+    markLayoutScrollGuard();
+    remountMeasureGuardUntilRef.current = performance.now() + 450;
+    healMountedTurnHeights();
+    virtualizer.measure();
+    scrollToBottom();
+  }, [
+    healMountedTurnHeights,
+    markLayoutScrollGuard,
+    markProgrammaticScroll,
+    rows.length,
+    scrollToBottom,
+    virtualizer,
+  ]);
 
   // 行清空（如 editUserQuery 大范围 rewind）：重置为跟随并收起按钮，
   // 后续重新出现的行走上面的锚定 effect 贴底。

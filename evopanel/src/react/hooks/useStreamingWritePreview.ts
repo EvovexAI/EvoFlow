@@ -53,7 +53,11 @@ export function useStreamingWritePreview(opts: {
   platformFeedbackSeenRef: MutableRefObject<Set<string>>
   turnPlatformEntriesRef: MutableRefObject<PlatformRunEntry[]>
   publishPlatformEntriesRef: MutableRefObject<
-    (entries: PlatformRunEntry[], focusEntryId?: string) => void
+    (
+      entries: PlatformRunEntry[],
+      focusEntryId?: string,
+      opts?: { announce?: boolean },
+    ) => void
   >
   openWriteStream: (data: {
     path?: string
