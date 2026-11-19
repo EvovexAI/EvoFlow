@@ -436,7 +436,28 @@ fn build_glow_window(
     .focused(false)
     .skip_taskbar(true)
     .resizable(false)
-    .visible(false)
+    // 【self-evolution-bot · 2026-11-19 · 第78轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：`.visible(false)` → `.visible(true)`。针对「提示条建了却从不出现」的第 3 个候选根因。
+    // **注意：这条尚未真机证真**（构建产物 21:02:58 待安装）。同仓有反例，见下方注释。
+    //
+    // 为什么（20:54 / 20:57 两次真机取证，新构建上复现）：
+    //   日志 `overlay window built (label=cua-glow-0), show() will drive creation`（build 成功）
+    //   但紧接着 `after-show visible=false size=<failed to receive message from webview>
+    //   pos=<same> hwnd=<the underlying handle is not available>`
+    //   并且 `EnumWindows` 按 pid 94692 原始枚举只有 6 个窗：Tauri Window / tray_icon_app /
+    //   global_hotkey_app / Tao Thread Event Target / MSCTFIME UI / IME —— **没有任何 cua-glow**。
+    //   ⇒ build 返回的只是一个**空壳对象**，Win32 窗口从未真正创建。
+    //
+    // 判据来源不是我的推测，是本仓已证真的同型窗口（browser_embed.rs:2229-2233 原文）：
+    //   "Always start visible. A `.visible(false)` WebView2 on Windows often never surfaces
+    //    an HWND ("underlying handle is not available"), so nest/place/park/CDP all fail
+    //    and leave a zombie label."
+    // 我之前把它读成「等一会儿就好」「spawn_blocking 死锁」，两轮都改错方向 ——
+    // 真正的开关是**建窗时就必须 visible**，HWND 才会被 tao 推出来。
+    //
+    // 代价可接受：本窗口建出来就是要立刻显示的（同一命令里紧跟着 show），
+    // 位置已在 builder 里设好，不会先闪到屏幕左上角。
+    .visible(true)
     .build()
     .map_err(|e| format!("create CUA operation indicator failed: {e}"))?;
 
@@ -456,7 +477,17 @@ fn build_glow_window(
     //   ```
     //   结果：全屏蓝光环亮了（`ring show ok`），顶部提示条**始终不出现**。
     //
-    // 根因：窗口是 `.visible(false)` 建的，HWND 要等 tao 主事件循环推一轮才就绪。
+    // 根因（第78轮**候选假设，尚未真机证真**）：
+    //   第73轮我写「HWND 要等 tao 主事件循环推一轮才就绪，主线程被 await 住」，
+    //   第76轮我写「spawn_blocking 里调 hwnd() 打断了 webview 附着」。
+    //   这两条都已被 20:54/20:57 的新构建实测否定：死锁修掉后日志变成
+    //   `overlay window built ... show() will drive creation` 却仍 `after-show visible=false`。
+    //   第78轮改为「建窗时必须 visible」，依据是同仓 browser_embed.rs:2229-2233 的
+    //   既有结论（`.visible(false)` 的 WebView2 常常根本不产出 HWND）。
+    //   **但必须诚实记下反例**：同仓 resource_manager.rs:620 与 voice_overlay.rs:99
+    //   也用 `.visible(false)`，用户日常都能打开 —— 说明这条不是普适定律。
+    //   所以本条仍需一次真机复验才算证实；未证实就当它和下面的复用判据互为兜底。
+    // 保留原本的现象记录，供后人对照：
     // 这里在 spawn_blocking 线程里死等 10s，主循环没被推动 ⇒ 永远拿不到句柄
     // （错误原文 "the underlying handle is not available" 就是 Tauri 侧 hwnd 仍为空）。
     // 而 `builder.build()` **成功返回了窗口对象**才走到这里，说明 WebView2 controller
@@ -484,25 +515,27 @@ fn build_glow_window(
     //   而枚举 Win32 顶层窗口：`cua-glow-0` **根本不在列表里**（蓝光环 EvoFlowCuaGlowRing
     //   是 VISIBLE 全屏的，说明进程与窗口站没问题）。
     //
-    // 根因：`apply_overlay_chrome` 内部调 `window.hwnd()`（以及 set_ignore_cursor_events
-    // 这类要回主线程的 API）。本函数跑在 `spawn_blocking` 线程 ⇒ 这些调用拿不到
-    // 主线程句柄，webview 的附着流程被打断，于是窗口对象存在、Win32 窗口从未出现。
-    // `apply_overlay_chrome` 一律只在主线程、且 `show()` 之后调用（见 show 命令）。
+    // 根因（第78轮更正）：不是这里调了 hwnd()。20:54/20:57 两次实测都证明
+    // `overlay window built` 之后紧接着 `after-show visible=false`，而本顺序
+    // （先 show 再 chrome）仍导致「窗口对象在、Win32 窗口不在」——
+    // 说明「在 blocking 线程取句柄会打断 webview 附着」这条归因不成立。
+    // 本顺序仍保留的理由只剩一条客观事实：`hwnd()` 在 show 之前确实拿不到句柄。
     Ok(window)
 }
 
 fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool), String> {
     let pos = overlay_logical_position(app)?;
-    // 【self-evolution-bot · 2026-11-19 · 第73轮 · 模型:deepseek-v4.1-flash-1017】
-    // 改了什么：复用判据从 `wait_overlay_hwnd(...)`（查 HWND）改成 `window_created` 状态位。
+    // 【self-evolution-bot · 2026-11-19 · 第78轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：复用判据从「状态位 window_created」改成「**真拿得到 HWND**」。
     //
-    // 为什么：本函数跑在 `spawn_blocking` 线程，`hwnd()` 要回主线程取句柄 ⇒ 与
-    // await 它的主线程互等，**必定失败**。于是一次 CUA 之后，下次调用永远判定
-    // 「旧窗口是死的」→ 销毁重建 → 再死锁一轮，提示条永远出不来。
-    //
-    // 为什么不用 `is_visible()`：hide 之后窗口是活着的（可复用），但 visible=false，
-    // 用它判会每轮白白销毁重建一个 WebView2。`window_created` 只在 build 成功后置真、
-    // 只在 `drop_overlay_window` 里置假，语义正好。
+    // 为什么（20:57 真机实测抓到现行）：
+    //   20:54 那次 build 打出了 `overlay window built (label=cua-glow-0)`，窗口从未真出现；
+    //   20:57 我再触发一次，日志里**一条 build 日志都没有** —— 走的是本复用分支，
+    //   状态位还认为窗口活着，于是一直把那个空壳对象返给 show()，show() 也救不回来。
+    //   ⇒ 状态位会撒谎，判据必须落到「句柄在不在」这个客观事实上。
+    //   注意 `hwnd()` 在本线程可用：async 命令跑在 tokio 线程，tao 事件循环仍在主线程正常
+    //   泵消息（20:57 实测 `is_visible()` 能正常返回 false 就是证据），所以这里不会互等。
+    //   真拿不到句柄就销毁重建，把「永久卡死」降级为「多建一次」。
     let reusable = {
         let st = match OVERLAY_STATE.lock() {
             Ok(g) => g,
@@ -512,15 +545,21 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool)
     };
     if reusable {
         if let Some(existing) = active_overlay(app) {
-            // 【self-evolution-bot · 2026-11-19 · 第73轮】这里**不能**调
-            // `apply_overlay_chrome`：它内部要 `hwnd()`，在 spawn_blocking 线程里
-            // 会打断 webview 附着（实测导致 cua-glow-0 的 Win32 窗口从未创建）。
-            // 尺寸/位置/chrome 一律由 show 命令在**主线程**里补。
-            let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));
-            let _ = existing.set_position(pos);
-            return Ok((existing, false));
+            // 【self-evolution-bot · 2026-11-19 · 第78轮】判据用 `hwnd()`：它读的是
+            // Tauri 内部**缓存槽位**（`dispatcher.window_handle()`），不发消息、不等事件
+            // 循环，窗口是真壳还是空壳一问即知（空壳返回 `HandleError::Unavailable`，
+            // 正是日志里那句 `the underlying handle is not available`）。
+            // 不要用 `outer_size()`/`outer_position()`：它们要发消息给事件循环，
+            // 对空壳窗口会返回 `failed to receive message from webview`，且可能挂住。
+            if existing.hwnd().is_ok() {
+                // 尺寸/位置由 show 命令在主线程里补（见 §三之四）。
+                let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));
+                let _ = existing.set_position(pos);
+                return Ok((existing, false));
+            }
+            glow_log("reuse candidate has no hwnd (zombie shell) → destroy + rebuild");
         }
-        // 状态说有、注册表里没有（不一致）→ 走一次无等待清理，再重建。
+        // 状态说有、注册表里没有，或窗口是空壳（无 HWND）→ 清理后重建。
         drop_overlay_window(app);
     }
     // 【self-evolution-bot · 2026-11-19 · 第73轮】每次新建都拿一个**没用过**的 label。
