@@ -687,6 +687,98 @@ def _sqlite_vec_available(conn: sqlite3.Connection) -> bool:
     return _SQLITE_VEC_AVAILABLE
 
 
+_SEARCH_CONN_POOL: dict[str, list[sqlite3.Connection]] = {}
+_SEARCH_CONN_POOL_LOCK = threading.Lock()
+_SEARCH_CONN_POOL_MAX = 8
+
+
+class _search_conn_scope:
+    """Reuse one sqlite connection across consecutive ``search_index`` calls.
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：``search_index`` 每次调用都 ``_connect()`` 新建连接、用完 ``close()``。
+    现在按 workspace 从进程内池里借/还同一条连接。
+
+    为什么（本轮同进程实测，2026-11-19，库 1.84GB / code_vec 119153 行）：
+      · **同一个新连接**的首次 vec0 KNN = **362.9ms**，第二次起 **90.2ms**（4 倍）；
+        用一条已用过的连接直接跑，P50 **91.7ms**。
+      · 逐段打点 ``search_index``（751.6ms 里）：``semantic_recall`` 570.6ms
+        + ``final_close`` 172.5ms = **99%**，而语义召回单独量只要 112ms。
+      · 差额全部来自「新连接的页缓存还没被 KNN 摸热」——不是 KNN 算法、不是 k 值
+        （k=15/30/75 实测 91/93/91ms，几乎一样）。
+      · ``final_close`` 那 172ms 是关闭带 WAL 的连接时回写/解映射。
+
+    边界（重要）：
+    · 只**复用**连接，不缓存任何查询结果——语义、排序、命中数一律照旧重算；
+    · 连接池按 workspace root 分键，不同仓库绝不共用一个连接；
+    · 池里的连接在归还时**不 close**，进程退出时由 GC 兜底（sqlite3 连接析构即关）；
+    · 借出的连接若处于事务中（``in_transaction``）则不归还入池，直接 close，
+      避免半截事务被下一个调用继承；
+    · 任何异常都退回「新建连接」，池只是加速，不能成为新的失败点。
+    """
+
+    __slots__ = ("root", "conn", "_from_pool")
+
+    def __init__(self, root: str) -> None:
+        self.root = root
+        self.conn: sqlite3.Connection | None = None
+        self._from_pool = False
+
+    def __enter__(self) -> sqlite3.Connection:
+        key = str(self.root or "")
+        pooled: sqlite3.Connection | None = None
+        try:
+            with _SEARCH_CONN_POOL_LOCK:
+                bucket = _SEARCH_CONN_POOL.get(key)
+                while bucket:
+                    cand = bucket.pop()
+                    try:
+                        cand.execute("SELECT 1").fetchone()
+                        pooled = cand
+                        break
+                    except Exception:  # noqa: BLE001 - 坏连接直接丢弃
+                        try:
+                            cand.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+        except Exception:  # noqa: BLE001
+            pooled = None
+        if pooled is not None:
+            self.conn = pooled
+            self._from_pool = True
+            return pooled
+        self.conn = _connect(self.root)
+        self._from_pool = False
+        return self.conn
+
+    def __exit__(self, *_exc: object) -> bool:
+        conn = self.conn
+        self.conn = None
+        if conn is None:
+            return False
+        reusable = True
+        try:
+            if conn.in_transaction:
+                reusable = False
+        except Exception:  # noqa: BLE001
+            reusable = False
+        if reusable:
+            try:
+                with _SEARCH_CONN_POOL_LOCK:
+                    bucket = _SEARCH_CONN_POOL.setdefault(str(self.root or ""), [])
+                    if len(bucket) < _SEARCH_CONN_POOL_MAX:
+                        bucket.append(conn)
+                        return False
+            except Exception:  # noqa: BLE001 - 入池失败就走关闭
+                pass
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+        return False
+
+
 def _connect(root: str) -> sqlite3.Connection:
     dbp = _db_path(root)
     dbp.parent.mkdir(parents=True, exist_ok=True)
@@ -4224,11 +4316,10 @@ def search_index(
     cfg = get_code_index_config()
     lim = limit or cfg.search_limit
     root = resolve_index_root(workspace_root=workspace_root, thread_id=thread_id)
-    conn = _connect(root)
-    _ensure_schema(conn)
-    _mark_reindex_if_tokenizer_changed(conn)
-    needs_rebuild = _fts_needs_rebuild(conn)
-    conn.close()
+    with _search_conn_scope(root) as conn:
+        _ensure_schema(conn)
+        _mark_reindex_if_tokenizer_changed(conn)
+        needs_rebuild = _fts_needs_rebuild(conn)
 
     rebuild_in_progress = False
     if cfg.auto_index_on_search:
@@ -4283,7 +4374,8 @@ def search_index(
                 "ready": False,
             }
 
-    conn = _connect(root)
+    conn_scope = _search_conn_scope(root)
+    conn = conn_scope.__enter__()
     _ensure_schema(conn)
     from evoflow.tools.arg_coerce import normalize_search_query_inputs, parse_search_path_prefix
 
@@ -4296,7 +4388,7 @@ def search_index(
     if not label and path_prefix:
         label = f"path:{_normalize_path_prefix(path_prefix) or path_prefix}"
     if not label:
-        conn.close()
+        conn_scope.__exit__()
         return {"hits": [], "symbols": [], "root": root, "db_path": str(_db_path(root))}
 
     q = label
@@ -4494,7 +4586,7 @@ def search_index(
             limit=lim,
         )
 
-    conn.close()
+    conn_scope.__exit__()
     return {
         "hits": hits,
         "symbols": symbols,
