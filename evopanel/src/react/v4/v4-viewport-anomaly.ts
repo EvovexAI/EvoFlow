@@ -69,6 +69,8 @@ export type ViewportAnomalyInput = {
     origin?: string;
     turnId?: string;
     text?: string;
+    state?: string;
+    status?: string;
     displayKind?: string;
     hasMedia?: boolean;
   }>;
@@ -76,6 +78,8 @@ export type ViewportAnomalyInput = {
     atMs: number;
     channel: string;
     sessionId: string;
+    kindLabel?: string;
+    summary?: string;
     headline: string;
     jsonText: string;
   }>;
@@ -417,6 +421,51 @@ export function collectViewportAnomalies(
       title: "流式在推，视口无 turn DOM",
       detail: "frames/deltas 有，data-v4-turn-unit 挂载数为 0",
     });
+  }
+
+  // 流式还在推正文/工具，但投影窗里没有 running/streaming —— 直播轮被软顶挤出
+  // （现场：画面最新钉在 333，流式却在回 666）。
+  if (rows && rows.length > 0 && input.executing && !input.uiTurnSettled) {
+    const recentLiveStream = (input.streamEntries ?? []).some((e) => {
+      if (e.atMs < now - STREAM_RECENT_MS) return false;
+      if (e.sessionId && e.sessionId !== input.tid) return false;
+      const blob = `${e.kindLabel || ""} ${e.summary || ""} ${e.headline || ""}`;
+      return /正文|工具|streaming|Δ|platform|bash/i.test(blob);
+    });
+    const windowHasLive = rows.some((r) => {
+      const state = String(r.state || "");
+      const status = String(r.status || "");
+      if (r.kind === "turnHeader" && (state === "running" || state.startsWith("running"))) {
+        return true;
+      }
+      if (
+        (r.kind === "assistantText" || r.kind === "reasoning") &&
+        state === "streaming"
+      ) {
+        return true;
+      }
+      if (
+        r.kind === "toolCall" &&
+        (status === "running" ||
+          status === "inputStreaming" ||
+          status === "pending" ||
+          status === "executing" ||
+          status === "pendingApproval" ||
+          status === "awaitingInput")
+      ) {
+        return true;
+      }
+      return false;
+    });
+    if (recentLiveStream && !windowHasLive) {
+      out.push({
+        code: "STREAM_AHEAD_OF_WINDOW",
+        severity: "error",
+        title: "流式在推，投影窗无直播行",
+        detail:
+          "SSE/工具仍在更新，但 window 无 running/streaming（直播轮可能被软顶挤出）",
+      });
+    }
   }
 
   const noAdvance = parseRowsRangeNoAdvance(

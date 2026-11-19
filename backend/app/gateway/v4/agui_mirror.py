@@ -3169,6 +3169,32 @@ def mirror_ensure_transcript_user_input(
             return False
         now_ms = int(time.time() * 1000)
         user_origin = origin if origin in ("realUser", "goalContinuation") else "realUser"
+        # 上一轮仍 running 时用户又发了新问：先封旧头，避免旧轮工具继续 append
+        # 把更高 rowId 写到新 provisional 之后 → 跟底只看见旧轮、新问「页面上没有」。
+        try:
+            sess = mirror._hub.get_session(tid)  # noqa: SLF001
+            if sess is not None and sess.rows:
+                for row in list(sess.rows.values()):
+                    if not isinstance(row, dict):
+                        continue
+                    if str(row.get("kind") or "") != "turnHeader":
+                        continue
+                    state = str(row.get("state") or "")
+                    if state != "running" and not state.startswith("running"):
+                        continue
+                    rid = int(row.get("rowId") or 0)
+                    if rid <= 0:
+                        continue
+                    sealed = dict(row)
+                    sealed["state"] = "failed"
+                    sealed["failedAt"] = now_ms
+                    sealed["errorMessage"] = "superseded by newer user input"
+                    mirror._hub.author_upsert_row(tid, sealed)  # noqa: SLF001
+        except Exception:
+            logger.exception(
+                "[v4-mirror] seal prior running headers before transcript failed thread=%s",
+                tid,
+            )
         # 协议序：turnHeader → userInput。只落 user 会导致后续 RUN_STARTED 新头
         # rowId 更大，尾窗对齐到 header 时裁掉紧前气泡（浮层孤用户轮错位）。
         provisional_turn = f"transcript-{now_ms}"

@@ -361,6 +361,7 @@ fn append_stream_compare_log_impl(
         "viewport-api" => "viewport-api.log",
         "viewport-scroll" => "viewport-scroll.log",
         "viewport-timing" => "viewport-timing.log",
+        "viewport-page" => "viewport-page.log",
         other => return Err(format!("unknown stream compare channel: {other}")),
     };
     fn sanitize_id(s: &str) -> String {

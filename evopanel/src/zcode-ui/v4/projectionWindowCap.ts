@@ -62,47 +62,267 @@ function isRealUserRow(row: ConversationRow | undefined): boolean {
   return !!row && row.kind === "userInput" && row.origin === "realUser";
 }
 
+/** 行所属 turn 的起点（含紧前 turnHeader）；找不到则退回 idx。 */
+function turnStartIndexForRow(
+  rows: readonly ConversationRow[],
+  idx: number,
+): number {
+  if (idx < 0 || idx >= rows.length) return Math.max(0, idx);
+  const turnId = String(rows[idx]?.turnId || "").trim();
+  if (turnId) {
+    for (let i = 0; i <= idx; i += 1) {
+      if (String(rows[i]?.turnId || "").trim() === turnId) return i;
+    }
+  }
+  if (idx > 0 && rows[idx - 1]?.kind === "turnHeader") return idx - 1;
+  if (rows[idx]?.kind === "turnHeader") return idx;
+  return idx;
+}
+
+/** 该 turn 内最后一个非空 realUser 下标；没有则 -1。 */
+function realUserIdxInTurn(
+  rows: readonly ConversationRow[],
+  turnStart: number,
+  turnEndExclusive: number,
+): number {
+  let userIdx = -1;
+  const turnId = String(rows[turnStart]?.turnId || "").trim();
+  for (let i = turnStart; i < turnEndExclusive; i += 1) {
+    const row = rows[i];
+    if (turnId && String(row?.turnId || "").trim() !== turnId) break;
+    if (!isRealUserRow(row)) continue;
+    if (!String((row as { text?: string }).text || "").trim()) continue;
+    userIdx = i;
+  }
+  return userIdx;
+}
+
+/** 非空 realUser 的时间键：createdAt 优先，其次 rowId（防埋在旧 rowId 下的新问）。 */
+function realUserRecencyKey(row: ConversationRow | undefined): number {
+  if (!row) return -1;
+  const created = Number((row as { createdAt?: unknown }).createdAt) || 0;
+  const rid = Number(row.rowId) || 0;
+  // createdAt 毫秒远大于 rowId；同刻再用 rowId 破并列
+  return created > 0 ? created * 1_000_000 + (rid % 1_000_000) : rid;
+}
+
+function turnIdAt(rows: readonly ConversationRow[], idx: number): string {
+  return String(rows[idx]?.turnId || "").trim();
+}
+
+/** 某 turn 在 full 中的所有行（可被后写的旧轮工具插到中间，不能假设连续后缀）。 */
+export function rowsForTurnId(
+  rows: readonly ConversationRow[],
+  turnId: string,
+): ConversationRow[] {
+  const id = String(turnId || "").trim();
+  if (!id) return [];
+  return rows.filter((row) => String(row.turnId || "").trim() === id);
+}
+
 /**
- * 最新非空 realUser 的 (turnStart, userIdx)。turnStart 含紧前 turnHeader。
- * 用于 prefer=head 裁切后把直播轮尾钉回窗口，避免 stale_prev_turn_tail。
+ * 直播轮组内顺序：turnHeader → userInput → 其余按 rowId。
+ * 现场：同 turn 工具 rowId 小于 header 时，按纯 rowId 排会「工具在用户气泡上面」。
+ */
+function sortLiveTurnRowsForDisplay(rows: ConversationRow[]): ConversationRow[] {
+  const headers: ConversationRow[] = [];
+  const users: ConversationRow[] = [];
+  const rest: ConversationRow[] = [];
+  for (const row of rows) {
+    if (row.kind === "turnHeader") headers.push(row);
+    else if (row.kind === "userInput") users.push(row);
+    else rest.push(row);
+  }
+  const byId = (a: ConversationRow, b: ConversationRow) => a.rowId - b.rowId;
+  headers.sort(byId);
+  users.sort(byId);
+  rest.sort(byId);
+  return [...headers, ...users, ...rest];
+}
+
+/**
+ * 直播轮行挪到窗尾（组内 header/user 优先，其余按 rowId）。
+ * 现场：888 的 provisional rowId 小于仍在追加的 777 工具 → 跟底只看见 777，
+ * 视口列表里 888 在上面「有数据但页面底部没有」。
+ */
+export function pinTurnRowsAtTail(
+  window: readonly ConversationRow[],
+  turnId: string,
+): ConversationRow[] {
+  const id = String(turnId || "").trim();
+  if (!id || window.length === 0) return [...window];
+  const live: ConversationRow[] = [];
+  const rest: ConversationRow[] = [];
+  for (const row of window) {
+    if (String(row.turnId || "").trim() === id) live.push(row);
+    else rest.push(row);
+  }
+  if (live.length === 0) return [...window];
+  const liveSorted = sortLiveTurnRowsForDisplay(live);
+  rest.sort((a, b) => a.rowId - b.rowId);
+  const lastRest = rest[rest.length - 1];
+  const lastLive = liveSorted[liveSorted.length - 1];
+  if (
+    lastLive &&
+    (!lastRest || String(lastRest.turnId || "").trim() === id) &&
+    String(window[window.length - 1]?.turnId || "").trim() === id
+  ) {
+    // 已在尾且组内顺序已正确：避免无意义换引用
+    if (
+      window.length === rest.length + liveSorted.length &&
+      window[window.length - 1]?.rowId === lastLive.rowId &&
+      liveSorted.every((row, i) => {
+        const at = window[rest.length + i];
+        return at?.rowId === row.rowId && at?.kind === row.kind;
+      })
+    ) {
+      return window as ConversationRow[];
+    }
+  }
+  return [...rest, ...liveSorted];
+}
+
+/**
+ * delta 热路径专用：不裁软顶，只在直播轮不在窗尾时钉回去。
+ * 旧轮晚到的 tool/正文 append 会把新问挤回中间 → 跟底看见上轮「888」。
+ *
+ * 已在尾时原引用返回——禁止每帧组内重排（换数组 → virtualizer/跟底上下抖，
+ * 现场 follow=1 + wheel + win716 行长高时直抖）。
+ */
+export function pinLiveTurnAfterDeltas(
+  window: readonly ConversationRow[],
+): readonly ConversationRow[] {
+  if (!Array.isArray(window) || window.length < 2) return window;
+  const span = liveTurnSpan(window);
+  if (!span) return window;
+  const liveTid = turnIdAt(window, span.turnStart);
+  if (!liveTid) return window;
+  if (String(window[window.length - 1]?.turnId || "").trim() === liveTid) {
+    return window;
+  }
+  return pinTurnRowsAtTail(window, liveTid);
+}
+
+/**
+ * 直播锚点 (turnStart, userIdx)。
+ *
+ * 优先：仍有 in-flight 的「最新」一轮（按该轮 realUser createdAt / in-flight
+ * 最大 rowId），不能只取行序最早——旧轮晚到的 running 工具会把新问 888 顶掉。
+ * 否则：最新非空 realUser（createdAt 优先，避免低 rowId 的新问被当成更早）。
  */
 export function liveTurnSpan(
   rows: readonly ConversationRow[],
 ): { turnStart: number; userIdx: number } | null {
   if (!Array.isArray(rows) || rows.length === 0) return null;
+
+  const inflightByTurn = new Map<string, { maxRowId: number; anyIdx: number }>();
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!isInFlightProjectionRow(rows[i])) continue;
+    const tid = turnIdAt(rows, i);
+    if (!tid) continue;
+    const rid = Number(rows[i]?.rowId) || 0;
+    const prev = inflightByTurn.get(tid);
+    if (!prev || rid > prev.maxRowId) {
+      inflightByTurn.set(tid, { maxRowId: rid, anyIdx: i });
+    }
+  }
+
+  if (inflightByTurn.size > 0) {
+    let bestTurnId = "";
+    let bestScore = -1;
+    let bestIdx = -1;
+    for (const [tid, meta] of inflightByTurn) {
+      const turnStart = turnStartIndexForRow(rows, meta.anyIdx);
+      const turnRows = rowsForTurnId(rows, tid);
+      let userScore = -1;
+      for (const row of turnRows) {
+        if (!isRealUserRow(row)) continue;
+        if (!String((row as { text?: string }).text || "").trim()) continue;
+        userScore = Math.max(userScore, realUserRecencyKey(row));
+      }
+      // 有用户气泡用用户时间；否则用 in-flight 最大 rowId
+      const score = userScore >= 0 ? userScore : meta.maxRowId;
+      if (score > bestScore) {
+        bestScore = score;
+        bestTurnId = tid;
+        bestIdx = turnStart;
+      }
+    }
+    if (bestTurnId && bestIdx >= 0) {
+      const turnStart = turnStartIndexForRow(rows, bestIdx);
+      const turnRows = rowsForTurnId(rows, bestTurnId);
+      const turnEnd = rows.length; // realUserIdxInTurn 只扫同 turnId 前缀；改用手找
+      let userIdx = -1;
+      let bestUserKey = -1;
+      for (let i = 0; i < rows.length; i += 1) {
+        if (turnIdAt(rows, i) !== bestTurnId) continue;
+        const row = rows[i];
+        if (!isRealUserRow(row)) continue;
+        if (!String((row as { text?: string }).text || "").trim()) continue;
+        const key = realUserRecencyKey(row!);
+        if (key >= bestUserKey) {
+          bestUserKey = key;
+          userIdx = i;
+        }
+      }
+      if (userIdx < 0) {
+        userIdx = turnStart;
+        for (let i = 0; i < rows.length; i += 1) {
+          if (turnIdAt(rows, i) !== bestTurnId) continue;
+          if (rows[i]?.kind === "userInput") {
+            userIdx = i;
+            break;
+          }
+        }
+      }
+      void turnEnd;
+      return { turnStart, userIdx };
+    }
+  }
+
   let userIdx = -1;
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
+  let bestKey = -1;
+  for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     if (!isRealUserRow(row)) continue;
     if (!String((row as { text?: string }).text || "").trim()) continue;
-    userIdx = i;
-    break;
+    const key = realUserRecencyKey(row!);
+    if (key >= bestKey) {
+      bestKey = key;
+      userIdx = i;
+    }
   }
   if (userIdx < 0) return null;
-  let turnStart = userIdx;
-  if (userIdx > 0 && rows[userIdx - 1]?.kind === "turnHeader") {
-    turnStart = userIdx - 1;
-  }
-  return { turnStart, userIdx };
+  return { turnStart: turnStartIndexForRow(rows, userIdx), userIdx };
 }
 
 /**
- * 在 softCap 内从直播轮向前挑「完整 turn」片段，禁止窗顶落在半截轮。
+ * 在 softCap 内从「非直播轮」向前挑完整 turn 片段，禁止窗顶落在半截轮。
  *
- * 旧逻辑按行从尾截 older，长上一轮会被截成 mid-tool 开头（现场 window=56…809、
- * !HISTORY_TOP）；loadOlder 刚并进的更早行也会被同一刀吃掉。
+ * 旧逻辑按 liveStartRowId 切 older：直播轮 provisional rowId 偏小时会把
+ * 后写的旧轮工具当成「更新」留在窗尾，直播问反而埋在中间。
+ * 现在显式排除 liveTurnId，再按行序挑完整 turn。
  */
 export function selectOlderCompleteTurnsWithinBudget(
   full: readonly ConversationRow[],
   liveStartRowId: number,
   budget: number,
+  liveTurnId?: string,
 ): ConversationRow[] {
   const cap = Math.max(0, Math.floor(budget));
   if (cap <= 0) return [];
-  const olderFull = full.filter((row) => row.rowId < liveStartRowId);
+  const liveId = String(liveTurnId || "").trim();
+  const olderFull = full.filter((row) => {
+    if (liveId && String(row.turnId || "").trim() === liveId) return false;
+    // 无 liveTurnId 时退回按 rowId 切（兼容旧调用）
+    if (!liveId && row.rowId >= liveStartRowId) return false;
+    return true;
+  });
   if (olderFull.length === 0) return [];
   if (olderFull.length <= cap) {
-    return olderFull[0]?.kind === "turnHeader" ? [...olderFull] : alignLeadingToTurnHeader(full, olderFull, cap);
+    return olderFull[0]?.kind === "turnHeader"
+      ? [...olderFull]
+      : alignLeadingToTurnHeader(full, olderFull, cap);
   }
 
   const headers: number[] = [];
@@ -178,6 +398,10 @@ export function alignLeadingToTurnHeader(
 /** 进行中的行：软顶绝不能裁掉，否则 V4 还在 Δ、页面却没思考/工具卡。 */
 export function isInFlightProjectionRow(row: ConversationRow | undefined): boolean {
   if (!row) return false;
+  if (row.kind === "turnHeader") {
+    const state = String((row as { state?: string }).state || "");
+    return state === "running" || state.startsWith("running");
+  }
   if (row.kind === "reasoning" || row.kind === "assistantText") {
     return String((row as { state?: string }).state || "") === "streaming";
   }
@@ -187,7 +411,9 @@ export function isInFlightProjectionRow(row: ConversationRow | undefined): boole
       status === "inputStreaming" ||
       status === "running" ||
       status === "pendingApproval" ||
-      status === "awaitingInput"
+      status === "awaitingInput" ||
+      status === "pending" ||
+      status === "executing"
     );
   }
   if (row.kind === "subagent") {
@@ -277,10 +503,14 @@ export function ensureLiveTurnInProjectionWindow(
   capped: readonly ConversationRow[],
   softCap: number,
 ): readonly ConversationRow[] {
-  const finish = (window: readonly ConversationRow[]) =>
-    repairPartialTurnsInProjectionWindow(full, window);
-
   const span = liveTurnSpan(full);
+  const liveTurnId = span ? turnIdAt(full, span.turnStart) : "";
+  const finish = (window: readonly ConversationRow[]) => {
+    const repaired = repairPartialTurnsInProjectionWindow(full, window);
+    // repair 按 rowId 排序会把「低 rowId 的新直播问」埋回旧轮中间；必须再钉回窗尾。
+    return liveTurnId ? pinTurnRowsAtTail(repaired, liveTurnId) : repaired;
+  };
+
   if (!span) {
     // 无直播轮（纯历史窗）：能对齐 turnHeader 就对齐；对齐不了别掏空窗口。
     const aligned = alignLeadingToTurnHeader(
@@ -290,16 +520,22 @@ export function ensureLiveTurnInProjectionWindow(
     );
     return finish(aligned.length > 0 ? aligned : capped);
   }
-  const live = full.slice(span.turnStart);
+  // 只取本 turn 的行，绝不用 full.slice(turnStart)——后写旧轮工具会夹在中间，
+  // slice 会把 777/6666 误收进「直播段」。
+  const live = rowsForTurnId(full, liveTurnId);
   if (live.length === 0) return finish(capped);
-  const liveStartRowId = live[0]?.rowId ?? 0;
+  const liveStartRowId = Math.min(...live.map((r) => r.rowId));
   const present = new Set(capped.map((r) => r.rowId));
   const liveMissing = live.some((r) => !present.has(r.rowId));
   const inFlightMissing = live.some(
     (r) => isInFlightProjectionRow(r) && !present.has(r.rowId),
   );
 
-  // 直播轮已完整在窗内，且没有 in-flight 被裁掉：只修窗顶半截轮。
+  // 直播轮行在 full 中的下标（供 selectLiveTurnWithinBudget 算 user 相对偏移）
+  const liveUserIdxInFull = span.userIdx;
+  const liveTurnStartInFull = span.turnStart;
+
+  // 直播轮已完整在窗内，且没有 in-flight 被裁掉：只修窗顶半截轮，并钉尾。
   if (!liveMissing && !inFlightMissing) {
     const aligned = alignLeadingToTurnHeader(
       full,
@@ -308,15 +544,13 @@ export function ensureLiveTurnInProjectionWindow(
     );
     if (aligned.length === capped.length && aligned.every((row, i) => row.rowId === capped[i]?.rowId)) {
       // soft-cap prefer:tail 可能已把窗顶裁到直播轮起点，上一问整轮蒸发。
-      // 此时仍从 full 补回至少一轮头+问锚点（可略超 softCap，优先可见性）。
-      if (capped[0]?.rowId === liveStartRowId) {
-        const olderKeep = selectOlderCompleteTurnsWithinBudget(
-          full,
-          liveStartRowId,
-          MIN_OLDER_ANCHOR_BUDGET,
-        );
-        if (olderKeep.length > 0) return finish([...olderKeep, ...live]);
-      }
+      const olderKeep = selectOlderCompleteTurnsWithinBudget(
+        full,
+        liveStartRowId,
+        MIN_OLDER_ANCHOR_BUDGET,
+        liveTurnId,
+      );
+      if (olderKeep.length > 0) return finish([...olderKeep, ...live]);
       return finish(capped);
     }
     // align 若丢光 older 残片，保留原 capped 里的直播段 + 尽可能的完整 older。
@@ -325,6 +559,7 @@ export function ensureLiveTurnInProjectionWindow(
         full,
         liveStartRowId,
         olderAnchorBudget(softCap, live.length),
+        liveTurnId,
       );
       return finish(olderKeep.length === 0 ? capped : [...olderKeep, ...live]);
     }
@@ -332,14 +567,28 @@ export function ensureLiveTurnInProjectionWindow(
   }
 
   const cap = Math.max(MIN_KEEP, Math.floor(softCap));
-  const liveKept = selectLiveTurnWithinBudget(live, span.userIdx, span.turnStart, cap);
+  // selectLiveTurnWithinBudget 期望 live 是连续片段且 userIdx 相对 full；
+  // 交错时改为：把本 turn 行按 rowId 排好再裁。
+  const liveSorted = [...live].sort((a, b) => a.rowId - b.rowId);
+  const userPosInLive = Math.max(
+    0,
+    liveSorted.findIndex((r) => r.rowId === full[liveUserIdxInFull]?.rowId),
+  );
+  const liveKept = selectLiveTurnWithinBudget(
+    liveSorted,
+    userPosInLive,
+    0,
+    cap,
+  );
   // 即便直播轮已占满 softCap，也绝不能把「上一问」整轮丢掉——发消息后
   // 长工具轮一撑大，旧逻辑 `liveKept.length >= cap → return liveKept` 会直接吃历史。
   const olderKeep = selectOlderCompleteTurnsWithinBudget(
     full,
     liveStartRowId,
     olderAnchorBudget(cap, liveKept.length),
+    liveTurnId,
   );
+  void liveTurnStartInFull;
   return finish(olderKeep.length === 0 ? liveKept : [...olderKeep, ...liveKept]);
 }
 

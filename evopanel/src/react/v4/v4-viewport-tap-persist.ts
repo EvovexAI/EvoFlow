@@ -10,7 +10,8 @@ export type ViewportTapPersistKind =
   | "stream"
   | "api"
   | "scroll"
-  | "timing";
+  | "timing"
+  | "page";
 
 const LS_PREFIX = "EVOFLOW_V4_VIEWPORT_TAP:";
 const LS_MAX_PER_KIND = 120;
@@ -53,6 +54,8 @@ function channelFor(kind: ViewportTapPersistKind): string {
       return "viewport-scroll";
     case "timing":
       return "viewport-timing";
+    case "page":
+      return "viewport-page";
   }
 }
 

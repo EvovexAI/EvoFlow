@@ -97,6 +97,73 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
     expect(merged).toBe(incoming);
   });
+
+  it("尾窗停在旧轮时粘回本地已有的更新行（777 不被收尾 snapshot 冲掉）", () => {
+    const previous = snap(
+      [
+        textRow(80, "t6666", "666 收到"),
+        {
+          ...textRow(90, "t777", "777"),
+          kind: "userInput",
+          origin: "realUser",
+          text: "777",
+        } as ConversationRow,
+        {
+          ...textRow(91, "t777", "777"),
+          kind: "assistantText",
+          text: "777",
+          state: "complete",
+        } as ConversationRow,
+      ],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    previous.seq = 200;
+    // 收尾/overflow 尾窗仍停在 6666，没带上 777
+    const incoming = snap(
+      [textRow(70, "t333", "333"), textRow(80, "t6666", "666 收到～😄")],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    incoming.seq = 200;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    const ids = merged.rows.window.map((r) => r.rowId);
+    expect(ids).toContain(90);
+    expect(ids).toContain(91);
+    expect(
+      merged.rows.window.some(
+        (r) => r.kind === "userInput" && (r as { text?: string }).text === "777",
+      ),
+    ).toBe(true);
+  });
+
+  it("过期 snapshot（seq 更小）不回退客户端已推进的窗尾", () => {
+    const previous = snap(
+      [
+        textRow(80, "t6666", "666"),
+        {
+          ...textRow(90, "t777", "777"),
+          kind: "userInput",
+          origin: "realUser",
+          text: "777",
+        } as ConversationRow,
+      ],
+      { firstRowId: 1, totalCount: 90 },
+    );
+    previous.seq = 210;
+    const incoming = snap([textRow(80, "t6666", "666 旧")], {
+      firstRowId: 1,
+      totalCount: 80,
+    });
+    incoming.seq = 200;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    expect(merged).toBe(previous);
+    expect(
+      merged.rows.window.some(
+        (r) => r.kind === "userInput" && (r as { text?: string }).text === "777",
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("mergeOlderRows (loadOlder prefer=head)", () => {

@@ -3,6 +3,7 @@
  * - 运行：SSE / 轮询 / settled
  * - 消息：投影窗已显示/全序行数、用户气泡、loadOlder 预取带（≤2×视口）
  * - 流式：AG-UI / V4 原始 JSON（一行一条，全文可滚，会话目录落盘）
+ * - 画面：约每秒一帧「页面上看得见什么」（用户/正文/思考/工具），排查乱套用
  * - 计时：发送 → 出泡 → 上线 → 首字 → 结束（接 chat-turn-timing-log）
  * - 滚轮：scrollTop 轨迹 / !JUMP / 到顶语义（能否自动拉历史 vs 已拉尽）
  * - 接口：页面相关 HTTP（subscribe / messages / catchup…）入参出参表
@@ -87,6 +88,14 @@ import {
   subscribeChatTurnTiming,
   type ChatTurnTimingRow,
 } from "../lib/chat-turn-timing-log.js";
+import {
+  clearViewportPageSnap,
+  listViewportPageSnapEntries,
+  pushViewportPageSnap,
+  subscribeViewportPageSnap,
+  turnsFromWindowRows,
+  type ViewportPageSnapEntry,
+} from "./v4-viewport-page-snap.js";
 
 /** 与 session-reattach.reattachRunningSessionIfNeeded 默认一致。 */
 const HISTORY_WATCH_DEFAULT_POLL_SEC = 1.5;
@@ -180,7 +189,10 @@ type OverlaySnapshot = {
   layout: V4ChatLayoutDump | null;
   runStatus: RunStatusProbe;
   history: HistoryLoadProbe;
+  /** 视口相交的 turn（布局/空隙诊断） */
   turns: VisibleTurnProbe[];
+  /** 投影窗全序 row（视口页 1:1 摊平用，含最新发送，不跟滚动丢） */
+  windowRows: Array<Record<string, unknown>>;
 };
 
 function collectRunStatusProbe(
@@ -356,6 +368,46 @@ function summarizeRow(row: ConversationRow): Record<string, unknown> {
   }
 }
 
+/** 视口左栏：单行给人看的摘要（与右栏 JSON 1:1） */
+function viewportRowLeftLabel(r: Record<string, unknown>): string {
+  const kind = String(r.kind || "?");
+  if (kind === "userInput") {
+    return `用户 ${clip(r.text, 100) || "（空）"}`;
+  }
+  if (kind === "assistantText") {
+    return `正文 ${clip(r.text, 100) || "（空）"}`;
+  }
+  if (kind === "reasoning") {
+    return `思考 ${clip(r.text, 80) || "（空）"}`;
+  }
+  if (kind === "toolCall") {
+    const name = String(r.toolName || r.name || "tool");
+    const status = r.status ? `[${String(r.status)}]` : "";
+    return `工具 ${name}${status}`;
+  }
+  if (kind === "turnHeader") {
+    const origin = r.origin ? ` origin=${String(r.origin)}` : "";
+    const state = r.state ? ` state=${String(r.state)}` : "";
+    return `轮头${origin}${state}`;
+  }
+  if (kind === "subagent") {
+    return `子代理 ${String(r.subagentType || "")} ${clip(r.summaryText, 60)}`;
+  }
+  if (kind === "artifact") {
+    return `产物 ${String(r.displayName || r.artifactType || "")}`;
+  }
+  return kind;
+}
+
+/** 视口右栏：单行 JSON 摘要（完整对象点开 turn 再看） */
+function viewportRowJsonSummary(r: Record<string, unknown>): string {
+  try {
+    return JSON.stringify(r);
+  } catch {
+    return String(r);
+  }
+}
+
 function findConversationScroll(host: Element): HTMLElement | null {
   const turn0 = host.querySelector("[data-v4-turn-unit]");
   let sc: HTMLElement | null = turn0
@@ -496,12 +548,16 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
     .sort((a, b) => a.r.top - b.r.top);
 
   let rawByTurn = new Map<string, ConversationRow[]>();
+  let windowRowsFlat: Array<Record<string, unknown>> = [];
   if (tid) {
     try {
       const snap = getSharedV4SessionDataLayer()
         .peekStore(tid)
         ?.getState()?.snapshot;
       const windowRows = snap?.rows?.window ?? [];
+      windowRowsFlat = windowRows.map((row) =>
+        summarizeRow(row),
+      ) as Array<Record<string, unknown>>;
       const map = new Map<string, ConversationRow[]>();
       for (const row of windowRows) {
         const turnId = String(row.turnId || "").trim();
@@ -513,6 +569,7 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
       rawByTurn = map;
     } catch {
       rawByTurn = new Map();
+      windowRowsFlat = [];
     }
   }
 
@@ -603,6 +660,7 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
     runStatus: collectRunStatusProbe(sessionKey, tid),
     history: collectHistoryLoadProbe(tid, scrollTop, clientHeight),
     turns,
+    windowRows: windowRowsFlat,
   };
 }
 
@@ -620,12 +678,13 @@ const OVERLAY_SIZE_LS_KEY = "EVOFLOW_V4_VIEWPORT_OVERLAY_SIZE";
 type OverlayTab =
   | "status"
   | "stream"
+  | "page"
   | "timing"
   | "scroll"
   | "api"
   | "viewport"
   | "anomaly";
-type ApiFamilyFilter = "all" | ViewportApiTapFamily;
+type ApiFamilyFilter = "all" | ViewportApiTapFamily | "history";
 
 /** 抽头条：完整换行，不用省略号 */
 const tapLineStyle: CSSProperties = {
@@ -655,6 +714,7 @@ function readOverlayTab(): OverlayTab {
     if (
       v === "status" ||
       v === "stream" ||
+      v === "page" ||
       v === "timing" ||
       v === "scroll" ||
       v === "api" ||
@@ -666,7 +726,7 @@ function readOverlayTab(): OverlayTab {
   } catch {
     /* ignore */
   }
-  return "stream";
+  return "page";
 }
 
 function writeOverlayTab(tab: OverlayTab): void {
@@ -1153,6 +1213,14 @@ function collectAnomalyWindowRows(tid: string): NonNullable<
           typeof (row as { text?: unknown }).text === "string"
             ? String((row as { text: string }).text)
             : undefined,
+        state:
+          typeof (row as { state?: unknown }).state === "string"
+            ? String((row as { state: string }).state)
+            : undefined,
+        status:
+          typeof (row as { status?: unknown }).status === "string"
+            ? String((row as { status: string }).status)
+            : undefined,
         displayKind: meta.displayKind,
         hasMedia: meta.hasMedia,
       };
@@ -1255,7 +1323,15 @@ export function V4ViewportDebugOverlay() {
   const [timingRows, setTimingRows] = useState<ChatTurnTimingRow[]>(() =>
     listChatTurnTimingRows({ limit: 40 }),
   );
+  const [pageSnaps, setPageSnaps] = useState<ViewportPageSnapEntry[]>(() =>
+    listViewportPageSnapEntries({ limit: 120 }),
+  );
+  const [expandedPageSnapId, setExpandedPageSnapId] = useState<number | null>(
+    null,
+  );
   const [scrollJumpsOnly, setScrollJumpsOnly] = useState(false);
+  const pageSnapScrollRef = useRef<HTMLDivElement | null>(null);
+  const pageSnapFollowBottomRef = useRef(true);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [size, setSize] = useState<OverlaySize>(readOverlaySize);
   const [pos, setPos] = useState(() => defaultOverlayPos(readOverlaySize()));
@@ -1325,9 +1401,56 @@ export function V4ViewportDebugOverlay() {
     };
   }, []);
 
-  const refresh = useCallback(() => {
-    setSnapshot(collectOverlaySnapshot());
-  }, []);
+  const refreshPageSnaps = useCallback(() => {
+    setPageSnaps(
+      listViewportPageSnapEntries({
+        sessionId: snapshot?.tid ?? null,
+        limit: 120,
+      }),
+    );
+  }, [snapshot?.tid]);
+
+  const samplePageSnap = useCallback(
+    (
+      snap: OverlaySnapshot,
+      opts?: { force?: boolean },
+    ) => {
+      const windowRows = snap.windowRows?.length
+        ? snap.windowRows
+        : [];
+      // 无投影窗时退回视口可见 turn（仍按内容签名，不变不记）
+      const turns =
+        windowRows.length > 0
+          ? turnsFromWindowRows(windowRows)
+          : snap.turns.map((t) => ({
+              turnId: t.turnId,
+              dataIndex: t.dataIndex,
+              rawRows: t.rawRows,
+              orphanHeaderNoUser: t.orphanHeaderNoUser,
+              emptyAssistantCompleted: t.emptyAssistantCompleted,
+            }));
+      pushViewportPageSnap({
+        sessionId: snap.tid,
+        runLabel: snap.runStatus.label,
+        scrollTop: snap.scrollTop,
+        scrollHeight: snap.scrollHeight,
+        turns,
+        force: opts?.force === true,
+      });
+    },
+    [],
+  );
+
+  const refresh = useCallback(
+    (opts?: { forcePageSnap?: boolean }) => {
+      const snap = collectOverlaySnapshot();
+      setSnapshot(snap);
+      if (snap?.tid) {
+        samplePageSnap(snap, { force: opts?.forcePageSnap === true });
+      }
+    },
+    [samplePageSnap],
+  );
 
   const refreshStream = useCallback(() => {
     setStreamEntries(
@@ -1475,6 +1598,14 @@ export function V4ViewportDebugOverlay() {
     });
   }, [active, refreshTiming]);
 
+  useEffect(() => {
+    if (!active) return;
+    refreshPageSnaps();
+    return subscribeViewportPageSnap(() => {
+      refreshPageSnaps();
+    });
+  }, [active, refreshPageSnaps]);
+
   const selectTab = useCallback((next: OverlayTab) => {
     setTab(next);
     writeOverlayTab(next);
@@ -1486,6 +1617,9 @@ export function V4ViewportDebugOverlay() {
     }
     if (next === "scroll") {
       scrollFollowBottomRef.current = true;
+    }
+    if (next === "page") {
+      pageSnapFollowBottomRef.current = true;
     }
   }, []);
 
@@ -1512,6 +1646,14 @@ export function V4ViewportDebugOverlay() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [active, tab, scrollEntries]);
+
+  // 画面快照：贴底跟新帧。
+  useLayoutEffect(() => {
+    if (!active || tab !== "page" || !pageSnapFollowBottomRef.current) return;
+    const el = pageSnapScrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [active, tab, pageSnaps]);
 
   const clampToViewport = useCallback(
     (left: number, top: number, w = size.width, h = size.height) =>
@@ -1722,8 +1864,8 @@ export function V4ViewportDebugOverlay() {
           <button
             type="button"
             style={btnStyle}
-            onClick={() => refresh()}
-            title="立即刷新"
+            onClick={() => refresh({ forcePageSnap: true })}
+            title="立即刷新（画面无变化也会补记一帧）"
           >
             刷新
           </button>
@@ -1883,6 +2025,7 @@ export function V4ViewportDebugOverlay() {
                         ? `异常(${anomalies.length})`
                         : "异常",
                     ],
+                    ["page", `画面(${pageSnaps.length})`],
                     ["stream", `流式(${streamEntries.length})`],
                     ["timing", `计时(${timingRows.length})`],
                     [
@@ -1890,7 +2033,14 @@ export function V4ViewportDebugOverlay() {
                       `滚轮(${scrollEntries.length}${countViewportScrollJumps() ? `!${countViewportScrollJumps()}` : ""})`,
                     ],
                     ["api", `接口(${apiEntries.length})`],
-                    ["viewport", `视口(${snapshot.turns.length})`],
+                    [
+                      "viewport",
+                      `视口(${
+                        snapshot.windowRows?.filter(
+                          (r) => String(r.kind) !== "turnHeader",
+                        ).length || snapshot.turns.length
+                      })`,
+                    ],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -2110,6 +2260,171 @@ export function V4ViewportDebugOverlay() {
                   </div>
                 ) : null}
 
+                {tab === "page" ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      border: "1px solid rgba(52,211,153,0.4)",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "rgba(6, 78, 59, 0.22)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        ...mono,
+                        flexShrink: 0,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        padding: "4px 8px",
+                        background: "rgba(6, 95, 70, 0.5)",
+                        color: "#a7f3d0",
+                        fontSize: 11,
+                      }}
+                    >
+                      <span>
+                        仅内容变化记一帧（尾部用户/正文/思考/工具）· 不变不刷 ·
+                        点开看明细
+                      </span>
+                      <span
+                        style={{ marginLeft: "auto", display: "flex", gap: 4 }}
+                      >
+                        <button
+                          type="button"
+                          style={btnStyle}
+                          title="滚到最新"
+                          onClick={() => {
+                            pageSnapFollowBottomRef.current = true;
+                            const el = pageSnapScrollRef.current;
+                            if (el) el.scrollTop = el.scrollHeight;
+                          }}
+                        >
+                          最新
+                        </button>
+                        <button
+                          type="button"
+                          style={btnStyle}
+                          title="清空画面快照"
+                          onClick={() => clearViewportPageSnap()}
+                        >
+                          清空
+                        </button>
+                      </span>
+                    </div>
+                    <div
+                      ref={pageSnapScrollRef}
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        const dist =
+                          el.scrollHeight - el.scrollTop - el.clientHeight;
+                        pageSnapFollowBottomRef.current = dist < 56;
+                      }}
+                      style={{
+                        ...mono,
+                        flex: 1,
+                        minHeight: 120,
+                        overflow: "auto",
+                        padding: "4px 6px 8px",
+                        fontSize: 12,
+                        color: "#d1fae5",
+                        lineHeight: 1.35,
+                      }}
+                    >
+                      {pageSnaps.length === 0 ? (
+                        <div style={{ color: "#6ee7b7", padding: 8 }}>
+                          尚无画面帧。用户发送 / 正文 / 工具变化时才会记；点顶栏「刷新」可强制补一帧。
+                        </div>
+                      ) : (
+                        pageSnaps.map((entry, idx) => {
+                          const newest = idx >= pageSnaps.length - 2;
+                          const open = expandedPageSnapId === entry.id;
+                          const d = new Date(entry.atMs);
+                          const time = `${d.toLocaleTimeString("zh-CN", {
+                            hour12: false,
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}.${String(entry.atMs % 1000).padStart(3, "0")}`;
+                          return (
+                            <div
+                              key={entry.id}
+                              style={{
+                                marginBottom: open ? 6 : 1,
+                                padding: open ? "4px 6px 6px" : "1px 4px",
+                                borderRadius: 4,
+                                border: newest
+                                  ? "1px solid rgba(110,231,183,0.5)"
+                                  : "1px solid transparent",
+                                background: newest
+                                  ? "rgba(6, 95, 70, 0.35)"
+                                  : "transparent",
+                              }}
+                            >
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedPageSnapId((cur) =>
+                                    cur === entry.id ? null : entry.id,
+                                  )
+                                }
+                                style={{
+                                  all: "unset",
+                                  cursor: "pointer",
+                                  display: "flex",
+                                  alignItems: "baseline",
+                                  gap: 8,
+                                  width: "100%",
+                                  boxSizing: "border-box",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  color: "#ecfdf5",
+                                }}
+                                title={entry.headline}
+                              >
+                                <span style={{ color: "#6ee7b7", flexShrink: 0 }}>
+                                  {open ? "▼" : "▶"}
+                                </span>
+                                <span
+                                  style={{
+                                    color: "#f8fafc",
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  #{entry.id}
+                                </span>
+                                <span
+                                  style={{ color: "#94a3b8", flexShrink: 0 }}
+                                >
+                                  {time}
+                                </span>
+                                <span
+                                  style={{
+                                    minWidth: 0,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
+                                  }}
+                                >
+                                  {entry.headline}
+                                </span>
+                              </button>
+                              {open ? (
+                                <pre style={{ ...tapJsonPreStyle, marginTop: 6 }}>
+                                  {entry.detailText}
+                                </pre>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
                 {tab === "stream" ? (
                   <div
                     style={{
@@ -2175,10 +2490,10 @@ export function V4ViewportDebugOverlay() {
                         flex: 1,
                         minHeight: 120,
                         overflow: "auto",
-                        padding: "8px 10px 12px",
+                        padding: "4px 6px 8px",
                         fontSize: 12,
                         color: "#ede9fe",
-                        lineHeight: 1.45,
+                        lineHeight: 1.35,
                       }}
                     >
                       {streamEntries.length === 0 ? (
@@ -2188,7 +2503,7 @@ export function V4ViewportDebugOverlay() {
                       ) : (
                         streamEntries.map((entry, idx) => {
                           const newest = idx >= streamEntries.length - 2;
-                          // 默认只看摘要；点开才展开 JSON，避免刷屏
+                          // 默认一行摘要；点开才展开 JSON
                           const open = expandedStreamId === entry.id;
                           const d = new Date(entry.atMs);
                           const time = `${d.toLocaleTimeString("zh-CN", {
@@ -2214,15 +2529,15 @@ export function V4ViewportDebugOverlay() {
                             <div
                               key={entry.id}
                               style={{
-                                marginBottom: 10,
-                                padding: "10px 12px",
-                                borderRadius: 8,
+                                marginBottom: open ? 6 : 1,
+                                padding: open ? "4px 6px 6px" : "1px 4px",
+                                borderRadius: 4,
                                 border: newest
-                                  ? "1px solid rgba(196,181,253,0.55)"
-                                  : "1px solid rgba(148,163,184,0.28)",
+                                  ? "1px solid rgba(196,181,253,0.45)"
+                                  : "1px solid transparent",
                                 background: newest
-                                  ? "rgba(91, 33, 182, 0.28)"
-                                  : "rgba(15,23,42,0.45)",
+                                  ? "rgba(91, 33, 182, 0.22)"
+                                  : "transparent",
                               }}
                             >
                               <button
@@ -2236,70 +2551,63 @@ export function V4ViewportDebugOverlay() {
                                   all: "unset",
                                   cursor: "pointer",
                                   display: "flex",
-                                  flexDirection: "column",
-                                  gap: 6,
+                                  alignItems: "baseline",
+                                  gap: 8,
                                   width: "100%",
                                   boxSizing: "border-box",
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
                                   color: newest ? "#f5f3ff" : "#ddd6fe",
                                 }}
+                                title={`${kind} ${entry.summary || entry.headline}`}
                               >
-                                <div
+                                <span style={{ color: "#a78bfa", flexShrink: 0 }}>
+                                  {open ? "▼" : "▶"}
+                                </span>
+                                <span
                                   style={{
-                                    display: "flex",
-                                    alignItems: "baseline",
-                                    gap: 12,
-                                    flexWrap: "wrap",
+                                    color: "#f8fafc",
+                                    fontWeight: 700,
+                                    flexShrink: 0,
                                   }}
                                 >
-                                  <span style={{ color: "#a78bfa" }}>
-                                    {open ? "▼" : "▶"}
-                                  </span>
-                                  <span
-                                    style={{
-                                      color: "#f8fafc",
-                                      fontWeight: 700,
-                                      fontSize: 14,
-                                      letterSpacing: 0.2,
-                                    }}
-                                  >
-                                    #{entry.id}
-                                  </span>
-                                  <span
-                                    style={{
-                                      color: "#94a3b8",
-                                      fontSize: 12,
-                                    }}
-                                  >
-                                    {time}
-                                  </span>
-                                  <span
-                                    style={{
-                                      color: kindColor,
-                                      fontWeight: 700,
-                                      fontSize: 13,
-                                    }}
-                                  >
-                                    {kind}
-                                  </span>
-                                </div>
-                                <div
+                                  #{entry.id}
+                                </span>
+                                <span
                                   style={{
-                                    ...tapLineStyle,
-                                    paddingLeft: 22,
-                                    fontSize: 13,
+                                    color: "#94a3b8",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {time}
+                                </span>
+                                <span
+                                  style={{
+                                    color: kindColor,
+                                    fontWeight: 700,
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {kind}
+                                </span>
+                                <span
+                                  style={{
+                                    minWidth: 0,
+                                    overflow: "hidden",
+                                    textOverflow: "ellipsis",
                                     color: newest ? "#faf5ff" : "#e9d5ff",
                                   }}
                                 >
                                   {entry.summary || entry.headline}
-                                </div>
+                                </span>
                               </button>
                               {open ? (
-                                <div style={{ marginTop: 10 }}>
+                                <div style={{ marginTop: 6 }}>
                                   <div
                                     style={{
                                       color: "#a78bfa",
                                       fontSize: 11,
-                                      marginBottom: 4,
+                                      marginBottom: 2,
                                     }}
                                   >
                                     JSON · {entry.channel}/{entry.type}
@@ -2703,7 +3011,11 @@ export function V4ViewportDebugOverlay() {
                           gap: 6,
                         }}
                       >
-                        <span>页面相关 HTTP · 最新在底 · 点行看入参/出参</span>
+                        <span>
+                          最新在底 · V4 历史 =
+                          <b style={{ color: "#fde68a" }}> 订投影→SSE首屏</b>
+                          {" / "}上拉 rowsRange
+                        </span>
                         <span
                           style={{
                             marginLeft: "auto",
@@ -2737,6 +3049,7 @@ export function V4ViewportDebugOverlay() {
                         {(
                           [
                             ["all", "全部"],
+                            ["history", "查历史"],
                             ["v4", "V4投影"],
                             ["messages", "轨迹消息"],
                             ["catchup", "catchup"],
@@ -2750,12 +3063,21 @@ export function V4ViewportDebugOverlay() {
                               ...btnStyle,
                               background:
                                 apiFamily === id
-                                  ? "rgba(16,185,129,0.35)"
+                                  ? id === "history"
+                                    ? "rgba(245,158,11,0.4)"
+                                    : "rgba(16,185,129,0.35)"
                                   : "rgba(15,23,42,0.45)",
-                              color: apiFamily === id ? "#ecfdf5" : "#a7f3d0",
+                              color:
+                                apiFamily === id
+                                  ? "#ecfdf5"
+                                  : id === "history"
+                                    ? "#fde68a"
+                                    : "#a7f3d0",
                               borderColor:
                                 apiFamily === id
-                                  ? "rgba(52,211,153,0.55)"
+                                  ? id === "history"
+                                    ? "rgba(251,191,36,0.65)"
+                                    : "rgba(52,211,153,0.55)"
                                   : "rgba(148,163,184,0.25)",
                             }}
                             onClick={() => {
@@ -2809,14 +3131,46 @@ export function V4ViewportDebugOverlay() {
                     >
                       {apiEntries.length === 0 ? (
                         <div style={{ color: "#6ee7b7", padding: 8 }}>
-                          尚无页面相关接口。切会话 / 发消息 / catchup
-                          后，这里会记下 subscribe、messages、catchup 等入参出参。
+                          {apiFamily === "history" ? (
+                            <>
+                              尚无查历史记录。V4 打开会话的历史是{" "}
+                              <b>subscribe → SSE snapshot</b>
+                              （标签「查历史·订阅 / 查历史·首屏」），不是 Obs
+                              「调用记录」里的模型请求，也通常不是 /messages。
+                              <br />
+                              上拉更早才是{" "}
+                              <b>store.loadOlder → rowsRange</b>
+                              （「查历史·上拉」）。
+                              <br />
+                              当前 hasOlder=
+                              {snapshot?.history.hasOlder ? "1" : "0"} ·
+                              loading=
+                              {snapshot?.history.loadingOlder ? "1" : "0"} ·
+                              firstRowId=
+                              {snapshot?.history.firstRowId ?? "∅"} · winFirst=
+                              {snapshot?.history.windowFirstRowId ?? "∅"}
+                              <br />
+                              切到本会话或点「清空」后再切一次会话，应出现「查历史·订阅
+                              + 查历史·首屏」。
+                              {snapshot?.history.hasOlder
+                                ? " 有更早行时滚到顶才会多一条「查历史·上拉」。"
+                                : " hasOlder=0 时上拉不会请求。"}
+                            </>
+                          ) : (
+                            <>
+                              尚无本会话接口记录。切会话 / 发消息 / 上拉到顶
+                              后会出现。若刚点过「清空」需再触发一次。
+                            </>
+                          )}
                         </div>
                       ) : (
                         apiEntries.map((entry, idx) => {
                           const newest = idx >= apiEntries.length - 2;
                           const open =
                             expandedApiId === entry.id || newest;
+                          const isHistory =
+                            entry.badge === "查历史" ||
+                            entry.label.startsWith("查历史");
                           const time = new Date(entry.atMs).toLocaleTimeString(
                             "zh-CN",
                             {
@@ -2833,14 +3187,18 @@ export function V4ViewportDebugOverlay() {
                                 marginBottom: 8,
                                 padding: "6px 8px",
                                 borderRadius: 6,
-                                border: newest
-                                  ? "1px solid rgba(110,231,183,0.45)"
-                                  : "1px solid rgba(148,163,184,0.22)",
-                                background: newest
-                                  ? "rgba(6, 95, 70, 0.35)"
-                                  : entry.ok
-                                    ? "rgba(15,23,42,0.35)"
-                                    : "rgba(127, 29, 29, 0.28)",
+                                border: isHistory
+                                  ? "1px solid rgba(251,191,36,0.55)"
+                                  : newest
+                                    ? "1px solid rgba(110,231,183,0.45)"
+                                    : "1px solid rgba(148,163,184,0.22)",
+                                background: isHistory
+                                  ? "rgba(120, 53, 15, 0.35)"
+                                  : newest
+                                    ? "rgba(6, 95, 70, 0.35)"
+                                    : entry.ok
+                                      ? "rgba(15,23,42,0.35)"
+                                      : "rgba(127, 29, 29, 0.28)",
                               }}
                             >
                               <button
@@ -2856,54 +3214,141 @@ export function V4ViewportDebugOverlay() {
                                   display: "block",
                                   width: "100%",
                                   boxSizing: "border-box",
-                                  color: entry.ok ? "#d1fae5" : "#fecaca",
+                                  color: entry.ok
+                                    ? isHistory
+                                      ? "#fef3c7"
+                                      : "#d1fae5"
+                                    : "#fecaca",
                                   ...tapLineStyle,
                                 }}
                               >
                                 {open ? "▼" : "▶"} #{entry.id} {time}{" "}
+                                {isHistory ? (
+                                  <span
+                                    style={{
+                                      display: "inline-block",
+                                      marginRight: 4,
+                                      padding: "0 5px",
+                                      borderRadius: 3,
+                                      background: "rgba(245,158,11,0.55)",
+                                      color: "#422006",
+                                      fontWeight: 700,
+                                      fontSize: 10,
+                                    }}
+                                  >
+                                    查历史
+                                  </span>
+                                ) : null}
                                 {entry.method} {entry.label} ·{" "}
                                 {entry.status || "—"} · {entry.durationMs}ms
                                 {"\n"}
                                 {entry.headline}
+                                {entry.pageText
+                                  ? `\n📄 ${entry.pageText}`
+                                  : ""}
                               </button>
                               {open ? (
                                 <div
                                   style={{
                                     marginTop: 6,
-                                    display: "grid",
-                                    gridTemplateColumns: "1fr 1fr",
+                                    display: "flex",
+                                    flexDirection: "column",
                                     gap: 8,
                                   }}
                                 >
-                                  <div>
+                                  {isHistory ? (
                                     <div
                                       style={{
-                                        color: "#6ee7b7",
-                                        marginBottom: 2,
-                                        fontSize: 10,
+                                        padding: "6px 8px",
+                                        borderRadius: 4,
+                                        border:
+                                          "1px solid rgba(251,191,36,0.4)",
+                                        background: "rgba(69, 26, 3, 0.45)",
+                                        color: "#fef3c7",
                                       }}
                                     >
-                                      入参 JSON · {entry.path}
-                                      {entry.query ? `?${entry.query}` : ""}
+                                      <div
+                                        style={{
+                                          color: "#fbbf24",
+                                          marginBottom: 4,
+                                          fontSize: 10,
+                                          fontWeight: 700,
+                                        }}
+                                      >
+                                        {entry.label === "查历史·首屏"
+                                          ? "查历史·首屏 = subscribe/resync 后 SSE snapshot 进 store 的窗口行（V4 打开会话真正「查到的历史」）"
+                                          : entry.label === "查历史·订阅" ||
+                                              entry.label === "查历史·resync"
+                                            ? "查历史·订阅 = POST /api/v4/conversation/subscribe；行内容在随后「查历史·首屏」"
+                                            : entry.label === "查历史·轨迹"
+                                              ? "查历史·轨迹 = 旧 GET …/messages（V4 权威时常跳过）"
+                                              : "查历史·上拉 = store.loadOlder → conversation.rowsRange（/api/v4/conversation/rows_range）"}
+                                      </div>
+                                      <div style={{ fontSize: 11, marginBottom: 6 }}>
+                                        {entry.pageText || "（无分页摘要）"}
+                                      </div>
+                                      <div
+                                        style={{
+                                          color: "#fcd34d",
+                                          marginBottom: 2,
+                                          fontSize: 10,
+                                        }}
+                                      >
+                                        本页返回的历史消息
+                                      </div>
+                                      <pre
+                                        style={{
+                                          ...tapJsonPreStyle,
+                                          maxHeight: 220,
+                                          borderColor:
+                                            "rgba(251,191,36,0.35)",
+                                          color: "#fffbeb",
+                                        }}
+                                      >
+                                        {entry.historyPreviewText ||
+                                          "（无预览）"}
+                                      </pre>
                                     </div>
-                                    <pre style={tapJsonPreStyle}>
-                                      {entry.requestText || "（无 body）"}
-                                    </pre>
-                                  </div>
-                                  <div>
-                                    <div
-                                      style={{
-                                        color: entry.ok ? "#6ee7b7" : "#fca5a5",
-                                        marginBottom: 2,
-                                        fontSize: 10,
-                                      }}
-                                    >
-                                      出参 JSON · {entry.ok ? "ok" : "fail"} ·{" "}
-                                      {entry.status}
+                                  ) : null}
+                                  <div
+                                    style={{
+                                      display: "grid",
+                                      gridTemplateColumns: "1fr 1fr",
+                                      gap: 8,
+                                    }}
+                                  >
+                                    <div>
+                                      <div
+                                        style={{
+                                          color: "#6ee7b7",
+                                          marginBottom: 2,
+                                          fontSize: 10,
+                                        }}
+                                      >
+                                        入参 JSON · {entry.path}
+                                        {entry.query ? `?${entry.query}` : ""}
+                                      </div>
+                                      <pre style={tapJsonPreStyle}>
+                                        {entry.requestText || "（无 body）"}
+                                      </pre>
                                     </div>
-                                    <pre style={tapJsonPreStyle}>
-                                      {entry.responseText || "（空）"}
-                                    </pre>
+                                    <div>
+                                      <div
+                                        style={{
+                                          color: entry.ok
+                                            ? "#6ee7b7"
+                                            : "#fca5a5",
+                                          marginBottom: 2,
+                                          fontSize: 10,
+                                        }}
+                                      >
+                                        出参 JSON · {entry.ok ? "ok" : "fail"} ·{" "}
+                                        {entry.status}
+                                      </div>
+                                      <pre style={tapJsonPreStyle}>
+                                        {entry.responseText || "（空）"}
+                                      </pre>
+                                    </div>
                                   </div>
                                 </div>
                               ) : null}
@@ -2924,181 +3369,207 @@ export function V4ViewportDebugOverlay() {
                       paddingRight: 2,
                     }}
                   >
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 8,
-                        marginBottom: 6,
-                        position: "sticky",
-                        top: 0,
-                        zIndex: 1,
-                        background: "rgba(15,23,42,0.96)",
-                        paddingBottom: 2,
-                      }}
-                    >
-                      <div style={{ ...colHeadStyle, color: "#86efac" }}>
-                        左 · DOM
-                      </div>
-                      <div style={{ ...colHeadStyle, color: "#c4b5fd" }}>
-                        右 · 投影 row
-                      </div>
-                    </div>
-
-                    {snapshot.turns.length === 0 ? (
-                      <div style={{ color: "#fbbf24" }}>
-                        视口内没有 turn（空白常见：滚动与虚拟窗口错位）
-                      </div>
-                    ) : null}
-
-                    {snapshot.turns.map((t) => {
-                      const open = expandedTurn === t.turnId;
-                      const gapWarn =
-                        t.gapToNext != null &&
-                        t.gapToNext <= 80 &&
-                        t.height > 120;
-                      const rawSummary =
-                        t.rawRows.length === 0
-                          ? "（投影窗口无此 turn）"
-                          : t.rawRows
-                              .map((r) => {
-                                const kind = String(r.kind || "?");
-                                if (typeof r.toolName === "string") {
-                                  return `${kind} ${r.toolName}${
-                                    r.status ? ` [${r.status}]` : ""
-                                  }`;
-                                }
-                                if (typeof r.text === "string" && r.text) {
-                                  return `${kind} ${clip(r.text, 80)}`;
-                                }
-                                if (typeof r.origin === "string") {
-                                  return `${kind} origin=${r.origin}`;
-                                }
-                                if (typeof r.state === "string") {
-                                  return `${kind} state=${r.state}`;
-                                }
-                                return kind;
-                              })
-                              .join(" · ");
+                    {(() => {
+                      // 投影窗全序摊平（含最新发送）；不是「视口碰巧看见的旧 turn」
+                      const sourceRows =
+                        snapshot.windowRows?.length > 0
+                          ? snapshot.windowRows
+                          : snapshot.turns.flatMap((t) => t.rawRows);
+                      type FlatLine = {
+                        key: string;
+                        lineNo: number;
+                        turnId: string;
+                        row: Record<string, unknown>;
+                      };
+                      const flat: FlatLine[] = [];
+                      let lineNo = 0;
+                      for (let ri = 0; ri < sourceRows.length; ri++) {
+                        const r = sourceRows[ri]!;
+                        const kind = String(r.kind || "");
+                        if (kind === "turnHeader") continue;
+                        lineNo += 1;
+                        const rowId =
+                          typeof r.rowId === "number" ||
+                          typeof r.rowId === "string"
+                            ? String(r.rowId)
+                            : `i${ri}`;
+                        flat.push({
+                          key: `${String(r.turnId || "")}:${rowId}:${ri}`,
+                          lineNo,
+                          turnId: String(r.turnId || ""),
+                          row: r,
+                        });
+                      }
+                      const lastUser = [...flat]
+                        .reverse()
+                        .find((x) => String(x.row.kind) === "userInput");
+                      const lastUserText = clip(lastUser?.row.text, 80);
+                      const latestSend = timingRows.length
+                        ? timingRows[timingRows.length - 1]
+                        : null;
+                      const sendText = clip(latestSend?.textPreview, 80);
+                      const sendMatch =
+                        !!sendText &&
+                        !!lastUserText &&
+                        (lastUserText === sendText ||
+                          lastUserText.includes(sendText) ||
+                          sendText.includes(lastUserText));
                       return (
-                        <div
-                          key={`${t.turnId}:${t.dataIndex}`}
-                          style={{
-                            border: gapWarn
-                              ? "1px solid rgba(251,191,36,0.55)"
-                              : "1px solid rgba(148,163,184,0.22)",
-                            borderRadius: 8,
-                            marginBottom: 8,
-                            overflow: "hidden",
-                            background: gapWarn
-                              ? "rgba(180, 83, 9, 0.18)"
-                              : "rgba(15,23,42,0.35)",
-                          }}
-                        >
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setExpandedTurn((cur) =>
-                                cur === t.turnId ? null : t.turnId,
-                              )
-                            }
+                        <>
+                          <div
                             style={{
-                              all: "unset",
-                              cursor: "pointer",
-                              display: "flex",
-                              alignItems: "center",
-                              gap: 8,
-                              width: "100%",
-                              boxSizing: "border-box",
-                              padding: "5px 10px",
-                              background: "rgba(30,41,59,0.85)",
-                              color: "#93c5fd",
                               ...mono,
-                              fontSize: 11,
-                              ...tapLineStyle,
+                              marginBottom: 8,
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              border: sendMatch
+                                ? "1px solid rgba(134,239,172,0.45)"
+                                : "1px solid rgba(251,191,36,0.55)",
+                              background: sendMatch
+                                ? "rgba(22,101,52,0.28)"
+                                : "rgba(120,53,15,0.35)",
+                              color: sendMatch ? "#bbf7d0" : "#fde68a",
+                              fontSize: 12,
                             }}
                           >
-                            <span style={tapLineStyle}>
-                              #{t.dataIndex ?? "∅"} turn={t.turnId} h=
-                              {t.height}
-                              {t.gapToNext != null
-                                ? ` gap→${t.gapToNext}${gapWarn ? " ⚠" : ""}`
-                                : ""}
-                            </span>
-                            <span style={{ marginLeft: "auto", color: "#94a3b8" }}>
-                              {open ? "▲" : "▼"}
-                            </span>
-                          </button>
-
+                            发送「{sendText || "∅"}」
+                            {" → "}
+                            窗尾用户「{lastUserText || "∅"}」
+                            {sendMatch
+                              ? " · 对齐"
+                              : " · 不一致（查投影是否没吃到 / 视口旧数据）"}
+                            {" · "}共{flat.length}条
+                          </div>
                           <div
                             style={{
                               display: "grid",
                               gridTemplateColumns: "1fr 1fr",
-                              gap: 0,
-                              borderTop: "1px solid rgba(148,163,184,0.18)",
+                              gap: 8,
+                              marginBottom: 6,
+                              position: "sticky",
+                              top: 0,
+                              zIndex: 1,
+                              background: "rgba(15,23,42,0.96)",
+                              paddingBottom: 2,
                             }}
                           >
-                            <div
-                              style={{
-                                ...paneStyle,
-                                maxHeight: 120,
-                                minHeight: 56,
-                                borderRight:
-                                  "1px solid rgba(148,163,184,0.22)",
-                                background: "rgba(6, 78, 59, 0.22)",
-                                color: "#d1fae5",
-                              }}
-                            >
-                              {t.displayText || "（界面无文字）"}
+                            <div style={{ ...colHeadStyle, color: "#86efac" }}>
+                              左 · 投影窗这一条（面板内容）
                             </div>
-                            <div
-                              style={{
-                                ...paneStyle,
-                                maxHeight: 120,
-                                minHeight: 56,
-                                background: "rgba(76, 29, 149, 0.22)",
-                                color: "#ede9fe",
-                              }}
-                            >
-                              {rawSummary}
+                            <div style={{ ...colHeadStyle, color: "#c4b5fd" }}>
+                              右 · 这一条的 JSON
                             </div>
                           </div>
-
-                          {open ? (
-                            <pre
-                              style={{
-                                margin: 0,
-                                padding: 10,
-                                borderTop: "1px solid rgba(148,163,184,0.18)",
-                                background: "rgba(2,6,23,0.88)",
-                                color: "#f1f5f9",
-                                whiteSpace: "pre-wrap",
-                                wordBreak: "break-word",
-                                maxHeight: 220,
-                                overflow: "auto",
-                                ...mono,
-                                fontSize: 11,
-                              }}
-                            >
-                              {JSON.stringify(
-                                {
-                                  turnId: t.turnId,
-                                  layout: {
-                                    top: t.top,
-                                    height: t.height,
-                                    gapToNext: t.gapToNext,
-                                  },
-                                  displayText: t.displayText,
-                                  rows: t.rawRows,
-                                },
-                                null,
-                                2,
-                              )}
-                            </pre>
+                          {flat.length === 0 ? (
+                            <div style={{ color: "#fbbf24" }}>
+                              投影窗没有用户/正文/工具行
+                            </div>
                           ) : null}
-                        </div>
+                          {flat.map((item) => {
+                            const open = expandedTurn === item.key;
+                            const left = viewportRowLeftLabel(item.row);
+                            const right = viewportRowJsonSummary(item.row);
+                            return (
+                              <div
+                                key={item.key}
+                                style={{
+                                  marginBottom: open ? 6 : 1,
+                                  borderRadius: 4,
+                                  border: open
+                                    ? "1px solid rgba(196,181,253,0.45)"
+                                    : "1px solid transparent",
+                                  background: open
+                                    ? "rgba(30,41,59,0.55)"
+                                    : "transparent",
+                                }}
+                              >
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedTurn((cur) =>
+                                      cur === item.key ? null : item.key,
+                                    )
+                                  }
+                                  style={{
+                                    all: "unset",
+                                    cursor: "pointer",
+                                    display: "grid",
+                                    gridTemplateColumns: "1fr 1fr",
+                                    width: "100%",
+                                    boxSizing: "border-box",
+                                    ...mono,
+                                    fontSize: 12,
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      padding: "4px 8px",
+                                      borderRight:
+                                        "1px solid rgba(148,163,184,0.25)",
+                                      background: "rgba(6, 78, 59, 0.2)",
+                                      color: "#d1fae5",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      textAlign: "left",
+                                    }}
+                                    title={left}
+                                  >
+                                    <span
+                                      style={{
+                                        color: "#f8fafc",
+                                        fontWeight: 700,
+                                        marginRight: 6,
+                                      }}
+                                    >
+                                      L{item.lineNo}
+                                    </span>
+                                    <span style={{ color: "#64748b" }}>
+                                      row#
+                                      {String(item.row.rowId ?? "∅")}{" "}
+                                    </span>
+                                    {left}
+                                  </div>
+                                  <div
+                                    style={{
+                                      padding: "4px 8px",
+                                      background: "rgba(76, 29, 149, 0.2)",
+                                      color: "#ede9fe",
+                                      whiteSpace: "nowrap",
+                                      overflow: "hidden",
+                                      textOverflow: "ellipsis",
+                                      textAlign: "left",
+                                    }}
+                                    title={right}
+                                  >
+                                    {open ? "▼ " : "▶ "}
+                                    {right}
+                                  </div>
+                                </button>
+                                {open ? (
+                                  <pre
+                                    style={{
+                                      ...tapJsonPreStyle,
+                                      margin: "0 0 4px",
+                                    }}
+                                  >
+                                    {JSON.stringify(
+                                      {
+                                        line: item.lineNo,
+                                        turnId: item.turnId,
+                                        row: item.row,
+                                      },
+                                      null,
+                                      2,
+                                    )}
+                                  </pre>
+                                ) : null}
+                              </div>
+                            );
+                          })}
+                        </>
                       );
-                    })}
+                    })()}
                   </div>
                 ) : null}
 

@@ -1590,9 +1590,15 @@ function ConversationTimelineImpl({
         userScrollIntent: getActiveUserScrollIntent(),
       });
       commitFollowing(following);
-      if (anchorActionAfterContentChange(following, isContentWidthChanging()) === "stickToBottom") {
-        scrollToBottom();
+      if (anchorActionAfterContentChange(following, isContentWidthChanging()) !== "stickToBottom") {
+        return;
       }
+      // 已在贴底容差内就别反复 scrollToBottom——流式行高抖动时跟底+滚轮会上下抖
+      // （现场 follow=1、gap 在 1–35 间来回、src=wheel→scroll）。
+      const gap =
+        scrollElement.scrollHeight - scrollElement.scrollTop - scrollElement.clientHeight;
+      if (gap <= 2) return;
+      scrollToBottom();
     });
     observer.observe(element);
     return () => observer.disconnect();
@@ -1953,21 +1959,43 @@ function ConversationTimelineImpl({
   // 冷恢复先展示末尾窗口，再补齐同一 turnId 的正文；稳定 ref 不会重新测高，
   // 只等 ResizeObserver 会先画出新正文和旧坐标，造成一帧重叠。提交后批量读取
   // 已挂载轮次，在 layout 阶段更新既有 virtualizer；下一次同步提交后再对账锚点。
+  //
+  // 禁止依赖 virtualRows：resizeItem / commitMeasuredLayout 每帧都会换新数组引用，
+  // 再叠 1px 测高抖动就会 Maximum update depth（React #185）。窗缘 + 行数够触发重测。
   useLayoutEffect(() => {
-    const renderedSizes = new Map(virtualRows.map((row) => [row.index, row.size]));
+    if (committingMeasuredLayoutRef.current) return;
+    const renderedSizes = new Map(
+      virtualizer.getVirtualItems().map((row) => [row.index, row.size]),
+    );
     const measurements = Array.from(
       virtualHistoryRef.current?.querySelectorAll(":scope > [data-index]") ?? [],
       (node) => ({
         index: Number(node.getAttribute("data-index")),
         height: measureElement(node, undefined),
       }),
-    ).filter((item) => renderedSizes.get(item.index) !== item.height);
+    ).filter((item) => {
+      if (!Number.isFinite(item.index) || item.height <= 0) return false;
+      const prev = renderedSizes.get(item.index);
+      if (prev === undefined) return true;
+      // 允许 1px 误差，避免亚像素/滚动条 gutter 来回顶
+      return Math.abs(prev - item.height) > 1;
+    });
     contentMeasurementPendingRef.current = measurements.length > 0;
     if (measurements.length === 0) return;
-    for (const item of measurements) virtualizer.resizeItem(item.index, item.height);
-    // RO 可能已写入缓存但尚未提交 DOM；此时 resizeItem 无差量，也要提交坐标。
-    commitMeasuredLayout((revision) => revision + 1);
-  }, [measureElement, rowWindowKey, virtualRows, virtualizer]);
+    committingMeasuredLayoutRef.current = true;
+    try {
+      for (const item of measurements) {
+        virtualizer.resizeItem(item.index, item.height);
+      }
+      // RO 可能已写入缓存但尚未提交 DOM；此时 resizeItem 无差量，也要提交坐标。
+      commitMeasuredLayout((revision) => revision + 1);
+    } finally {
+      // 同一次 layout 链路里勿再入；微任务后再放行 heal / 下一批测高。
+      void Promise.resolve().then(() => {
+        committingMeasuredLayoutRef.current = false;
+      });
+    }
+  }, [measureElement, rowWindowKey, virtualizedUnits.length, virtualizer]);
 
   useLayoutEffect(() => {
     if (contentMeasurementPendingRef.current) return;
@@ -2313,7 +2341,9 @@ function ConversationTimelineImpl({
                   if (!unit) return null;
                   return (
                     <div
-                      key={`${virtualRow.key}:${rowContext.logEpoch ?? ""}`}
+                      // index 入 key：同 turnId 重复时（或 logEpoch 空）也不撞 React key；
+                      // 历史行与 live tail 也用不同前缀，避免兄弟节点 `run-xxx:` 双挂。
+                      key={`hist:${virtualRow.index}:${String(virtualRow.key)}:${rowContext.logEpoch ?? "0"}`}
                       ref={virtualizer.measureElement}
                       data-index={virtualRow.index}
                       data-v4-turn-unit="true"
@@ -2342,7 +2372,7 @@ function ConversationTimelineImpl({
               </div>
               {liveUnit !== null && liveUnitIndex !== null ? (
                 <div
-                  key={`${liveUnit.key}:${rowContext.logEpoch ?? ""}`}
+                  key={`live:${liveUnitIndex}:${liveUnit.key}:${rowContext.logEpoch ?? "0"}`}
                   ref={liveTailRef}
                   data-index={liveUnitIndex}
                   data-v4-running-live-tail="true"

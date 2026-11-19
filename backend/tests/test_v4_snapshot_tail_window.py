@@ -233,6 +233,140 @@ def test_live_turn_pin_keeps_early_assistant_text():
     assert pinned[0]["kind"] == "turnHeader"
 
 
+def test_live_turn_span_prefers_inflight_over_newer_completed_user():
+    """工具洪峰轮仍在跑时，不能改钉到窗尾已完成的后一问（否则 6666 蒸发）。"""
+    rows: list[dict] = []
+    rows.append(
+        {
+            "rowId": 1,
+            "kind": "turnHeader",
+            "turnId": "done",
+            "origin": "userInput",
+            "state": "completedSuccess",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 2,
+            "kind": "userInput",
+            "turnId": "done",
+            "text": "333",
+            "origin": "realUser",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 3,
+            "kind": "assistantText",
+            "turnId": "done",
+            "text": "333",
+            "state": "complete",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 4,
+            "kind": "turnHeader",
+            "turnId": "live",
+            "origin": "userInput",
+            "state": "running",
+        }
+    )
+    rows.append(
+        {
+            "rowId": 5,
+            "kind": "userInput",
+            "turnId": "live",
+            "text": "6666",
+            "origin": "realUser",
+        }
+    )
+    for rid in range(6, 80):
+        rows.append(
+            {
+                "rowId": rid,
+                "kind": "toolCall",
+                "turnId": "live",
+                "toolName": f"t{rid}",
+                "status": "success",
+            }
+        )
+    rows.append(
+        {
+            "rowId": 80,
+            "kind": "toolCall",
+            "turnId": "live",
+            "toolName": "platform",
+            "status": "running",
+        }
+    )
+    span = V4ConversationHub._live_turn_span(rows)
+    assert span is not None
+    turn_start, user_idx = span
+    assert rows[turn_start]["turnId"] == "live"
+    assert rows[user_idx]["text"] == "6666"
+
+    raw_tail = rows[-(conv._SNAPSHOT_TAIL_ROWS) :]
+    pinned = V4ConversationHub._pin_live_turn_into_window(
+        rows, raw_tail, soft_cap=conv._SNAPSHOT_TAIL_ROWS
+    )
+    texts = [
+        str(r.get("text") or "")
+        for r in pinned
+        if str(r.get("kind") or "") == "userInput"
+    ]
+    assert "6666" in texts
+    assert any(
+        str(r.get("status") or "") == "running" for r in pinned if r.get("kind") == "toolCall"
+    )
+
+
+def test_snapshot_pins_when_rows_inflight_even_if_control_idle():
+    """control 未标 running 但行上仍有 streaming 时，snapshot 也必须钉直播轮。"""
+    hub = V4ConversationHub()
+    sess = hub._get_or_create_session("s-inflight-pin")
+    sess.rows[1] = {
+        "rowId": 1,
+        "kind": "turnHeader",
+        "turnId": "turn-live",
+        "origin": "userInput",
+        "state": "running",
+    }
+    sess.rows[2] = {
+        "rowId": 2,
+        "kind": "userInput",
+        "turnId": "turn-live",
+        "text": "6666",
+        "origin": "realUser",
+    }
+    tool_end = 3 + conv._SNAPSHOT_TAIL_ROWS + 40
+    for rid in range(3, tool_end):
+        sess.rows[rid] = {
+            "rowId": rid,
+            "kind": "toolCall",
+            "turnId": "turn-live",
+            "toolName": f"tool-{rid}",
+            "status": "success",
+        }
+    sess.rows[tool_end] = {
+        "rowId": tool_end,
+        "kind": "assistantText",
+        "turnId": "turn-live",
+        "text": "666 收到",
+        "state": "streaming",
+    }
+    sess.phase = "completed"
+    sess.control_override = None
+
+    window = hub._build_snapshot(sess)["rows"]["window"]
+    texts = [
+        str(r.get("text") or "")
+        for r in window
+        if str(r.get("kind") or "") == "userInput"
+    ]
+    assert "6666" in texts
+
+
 def test_live_turn_pins_user_input_squeezed_out_of_tail():
     """流式长回合把 userInput 挤出尾窗后，切会话重订阅仍须看见本轮用户气泡。
 

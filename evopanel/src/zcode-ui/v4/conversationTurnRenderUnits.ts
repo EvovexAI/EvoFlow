@@ -302,17 +302,22 @@ function resolveTurnRunning(
 
   // 末轮以宿主停止按钮（sessionBusy）为权威，避免：
   // - 停按钮灭了、turnHeader 仍 running → 左下角齿轮空转
-  // - 停按钮亮着、header 已 completed → 齿轮熄灭
+  // - 停按钮亮着、缺 header / header 仍 running → 齿轮熄灭
+  // 注意：不要把已 sealed 的末轮（completedSuccess）重新推成 running——
+  // 用户刚发送下一句时 sessionBusy 会先亮，若仍用旧 header.startedAt 算「已工作」，
+  // 计时会接着上一轮继续走，而不是从 0 起。
   if (isLastTurn && options.sessionBusy === false) {
     return false;
   }
-  if (
-    isLastTurn &&
-    options.sessionBusy === true &&
-    draft.header?.state !== "failed" &&
-    draft.header?.state !== "completedInterrupted"
-  ) {
-    return true;
+  if (isLastTurn && options.sessionBusy === true) {
+    const headerState = draft.header?.state;
+    if (headerState === "failed" || headerState === "completedInterrupted") {
+      return false;
+    }
+    if (!draft.header || headerState === "running") {
+      return true;
+    }
+    return false;
   }
 
   if (draft.header) {
