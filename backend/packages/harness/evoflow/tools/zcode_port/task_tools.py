@@ -51,25 +51,34 @@ def _task_output_path_candidate(task_id: str):
 
 
 @tool("taskoutput", description=TASK_OUTPUT_DESCRIPTION, parse_docstring=False)
-def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str = 30_000) -> str:
+def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str = 5_000) -> str:
     """Retrieves output from a running or completed background task.
 
     task_id: The task ID to get output from.
-    block: Whether to wait for completion. Default true.
-    timeout: Max wait time in ms. Default 30000, max 600000.
+    block: Whether to wait for completion. Default true (short wait, see below).
+    timeout: Max wait time in ms. Default 5000, max 600000.
     """
+    # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+    # 默认等待从 30000ms 降到 5000ms，并启用「静默宽限」提前返回。
+    # 为什么：旧默认让每次查询最多按满 30s。近 7 天 543 次调用里
+    #   140 次 ≥30s（平均 137.7s）+ 130 次 10~30s，光等待就约 6.2 小时，
+    #   占全部工具耗时 21.4%（仅次于 bash），对话表现为「正在获取任务输出」假死。
+    # 语义没变：任务仍在跑就返回 <retrieval_status>not_ready/timeout</retrieval_status>，
+    # 调用方照旧可以稍后再查；只是不再为「多等一会也许就完了」白付 25 秒。
+    # 要真的等完，显式传 timeout=600000 即可——长任务本来就该走通知，不该堵在查询里。
     if not str(task_id or "").strip():
         return "errorCode: 1\nmessage: Task ID is required"
     should_block = block if isinstance(block, bool) else str(block).strip().lower() not in {"false", "0", "no"}
     try:
         timeout_ms = max(0, min(int(timeout), 600_000))
     except (TypeError, ValueError):
-        timeout_ms = 30_000
+        timeout_ms = 5_000
     task = get_task(task_id)
     if task is None:
         return f"errorCode: 2\nmessage: No task found with ID: {task_id}"
     if should_block and task.status == "running":
-        task = wait_task(task_id, timeout_ms) or task
+        # 静默 1.5s 且已有输出 → 提前返回，不必等满 timeout
+        task = wait_task(task_id, timeout_ms, idle_grace_ms=1_500) or task
     if task.status == "running":
         retrieval = "not_ready" if not should_block else "timeout"
     else:

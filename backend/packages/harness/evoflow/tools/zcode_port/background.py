@@ -94,19 +94,57 @@ def _pulse_wait_alive(task: BackgroundBashTask) -> None:
         pass
 
 
-def wait_task(task_id: str, timeout_ms: int) -> BackgroundBashTask | None:
+def wait_task(
+    task_id: str,
+    timeout_ms: int,
+    *,
+    idle_grace_ms: int = 0,
+) -> BackgroundBashTask | None:
+    """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+
+    ``idle_grace_ms`` > 0 时启用「静默宽限提前返回」：只要任务**已经产出过输出**
+    并且连续 ``idle_grace_ms`` 没有新增字节，就认为这一轮该看的已经拿到，立即返回，
+    不再空等到 ``timeout_ms`` 满。
+
+    为什么加这个：``taskoutput`` 旧默认是 ``block=True`` + ``timeout=30000``，
+    于是每次查询最多被按满 30s。现网 obs 近 7 天 543 次里
+    **140 次 ≥30s（平均 137.7s）**、130 次 10~30s，累计约 6.2 小时纯等待，
+    是仅次 bash 的最大单点浪费；对话里表现为「正在获取任务输出」假死。
+
+    边界：只在**已经有输出字节**后才用宽限。还没任何输出的任务照旧等满
+    ``timeout_ms``，否则会把「刚启动还没打印」误判成「可以返回了」。
+    """
     task = get_task(task_id)
     if task is None:
         return None
     deadline = time.time() + max(0, timeout_ms) / 1000.0
     next_pulse = 0.0
+    grace_s = max(0, idle_grace_ms) / 1000.0
+    last_size = -1
+    last_growth_at = time.time()
     while task.status == "running" and time.time() < deadline:
         now = time.time()
         if now >= next_pulse:
             _pulse_wait_alive(task)
             next_pulse = now + _WAIT_HEARTBEAT_INTERVAL_S
+        if grace_s > 0:
+            size = _output_size(task.output_path)
+            if size != last_size:
+                last_size = size
+                last_growth_at = now
+            elif size > 0 and (now - last_growth_at) >= grace_s:
+                # 有过输出但已经静默足够久 → 这一轮内容稳定，提前返回
+                return task
         time.sleep(0.1)
     return task
+
+
+def _output_size(path: object) -> int:
+    """输出文件当前字节数（拿不到就当 0，不抛）。"""
+    try:
+        return path.stat().st_size  # type: ignore[union-attr]
+    except Exception:
+        return 0
 
 
 def stop_task(task_id: str) -> BackgroundBashTask | None:
