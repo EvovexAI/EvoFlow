@@ -90,6 +90,23 @@ _PENDING: dict[str, list[tuple[str, str, str, str]]] = {}  # tid -> [(sk, src, t
 _COLLECTORS: dict[str, threading.Timer] = {}
 
 
+def _is_shutdown_runtime_error(exc: BaseException) -> bool:
+    """是否属于「进程/执行器正在关闭」这类不可补救的 RuntimeError。
+
+    【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+    判据升级记录：第一版用 ``sys.is_finalizing()`` 在入口拦截，实测**无效** ——
+    事件循环先关闭、解释器尚未进入终结阶段时它就返回 False，traceback 照刷。
+    改为按异常文本判定（asyncio/futures 在 submit 时的固定文案）：
+    - ``cannot schedule new futures after shutdown``
+    - ``cannot schedule new futures after interpreter shutdown``
+    只认这两句 + RuntimeError 类型，避免把真实通知失败也吞掉。
+    """
+    if not isinstance(exc, RuntimeError):
+        return False
+    text = str(exc)
+    return "cannot schedule new futures after" in text
+
+
 def _merge_batch_text(texts: list[str]) -> str:
     """One synthetic message carrying one <task-notification> block each.
 
@@ -374,7 +391,19 @@ async def _run_notification_turn(
             ):
                 pass
             logger.info("task-notification SDK stream finished thread=%s", thread_id)
-        except Exception:
+        except Exception as exc:
+            # 【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：执行器已关闭这类「进程正在退出」的异常降为 debug，不刷 traceback。
+            # 为什么：转后台通知线程是 daemon 线程，测试进程跑完时它可能仍在连网关，
+            # langgraph_sdk 的 run_in_executor 抛 RuntimeError('cannot schedule new
+            # futures after shutdown')。它发生在解释器退出路径上、没有任何补救动作，
+            # 打了 warning + exc_info 只会在测试输出末尾刷两段栈，把真正的失败盖掉
+            # （实测 test_warm_bash.py：17 passed 之后仍刷栈，让「测试是否干净」失效）。
+            if _is_shutdown_runtime_error(exc):
+                logger.debug(
+                    "task-notification skipped during shutdown thread=%s", thread_id
+                )
+                return
             logger.warning(
                 "task-notification turn failed thread=%s",
                 thread_id,

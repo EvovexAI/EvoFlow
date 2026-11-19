@@ -153,3 +153,25 @@ class TestBatching:
         nc.schedule_task_notification_turn(**_notif("m2"))
         assert self._wait_flush() is True
         assert len(self.dispatched) == 2  # 两个窗口,两个 turn
+
+
+def test_shutdown_runtime_error_is_recognized() -> None:
+    """执行器已关闭的 RuntimeError 必须被识别为「进程退出噪声」，其余 RuntimeException 不算。
+
+    【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么：转后台通知线程是 daemon 线程，测试进程跑完时它可能仍在连网关，
+    langgraph_sdk 的 run_in_executor 抛 RuntimeError('cannot schedule new futures
+    after shutdown')。不打成 warning+exc_info 的代价是：测试输出末尾刷两段 traceback
+    把真正的失败盖掉（实测 test_warm_bash.py 17 passed 之后仍刷 4 处栈）。
+    这条测试钉住「只认这一句文案」，避免判据放宽到吞掉真实通知失败。
+    """
+    assert nc._is_shutdown_runtime_error(
+        RuntimeError("cannot schedule new futures after shutdown")
+    )
+    assert nc._is_shutdown_runtime_error(
+        RuntimeError("cannot schedule new futures after interpreter shutdown")
+    )
+    # 类型不对 / 文案不对 —— 都必须仍然按真实失败报出来
+    assert not nc._is_shutdown_runtime_error(ValueError("cannot schedule new futures after shutdown"))
+    assert not nc._is_shutdown_runtime_error(RuntimeError("connection refused"))
+    assert not nc._is_shutdown_runtime_error(RuntimeError(""))
