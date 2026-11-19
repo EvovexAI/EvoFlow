@@ -255,8 +255,13 @@ _TRUE = {"true", "1", "yes", "y", "on"}
 _FALSE = {"false", "0", "no", "n", "off"}
 
 # ZCode: working directory persists between Bash calls (per thread).
-_PERSISTED_CWD: dict[str, str] = {}
+# 【self-evolution-bot · 2026-11-19 · 第68轮】值从 str 改为 (workspace_root, cwd)：
+# 会话在 UI 里切换工作区后，旧 cwd 必须失效，否则命令会在本轮工作区之外跑。
+_PERSISTED_CWD: dict[str, tuple[str, str]] = {}
 _PERSISTED_CWD_LOCK = threading.Lock()
+# 每个 thread 最近一次已知的工作区 root。_strip_pwd_marker 只拿得到 thread_id
+# （没有 runtime），靠这个字典补上「记住 cwd 时属于哪个工作区」。
+_THREAD_WORKSPACE: dict[str, str] = {}
 _PWD_MARKER = "__EVOFLOW_PWD__="
 
 # Compound `cd … && <probe>` still counts as a probe for soft-timeout purposes.
@@ -608,16 +613,42 @@ def _workspace_root(runtime: ToolRuntime | None) -> str:
 
 
 def _cwd(runtime: ToolRuntime | None) -> str:
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么/为什么：cwd 持久化必须绑定「当时那个工作区」。
+    # 原实现只按 thread_id 取，于是同一会话在 UI 里**切换工作区**后，
+    # 上一条会话留下的 cwd 仍然有效 —— 实测：会话 C 先绑 wsA、在里面 `cd ../`，
+    # 再切到 wsB，_cwd 仍返回 /Temp（旧工作区的上级），命令直接在本轮工作区之外跑。
+    # 现在记住 cwd 时一并记下 workspace root；root 变了就丢弃旧 cwd，回落到新 root。
     tid = _thread_id(runtime)
     if tid:
+        root_now = _workspace_root(runtime)
         with _PERSISTED_CWD_LOCK:
-            persisted = _PERSISTED_CWD.get(tid)
-        if persisted and Path(persisted).is_dir():
-            return persisted
+            entry = _PERSISTED_CWD.get(tid)
+        if entry:
+            saved_root, persisted = entry
+            same_ws = _same_workspace(saved_root, root_now)
+            if same_ws and persisted and Path(persisted).is_dir():
+                return persisted
+            if not same_ws:
+                # 工作区已切换：旧 cwd 不再属于本轮上下文，直接丢掉。
+                with _PERSISTED_CWD_LOCK:
+                    _PERSISTED_CWD.pop(tid, None)
     return _workspace_root(runtime)
 
 
-def _remember_cwd(thread_id: str, cwd: str) -> None:
+def _same_workspace(saved: str, now: str) -> bool:
+    """两个 workspace root 是否指向同一处（大小写/分隔符/相对路径都不敏感）。"""
+    a = str(saved or "").strip()
+    b = str(now or "").strip()
+    if not a or not b:
+        return True  # 取不到 root 时不做「已切换」判断，保持原行为
+    try:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    except (OSError, ValueError):
+        return a == b
+
+
+def _remember_cwd(thread_id: str, cwd: str, workspace_root: str = "") -> None:
     # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
     # 改了什么/为什么：bash 的标记行回的是 Git-Bash posix 路径（`/c/Users/...`），
     # 而 Windows 上 `Path("/c/Users/...").is_dir()` 是 **False** —— 于是下面这行
@@ -626,14 +657,19 @@ def _remember_cwd(thread_id: str, cwd: str) -> None:
     # `cd … &&` 前缀（7 天 19561 次 bash 中 92.8%，我本人 96.0%）。
     # 实证：_remember_cwd("t", "/c/.../sub") 后 _PERSISTED_CWD 仍为 {}。
     # 修法：先转回 Windows 路径再校验与存储；非 win32 平台原样不动。
+    # 另：同时记下当时的工作区 root，供 _cwd 判断「会话是否已切换工作区」。
     from evoflow.utils.bundled_tools import from_bash_posix_path
 
     tid = str(thread_id or "").strip()
     path = from_bash_posix_path(str(cwd or "").strip())
     if not tid or not path or not Path(path).is_dir():
         return
+    root = str(workspace_root or "").strip()
+    if not root:
+        with _PERSISTED_CWD_LOCK:
+            root = _THREAD_WORKSPACE.get(tid, "")
     with _PERSISTED_CWD_LOCK:
-        _PERSISTED_CWD[tid] = path
+        _PERSISTED_CWD[tid] = (root, path)
 
 
 def _no_window() -> dict:
@@ -1783,6 +1819,13 @@ def bash_tool(
     dangerouslyDisableSandbox: Set this to true to dangerously override sandbox mode and run commands without sandboxing.
     """
     del dangerouslyDisableSandbox  # EvoFlow host-direct already runs on the host; flag is accepted for schema parity.
+    # 【self-evolution-bot · 2026-11-19 · 第68轮】把本轮工作区记进 _THREAD_WORKSPACE，
+    # 供只拿得到 thread_id 的 _strip_pwd_marker 判断「记住 cwd 时属于哪个工作区」。
+    _ws_root = _workspace_root(runtime)
+    _tid_ws = _thread_id(runtime)
+    if _tid_ws and _ws_root:
+        with _PERSISTED_CWD_LOCK:
+            _THREAD_WORKSPACE[_tid_ws] = _ws_root
     cwd = _cwd(runtime)
     try:
         from evoflow.tools.host_direct.skill_command_paths import rewrite_skill_paths_in_command

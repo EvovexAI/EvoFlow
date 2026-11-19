@@ -33,10 +33,14 @@ def _reset_warm_pool():
 
 
 class _Runtime:
-    """够 bash_tool 取 thread_id / session_key 的最小替身。"""
+    """够 bash_tool 取 thread_id / session_key / 工作区的最小替身。"""
 
-    def __init__(self, thread_id: str) -> None:
-        self.context = {"thread_id": thread_id, "session_key": thread_id}
+    def __init__(self, thread_id: str, workspace_root: str = "") -> None:
+        self.context = {
+            "thread_id": thread_id,
+            "session_key": thread_id,
+            "local_workspace_root": workspace_root,
+        }
         self.state: dict = {}
         self.config: dict = {}
         self.stream_writer = None
@@ -49,6 +53,16 @@ def _run(thread_id: str, command: str) -> str:
         description="cwd persistence probe",
         command=command,
         runtime=_Runtime(thread_id),
+    )
+    return out if isinstance(out, str) else str(out)
+
+
+def _run_ws(thread_id: str, workspace_root: str, command: str) -> str:
+    """带工作区绑定的调用（模拟 UI 里给这个会话选了一个本地工作区）。"""
+    out = bt.bash_tool.func(
+        description="cwd workspace probe",
+        command=command,
+        runtime=_Runtime(thread_id, workspace_root=workspace_root),
     )
     return out if isinstance(out, str) else str(out)
 
@@ -107,3 +121,40 @@ def test_exit_code_still_reported_after_fix() -> None:
 
     bad = _run(tid, "exit 7")
     assert "exitCode: 7" in bad, f"退出码丢失或被 trap 覆盖：{bad[:200]}"
+
+
+def test_switching_workspace_discards_stale_cwd(tmp_path) -> None:
+    """同一个会话在 UI 里切换工作区后，旧工作区留下的 cwd 必须失效。
+
+    【self-evolution-bot · 2026-11-19 · 第68轮】用户提醒「每个对话工作区不一样」。
+    实测缺陷：会话先绑 wsA、在里面 `cd ../` 跳出，再切到 wsB，旧实现仍返回
+    /Temp（wsA 的上级）——命令直接在本轮工作区之外执行。
+    """
+    ws_a = tmp_path / "wsA"
+    ws_b = tmp_path / "wsB"
+    ws_a.mkdir()
+    ws_b.mkdir()
+    tid = "pytest-cwd-ws-switch"
+
+    _run_ws(tid, str(ws_a), "pwd")
+    # 在 wsA 里故意跳出工作区，制造一个「对 wsB 来说非法」的残留 cwd
+    _run_ws(tid, str(ws_a), "cd ../")
+
+    reported = _reported_cwd(_run_ws(tid, str(ws_b), "pwd"))
+    assert reported == bt._to_posix(str(ws_b)), (
+        f"切换工作区后 cwd 仍是旧值：期望 {bt._to_posix(str(ws_b))}，实际 {reported}"
+    )
+
+
+def test_two_threads_do_not_share_cwd(tmp_path) -> None:
+    """不同会话绑不同工作区时，cwd 不能互相串。"""
+    ws_a = tmp_path / "tA"
+    ws_b = tmp_path / "tB"
+    ws_a.mkdir()
+    ws_b.mkdir()
+
+    _run_ws("pytest-iso-A", str(ws_a), "pwd")
+    _run_ws("pytest-iso-B", str(ws_b), "pwd")
+
+    assert _reported_cwd(_run_ws("pytest-iso-A", str(ws_a), "pwd")) == bt._to_posix(str(ws_a))
+    assert _reported_cwd(_run_ws("pytest-iso-B", str(ws_b), "pwd")) == bt._to_posix(str(ws_b))
