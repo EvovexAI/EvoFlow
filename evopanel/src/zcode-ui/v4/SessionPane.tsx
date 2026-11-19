@@ -3744,11 +3744,19 @@ export function SessionPane({
 
   // subscribe ACK 会先把 store 置 live，initial snapshot 稍后才到；只看
   // status 会在无投影窗口提前启用编辑器。正式 session 必须等首个 snapshot 才可输入。
-  // 对齐 ZCode：有 snapshot 时重连仍显示内容（仅缺 runtimeInitialization 才当 connecting）。
+  // 对齐 ZCode：有 snapshot 时重连仍显示内容，只有 runtime 还没起来才当 connecting。
+  // 【self-evolution-bot · 2026-11-19 · 第74轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把 snapshot.runtimeInitialization（协议里不存在该字段，运行时恒取
+  // undefined → `!undefined` 恒为 true，等于没写）换成真正的「runtime 未就绪」判据
+  // snapshot.control.phase ∈ {draft, prewarming}（sessionPhaseSchema 的初始化前两态）。
+  // 为什么：tsc 报 TS2339，且原写法是假条件——看着像闸门，实际不起作用。
+  const snapshotRuntimeReady =
+    snapshot !== null &&
+    snapshot.control.phase !== "draft" &&
+    snapshot.control.phase !== "prewarming";
   const connecting =
     sessionId !== null &&
-    (snapshot === null ||
-      (state.status === "connecting" && !snapshot.runtimeInitialization));
+    (snapshot === null || (state.status === "connecting" && !snapshotRuntimeReady));
   const queueEditActiveForCurrentComposer =
     queueEditOperation?.sessionId === sessionId && queueEditOperation.workspaceKey === workspaceKey;
   const errored = sessionId !== null && state.status === "error";
