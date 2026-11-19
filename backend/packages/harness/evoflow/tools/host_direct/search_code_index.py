@@ -390,3 +390,31 @@ try:
     search_code_index_hd.coroutine = _search_code_index_coroutine
 except Exception:  # pragma: no cover - pydantic 冻结时静默跳过
     pass
+
+
+# 【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：模块加载完就把嵌入暖机拉起来，不再等「第一次检索」才起。
+#
+# 为什么（现网实测，重启后同一查询在网关里 964ms ~ 8387ms 波动 8.7 倍）：
+#   · `_start_embed_warmup()` 全仓只有一个调用点 —— `_embed_query_sync` 内部，
+#     也就是**第一次检索发生的那一刻**才启动后台暖机。
+#   · 于是进程启动后第一次检索必然吃到完整冷启动（模型加载 ~3.8s + 首次 KNN
+#     重建页缓存），而它同一时刻还在被 `_SEARCH_POOL` 线程占着，只能干等。
+#   · 观测库证据：重启后 08:21/08:27/08:58 三次检索 4478/11462/7119ms，
+#     而间隔几分钟后的同类查询只要 964ms / 1308ms。
+#
+# 判据：暖机本来就是「后台、单飞、失败只降级不阻塞」的（见 `_start_embed_warmup`），
+# 提前到 import 时启动**不改变任何检索语义**，只是把这 3.8s 从「用户那次检索」里
+# 挪到「进程还没接活的时候」。工具 import 一定早于任何一次检索，所以覆盖完整。
+# 暖机失败仍走原来的 300s 冷却重试，不会因为提前启动就改变降级行为。
+def _kick_embed_warmup_on_import() -> None:
+    """Best-effort: start the code-index embedding warmup at process load time."""
+    try:
+        from evoflow.code_index.store import _start_embed_warmup
+
+        _start_embed_warmup()
+    except Exception:  # noqa: BLE001 - 暖机是纯加速，任何失败都不该影响工具注册
+        return
+
+
+_kick_embed_warmup_on_import()
