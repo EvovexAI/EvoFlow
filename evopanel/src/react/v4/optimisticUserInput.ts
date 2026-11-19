@@ -12,6 +12,7 @@ import type {
   ConversationRow,
   UserInputRow,
 } from '@zcode/shared/zcode-protocol-v4'
+import { logChatTurnUserBubbleVisible } from '../lib/chat-turn-timing-log.js'
 
 /** 与 chat-app-view 的 echo 判定一致：只看窗口尾部最近一条非空 userInput。 */
 export function v4WindowHasUserText(
@@ -54,6 +55,12 @@ export function mergeOptimisticUserInputRow(
     origin: 'realUser',
     createdAt: now,
     createdAtSeq: 0,
+  }
+  // 乐观气泡真正并入时间线 = 用户可见上屏（计时表「出泡」列）
+  try {
+    logChatTurnUserBubbleVisible()
+  } catch {
+    /* overlay timing only */
   }
   return [...rows, optimistic]
 }

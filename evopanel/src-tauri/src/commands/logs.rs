@@ -356,6 +356,11 @@ fn append_stream_compare_log_impl(
         "ui-display" => "ui-display.log",
         "ui-display-visual" => "ui-display-visual.log",
         "v4-ui-display" => "v4-ui-display.log",
+        // 视口调试浮层：按会话落盘，避免内存环被挤掉后数据消失
+        "viewport-stream" => "viewport-stream.log",
+        "viewport-api" => "viewport-api.log",
+        "viewport-scroll" => "viewport-scroll.log",
+        "viewport-timing" => "viewport-timing.log",
         other => return Err(format!("unknown stream compare channel: {other}")),
     };
     fn sanitize_id(s: &str) -> String {

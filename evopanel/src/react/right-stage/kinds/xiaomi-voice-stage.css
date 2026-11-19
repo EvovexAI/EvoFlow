@@ -759,7 +759,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
   cursor: default;
 }
 
-/* 左上角：退出 + 放大/缩小（关掉右侧 → 语音域铺满；再开右侧 → 半屏） */
+/* 左上角极简：退出 + 放大/缩小 + 「···」（台账/思考/摘要收进菜单） */
 .xws-clean .xws-chrome-top {
   position: absolute;
   top: 14px;
@@ -769,11 +769,10 @@ html[data-xw-voice='1'] .react-chat-main-body {
   align-items: center;
   gap: 8px;
   pointer-events: auto;
-  /* 顶栏本身不限宽：语音宿主窄屏只有 ~400px，用 vw 计算会把退出/放大/台账/思考挤扁。
-     让位靠信息条自己的 max-width（见下 + 媒体查询）来控制。 */
 }
 .xws-clean .xws-exit,
-.xws-clean .xws-expand {
+.xws-clean .xws-expand,
+.xws-clean .xws-more-btn {
   appearance: none;
   width: 32px;
   height: 32px;
@@ -790,9 +789,67 @@ html[data-xw-voice='1'] .react-chat-main-body {
   transition: color var(--dur-base) var(--ease-out-soft), border-color var(--dur-base) var(--ease-out-soft);
 }
 .xws-clean .xws-exit:hover,
-.xws-clean .xws-expand:hover {
+.xws-clean .xws-expand:hover,
+.xws-clean .xws-more-btn:hover,
+.xws-clean .xws-more-btn.is-on {
   color: var(--xws-txt);
   border-color: color-mix(in srgb, var(--xws-txt) 30%, transparent);
+}
+.xws-clean .xws-more-btn.is-warn {
+  color: #b45309;
+  border-color: color-mix(in srgb, #b45309 45%, transparent);
+}
+.xws-clean .xws-chrome-more {
+  position: relative;
+}
+.xws-clean .xws-more-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  min-width: 168px;
+  padding: 6px;
+  border-radius: 12px;
+  border: 1px solid var(--xws-line);
+  background: color-mix(in srgb, var(--xws-solid) 92%, transparent);
+  backdrop-filter: blur(12px) saturate(1.2);
+  box-shadow: 0 10px 28px color-mix(in srgb, #000 16%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.xws-clean .xws-more-item {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--xws-txt);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+.xws-clean .xws-more-item:hover,
+.xws-clean .xws-more-item.is-on {
+  background: color-mix(in srgb, var(--xws-txt) 8%, transparent);
+}
+.xws-clean .xws-more-item.is-warn {
+  color: #b45309;
+}
+.xws-clean .xws-more-item-sub {
+  font-size: 11px;
+  color: var(--xws-muted);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /*
@@ -1496,7 +1553,7 @@ html[data-xw-voice='1'] .react-chat-main-body {
 
 /*
  * 摘要 portal：fixed 挂到 body，避开 .xws-root overflow:hidden。
- * 气泡跟语音域右上；窄左栏展开时 is-overlay 贴视口右侧（可盖住右侧栏）。
+ * 默认只露 32px 小圆圈（模型/提示词/调试点开再看）；窄左栏展开时 is-overlay 贴视口右侧。
  */
 .xws-summary-portal {
   position: fixed;
@@ -1518,8 +1575,16 @@ html[data-xw-voice='1'] .react-chat-main-body {
   max-height: min(calc(100dvh - 72px), 640px);
 }
 .xws-summary-portal .chat-summary-float.is-bubble {
-  width: auto;
+  width: 32px;
+  height: 32px;
   padding: 0;
+  min-width: 32px;
+}
+.xws-summary-portal .chat-summary-float.is-bubble .chat-summary-bubble {
+  width: 32px;
+  height: 32px;
+  box-shadow: 0 1px 2px color-mix(in srgb, #000 6%, transparent),
+    0 6px 16px color-mix(in srgb, #000 10%, transparent);
 }
 .xws-summary-portal-scrim {
   position: fixed;

@@ -4,7 +4,10 @@
  *
  * 一行 headline 必须能看清：序号 + 思考/正文/工具 + 内容摘要。
  * V4 的 row.delta 只有 path/append（没有 text 字段）；靠旁路记住 rowId→kind。
+ * 同时按会话写入 stream-compare/{sid}/overlay/viewport-stream.log。
  */
+
+import { persistViewportTap } from "./v4-viewport-tap-persist.js";
 
 export type ViewportStreamTapChannel = "agui" | "v4" | "openai" | "evf" | "raw";
 
@@ -28,11 +31,11 @@ export function sessionIdFromV4Topic(topic: unknown): string {
   return m?.[1]?.trim() || "";
 }
 
-const MAX_RING = 64;
-const MAX_JSON_CHARS = 2200;
-const MAX_DELTA_CHARS = 180;
-const MAX_HEAD_SNIPPET = 96;
-const MAX_HEAD_DELTAS = 3;
+const MAX_RING = 200;
+const MAX_JSON_CHARS = 48_000;
+const MAX_DELTA_CHARS = 400;
+const MAX_HEAD_SNIPPET = 240;
+const MAX_HEAD_DELTAS = 8;
 
 let nextId = 1;
 const ring: ViewportStreamTapEntry[] = [];
@@ -45,7 +48,7 @@ const MAX_ROW_META = 400;
 function clipText(raw: unknown, max: number): string {
   const s = String(raw ?? "").replace(/\s+/g, " ").trim();
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}…(+${s.length - max})`;
+  return `${s.slice(0, max)}[+${s.length - max}]`;
 }
 
 function safeJson(value: unknown, max = MAX_JSON_CHARS): string {
@@ -56,7 +59,7 @@ function safeJson(value: unknown, max = MAX_JSON_CHARS): string {
     text = String(value);
   }
   if (text.length <= max) return text;
-  return `${text.slice(0, max)}\n…(+${text.length - max} chars)`;
+  return `${text.slice(0, max)}\n[+${text.length - max} chars]`;
 }
 
 function notify(): void {
@@ -252,13 +255,28 @@ function pushEntry(
     sessionId?: string;
   },
 ): void {
-  ring.push({
+  const full: ViewportStreamTapEntry = {
     ...entry,
     sessionId: String(entry.sessionId || "").trim(),
     id: nextId++,
     atMs: Date.now(),
-  });
+  };
+  ring.push(full);
   while (ring.length > MAX_RING) ring.shift();
+  const persistKey = full.sessionId || full.sessionKey;
+  if (persistKey) {
+    persistViewportTap(persistKey, "stream", {
+      id: full.id,
+      atMs: full.atMs,
+      channel: full.channel,
+      sessionKey: full.sessionKey || undefined,
+      sessionId: full.sessionId || undefined,
+      runId: full.runId || undefined,
+      type: full.type,
+      headline: full.headline,
+      jsonText: full.jsonText,
+    });
+  }
   notify();
 }
 
@@ -426,7 +444,9 @@ export function pushViewportStreamV4Tap(opts: {
         ? `rows=${windowRows}`
         : kind;
   const more =
-    deltaCount > MAX_HEAD_DELTAS ? ` …+${deltaCount - MAX_HEAD_DELTAS}` : "";
+    deltaCount > MAX_HEAD_DELTAS
+      ? ` [+${deltaCount - MAX_HEAD_DELTAS}]`
+      : "";
 
   pushEntry({
     channel: "v4",

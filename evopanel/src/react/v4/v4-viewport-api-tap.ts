@@ -1,7 +1,10 @@
 /**
  * 视口调试浮层用：页面相关 HTTP 接口入参/出参环形缓冲。
  * 在 fetchJson / evoflowFetch 轻量落盘（裁剪大字段），供浮层对照「接口 vs 渲染」。
+ * 同时按会话写入 stream-compare/{sid}/overlay/viewport-api.log。
  */
+
+import { persistViewportTap } from "./v4-viewport-tap-persist.js";
 
 export type ViewportApiTapFamily =
   | "v4"
@@ -43,9 +46,9 @@ function sessionIdFromApiBody(body: unknown): string {
   return m?.[1]?.trim() || "";
 }
 
-const MAX_RING = 80;
-const MAX_REQ_CHARS = 6_000;
-const MAX_RES_CHARS = 10_000;
+const MAX_RING = 200;
+const MAX_REQ_CHARS = 48_000;
+const MAX_RES_CHARS = 48_000;
 
 let nextId = 1;
 const ring: ViewportApiTapEntry[] = [];
@@ -54,7 +57,7 @@ const listeners = new Set<() => void>();
 function clipText(raw: unknown, max: number): string {
   const s = String(raw ?? "");
   if (s.length <= max) return s;
-  return `${s.slice(0, max)}\n…(+${s.length - max} chars)`;
+  return `${s.slice(0, max)}\n[+${s.length - max} chars]`;
 }
 
 function safeJson(value: unknown, max: number): string {
@@ -274,7 +277,7 @@ export function pushViewportApiTap(opts: {
     .join(" · ");
 
   const sessionId = sessionIdFromApiBody(req);
-  ring.push({
+  const entry: ViewportApiTapEntry = {
     id: nextId++,
     atMs: Date.now(),
     method,
@@ -300,8 +303,28 @@ export function pushViewportApiTap(opts: {
     errorText: errText,
     query,
     sessionId,
-  });
+  };
+  ring.push(entry);
   while (ring.length > MAX_RING) ring.shift();
+  if (sessionId) {
+    persistViewportTap(sessionId, "api", {
+      id: entry.id,
+      atMs: entry.atMs,
+      method: entry.method,
+      path: entry.path,
+      label: entry.label,
+      family: entry.family,
+      status: entry.status,
+      ok: entry.ok,
+      durationMs: entry.durationMs,
+      headline: entry.headline,
+      requestText: entry.requestText,
+      responseText: entry.responseText,
+      errorText: entry.errorText || undefined,
+      query: entry.query || undefined,
+      sessionId: entry.sessionId,
+    });
+  }
   notify();
 }
 

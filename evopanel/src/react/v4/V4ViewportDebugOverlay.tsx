@@ -606,12 +606,16 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
   };
 }
 
-const OVERLAY_WIDTH_PX = 920;
-const OVERLAY_DEFAULT_BOTTOM_GAP = 88;
+const OVERLAY_WIDTH_PX = 1100;
+const OVERLAY_HEIGHT_PX = 860;
+const OVERLAY_MIN_WIDTH_PX = 520;
+const OVERLAY_MIN_HEIGHT_PX = 320;
+const OVERLAY_DEFAULT_BOTTOM_GAP = 72;
 const OVERLAY_EDGE_PAD = 8;
 /** 拖拽后标题条至少留在视口内的高度，避免拖飞后抓不到。 */
 const OVERLAY_HEADER_MIN_VISIBLE_PX = 44;
 const OVERLAY_TAB_LS_KEY = "EVOFLOW_V4_VIEWPORT_OVERLAY_TAB";
+const OVERLAY_SIZE_LS_KEY = "EVOFLOW_V4_VIEWPORT_OVERLAY_SIZE";
 
 type OverlayTab =
   | "status"
@@ -673,10 +677,60 @@ function writeOverlayTab(tab: OverlayTab): void {
   }
 }
 
+type OverlaySize = { width: number; height: number };
+
+function clampOverlaySize(width: number, height: number): OverlaySize {
+  if (typeof window === "undefined") {
+    return {
+      width: Math.max(OVERLAY_MIN_WIDTH_PX, width),
+      height: Math.max(OVERLAY_MIN_HEIGHT_PX, height),
+    };
+  }
+  const maxW = Math.max(OVERLAY_MIN_WIDTH_PX, window.innerWidth - OVERLAY_EDGE_PAD * 2);
+  const maxH = Math.max(OVERLAY_MIN_HEIGHT_PX, window.innerHeight - OVERLAY_EDGE_PAD * 2);
+  return {
+    width: Math.min(maxW, Math.max(OVERLAY_MIN_WIDTH_PX, Math.round(width))),
+    height: Math.min(maxH, Math.max(OVERLAY_MIN_HEIGHT_PX, Math.round(height))),
+  };
+}
+
+function defaultOverlaySize(): OverlaySize {
+  if (typeof window === "undefined") {
+    return { width: OVERLAY_WIDTH_PX, height: OVERLAY_HEIGHT_PX };
+  }
+  return clampOverlaySize(
+    Math.min(OVERLAY_WIDTH_PX, window.innerWidth - 32),
+    Math.min(OVERLAY_HEIGHT_PX, Math.round(window.innerHeight * 0.86)),
+  );
+}
+
+function readOverlaySize(): OverlaySize {
+  try {
+    const raw = localStorage.getItem(OVERLAY_SIZE_LS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { width?: unknown; height?: unknown };
+      const w = Number(parsed?.width);
+      const h = Number(parsed?.height);
+      if (Number.isFinite(w) && Number.isFinite(h) && w > 0 && h > 0) {
+        return clampOverlaySize(w, h);
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+  return defaultOverlaySize();
+}
+
+function writeOverlaySize(size: OverlaySize): void {
+  try {
+    localStorage.setItem(OVERLAY_SIZE_LS_KEY, JSON.stringify(size));
+  } catch {
+    /* ignore */
+  }
+}
+
 const shellStyle: CSSProperties = {
   position: "fixed",
-  width: `min(${OVERLAY_WIDTH_PX}px, calc(100vw - 32px))`,
-  maxHeight: "min(78vh, 780px)",
   zIndex: 2147483000,
   display: "flex",
   flexDirection: "column",
@@ -693,15 +747,14 @@ const shellStyle: CSSProperties = {
   pointerEvents: "auto",
 };
 
-function defaultOverlayPos(): { left: number; top: number } {
+function defaultOverlayPos(size?: OverlaySize): { left: number; top: number } {
   if (typeof window === "undefined") return { left: 16, top: 120 };
-  const width = Math.min(OVERLAY_WIDTH_PX, window.innerWidth - 32);
-  const height = Math.min(window.innerHeight * 0.78, 780);
+  const s = size || defaultOverlaySize();
   return {
-    left: Math.max(OVERLAY_EDGE_PAD, window.innerWidth - width - 16),
+    left: Math.max(OVERLAY_EDGE_PAD, window.innerWidth - s.width - 16),
     top: Math.max(
       OVERLAY_EDGE_PAD,
-      window.innerHeight - height - OVERLAY_DEFAULT_BOTTOM_GAP,
+      window.innerHeight - s.height - OVERLAY_DEFAULT_BOTTOM_GAP,
     ),
   };
 }
@@ -1200,7 +1253,8 @@ export function V4ViewportDebugOverlay() {
   );
   const [scrollJumpsOnly, setScrollJumpsOnly] = useState(false);
   const [copyHint, setCopyHint] = useState<string | null>(null);
-  const [pos, setPos] = useState(defaultOverlayPos);
+  const [size, setSize] = useState<OverlaySize>(readOverlaySize);
+  const [pos, setPos] = useState(() => defaultOverlayPos(readOverlaySize()));
   const panelRef = useRef<HTMLDivElement | null>(null);
   const streamScrollRef = useRef<HTMLDivElement | null>(null);
   const streamFollowBottomRef = useRef(true);
@@ -1211,6 +1265,14 @@ export function V4ViewportDebugOverlay() {
   const dragRef = useRef<{
     startX: number;
     startY: number;
+    originLeft: number;
+    originTop: number;
+  } | null>(null);
+  const resizeRef = useRef<{
+    startX: number;
+    startY: number;
+    originW: number;
+    originH: number;
     originLeft: number;
     originTop: number;
   } | null>(null);
@@ -1447,21 +1509,27 @@ export function V4ViewportDebugOverlay() {
     el.scrollTop = el.scrollHeight;
   }, [active, tab, scrollEntries]);
 
-  const clampToViewport = useCallback((left: number, top: number) => {
-    const el = panelRef.current;
-    const width = el?.offsetWidth || Math.min(OVERLAY_WIDTH_PX, window.innerWidth - 32);
-    const height = el?.offsetHeight || Math.min(window.innerHeight * 0.72, 720);
-    return clampOverlayPos(left, top, width, height);
-  }, []);
+  const clampToViewport = useCallback(
+    (left: number, top: number, w = size.width, h = size.height) =>
+      clampOverlayPos(left, top, w, h),
+    [size.height, size.width],
+  );
 
   useEffect(() => {
     if (!active) return;
-    const onResize = () => {
+    const onWinResize = () => {
+      setSize((prev) => {
+        const next = clampOverlaySize(prev.width, prev.height);
+        if (next.width !== prev.width || next.height !== prev.height) {
+          writeOverlaySize(next);
+        }
+        return next;
+      });
       setPos((prev) => clampToViewport(prev.left, prev.top));
     };
-    window.addEventListener("resize", onResize);
-    onResize();
-    return () => window.removeEventListener("resize", onResize);
+    window.addEventListener("resize", onWinResize);
+    onWinResize();
+    return () => window.removeEventListener("resize", onWinResize);
   }, [active, clampToViewport]);
 
   const onPointerDownHeader = (e: ReactPointerEvent<HTMLDivElement>) => {
@@ -1487,7 +1555,42 @@ export function V4ViewportDebugOverlay() {
   const onPointerUpHeader = () => {
     dragRef.current = null;
   };
-  const resetPos = () => setPos(defaultOverlayPos());
+
+  const onPointerDownResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    e.preventDefault();
+    resizeRef.current = {
+      startX: e.clientX,
+      startY: e.clientY,
+      originW: size.width,
+      originH: size.height,
+      originLeft: pos.left,
+      originTop: pos.top,
+    };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const onPointerMoveResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const r = resizeRef.current;
+    if (!r) return;
+    const next = clampOverlaySize(
+      r.originW + (e.clientX - r.startX),
+      r.originH + (e.clientY - r.startY),
+    );
+    setSize(next);
+    setPos(clampToViewport(r.originLeft, r.originTop, next.width, next.height));
+  };
+  const onPointerUpResize = () => {
+    if (!resizeRef.current) return;
+    resizeRef.current = null;
+    writeOverlaySize(size);
+  };
+
+  const resetPos = () => {
+    const next = defaultOverlaySize();
+    setSize(next);
+    writeOverlaySize(next);
+    setPos(defaultOverlayPos(next));
+  };
 
   const anomalies = useMemo(
     () =>
@@ -1572,8 +1675,9 @@ export function V4ViewportDebugOverlay() {
         top: pos.top,
         right: "auto",
         bottom: "auto",
-        maxHeight: minimized ? undefined : shellStyle.maxHeight,
-        height: minimized ? "auto" : undefined,
+        width: size.width,
+        height: minimized ? "auto" : size.height,
+        maxHeight: minimized ? undefined : size.height,
       }}
     >
       <div
@@ -1618,7 +1722,7 @@ export function V4ViewportDebugOverlay() {
             type="button"
             style={btnStyle}
             onClick={resetPos}
-            title="拖飞了点这个：回到右下角"
+            title="位置+尺寸复位：右下角大窗"
           >
             复位
           </button>
@@ -1915,14 +2019,13 @@ export function V4ViewportDebugOverlay() {
                                 ? "rgba(180, 83, 9, 0.28)"
                                 : "rgba(30, 41, 59, 0.65)",
                               color: p.active ? "#fde68a" : "#94a3b8",
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
-                              textOverflow: "ellipsis",
+                              ...tapLineStyle,
                             }}
-                            title={`(a)${p.target}\n(b)${p.owner}`}
                           >
                             轮询 {p.active ? "●" : "○"} 每{p.intervalSec}s ·{" "}
                             {p.owner}
+                            {"\n"}
+                            target={p.target}
                           </div>
                         ))
                       )
@@ -2073,8 +2176,8 @@ export function V4ViewportDebugOverlay() {
                       ) : (
                         streamEntries.map((entry, idx) => {
                           const newest = idx >= streamEntries.length - 2;
-                          const open =
-                            expandedStreamId === entry.id || newest;
+                          // 默认只看摘要；点开才展开 JSON，避免刷屏
+                          const open = expandedStreamId === entry.id;
                           const time = new Date(entry.atMs).toLocaleTimeString(
                             "zh-CN",
                             {
@@ -3019,6 +3122,27 @@ export function V4ViewportDebugOverlay() {
             </>
           )}
         </div>
+      ) : null}
+      {!minimized ? (
+        <div
+          onPointerDown={onPointerDownResize}
+          onPointerMove={onPointerMoveResize}
+          onPointerUp={onPointerUpResize}
+          onPointerCancel={onPointerUpResize}
+          title="拖右下角缩放"
+          style={{
+            position: "absolute",
+            right: 2,
+            bottom: 2,
+            width: 18,
+            height: 18,
+            cursor: "nwse-resize",
+            borderRadius: 3,
+            background:
+              "linear-gradient(135deg, transparent 0 45%, rgba(148,163,184,0.55) 46% 54%, transparent 55% 70%, rgba(148,163,184,0.75) 71% 79%, transparent 80%)",
+            zIndex: 2,
+          }}
+        />
       ) : null}
     </div>
   );

@@ -93,16 +93,19 @@ export function XiaomiVoiceStage() {
   const [ledgerOpen, setLedgerOpen] = useState(false)
   /** 思考 wire / 网关守卫调试 */
   const [thinkingDbgOpen, setThinkingDbgOpen] = useState(false)
-  /** 递增 → 强制展开右上角摘要面板（复用 ChatSummaryPanel） */
+  /** 顶栏「···」：台账 / 思考 / 展开摘要，默认收起 */
+  const [chromeMoreOpen, setChromeMoreOpen] = useState(false)
+  /** 递增 → 强制展开摘要面板（ChatSummaryPanel；模型/提示词在里面） */
   const [summaryExpandSignal, setSummaryExpandSignal] = useState(0)
   /** null=未知 false=关 true=开（最近一次厂商请求） */
   const [modelThinkingOn, setModelThinkingOn] = useState<boolean | null>(null)
   const [gatewayMode, setGatewayMode] = useState('')
-  /** 当前会话模型（语音排查：GLM-5.3 强制思考等） */
+  /** 当前会话模型（给思考调试面板用；顶栏不再铺开显示） */
   const [sessionModelId, setSessionModelId] = useState('')
   const [sessionModelLabel, setSessionModelLabel] = useState('')
   const [thinkingAlwaysOn, setThinkingAlwaysOn] = useState(false)
   const [wireModelId, setWireModelId] = useState('')
+  const chromeMoreRef = useRef<HTMLDivElement | null>(null)
 
   const liveRef = useRef({
     session: false,
@@ -562,6 +565,23 @@ export function XiaomiVoiceStage() {
     }
   }, [])
 
+  // 顶栏「···」点外部 / Esc 收起
+  useEffect(() => {
+    if (!chromeMoreOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (!chromeMoreRef.current?.contains(e.target as Node)) setChromeMoreOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setChromeMoreOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [chromeMoreOpen])
+
   if (!visible) return null
 
   return (
@@ -579,6 +599,10 @@ export function XiaomiVoiceStage() {
         title="拖动窗口 · 双击最大化"
         onDoubleClick={onTopbarDoubleClick}
       />
+      {/*
+        顶栏极简：退出 / 放大 +「···」收纳台账·思考·摘要。
+        模型与提示词走右上摘要小圆圈（ChatSummaryPanel），不再铺长条。
+      */}
       <div className="xws-chrome-top" data-tauri-no-drag="">
         <button
           type="button"
@@ -632,94 +656,106 @@ export function XiaomiVoiceStage() {
             </svg>
           )}
         </button>
-        <button
-          type="button"
-          className={`xws-ledger${ledgerOpen ? ' is-on' : ''}`}
-          onClick={() => {
-            setThinkingDbgOpen(false)
-            setLedgerOpen((v) => !v)
-          }}
-          aria-label="播报台账"
-          title="播报台账：按 TRACE 看每句合成/播放状态"
-          aria-pressed={ledgerOpen}
-        >
-          台账
-        </button>
-        <button
-          type="button"
-          className={`xws-ledger xws-thinking-btn${thinkingDbgOpen ? ' is-on' : ''}${
-            modelThinkingOn === true || String(gatewayMode).includes('无守卫') ? ' is-warn' : ''
-          }`}
-          onClick={() => {
-            setLedgerOpen(false)
-            setThinkingDbgOpen((v) => !v)
-          }}
-          aria-label="思考调试"
-          title="思考调试：网关守卫 + 厂商 wire（处理中≠模型思考）"
-          aria-pressed={thinkingDbgOpen}
-        >
-          思考
-        </button>
-        {/*
-          语音会话信息条：点开 = 展开右上角摘要气泡（ChatSummaryPanel），
-          改模型 / SOUL / 工具 / 调试都复用主聊那一套。
-        */}
-        <button
-          type="button"
-          className={`xws-session-meta${thinkingAlwaysOn ? ' is-warn' : ''}`}
-          onClick={() => {
-            setLedgerOpen(false)
-            setThinkingDbgOpen(false)
-            setSummaryExpandSignal((n) => n + 1)
-          }}
-          title={[
-            '点击展开状态面板：改模型 / 提示词 / 工具 / 调试',
-            '当前语音会话用的模型；GLM-5.3 等强制思考模型关不掉思考',
-            thinkingAlwaysOn
-              ? '此模型 default_mode=enabled，语音关思考无效——请换可关思考的模型'
-              : gatewayMode
-                ? `网关=${gatewayMode}；舞台态≠设置里的思考模式`
-                : '点左上「思考」看厂商 wire',
-            sessionKey ? `session_key：${sessionKey}` : '',
-          ]
-            .filter(Boolean)
-            .join('\n')}
-        >
-          <span className="xws-session-meta-k">小V</span>
-          <span className="xws-session-meta-v">
-            {sessionModelLabel || sessionModelId || '模型…'}
-            {sessionModelId && sessionModelLabel && sessionModelLabel !== sessionModelId
-              ? ` (${sessionModelId})`
-              : ''}
-          </span>
-          <span className="xws-session-meta-sep is-aux">·</span>
-          <span
-            className={`xws-session-meta-v is-aux xws-session-meta-think${
-              thinkingAlwaysOn || modelThinkingOn === true
+        <div className="xws-chrome-more" ref={chromeMoreRef}>
+          <button
+            type="button"
+            className={`xws-more-btn${chromeMoreOpen ? ' is-on' : ''}${
+              thinkingAlwaysOn || modelThinkingOn === true || String(gatewayMode).includes('无守卫')
                 ? ' is-warn'
-                : modelThinkingOn === false
-                  ? ' is-off'
-                  : ''
+                : ''
             }`}
+            onClick={() => {
+              setLedgerOpen(false)
+              setThinkingDbgOpen(false)
+              setChromeMoreOpen((v) => !v)
+            }}
+            aria-label="更多"
+            aria-expanded={chromeMoreOpen}
+            aria-haspopup="menu"
+            title={[
+              '更多：模型与状态 / 台账 / 思考调试',
+              sessionModelLabel || sessionModelId
+                ? `模型 ${sessionModelLabel || sessionModelId}`
+                : '',
+              thinkingAlwaysOn
+                ? '此模型思考关不掉'
+                : modelThinkingOn === true
+                  ? '思考开'
+                  : modelThinkingOn === false
+                    ? '思考关'
+                    : '',
+            ]
+              .filter(Boolean)
+              .join('\n')}
           >
-            {thinkingAlwaysOn
-              ? '思考关不掉'
-              : modelThinkingOn === true
-                ? '思考开'
-                : modelThinkingOn === false
-                  ? '思考关'
-                  : '思考…'}
-            {gatewayMode ? ` · ${gatewayMode}` : ''}
-          </span>
-          {wireModelId && wireModelId !== sessionModelId ? (
-            <>
-              <span className="xws-session-meta-sep is-aux">·</span>
-              <span className="xws-session-meta-v is-aux" title="最近一次实际打到厂商的模型 id">
-                wire:{wireModelId}
-              </span>
-            </>
+            <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+              <circle cx="3.5" cy="8" r="1.4" fill="currentColor" />
+              <circle cx="8" cy="8" r="1.4" fill="currentColor" />
+              <circle cx="12.5" cy="8" r="1.4" fill="currentColor" />
+            </svg>
+          </button>
+          {chromeMoreOpen ? (
+            <div className="xws-more-menu" role="menu" aria-label="语音更多">
+              <button
+                type="button"
+                role="menuitem"
+                className="xws-more-item"
+                onClick={() => {
+                  setChromeMoreOpen(false)
+                  setLedgerOpen(false)
+                  setThinkingDbgOpen(false)
+                  setSummaryExpandSignal((n) => n + 1)
+                }}
+              >
+                <span>模型与状态</span>
+                <span className="xws-more-item-sub">
+                  {sessionModelLabel || sessionModelId || '摘要面板'}
+                </span>
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={`xws-more-item${ledgerOpen ? ' is-on' : ''}`}
+                onClick={() => {
+                  setChromeMoreOpen(false)
+                  setThinkingDbgOpen(false)
+                  setLedgerOpen(true)
+                }}
+              >
+                播报台账
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                className={`xws-more-item${thinkingDbgOpen ? ' is-on' : ''}${
+                  thinkingAlwaysOn || modelThinkingOn === true ? ' is-warn' : ''
+                }`}
+                onClick={() => {
+                  setChromeMoreOpen(false)
+                  setLedgerOpen(false)
+                  setThinkingDbgOpen(true)
+                }}
+              >
+                <span>思考调试</span>
+                <span className="xws-more-item-sub">
+                  {[
+                    thinkingAlwaysOn
+                      ? '关不掉'
+                      : modelThinkingOn === true
+                        ? '开'
+                        : modelThinkingOn === false
+                          ? '关'
+                          : null,
+                    gatewayMode || null,
+                    wireModelId && wireModelId !== sessionModelId ? `wire:${wireModelId}` : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ') || '…'}
+                </span>
+              </button>
+            </div>
           ) : null}
-        </button>
+        </div>
       </div>
 
       <VoicePlaybackDiagnostics open={ledgerOpen} onClose={() => setLedgerOpen(false)} />
