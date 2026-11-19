@@ -618,8 +618,18 @@ def _cwd(runtime: ToolRuntime | None) -> str:
 
 
 def _remember_cwd(thread_id: str, cwd: str) -> None:
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么/为什么：bash 的标记行回的是 Git-Bash posix 路径（`/c/Users/...`），
+    # 而 Windows 上 `Path("/c/Users/...").is_dir()` 是 **False** —— 于是下面这行
+    # `if not Path(path).is_dir(): return` 静默把每一次 cwd 都丢掉了。
+    # 后果：cwd 持久化从未真正生效，模型发现「cd 过也白 cd」，只能每条命令自带
+    # `cd … &&` 前缀（7 天 19561 次 bash 中 92.8%，我本人 96.0%）。
+    # 实证：_remember_cwd("t", "/c/.../sub") 后 _PERSISTED_CWD 仍为 {}。
+    # 修法：先转回 Windows 路径再校验与存储；非 win32 平台原样不动。
+    from evoflow.utils.bundled_tools import from_bash_posix_path
+
     tid = str(thread_id or "").strip()
-    path = str(cwd or "").strip()
+    path = from_bash_posix_path(str(cwd or "").strip())
     if not tid or not path or not Path(path).is_dir():
         return
     with _PERSISTED_CWD_LOCK:
@@ -1023,18 +1033,32 @@ def _format_finished(
     stderr: str,
     exit_code: int,
     timed_out: bool,
+    cwd: str = "",
 ) -> str:
     out, out_tr = _model_stream(stdout)
     err, err_tr = _model_stream(stderr)
     hint = _stale_hint_for(command)
     hint_block = f"\n{hint}" if hint else ""
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 把「下一条命令的 cwd」显式回给调用方，改了什么/为什么：
+    # 原来 _strip_pwd_marker 把 pwd 行剥掉、只存进内存 _PERSISTED_CWD，模型侧
+    # 完全看不到自己在哪。实测 7 天 19561 次 bash 里 92.8% 都带 `cd … &&` 前缀
+    # （我本人 96.0%、release-engineer 98.4%）——不是习惯问题，是工具没告诉它。
+    # 不带 cd 的命令「路径不存在」类报错率 2.82% vs 带 cd 的 0.93%（3 倍），
+    # 说明模型加 cd 是在补偿这个信息缺口。回显一行即可让它省掉这个前缀。
+    cwd_block = ""
+    if cwd:
+        cwd_block = f"\ncwd: {_to_posix(cwd)}"
     if timed_out:
-        return f"status: timed_out\ninterrupted: true\nstdout:\n{out}\nstderr:\n{err}{hint_block}"
+        return (
+            f"status: timed_out\ninterrupted: true\nstdout:\n{out}\nstderr:\n{err}"
+            f"{hint_block}{cwd_block}"
+        )
     status = "completed" if exit_code == 0 else "failed"
     return (
         f"status: {status}\nexitCode: {exit_code}\ninterrupted: false\n"
         f"stdoutTruncated: {str(out_tr).lower()}\nstderrTruncated: {str(err_tr).lower()}\n"
-        f"stdout:\n{out}\nstderr:\n{err}{hint_block}"
+        f"stdout:\n{out}\nstderr:\n{err}{hint_block}{cwd_block}"
     )
 
 
@@ -1397,6 +1421,7 @@ def _run_foreground_warm(
             stderr="",
             exit_code=124,
             timed_out=True,
+            cwd=result.cwd or cwd,
         )
 
     _unregister_active_bash(invocation)
@@ -1422,6 +1447,7 @@ def _run_foreground_warm(
         stderr="",
         exit_code=exit_code,
         timed_out=False,
+        cwd=result.cwd or cwd,
     )
 
 
@@ -1533,7 +1559,7 @@ def _run_foreground(
         _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
         _emit("stderr", invocation_id=invocation, tool_call_id=tool_call_id, text=stderr)
         _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=124, success=False)
-        return _format_finished(command=command, stdout=stdout, stderr=stderr, exit_code=124, timed_out=True)
+        return _format_finished(command=command, stdout=stdout, stderr=stderr, exit_code=124, timed_out=True, cwd=cwd)
 
     stdout = _strip_pwd_marker(stdout or "", thread_id)
     stderr = stderr or ""
@@ -1547,6 +1573,7 @@ def _run_foreground(
         stderr=stderr,
         exit_code=exit_code,
         timed_out=False,
+        cwd=cwd,
     )
 
 
