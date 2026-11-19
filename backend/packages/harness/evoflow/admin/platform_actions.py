@@ -1687,6 +1687,22 @@ def dispatch_platform_action(
         allowed_names = allowed_action_names(employee_scope, get_registry().values())
 
     key = act.lower()
+    # 【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：`<域>.catalog` / `<域>.help` 在注册表里不存在时，归一化为顶层
+    #   catalog/help（域自动落到 domain 参数），不再回 unknown action。
+    # 为什么：catalog/help 是**顶层动作**（正确写法 action="catalog", domain="mcp"），
+    #   但 media 域与 verification 域恰好注册了 media.catalog / verification.catalog
+    #   两个**真动作** —— 模型据此无法从命名规律上分辨「哪些域能点 .catalog」，只能试。
+    #   现网近 7 天 platform 600 次里 91 次失败（15.2%），其中 mcp./employees./agents./
+    #   settings./skills./diagnostics. 这一族 `xxx.catalog` 猜错占 20 余次，每次白烧一整轮。
+    #   真动作优先：命中注册表的写法完全不走这条分支。
+    if "." in key and key not in get_registry():
+        _dom_part, _leaf_part = key.split(".", 1)
+        if _leaf_part in {"catalog", "list_actions", "目录", "help", "manual", "说明书"}:
+            key = "help" if _leaf_part in {"help", "manual", "说明书"} else "catalog"
+            act = key
+            if not domain:
+                domain = _dom_part.strip()
     # Parse args early so catalog/help can take domain/summary from args_json (DEF-04).
     try:
         early_args = _parse_args(args_json) if key in {"help", "manual", "说明书", "catalog", "list_actions", "目录", "domains"} else None
