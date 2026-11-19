@@ -271,6 +271,8 @@ interface ConversationRowViewProps {
   reasoningContentVariant?: "default" | "nested";
   /** renderer-only 提交状态；不写入协议 row，也不冒充已 drain 的历史事实。 */
   userInputStatus?: string;
+  /** 末轮 sticky 置顶用户气泡：半透明磨砂，叠在 AI 正文上不硬挡字。 */
+  userInputStickyPinned?: boolean;
   /**
    * 一轮对用户是一个回复：非最后一段 text 不显示任何
    * action（复制/fork 都没有），入口只在轮尾段。
@@ -876,12 +878,15 @@ const UserInputRowView = memo(function UserInputRowView({
   onEdit,
   editWorkspaceRewindAvailability,
   status,
+  stickyPinned = false,
 }: {
   row: UserInputRow;
   context: ConversationRowRenderContext;
   onEdit?: UserInputEditHandler;
   editWorkspaceRewindAvailability?: EditWorkspaceRewindAvailability;
   status?: string;
+  /** 末轮 sticky 置顶：半透明磨砂，避免不透明底挡住下面的 AI 正文。 */
+  stickyPinned?: boolean;
 }) {
   const { intl } = useZCodeIntl();
   // 引擎尾注折叠：正文只到 epilogueStart，
@@ -1314,7 +1319,14 @@ const UserInputRowView = memo(function UserInputRowView({
         // 气泡保留 flex item 的自动宽度；宿主至少 624px 时再以 36rem 封顶并保留 48px 余量。
         <div
           data-v4-user-input-bubble="true"
-          className="flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border bg-surface px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl"
+          data-v4-user-input-sticky={stickyPinned ? "true" : undefined}
+          className={cn(
+            "flex max-w-full flex-col gap-2 rounded-xl rounded-tr-xs border border-border px-4 py-3 text-ui-base text-foreground @min-[624px]/conversation:max-w-xl",
+            // sticky 置顶时用不透明 surface 会硬挡下面滚动中的 AI 正文；半透明+blur 叠上去才干净。
+            stickyPinned
+              ? "border-border/70 bg-surface/70 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-surface/55"
+              : "bg-surface",
+          )}
         >
           {hasVisibleText ? (
             <ConversationUserInputBody contentText={visibleText} rowId={row.rowId}>
@@ -2320,6 +2332,7 @@ function ConversationRowViewImpl({
   assistantCodeCommentProjectionEnabled,
   reasoningContentVariant,
   userInputStatus,
+  userInputStickyPinned,
 }: ConversationRowViewProps) {
   switch (row.kind) {
     case "userInput": {
@@ -2341,6 +2354,7 @@ function ConversationRowViewImpl({
           onEdit={onEdit}
           editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
           status={userInputStatus}
+          stickyPinned={userInputStickyPinned === true}
         />
       );
     }

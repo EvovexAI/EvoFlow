@@ -1403,7 +1403,6 @@ class UiStreamNormalizer:
         prev_removed = int(prev.get("lines_removed") or 0)
         content = str(fields.get("content") or "")
         old_string = str(fields.get("old_string") or "")
-        prev_content = str(prev.get("content") or "")
         prev_old = str(prev.get("old_string") or "")
         # Body bytes already delivered to the wire.  content_delta needs an
         # anchored path, so body streamed before the path key appears is not
@@ -1411,7 +1410,9 @@ class UiStreamNormalizer:
         # is known, otherwise per-chunk growth deltas would lose that prefix.
         prev_content_sent = int(prev.get("content_sent_len") or 0)
         prev_old_sent = int(prev.get("old_string_sent_len") or 0)
-        content_grew = len(content) > len(prev_content)
+        # 【self-evolution-bot · 2026-11-19 · 第74轮 · 模型:deepseek-v4.1-flash-1017】
+        # 删掉 content_grew：它被下面的 content_pending（按 path 锚定的已发送长度
+        # 比较）取代后再无人读，ruff F841 一直报。保留 old_grew，它仍参与 1434 行判定。
         old_grew = len(old_string) > len(prev_old)
         lines_changed = lines_added != prev_added or lines_removed != prev_removed
         path_now = str(fields.get("path") or prev.get("path") or "").strip()
@@ -2092,8 +2093,17 @@ class UiStreamNormalizer:
             tool_name = str(tool_payload.get("name") or tool_payload.get("tool_name") or "tool").strip()
             if tool_omit_from_chat_panel(tool_name):
                 return out
-            if not tcid or tcid not in self.emitted_tool_call_ids:
+            if not tcid:
                 return out
+            # 原先：tcid 不在 emitted_tool_call_ids 就丢弃（防历史回放）。
+            # 现网：流式 state 重建 / 锚定清 set 后，search_code_index 等慢工具的
+            # tool_result 被丢掉 → V4 卡永久 inputStreaming（「等待中」+「检索中…」），
+            # 尽管 transcript 已有全文。已锚定则照常下发；mirror 无 START 行时 RESULT
+            # 自己会 no-op，不会造孤儿卡。
+            if tcid not in self.emitted_tool_call_ids:
+                if not self.anchored:
+                    return out
+                self.emitted_tool_call_ids.add(tcid)
             result_frame: dict[str, Any] = {
                 "type": "tool_result",
                 "tool": tool_payload,

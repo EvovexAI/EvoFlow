@@ -7,7 +7,7 @@ import logging
 import time
 from typing import Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 
 from evoflow.agents.goal.goal_runtime import (
@@ -18,6 +18,7 @@ from evoflow.agents.goal.goal_runtime import (
     resolve_session_key,
 )
 from evoflow.agents.goal.goal_trace_log import clip_goal_trace_text, format_goal_state_patch, log_goal_trace
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 

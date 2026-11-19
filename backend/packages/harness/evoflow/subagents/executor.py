@@ -15,9 +15,9 @@ from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.tools import BaseTool
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
+from langchain_core.tools import BaseTool
 
 from evoflow.agents.lead_agent.runtime_context import LeadAgentRuntimeContext
 from evoflow.agents.thread_state import SandboxState, ThreadDataState, ThreadState

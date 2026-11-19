@@ -11,7 +11,7 @@ import urllib.request
 from html.parser import HTMLParser
 from urllib.parse import urlparse
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 

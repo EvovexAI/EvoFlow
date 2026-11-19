@@ -15,9 +15,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.knowledge.owned import service as owned_service
 
 

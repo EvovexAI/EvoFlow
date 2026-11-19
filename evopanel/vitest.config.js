@@ -161,6 +161,9 @@ export default defineConfig({
       'tests/stream-resume-gate.test.js',
       'tests/stream-reattach-cooldown.test.js',
       'tests/session-reattach.test.js',
+      // 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+      // 死会话 404 风暴的失败退避；白名单不加进来等于没写测试（第33轮同坑）。
+      'tests/session-reattach-failure-backoff.test.js',
       'tests/context-usage.test.js',
       'tests/conversation-compact-tip.test.ts',
       'tests/agent-trace-compaction.test.js',
@@ -236,6 +239,9 @@ export default defineConfig({
       'tests/right-stage-session-persistence.test.ts',
       'tests/browser-panel-node-repl-intent.test.js',
       'tests/cua-glow-agui.test.js',
+      'tests/cua-glow-ring-wiring.test.js',
+      'tests/cua-glow-elapsed-page.test.js',
+      'tests/cua-control-revoke-semantics.test.js',
       'tests/platform-feedback.test.js',
       'tests/platform-workflow-progress.test.ts',
       'tests/dept-group-handoff.test.js',
@@ -286,6 +292,8 @@ export default defineConfig({
       // overflow/recovery 尾窗快照不得冲掉已 loadOlder 的更早行
       'tests/v4-preserve-older-on-tail-snapshot.test.ts',
       'tests/v4-userinput-visible-in-tail.test.ts',
+      // 同 turn 工具 rowId 落在用户气泡前 → 不得先画「已工作」造成上下割裂
+      'tests/v4-turn-user-first-order.test.ts',
       'tests/v4-fold-health.test.ts',
       'tests/v4-display-order-health.test.ts',
       'tests/v4-running-text-interleave.test.ts',
@@ -321,6 +329,10 @@ export default defineConfig({
       // 视口调试「接口」页：只收录对话页相关 HTTP，并落盘入参/出参
       'tests/v4-viewport-api-tap.test.ts',
       'tests/v4-viewport-stream-tap.test.ts',
+      // 滚轮页：已显示/全量条数文案 + hasOlder=0 时不得写「可自动拉更早」
+      'tests/v4-viewport-scroll-tap.test.ts',
+      // 视口异常表：流式落后窗 / loadOlder 不前进 / 用户气泡错位 / 绘画埋没
+      'tests/v4-viewport-anomaly.test.ts',
       // search_code_index 卡片：不得被 family=search 抢去渲染成不可展开的一行式块
       // 【self-evolution-bot · 2026-11-17 · 第33轮】新增用例必须登记，否则 vitest 根本不会跑它
       'tests/search-code-index-card.test.ts',

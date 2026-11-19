@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationRow, ConversationSnapshot } from "../src/zcode-shared/zcode-protocol-v4/index.ts";
-import { mergePreservedOlderRowsIntoTailSnapshot } from "../src/zcode-ui/v4/conversationProjectionStore.ts";
+import {
+  mergeOlderRows,
+  mergePreservedOlderRowsIntoTailSnapshot,
+} from "../src/zcode-ui/v4/conversationProjectionStore.ts";
 
 function textRow(rowId: number, turnId: string, text: string): ConversationRow {
   return {
@@ -94,4 +97,117 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
     expect(merged).toBe(incoming);
   });
+
+  it("尾窗停在旧轮时粘回本地已有的更新行（777 不被收尾 snapshot 冲掉）", () => {
+    const previous = snap(
+      [
+        textRow(80, "t6666", "666 收到"),
+        {
+          ...textRow(90, "t777", "777"),
+          kind: "userInput",
+          origin: "realUser",
+          text: "777",
+        } as ConversationRow,
+        {
+          ...textRow(91, "t777", "777"),
+          kind: "assistantText",
+          text: "777",
+          state: "complete",
+        } as ConversationRow,
+      ],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    previous.seq = 200;
+    // 收尾/overflow 尾窗仍停在 6666，没带上 777
+    const incoming = snap(
+      [textRow(70, "t333", "333"), textRow(80, "t6666", "666 收到～😄")],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    incoming.seq = 200;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    const ids = merged.rows.window.map((r) => r.rowId);
+    expect(ids).toContain(90);
+    expect(ids).toContain(91);
+    expect(
+      merged.rows.window.some(
+        (r) => r.kind === "userInput" && (r as { text?: string }).text === "777",
+      ),
+    ).toBe(true);
+  });
+
+  it("过期 snapshot（seq 更小）不回退客户端已推进的窗尾", () => {
+    const previous = snap(
+      [
+        textRow(80, "t6666", "666"),
+        {
+          ...textRow(90, "t777", "777"),
+          kind: "userInput",
+          origin: "realUser",
+          text: "777",
+        } as ConversationRow,
+      ],
+      { firstRowId: 1, totalCount: 90 },
+    );
+    previous.seq = 210;
+    const incoming = snap([textRow(80, "t6666", "666 旧")], {
+      firstRowId: 1,
+      totalCount: 80,
+    });
+    incoming.seq = 200;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    expect(merged).toBe(previous);
+    expect(
+      merged.rows.window.some(
+        (r) => r.kind === "userInput" && (r as { text?: string }).text === "777",
+      ),
+    ).toBe(true);
+  });
 });
+
+describe("mergeOlderRows (loadOlder prefer=head)", () => {
+  it("窗首必须前进到本页更早行，即使直播轮已顶满 softCap", () => {
+    // 现场：winFirst=1997 卡住；rows/range 已返回更早页，合并后窗首仍不前进。
+    const window: ConversationRow[] = [];
+    window.push(textRow(1997, "live", "header"));
+    (window[0] as { kind: string }).kind = "turnHeader";
+    window.push({
+      ...textRow(1998, "live", "user"),
+      kind: "userInput",
+      origin: "realUser",
+      text: "q",
+    } as ConversationRow);
+    for (let i = 1999; i <= 2096; i += 1) {
+      window.push({
+        ...textRow(i, "live", `tool-${i}`),
+        kind: "toolCall",
+        status: "success",
+      } as ConversationRow);
+    }
+
+    const fetched: ConversationRow[] = [];
+    fetched.push({ ...textRow(1900, "prev", "h"), kind: "turnHeader" } as ConversationRow);
+    fetched.push({
+      ...textRow(1901, "prev", "u"),
+      kind: "userInput",
+      origin: "realUser",
+      text: "older",
+    } as ConversationRow);
+    for (let i = 1902; i <= 1996; i += 1) {
+      fetched.push(textRow(i, "prev", `t-${i}`));
+    }
+
+    const merged = mergeOlderRows(window, fetched, { softCap: 80, prefer: "head" });
+    expect(merged).not.toBeNull();
+    expect(merged![0]?.rowId).toBeLessThan(1997);
+    expect(merged!.some((r) => r.rowId === 1900)).toBe(true);
+    expect(merged!.some((r) => r.rowId === 1998)).toBe(true);
+  });
+
+  it("fetched 全不早于窗首时返回 null", () => {
+    const window = [textRow(10, "t", "a"), textRow(11, "t", "b")];
+    expect(mergeOlderRows(window, [textRow(10, "t", "a"), textRow(12, "t", "c")], { prefer: "head" })).toBeNull();
+  });
+});
+

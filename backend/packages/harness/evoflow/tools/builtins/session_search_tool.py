@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.admin import sessions as sessions_admin
 from evoflow.admin.errors import AdminError

@@ -49,7 +49,6 @@ import {
 } from '../lib/dept-group-audit.js'
 import {
   deptGroupWakeChainKey,
-  isTrivialGroupNestGoal,
   shouldAutoNestWake,
 } from '../lib/dept-group-nest-policy.js'
 import {
@@ -1164,9 +1163,9 @@ export function HomeDeptGroupChat({
           : await streamBodyIntoBubble(bubbleId, reply)
 
         if (input.depth >= MAX_NEST_DEPTH) return {}
-        // 本轮只是打招呼/回一声：即便模型硬 @ 派活，也不自动接力（防总监借报到开单）
-        if (input.depth >= 1 && isTrivialGroupNestGoal(input.goal)) return {}
-        // 嵌套接力只叫醒部门员工，避免 @小V 自循环
+        // 嵌套接力只叫醒部门员工，避免 @小V 自循环。
+        // 勿因「本轮目标是寒暄」整段 return：负责人被叫醒后 @ 下属做观众口播必须能入队
+        // （逐条用 shouldAutoNestWake / isTrivialGroupNestGoal 判断子目标即可）。
         const nestRoster = membersRef.current.filter(
           (m) => !isDeptGroupStewardCode(m.agent_code),
         )
@@ -1179,7 +1178,7 @@ export function HomeDeptGroupChat({
           const goal =
             extractMentionGoal(finalText, next) ||
             `「${person.role_name}」在群里 @ 了你，请直接在群里回复。`
-          // 成员互相「你也打个招呼」不再自动叫醒；管家首轮分流 (depth=0) 仍可 @ 多人
+          // 成员互相「你也打个招呼」不再自动叫醒；对观众口播/带队发言放行（见 nest-policy）
           if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
           woken.add(next.agent_code)
           nested.push({ person: next, goal })

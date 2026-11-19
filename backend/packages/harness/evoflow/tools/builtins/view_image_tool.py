@@ -4,13 +4,14 @@ import mimetypes
 from pathlib import Path
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 from langgraph.typing import ContextT
 
 from evoflow.agents.image_routing import decide_view_image_route
 from evoflow.agents.thread_state import ThreadState, ViewedImageData
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.sandbox.tools import get_thread_data, replace_virtual_path
 from evoflow.tools.builtins.browser_screenshot_store import resolve_browser_snapshot_ref
 from evoflow.tools.builtins.vision_analysis_core import (

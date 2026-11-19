@@ -1,4 +1,4 @@
-mod commands;
+pub mod commands;
 mod models;
 mod power;
 mod tray;
@@ -7,7 +7,7 @@ mod voice_hotkey;
 
 use commands::{
     app_server, assistant, backend, boot_cycle, browser_embed, browser_embed_bridge, config,
-    cua_glow_overlay, export_logs, gateway, logs, mcp_market, resource_manager, ui_extensions,
+    cua_glow_overlay, cua_glow_ring, export_logs, gateway, logs, mcp_market, resource_manager, ui_extensions,
     update, voice_overlay, wake_kws,
 };
 /// Windows-only: expose WebView2 CDP commands directly to Python over HTTP invoke.
@@ -457,6 +457,10 @@ pub fn run() {
             export_logs::export_logs,
             cua_glow_overlay::cua_glow_overlay_show,
             cua_glow_overlay::cua_glow_overlay_hide,
+            cua_glow_overlay::cua_glow_overlay_stop,
+            cua_glow_overlay::cua_glow_overlay_step,
+            cua_glow_ring::cua_glow_ring_show,
+            cua_glow_ring::cua_glow_ring_hide,
             wake_kws::wake_kws_start,
             wake_kws::wake_kws_feed_pcm,
             wake_kws::wake_kws_pause,

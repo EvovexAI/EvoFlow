@@ -1,4 +1,4 @@
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.config import get_app_config
 from evoflow.utils.readability import ReadabilityExtractor

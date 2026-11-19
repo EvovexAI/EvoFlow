@@ -5,10 +5,11 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 
 from evoflow.config.paths import VIRTUAL_PATH_PREFIX
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.sandbox.exceptions import (
     SandboxError,
     SandboxNotFoundError,

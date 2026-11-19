@@ -11,7 +11,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.config import get_stream_writer
 from langgraph.typing import ContextT
 from pydantic import ValidationError
@@ -45,6 +45,7 @@ from evoflow.collab.storage import (
 from evoflow.collab.thread_collab import load_thread_collab_state
 from evoflow.config.agents_config import load_agent_config
 from evoflow.config.paths import get_paths
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.sandbox.security import LOCAL_BASH_SUBAGENT_DISABLED_MESSAGE, is_host_bash_allowed
 from evoflow.subagents import (
     SubagentExecutor,

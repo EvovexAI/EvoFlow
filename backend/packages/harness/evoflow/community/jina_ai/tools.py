@@ -2,7 +2,7 @@ import re
 import urllib.parse
 import urllib.request
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.community.jina_ai.jina_client import JinaClient
 from evoflow.config import get_app_config

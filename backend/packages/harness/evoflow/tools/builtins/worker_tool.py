@@ -11,13 +11,14 @@ import uuid
 from dataclasses import dataclass, replace
 from typing import Annotated, Any, Literal
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from pydantic import BaseModel, Field, ValidationError
 
 from evoflow.agents.lead_agent.runtime_context import runtime_context_mapping
 from evoflow.agents.thread_state import ThreadDataState, ThreadState
 from evoflow.collab.id_format import make_trace_id
 from evoflow.config.agent_orchestration_config import get_agent_orchestration_config
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.scheduler.engine import ExecutionReport, format_execution_report_xml
 from evoflow.scheduler.prefetch_stream import (
     capture_stream_writer,

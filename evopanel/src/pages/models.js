@@ -1330,11 +1330,13 @@ async function refreshEmbeddingStatuses(page, state) {
     delete state.embeddingErrors[m.name]
   }
   renderEmbeddingView(page, state, { skipProbe: true })
-  await Promise.all(models.map(async (m) => {
+  // Serial probes: parallel local loads import torch/scipy together and can
+  // stall the Gateway event loop for minutes (2026-11-19 embedding-probe hang).
+  for (const m of models) {
     if (!m.name) {
       state.embeddingStatus[m.name || ''] = 'fail'
       state.embeddingErrors[m.name || ''] = '模型名称为空'
-      return
+      continue
     }
     try {
       const res = await api.probeEmbeddingModel(m.name)
@@ -1349,7 +1351,9 @@ async function refreshEmbeddingStatuses(page, state) {
       state.embeddingStatus[m.name] = 'fail'
       state.embeddingErrors[m.name] = String(e?.message || e || '探测失败').slice(0, 400)
     }
-  }))
+    // Paint each result so the tab stays responsive while later models probe.
+    renderEmbeddingView(page, state, { skipProbe: true })
+  }
   state.embeddingStatusInflight = false
   renderEmbeddingView(page, state, { skipProbe: true })
 }

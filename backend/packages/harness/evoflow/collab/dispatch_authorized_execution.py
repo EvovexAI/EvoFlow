@@ -10,9 +10,13 @@ import json
 import logging
 from typing import Any
 
-from langchain.tools import ToolRuntime
-from langgraph.prebuilt.tool_node import ToolRuntime as LangGraphToolRuntime
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：注解用的 ToolRuntime 换成轻量标记类；真类的导入挪到函数内。
+# 为什么：`langchain.tools` 与 `langgraph.prebuilt.tool_node` 都会拉 torch（715 模块，
+#         实测 2371ms / 2475ms）；本文件大多数调用路径并不构造 runtime。
 from langgraph.typing import ContextT
+
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,9 @@ def gateway_tool_runtime(
         context["collab_subtask_id"] = sub
         configurable["collab_subtask_id"] = sub
     stream_writer = make_gateway_task_stream_writer(mid) if mid else (lambda _chunk: None)
+    # 【self-evolution-bot · 2026-11-19 · 第65轮】真类延迟导入：只有真要构造时才付 torch 的钱。
+    from langgraph.prebuilt.tool_node import ToolRuntime as LangGraphToolRuntime
+
     tool_call_id = make_formatted_id("GatewayDispatch")
     if sub:
         tool_call_id = f"{tool_call_id}-{sub[:12]}"

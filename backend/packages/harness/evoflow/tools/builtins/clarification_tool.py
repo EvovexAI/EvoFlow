@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 _ASK_CLARIFICATION_DESCRIPTION = """\
 Use this tool when you need to ask the user structured clarification questions \

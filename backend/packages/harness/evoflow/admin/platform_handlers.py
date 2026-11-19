@@ -693,17 +693,31 @@ def settings_list_models(args: dict[str, Any]) -> dict[str, Any]:
                 copy.pop(key, None)
         slim.append(copy)
 
+    # 【self-evolution-bot · 2026-11-19 · 第62轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：note 由**固定列举三个键**改成按本次实际提出去的键动态生成。
+    # 为什么：重启后真调发现文案与行为不符——note 写着「已省去 thinking /
+    # when_thinking_enabled / use」，而 when_thinking_enabled 只占 25/43（低于 80% 阈值）
+    # 根本没被提走，43 条里全都在。固定列举的说明会随数据漂移而说谎。
+    omitted = sorted(hoisted.keys())
+    if omitted:
+        note = (
+            "条目内已省去与多数模型相同的实例化开关（"
+            + " / ".join(omitted)
+            + "），它们的共同取值见 sharedConfig；某个模型自己的差异值仍留在该条目上。"
+            "要看全部逐条配置传 include_config=true，或对单个模型用 settings.get_model。"
+        )
+    else:
+        note = (
+            "本次没有在多数模型间重复的实例化开关，输出未做省略；"
+            "要看完整逐条配置传 include_config=true。"
+        )
     out: dict[str, Any] = {
         "ok": True,
         "primary_model": primary.get("primary_model"),
         "models": slim,
         "count": total,
-        "configOmitted": sorted(hoisted.keys()),
-        "note": (
-            "条目内已省去与多数模型相同的实例化开关（thinking / when_thinking_enabled / use），"
-            "它们的共同取值见 sharedConfig；某个模型自己的差异值仍留在该条目上。"
-            "要看全部逐条配置传 include_config=true，或对单个模型用 settings.get_model。"
-        ),
+        "configOmitted": omitted,
+        "note": note,
     }
     if hoisted:
         out["sharedConfig"] = hoisted
@@ -2307,6 +2321,17 @@ def skills_list(args: dict[str, Any]) -> dict[str, Any]:
 
     data = skills_admin.list_skills(enabled_only=_arg_bool(args, "enabled_only", False))
     skills = list(data.get("skills") or [])
+    # query：按 name / description 子串过滤（大小写不敏感）。
+    # 原先这个参数被**静默忽略**——传 {"query": "pace"} 照样返回全量 114 条，
+    # 调用方以为已经过滤，实际一次吞满上下文。与本域 limit/offset 属同类漏接。
+    query = (_arg_str(args, "query", "q") or "").strip().lower()
+    if query:
+        skills = [
+            s
+            for s in skills
+            if query in str(s.get("name") or "").lower()
+            or query in str(s.get("description") or "").lower()
+        ]
     total = len(skills)
     page = skills[offset:]
     if limit is not None:
@@ -2320,6 +2345,8 @@ def skills_list(args: dict[str, Any]) -> dict[str, Any]:
             "has_more": offset + len(page) < total,
         }
     )
+    if query:
+        out["query"] = query
     return out
 
 
@@ -2488,10 +2515,73 @@ def mcp_set(args: dict[str, Any]) -> dict[str, Any]:
 # ── automation ─────────────────────────────────────────────────────────────
 
 
-def automation_list(_args: dict[str, Any]) -> dict[str, Any]:
+# 【self-evolution-bot · 2026-11-19 · 第63轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：``automation.list`` 默认把「23 条全都相同」的字段提到顶层
+# ``sharedDefaults``，条目里删掉；``full=true`` 逐字还原旧输出。
+# 为什么：现网实测返回 **12206 字节**，其中 ``description`` 一项 1633 字节是
+# **同一句话 "Shadow rule for smart-employee heartbeat..." 重复 23 次**；
+# 另有 ``kind`` / ``managed_by`` / ``schedule_type`` / ``langgraph_thread_mode``
+# 各只有 **1 种取值**（全部 23 条一致）——直接重复共 2760 字节（22.6%）。
+# 这些是「这类自动化长什么样」的背景常量，不是「哪条自动化要跑」的判断依据；
+# 少数派取值（如 22 条 paused / 1 条 active）仍逐条保留，不许被共享值顶掉。
+_AUTOMATION_SHAREABLE_KEYS = (
+    "kind",
+    "managed_by",
+    "schedule_type",
+    "langgraph_thread_mode",
+    "description",
+)
+
+
+def automation_list(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.admin import automation as auto_admin
 
-    return {"ok": True, **auto_admin.list_automations()}
+    data = auto_admin.list_automations()
+    rows = list(data.get("automations") or [])
+    if _arg_bool(args, "full", False):
+        return {"ok": True, **data, "full": True}
+
+    total = len(rows)
+    shared: dict[str, Any] = {}
+    dropped: list[str] = []
+    if total >= 2:
+        for key in _AUTOMATION_SHAREABLE_KEYS:
+            values = {
+                json.dumps(row.get(key), sort_keys=True, ensure_ascii=False, default=str)
+                for row in rows
+                if isinstance(row, dict) and key in row
+            }
+            # 必须「每一条都在且取值完全一致」才提；缺键或取值有差异的一律不动。
+            if len(values) != 1:
+                continue
+            if any(not isinstance(row, dict) or key not in row for row in rows):
+                continue
+            shared[key] = json.loads(values.pop())
+            dropped.append(key)
+
+    slim: list[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            slim.append(row)
+            continue
+        copy = dict(row)
+        for key in dropped:
+            copy.pop(key, None)
+        slim.append(copy)
+
+    out: dict[str, Any] = dict(data)
+    out["automations"] = slim
+    out["count"] = len(slim)
+    if dropped:
+        out["sharedDefaults"] = shared
+        out["defaultsOmitted"] = dropped
+        out["note"] = (
+            "条目内已省去全部自动化都相同的字段（"
+            + " / ".join(dropped)
+            + "），共同取值见 sharedDefaults；有差异的字段仍逐条返回。"
+            "要看每条的完整字段传 full=true，或对单条用 automation.get。"
+        )
+    return {"ok": True, **out}
 
 
 def automation_get(args: dict[str, Any]) -> dict[str, Any]:

@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path
 from evoflow.tools.minimal_schema import DELETE_TOOL_DESCRIPTION
 

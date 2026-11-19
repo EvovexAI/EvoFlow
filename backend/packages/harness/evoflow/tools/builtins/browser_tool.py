@@ -21,11 +21,12 @@ import os
 import threading
 from typing import Annotated, Any, Literal
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 from langgraph.typing import ContextT
 
 from evoflow.agents.image_staging import command_with_staged_images, stage_image_entry
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.builtins.browser_screenshot_store import (
     format_screenshot_tool_result,
     resolve_screenshot_file,

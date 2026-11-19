@@ -279,14 +279,24 @@ def _build_script(command: str, *, posix_cwd: str, nonce: str) -> str:
     # 交替各 30 次）：46.59ms → 18.13ms，省 28.46ms/次（-61%）。
     # 语义等价性由 test_warm_bash.py 的 cwd 断言覆盖。
     # 边界：仅在 POSIX shell 下成立；本函数只用于 bash（bash_shell() 非 None 才走）。
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 修 cwd 持久化「名义上有、实际没有」：
+    # 原来标记行在子shell外 printf "$PWD"，而 `cd` 只作用于 `( … )` 子shell，
+    # 外层 $PWD 永远是车道初始目录 —— 于是 _remember_cwd 存回的永远是同一个值，
+    # 命令里的 cd 对下一条调用毫无影响。实证：`cd /d/dev/github/EvoFlow && pwd`
+    # 内部输出仓库根，但回显 cwd 仍是 backend。这正是 7 天 92.8% 的 bash 命令
+    # 都自带 `cd … &&` 前缀的直接原因（模型发现不加就会跑错目录，只能每条都加）。
+    # 改法：把标记行搬进子shell，用 trap EXIT 兜住「命令自己 exit」的分支，
+    # 保证 $_ef_ec 与 $PWD 都取的是 cd 之后、命令之后的真实值。
+    # 边界：trap 会被命令自身的 trap 覆盖（罕见）；命令 exec 掉子shell 时无标记，
+    # 与改动前同样表现为超时兜底。
     return (
         f'(\n'
+        f"_ef_emit() {{ _ef_ec=$?; printf \"\\n__EF_RC_{nonce}__%s__EF_CWD__%s__EF_END_{nonce}__\\n\" \"$_ef_ec\" \"$PWD\"; }}\n"
+        f"trap _ef_emit EXIT\n"
         f'cd "{posix_cwd}" || exit 1\n'
         f"{command}\n"
         f") </dev/null\n"
-        f'_ef_ec=$?\n'
-        f'printf "\\n__EF_RC_{nonce}__%s__EF_CWD__%s__EF_END_{nonce}__\\n" '
-        f'"$_ef_ec" "$PWD"\n'
     )
 
 

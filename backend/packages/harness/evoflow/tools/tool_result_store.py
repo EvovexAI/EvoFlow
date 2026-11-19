@@ -55,13 +55,11 @@ _UI_ALWAYS_OFFLOAD_READ_NAMES = frozenset(
 )
 
 # Lazy modal tools: zero body in transcript/history; UI fetches via tool_call_id.
+# search_code_index / search_content / grep 等**不要**进这里：V4 可展开卡没有
+# onLoadFullToolCallFields，空串会变成「已执行 / 暂无检索结果」，尽管 transcript 已有全文。
+# 它们仍在 _UI_OFFLOAD_TOOL_NAMES → slim 走 build_preview_text 预览。
 _UI_ALWAYS_OFFLOAD_EMPTY_NAMES = _UI_ALWAYS_OFFLOAD_READ_NAMES | frozenset(
     {
-        "grep",
-        "rg",
-        "search_code_index",
-        "search_content",
-        "find_file",
         "web_search",
         "web_fetch",
         "fetch_url",

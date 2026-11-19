@@ -374,12 +374,56 @@ export function createAgentConversationTransport(
     },
     async rowsRange(params: V4ConversationRowsRangeParams): Promise<V4ConversationRowsRangeResult> {
       await ensureHandshake();
-      return agentService.conversationRowsRangeV4({
-        ...workspace,
+      // 视口「查历史」滤芯：桌面主路径是 agent RPC，不经 evoflowFetch HTTP 打点。
+      const started = Date.now();
+      const requestBody = {
         sessionId: params.sessionId,
-        ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+        beforeRowId: params.beforeRowId ?? null,
         limit: params.limit,
-      });
+      };
+      try {
+        const result = await agentService.conversationRowsRangeV4({
+          ...workspace,
+          sessionId: params.sessionId,
+          ...(params.beforeRowId !== undefined ? { beforeRowId: params.beforeRowId } : {}),
+          limit: params.limit,
+        });
+        try {
+          const { pushViewportApiTap } = await import(
+            "../../react/v4/v4-viewport-api-tap.js"
+          );
+          pushViewportApiTap({
+            method: "RPC",
+            url: "v4/conversation/rowsRange",
+            requestBody,
+            status: 200,
+            ok: true,
+            durationMs: Date.now() - started,
+            response: result,
+          });
+        } catch {
+          /* overlay only */
+        }
+        return result;
+      } catch (error) {
+        try {
+          const { pushViewportApiTap } = await import(
+            "../../react/v4/v4-viewport-api-tap.js"
+          );
+          pushViewportApiTap({
+            method: "RPC",
+            url: "v4/conversation/rowsRange",
+            requestBody,
+            status: 0,
+            ok: false,
+            durationMs: Date.now() - started,
+            error,
+          });
+        } catch {
+          /* overlay only */
+        }
+        throw error;
+      }
     },
     async plans(params: V4ConversationPlansParams): Promise<V4ConversationPlansResult> {
       await ensureHandshake();

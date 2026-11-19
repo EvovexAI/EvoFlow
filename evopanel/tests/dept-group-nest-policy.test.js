@@ -39,12 +39,28 @@ describe('dept-group-nest-policy', () => {
     expect(isTrivialGroupNestGoal('接手排查工作台白屏，并交付修复')).toBe(false)
   })
 
+  it('treats audience speak / 口播 handoffs as real work', () => {
+    expect(
+      isTrivialGroupNestGoal('你先说，给这会儿心里有点沉的家人，两三句，先陪不讲道理。'),
+    ).toBe(false)
+    expect(
+      isTrivialGroupNestGoal('下午场，各出来跟观众打个招呼，两三句就行。'),
+    ).toBe(false)
+    expect(isTrivialGroupNestGoal('你收尾，把陌生感正当化')).toBe(false)
+  })
+
   it('steward depth-0 may nest greetings; members depth≥1 may not', () => {
     const greet = '打个招呼出来说句话'
     expect(shouldAutoNestWake({ fromDepth: 0, goal: greet })).toBe(true)
     expect(shouldAutoNestWake({ fromDepth: 1, goal: greet })).toBe(false)
     expect(
       shouldAutoNestWake({ fromDepth: 1, goal: '请帮我修一下部署脚本' }),
+    ).toBe(true)
+    expect(
+      shouldAutoNestWake({
+        fromDepth: 1,
+        goal: '你接上，提气一点，像带队喊号子那样两三句',
+      }),
     ).toBe(true)
   })
 })

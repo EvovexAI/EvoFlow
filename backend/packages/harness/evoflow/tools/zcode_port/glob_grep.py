@@ -15,8 +15,9 @@ import sys
 import time
 from pathlib import Path
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.zcode_port.prelude import GLOB_DESCRIPTION, GREP_DESCRIPTION
 
 MAX_GLOB_RESULTS = 100

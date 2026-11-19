@@ -40,6 +40,7 @@ def _rows(session_id: str) -> list[dict[str, Any]]:
 @pytest.fixture()
 def mirror_session(monkeypatch: pytest.MonkeyPatch) -> str:
     monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._EMPTY_RUN_DEFER_SEC", 0.0)
     sid = "mirror-real-empty-db-shape"
     if sid in getattr(HUB, "_sessions", {}):
         del HUB._sessions[sid]  # noqa: SLF001

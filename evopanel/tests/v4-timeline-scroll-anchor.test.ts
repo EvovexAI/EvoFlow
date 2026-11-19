@@ -3,11 +3,39 @@ import {
   anchorActionAfterContentChange,
   reconcileFollowingForContentAnchor,
   resolveFollowingAfterScroll,
+  shouldTriggerLoadOlder,
   timelineWheelScrollIntent,
 } from "../src/zcode-ui/v4/timelineScrollAnchor.js";
 import { TimelineRowHeightCache } from "../src/zcode-ui/v4/timelineRowHeightCache.js";
+import {
+  classifyScrollTopVerdict,
+  formatScrollTopVerdict,
+} from "../src/react/v4/v4-viewport-scroll-tap.js";
 
 describe("V4 timeline scroll anchor (history upscroll)", () => {
+  it("following blocks loadOlder even when scrollTop sits in prefetch band (short soft-cap tail)", () => {
+    // 现场：已显示~80/全量2000+，max scrollTop≈300 ≤ 2×视口，跟底中若仍预取
+    // → loadOlder↔soft-cap↔scrollToBottom 死循环，发消息后最新不显示。
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 302,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 302,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+      }),
+    ).toBe(true);
+  });
+
   it("wheel awayFromBottom must release following even when content looks short", () => {
     // 估高偏矮时 scrollHeight≈clientHeight，「看似」不足一屏；上滚意图仍必须解除跟随。
     expect(timelineWheelScrollIntent(-40)).toBe("awayFromBottom");
@@ -60,5 +88,42 @@ describe("V4 timeline scroll anchor (history upscroll)", () => {
     expect(cache.estimate("turn-a", 72)).toBe(120);
     cache.clear();
     expect(cache.estimate("turn-a", 72)).toBe(72);
+  });
+
+  it("overlay top verdict distinguishes no-older vs can-autoload vs loading", () => {
+    expect(
+      classifyScrollTopVerdict({
+        scrollTop: 0,
+        clientHeight: 600,
+        scrollHeight: 4000,
+        hasOlder: false,
+        loadingOlder: false,
+        firstRowId: 1,
+        windowFirstRowId: 1,
+      }),
+    ).toBe("geom_top_no_older");
+    expect(
+      classifyScrollTopVerdict({
+        scrollTop: 0,
+        clientHeight: 600,
+        scrollHeight: 4000,
+        hasOlder: true,
+        loadingOlder: false,
+        firstRowId: 1,
+        windowFirstRowId: 200,
+      }),
+    ).toBe("geom_top_can_autoload");
+    expect(
+      classifyScrollTopVerdict({
+        scrollTop: 0,
+        clientHeight: 600,
+        scrollHeight: 4000,
+        hasOlder: true,
+        loadingOlder: true,
+        firstRowId: 1,
+        windowFirstRowId: 200,
+      }),
+    ).toBe("geom_top_loading");
+    expect(formatScrollTopVerdict("geom_top_no_older")).toContain("无更早");
   });
 });

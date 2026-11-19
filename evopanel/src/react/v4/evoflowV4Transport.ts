@@ -354,6 +354,7 @@ export class EvoFlowV4Transport implements ConversationTransport {
   async rowsRange(
     params: V4ConversationRowsRangeParams,
   ): Promise<V4ConversationRowsRangeResult> {
+    // postJson → evoflowFetch 已打点；这里保持 gateway HTTP 路径。
     return await postJson<V4ConversationRowsRangeResult>("/api/v4/conversation/rows_range", {
       sessionId: params.sessionId,
       beforeRowId: params.beforeRowId ?? null,

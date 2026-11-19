@@ -1034,12 +1034,14 @@ function ConversationWorkSegmentFlow({
         let content: React.ReactNode;
 
         if (item.kind === "userInput") {
+          const stickyPinned = pinLiveUserInput && index === lastUserInputIndex;
           const userRow = (
             <ConversationTurnRow
               row={item.row}
               context={context}
               onEdit={item.row.actions?.canEdit === true ? onEdit : undefined}
               editWorkspaceRewindAvailability={editWorkspaceRewindAvailability}
+              userInputStickyPinned={stickyPinned}
             />
           );
           const rowBody =
@@ -1053,18 +1055,18 @@ function ConversationWorkSegmentFlow({
             );
           // 直播末轮 stick-to-bottom 会跟着工具卡往下滚，用户气泡被顶出视口——
           // sticky 只钉气泡本身：不要全宽磨砂底/padding，否则一行字也会拖出
-          // 三四行高的半透明条，像多了一块阴影悬浮层。
-          content =
-            pinLiveUserInput && index === lastUserInputIndex ? (
-              <div
-                data-v4-live-user-input-pin="true"
-                className="sticky top-0 z-[11] flex w-full justify-end bg-transparent"
-              >
-                {rowBody}
-              </div>
-            ) : (
-              rowBody
-            );
+          // 三四行高的半透明条。气泡本体用半透明磨砂（userInputStickyPinned），
+          // 叠在 AI 正文上才透得过去，别用不透明 bg-surface 硬挡下面的字。
+          content = stickyPinned ? (
+            <div
+              data-v4-live-user-input-pin="true"
+              className="sticky top-0 z-[11] flex w-full justify-end bg-transparent"
+            >
+              {rowBody}
+            </div>
+          ) : (
+            rowBody
+          );
         } else if (item.kind === "cuaGroup") {
           const group = <ConversationCuaGroupRow item={item} context={context} />;
           if (item.flowKind === "assistantHistory") {

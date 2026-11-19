@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 import os
 import time
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -120,15 +120,13 @@ def _vacuum_busy_guard() -> bool:
             return False
         snap = snapshot_inflight_requests() or {}
         inflight = list(snap.get("all") or snap.get("long_waiting") or [])
-        chatish = 0
-        for req in inflight:
-            path = str(req.get("path") or "")
-            if "/api/chat/" in path or "/api/langgraph/" in path:
-                chatish += 1
-        if chatish > 0:
+        # Any REST in flight (proactive/approvals, mcp/config, …) — not only chat.
+        # 2026-11-19 14:59 hang: VACUUM began while /api/proactive/approvals was
+        # already waiting; exclusive lock then froze the whole desktop ~86s.
+        if inflight:
             logger.info(
-                "vacuum guard: %d chat/langgraph inflight request(s) — skipping VACUUM this pass",
-                chatish,
+                "vacuum guard: %d inflight request(s) — skipping VACUUM this pass",
+                len(inflight),
             )
             return False
     except Exception:

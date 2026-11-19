@@ -6,13 +6,14 @@ import json
 import re
 from typing import Annotated, Any, Literal
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.config import get_stream_writer
 from langgraph.types import Command
 from langgraph.typing import ContextT
 from pydantic import BeforeValidator, Field
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.stage.stage_context import clear_thread_stage, set_thread_stage
 
 

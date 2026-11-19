@@ -9,7 +9,7 @@ try:
     import json
     import logging
 
-    from langchain.tools import tool
+    from langchain_core.tools import tool
 
     # 从活跃版本导入
     from .tools_fast_v2 import FastSearchEngineV2, SearchResult, fast_search_v2

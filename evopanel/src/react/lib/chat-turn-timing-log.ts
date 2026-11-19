@@ -18,6 +18,7 @@
  * 任一环卡住超过阈值 → `first_token_stall` / `first_token_dead` 写入异常环 + 生命周期日志。
  */
 import { logChatRuntimeTurn, logChatRuntimeUserClick } from './chat-runtime-log.js'
+import { persistViewportTap } from '../v4/v4-viewport-tap-persist.js'
 
 const PREFIX = '[回合计时]'
 const LC_PREFIX = '[turn-lifecycle]'
@@ -294,6 +295,141 @@ export function listChatTurnAnomalies(): ChatTurnAnomaly[] {
   return anomalyRing.slice()
 }
 
+/** 浮层「计时」表：发送 → 出泡 → 上线 → 首字 → 结束 */
+export type ChatTurnTimingRow = {
+  id: string
+  sessionKey: string
+  runId: string
+  textPreview: string
+  /** 点击发送 */
+  sendAt: number
+  /** 乐观用户气泡挂上时间线（≈上屏） */
+  userBubbleAt: number | null
+  wireAt: number | null
+  runStartedAt: number | null
+  firstResponseAt: number | null
+  firstKind: string | null
+  firstPreview: string
+  streamEndAt: number | null
+  outcome: string | null
+}
+
+const TIMING_RING_MAX = 40
+const timingRing: ChatTurnTimingRow[] = []
+const timingListeners = new Set<() => void>()
+let activeTimingId: string | null = null
+
+function notifyTiming(): void {
+  for (const fn of timingListeners) {
+    try {
+      fn()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function persistTimingRow(row: ChatTurnTimingRow): void {
+  const sid = row.sessionKey || ''
+  if (!sid) return
+  persistViewportTap(sid, 'timing', {
+    id: row.id,
+    sessionKey: row.sessionKey,
+    runId: row.runId || undefined,
+    textPreview: row.textPreview || undefined,
+    sendAt: row.sendAt,
+    userBubbleAt: row.userBubbleAt,
+    wireAt: row.wireAt,
+    runStartedAt: row.runStartedAt,
+    firstResponseAt: row.firstResponseAt,
+    firstKind: row.firstKind || undefined,
+    firstPreview: row.firstPreview || undefined,
+    streamEndAt: row.streamEndAt,
+    outcome: row.outcome || undefined,
+    wireMs: row.wireAt != null ? row.wireAt - row.sendAt : null,
+    bubbleMs: row.userBubbleAt != null ? row.userBubbleAt - row.sendAt : null,
+    firstMs: row.firstResponseAt != null ? row.firstResponseAt - row.sendAt : null,
+    endMs: row.streamEndAt != null ? row.streamEndAt - row.sendAt : null,
+  })
+}
+
+function upsertTimingRow(patch: Partial<ChatTurnTimingRow> & { id?: string }): ChatTurnTimingRow | null {
+  const id = patch.id || activeTimingId
+  if (!id) return null
+  const idx = timingRing.findIndex((r) => r.id === id)
+  if (idx < 0) return null
+  const next = { ...timingRing[idx], ...patch, id }
+  timingRing[idx] = next
+  notifyTiming()
+  persistTimingRow(next)
+  return next
+}
+
+function beginTimingRow(opts: {
+  sessionKey: string
+  textPreview: string
+  sendAt: number
+}): ChatTurnTimingRow {
+  const id = `t-${opts.sendAt}-${Math.random().toString(36).slice(2, 7)}`
+  const row: ChatTurnTimingRow = {
+    id,
+    sessionKey: opts.sessionKey,
+    runId: '',
+    textPreview: opts.textPreview,
+    sendAt: opts.sendAt,
+    userBubbleAt: null,
+    wireAt: null,
+    runStartedAt: null,
+    firstResponseAt: null,
+    firstKind: null,
+    firstPreview: '',
+    streamEndAt: null,
+    outcome: null,
+  }
+  timingRing.push(row)
+  while (timingRing.length > TIMING_RING_MAX) timingRing.shift()
+  activeTimingId = id
+  notifyTiming()
+  persistTimingRow(row)
+  return row
+}
+
+export function listChatTurnTimingRows(opts?: {
+  sessionKey?: string | null
+  limit?: number
+}): ChatTurnTimingRow[] {
+  const limit = Math.max(1, Math.min(TIMING_RING_MAX, opts?.limit ?? TIMING_RING_MAX))
+  const sk = String(opts?.sessionKey || '').trim()
+  const source = sk
+    ? timingRing.filter((r) => !r.sessionKey || r.sessionKey === sk)
+    : timingRing
+  return source.slice(-limit)
+}
+
+export function subscribeChatTurnTiming(listener: () => void): () => void {
+  timingListeners.add(listener)
+  return () => {
+    timingListeners.delete(listener)
+  }
+}
+
+/** 乐观用户气泡已挂上时间线（上屏）。同一轮只记首次。 */
+export function logChatTurnUserBubbleVisible(opts?: {
+  sessionKey?: string | null
+}): void {
+  const sessionKey = String(opts?.sessionKey || '').trim()
+  const row =
+    (activeTimingId && timingRing.find((r) => r.id === activeTimingId)) ||
+    timingRing.slice().reverse().find((r) => {
+      if (r.userBubbleAt != null) return false
+      if (!sessionKey) return true
+      return !r.sessionKey || r.sessionKey === sessionKey
+    })
+  if (!row || row.userBubbleAt != null) return
+  if (sessionKey && row.sessionKey && sessionKey !== row.sessionKey) return
+  upsertTimingRow({ id: row.id, userBubbleAt: Date.now() })
+}
+
 export function getLatestChatTurnAnomaly(
   sessionKey?: string | null,
 ): ChatTurnAnomaly | null {
@@ -495,12 +631,17 @@ export function bindChatTurnSendSession(opts: {
       textPreview: textPreview || sendTrace.textPreview,
       attachmentCount: attachmentCount || sendTrace.attachmentCount,
     }
+    upsertTimingRow({
+      sessionKey: sessionKey || sendTrace.sessionKey,
+      textPreview: textPreview || sendTrace.textPreview,
+    })
     return { sendClickAlreadyLogged: !!sendTrace.sendClickLogged }
   }
   archiveUnansweredSendTrace()
+  const startedAt = Date.now()
   sendTrace = {
     sessionKey,
-    startedAt: Date.now(),
+    startedAt,
     textPreview,
     attachmentCount,
     sendClickLogged: false,
@@ -508,6 +649,7 @@ export function bindChatTurnSendSession(opts: {
     wireLogged: false,
     runStartedLogged: false,
   }
+  beginTimingRow({ sessionKey, textPreview, sendAt: startedAt })
   return { sendClickAlreadyLogged: false }
 }
 
@@ -598,9 +740,10 @@ export function logChatTurnSendClick(opts: {
   const attachmentCount = Math.max(0, Number(opts.attachmentCount) || 0)
   const sessionKey = String(opts.sessionKey || '').trim()
   archiveUnansweredSendTrace()
+  const startedAt = Date.now()
   sendTrace = {
     sessionKey: sessionKey || sendTrace?.sessionKey || '',
-    startedAt: Date.now(),
+    startedAt,
     textPreview,
     attachmentCount,
     sendClickLogged: true,
@@ -610,6 +753,11 @@ export function logChatTurnSendClick(opts: {
     streamEndLogged: false,
     runId: undefined,
   }
+  beginTimingRow({
+    sessionKey: sessionKey || sendTrace.sessionKey || '',
+    textPreview,
+    sendAt: startedAt,
+  })
   const contentDesc = textPreview
     ? `内容「${textPreview}」`
     : attachmentCount > 0
@@ -657,12 +805,19 @@ export function logChatTurnSendWire(opts: {
   const since = chatTurnSinceSendMs(sessionKey || sendTrace.sessionKey)
   const sinceDesc = since != null ? `距点击 ${since}ms` : '无点击锚点'
   const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
+  const runId = String(opts.runId || '').trim()
+  if (runId) sendTrace.runId = runId
+  upsertTimingRow({
+    wireAt: Date.now(),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+  })
   emit(
     `消息已上线（chatSend）：${sinceDesc}${since != null && since >= SLOW_FIRST_MS ? ' —— 发送准备偏慢（paint/context/abort/beforeWire）' : ''}`,
     {
       event: 'send_wire',
       sessionKey: sessionKey || sendTrace.sessionKey || undefined,
-      runId: String(opts.runId || '').trim() || undefined,
+      runId: runId || undefined,
       ...(since != null ? { sinceSendMs: since } : {}),
     },
     level,
@@ -686,6 +841,11 @@ export function logChatTurnRunStarted(opts: {
   sendTrace.runStartedLogged = true
   const runId = String(opts.runId || '').trim()
   if (runId) sendTrace.runId = runId
+  upsertTimingRow({
+    runStartedAt: Date.now(),
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+  })
   const since = chatTurnSinceSendMs(sessionKey || sendTrace.sessionKey)
   const sinceDesc = since != null ? `距点击 ${since}ms` : '无点击锚点'
   const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
@@ -819,6 +979,13 @@ export function logChatTurnFirstResponse(opts: {
       : ''
   const level = since != null && since >= SLOW_FIRST_MS ? 'warn' : 'info'
   if (runId && sendTrace && !sendTrace.runId) sendTrace.runId = runId
+  upsertTimingRow({
+    firstResponseAt: Date.now(),
+    firstKind: opts.kind,
+    firstPreview: preview,
+    ...(runId ? { runId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+  })
   emit(`首帧响应：类型=${kindLabel}${sinceDesc}${previewDesc}${gateDesc}${slow}`, {
     event: 'first_response',
     sessionKey: sessionKey || sendTrace?.sessionKey || undefined,
@@ -881,6 +1048,13 @@ export function logChatTurnStreamEnd(opts: {
   const trigger = String(opts.trigger || outcome).trim()
   const level =
     outcome === 'sse_final' ? 'info' : outcome === 'ui_stop' ? 'info' : 'warn'
+  const endRunId = String(opts.runId || sendTrace?.runId || '').trim()
+  upsertTimingRow({
+    streamEndAt: Date.now(),
+    outcome,
+    ...(endRunId ? { runId: endRunId } : {}),
+    ...(sessionKey ? { sessionKey } : {}),
+  })
   emit(`流式结束：${who}${sinceDesc}`, {
     event: 'stream_end',
     outcome,
@@ -888,7 +1062,7 @@ export function logChatTurnStreamEnd(opts: {
     whoZh: who,
     hasEndMarker: !!opts.hasEndMarker,
     sessionKey: sessionKey || sendTrace?.sessionKey || undefined,
-    runId: String(opts.runId || sendTrace?.runId || '').trim() || undefined,
+    runId: endRunId || undefined,
     textPreview: sendTrace?.textPreview || undefined,
     ...(since != null ? { sinceSendMs: since } : {}),
     ...(opts.detail || {}),
@@ -899,5 +1073,6 @@ export function logChatTurnStreamEnd(opts: {
   if (sendTrace && sendTrace.streamEndLogged) {
     sendTrace = null
   }
+  activeTimingId = null
   clearUnansweredIfMatched(sessionKey)
 }

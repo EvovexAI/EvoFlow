@@ -1,7 +1,7 @@
 import json
 
 from firecrawl import FirecrawlApp
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.config import get_app_config
 

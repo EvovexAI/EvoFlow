@@ -40,10 +40,8 @@ describe("v4-viewport-stream-tap", () => {
     });
 
     const mine = listViewportStreamTapEntries({ sessionId: "tid-current", limit: 20 });
-    expect(mine.map((e) => e.sessionId || e.type)).toEqual([
-      "tid-current",
-      "tid-current",
-    ]);
+    expect(mine.length).toBe(2);
+    expect(mine.every((e) => e.sessionId === "tid-current")).toBe(true);
     expect(mine.every((e) => !e.headline.includes("tid-other"))).toBe(true);
 
     const all = listViewportStreamTapEntries({ includeForeign: true, limit: 20 });
@@ -51,7 +49,7 @@ describe("v4-viewport-stream-tap", () => {
     clearViewportStreamTap();
   });
 
-  it("headline 标出思考/正文/工具并带内容，不单写 Detail", () => {
+  it("按 delta 分行：类型+摘要（思考/正文/工具名）可扫，不挤成一坨", () => {
     clearViewportStreamTap();
     pushViewportStreamV4Tap({
       topic: "conversation/tid-a",
@@ -115,13 +113,16 @@ describe("v4-viewport-stream-tap", () => {
     });
 
     const entries = listViewportStreamTapEntries({ sessionId: "tid-a", limit: 10 });
-    expect(entries.length).toBe(2);
-    expect(entries[0]?.headline).toContain("思考");
-    expect(entries[0]?.headline).toContain("核实");
+    // 2 帧共 4 条 delta → 4 行
+    expect(entries.length).toBe(4);
+    expect(entries[0]?.kindLabel).toBe("思考");
+    expect(entries[0]?.summary).toContain("核实");
     expect(entries[0]?.headline).toMatch(/#80/);
-    expect(entries[1]?.headline).toContain("正文");
-    expect(entries[1]?.headline).toContain("工具:bash");
-    expect(entries[1]?.headline).toContain("电脑控制");
+    expect(entries[1]?.kindLabel).toBe("思考");
+    expect(entries[2]?.kindLabel).toBe("正文");
+    expect(entries[2]?.summary).toContain("电脑控制");
+    expect(entries[3]?.kindLabel).toBe("工具");
+    expect(entries[3]?.summary).toContain("bash");
 
     const deltaLine = summarizeV4Delta({
       op: "row.delta",
@@ -129,8 +130,9 @@ describe("v4-viewport-stream-tap", () => {
       path: "text",
       append: "续写思考",
     });
+    expect(deltaLine.kindLabel).toBe("思考");
     expect(deltaLine.line).toContain("思考");
-    expect(deltaLine.line).toContain("续写思考");
+    expect(deltaLine.summary).toContain("续写思考");
     clearViewportStreamTap();
   });
 });

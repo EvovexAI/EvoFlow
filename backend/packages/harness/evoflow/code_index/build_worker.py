@@ -15,11 +15,16 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import sys
 from typing import Any
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Allow local SentenceTransformer load in this throwaway process only.
+    # Gateway itself refuses in-process ST on win32 (GIL stall).
+    os.environ["EVOFLOW_CODE_INDEX_BUILD_WORKER"] = "1"
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s [code-index-worker] %(message)s",

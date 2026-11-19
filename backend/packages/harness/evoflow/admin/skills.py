@@ -70,6 +70,22 @@ def _find_skill(name: str) -> Any:
         None,
     )
     if skill is None:
+        # 兜底：磁盘上刚出现、但注册表还没同步的技能（例如用户手工把 SKILL.md
+        # 放进 custom/，或面板之外的文件操作）。强制同步一次再查，避免
+        # skills.get / skills.enable / skills.delete 对「文件明明在」的技能报
+        # not found——这正是它们与 skills.install（磁盘判重、报 already exists）
+        # 互相矛盾的根源。
+        try:
+            from evoflow.persistence.bootstrap import sync_skills_from_filesystem
+
+            sync_skills_from_filesystem(force=True)
+            skill = next(
+                (s for s in load_skills(enabled_only=False) if str(s.name or "").strip().lower() == wanted),
+                None,
+            )
+        except Exception:
+            logger.debug("force registry sync for skill lookup failed", exc_info=True)
+    if skill is None:
         raise NotFoundError(f"Skill '{name}' not found")
     return skill
 
@@ -159,23 +175,61 @@ def delete_skill(name: str) -> dict[str, Any]:
     except Exception:
         bound = False
 
+    from evoflow.skills.installer import is_link_or_junction, remove_link_or_junction
+
     if bound:
-        # In-place registration: drop DB row only; never delete the user's source tree.
+        # In-place registration: drop DB row. 默认不碰用户源码树。
+        #
+        # 但有一种情况必须连目录一起删：源目录就落在**生效根的 custom/ 下**。
+        # 此时只删注册表的话，下一轮磁盘扫描会重新发现该目录、把技能原地复活
+        # ——删完立刻 skills.get 还能查到（实测如此）。用户点「删除」看到的是
+        # 假删除。只有源目录在生效根之外（真正的外部 in-place 注册）才保留目录。
+        meta = reg.get("meta") if isinstance(reg.get("meta"), dict) else {}
+        bound_path = str((meta or {}).get("bound_path") or "").strip()
+        if not bound_path:
+            raw_src = str(reg.get("source_path") or "").strip()
+            try:
+                if raw_src and Path(raw_src).is_absolute():
+                    bound_path = raw_src
+            except OSError:
+                bound_path = ""
+
         cfg_repo.delete_skill_registry(name)
         extensions_config = get_extensions_config()
         if name in extensions_config.skills:
             del extensions_config.skills[name]
             save_extensions_to_db(extensions_config)
         reload_extensions_config()
+
+        removed_dir = False
+        if bound_path:
+            try:
+                skills_root = _resolve_skills_base_path().resolve()
+                custom_root = (skills_root / "custom").resolve()
+                source_dir = Path(bound_path).resolve()
+                source_dir.relative_to(custom_root)  # 不在 custom/ 下会抛 ValueError
+                if source_dir.is_dir() and not (source_dir.is_symlink() or is_link_or_junction(source_dir)):
+                    shutil.rmtree(source_dir)
+                    _prune_empty_parents_under_custom(source_dir, custom_root)
+                    removed_dir = True
+            except ValueError:
+                # 源目录在生效根之外：外部 in-place 注册，保留用户源码树。
+                pass
+            except OSError:
+                logger.warning("bound skill dir cleanup failed for %r", name, exc_info=True)
+
         clear_skills_cache()
         return {
             "success": True,
             "skill_name": name,
-            "message": f"Skill '{name}' unregistered (source folder left in place)",
+            "message": (
+                f"Skill '{name}' deleted"
+                if removed_dir
+                else f"Skill '{name}' unregistered (source folder left in place)"
+            ),
             "install_mode": "bound",
+            "removed_source_dir": removed_dir,
         }
-
-    from evoflow.skills.installer import is_link_or_junction, remove_link_or_junction
 
     skills_root = _resolve_skills_base_path().resolve()
     custom_root = (skills_root / "custom").resolve()

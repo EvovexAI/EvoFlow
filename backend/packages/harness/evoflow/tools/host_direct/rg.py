@@ -15,8 +15,9 @@ from concurrent.futures import TimeoutError as FuturesTimeoutError
 from pathlib import Path
 from typing import Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.minimal_schema import RG_TOOL_DESCRIPTION
 
 _MAX_WALL_SECONDS = 45.0

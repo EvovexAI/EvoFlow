@@ -113,3 +113,67 @@ def test_runner_guard_env_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
         lambda: [{"thread_id": "t1"}],
     )
     assert runner._vacuum_busy_guard() is True
+
+
+def test_runner_guard_blocks_any_inflight(monkeypatch: pytest.MonkeyPatch) -> None:
+    """任意 inflight REST（含 proactive）都应让路，不只 chat/langgraph。"""
+    import app.gateway.data_retention_runner as runner
+
+    monkeypatch.setattr(
+        "app.gateway.routers.langgraph_proxy.list_active_stream_proxies",
+        lambda: [],
+    )
+    monkeypatch.setattr(
+        "app.gateway.hang_diagnostics.get_event_loop_lag_seconds",
+        lambda: 0.0,
+    )
+    monkeypatch.setattr(
+        "app.gateway.hang_diagnostics.snapshot_inflight_requests",
+        lambda: {
+            "all": [
+                {"path": "/api/proactive/approvals", "method": "GET"},
+            ]
+        },
+    )
+    assert runner._vacuum_busy_guard() is False
+
+
+def test_vacuum_paths_skips_oversized_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """多 GB 库不得在 Gateway 进程内 VACUUM（2026-11-19 15:03 卡机）。"""
+    big = tmp_path / "evoflow.db"
+    big.write_bytes(b"x" * 1024)
+    monkeypatch.setenv("EVOFLOW_VACUUM_MAX_BYTES", "512")
+    calls: list[str] = []
+
+    class _FakeConn:
+        def execute(self, *_a, **_k):
+            calls.append("VACUUM")
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(dr.sqlite3, "connect", lambda *_a, **_k: _FakeConn())
+    out = dr._vacuum_paths([big])
+    assert out == []
+    assert calls == []
+
+
+def test_vacuum_paths_runs_under_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    small = tmp_path / "evoflow.db"
+    small.write_bytes(b"ok")
+    monkeypatch.setenv("EVOFLOW_VACUUM_MAX_BYTES", "1024")
+    calls: list[str] = []
+
+    class _FakeConn:
+        def execute(self, sql, *_a, **_k):
+            calls.append(str(sql))
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(dr.sqlite3, "connect", lambda *_a, **_k: _FakeConn())
+    out = dr._vacuum_paths([small])
+    assert out == [str(small)]
+    assert any("VACUUM" in c for c in calls)

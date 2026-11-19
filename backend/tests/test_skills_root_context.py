@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -10,7 +11,7 @@ from evoflow.skills import loader
 
 
 @pytest.fixture()
-def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     home = tmp_path / "home"
     home.mkdir()
     monkeypatch.setattr(Path, "home", staticmethod(lambda: home))
@@ -18,7 +19,13 @@ def fake_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.delenv("EVOFLOW_HOME", raising=False)
     # 隔离开发机仓库 checkout（D:\...\EvoFlow\skills）这个真实候选根
     monkeypatch.setattr(loader, "_skills_root_from_source_tree", lambda: None)
-    return home
+    # describe_skills_root_context 结果按 TTL（默认 60s）缓存在模块级
+    # ``_skills_root_ctx_cache`` 里，不随 monkeypatch 的 Path.home / 环境变量失效。
+    # 每个用例都换了不同的 fake_home，若不清缓存就会读到上一个用例的 ctx
+    # （典型表现：active 指向别的 tmp 目录、warnings 多一条）。
+    loader.clear_skills_cache()
+    yield home
+    loader.clear_skills_cache()
 
 
 def _make_custom_skill(root: Path, name: str) -> None:

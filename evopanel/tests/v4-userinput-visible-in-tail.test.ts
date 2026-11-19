@@ -3,7 +3,10 @@
  * Repro: long tool streams after send → user bubble "missing" while hub still has it.
  */
 import { describe, expect, it } from "vitest";
-import { buildConversationTurnRenderUnits } from "../src/zcode-ui/v4/conversationTurnRenderUnits.ts";
+import {
+  buildConversationTurnRenderUnits,
+  normalizeOrderedRowsUserFirst,
+} from "../src/zcode-ui/v4/conversationTurnRenderUnits.ts";
 import { capProjectionWindow } from "../src/zcode-ui/v4/projectionWindowCap.ts";
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 

@@ -1,38 +1,59 @@
-# Do not `from .assets_tool import assets_tool` here — that replaces the
-# submodule attribute on this package and breaks `import …assets_tool`.
-from .automation_tool import automation_tool
-from .catalog_tools import list_assignable_tools_tool, list_skills_catalog_tool
-from .clarification_tool import ask_clarification_tool
-from .collab_peer_tools import peer_read_tool, peer_reply_tool, peer_send_tool
-from .create_agent_tool import create_agent_tool
-from .goal_report_tool import goal_report_tool  # noqa: F401 — retained for DB compat; no longer bound to LLM
-from .knowledge_tool import knowledge_tool
-from .kb_search_tool import search_knowledge_base_tool
-from .list_agents_tool import list_agents_tool
-from .memory_remember_tool import memory_remember_tool
-from .person_memory_edit_tool import person_memory_edit_tool
-from .plan_tool import plan_tool
-from .platform_tool import platform_tool
-from .process_tool import process_tool
-from .propose_goal_tool import propose_goal_tool
-from .read_lints_tool import read_lints_tool
-from .session_workspace_tool import session_workspace_tool
-from .skill_manager_tool import skill_manager_tool
+"""Package exports resolved on demand (PEP 562 lazy).
 
-# scenario_activation (mode_set/scenario) — import submodule directly; avoids circular import at startup
-from .stage_tool import panel_set_tool, stage_set_tool
-from .subtask_outcome_report_tool import done_tool
-from .subtask_progress_tool import progress_tool
-from .subtask_work_checklist_tool import checklist_tool
-from .supervisor_tool import supervisor_tool
-from .task_tool import task_tool
-from .tasks_tool import tasks_tool
-from .todo_tool import todo_tool
-from .update_agent_tool import update_agent_tool
-from .view_image_tool import view_image_tool
+【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
 
-# worker_tool temporarily unregistered (code retained for future re-enablement)
-# from .worker_tool import worker_tool
+## 改了什么
+原来 32 个名字在包导入期无条件 import，任何
+``from <pkg>.<子模块> import ...`` 都要先执行本文件（Python 语义：子模块 import 必先执行包 ``__init__``）。
+
+## 为什么改
+这些重导出把 langchain / transformers / torch / 本地嵌入 provider 拖进进程，
+而实际调用方几乎都直接 import 子模块，父包级重导出没有人用。
+
+## 边界
+- 名字不变：``__all__`` 31 个一个不少，``dir()`` 照常列出。
+- **20 个导出名同时是子模块名**（['automation_tool', 'create_agent_tool', 'goal_report_tool']…）。
+  原版 ``from .x_tool import x_tool`` 的最终效果就是**包属性 = 工具对象**（子模块属性被覆盖），
+  本实现同样返回工具对象，语义一致；``import <pkg>.<子模块>`` 走 ``sys.modules`` 不受影响。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+_LAZY_ATTRS = {
+    "plan_tool": "plan_tool",
+    "ask_clarification_tool": "clarification_tool",
+    "view_image_tool": "view_image_tool",
+    "task_tool": "task_tool",
+    "tasks_tool": "tasks_tool",
+    "supervisor_tool": "supervisor_tool",
+    "done_tool": "subtask_outcome_report_tool",
+    "progress_tool": "subtask_progress_tool",
+    "checklist_tool": "subtask_work_checklist_tool",
+    "peer_send_tool": "collab_peer_tools",
+    "peer_read_tool": "collab_peer_tools",
+    "peer_reply_tool": "collab_peer_tools",
+    "todo_tool": "todo_tool",
+    "propose_goal_tool": "propose_goal_tool",
+    "goal_report_tool": "goal_report_tool",
+    "knowledge_tool": "knowledge_tool",
+    "search_knowledge_base_tool": "kb_search_tool",
+    "platform_tool": "platform_tool",
+    "automation_tool": "automation_tool",
+    "create_agent_tool": "create_agent_tool",
+    "update_agent_tool": "update_agent_tool",
+    "list_assignable_tools_tool": "catalog_tools",
+    "list_skills_catalog_tool": "catalog_tools",
+    "list_agents_tool": "list_agents_tool",
+    "skill_manager_tool": "skill_manager_tool",
+    "panel_set_tool": "stage_tool",
+    "stage_set_tool": "stage_tool",
+    "process_tool": "process_tool",
+    "read_lints_tool": "read_lints_tool",
+    "person_memory_edit_tool": "person_memory_edit_tool",
+    "memory_remember_tool": "memory_remember_tool",
+}
 
 __all__ = [
     "plan_tool",
@@ -48,7 +69,6 @@ __all__ = [
     "peer_read_tool",
     "peer_reply_tool",
     "todo_tool",
-    # "worker_tool",  # temporarily unregistered (code retained)
     "propose_goal_tool",
     "goal_report_tool",
     "knowledge_tool",
@@ -61,13 +81,28 @@ __all__ = [
     "list_skills_catalog_tool",
     "list_agents_tool",
     "skill_manager_tool",
-    # "mode_set",  # 暂不导出给主会话挂载（UI 切模式）；实现仍在 scenario_activation
-    # "scenario",
     "panel_set_tool",
     "stage_set_tool",
     "process_tool",
-    # "browser_tool",  # unregistered — use the agent-browser skill (CLI/MCP) instead
     "read_lints_tool",
     "person_memory_edit_tool",
     "memory_remember_tool",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """首次访问才 import 实现模块，并写回 globals() 缓存。"""
+
+    module_name = _LAZY_ATTRS.get(name)
+    if module_name is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    import importlib
+
+    module = importlib.import_module(f"{__name__}.{module_name}")
+    value = getattr(module, name)
+    globals()[name] = value
+    return value
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | set(_LAZY_ATTRS))

@@ -23,6 +23,7 @@ pub mod logs;
 pub mod mcp_market;
 pub mod update;
 pub mod cua_glow_overlay;
+pub mod cua_glow_ring;
 pub mod export_logs;
 pub mod resource_manager;
 pub mod voice_overlay;

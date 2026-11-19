@@ -10,8 +10,9 @@ from __future__ import annotations
 import re as _re_mod
 import time as _time
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.code_lint import (
     LINTABLE_EXTENSIONS_LABEL,
     lint_path,

@@ -32,6 +32,7 @@ import {
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
   liveTurnSpan,
+  pinLiveTurnAfterDeltas,
   resolveProjectionWindowSoftCap,
 } from "@/v4/projectionWindowCap.js";
 
@@ -268,11 +269,15 @@ export function hasOlderRows(snapshot: ConversationSnapshot | null): boolean {
 }
 
 /**
- * overflow / recovery 尾窗快照替换前：保住客户端已 loadOlder 的更早行。
+ * overflow / recovery 尾窗快照替换前：保住客户端已有、但尾窗快照没带上的行。
  *
- * 服务端 snapshot.window 通常只有尾部 ≤60 行；若整窗替换，上拉刚补进的历史会被冲掉，
- * 用户滚到顶只能看到「当前尾窗的第一轮」，像历史丢了。同 logEpoch 下把 prev 中
- * rowId < incoming 窗首的行前插回去（incoming 同 id 覆盖），再按 head 软顶。
+ * 服务端 snapshot.window 通常只有尾部 ≤60 行；若整窗替换：
+ * - 上拉刚补进的更早行会被冲掉（rowId < incoming 窗首）
+ * - 本地 delta 已追加的更新行也会被冲掉（rowId > incoming 窗尾）——
+ *   现场：777 已流出正文，收尾 snapshot 尾窗仍停在 6666 → 整轮蒸发。
+ *
+ * 同 logEpoch：prev 中窗首之前的更早行 + 窗尾之后的更新行一并粘回（incoming 同 id 覆盖）。
+ * incoming.seq < prev.seq：视为过期尾窗，直接保留 prev，避免回退。
  * epoch 变化（CLI 重启 / remint）仍整窗替换，避免把旧纪元行粘回来。
  */
 export function mergePreservedOlderRowsIntoTailSnapshot(
@@ -285,18 +290,35 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
   if (String(previous.logEpoch || "") !== String(incoming.logEpoch || "")) {
     return incoming;
   }
+  const prevSeq = Number(previous.seq);
+  const incSeq = Number(incoming.seq);
+  if (Number.isFinite(prevSeq) && Number.isFinite(incSeq) && incSeq < prevSeq) {
+    // 过期 snapshot：客户端 delta 已推进到更高 seq，整窗替换会把最新轮裁回旧尾。
+    return previous;
+  }
   const cut = incoming.rows.window[0]?.rowId;
   if (cut === undefined) return incoming;
+  const incomingLast =
+    incoming.rows.window[incoming.rows.window.length - 1]?.rowId ?? cut;
   const older = previous.rows.window.filter((row) => row.rowId < cut);
-  if (older.length === 0) return incoming;
+  // 尾窗偏短 / 收尾 snapshot 未带上本地已 delta 进窗的更新行：粘回 rowId > 窗尾。
+  // 同 epoch 下 snapshot 不应静默丢最新轮；真要裁尾应走 row.removed / 换 epoch。
+  const newer = previous.rows.window.filter((row) => row.rowId > incomingLast);
+  if (older.length === 0 && newer.length === 0) return incoming;
   const byId = new Map<number, ConversationRow>();
   for (const row of older) byId.set(row.rowId, row);
   for (const row of incoming.rows.window) byId.set(row.rowId, row);
+  for (const row of newer) {
+    if (!byId.has(row.rowId)) byId.set(row.rowId, row);
+  }
   const merged = [...byId.values()].sort((a, b) => a.rowId - b.rowId);
   const softCap = resolveProjectionWindowSoftCap();
+  // 有更新行要保：prefer tail，避免 head 软顶再把刚粘回的尾裁掉。
+  // 仅有更早行：prefer head，保住 loadOlder。
+  const prefer = newer.length > 0 ? "tail" : "head";
   const capped = capAndLightenProjectionWindow(merged, {
     softCap,
-    prefer: "head",
+    prefer,
   });
   const window = ensureLiveTurnInProjectionWindow(merged, capped, softCap);
   if (window.length === incoming.rows.window.length) {
@@ -308,6 +330,8 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
   }
   return {
     ...incoming,
+    // 粘回更新行时 seq 至少不低于 prev，避免后续 delta 因 fromSeq 对不上被拒。
+    seq: Math.max(incSeq || 0, prevSeq || 0) || incoming.seq,
     rows: {
       ...incoming.rows,
       window: [...window],
@@ -339,7 +363,8 @@ export function shouldAutoLoadIncompleteLeadingTurn(
  * 超软顶时按 prefer 裁切：上滚补历史用 head（保住刚拉到的更早行），
  * 直播/导航探测用 tail（保住最新）。
  */
-function mergeOlderRows(
+/** @internal 导出供单测：loadOlder 合并不得吞掉刚拉到的更早页。 */
+export function mergeOlderRows(
   window: readonly ConversationRow[],
   fetched: readonly ConversationRow[],
   opts?: { softCap?: number; prefer?: "tail" | "head" },
@@ -363,10 +388,37 @@ function mergeOlderRows(
     prefer,
   });
   // prefer=head 会裁掉窗尾：直播中必须把当前轮钉回，否则尾仍是上轮正文（stale_prev_turn_tail）。
-  const next =
+  let next =
     prefer === "head"
       ? ensureLiveTurnInProjectionWindow(merged, capped, effectiveCap)
       : capped;
+  // 刚 rows/range 回来的更早页不得被钉直播/软顶整段丢掉——否则 winFirst 不前进，
+  // 到顶 auto=1 却永远卡住（轨迹：loading 闪一下、窗首仍是旧 winFirst）。
+  if (prefer === "head") {
+    const olderFirst = older[0]?.rowId;
+    const nextFirst = next[0]?.rowId;
+    if (
+      olderFirst !== undefined &&
+      (nextFirst === undefined || nextFirst > olderFirst)
+    ) {
+      const present = new Set(next.map((row) => row.rowId));
+      const missing = older.filter((row) => !present.has(row.rowId));
+      if (missing.length > 0) {
+        const repaired = [...missing, ...next];
+        next = capAndLightenProjectionWindow(repaired, {
+          softCap: Math.max(effectiveCap, missing.length + next.length),
+          prefer: "head",
+        }) as ConversationRow[];
+        // 软顶若再次裁掉头：硬保本页 older + 钉回后的尾（可略超 cap，优先可滚动）。
+        if ((next[0]?.rowId ?? Infinity) > olderFirst) {
+          const byId = new Map<number, ConversationRow>();
+          for (const row of missing) byId.set(row.rowId, row);
+          for (const row of next) byId.set(row.rowId, row);
+          next = [...byId.values()].sort((a, b) => a.rowId - b.rowId);
+        }
+      }
+    }
+  }
   return next === merged ? merged : [...next];
 }
 
@@ -1009,6 +1061,37 @@ export class ConversationProjectionStore {
       this.clearInitialFrameWatchdog();
       this.reconcileOptimistic(snapshot);
       this.reconcileAcceptedInputProjection(snapshot);
+      // 运维「查历史」：V4 首屏历史就是这份 snapshot 窗，不是 /messages。
+      // 仅在订投影首帧 / recovery 换窗时打点，避免 online 重复 snapshot 刷屏。
+      if (!hadAppliedBase || context.subscribeMode !== null || context.recovery) {
+        const sid = parseConversationTopic(this.topic);
+        const windowRows = snapshot?.rows?.window ?? [];
+        if (sid) {
+          const source = !hadAppliedBase
+            ? context.subscribeMode === "resume"
+              ? "subscribe.resume.snapshot"
+              : "subscribe.snapshot"
+            : context.recovery
+              ? "recovery.snapshot"
+              : "subscribe.resync.snapshot";
+          void import("../../react/v4/v4-viewport-api-tap.js")
+            .then(({ pushViewportHistorySnapshotTap }) => {
+              pushViewportHistorySnapshotTap({
+                sessionId: sid,
+                source,
+                rows: windowRows,
+                totalCount: snapshot?.rows?.totalCount ?? null,
+                seq: snapshot?.seq ?? null,
+                delivery: context.recovery
+                  ? "recovery"
+                  : context.online
+                    ? "online"
+                    : context.subscribeMode,
+              });
+            })
+            .catch(() => {});
+        }
+      }
       // initial 丢失时，publisher 允许完整 online snapshot 建立首个
       // applied base；其中的持久 transition 可能早于本次订阅，不能冒充实时新事件。
       // 首帧只播种观察基线，后续 online 跃迁才通知 pane。
@@ -1076,7 +1159,33 @@ export class ConversationProjectionStore {
     // （「最新用户消息/前面轮次看不到」实锤）。内存安全网改为：行内重载荷在服务端
     // mirror/hydrate 出口截断（agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX）+ 快照
     // apply / loadOlder 合并这两条一次性路径上的 cap+lighten。
-    const next = { ...applied, seq: frame.toSeq };
+    //
+    // 钉直播轮到窗尾（不裁行）：旧轮晚到的 tool append 会把新问挤回中间。
+    // 已在尾则原引用——禁止每帧组内重排（会跟底上下抖）。
+    let nextWindow = pinLiveTurnAfterDeltas(applied.rows.window);
+    // delta 默认不软顶；但 loadOlder + 长跑会把窗口撑到 700+ 行（现场 win716），
+    // 每帧测高+跟底必抖。仅当明显超软顶才裁一次（prefer tail + 钉直播）。
+    const softCap = resolveProjectionWindowSoftCap();
+    if (nextWindow.length > Math.floor(softCap * 1.5)) {
+      const capped = capAndLightenProjectionWindow(nextWindow, {
+        softCap,
+        prefer: "tail",
+      });
+      nextWindow = ensureLiveTurnInProjectionWindow(nextWindow, capped, softCap);
+      logger.info("[v4-store] delta window soft-capped (balloon)", {
+        from: applied.rows.window.length,
+        to: nextWindow.length,
+        softCap,
+      });
+    }
+    const next =
+      nextWindow === applied.rows.window
+        ? { ...applied, seq: frame.toSeq }
+        : {
+            ...applied,
+            seq: frame.toSeq,
+            rows: { ...applied.rows, window: [...nextWindow] },
+          };
     logSubagentProjectionTransition(this.topic, current, next, "deltas");
     const removedFromRowId = frame.payload.deltas.reduce<number | null>(
       (earliest, delta) =>
@@ -1358,6 +1467,59 @@ export class ConversationProjectionStore {
   }
 
   /**
+   * 上拉历史统一经此打点（视口「查历史」滤芯）。
+   * EvoFlow 实际 transport=EvoFlowV4Transport→HTTP；不能只靠 agent RPC 腿。
+   */
+  private async rowsRangeWithTap(
+    params: {
+      sessionId: string;
+      beforeRowId?: number;
+      limit: number;
+    },
+    source: "loadOlder" | "autoBackfill" | "turnDirectory",
+  ): Promise<Awaited<ReturnType<ConversationTransport["rowsRange"]>>> {
+    const started = Date.now();
+    try {
+      const result = await this.transport.rowsRange(params);
+      try {
+        const { pushViewportRowsRangeTap } = await import(
+          "../../react/v4/v4-viewport-api-tap.js"
+        );
+        pushViewportRowsRangeTap({
+          source,
+          sessionId: params.sessionId,
+          beforeRowId: params.beforeRowId ?? null,
+          limit: params.limit,
+          ok: true,
+          durationMs: Date.now() - started,
+          response: result,
+        });
+      } catch {
+        /* overlay only */
+      }
+      return result;
+    } catch (error) {
+      try {
+        const { pushViewportRowsRangeTap } = await import(
+          "../../react/v4/v4-viewport-api-tap.js"
+        );
+        pushViewportRowsRangeTap({
+          source,
+          sessionId: params.sessionId,
+          beforeRowId: params.beforeRowId ?? null,
+          limit: params.limit,
+          ok: false,
+          durationMs: Date.now() - started,
+          error,
+        });
+      } catch {
+        /* overlay only */
+      }
+      throw error;
+    }
+  }
+
+  /**
    * loadOlder：以窗口首行为游标向上拉一窗历史行并前插。
    * - 单飞：在途期间重复调用 no-op（loadingOlder 防重入）；
    * - 陈旧读防护：atLogEpoch ≠ 当前快照 epoch 的结果整体丢弃（跨 CLI 重启）；
@@ -1374,29 +1536,76 @@ export class ConversationProjectionStore {
     if (beforeRowId === undefined) return;
     this.setState({ loadingOlder: true });
     try {
-      const result = await this.transport.rowsRange({
-        sessionId,
-        beforeRowId,
-        limit,
-      });
+      // 到顶卡住时默认 60 太容易只抽到上一轮 mid-tool 残片，合并后被
+      // ensureLiveTurn/对齐逻辑判定为「无完整 turn」而看似未前进；拉满页上限。
+      const pageLimit = Math.max(limit, PROTOCOL_V4_LIMITS.rowsRangeMaxLimit);
+      const result = await this.rowsRangeWithTap(
+        {
+          sessionId,
+          beforeRowId,
+          limit: pageLimit,
+        },
+        "loadOlder",
+      );
       if (this.closed) return;
       const current = this.state.snapshot;
-      if (!current || result.atLogEpoch !== current.logEpoch) {
+      // 纪元比较统一成字符串：后端/旧帧偶发 number，严格 !== 会整页丢弃，
+      // 表现为 loading 闪一下、winFirst 永不前进、到顶 auto=1 却卡住。
+      if (
+        !current ||
+        String(result.atLogEpoch ?? "") !== String(current.logEpoch ?? "")
+      ) {
         logger.warn(
-          `[v4-store] ${this.topic} rows/range 纪元不匹配（${result.atLogEpoch}），整体丢弃`,
+          `[v4-store] ${this.topic} rows/range 纪元不匹配（${result.atLogEpoch} vs ${current?.logEpoch}），整体丢弃`,
         );
         return;
       }
       // 在途期间游标失效（row.removed 截断 / snapshot resync 整体替换）→ 结果作废，
       // 防止把权威侧已移除的历史行复活；下次触发按新窗口重新拉。
-      if (current.rows.window[0]?.rowId !== beforeRowId) return;
-      // 上滚意图：prefer head。软顶走内存水位（默认 400）；直播轮尾由
+      if (current.rows.window[0]?.rowId !== beforeRowId) {
+        logger.warn(`[v4-store] ${this.topic} rows/range 游标失效，丢弃本页`, {
+          beforeRowId,
+          nowFirst: current.rows.window[0]?.rowId,
+        });
+        return;
+      }
+      const fetched = Array.isArray(result.rows) ? result.rows : [];
+      if (fetched.length === 0) {
+        // 客户端 hasOlder（firstRowId < winFirst）但 hub 该游标下无行：
+        // 常见于 hydrate/镜像只常驻尾窗、账本 firstRowId 仍指向全序首。
+        logger.warn(`[v4-store] ${this.topic} rows/range 空页`, {
+          beforeRowId,
+          firstRowId: current.rows.firstRowId,
+          hasMore: result.hasMore,
+          atLogEpoch: result.atLogEpoch,
+        });
+        return;
+      }
+      // 上滚意图：prefer head。软顶走内存水位；直播轮尾由
       // ensureLiveTurnInProjectionWindow 钉回，不再用 1200 地板把窗口撑爆。
-      const window = mergeOlderRows(current.rows.window, result.rows, {
+      const window = mergeOlderRows(current.rows.window, fetched, {
         softCap: resolveProjectionWindowSoftCap(),
         prefer: "head",
       });
-      if (window === null) return;
+      if (window === null) {
+        logger.warn(`[v4-store] ${this.topic} rows/range 无可并入更早行`, {
+          beforeRowId,
+          fetched: fetched.length,
+          fetchedFirst: fetched[0]?.rowId,
+          fetchedLast: fetched[fetched.length - 1]?.rowId,
+        });
+        return;
+      }
+      const nextFirst = window[0]?.rowId;
+      if (nextFirst === undefined || nextFirst >= beforeRowId) {
+        logger.warn(`[v4-store] ${this.topic} rows/range 合并后窗首未前进`, {
+          beforeRowId,
+          nextFirst,
+          windowLen: window.length,
+          fetched: fetched.length,
+        });
+        return;
+      }
       this.setState({
         snapshot: { ...current, rows: { ...current.rows, window } },
       });
@@ -1448,11 +1657,14 @@ export class ConversationProjectionStore {
       let beforeRowId = startFirstRowId;
       const combined: ConversationRow[] = [];
       for (let page = 0; page < Math.max(1, maxPages); page += 1) {
-        const result = await this.transport.rowsRange({
-          sessionId,
-          beforeRowId,
-          limit: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
-        });
+        const result = await this.rowsRangeWithTap(
+          {
+            sessionId,
+            beforeRowId,
+            limit: PROTOCOL_V4_LIMITS.snapshotTailWindowRows,
+          },
+          "autoBackfill",
+        );
         if (this.closed) return;
         const current = this.state.snapshot;
         if (
@@ -1581,11 +1793,14 @@ export class ConversationProjectionStore {
 
     try {
       while (true) {
-        const result = await this.transport.rowsRange({
-          sessionId,
-          beforeRowId,
-          limit: PROTOCOL_V4_LIMITS.rowsRangeMaxLimit,
-        });
+        const result = await this.rowsRangeWithTap(
+          {
+            sessionId,
+            beforeRowId,
+            limit: PROTOCOL_V4_LIMITS.rowsRangeMaxLimit,
+          },
+          "turnDirectory",
+        );
         if (this.closed) return stale(initialLogEpoch);
         const current = this.state.snapshot;
         if (
@@ -1876,13 +2091,23 @@ export class ConversationProjectionStore {
   /**
    * 按当前内存水位强制再裁一次已常驻的 rows.window。
    * 水位升到 high/critical 后，若只等下一帧 delta，旧窗口会一直占着几百行到 OOM。
+   *
+   * prefer=tail 裁完后必须经 mergePreservedOlder 把客户端已 loadOlder 的更早行钉回，
+   * 否则上滚刚补进的历史会被内存巡检立刻吃掉（winFirst 弹回尾窗）。
    */
   shrinkProjectionWindowForMemory(): boolean {
     if (this.closed) return false;
     const snap = this.state.snapshot;
     if (!snap?.rows?.window?.length) return false;
-    const next = applySoftCapToSnapshot(snap, "tail");
-    if (next === snap) return false;
+    const capped = applySoftCapToSnapshot(snap, "tail");
+    const next = mergePreservedOlderRowsIntoTailSnapshot(snap, capped);
+    if (
+      next === snap ||
+      (next.rows.window.length === snap.rows.window.length &&
+        next.rows.window.every((row, i) => row.rowId === snap.rows.window[i]?.rowId))
+    ) {
+      return false;
+    }
     this.setState({ snapshot: next });
     return true;
   }

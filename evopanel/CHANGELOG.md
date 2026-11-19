@@ -20,6 +20,8 @@ GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES
 - **点开旧会话卡顿**：只取 `createdAt`/`title` 也重建全部会话行（547 会话冷 6976ms），改为单行读取（0.017ms）
 - **数据库报错误导**：`database is locked` 实为本进程 RLock 未抢到（0.5s 抛，非 sqlite busy），文案改为自曝真成因 + 重试
 - **检索工具必崩**：批量提交把反向验证留在工作区的占位函数名一起提交，`search_code_index` 每次调用 NameError（`py_compile`/`ruff` 语法级检不出）；已复原
+- **启动后空白转圈**：Windows 下启动不再在主进程暖本地向量模型，会话列表可立刻返回
+- **午后整机卡死**：大数据库清理不再进程内长时间独占；本地向量探测改走索引子进程，避免整机卡 1–2 分钟
 
 ### Improved
 

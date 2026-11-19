@@ -29,13 +29,14 @@ import tempfile
 from pathlib import Path
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 
 from evoflow.config.extensions_config import (
     SkillStateConfig,
     reload_extensions_config,
 )
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.skills.frontmatter import split_skill_frontmatter
 from evoflow.skills.loader import find_skill_directory, get_skills_root_path
 from evoflow.skills.paths import ALLOWED_SKILL_SUBDIRS

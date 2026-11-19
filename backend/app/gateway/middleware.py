@@ -17,18 +17,17 @@ from starlette.datastructures import URL, Headers
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.middleware.cors import CORSMiddleware
 
+from app.gateway.hang_diagnostics import (
+    append_gateway_slow_log,
+    is_event_loop_overloaded,
+    register_inflight_request,
+    slow_log_threshold_s,
+    unregister_inflight_request,
+)
 from app.gateway.routers.errors import (
     ErrorCode,
     ErrorDetail,
     create_error_response,
-)
-from app.gateway.hang_diagnostics import (
-    append_gateway_slow_log,
-    register_inflight_request,
-    unregister_inflight_request,
-    update_inflight_request,
-    is_event_loop_overloaded,
-    slow_log_threshold_s,
 )
 
 logger = logging.getLogger(__name__)
@@ -178,6 +177,22 @@ def _excluded_from_gateway_logging(path: str) -> bool:
     return any(path.startswith(prefix) for prefix in _EXCLUDED_OBS_PREFIXES)
 
 
+def _obs_log_headers_enabled() -> bool:
+    """EVOFLOW_OBS_LOG_HEADERS=1 才把请求/响应头落库（默认关，见 193MB 现状）。"""
+    import os
+
+    raw = (os.getenv("EVOFLOW_OBS_LOG_HEADERS") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
+def _obs_log_options_enabled() -> bool:
+    """EVOFLOW_OBS_LOG_OPTIONS=1 才把 CORS 预检落库（默认关，见上方 21.3% 噪音）。"""
+    import os
+
+    raw = (os.getenv("EVOFLOW_OBS_LOG_OPTIONS") or "").strip().lower()
+    return raw in ("1", "true", "yes", "on")
+
+
 def _gateway_body_samples_enabled() -> bool:
     import os
 
@@ -302,6 +317,24 @@ class TrafficLaneMiddleware:
             except Exception:
                 pass
 
+        # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+        # DATA 车道并发闸。此前 `data_lane_slot()` 零调用点＝设计从未生效，
+        # 而所有未知 /api/* 默认落 DATA → 新接口无任何并发上限（用户报的
+        # 「莫名被调用拖垮系统」的结构成因）。现网实测最大并发 10 / P95=2，
+        # 上限 6 只削极端时段。**申请不到槽也放行**，绝不 503 ——
+        # 前端对 503 会退避重试 3 次，卸载洪泛路径等于请求量 ×3。
+        # own_slot_gate: handler 内已有专属槽，通用闸让路，避免两层串联堵死车道。
+        if decision.lane == Lane.DATA and not decision.own_slot_gate:
+            from app.gateway.traffic_lanes import enter_data_lane, exit_data_lane
+
+            held = await enter_data_lane()
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                if held:
+                    exit_data_lane()
+            return
+
         await self.app(scope, receive, send)
 
 
@@ -319,7 +352,24 @@ class GatewayRequestLoggingMiddleware:
         scope_id = id(scope)
         if method == "POST" and "/tool-approval" in path:
             logger.info("HTTP tool-approval received path=%s", path)
+        # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+        # 到达计数/洪泛告警必须在排除判断**之前**：被排除的路径（/api/observability、
+        # /health、/api/session-notifications…）不落行，但一旦被高频调用要能在日志里点名。
+        # 用户实证："莫名其妙被一些没被统计到的接口频繁调用，把整个系统拖垮"。
+        try:
+            from app.gateway.gateway_obs_record import note_gateway_request_arrival
+
+            note_gateway_request_arrival(method=method, path=path)
+        except Exception:
+            pass
         if _excluded_from_gateway_logging(path):
+            await self.app(scope, receive, send)
+            return
+        # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+        # CORS 预检 OPTIONS 没有诊断价值，却是现网 5.3 万行 / 21.3% / 54MB 的纯噪音
+        # （一天 5 万条 → 一周 35 万条，光它就能把 2GB 上限顶穿）。
+        # 到达计数仍在上方执行（洪泛照样可见），只是不落行。
+        if method == "OPTIONS" and not _obs_log_options_enabled():
             await self.app(scope, receive, send)
             return
 
@@ -409,8 +459,37 @@ class GatewayRequestLoggingMiddleware:
                 }
                 if stream_status:
                     metadata["stream_status"] = stream_status
+                # 【self-evolution-bot · 2026-11-19 · 第68轮】合并 LangGraph 侧挂上的
+                # thread_id / 流状态，让本层成为唯一写入方（旧版两处各写一条，实测
+                # 161 对重复行，调用量与总耗时都翻倍）。
+                _obs_extra = scope.get("evoflow_obs_extra")
+                if isinstance(_obs_extra, dict):
+                    for _k, _v in _obs_extra.items():
+                        metadata.setdefault(_k, _v)
+                # 无条件打写入方标记：重启后可用
+                # ``json_extract(metadata_json,'$.obs_writer')`` 直接数出
+                # 「还有没有第二条写入路径」，否则验证去重只能靠肉眼比时长。
+                metadata["obs_writer"] = "http_middleware"
+                scope["evoflow_obs_recorded"] = True
                 if not is_streaming:
                     unregister_inflight_request(scope_id)
+                # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+                # 「一直错 / 一直慢」检测必须在这里接线，否则只是死函数。
+                # 只算一次 elapsed_ms 并复用于落库，避免两次 perf_counter 取值不同。
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+                try:
+                    from app.gateway.gateway_obs_record import note_gateway_outcome
+
+                    note_gateway_outcome(
+                        method=scope.get("method") or "",
+                        path=path,
+                        status_code=status_code,
+                        duration_ms=elapsed_ms,
+                        # SSE/事件流天然长连接，检测器据此排除误报
+                        response_content_type=response_content_type,
+                    )
+                except Exception:
+                    pass
                 schedule_gateway_observability_record(
                     {
                         "occurred_at": _occurred_at(),
@@ -422,9 +501,12 @@ class GatewayRequestLoggingMiddleware:
                         "request_content_type": request_content_type,
                         "response_content_type": response_content_type,
                         "status_code": status_code if status_code is not None else 500,
-                        "duration_ms": round((time.perf_counter() - started) * 1000, 2),
-                        "request_headers": _redact_headers(request_headers),
-                        "response_headers": _redact_headers(response_headers),
+                        "duration_ms": elapsed_ms,
+                        # headers 默认不落库：现网 193MB（约占表 79%），且经 512B 截断后
+                        # 92% 是非法 JSON，面板解析必然失败。host 已在 metadata 里。
+                        # 需要排查时 EVOFLOW_OBS_LOG_HEADERS=1 打开。
+                        "request_headers": _redact_headers(request_headers) if _obs_log_headers_enabled() else None,
+                        "response_headers": _redact_headers(response_headers) if _obs_log_headers_enabled() else None,
                         "request_body_sample": req_sample,
                         "response_body_sample": resp_sample,
                         "request_body_truncated": request_body_truncated or req_truncated,

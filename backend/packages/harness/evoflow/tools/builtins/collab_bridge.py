@@ -28,8 +28,9 @@ import logging
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from langchain.tools import ToolRuntime
 from langgraph.typing import ContextT
+
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 

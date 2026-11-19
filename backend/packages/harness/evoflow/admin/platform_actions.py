@@ -1249,7 +1249,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "扫码完成，写入飞书凭证",
         ),
         # automation
-        _A("automation.list", "automation", "列出定时自动化", "read", "无", H.automation_list, "有哪些定时任务"),
+        _A("automation.list", "automation", "列出定时自动化（默认省去全部条目都相同的字段，共同值见 sharedDefaults）", "read", "full?（默认 false）", H.automation_list, "有哪些定时任务"),
         _A("automation.get", "automation", "查看自动化详情", "read", "id", H.automation_get, "这个自动化咋配的"),
         _A("automation.history", "automation", "自动化运行历史", "read", "id, limit?", H.automation_history, "最近跑过几次"),
         _A("automation.create", "automation", "创建定时自动化", "write", "name, prompt, cron/rrule/schedule?", H.automation_create, "每天九点巡检"),

@@ -5,7 +5,7 @@ import logging
 import re
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 
 from evoflow.config.agent_resource_validation import (
@@ -15,6 +15,7 @@ from evoflow.config.agent_resource_validation import (
     partition_tool_names,
 )
 from evoflow.config.agents_config import load_agent_config, save_agent_config
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.persistence import config_repositories as cfg_repo
 
 logger = logging.getLogger(__name__)

@@ -17,10 +17,18 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：`ToolRuntime` 从 `langchain.tools` 换成轻量标记类。
+# 为什么：`langchain.tools` 顶层 `from langchain.tools.tool_node import ToolRuntime`
+# → `langgraph.prebuilt.tool_node` → `langchain_core.language_models.base:42`
+# 的顶层 `from transformers import GPT2TokenizerFast` 把 torch（715 模块）拉进每个进程。
+# 实测：`from langchain.tools import tool` 2371ms/2248 模块（拉 torch）vs
+#       `from langchain_core.tools import tool` 399ms/770 模块（不拉）。
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 
 from evoflow.agents.image_staging import command_with_staged_images, stage_image_entry
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.zcode_port.background import BackgroundBashTask, mark, new_task_id, register_task
 from evoflow.tools.zcode_port.capability import resolve_embedded_search_branch_capability
 from evoflow.tools.zcode_port.prelude import BASH_DESCRIPTION, BASH_DESCRIPTION_DIRECT, build_embedded_search_prelude
@@ -55,6 +63,10 @@ FOREGROUND_BLOCKING_CEILING_MS = int(os.getenv("EVOFLOW_BASH_FOREGROUND_CEILING_
 # main-chat sleeps). Commands are independent Popen processes and CWD
 # persistence is already keyed per thread, so per-thread locks plus a
 # semaphore cap restore parallelism safely.
+# 【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+# 上面这段只解决了「跨线程」，没解决「同线程内并行调用」：每线程单锁把并行
+# 调用串成一条队，实测 3 天排队 1663s。现改为每线程多车道（默认 2，见
+# ``_bash_max_lanes_per_thread``），进程级信号量上限保持不变。
 _EXEC_LOCKS: dict[str, threading.Lock] = {}
 _EXEC_LOCKS_GUARD = threading.Lock()
 _EXEC_LOCKS_MAX = 1024
@@ -84,6 +96,73 @@ class _bash_concurrency_slot:
 
     def __exit__(self, *_exc) -> bool:
         _BASH_CONCURRENCY.release()
+        return False
+
+
+def _bash_max_lanes_per_thread() -> int:
+    """How many concurrent execution lanes one agent thread may use.
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：原来每个 ``thread_key`` 只有**一把**锁（``_EXEC_LOCKS[key]``），
+    于是同一线程发出的并行 bash 调用被完全串行化——同一个 agent 永远只占到
+    进程级 4 槽中的 1 槽，另外 3 槽空着。
+    为什么（现网实测 2026-11-19，近 3 天 9254 次 bash 调用）：
+      · ``queue_wait_ms`` 累计 **1663s**，其中 49 次单次等 **19.6s** 的长尾占 **962s**；
+      · 按线程分：1556 次那一条线程排队 472s、889 次那条 311s、1332 次那条 177s；
+      · 分桶：8160 次 <50ms，但 140 次 >10s 的等待全落在「同线程前一条长命令没跑完」。
+    判据：并行调用本该并行跑（彼此是独立 Popen 进程），串行只为保护
+    **单条 warm shell 的 stdin 管道**——所以按车道给 warm 会话键加后缀即可解耦；
+    进程级资源上限仍由 ``_BASH_CONCURRENCY`` 兜住，**不放宽**。
+    """
+
+    raw = (os.getenv("EVOFLOW_BASH_LANES_PER_THREAD") or "2").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 2
+
+
+def _lane_key(base_key: str, lane: int) -> str:
+    """Lane 0 沿用历史键（``<thread>``），其余车道加 ``#i`` 后缀各自持一条会话。"""
+    return base_key if lane <= 0 else f"{base_key}#{lane}"
+
+
+class _thread_channel:
+    """Per-thread execution channel with N lanes.
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+    lane 0 与改动前完全一致（单线程顺序执行时永远拿到 lane 0，行为零变化）；
+    lane 1..N-1 只在「同一线程同时有多条 bash 在等」时才被用上，各持独立 warm shell。
+    所有车道都在忙时退回等 lane 0，保留原来先进先出的排队语义。
+    """
+
+    __slots__ = ("base_key", "lanes", "lane", "_lock")
+
+    def __init__(self, thread_key: str) -> None:
+        self.base_key = str(thread_key or "").strip() or "_default"
+        self.lanes = _bash_max_lanes_per_thread()
+        self.lane = 0
+        self._lock: threading.Lock | None = None
+
+    def __enter__(self) -> _thread_channel:
+        locks = [
+            _exec_lock_for(_lane_key(self.base_key, i)) for i in range(self.lanes)
+        ]
+        for i, lk in enumerate(locks):
+            if lk.acquire(blocking=False):
+                self.lane = i
+                self._lock = lk
+                return self
+        locks[0].acquire()
+        self.lane = 0
+        self._lock = locks[0]
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        lk = self._lock
+        if lk is not None:
+            self._lock = None
+            lk.release()
         return False
 
 
@@ -176,8 +255,13 @@ _TRUE = {"true", "1", "yes", "y", "on"}
 _FALSE = {"false", "0", "no", "n", "off"}
 
 # ZCode: working directory persists between Bash calls (per thread).
-_PERSISTED_CWD: dict[str, str] = {}
+# 【self-evolution-bot · 2026-11-19 · 第68轮】值从 str 改为 (workspace_root, cwd)：
+# 会话在 UI 里切换工作区后，旧 cwd 必须失效，否则命令会在本轮工作区之外跑。
+_PERSISTED_CWD: dict[str, tuple[str, str]] = {}
 _PERSISTED_CWD_LOCK = threading.Lock()
+# 每个 thread 最近一次已知的工作区 root。_strip_pwd_marker 只拿得到 thread_id
+# （没有 runtime），靠这个字典补上「记住 cwd 时属于哪个工作区」。
+_THREAD_WORKSPACE: dict[str, str] = {}
 _PWD_MARKER = "__EVOFLOW_PWD__="
 
 # Compound `cd … && <probe>` still counts as a probe for soft-timeout purposes.
@@ -529,22 +613,63 @@ def _workspace_root(runtime: ToolRuntime | None) -> str:
 
 
 def _cwd(runtime: ToolRuntime | None) -> str:
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么/为什么：cwd 持久化必须绑定「当时那个工作区」。
+    # 原实现只按 thread_id 取，于是同一会话在 UI 里**切换工作区**后，
+    # 上一条会话留下的 cwd 仍然有效 —— 实测：会话 C 先绑 wsA、在里面 `cd ../`，
+    # 再切到 wsB，_cwd 仍返回 /Temp（旧工作区的上级），命令直接在本轮工作区之外跑。
+    # 现在记住 cwd 时一并记下 workspace root；root 变了就丢弃旧 cwd，回落到新 root。
     tid = _thread_id(runtime)
     if tid:
+        root_now = _workspace_root(runtime)
         with _PERSISTED_CWD_LOCK:
-            persisted = _PERSISTED_CWD.get(tid)
-        if persisted and Path(persisted).is_dir():
-            return persisted
+            entry = _PERSISTED_CWD.get(tid)
+        if entry:
+            saved_root, persisted = entry
+            same_ws = _same_workspace(saved_root, root_now)
+            if same_ws and persisted and Path(persisted).is_dir():
+                return persisted
+            if not same_ws:
+                # 工作区已切换：旧 cwd 不再属于本轮上下文，直接丢掉。
+                with _PERSISTED_CWD_LOCK:
+                    _PERSISTED_CWD.pop(tid, None)
     return _workspace_root(runtime)
 
 
-def _remember_cwd(thread_id: str, cwd: str) -> None:
+def _same_workspace(saved: str, now: str) -> bool:
+    """两个 workspace root 是否指向同一处（大小写/分隔符/相对路径都不敏感）。"""
+    a = str(saved or "").strip()
+    b = str(now or "").strip()
+    if not a or not b:
+        return True  # 取不到 root 时不做「已切换」判断，保持原行为
+    try:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    except (OSError, ValueError):
+        return a == b
+
+
+def _remember_cwd(thread_id: str, cwd: str, workspace_root: str = "") -> None:
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么/为什么：bash 的标记行回的是 Git-Bash posix 路径（`/c/Users/...`），
+    # 而 Windows 上 `Path("/c/Users/...").is_dir()` 是 **False** —— 于是下面这行
+    # `if not Path(path).is_dir(): return` 静默把每一次 cwd 都丢掉了。
+    # 后果：cwd 持久化从未真正生效，模型发现「cd 过也白 cd」，只能每条命令自带
+    # `cd … &&` 前缀（7 天 19561 次 bash 中 92.8%，我本人 96.0%）。
+    # 实证：_remember_cwd("t", "/c/.../sub") 后 _PERSISTED_CWD 仍为 {}。
+    # 修法：先转回 Windows 路径再校验与存储；非 win32 平台原样不动。
+    # 另：同时记下当时的工作区 root，供 _cwd 判断「会话是否已切换工作区」。
+    from evoflow.utils.bundled_tools import from_bash_posix_path
+
     tid = str(thread_id or "").strip()
-    path = str(cwd or "").strip()
+    path = from_bash_posix_path(str(cwd or "").strip())
     if not tid or not path or not Path(path).is_dir():
         return
+    root = str(workspace_root or "").strip()
+    if not root:
+        with _PERSISTED_CWD_LOCK:
+            root = _THREAD_WORKSPACE.get(tid, "")
     with _PERSISTED_CWD_LOCK:
-        _PERSISTED_CWD[tid] = path
+        _PERSISTED_CWD[tid] = (root, path)
 
 
 def _no_window() -> dict:
@@ -944,18 +1069,32 @@ def _format_finished(
     stderr: str,
     exit_code: int,
     timed_out: bool,
+    cwd: str = "",
 ) -> str:
     out, out_tr = _model_stream(stdout)
     err, err_tr = _model_stream(stderr)
     hint = _stale_hint_for(command)
     hint_block = f"\n{hint}" if hint else ""
+    # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    # 把「下一条命令的 cwd」显式回给调用方，改了什么/为什么：
+    # 原来 _strip_pwd_marker 把 pwd 行剥掉、只存进内存 _PERSISTED_CWD，模型侧
+    # 完全看不到自己在哪。实测 7 天 19561 次 bash 里 92.8% 都带 `cd … &&` 前缀
+    # （我本人 96.0%、release-engineer 98.4%）——不是习惯问题，是工具没告诉它。
+    # 不带 cd 的命令「路径不存在」类报错率 2.82% vs 带 cd 的 0.93%（3 倍），
+    # 说明模型加 cd 是在补偿这个信息缺口。回显一行即可让它省掉这个前缀。
+    cwd_block = ""
+    if cwd:
+        cwd_block = f"\ncwd: {_to_posix(cwd)}"
     if timed_out:
-        return f"status: timed_out\ninterrupted: true\nstdout:\n{out}\nstderr:\n{err}{hint_block}"
+        return (
+            f"status: timed_out\ninterrupted: true\nstdout:\n{out}\nstderr:\n{err}"
+            f"{hint_block}{cwd_block}"
+        )
     status = "completed" if exit_code == 0 else "failed"
     return (
         f"status: {status}\nexitCode: {exit_code}\ninterrupted: false\n"
         f"stdoutTruncated: {str(out_tr).lower()}\nstderrTruncated: {str(err_tr).lower()}\n"
-        f"stdout:\n{out}\nstderr:\n{err}{hint_block}"
+        f"stdout:\n{out}\nstderr:\n{err}{hint_block}{cwd_block}"
     )
 
 
@@ -1211,6 +1350,7 @@ def _run_foreground_warm(
     explicit: bool,
     description: str,
     session_key: str,
+    lane: int = 0,
 ) -> str | None:
     """Reuse a per-thread bash process. Returns ``None`` to fall back to cold spawn."""
     from evoflow.tools.zcode_port import warm_bash as _wb
@@ -1220,6 +1360,8 @@ def _run_foreground_warm(
     if not shell:
         return None
     warm_key = (thread_id or session_key or tool_call_id or "_default").strip() or "_default"
+    # 车道 >0 用独立会话键，否则两条并行命令会写同一条 warm shell 的 stdin 互相踩。
+    warm_key = _lane_key(warm_key, lane)
     lo_risk = _is_libreoffice_risk_command(command)
     blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit, promotable=not lo_risk)
     invocation = tool_call_id or uuid.uuid4().hex
@@ -1315,6 +1457,7 @@ def _run_foreground_warm(
             stderr="",
             exit_code=124,
             timed_out=True,
+            cwd=result.cwd or cwd,
         )
 
     _unregister_active_bash(invocation)
@@ -1340,6 +1483,7 @@ def _run_foreground_warm(
         stderr="",
         exit_code=exit_code,
         timed_out=False,
+        cwd=result.cwd or cwd,
     )
 
 
@@ -1353,6 +1497,7 @@ def _run_foreground(
     explicit: bool = False,
     description: str = "",
     session_key: str = "",
+    lane: int = 0,
 ) -> str:
     invocation = tool_call_id or uuid.uuid4().hex
     # LibreOffice detaches from the process tree — it must not be backgrounded
@@ -1370,6 +1515,7 @@ def _run_foreground(
             explicit=explicit,
             description=description,
             session_key=session_key,
+            lane=lane,
         )
         if warm_out is not None:
             return warm_out
@@ -1449,7 +1595,7 @@ def _run_foreground(
         _emit("stdout", invocation_id=invocation, tool_call_id=tool_call_id, text=stdout)
         _emit("stderr", invocation_id=invocation, tool_call_id=tool_call_id, text=stderr)
         _emit("exit", invocation_id=invocation, tool_call_id=tool_call_id, exit_code=124, success=False)
-        return _format_finished(command=command, stdout=stdout, stderr=stderr, exit_code=124, timed_out=True)
+        return _format_finished(command=command, stdout=stdout, stderr=stderr, exit_code=124, timed_out=True, cwd=cwd)
 
     stdout = _strip_pwd_marker(stdout or "", thread_id)
     stderr = stderr or ""
@@ -1463,6 +1609,7 @@ def _run_foreground(
         stderr=stderr,
         exit_code=exit_code,
         timed_out=False,
+        cwd=cwd,
     )
 
 
@@ -1672,6 +1819,13 @@ def bash_tool(
     dangerouslyDisableSandbox: Set this to true to dangerously override sandbox mode and run commands without sandboxing.
     """
     del dangerouslyDisableSandbox  # EvoFlow host-direct already runs on the host; flag is accepted for schema parity.
+    # 【self-evolution-bot · 2026-11-19 · 第68轮】把本轮工作区记进 _THREAD_WORKSPACE，
+    # 供只拿得到 thread_id 的 _strip_pwd_marker 判断「记住 cwd 时属于哪个工作区」。
+    _ws_root = _workspace_root(runtime)
+    _tid_ws = _thread_id(runtime)
+    if _tid_ws and _ws_root:
+        with _PERSISTED_CWD_LOCK:
+            _THREAD_WORKSPACE[_tid_ws] = _ws_root
     cwd = _cwd(runtime)
     try:
         from evoflow.tools.host_direct.skill_command_paths import rewrite_skill_paths_in_command
@@ -1695,7 +1849,7 @@ def bash_tool(
     # separate queue time from real execution time (handler wall time alone
     # made a queued `git show` look like 237s).
     queue_t0 = time.perf_counter()
-    with _exec_lock_for(tid or sk):
+    with _thread_channel(tid or sk) as channel:
         with _bash_concurrency_slot():
             try:
                 from evoflow.observability.tool_timing import note_tool_queue_wait
@@ -1723,5 +1877,6 @@ def bash_tool(
                 explicit=explicit,
                 description=desc,
                 session_key=sk,
+                lane=channel.lane,
             )
     return _maybe_stage_agent_browser_screenshot(runtime, command, cwd, tool_call_id, result)

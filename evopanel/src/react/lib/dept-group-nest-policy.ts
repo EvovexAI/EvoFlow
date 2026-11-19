@@ -44,6 +44,15 @@ export function isTrivialGroupNestGoal(goal: string): boolean {
   if (/任务|bug|缺陷|需求|方案|接口|PR|合并|部署|上线|deadline|截止|校验|持久化|localStorage/.test(t)) {
     return false
   }
+  // 对观众口播 / 带队发言 = 真派活（负责人 @ 下属「出来跟观众说两句」必须叫醒）
+  // 勿与下面「你也打个招呼」寒暄防环混为一谈。
+  if (
+    /观众|直播间?|口播|两三句|带[个头]|收尾|接上|跟观众|先说|提气|陌生感|家人|新来的|下午场|上午场/.test(
+      t,
+    )
+  ) {
+    return false
+  }
 
   if (
     t.length <= 36 &&

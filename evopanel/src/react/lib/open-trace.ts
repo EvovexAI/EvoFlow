@@ -120,6 +120,11 @@ type OpenTraceState = {
   threadId?: string
   startedAt: number
   lastAt: number
+  /** 结束时刻；未结束时缺省。archiveCurrent 用它算 totalMs。 */
+  // 【self-evolution-bot · 2026-11-19 · 第74轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补 endedAt?: number（此前 4 处赋值/读取都 tsc 报 TS2551）。
+  // 为什么：同名的 zcode-ui/lib/openTrace.ts 有该字段，这份漏声明；tsc 门禁长期红。
+  endedAt?: number
   stages: OpenStageRecord[]
   ended: boolean
 }
@@ -442,7 +447,7 @@ function archiveCurrent(rec?: OpenTraceRecord): void {
       ...(current?.threadId ? { threadId: current.threadId } : {}),
       startedAt: current?.startedAt ?? Date.now(),
       endedAt: current?.endedAt ?? Date.now(),
-      totalMs: current ? current.endedAt - current.startedAt : 0,
+      totalMs: current ? (current.endedAt ?? current.lastAt) - current.startedAt : 0,
       status: 'warn',
       verdict: '这次打开没有走完（被中断或异常）。',
       stages: current ? [...current.stages] : [],

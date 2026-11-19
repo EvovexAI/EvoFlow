@@ -118,7 +118,6 @@ def snapshot_inflight_requests() -> dict[str, Any]:
 
 
 def _slow_request_summary_lines() -> list[str]:
-    now = time.monotonic()
     snap = snapshot_inflight_requests()
     long_waiting = snap["long_waiting"]
     if not long_waiting:
@@ -203,7 +202,7 @@ def append_gateway_slow_log(
         logger.debug("append_gateway_slow_log failed", exc_info=True)
 
 
-_SLOW_LOG_QUEUE: "queue.SimpleQueue[tuple[Path, str]] | None" = None
+_SLOW_LOG_QUEUE: queue.SimpleQueue[tuple[Path, str]] | None = None
 _SLOW_LOG_WRITER_STARTED = False
 _SLOW_LOG_MAX_QUEUE = 1000
 
@@ -440,6 +439,16 @@ def _asyncio_tasks_snapshot() -> list[dict[str, Any]]:
     return items
 
 
+def _traffic_lane_snapshot() -> dict[str, Any]:
+    """DATA lane gate counters (best-effort: never break a hang dump)."""
+    try:
+        from app.gateway.traffic_lanes import data_lane_snapshot
+
+        return data_lane_snapshot()
+    except Exception:
+        return {}
+
+
 def dump_gateway_diagnostics(reason: str, *, lag_seconds: float | None = None) -> Path | None:
     global _last_dump_at
     if not diagnostics_enabled():
@@ -464,6 +473,11 @@ def dump_gateway_diagnostics(reason: str, *, lag_seconds: float | None = None) -
         },
         "active_streams": _active_stream_snapshot(),
         "inflight_requests": snapshot_inflight_requests(),
+        # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+        # DATA 车道闸门计数随 dump 一起落盘：溢出次数是「上限是否真的在削峰」的唯一证据。
+        "traffic_lanes": _traffic_lane_snapshot(),
+        # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+        # DATA 车道闸门计数随 dump 一起落盘：溢出次数是「上限是否真的在削峰」的唯一证据。
         "sqlite": _sqlite_snapshot(),
         "thread_stacks": _thread_stacks(),
         "asyncio_tasks": _asyncio_tasks_snapshot(),

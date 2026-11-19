@@ -17,7 +17,7 @@ from collections.abc import Callable
 from pathlib import Path
 from urllib import error, request
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 from langgraph.config import get_stream_writer
 
 from evoflow.config import get_app_config

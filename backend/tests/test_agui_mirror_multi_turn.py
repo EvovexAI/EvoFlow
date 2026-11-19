@@ -24,6 +24,8 @@ def _headers(session_id: str) -> list[dict[str, Any]]:
 def mirror_session(monkeypatch: pytest.MonkeyPatch) -> str:
     # 确保镜像开启（环境可能在 CI 关掉）
     monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    # 单测要立刻断言占位；生产默认延后 2.5s 防「先闪未产出」
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._EMPTY_RUN_DEFER_SEC", 0.0)
     sid = "mirror-multi-turn-test"
     # 清掉同名会话，避免跨用例污染
     if sid in getattr(HUB, "_sessions", {}):
@@ -64,8 +66,58 @@ def test_empty_stream_retry_does_not_duplicate_user_input(mirror_session: str) -
     assert len(headers) == 2
     assert headers[0]["turnId"] == "run-first"
     assert headers[0]["state"] == "failed"
+    # 用户气泡已挂到 run-retry：旧头不得再自称 userInput（否则 !NO_USER）
+    assert headers[0]["origin"] == "goalContinuation"
     assert headers[1]["turnId"] == "run-retry"
     assert headers[1]["state"] == "running"
+
+
+def test_steal_user_from_completed_turn_demotes_old_header(mirror_session: str) -> None:
+    """已完成轮的 userInput 被挂到新 run 后，旧头必须降成 goalContinuation。
+
+    现场诊断：#1 turnHeader(origin=userInput)+assistant 无用户；#2 user.rowId < header。
+    """
+    tid = mirror_session + "-steal-completed"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "欢迎一下", message_id="user-msg-welcome")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "8c5caa19-8390-4aaa-bbbb-cccccccccccc"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-welcome"},
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": "m-welcome",
+                "delta": "哈哈，欢迎欢迎",
+            },
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-welcome"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "8c5caa19-8390-4aaa-bbbb-cccccccccccc"},
+        ],
+    )
+    # 同 message_id 再开新 run（retry / 乱序 START）：用户气泡挂走，旧头曾变成 !NO_USER
+    mirror.note_user_input(tid, "欢迎一下", message_id="user-msg-welcome")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-e0d357f6"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m2"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m2", "delta": "在的，随时说。"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m2"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-e0d357f6"},
+        ],
+    )
+
+    users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
+    assert len(users) == 1
+    assert users[0]["turnId"] == "run-e0d357f6"
+
+    headers = {h["turnId"]: h for h in _headers(tid)}
+    assert headers["8c5caa19-8390-4aaa-bbbb-cccccccccccc"]["origin"] == "goalContinuation"
+    assert headers["run-e0d357f6"]["origin"] == "userInput"
+    assert headers["run-e0d357f6"]["state"] == "completedSuccess"
 
 
 def test_prior_reset_without_user_reuses_turn_not_orphan_header(mirror_session: str) -> None:
@@ -332,6 +384,57 @@ def test_empty_finished_writes_visible_notice(mirror_session: str) -> None:
     assert str(texts[0].get("entityId") or "").startswith("empty-run-")
     assert "未产出可见回复" in str(texts[0].get("text") or "")
     assert texts[0]["turnId"] == "run-empty"
+
+
+def test_deferred_empty_run_cancelled_by_late_text(
+    mirror_session: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """过早 FINISHED 后马上迟到 TEXT：延时占位必须取消，禁止先闪「未产出」。"""
+    import time
+
+    monkeypatch.setattr("app.gateway.v4.agui_mirror._EMPTY_RUN_DEFER_SEC", 0.35)
+    tid = mirror_session + "-defer-cancel"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "hi", message_id="u-defer-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-defer"},
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-defer"},
+        ],
+    )
+    # 延时期间尚无占位
+    assert not [
+        r
+        for r in _rows(tid)
+        if r.get("kind") == "assistantText"
+        and str(r.get("entityId") or "").startswith("empty-run-")
+    ]
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "TEXT_MESSAGE_START", "messageId": "m-defer"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m-defer", "delta": "在的"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m-defer"},
+        ],
+    )
+    time.sleep(0.45)
+    notices = [
+        r
+        for r in _rows(tid)
+        if r.get("kind") == "assistantText"
+        and str(r.get("entityId") or "").startswith("empty-run-")
+        and not str(r.get("entityId") or "").startswith("empty-run-cleared-")
+    ]
+    assert notices == []
+    texts = [
+        r
+        for r in _rows(tid)
+        if r.get("kind") == "assistantText" and str(r.get("text") or "").strip() == "在的"
+    ]
+    assert len(texts) == 1
 
 
 def test_second_run_gets_fresh_running_turn_header(mirror_session: str) -> None:
@@ -733,6 +836,130 @@ def test_seal_backfills_output_from_transcript_when_result_missing(
     out = (tool.get("output") or {}).get("text") or ""
     assert "[index] last updated" in out
     assert "zzq_heal" in out
+
+
+def test_empty_tool_result_content_backfills_from_transcript(
+    mirror_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SSE slim 把 search_code_index content 置空时，RESULT 必须从 transcript 回填。
+
+    现网：工具已成功落库 13KB+，V4 卡却「已执行 / 暂无检索结果」。
+    """
+    tid = mirror_session + "-empty-result-body"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "app.gateway.v4.agui_mirror._transcript_tool_result_text",
+        lambda _tid, tcid: (
+            (
+                "search_code_index",
+                "[index] last updated 53m ago (age=3180s)\n\n"
+                "Code index results for 'v4 conversation projection':\n\n"
+                "Symbols:\n  - function ConversationTurnGroup @ ConversationTurnGroup.tsx:1",
+            )
+            if tcid == "tc-empty-body"
+            else None
+        ),
+    )
+
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "查投影")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-empty-body"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-empty-body",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-empty-body",
+                "delta": '{"queries":["v4 conversation projection turnHeader rowId window"]}',
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-empty-body"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-empty-body",
+                "toolCallName": "search_code_index",
+                # slim_content_for_ui lazy-empty：wire 正文被掏空
+                "content": "",
+                "status": "success",
+            },
+            {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-empty-body"},
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "success", tool
+    out = (tool.get("output") or {}).get("text") or ""
+    assert "ConversationTurnGroup" in out
+    assert "[index] last updated" in out
+
+
+def test_seal_heals_orphan_open_tool_when_map_cleared(
+    mirror_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """tool_row_ids 中途被清掉后，RUN_FINISHED 仍须扫 HUB 孤儿行并回填。
+
+    现网：search_code_index 卡永久 inputStreaming（「等待中」/「检索中…」），
+    transcript 已有正文，但 seal 因 map 空直接 return。
+    """
+    tid = mirror_session + "-orphan-heal"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "app.gateway.v4.agui_mirror._transcript_tool_result_text",
+        lambda _tid, tcid: (
+            (
+                "search_code_index",
+                "[index] last updated 3s ago (age=3s)\n\nSymbols:\n  - function orphan_heal",
+            )
+            if tcid == "tc-orphan"
+            else None
+        ),
+    )
+
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "搜孤儿")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-orphan-heal"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-orphan",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-orphan",
+                "delta": '{"query":"orphan_heal"}',
+            },
+        ],
+    )
+    stuck = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert stuck["status"] == "inputStreaming", stuck
+
+    # 模拟流式 map 中途清空（保留 turn_id，否则 FINISHED 无法对上本轮行）。
+    st = mirror._states[tid]  # noqa: SLF001
+    st.tool_row_ids.clear()
+    st.tool_acc.clear()
+    st.tool_names.clear()
+
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_FINISHED", "threadId": tid, "runId": "run-orphan-heal"}],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "success", tool
+    out = (tool.get("output") or {}).get("text") or ""
+    assert "orphan_heal" in out
+    assert "[index] last updated" in out
 
 
 def test_reasoning_end_writes_duration_ms(mirror_session: str) -> None:

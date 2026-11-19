@@ -1,7 +1,7 @@
 {
   "identifier": "cua-glow-overlay-capability",
   "description": "Computer Use top operation indicator (ZCode-aligned)",
-  "windows": ["cua-glow-0"],
+  "windows": ["cua-glow-*"],
   "permissions": [
     "core:event:default",
     "core:window:allow-show",
@@ -15,6 +15,7 @@
     "core:window:allow-outer-size",
     "core:window:allow-is-visible",
     "core:window:allow-close",
-    "core:webview:allow-create-webview-window"
+    "core:webview:allow-create-webview-window",
+    "allow-cua-glow-stop"
   ]
 }

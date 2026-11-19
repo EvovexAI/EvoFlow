@@ -316,6 +316,36 @@ async def glow_status() -> dict[str, Any]:
     return get_cua_glow_status()
 
 
+@glow_router.post("/control/revoke")
+async def cua_control_revoke(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """用户点「解除控制」：只收回**电脑操作权**，不动 AI 回合。
+
+    【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
+    用户原话纠正：「这个停止只是停止电脑控制，并不是停止AI啊。」
+    所以这里**不** cancel run、**不**改 run_status —— 只置收回标记 + 收掉提示。
+    下一轮 CUA 调用会被拦下并把原因告诉模型；用户发下一条消息自动恢复。
+    """
+    from evoflow.collab.cua_glow_state import revoke_cua_control
+
+    body = payload or {}
+    return revoke_cua_control(
+        session_key=str(body.get("session_key") or ""),
+        reason=str(body.get("reason") or "user_revoked"),
+    )
+
+
+@glow_router.post("/control/restore")
+async def cua_control_restore(payload: dict[str, Any] | None = None) -> dict[str, Any]:
+    """重新授权电脑操作（用户发新消息时也可由前端显式调，兜底自动恢复）。"""
+    from evoflow.collab.cua_glow_state import restore_cua_control
+
+    body = payload or {}
+    return restore_cua_control(
+        session_key=str(body.get("session_key") or ""),
+        reason=str(body.get("reason") or "user_resend"),
+    )
+
+
 @glow_router.post("/glow-status")
 async def glow_status_set(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Manual / test hook to force indicator on/off."""

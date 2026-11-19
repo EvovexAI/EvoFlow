@@ -18,12 +18,12 @@ import re
 from pathlib import Path
 from urllib.parse import urlparse
 
-from langchain.tools import ToolRuntime
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
 from evoflow.community.media_generation.asset_recorder import thread_id_from_runtime
 from evoflow.community.media_generation.providers.dashscope_upload import upload_local_file
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.persistence.media_assets import find_remote_url_for_local_path
 from evoflow.tools.host_direct.workspace_context import resolve_effective_outputs_dir
 

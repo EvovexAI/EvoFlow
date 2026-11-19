@@ -6,10 +6,10 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from langchain.tools import ToolRuntime
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 

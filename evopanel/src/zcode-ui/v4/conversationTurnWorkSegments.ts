@@ -51,11 +51,18 @@ export function resolveConversationTurnWorkDurationMs(
   options: { nowMs?: number; fallbackStartedAt?: number },
   isRunning: boolean,
 ): number | undefined {
-  // 运行中优先吃 UI 时钟：sessionBusy 把已 sealed 的 header 重新推成 running 时，
-  // 若仍用 activeMs/endedAt，会冻在「工作中 1 秒」；缺 turnHeader 时用 userInput 锚点，
-  // 避免裸「工作中」无秒数。
+  // 运行中优先吃 UI 时钟；缺 turnHeader 时用 userInput 锚点，避免裸「工作中」无秒数。
+  // 仅当 header 仍为 running（或尚无 header）时才信 startedAt——已 sealed 的头若被误标
+  // running，旧 startedAt 会让「已工作」接着上一轮继续走。
   if (isRunning && options.nowMs !== undefined) {
-    const startedAt = header?.startedAt ?? options.fallbackStartedAt;
+    const headerRunning = !header || header.state === "running";
+    const startedAt = headerRunning
+      ? (header?.startedAt ?? options.fallbackStartedAt)
+      : options.fallbackStartedAt !== undefined &&
+          header.endedAt !== undefined &&
+          options.fallbackStartedAt > header.endedAt
+        ? options.fallbackStartedAt
+        : options.nowMs;
     if (startedAt !== undefined) {
       return Math.max(options.nowMs - startedAt, 0);
     }
@@ -115,11 +122,20 @@ function resolveSegmentDurationMs(options: {
         )
       : undefined) ?? options.header?.workSegments?.[options.segmentIndex];
   if (options.segmentRunning && options.nowMs !== undefined) {
-    const startedAt =
-      fact?.startedAt ??
-      options.triggerRow?.createdAt ??
-      options.header?.startedAt ??
-      options.fallbackStartedAt;
+    const headerRunning = !options.header || options.header.state === "running";
+    // 运行中优先本段 trigger / header；已 sealed 的头不用旧 fact.startedAt，
+    // 否则下一轮发送后「已工作」会从上一轮的起点接着走。
+    const startedAt = headerRunning
+      ? (fact?.startedAt ??
+        options.triggerRow?.createdAt ??
+        options.header?.startedAt ??
+        options.fallbackStartedAt)
+      : options.triggerRow?.createdAt ??
+        (options.fallbackStartedAt !== undefined &&
+        options.header?.endedAt !== undefined &&
+        options.fallbackStartedAt > options.header.endedAt
+          ? options.fallbackStartedAt
+          : options.nowMs);
     if (startedAt !== undefined) {
       return Math.max(0, options.nowMs - startedAt);
     }

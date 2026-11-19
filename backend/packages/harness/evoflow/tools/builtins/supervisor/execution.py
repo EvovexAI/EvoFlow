@@ -12,7 +12,6 @@ import logging
 import os
 from typing import Any
 
-from langchain.tools import ToolRuntime
 from langgraph.config import get_stream_writer
 from langgraph.typing import ContextT
 
@@ -22,6 +21,7 @@ from evoflow.collab.step_runner import (
     claim_subtasks_for_delegation as _claim_subtasks_for_delegation,
     revert_claimed_subtasks_to_pending as _revert_claimed_subtasks_to_pending,
 )
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.timeutil import utc_now_iso_z
 
 logger = logging.getLogger(__name__)

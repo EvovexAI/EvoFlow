@@ -5,10 +5,11 @@ import logging
 from pathlib import Path
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 
 from evoflow.config.agents_config import list_all_agents
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 

@@ -174,10 +174,13 @@ export type DeptGroupTtsAgent = {
   [key: string]: unknown
 }
 
-/** 播报前去掉 @提及（含「@名字」整段），避免念出「艾特某某」；气泡原文不动。 */
+/**
+ * 播报前规范化 @提及：去掉「@」符号，但保留人名（要念出来）。
+ * 例：「@打投应援Bot 你接上」→「打投应援Bot 你接上」。气泡原文不动。
+ */
 export function stripAtMentionsForTts(text: string): string {
   return String(text || '')
-    .replace(/@\s*[^\s@，。！？；：、,.!?;:\n/）)】\]]+/g, ' ')
+    .replace(/@\s*([^\s@，。！？；：、,.!?;:\n/）)】\]]+)/g, '$1')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }

@@ -349,10 +349,71 @@ def register_skill_from_directory(
 
     if skills_root is None:
         skills_root = get_skills_root_path()
-    if _skill_name_already_installed(skill_name, skills_root=skills_root):
-        raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
 
     src_resolved = src.resolve()
+    if _skill_name_already_installed(skill_name, skills_root=skills_root):
+        # 同名技能已存在，分两种「其实已经装好了」的幂等情形处理（Agent 重试 /
+        # 面板重复点击都属正常），而不是一律报 already exists —— 那会让调用方
+        # 以为「装了但查不到」而去改数据库。
+        #
+        # 注意：**不能**只看 custom/<name> 槽位是否等于源目录就认定 bound 已注册。
+        # 技能正常放在 custom/<name> 时槽位天然等于源目录，但数据库里可能压根
+        # 没有 bound 行；那样直接返回 install_mode=bound 就是假成功（曾把一行
+        # 都没写的库报成 "already registered"）。所以先查注册表，按下表决定：
+        #   有 bound 行且指向本目录      → 幂等（bound）
+        #   无 bound 行但槽位就是本目录  → 幂等（copy，它已经在生效根里了）
+        #   其余（同名异地）             → 冲突
+        reg: dict = {}
+        try:
+            from evoflow.persistence import config_repositories as _cfg_repo
+
+            reg = _cfg_repo.get_skill_registry(skill_name) or {}
+        except Exception:
+            logger.debug("bound idempotency probe failed", exc_info=True)
+
+        meta = reg.get("meta") if isinstance(reg.get("meta"), dict) else {}
+        bound_path = str((meta or {}).get("bound_path") or "").strip()
+        if not bound_path:
+            # 旧行可能只有绝对 source_path 指向真实技能目录。
+            raw_src = str(reg.get("source_path") or "").strip()
+            try:
+                if raw_src and Path(raw_src).is_absolute():
+                    bound_path = raw_src
+            except OSError:
+                bound_path = ""
+        if bound_path:
+            try:
+                if Path(bound_path).resolve() == src_resolved:
+                    logger.info("Skill %r already registered in place at %s", skill_name, src_resolved)
+                    return {
+                        "success": True,
+                        "skill_name": skill_name,
+                        "message": f"Skill '{skill_name}' already registered at {src_resolved}",
+                        "install_mode": "bound",
+                        "bound_path": str(src_resolved),
+                        "linked_path": None,
+                        "already_installed": True,
+                    }
+            except OSError:
+                pass
+
+        target = skills_root / "custom" / skill_name
+        try:
+            if path_occupied(target) and target.resolve() == src_resolved:
+                logger.info("Skill %r already present in active root at %s", skill_name, target)
+                return {
+                    "success": True,
+                    "skill_name": skill_name,
+                    "message": f"Skill '{skill_name}' already present at {target}",
+                    "install_mode": "copy",
+                    "bound_path": None,
+                    "linked_path": None,
+                    "already_installed": True,
+                }
+        except OSError:
+            pass
+        raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
+
     try:
         skill_md = (src_resolved / "SKILL.md").read_text(encoding="utf-8")
     except OSError:
@@ -459,10 +520,31 @@ def install_skill_from_directory(
     custom_dir.mkdir(parents=True, exist_ok=True)
 
     target = custom_dir / skill_name
-    if path_occupied(target) or _skill_name_already_installed(skill_name, skills_root=skills_root):
+    src_resolved = src.resolve()
+    if path_occupied(target):
+        # 目标目录已存在。若源目录与目标就是同一处，说明这个技能早已安装在生效根，
+        # 「安装」这一步已经是过去式；此时幂等返回成功。之前这里一律抛
+        # "already exists"，调用方（Agent/面板）会陷入「install 说已存在、get 说
+        # 查不到」的死循环，只能去改数据库。
+        try:
+            same_dir = target.resolve() == src_resolved
+        except OSError:
+            same_dir = False
+        if same_dir:
+            logger.info("Skill %r already installed in place at %s", skill_name, target)
+            return {
+                "success": True,
+                "skill_name": skill_name,
+                "message": f"Skill '{skill_name}' already installed at {target}",
+                "install_mode": resolved_mode,
+                "bound_path": None,
+                "linked_path": None,
+                "already_installed": True,
+            }
+        raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
+    if _skill_name_already_installed(skill_name, skills_root=skills_root):
         raise SkillAlreadyExistsError(f"Skill '{skill_name}' already exists")
 
-    src_resolved = src.resolve()
     if resolved_mode == "link":
         link_skill_directory(src_resolved, target)
         logger.info("Skill %r linked from %s -> %s", skill_name, src_resolved, target)

@@ -16,7 +16,8 @@ UGREP_DEFAULT_ARGS = "-G --ignore-files --hidden -I --exclude-dir=.git --exclude
 
 BASH_DESCRIPTION = """Executes a bash command and returns its output.
 
-- Working directory persists between calls, but prefer absolute paths — `cd` in a compound command can trigger a permission prompt. Shell state (env vars, functions) does not persist across calls (each command runs in a fresh subshell; the host may reuse a warm bash process).
+- Working directory **persists between calls** (per thread): a `cd` you run now is where the next command starts. Every finished call also ends with a `cwd: <path>` line — read that instead of prefixing commands with `cd … &&`.
+  Shell state (env vars, functions) does not persist across calls (each command runs in a fresh subshell; the host may reuse a warm bash process).
 - IMPORTANT: Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.
 - `timeout` is in milliseconds: default 120000, max 600000. Short read-only probes (`git status`/`log`, `ls`, …) soft-cap at 30000 when timeout is omitted.
 - On Windows the shell is Git Bash (POSIX) when available — use `&&`, pipes, and `2>/dev/null`. Prefer `git -C 'path' …` over `cd && …`.
@@ -42,16 +43,21 @@ GREP_DESCRIPTION = """Content search built on ripgrep. Prefer this over `grep`/`
 - `output_mode`: "content" (matching lines), "files_with_matches" (paths only, default), or "count".
 - `multiline: true` for patterns that span lines."""
 
-TASK_OUTPUT_DESCRIPTION = """DEPRECATED: Background tasks return their output file path in the tool result, and you receive a <task-notification> with the same path when the task completes.
-- For bash tasks: prefer using the Read tool on that output file path — it contains stdout/stderr.
-- For local_agent tasks: use the Agent tool result directly. Do NOT Read the .output file — it is a symlink to the full subagent conversation transcript (JSONL) and will overflow your context window.
-- For remote_agent tasks: prefer using the Read tool on the output file path — it contains the streamed remote session output (same as bash).
+TASK_OUTPUT_DESCRIPTION = """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+任务完成后后台 bash 会**主动**返回输出文件路径（并在完成时发 <task-notification>）。
+优先用 Read 读那个文件，比轮询这个工具更快、更省：
+- bash 任务: 用 Read 读 output 文件路径 —— 内含 stdout/stderr。
+- local_agent 任务: 直接用 Agent 工具结果。**不要** Read .output —— 它是指向子 agent
+  完整对话记录（JSONL）的符号链接，会撑爆上下文。
+- remote_agent 任务: 用 Read 读 output 文件路径（同 bash）。
 
+需要主动取一次当前输出时用本工具（默认只等 5 秒，不阻塞对话）：
 - Retrieves output from a running or completed task (background shell, agent, or remote session)
 - Takes a task_id parameter identifying the task
 - Returns the task output along with status information
-- Use block=true (default) to wait for task completion
-- Use block=false for non-blocking check of current status
+- block=true (default) 会等一小段：默认 5000ms，且一旦有输出并静默 1.5s 就提前返回
+- block=false 立即返回当前状态
+- 真要长时间等完，显式传 timeout=600000（会阻塞对话，长任务请依赖完成通知）
 - Task IDs can be found using the /tasks command
 - Works with all task types: background shells, async agents, and remote sessions"""
 

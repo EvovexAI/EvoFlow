@@ -107,6 +107,20 @@ const runtimeStatusCache = new Map<
   { until: number; data: RuntimeStatusResponse | null }
 >()
 
+// 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+// 失败退避。现网实证：一个**已删除**会话的 UUID 被前台状态守卫轮询了
+// 4 小时 53 分、5,685 次全部 404（01:29:28→06:22:06，约 19 次/分钟），
+// 同期另一个 UUID 又重演 414 次；11:00 再来一轮 416 次。
+// 根因在下面的 catch 分支：失败时只 `return cached?.data ?? null`，
+// **什么都不写回缓存**，而三个轮询调用方（useSessionExecutionProbes /
+// useSessionChildWorks / v4-session-runtime-pane）都传 bypassCache:true，
+// 于是 4500ms 节流对它们完全无效 —— 20s 的定时器次次打到后端且永不降频。
+// 处理：失败也记一份短缓存，按 30s→60s→120s→300s 封顶退避；
+// bypassCache 不越过失败退避（数据没变，重试无意义），但成功即清零恢复。
+const RUNTIME_STATUS_FAIL_BASE_MS = 30_000
+const RUNTIME_STATUS_FAIL_MAX_MS = 300_000
+const runtimeStatusFailures = new Map<string, { count: number; until: number }>()
+
 function idleRuntimeStatusFallback(sessionKey: string): RuntimeStatusResponse {
   return {
     sessionKey,
@@ -142,6 +156,11 @@ export async function fetchSessionRuntimeStatus(
   if (!sk) return null
   const now = Date.now()
   const cached = runtimeStatusCache.get(sk)
+  // 失败退避优先于 bypassCache：会话已经 404 了，立刻重试只会再吃一个 404。
+  const fail = runtimeStatusFailures.get(sk)
+  if (fail && fail.until > now) {
+    return cached?.data ?? null
+  }
   if (!opts?.bypassCache && cached && cached.until > now) {
     return cached.data
   }
@@ -155,17 +174,35 @@ export async function fetchSessionRuntimeStatus(
       `/api/chat/sessions/${encodeURIComponent(sk)}${EXECUTION_STATE_PATH}`,
     )) as RuntimeStatusResponse & { ok?: boolean }
     const out = data?.ok === false ? null : data
+    runtimeStatusFailures.delete(sk)
     runtimeStatusCache.set(sk, { until: now + RUNTIME_STATUS_MIN_INTERVAL_MS, data: out })
     return out
   } catch {
+    // 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+    // 见文件上方 RUNTIME_STATUS_FAIL_* 注释：失败必须写回退避，否则 20s 定时器
+    // 会把一个已删除会话的 UUID 打 4 小时 53 分（现网 5,685 次 404 实证）。
+    const prevCount = runtimeStatusFailures.get(sk)?.count ?? 0
+    const count = Math.min(prevCount + 1, 8)
+    const backoff = Math.min(
+      RUNTIME_STATUS_FAIL_BASE_MS * 2 ** (count - 1),
+      RUNTIME_STATUS_FAIL_MAX_MS,
+    )
+    runtimeStatusFailures.set(sk, { count, until: now + backoff })
     return cached?.data ?? null
   }
 }
 
 export function invalidateSessionRuntimeStatusCache(sessionKey?: string): void {
   const sk = String(sessionKey || '').trim()
-  if (sk) runtimeStatusCache.delete(sk)
-  else runtimeStatusCache.clear()
+  if (sk) {
+    runtimeStatusCache.delete(sk)
+    // 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+    // 失效必须连退避一起清：否则会话刚被恢复/重建后，用户手动刷也要等满 300s。
+    runtimeStatusFailures.delete(sk)
+  } else {
+    runtimeStatusCache.clear()
+    runtimeStatusFailures.clear()
+  }
 }
 
 /** After user stop: seed idle so in-flight pollers skip backend LangGraph runs probe. */

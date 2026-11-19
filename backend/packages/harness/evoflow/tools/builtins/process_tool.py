@@ -16,10 +16,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 from pydantic import Field
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_workdir
 from evoflow.tools.minimal_schema import PROCESS_TOOL_DESCRIPTION
 from evoflow.utils.subprocess_platform import (

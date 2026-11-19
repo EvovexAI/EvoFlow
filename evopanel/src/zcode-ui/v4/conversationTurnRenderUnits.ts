@@ -154,6 +154,47 @@ function isVisibleConversationRow(row: ConversationRow): boolean {
   return isVisibleAssistantWorkRow(row);
 }
 
+/**
+ * 软顶 / late-mirror 偶发：同一 turnId 下 toolCall 的 rowId 落在 realUser 之前。
+ * flow 按 orderedRows 原序渲染 → 「已工作」跑到用户气泡上面（上下割裂）。
+ * 把首个可见 realUser 之前的工作行挪到该气泡之后，轻边界仍留在轮顶。
+ */
+export function normalizeOrderedRowsUserFirst(
+  rows: readonly ConversationRow[],
+): ConversationRow[] {
+  if (!Array.isArray(rows) || rows.length < 2) {
+    return Array.isArray(rows) ? [...rows] : [];
+  }
+  let firstUserIdx = -1;
+  for (let i = 0; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!isUserInputRow(row) || isHiddenProviderContextUserInput(row)) continue;
+    if (row.origin !== "realUser") continue;
+    if (!String(row.text || "").trim()) continue;
+    firstUserIdx = i;
+    break;
+  }
+  if (firstUserIdx <= 0) return [...rows];
+
+  const before = rows.slice(0, firstUserIdx);
+  const user = rows[firstUserIdx]!;
+  const after = rows.slice(firstUserIdx + 1);
+  const leadingBoundaries: ConversationRow[] = [];
+  const misplacedWork: ConversationRow[] = [];
+  for (const row of before) {
+    if (
+      row.kind === "timelineMarker" &&
+      (row as TimelineMarkerRow).lane === "lightBoundary"
+    ) {
+      leadingBoundaries.push(row);
+    } else {
+      misplacedWork.push(row);
+    }
+  }
+  if (misplacedWork.length === 0) return [...rows];
+  return [...leadingBoundaries, user, ...misplacedWork, ...after];
+}
+
 // 落位语义（lane）由 CLI 投影裁决下发（UI 不得按 marker type 自行推断）。
 // lane 缺省（不应发生）按 assistantWork 兜底——降级进折叠组，不丢行。
 function isTurnEndingTimelineMarkerRow(row: AssistantWorkRow): row is TimelineMarkerRow {
@@ -261,17 +302,22 @@ function resolveTurnRunning(
 
   // 末轮以宿主停止按钮（sessionBusy）为权威，避免：
   // - 停按钮灭了、turnHeader 仍 running → 左下角齿轮空转
-  // - 停按钮亮着、header 已 completed → 齿轮熄灭
+  // - 停按钮亮着、缺 header / header 仍 running → 齿轮熄灭
+  // 注意：不要把已 sealed 的末轮（completedSuccess）重新推成 running——
+  // 用户刚发送下一句时 sessionBusy 会先亮，若仍用旧 header.startedAt 算「已工作」，
+  // 计时会接着上一轮继续走，而不是从 0 起。
   if (isLastTurn && options.sessionBusy === false) {
     return false;
   }
-  if (
-    isLastTurn &&
-    options.sessionBusy === true &&
-    draft.header?.state !== "failed" &&
-    draft.header?.state !== "completedInterrupted"
-  ) {
-    return true;
+  if (isLastTurn && options.sessionBusy === true) {
+    const headerState = draft.header?.state;
+    if (headerState === "failed" || headerState === "completedInterrupted") {
+      return false;
+    }
+    if (!draft.header || headerState === "running") {
+      return true;
+    }
+    return false;
   }
 
   if (draft.header) {
@@ -300,6 +346,69 @@ function shouldForceOpenAbnormalHistory(
     return header.state === "completedInterrupted" || header.state === "failed";
   }
   return sessionPhase === "completedInterrupted" || sessionPhase === "error";
+}
+
+/** 与 gateway EMPTY_RUN_NOTICE_TEXT 同文案（仅识别/测试；勿在渲染层再注入）。 */
+export const EMPTY_RUN_NOTICE_TEXT =
+  "本轮未产出可见回复（空流或过早收尾）。若随后仍有模型输出，会继续挂在本轮；也可再发一条重试。";
+
+function isEmptyRunAssistantRow(row: ConversationRow): boolean {
+  if (row.kind !== "assistantText") return false;
+  const eid = String(row.entityId || "");
+  return eid.startsWith("empty-run-") && !eid.startsWith("empty-run-cleared-");
+}
+
+function draftHasRealAssistantWork(draft: DraftTurnRenderUnit): boolean {
+  return draft.assistantWorkRows.some((row) => {
+    if (isEmptyRunAssistantRow(row)) return false;
+    if (row.kind === "assistantText") return Boolean(String(row.text || "").trim());
+    return row.kind === "reasoning" || row.kind === "toolCall" || row.kind === "subagent";
+  });
+}
+
+/** 过早 FINISHED→占位→迟到正文：占位落盘后数秒内先不展示，避免闪一下。 */
+const EMPTY_RUN_UI_HIDE_MS = 3_000;
+
+function shouldHideEmptyRunRow(row: ConversationRow, nowMs: number): boolean {
+  if (!isEmptyRunAssistantRow(row)) return false;
+  const created = Number((row as AssistantTextRow).createdAt) || 0;
+  if (created > 0 && nowMs - created < EMPTY_RUN_UI_HIDE_MS) return true;
+  return false;
+}
+
+/**
+ * 重启/过早 FINISHED 常先落下 empty-run，随后对话续上——占位还挂着像「假空跑」。
+ * - 后方已有真实助手产出 → 撤掉前方空跑
+ * - 占位刚写入 <3s → 先藏住（真回复常在这窗口内到达）
+ */
+function stripStaleEmptyRunNotices(
+  drafts: readonly DraftTurnRenderUnit[],
+  nowMs: number,
+): DraftTurnRenderUnit[] {
+  let laterHasReal = false;
+  const out: DraftTurnRenderUnit[] = new Array(drafts.length);
+  for (let i = drafts.length - 1; i >= 0; i -= 1) {
+    const draft = drafts[i]!;
+    const drop = (row: ConversationRow) =>
+      isEmptyRunAssistantRow(row) &&
+      (laterHasReal || shouldHideEmptyRunRow(row, nowMs));
+    const keptWork = draft.assistantWorkRows.filter((row) => !drop(row));
+    const keptOrdered = draft.orderedRows.filter((row) => !drop(row));
+    if (
+      keptWork.length !== draft.assistantWorkRows.length ||
+      keptOrdered.length !== draft.orderedRows.length
+    ) {
+      out[i] = {
+        ...draft,
+        assistantWorkRows: keptWork,
+        orderedRows: keptOrdered,
+      };
+    } else {
+      out[i] = draft;
+    }
+    if (draftHasRealAssistantWork(out[i]!)) laterHasReal = true;
+  }
+  return out;
 }
 
 function materializeDraftUnit(
@@ -386,10 +495,12 @@ function materializeDraftUnit(
     isInterrupted,
   );
   const browserTurnEndRowIds = new Set(browserTurnEndRows.map((row) => row.rowId));
-  const orderedBodyRows = visibleOrderedRows.filter(
-    // main 的 workSegments 会从 orderedRows 重建 flow；如果这里只从
-    // bodyRows 抽取截图，它仍会被塞回正文流并在轮尾再次渲染，造成重复和顺序错乱。
-    (row) => !leadingBoundaryRowIds.has(row.rowId) && !browserTurnEndRowIds.has(row.rowId),
+  const orderedBodyRows = normalizeOrderedRowsUserFirst(
+    visibleOrderedRows.filter(
+      // main 的 workSegments 会从 orderedRows 重建 flow；如果这里只从
+      // bodyRows 抽取截图，它仍会被塞回正文流并在轮尾再次渲染，造成重复和顺序错乱。
+      (row) => !leadingBoundaryRowIds.has(row.rowId) && !browserTurnEndRowIds.has(row.rowId),
+    ),
   );
   const workSegments = buildConversationTurnWorkSegments({
     key: draft.key,
@@ -554,8 +665,9 @@ export function buildConversationTurnRenderUnits(
     unit.assistantWorkRows.push(row);
   }
 
-  const materializedUnits = units.map((unit, index) =>
-    materializeDraftUnit(unit, index, units.length, options),
+  const drafts = stripStaleEmptyRunNotices(units, options.nowMs ?? Date.now());
+  const materializedUnits = drafts.map((unit, index) =>
+    materializeDraftUnit(unit, index, drafts.length, options),
   );
   const keptUnits = materializedUnits.filter(shouldKeepRenderUnit);
   return keptUnits.map((unit, index) =>

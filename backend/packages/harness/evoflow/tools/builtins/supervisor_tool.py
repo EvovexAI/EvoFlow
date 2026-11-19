@@ -16,7 +16,7 @@ import logging
 from pathlib import Path
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.config import get_stream_writer
 from langgraph.typing import ContextT
 from pydantic import ValidationError
@@ -42,6 +42,7 @@ from evoflow.collab.thread_collab import (
     save_thread_collab_state,
 )
 from evoflow.config.paths import get_paths
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.subagents import get_available_subagent_names  # re-export for tests/monkeypatching
 from evoflow.timeutil import utc_now_iso_z
 

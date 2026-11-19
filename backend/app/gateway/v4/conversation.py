@@ -54,7 +54,7 @@ V4_WIRE_PROTOCOL_VERSION = 3
 #
 # Priority gate: user open (intent=open) jumps ahead of prefetch/hover warm
 # so "two chats running → click another stuck connecting" stops being FIFO.
-_hydrate_gate: "_HydratePriorityGate | None" = None
+_hydrate_gate: _HydratePriorityGate | None = None
 
 
 def _hydrate_concurrency_limit() -> int:
@@ -125,7 +125,7 @@ class _hydrate_slot:
         self._high = high_priority
         self._gate = _get_hydrate_gate()
 
-    async def __aenter__(self) -> "_hydrate_slot":
+    async def __aenter__(self) -> _hydrate_slot:
         await self._gate.acquire(high_priority=self._high)
         return self
 
@@ -593,12 +593,12 @@ class V4ConversationHub:
         if not tid or tid.startswith("v4-"):
             return {"ok": False, "changed": False, "reason": "bad-session-id"}
         try:
+            from app.gateway.v4.agui_mirror import mirror_thread_is_live
             from app.gateway.v4.hydration import (
                 force_rehydrate_session_from_transcript,
                 read_run_status_row,
                 transcript_fingerprint_for_thread,
             )
-            from app.gateway.v4.agui_mirror import mirror_thread_is_live
         except Exception as exc:
             logger.exception("[v4.catchup] import failed session=%s", tid)
             return {"ok": False, "changed": False, "reason": str(exc)}
@@ -1698,10 +1698,23 @@ class V4ConversationHub:
         return False
 
     def _build_snapshot(self, sess: _SessionState) -> dict[str, Any]:
+        # warm hub 上历史孤儿头（userInput 被挂走仍自称 origin=userInput）在出快照前降级，
+        # 否则订阅/切回仍见 !NO_USER / 左栏劈开。
+        try:
+            from app.gateway.v4.agui_mirror import mirror_heal_orphan_user_input_headers
+
+            mirror_heal_orphan_user_input_headers(str(sess.session_id or ""))
+        except Exception:
+            logger.exception(
+                "[v4.snapshot] heal orphan userInput headers failed session=%s",
+                sess.session_id,
+            )
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
         # 流式进行中：尾窗截断会把本轮 userInput 挤出；多会话切回时只剩工具/助手尾巴，
         # 用户气泡「没了」但 AI 还在回（2026-11-15 实锤）。live 时把本轮锚点钉进窗口。
-        window = self._snapshot_tail_window(rows, pin_live_turn=self._session_turn_is_live(sess))
+        # 另：control 瞬态未标 running 但行上仍有 streaming/running 时也必须钉。
+        pin_live = self._session_turn_is_live(sess) or self._rows_have_inflight(rows)
+        window = self._snapshot_tail_window(rows, pin_live_turn=pin_live)
         return {
             "protocolVersion": 1,
             "sessionId": sess.session_id,
@@ -1796,11 +1809,92 @@ class V4ConversationHub:
         return start
 
     @staticmethod
-    def _live_turn_span(rows: list[dict[str, Any]]) -> tuple[int, int] | None:
-        """Latest non-empty realUser 的 (turnStartIdx, userIdx)。
+    def _row_is_inflight(row: dict[str, Any] | None) -> bool:
+        if not row:
+            return False
+        kind = str(row.get("kind") or "")
+        if kind == "turnHeader":
+            state = str(row.get("state") or "")
+            return state == "running" or state.startswith("running")
+        if kind in ("assistantText", "reasoning"):
+            return str(row.get("state") or "") == "streaming"
+        if kind == "toolCall":
+            status = str(row.get("status") or "")
+            return status in {
+                "inputStreaming",
+                "running",
+                "pendingApproval",
+                "awaitingInput",
+                "pending",
+                "executing",
+            }
+        if kind == "subagent":
+            status = str(row.get("status") or "")
+            return status in {"running", "streaming"}
+        return False
 
-        turnStart = 该 turnId 的首行（含 turnHeader，也兼容 userInput 先于 header 的颠倒序）。
+    @staticmethod
+    def _rows_have_inflight(rows: list[dict[str, Any]]) -> bool:
+        return any(V4ConversationHub._row_is_inflight(r) for r in rows)
+
+    @staticmethod
+    def _turn_start_index(rows: list[dict[str, Any]], idx: int) -> int:
+        if idx < 0 or idx >= len(rows):
+            return max(0, idx)
+        turn_id = str(rows[idx].get("turnId") or "").strip()
+        if turn_id:
+            for i, row in enumerate(rows):
+                if i > idx:
+                    break
+                if str(row.get("turnId") or "").strip() == turn_id:
+                    return i
+        if idx > 0 and str(rows[idx - 1].get("kind") or "") == "turnHeader":
+            return idx - 1
+        if str(rows[idx].get("kind") or "") == "turnHeader":
+            return idx
+        return idx
+
+    @staticmethod
+    def _live_turn_span(rows: list[dict[str, Any]]) -> tuple[int, int] | None:
+        """直播锚点 (turnStartIdx, userIdx)。
+
+        优先仍有 in-flight / running 头的最早一轮，避免工具洪峰时改钉到后发的
+        已完成问、把正在跑的用户气泡挤出 snapshot。
+        否则退回最新非空 realUser。
         """
+        earliest_inflight: int | None = None
+        for i, row in enumerate(rows):
+            if V4ConversationHub._row_is_inflight(row):
+                earliest_inflight = i
+                break
+        if earliest_inflight is not None:
+            turn_start = V4ConversationHub._turn_start_index(rows, earliest_inflight)
+            turn_id = str(rows[turn_start].get("turnId") or "").strip()
+            turn_end = len(rows)
+            if turn_id:
+                for i in range(turn_start + 1, len(rows)):
+                    if str(rows[i].get("turnId") or "").strip() != turn_id:
+                        turn_end = i
+                        break
+            user_idx = turn_start
+            found_user = False
+            for i in range(turn_start, turn_end):
+                row = rows[i]
+                if str(row.get("kind") or "") != "userInput":
+                    continue
+                if str(row.get("origin") or "") != "realUser":
+                    continue
+                if not str(row.get("text") or "").strip():
+                    continue
+                user_idx = i
+                found_user = True
+            if not found_user:
+                for i in range(turn_start, turn_end):
+                    if str(rows[i].get("kind") or "") == "userInput":
+                        user_idx = i
+                        break
+            return turn_start, user_idx
+
         last_ui_idx: int | None = None
         for i in range(len(rows) - 1, -1, -1):
             if str(rows[i].get("kind") or "") != "userInput":
@@ -1813,16 +1907,7 @@ class V4ConversationHub:
             break
         if last_ui_idx is None:
             return None
-        turn_id = str(rows[last_ui_idx].get("turnId") or "").strip()
-        turn_start = last_ui_idx
-        if turn_id:
-            for i, row in enumerate(rows):
-                if str(row.get("turnId") or "").strip() == turn_id:
-                    turn_start = i
-                    break
-        elif last_ui_idx > 0 and str(rows[last_ui_idx - 1].get("kind") or "") == "turnHeader":
-            turn_start = last_ui_idx - 1
-        return turn_start, last_ui_idx
+        return V4ConversationHub._turn_start_index(rows, last_ui_idx), last_ui_idx
 
     @staticmethod
     def _pin_live_turn_into_window(
@@ -1831,7 +1916,7 @@ class V4ConversationHub:
         *,
         soft_cap: int,
     ) -> list[dict[str, Any]]:
-        """软顶裁掉直播轮时：保住 turnHeader+user+轮尾，避免已流出正文蒸发。"""
+        """软顶裁掉直播轮时：保住 turnHeader+user+in-flight+轮尾，避免已流出正文蒸发。"""
         span = V4ConversationHub._live_turn_span(rows)
         if span is None:
             return window
@@ -1844,12 +1929,26 @@ class V4ConversationHub:
         if len(live_turn) <= cap:
             older_budget = max(0, cap - len(live_turn))
             older_start = max(0, turn_start - older_budget)
+            # 对齐到 turnHeader，禁止 older 从 mid-tool 起刀（会丢上一问用户气泡）
+            older_start = V4ConversationHub._align_snapshot_window_start(rows, older_start)
+            if older_start > turn_start:
+                older_start = turn_start
             return rows[older_start:]
         head = rows[turn_start : user_idx + 1]
         after_user = rows[user_idx + 1 :]
-        tail_budget = max(0, cap - len(head))
-        tail = after_user[-tail_budget:] if tail_budget else []
-        return [*head, *tail]
+        inflight = [r for r in after_user if V4ConversationHub._row_is_inflight(r)]
+        inflight_ids = {int(r.get("rowId") or 0) for r in inflight}
+        settled = [r for r in after_user if int(r.get("rowId") or 0) not in inflight_ids]
+        reserved = len(head) + len(inflight)
+        if reserved >= cap:
+            # in-flight 本身顶满：保头 + in-flight（可略超 cap，优先可见性）
+            return [*head, *inflight]
+        tail_budget = max(0, cap - reserved)
+        tail = settled[-tail_budget:] if tail_budget else []
+        keep_ids = {
+            int(r.get("rowId") or 0) for r in (*head, *inflight, *tail)
+        }
+        return [r for r in live_turn if int(r.get("rowId") or 0) in keep_ids]
 
     @staticmethod
     def _snapshot_tail_window(

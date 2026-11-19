@@ -102,6 +102,75 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
     // ZCode 对齐：轮询 /api/cua/glow-status，电脑控制时顶栏「正在操作电脑」。
     // 不依赖 panel-stream / AG-UI（V4 下更稳）；日志进 plugin-control.log [cua-glow]。
     void import('../../../lib/cua-glow-poll.js').then((m) => m.startCuaGlowStatusPoll())
+
+    // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    // 提示条上的「解除控制」→ Rust emit cua-glow-user-stop → 这里真正停掉会话。
+    // 为什么在这里接：提示条是独立 webview，拿不到主窗口的会话上下文；
+    // 主窗口是唯一知道 sessionKey 的地方，停止链路也在这里现成可用。
+    let detachCuaStop = () => {}
+    void (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        const { gatewayProxy } = await import('../../../lib/tauri-api.js')
+        const un = await listen('cua-glow-user-stop', () => {
+          void (async () => {
+            try {
+              // 先读状态拿 session_key：多会话并行时不能凭猜停错人。
+              // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+              // 这里原来读 thread_id 当 sessionKey 用 —— 那是 LangGraph 的 UUID
+              // （ae5615a4-…），而 chatAbort / execution/stop 只认 session_key
+              // （agent:main:new-…）。实测库里两者格式完全不同，所以旧代码点了
+              // 「解除控制」其实停不掉任何会话（用户只看到指示器消失）。
+              const st = await gatewayProxy('GET', '/cua/glow-status', null, null, {
+                silent: true,
+                skipRetry: true,
+                skipDedup: true,
+                __probe__: true,
+              })
+              const sk = String(st?.session_key || '').trim()
+              if (!sk) {
+                // 【self-evolution-bot · 2026-11-19 · 第72轮】原来是直接 return ——
+                // 状态里读不到 session_key 时按钮**完全没反应**（用户点了以为坏了）。
+                // 收回控制权不该依赖会话标识：拿不到就按全局收回，宁可多拦一层。
+                // 代价：全局收回后不会按「新消息」自动恢复（没有 seq 水位可比），
+                // 由用户下一次点按钮之外的动作或重启状态复位 —— 但这比点了没反应好。
+                console.warn('[cua-glow] user-stop: no session_key, revoking globally')
+              }
+              // 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
+              // 用户原话纠正（上一轮我接错了）：「这个停止只是停止电脑控制，
+              // 并不是停止AI啊。只是电脑控制这个插件，当前是取消电脑控制了」。
+              //
+              // 所以这里**不能**调 stopSessionExecution / chatAbort —— 那是掐整个
+              // LangGraph run，AI 这一轮的回答会被硬切断，跟按钮语义完全不符。
+              // 正确做法：只调 /cua/control/revoke，收回电脑操作权；
+              // 后端拦住后续 CUA 调用并把原因告诉模型，AI 该继续答就继续答。
+              await gatewayProxy('POST', '/cua/control/revoke', { session_key: sk }, null, {
+                silent: true,
+                skipRetry: true,
+                skipDedup: true,
+                __probe__: true,
+              })
+              console.info(`[cua-glow] control revoked session=${sk} (AI 回合未停止)`);
+            } catch (err) {
+              console.warn(`[cua-glow] user-stop failed: ${String(err?.message || err)}`)
+            } finally {
+              // 无论停止是否成功，指示器必须立刻消失（用户点了就得有反馈）。
+              const mod = await import('../../../lib/cua-glow-poll.js').catch(() => null)
+              await mod?.clearCuaGlowStatusRemote?.()
+            }
+          })()
+        })
+        detachCuaStop = () => {
+          try {
+            un()
+          } catch {
+            /* ignore */
+          }
+        }
+      } catch (err) {
+        console.warn(`[cua-glow] user-stop listen failed: ${String(err?.message || err)}`)
+      }
+    })()
     
     // 监听会话名称更新事件
     const onNameUpdate = (ev?: Event) => {
@@ -222,6 +291,8 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
     return () => {
       shellPanelCancelled = true
       u1()
+      // 【self-evolution-bot · 2026-11-19 · 第68轮】摘掉提示条「解除控制」监听，避免热更/卸载后残留。
+      detachCuaStop()
       document.removeEventListener('visibilitychange', onShellPanelVisibility)
       disconnectShellPanel()
       window.removeEventListener('session-name-updated', onNameUpdate)
