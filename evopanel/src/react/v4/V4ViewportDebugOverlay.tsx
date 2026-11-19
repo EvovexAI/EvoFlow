@@ -1031,7 +1031,9 @@ function buildOverlayDiagnosticText(opts: {
     lines.push("- （无）");
   } else {
     for (const e of recentStream) {
-      lines.push(`- #${e.id} ${e.headline}`);
+      lines.push(
+        `- #${e.id} ${e.kindLabel || "?"} ${e.summary || e.headline}`,
+      );
     }
   }
 
@@ -1205,6 +1207,8 @@ function buildViewportAnomalies(input: {
       atMs: e.atMs,
       channel: e.channel,
       sessionId: e.sessionId,
+      kindLabel: e.kindLabel,
+      summary: e.summary,
       headline: e.headline,
       jsonText: e.jsonText,
     })),
@@ -2132,7 +2136,9 @@ export function V4ViewportDebugOverlay() {
                         fontSize: 11,
                       }}
                     >
-                      <span>最新在底 · 一行看清 思考/正文/工具+内容 · 点开 JSON</span>
+                      <span>
+                        最新在底 · 序号+时间+类型+摘要 · 点开才看 JSON
+                      </span>
                       <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
                         <button
                           type="button"
@@ -2169,42 +2175,54 @@ export function V4ViewportDebugOverlay() {
                         flex: 1,
                         minHeight: 120,
                         overflow: "auto",
-                        padding: "4px 6px 8px",
-                        fontSize: 11,
+                        padding: "8px 10px 12px",
+                        fontSize: 12,
                         color: "#ede9fe",
+                        lineHeight: 1.45,
                       }}
                     >
                       {streamEntries.length === 0 ? (
                         <div style={{ color: "#a78bfa", padding: 8 }}>
-                          尚无流式帧。发消息后这里贴底显示最新 AG-UI / V4 JSON。
+                          尚无流式帧。发消息后这里贴底显示最新 AG-UI / V4 摘要。
                         </div>
                       ) : (
                         streamEntries.map((entry, idx) => {
                           const newest = idx >= streamEntries.length - 2;
                           // 默认只看摘要；点开才展开 JSON，避免刷屏
                           const open = expandedStreamId === entry.id;
-                          const time = new Date(entry.atMs).toLocaleTimeString(
-                            "zh-CN",
-                            {
-                              hour12: false,
-                              hour: "2-digit",
-                              minute: "2-digit",
-                              second: "2-digit",
-                            },
-                          );
+                          const d = new Date(entry.atMs);
+                          const time = `${d.toLocaleTimeString("zh-CN", {
+                            hour12: false,
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          })}.${String(entry.atMs % 1000).padStart(3, "0")}`;
+                          const kind = entry.kindLabel || "其它";
+                          const kindColor =
+                            kind === "用户"
+                              ? "#86efac"
+                              : kind === "正文"
+                                ? "#93c5fd"
+                                : kind === "思考"
+                                  ? "#c4b5fd"
+                                  : kind === "工具"
+                                    ? "#fcd34d"
+                                    : kind === "开跑" || kind === "收尾"
+                                      ? "#67e8f9"
+                                      : "#e2e8f0";
                           return (
                             <div
                               key={entry.id}
                               style={{
-                                marginBottom: 8,
-                                padding: "6px 8px",
-                                borderRadius: 6,
+                                marginBottom: 10,
+                                padding: "10px 12px",
+                                borderRadius: 8,
                                 border: newest
                                   ? "1px solid rgba(196,181,253,0.55)"
-                                  : "1px solid rgba(148,163,184,0.22)",
+                                  : "1px solid rgba(148,163,184,0.28)",
                                 background: newest
                                   ? "rgba(91, 33, 182, 0.28)"
-                                  : "rgba(15,23,42,0.35)",
+                                  : "rgba(15,23,42,0.45)",
                               }}
                             >
                               <button
@@ -2217,24 +2235,71 @@ export function V4ViewportDebugOverlay() {
                                 style={{
                                   all: "unset",
                                   cursor: "pointer",
-                                  display: "block",
+                                  display: "flex",
+                                  flexDirection: "column",
+                                  gap: 6,
                                   width: "100%",
                                   boxSizing: "border-box",
-                                  color: newest ? "#f5f3ff" : "#c4b5fd",
-                                  ...tapLineStyle,
+                                  color: newest ? "#f5f3ff" : "#ddd6fe",
                                 }}
                               >
-                                {open ? "▼" : "▶"} #{entry.id} {time}
-                                {"\n"}
-                                {entry.headline}
+                                <div
+                                  style={{
+                                    display: "flex",
+                                    alignItems: "baseline",
+                                    gap: 12,
+                                    flexWrap: "wrap",
+                                  }}
+                                >
+                                  <span style={{ color: "#a78bfa" }}>
+                                    {open ? "▼" : "▶"}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: "#f8fafc",
+                                      fontWeight: 700,
+                                      fontSize: 14,
+                                      letterSpacing: 0.2,
+                                    }}
+                                  >
+                                    #{entry.id}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: "#94a3b8",
+                                      fontSize: 12,
+                                    }}
+                                  >
+                                    {time}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: kindColor,
+                                      fontWeight: 700,
+                                      fontSize: 13,
+                                    }}
+                                  >
+                                    {kind}
+                                  </span>
+                                </div>
+                                <div
+                                  style={{
+                                    ...tapLineStyle,
+                                    paddingLeft: 22,
+                                    fontSize: 13,
+                                    color: newest ? "#faf5ff" : "#e9d5ff",
+                                  }}
+                                >
+                                  {entry.summary || entry.headline}
+                                </div>
                               </button>
                               {open ? (
-                                <div style={{ marginTop: 6 }}>
+                                <div style={{ marginTop: 10 }}>
                                   <div
                                     style={{
                                       color: "#a78bfa",
-                                      fontSize: 10,
-                                      marginBottom: 2,
+                                      fontSize: 11,
+                                      marginBottom: 4,
                                     }}
                                   >
                                     JSON · {entry.channel}/{entry.type}
