@@ -506,3 +506,120 @@ def test_settings_list_models_hoists_shared_config_without_losing_variance():
     # 差异项必须在条目上，不许被 sharedConfig 顶掉
     kept = sum(1 for s in slim["models"] if any(k in s for k in shape))
     assert kept > 0, "少数派差异值被吞了（应留在各自条目上）"
+
+
+def test_settings_list_models_note_matches_actually_omitted_keys():
+    """note 里列举的键必须与实际提出去的键逐字一致。
+
+    反证价值（真调撞出来的）：我第一版把 note 写死成「已省去 thinking /
+    when_thinking_enabled / use」，而 when_thinking_enabled 只占 25/43（低于阈值）
+    根本没提走，43 条里全都在——固定文案随数据漂移就成了假话。
+    """
+    import re
+
+    from evoflow.admin.platform_handlers import settings_list_models
+
+    out = settings_list_models({})
+    note = out.get("note") or ""
+    omitted = out.get("configOmitted") or []
+
+    m = re.search(r"实例化开关（([^）]*)）", note)
+    listed = [x.strip() for x in m.group(1).split("/")] if m else []
+    assert listed == omitted, f"文案列举 {listed} ≠ 实际提出 {omitted}"
+
+    # 反向：被声称「省去」的键，不许在全量条目上都还在
+    for key in listed:
+        still = sum(1 for row in out["models"] if key in row)
+        assert still < len(out["models"]), f"{key} 被声称省去，但 {still}/{len(out['models'])} 条都还在"
+
+    # 没有可省的东西时不许说「已省去」
+    if not omitted:
+        assert "已省去" not in note, "没省任何键却说省了"
+
+    # 少数派保留：仍带该键的条目，其值不许等于 sharedConfig 的共同值（那等于没省）
+    import json as _json
+
+    for key in listed:
+        shared_val = _json.dumps((out.get("sharedConfig") or {}).get(key), sort_keys=True, default=str)
+        redundant = [
+            i
+            for i, row in enumerate(out["models"])
+            if key in row and _json.dumps(row[key], sort_keys=True, default=str) == shared_val
+        ]
+        assert not redundant, f"{key} 有 {len(redundant)} 条与 sharedConfig 重复，等于没省"
+
+
+def test_automation_list_hoists_universal_fields_without_losing_variance():
+    """`automation.list` 只把「每条都存在且取值完全一致」的字段提走。
+
+    反证价值：现网 23 条里 description 是同一句话重复 23 次（1633 B），
+    kind/managed_by/schedule_type/langgraph_thread_mode 各仅 1 种取值。
+    但 status 是 22 paused + 1 active —— 这种有差异的字段绝不能提走。
+    """
+    import json as _json
+
+    from evoflow.admin.platform_handlers import automation_list
+
+    slim = automation_list({})
+    full = automation_list({"full": True})
+
+    rows = full["automations"]
+    if len(rows) < 2:
+        pytest.skip("自动化条目过少，本去重不适用")
+
+    omitted = slim.get("defaultsOmitted") or []
+    shared = slim.get("sharedDefaults") or {}
+
+    for key in omitted:
+        assert key in shared, f"{key} 声明省去却没有共同值"
+        # 前提校验：确实每条都有且取值一致，否则不该提
+        values = {
+            _json.dumps(r.get(key), sort_keys=True, default=str) for r in rows if key in r
+        }
+        assert len(values) == 1, f"{key} 取值不一致却被提走"
+        assert all(key in r for r in rows), f"{key} 并非每条都有却被提走"
+
+    # 有差异的字段必须留在条目上
+    for key in ("status", "id", "name"):
+        if key in rows[0]:
+            assert any(key in s for s in slim["automations"]), f"{key} 被误提走"
+
+    # 还原校验
+    bad = []
+    for o, s in zip(rows, slim["automations"]):
+        merged = dict(s)
+        for k, v in shared.items():
+            merged.setdefault(k, v)
+        if _json.dumps(merged, sort_keys=True, default=str) != _json.dumps(
+            o, sort_keys=True, default=str
+        ):
+            bad.append(o.get("id"))
+    assert not bad, f"还原后与 full 不一致: {bad[:5]}"
+
+    slim_b = len(_json.dumps(slim, ensure_ascii=False, default=str).encode())
+    full_b = len(_json.dumps(full, ensure_ascii=False, default=str).encode())
+    assert slim_b < full_b, f"没有减重 slim={slim_b} full={full_b}"
+
+    # 文案点名集合 == 实际动作集合（第62轮踩过的坑）
+    note = slim.get("note") or ""
+    assert all(key in note for key in omitted), "note 没点名实际省去的字段"
+    assert "when_thinking_enabled" not in note
+
+
+def test_workflow_list_reports_has_more_instead_of_silent_truncation():
+    """`workflow.list` 必须显式告知还有没有更多，而不是静默截断。
+
+    反证价值：原来返回只有 count（=本页条数）与 limit，超过 limit 时
+    调用方完全看不出被截断——与已修的 skills.list 静默忽略 limit 同类。
+    """
+    from evoflow.admin.platform_handlers import workflow_list
+
+    out = workflow_list({"limit": 1})
+    assert "has_more" in out, "没有 has_more，仍无法判断是否被截断"
+    assert out["has_more"] is True, "limit=1 却报没有再多的了"
+    assert len(out["items"]) == 1, "limit=1 没有真截断"
+
+    wide = workflow_list({"limit": 100})
+    assert "has_more" in wide
+    if len(wide["items"]) >= 100:
+        assert wide["has_more"] is True

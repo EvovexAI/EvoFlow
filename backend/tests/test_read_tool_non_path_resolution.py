@@ -110,3 +110,51 @@ def test_resolver_really_returns_path_for_normal_input():
     resolved = RF._resolve_read_target(str(hero), runtime=_runtime())
     assert isinstance(resolved, Path), type(resolved)
     assert resolved.is_file()
+
+
+# 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+# 下面两条补的是第52/67轮真正找到的**根因**，不是再补一层防线。
+#
+# 缺陷：`_resolve_read_target` 的**相对路径分支**在 `if not target.is_file():` 块内
+# 每条路径都 return 了错误串，块外却漏了 `return target`。于是「相对路径 + 文件
+# 确实存在」这个最常见的**成功**情况一路掉到函数末尾，隐式返回 None，上游报
+# ``could not resolve path 'AGENTS.md' to a file (resolver returned NoneType)``。
+#
+# 为什么直到今天才抓到：本文件原有的三条测试**全部只用绝对路径**
+# （`str(hero)` / monkeypatch 直接替换解析器），相对路径分支零覆盖，
+# 所以「存在却返回 None」这个 bug 在 10 条绿色测试下活了下来。
+# 判据必须是「相对路径指向真实存在的文件 → 必须返回 Path 且该 Path 是文件」，
+# 把返回值类型和 is_file 一起断言，单看类型会被 `return root`（返回目录）蒙过去。
+
+
+def test_relative_path_to_existing_file_returns_path_not_none(tmp_path, monkeypatch):
+    """相对路径 + 文件存在 → 必须返回 Path（回归：曾漏 return 返回 None）。"""
+    (tmp_path / "sub").mkdir()
+    target = tmp_path / "sub" / "note.txt"
+    target.write_text("hello\n", encoding="utf-8")
+
+    # 无工作区绑定时走 ``(Path.cwd() / expanded).resolve()`` 分支，
+    # 把 cwd 固定到 tmp_path，让相对路径 `sub/note.txt` 真实存在。
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(RF, "resolve_tool_workspace_root", lambda **k: ("", None))
+
+    resolved = RF._resolve_read_target("sub/note.txt", runtime=_runtime())
+    assert resolved is not None, "相对路径成功分支又一次返回了 None"
+    assert isinstance(resolved, Path), type(resolved)
+    assert resolved.is_file(), resolved
+    assert resolved.read_text(encoding="utf-8") == "hello\n"
+
+
+def test_relative_path_under_workspace_root_returns_path(tmp_path, monkeypatch):
+    """绑定工作区根分支同样要返回 Path（成功路径不能只回显错误）。"""
+    root = tmp_path / "ws"
+    root.mkdir()
+    target = root / "doc.md"
+    target.write_text("body\n", encoding="utf-8")
+
+    monkeypatch.setattr(RF, "resolve_tool_workspace_root", lambda **k: (str(root), "tid"))
+
+    resolved = RF._resolve_read_target("doc.md", runtime=_runtime())
+    assert resolved is not None, "工作区根分支返回了 None"
+    assert isinstance(resolved, Path), type(resolved)
+    assert resolved.is_file(), resolved

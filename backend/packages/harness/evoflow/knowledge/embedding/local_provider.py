@@ -56,6 +56,36 @@ _MISSING_ST_HINT = "本地向量运行时未包含在当前安装包中（默认
 
 _LEAN_LOCAL_UNAVAILABLE_REASON = "本地向量模型不可用：当前桌面版未捆绑 sentence-transformers / torch。请改用云端向量模型（设置 → 模型）。"
 
+_WIN32_INPROCESS_BLOCK_MSG = (
+    "Windows Gateway 禁止进程内加载本地向量模型"
+    "（sentence_transformers→sklearn→scipy 冷导入会卡死界面约 1~2 分钟）。"
+    "请改用云端向量模型；若必须本地加载，设 EVOFLOW_EMBEDDING_WARMUP=1（仍有卡顿风险）。"
+)
+
+
+def _env_flag_on(name: str) -> bool:
+    return (os.environ.get(name) or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def inprocess_local_embed_allowed() -> bool:
+    """False on Windows Gateway unless explicitly enabled.
+
+    Importing ``sentence_transformers`` in the Gateway process holds the GIL for
+    tens of seconds; ``asyncio.wait_for`` cannot cancel that thread
+    （2026-11-19 15:03: ``/api/models/embedding-probe`` → event_loop_stall 132s）。
+
+    Code-index ``build_worker`` subprocess sets ``EVOFLOW_CODE_INDEX_BUILD_WORKER=1``
+    so local embed still works out-of-process. Opt-in for Gateway itself:
+    ``EVOFLOW_EMBEDDING_WARMUP=1``（仍有卡顿风险）.
+    """
+    if _env_flag_on("EVOFLOW_CODE_INDEX_BUILD_WORKER"):
+        return True
+    if _env_flag_on("EVOFLOW_EMBEDDING_WARMUP"):
+        return True
+    if sys.platform == "win32":
+        return False
+    return True
+
 
 def probe_local_embedding_deps() -> str | None:
     """Return ``None`` when local embedding deps import cleanly.
@@ -301,6 +331,8 @@ async def _load_model(model_id: str, device: str) -> object:
     """Load (or return cached) SentenceTransformer model — lazy + singleton."""
     if model_id in _model_cache:
         return _model_cache[model_id]
+    if not inprocess_local_embed_allowed():
+        raise EmbeddingError(_WIN32_INPROCESS_BLOCK_MSG)
 
     def _build() -> object:
         try:
@@ -332,6 +364,8 @@ def _load_model_sync(model_id: str, device: str) -> object:
     """
     if model_id in _model_cache:
         return _model_cache[model_id]
+    if not inprocess_local_embed_allowed():
+        raise EmbeddingError(_WIN32_INPROCESS_BLOCK_MSG)
 
     try:
         from sentence_transformers import SentenceTransformer  # noqa: F401

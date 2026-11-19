@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 try:
@@ -20,7 +21,9 @@ except ImportError:
 from langchain.agents import AgentState
 from langchain.agents.middleware import AgentMiddleware
 from langchain_core.messages import AIMessage, ToolMessage
+from langgraph.prebuilt.tool_node import ToolCallRequest
 from langgraph.runtime import Runtime
+from langgraph.types import Command
 
 from evoflow.tools.arg_coerce import coerce_plan_tool_call_args, parse_loose_json_object
 
@@ -176,6 +179,56 @@ def _try_repair_invalid_plan_call(inv: object) -> dict[str, object] | None:
     return {"id": tc_id, "name": "plan", "args": coerced, "type": "tool_call"}
 
 
+# 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+# 模型幻觉工具名 → 本仓真实工具名。模型训练语料里通用 agent 的叫法（read_file /
+# edit / str_replace …）与本仓目录（read / replace / write …）不一致，于是它按习惯
+# 发一个不存在的名字。框架只回原文「X is not a valid tool, try one of [...]」，
+# 不带「你其实想用哪个」，调用方只能自己从清单里猜——又是一步白绕。
+#
+# 现网实证（近 7 天 obs）：`read_file` 24 次（100% 失败）、`Read` 1、`edit` 1、
+# `edit_file` 1（最后一次 2026-11-19 13:12，就在本轮之前）。
+# 判据：命中别名表时，错误里必须**直接写出应该用的工具名**，而不是罗列清单。
+_HALLUCINATED_TOOL_ALIASES: dict[str, str] = {
+    "read_file": "read",
+    "readfile": "read",
+    "Read": "read",
+    "view": "read",
+    "cat": "read",
+    "open_file": "read",
+    "edit": "replace",
+    "edit_file": "replace",
+    "str_replace": "replace",
+    "replace_in_file": "replace",
+    "apply_patch": "replace",
+    "write_file": "write",
+    "create_file": "write",
+    "write_to_file": "write",
+    "list_dir": "bash",
+    "ls": "bash",
+    "glob": "bash",
+    "find_file": "bash",
+    "search_content": "grep",
+    "ripgrep": "grep",
+    "terminal": "bash",
+    "shell": "bash",
+    "run_command": "bash",
+    "fetch": "fetch_url",
+    "web_fetch": "fetch_url",
+    "web_search": "fetch_url",
+}
+
+
+def _alias_hint_for_tool(name: str) -> str:
+    """返回「你大概想用 X」的提示；不在别名表里则返回空串。"""
+    raw = str(name or "").strip()
+    if not raw:
+        return ""
+    hit = _HALLUCINATED_TOOL_ALIASES.get(raw) or _HALLUCINATED_TOOL_ALIASES.get(raw.lower())
+    if not hit:
+        return ""
+    return f"本仓没有 '{raw}' 这个工具；你大概想用 '{hit}'。直接改用 '{hit}' 再调用一次。"
+
+
 def _invalid_call_fields(inv: object) -> tuple[str, str, str]:
     if isinstance(inv, dict):
         tc_id = str(inv.get("id") or inv.get("tool_call_id") or "").strip()
@@ -313,16 +366,22 @@ def _process_invalid_tool_calls(state: AgentState) -> dict | None:
             if raw_preview:
                 hint = f"{hint} 原始参数片段: {raw_preview}"
         else:
-            try:
-                from evoflow.exploration_graph.config import is_exploration_graph_enabled
-                from evoflow.exploration_graph.mind_map_enforce import mind_map_misinvoked_tool_hint
+            # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+            # 先看是不是「幻觉工具名」，是就直接告诉他该用哪个，别再让他从清单里猜。
+            alias_hint = _alias_hint_for_tool(name)
+            if alias_hint:
+                hint = alias_hint
+            else:
+                try:
+                    from evoflow.exploration_graph.config import is_exploration_graph_enabled
+                    from evoflow.exploration_graph.mind_map_enforce import mind_map_misinvoked_tool_hint
 
-                if is_exploration_graph_enabled():
-                    mm_hint = mind_map_misinvoked_tool_hint(name)
-                    if mm_hint:
-                        hint = mm_hint
-            except Exception:
-                pass
+                    if is_exploration_graph_enabled():
+                        mm_hint = mind_map_misinvoked_tool_hint(name)
+                        if mm_hint:
+                            hint = mm_hint
+                except Exception:
+                    pass
         tool_msgs.append(
             ToolMessage(
                 content=(f"Error: Tool '{name}' was not executed — {hint}. Fix the tool name or JSON arguments and call again."),
@@ -342,6 +401,44 @@ def _process_invalid_tool_calls(state: AgentState) -> dict | None:
     return {"messages": [*messages[:-1], updated_ai, *tool_msgs]}
 
 
+# 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+# 上一版把 alias hint 只接在 after_model 的 invalid_tool_calls 分支里 —— **接错了**。
+# 取证：现网 2026-11-19 13:12:40 那条 `edit_file is not a valid tool, try one of [...]`
+# 是 LangGraph `ToolNode._validate_tool_call`（.venv/.../tool_node.py:105）吐的，
+# 而「模型发了个不存在的工具名」走的**不是** invalid_tool_calls（那只在参数解析失败时
+# 填充），它进的是正常 tool_calls，由 ToolNode 在 `_execute_tool_sync` 里判名字、
+# 直接造一条 status="error" 的 ToolMessage —— 我的 after_model 分支一次都没跑到。
+# 正确接线点是 `wrap_tool_call`：它包住 handler，`request.tool is None` 就是「这个名字
+# 不存在」，handler 返回后拿到的正是那条回执，在这里改写才落到模型眼里。
+def _rewrite_unknown_tool_receipt(
+    request: object, result: object
+) -> object:
+    """把 ToolNode 的「未知工具名」回执改写成「你大概想用 X」。
+
+    只动 `request.tool is None`（名字压根不存在）且 result 是 error ToolMessage 的情形；
+    其余一律原样返回，不做任何猜测。
+    """
+    if getattr(request, "tool", "missing") is not None:
+        return result
+    tc = getattr(request, "tool_call", None) or {}
+    name = str(tc.get("name") or "").strip()
+    hint = _alias_hint_for_tool(name)
+    if not hint:
+        return result
+    if not isinstance(result, ToolMessage):
+        return result
+    body = str(getattr(result, "content", "") or "")
+    # 只在「确实是未知工具名回执」时改，避免覆盖别的原因造成的 error。
+    if "is not a valid tool" not in body:
+        return result
+    return ToolMessage(
+        content=f"Error: Tool '{name}' was not executed — {hint}",
+        name=getattr(result, "name", name) or name,
+        tool_call_id=getattr(result, "tool_call_id", ""),
+        status="error",
+    )
+
+
 class InvalidToolCallMiddleware(AgentMiddleware[AgentState]):
     """Materialize ``invalid_tool_calls`` as error ToolMessages (pre-ToolNode)."""
 
@@ -352,3 +449,19 @@ class InvalidToolCallMiddleware(AgentMiddleware[AgentState]):
     @override
     async def aafter_model(self, state: AgentState, runtime: Runtime) -> dict | None:
         return _process_invalid_tool_calls(state)
+
+    @override
+    def wrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], ToolMessage | Command],
+    ) -> ToolMessage | Command:
+        return _rewrite_unknown_tool_receipt(request, handler(request))  # type: ignore[return-value]
+
+    @override
+    async def awrap_tool_call(
+        self,
+        request: ToolCallRequest,
+        handler: Callable[[ToolCallRequest], Awaitable[ToolMessage | Command]],
+    ) -> ToolMessage | Command:
+        return _rewrite_unknown_tool_receipt(request, await handler(request))  # type: ignore[return-value]

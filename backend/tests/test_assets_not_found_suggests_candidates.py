@@ -39,15 +39,25 @@ def asset_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     reset_paths_cache()
 
 
-def _entity(tmp_path: Path) -> EntityRef:
-    return EntityRef("employee", "self-evolution-bot").normalized()
-
-
 def _runtime():
     return SimpleNamespace(
         context={"agent_name": "self-evolution-bot", "principal_id": "yin-tai"},
         config={},
     )
+
+
+def _entity(tmp_path: Path) -> EntityRef:
+    """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：不再硬编码 ``EntityRef("employee", "self-evolution-bot")``，
+    改为**问工具自己**解析出哪个 entity（`assets_mod._resolve_entity(...)`）。
+
+    为什么：这条测试此前一直红着。实测工具在 ``principal_id=yin-tai`` 的
+    runtime 下把实体解析成 ``user/yin-tai``（不是 employee/self-evolution-bot），
+    于是夹具把种子文件写进 A 目录、工具去 B 目录找，`candidates` 自然永远是空。
+    判据是「夹具必须与被测实现同源」，硬编码同一个字符串只是巧合，不能保证一致。
+    """
+    return assets_mod._resolve_entity(action="read", runtime=_runtime())
 
 
 def _seed(tmp_path: Path, names: list[str]) -> Path:

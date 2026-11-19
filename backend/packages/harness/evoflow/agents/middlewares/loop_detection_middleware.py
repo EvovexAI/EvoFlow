@@ -427,9 +427,17 @@ def _terminal_focus_segment(cmd: str) -> str:
 
     【fullstack-dev · 2026-11-15 · 第12轮】改：从"最后一段非 cd"改为"最后一段既非 cd、也非纯 cd+&& 前缀"，
     并把 ``VAR=value`` 前缀视作噪音 —— 取**最后一段真正跑东西的**命令。
-    为什么：本岗门禁一律是 ``cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest tests/x.py``；
+    为什么：门禁命令常带 ``cd`` 前缀与 ``; echo`` 尾巴（例：``cd backend && python -m pytest tests/x.py; echo OK``）；
     旧写法只看末段，而带 ``; echo`` / 管道尾巴的写法会把焦点段带到 ``echo`` 上，同一门禁的不同次跑
     反而指纹不同（拦与不拦变成随机），与上一条缺陷一样都会让我白绕一步。
+
+    【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】改了什么：
+    把上面举的例子从 ``cd /d/repo/backend && PYTHONPATH=packages/harness:. python -m pytest``
+    改成不带 ``PYTHONPATH`` 的写法。
+    为什么：那句注释被当成「本岗门禁模板」照抄了 **3105 次**（近 7 天 bash 调用占 17%），
+    但 ``backend/.venv`` 里的 ``_editable_impl_evoflow_harness.pth`` 早已把 harness 装进
+    site-packages，``PYTHONPATH=packages/harness:.`` 是纯冗余（实测裸 ``python -m pytest``
+    10 passed）。注释里的错误示范会顺着注释一路传下去，别再写回去。
     """
     segments = _split_shell_segments(cmd)
     if not segments:
@@ -669,7 +677,7 @@ def _terminal_fingerprint_base(args: dict) -> str | None:
         return None
     focus = _terminal_focus_segment(cmd)
     # 【fullstack-dev · 2026-11-15 · 第12轮】改：先剥掉行首 ``VAR=value``，再看是不是解释器。
-    # 为什么：本岗门禁一律写成 ``PYTHONPATH=packages/harness:. python -m pytest tests/x.py``，
+    # 为什么：门禁命令曾一律写成带 ``PYTHONPATH=packages/harness:.`` 前缀的形式，
     # 旧逻辑取「前 2 个 token」当兜底指纹，而这 2 个 token 恰好是 ``PYTHONPATH=… python`` ——
     # 被测文件根本不进指纹，于是"跑 A 测试""跑 B 测试""跑 A+B"三个不同调用撞成同一指纹，
     # 第 3 次起被判重复探索直接拦截（本轮实拦 3 次，每次都要我换写法绕，白烧一轮）。

@@ -25,7 +25,7 @@ _skills_prompt_section_cache: dict[tuple, str] = {}
 _skills_prompt_section_lock = threading.Lock()
 # ``describe_skills_root_context`` walks every profile skills root (pathlib-heavy).
 # skills.list calls it every time; short TTL avoids repeated multi-hundred-ms scans.
-_skills_root_ctx_cache: tuple[float, dict[str, Any]] | None = None
+_skills_root_ctx_cache: tuple[float, tuple[str, str, str], dict[str, Any]] | None = None
 _skills_root_ctx_ttl_s = float(os.getenv("EVOFLOW_SKILLS_ROOT_CTX_TTL_S", "60") or "60")
 _skills_root_ctx_lock = threading.Lock()
 
@@ -252,17 +252,25 @@ def describe_skills_root_context(*, force: bool = False) -> dict[str, Any]:
     import time as _time
 
     global _skills_root_ctx_cache
+    # 缓存键必须带上「决定生效根的那几个环境输入」，否则同一进程里
+    # monkeypatch 了 Path.home / EVOFLOW_SKILLS_PATH / EVOFLOW_HOME 之后
+    # 会读到上一套环境的 ctx（doctor、skills.list、测试都踩过）。
+    sig = (
+        os.getenv("EVOFLOW_SKILLS_PATH", "").strip(),
+        os.getenv("EVOFLOW_HOME", "").strip(),
+        str(Path.home()),
+    )
     if not force:
         with _skills_root_ctx_lock:
             hit = _skills_root_ctx_cache
         if hit is not None:
-            cached_at, cached = hit
-            if (_time.monotonic() - cached_at) < max(0.0, _skills_root_ctx_ttl_s):
+            cached_at, cached_sig, cached = hit
+            if cached_sig == sig and (_time.monotonic() - cached_at) < max(0.0, _skills_root_ctx_ttl_s):
                 return dict(cached)
 
     ctx = _describe_skills_root_context_uncached()
     with _skills_root_ctx_lock:
-        _skills_root_ctx_cache = (_time.monotonic(), dict(ctx))
+        _skills_root_ctx_cache = (_time.monotonic(), sig, dict(ctx))
     return ctx
 
 
@@ -535,19 +543,18 @@ def load_skills(
         except Exception:
             scoped_cache_key = None
 
-    # ── Check cache: TTL first, then lightweight mtime scan ───────────
+    # ── Check cache: always verify mtimes, then reuse parsed skills ────
+    # 曾用「TTL 内直接返回缓存」以求省时，但这让刚写进 custom/ 的技能在最长
+    # _skills_cache_ttl(300s) 内完全不可见：skills.get/_find_skill 报
+    # "not found"，而 skills.install 走磁盘判重报 "already exists"，两个接口
+    # 互相矛盾，用户/Agent 只能干等或去改数据库。mtime 校验只是一次 stat 扫描
+    # （约百来次 stat，毫秒级），代价远小于 5 分钟的悬空状态，所以每调必检。
     if use_simple_cache and _skills_cache is not None:
         cached_mtime_map, cached_skills, cached_at = _skills_cache
-        age = _time.monotonic() - float(cached_at)
-        if age < _skills_cache_ttl:
-            skills = list(cached_skills)  # return a copy
-            if enabled_only:
-                skills = [s for s in skills if s.enabled]
-            return skills
         try:
             current_mtime_map = _build_mtime_map(skills_path, extra_roots)
             if current_mtime_map == cached_mtime_map:
-                # Refresh TTL stamp without reparsing.
+                # Refresh timestamp without reparsing.
                 _skills_cache = (cached_mtime_map, cached_skills, _time.monotonic())
                 skills = list(cached_skills)
                 if enabled_only:
@@ -555,7 +562,7 @@ def load_skills(
                 return skills
             logger.info("Skills changed on disk (%d entries differ), reloading", len(cached_mtime_map))
         except Exception:
-            pass
+            logger.debug("skills mtime verification failed", exc_info=True)
     if not use_simple_cache and scoped_cache_key:
         cached = _scoped_skills_cache.get(scoped_cache_key)
         if cached is not None:

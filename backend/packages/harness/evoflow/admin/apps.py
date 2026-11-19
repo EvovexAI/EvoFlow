@@ -75,16 +75,24 @@ def list_apps(
     limit: int = 50,
 ) -> dict[str, Any]:
     lim = max(1, min(int(limit or 50), 100))
+    # 【self-evolution-bot · 2026-11-19 · 第63轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：多取 1 条来判 ``has_more``，并在返回里带上；原来是**静默截断**
+    # ——返回只有 ``count``（=本页条数）和 ``limit``，超过 50 条时调用方
+    # 完全看不出「还有没拿完」。为什么用 limit+1 而不是 count(*)：
+    # 不必把 list_apps 的 where 拼装逻辑（含 viewer 可见性）复制一份到 count 查询，
+    # 少一份会漂移的重复 SQL；代价只是多读一行。
     apps = app_repositories.list_apps(
         status=status,
         category=category,
         search=search,
-        limit=lim,
+        limit=lim + 1,
     )
+    rows = [a for a in (apps or []) if isinstance(a, dict)]
+    has_more = len(rows) > lim
+    if has_more:
+        rows = rows[:lim]
     items: list[dict[str, Any]] = []
-    for a in apps or []:
-        if not isinstance(a, dict):
-            continue
+    for a in rows:
         items.append(
             {
                 "id": a.get("id"),
@@ -97,7 +105,12 @@ def list_apps(
                 "tags": (a.get("tags") or [])[:8],
             }
         )
-    return {"items": items, "count": len(items), "limit": lim}
+    return {
+        "items": items,
+        "count": len(items),
+        "limit": lim,
+        "has_more": has_more,
+    }
 
 
 def get_app(app_id: str) -> dict[str, Any]:

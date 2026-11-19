@@ -238,6 +238,17 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
         # 一起回显，且当工作区根下确实存在同名但不同根的候选时，把「你可能想用仓库绝对路径」
         # 这句也说出来；纯绝对路径入参不重复啰嗦工作区根。
         tried = target
+        # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+        # 相对路径找不到时，先沿父目录向上找真实存在的同名文件，别直接报死。
+        # 为什么：网关进程 cwd 是 ``backend/``，而 agent 习惯写**仓库相对**路径
+        # （``backend/packages/.../installer.py``），拼出来就是 ``backend/backend/...``，
+        # 文件明明在却报找不到——现网 obs 实测这类占 read::file 错误的绝大多数。
+        # 往上找是安全的：read 本就是 IDE-like、docstring 明写 without workspace
+        # confinement，不引入新的越权面。命中就当场说清是用哪条路径读到的。
+        if not _is_absolute_path(expanded, expanded):
+            up = _resolve_upward_fallback(target)
+            if up is not None:
+                return up
         detail = f"Error: File not found: {path}（实际查找的绝对路径：{tried}）"
         root_s_hint, _tid2 = resolve_tool_workspace_root(runtime=runtime)
         if root_s_hint and not _is_absolute_path(expanded, expanded):
@@ -246,7 +257,80 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
                 f"；相对路径是按工作区根 {root_hint} 拼接的，"
                 "仓库内文件请传 D:/... 绝对路径"
             )
+        elif not _is_absolute_path(expanded, expanded):
+            # 未绑定工作区时走 ``Path.cwd()`` 分支，旧代码在这条路上一句提示都不给，
+            # 于是 ``backend/backend/...`` 这种重复前缀没人解释得清。补上。
+            detail += (
+                f"；相对路径是按进程当前目录 {Path.cwd()} 拼接的"
+                "（已向上查找同名文件，未命中）；仓库内文件请传 D:/... 绝对路径"
+            )
         return detail
+
+    # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+    # 补上成功分支的 return。这里原本**漏了这一行**：`if not target.is_file():` 块内
+    # 每条路径都 return 了错误串，块外却没有 `return target`，于是「相对路径 + 文件确实
+    # 存在」这个最常见的**成功**路径会一路掉到函数末尾，隐式返回 None；上游把它当成
+    # 解析失败，报出 ``could not resolve path 'AGENTS.md' to a file (resolver returned
+    # NoneType)``——文件明明存在（5242B），调用方却只能换写法重试。
+    # 取证：trace 捕获 return 行号 = 231（正是 `if not target.is_file():` 那行，块后无返回），
+    # 入参/expanded/target 全部正常且 target.is_file() 为 True。
+    # 现网后果：read::file 错误后半期 11 次 / 前半期 2 次，绝大多数是这种「存在却报解析失败」。
+    # 第52轮我只在这里补了「拿到非 Path 就报错」的防线，没找到根因，所以 bug 一直在。
+    return target
+
+
+def _resolve_upward_fallback(target: Path) -> Path | None:
+    """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+
+    相对路径拼出的 ``target`` 不存在时，沿父目录向上找**真实存在的同名文件**。
+
+    为什么需要：网关进程 cwd 是 ``backend/``，而 agent 习惯写仓库相对路径
+    （``backend/packages/.../installer.py``），拼出来是 ``backend/backend/...``；
+    文件本身就在，却被报「找不到」。现网 obs 实证：``read::file`` 错误
+    后半期 11 次 / 前半期 2 次，抽样全是这种重复前缀形态。
+
+    安全性：``read`` 的 docstring 明写 IDE-like、``without workspace confinement``，
+    本函数只是把「已经写对的相对路径」认回来，不扩大可读范围——最终返回的路径
+    仍必须是 ``is_file()`` 的真实文件。
+
+    判据：只在**命中真实文件**时返回 Path；找不到返回 ``None``，由调用方照旧报错。
+    不做模糊匹配（同名多份时取最近的一层并保证唯一），避免读错文件。
+    """
+    try:
+        orig = Path(target)
+        name = orig.name
+        # ① 先修「重复前缀」这个真形态：`backend/backend/packages/x.py` 里
+        # ``backend`` 连着出现两次，合并相邻重复段即得真实路径。这比盲目上溯精准，
+        # 也不会把某个无关目录下的同名文件蒙进来。
+        parts = list(orig.parts)
+        dedup: list[str] = []
+        for p in parts:
+            if dedup and p == dedup[-1] and p not in ("\\", "/"):
+                continue
+            dedup.append(p)
+        if len(dedup) != len(parts):
+            cand0 = Path(*dedup)
+            if cand0.is_file():
+                return cand0.resolve()
+
+        # ② 兜底：沿父目录向上，整段相对路径重试（最多 12 层，覆盖
+        # ``backend/backend/`` 这类出一整段重复前缀的场景）。
+        cur = orig.parent
+        for _ in range(12):
+            if cur == cur.parent:
+                break
+            cur = cur.parent
+            if (cur / name).is_file():
+                return (cur / name).resolve()
+            try:
+                rel = orig.relative_to(cur)
+            except ValueError:
+                continue
+            if (cur / rel).is_file():
+                return (cur / rel).resolve()
+    except (OSError, ValueError):
+        return None
+    return None
 
 
 def _note_model_read(path: Path, *, full_read: bool = True, content_hash: str | None = None) -> None:

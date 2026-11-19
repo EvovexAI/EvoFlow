@@ -89,8 +89,29 @@ def _embed_ready_without_import() -> bool:
 
 
 def _start_embed_warmup() -> None:
-    """后台单飞暖机：只起一个线程，失败只在冷却后重试，绝不阻塞检索。"""
+    """后台单飞暖机：只起一个线程，失败只在冷却后重试，绝不阻塞检索。
+
+    Windows 默认**禁止**在 Gateway 进程内暖机：``sentence_transformers`` →
+    sklearn → scipy 冷导入会长时间占 GIL，专用线程照样把 event loop 拖死
+    （2026-11-19 10:22 hang：``/api/skills`` / ``ensure-thread`` 等 63s →
+    启动后页面空白转圈）。与 ``background_startup`` 的 win32 跳过策略对齐；
+    需要进程内暖机时显式设 ``EVOFLOW_EMBEDDING_WARMUP=1``（仍有卡顿风险）。
+    索引向量构建已走子进程（``build_worker``），不依赖本进程暖机。
+    """
     global _embed_warm_last_try
+    force_on = (os.environ.get("EVOFLOW_EMBEDDING_WARMUP") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if sys.platform == "win32" and not force_on:
+        logger.info(
+            "code_index: skip in-process embed warmup on win32 "
+            "(lexical search until cloud embed / EVOFLOW_EMBEDDING_WARMUP=1)"
+        )
+        return
+
     now = time.time()
     with _embed_gate_lock:
         if _embed_warm_last_try and now - _embed_warm_last_try < _EMBED_WARM_RETRY_S:
@@ -3326,11 +3347,15 @@ def _spawn_build_subprocess(
     if force:
         cmd.append("--force")
     # Inherit env so the child sees the same profile / DB roots as Gateway.
+    # Mark worker so local embedding may load ST outside the Gateway process.
+    child_env = os.environ.copy()
+    child_env["EVOFLOW_CODE_INDEX_BUILD_WORKER"] = "1"
     proc = subprocess.Popen(
         cmd,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
+        env=child_env,
         **subprocess_hide_window_kwargs(),
     )
     job = _SubprocessBuildJob(proc)

@@ -57,7 +57,22 @@ def _write(runtime, **kwargs):
 
 
 def _entity(tmp_path: Path) -> EntityRef:
-    return EntityRef("employee", "self-evolution-bot").normalized()
+    """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：不硬编码 entity，改为问工具自己解析出哪个实体。
+
+    为什么：工具在 ``principal_id=yin-tai`` 下解析成 ``user/yin-tai``，
+    而旧夹具硬编码 ``employee/self-evolution-bot``——种子文件写进 A 目录、
+    write 去 B 目录，于是 ``write_path_not_allowed``（找不到同名已有文件就
+    要求 kind）。这条测试因此长期红着，红的原因与它想验的「后缀补全」无关。
+    判据：夹具必须与被测实现同源，字符串写死只是巧合。
+
+    【修正 · 同一轮自撞】第一次改成 `_resolve_entity(action="write", runtime=_runtime())`
+    仍不够：`_runtime()` 默认 `agent="main"`，解析成 `user/yin-tai`；而本文件下面
+    的写入用例显式传 `agent="self-evolution-bot"`，解析成 `employee/self-evolution-bot`。
+    单跑侥幸一致、混跑就分叉（稳定 1 failed）。故**必须传入与写入相同的 agent**。
+    """
+    return assets_mod._resolve_entity(action="write", runtime=_runtime(agent="self-evolution-bot"))
 
 
 # ── 类②：少写后缀，但同名 .md 就在盘上 ──────────────────────────────────

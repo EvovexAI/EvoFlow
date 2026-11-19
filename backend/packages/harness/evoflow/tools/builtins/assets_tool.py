@@ -180,6 +180,33 @@ def _normalize_asset_rel(path: str, entity=None) -> str:
         return f"memory/{rel}"
     return rel
 
+def _path_required_payload(action: str) -> str:
+    """【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+
+    ``path`` 缺失时的错误信封，带上**该动作合法路径长什么样**。
+
+    为什么：旧实现只回 ``{"ok": false, "error": "path_required"}``——不带动作、
+    不带示例、不带落点，调用方唯一的出路是再猜一次入参（现网 7 天 7 次）。
+    报错文案要给下一步动作，这一条同样适用。
+    """
+    examples = {
+        "read": "craft/某配方.md（或用 action=list / action=search 先确认文件名）",
+        "write": "craft/某配方.md；或裸文件名 + kind=<craft|episodic|journal> 自动补目录",
+        "delete": "craft/某配方.md（先用 action=list 确认要删的是哪个）",
+        "rename": "craft/旧名.md（新名放 content 参数）",
+    }
+    hint = examples.get(action, "craft/某配方.md 这类带目录前缀的相对路径")
+    return json.dumps(
+        {
+            "ok": False,
+            "error": "path_required",
+            "action": action,
+            "hint": f"action={action} 需要 path 参数，形如 {hint}。可写范围：craft / memory/episodic / memory/journal / memory/standing* / memory/MEMORY.md / profile/affect*",
+        },
+        ensure_ascii=False,
+    )
+
+
 def _not_found_payload(entity, rel: str) -> dict:
     """read/delete/list 命中不到文件时，给出**相近候选**而不是光说 not_found。
 
@@ -237,8 +264,18 @@ def _not_found_payload(entity, rel: str) -> dict:
                 f"目录 {parent or 'memory'} 是空的或不存在。"
                 "用 action=list 看实际有哪些文件，或 action=search 按关键词找。"
             )
-    except Exception:  # noqa: BLE001 - 提示生成失败绝不能盖掉主错误
-        out["hint"] = "该路径不存在。可用 action=list 或 action=search 确认实际文件名。"
+    except Exception as exc:  # noqa: BLE001 - 提示生成失败绝不能盖掉主错误
+        # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：兜底文案里带上**失败原因的类型与首行**，不再只有一句「可用 list 确认」。
+        # 为什么：第59轮加的候选列表曾因 `entity` 传成 str 而整体抛 AttributeError，
+        # 被这里吞掉后**外观与"目录里没有相近文件"一模一样**——我自己本轮就据此误判成
+        # "第59轮没生效"，白绕了 3 次调用。静默兜底必须留下可辨的痕迹：
+        # 有这句 `原因:` 就能一眼分出「机制挂了」与「确实没候选」。
+        reason = f"{type(exc).__name__}: {str(exc).splitlines()[0][:160]}"
+        out["hint"] = (
+            "该路径不存在。可用 action=list 或 action=search 确认实际文件名。"
+            f"（相近候选生成失败 → 原因: {reason}）"
+        )
     return out
 
 
@@ -406,7 +443,7 @@ def assets_tool(
     if act == "read":
         rel = _normalize_asset_rel(path, entity)
         if not rel:
-            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+            return _path_required_payload("read")
         try:
             data = read_text_file(entity, rel)
             try:
@@ -595,7 +632,7 @@ def assets_tool(
         rel = _normalize_asset_rel(path, entity)
         text = str(content or "").strip()
         if not rel:
-            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+            return _path_required_payload("write")
         if not text:
             return json.dumps({"ok": False, "error": "content_required"}, ensure_ascii=False)
         _KIND_DIRS = {
@@ -792,7 +829,7 @@ def assets_tool(
     if act == "delete":
         rel = _normalize_asset_rel(path, entity)
         if not rel:
-            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+            return _path_required_payload("delete")
         try:
             from evoflow.assets.hub import delete_text_file
 
@@ -829,7 +866,7 @@ def assets_tool(
     if act == "rename":
         rel = _normalize_asset_rel(path, entity)
         if not rel:
-            return json.dumps({"ok": False, "error": "path_required"}, ensure_ascii=False)
+            return _path_required_payload("rename")
         new_name = str(content or "").strip() or str(query or "").strip()
         if not new_name:
             return json.dumps(

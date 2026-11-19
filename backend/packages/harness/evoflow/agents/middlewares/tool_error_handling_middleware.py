@@ -139,6 +139,21 @@ def _string_content_suggests_tool_error(text: str) -> bool:
     if not text:
         return False
     low = text.lower()
+    # 【self-evolution-bot · 2026-11-19 · 第66轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：补一条「显式失败标记」判据 —— `[node_repl] call failed.`
+    # 为什么：node_repl_tool.py:436 在宿主返回 is_error=True 时会把这句话拼到正文尾部，
+    # 但**走的是普通字符串通道**（不是 error 信封，也不设 ToolMessage.status），
+    # 于是本函数只看 "Error:" 前缀 / "error invoking tool" 两条，认不出来 → obs 记 success。
+    # 现网实证（2026-11-19，本线程 74 次 mcp__node_repl__js 调用）：
+    #   · obs 里 status=error 的只有 2 条，而输出里带 `[node_repl] call failed.` 的有 9 条；
+    #   · 全岗位 7 天：468 次调用里 66 条带该标记，status=error 仍只有 2 条 → 64 条失败被吞。
+    # 后果不是"难看的报表"：我每轮靠 obs 表做自我度量，电脑控制的失败在这张表里恒为 0，
+    # 于是「点了没反应」「控件被禁用」「窗口失焦」这些真实卡点永远进不了复盘。
+    # 判据选这个标记而不是散着匹配 refused/unavailable：实测两条命中数完全相等（66 vs 66），
+    # 而散匹配会把**我自己的探测输出**也算进去（我拿 failedAt=boot 的 JSON 当证据时误报过 4 次），
+    # 那是自我引用，不是工具失败。
+    if "[node_repl] call failed." in low:
+        return True
     return bool(
         text.startswith("Error:") or low.startswith("error invoking tool") or "please fix the error and try again" in low,
     )

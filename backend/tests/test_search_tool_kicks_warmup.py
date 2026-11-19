@@ -39,7 +39,11 @@ def test_import_kicks_warmup(monkeypatch):
 
 
 def test_warmup_starts_background_thread(monkeypatch):
-    """真实调用（不替换实现）：必须起一条 daemon 暖机线程。"""
+    """真实调用（不替换实现）：必须起一条 daemon 暖机线程。
+
+    Windows 默认跳过进程内暖机（避免 GIL 卡死 Gateway）；本用例显式打开。
+    """
+    monkeypatch.setenv("EVOFLOW_EMBEDDING_WARMUP", "1")
     monkeypatch.setattr(store, "_embed_warm_last_try", None)
     monkeypatch.setattr(store, "_embed_gate_open", False)
     store._start_embed_warmup()
@@ -47,6 +51,21 @@ def test_warmup_starts_background_thread(monkeypatch):
     names = [t.name for t in threading.enumerate()]
     assert any("embed-warmup" in n for n in names), f"没有起暖机线程：{names}"
     assert store._embed_warm_last_try, "暖机请求没有记录（last_try 仍为空）"
+
+
+def test_warmup_skipped_on_win32_by_default(monkeypatch):
+    """win32 未显式打开时不得起进程内暖机线程（2026-11-19 启动空白根因）。"""
+    import sys
+
+    if sys.platform != "win32":
+        return
+    monkeypatch.delenv("EVOFLOW_EMBEDDING_WARMUP", raising=False)
+    monkeypatch.setattr(store, "_embed_warm_last_try", None)
+    before = {t.ident for t in threading.enumerate()}
+    store._start_embed_warmup()
+    after = [t for t in threading.enumerate() if t.ident not in before]
+    assert not any("embed-warmup" in (t.name or "") for t in after)
+    assert store._embed_warm_last_try in (None, 0, 0.0)
 
 
 def test_warmup_failure_does_not_break_import(monkeypatch):

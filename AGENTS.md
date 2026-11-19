@@ -23,7 +23,44 @@
 2. 已知确切路径 → 直接 Read/Grep；未知路径 → `grep` / `search_code_index` 定位
 3. 全项目 Grep 是最后手段，不是默认
 
-## Agent 提示词工程
+## 验证命令（后端 / 前端 / shell）
+
+**本仓 `.venv` 已用 editable 方式装好 harness，不需要 `PYTHONPATH`。** 加 `PYTHONPATH=packages/harness:.`
+是纯冗余——它曾被当成「门禁模板」照抄 3105 次（近 7 天 bash 调用 17%），每条多 175 字节。
+
+```bash
+# 后端（在 backend/ 下；python 已指向 .venv，不用写 .venv/Scripts/python.exe）
+cd backend
+python -m py_compile <改动文件>        # 语法
+python -m ruff check <改动文件>        # 静态检查
+python -m pytest tests/<相关测试>.py -q
+python packages/harness/scripts/obs_query.py --list-tables   # 观测库即席查询
+
+# 前端（在仓库根；不要用 npx，本机易假阴性）
+node evopanel/node_modules/typescript/bin/tsc --noEmit
+
+# shell
+bash -n <脚本>
+```
+
+要点：
+
+- **不需要 `PYTHONPATH`**。`backend/.venv/Lib/site-packages/_editable_impl_evoflow_harness.pth`
+  已把 `packages/harness` 写进搜索路径；实测裸 `python -m pytest` 直接通过。
+- **不需要绝对 `cd`**。终端工作目录在调用间持久，`cd` 一次后续沿用；只有跨目录时才再 `cd`。
+- 命令前的 `VAR=value` 前缀不会持久（每次调用是新 shell），别靠它传状态。
+- 观测/度量类查询**优先用现成脚本**，不要在命令里现写 `python - <<EOF` 长探针。
+  在 `backend/` 下按下面的**完整相对路径**调用（`scripts/` 前面必须带 `packages/harness/`，
+  少写这一段会 `No such file or directory`）：
+  - `python packages/harness/scripts/agent_self_metrics.py --days 7` —— 错误率 / 慢调用 / 重复踩坑 / 已消失
+  - `python packages/harness/scripts/tool_latency_report.py --days 1` —— 工具耗时归因（含 bash 拆分）
+  - `python packages/harness/scripts/context_cost_report.py --days 7` —— **工具返回值体积 → 上下文 → TTFT 分桶**（谁在灌字节、缓存命中率、按岗位耗时）
+  - `python packages/harness/scripts/obs_query.py --list-tables / --schema / --sql` —— 任意即席只读查询
+  【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】此处先前写成
+  `scripts/…` 少了 `packages/harness/` 前缀，实测直接 `No such file or directory`；
+  已按真跑通过的完整路径更正。
+- 不为验收起 dev server / 点页面 / 截图；类型检查通过 ≠ 效果达成——
+  性能类改动必须报数字（ms / 条数 / 占比）。
 
 - 审计器：`python scripts/prompt-audit/prompt_audit.py <file>`（stdlib-only；`--layer L1|L2|L3`、`--json`）
 - 漂移守卫：`python backend/scripts/prompt_drift_guard.py`（检出退役工具名 / 指向不存在路径的承诺）
