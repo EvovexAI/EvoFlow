@@ -1580,9 +1580,14 @@ export function V4ViewportDebugOverlay() {
     setPos(clampToViewport(r.originLeft, r.originTop, next.width, next.height));
   };
   const onPointerUpResize = () => {
-    if (!resizeRef.current) return;
+    const r = resizeRef.current;
     resizeRef.current = null;
-    writeOverlaySize(size);
+    if (!r) return;
+    // 松手时再落一次当前尺寸（避免闭包读到拖拽前的旧 size）
+    setSize((cur) => {
+      writeOverlaySize(cur);
+      return cur;
+    });
   };
 
   const resetPos = () => {
