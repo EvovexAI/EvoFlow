@@ -32,7 +32,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.community.web_fetch.prompt_processing import process_fetched_content_with_prompt
 from evoflow.community.web_fetch_errors import format_web_fetch_http_error, format_web_fetch_url_error

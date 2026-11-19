@@ -27,9 +27,9 @@ except ImportError:
 
 from langchain.agents.middleware import TodoListMiddleware
 from langchain.agents.middleware.todo import PlanningState, Todo
-from langchain.tools import tool as langchain_tool
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import InjectedToolCallId
+from langchain_core.tools import tool as langchain_tool
 from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command

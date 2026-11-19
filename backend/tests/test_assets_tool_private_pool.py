@@ -27,8 +27,12 @@ import asyncio
 import time
 
 import pytest
+from langgraph.prebuilt.tool_node import ToolRuntime
 
-from evoflow.tools.builtins.assets_tool import ToolRuntime, assets_tool
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# assets_tool 不再导出 ToolRuntime（它现在用的是轻量标记类）；
+# 本测试要**真构造**实例，故取真类。
+from evoflow.tools.builtins.assets_tool import assets_tool
 
 
 def _runtime(i: int) -> ToolRuntime:

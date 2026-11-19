@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.automation_toml_strings import escape_toml_basic_string
 from evoflow.collab.id_format import make_automation_id

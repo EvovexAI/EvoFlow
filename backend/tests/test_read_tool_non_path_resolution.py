@@ -34,7 +34,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from langchain.tools import ToolRuntime
+
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# 本测试要**真构造** runtime 实例，所以取真类（轻量标记类不接受构造参数）。
+from langgraph.prebuilt.tool_node import ToolRuntime
 
 from evoflow.tools.host_direct import read_file as RF
 

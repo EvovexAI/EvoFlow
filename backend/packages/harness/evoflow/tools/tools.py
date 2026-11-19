@@ -1,7 +1,7 @@
 import logging
 from functools import lru_cache
 
-from langchain.tools import BaseTool
+from langchain_core.tools import BaseTool
 
 from evoflow.community.baidu_search import web_search_tool
 from evoflow.config import get_app_config

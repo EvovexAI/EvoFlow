@@ -25,7 +25,7 @@ except ImportError:
         pass
 
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.collab.id_format import make_todo_id
 

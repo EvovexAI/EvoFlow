@@ -1,6 +1,6 @@
 import json
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 from tavily import TavilyClient
 
 from evoflow.config import get_app_config

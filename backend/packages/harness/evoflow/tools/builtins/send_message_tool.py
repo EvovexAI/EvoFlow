@@ -7,7 +7,7 @@ Supports listing available targets and sending messages.
 import json
 import logging
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
 

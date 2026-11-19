@@ -9,7 +9,7 @@ share one implementation instead of duplicating a parser.
 
 from typing import Literal
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 from evoflow.community.web_fetch.prompt_processing import process_fetched_content_with_prompt
 from evoflow.community.web_fetch.tools import (

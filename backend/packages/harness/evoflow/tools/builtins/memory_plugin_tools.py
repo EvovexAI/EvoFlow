@@ -5,8 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from langchain.tools import BaseTool
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, StructuredTool
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 logger = logging.getLogger(__name__)

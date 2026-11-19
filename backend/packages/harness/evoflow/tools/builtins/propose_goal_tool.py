@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from langchain.tools import tool
+from langchain_core.tools import tool
 
 propose_goal_ui_metadata = {
     "group": "builtin",
