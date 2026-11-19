@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.38] - 2026-11-19
+
+相对 **1.3.37**：发消息后历史平台通知不再重弹；对话跟底与工具串轮更稳；已装资源包 BOT 计数去重。
+GitHub Release 正文见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.38.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Fixed
+
+- **平台通知重播**：发消息不再清空平台已见集合，历史 toast / 右上角「平台」卡不会再当新通知弹出
+- **旧工具串进当前轮**：平台 TOOL_CALL_RESULT 保留原 turnId；前端丢掉被误归到新用户轮的旧工具卡
+- **跟底猛跳与叠层**：程序化滚底加短 hold，减少误判用户上滚与开会话后卡片叠层
+- **已结束轮计时器**：密封轮不再因 sessionBusy 继续「已工作」计时
+
+### Improved
+
+- **视口调试异常锁定**：error/warn 出现后锁定展示（现/曾），避免时间窗刷新闪灭
+- **已装资源包产物标签**：employees+agents 合并为 BOT 去重；extensions 显示为「Agent应用」
+
 ## [1.3.37] - 2026-11-19
 
 相对 **1.3.36**：安全收口为主——查看已配模型不再把 API Key 明文带进会话与日志；混进正文回复的思考过程标签统一剥离；会话打开、代码检索、工具报错三处最常见的卡顿与误导信息改掉。
