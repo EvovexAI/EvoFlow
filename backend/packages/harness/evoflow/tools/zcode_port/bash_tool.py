@@ -55,6 +55,10 @@ FOREGROUND_BLOCKING_CEILING_MS = int(os.getenv("EVOFLOW_BASH_FOREGROUND_CEILING_
 # main-chat sleeps). Commands are independent Popen processes and CWD
 # persistence is already keyed per thread, so per-thread locks plus a
 # semaphore cap restore parallelism safely.
+# 【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+# 上面这段只解决了「跨线程」，没解决「同线程内并行调用」：每线程单锁把并行
+# 调用串成一条队，实测 3 天排队 1663s。现改为每线程多车道（默认 2，见
+# ``_bash_max_lanes_per_thread``），进程级信号量上限保持不变。
 _EXEC_LOCKS: dict[str, threading.Lock] = {}
 _EXEC_LOCKS_GUARD = threading.Lock()
 _EXEC_LOCKS_MAX = 1024
@@ -84,6 +88,73 @@ class _bash_concurrency_slot:
 
     def __exit__(self, *_exc) -> bool:
         _BASH_CONCURRENCY.release()
+        return False
+
+
+def _bash_max_lanes_per_thread() -> int:
+    """How many concurrent execution lanes one agent thread may use.
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：原来每个 ``thread_key`` 只有**一把**锁（``_EXEC_LOCKS[key]``），
+    于是同一线程发出的并行 bash 调用被完全串行化——同一个 agent 永远只占到
+    进程级 4 槽中的 1 槽，另外 3 槽空着。
+    为什么（现网实测 2026-11-19，近 3 天 9254 次 bash 调用）：
+      · ``queue_wait_ms`` 累计 **1663s**，其中 49 次单次等 **19.6s** 的长尾占 **962s**；
+      · 按线程分：1556 次那一条线程排队 472s、889 次那条 311s、1332 次那条 177s；
+      · 分桶：8160 次 <50ms，但 140 次 >10s 的等待全落在「同线程前一条长命令没跑完」。
+    判据：并行调用本该并行跑（彼此是独立 Popen 进程），串行只为保护
+    **单条 warm shell 的 stdin 管道**——所以按车道给 warm 会话键加后缀即可解耦；
+    进程级资源上限仍由 ``_BASH_CONCURRENCY`` 兜住，**不放宽**。
+    """
+
+    raw = (os.getenv("EVOFLOW_BASH_LANES_PER_THREAD") or "2").strip()
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return 2
+
+
+def _lane_key(base_key: str, lane: int) -> str:
+    """Lane 0 沿用历史键（``<thread>``），其余车道加 ``#i`` 后缀各自持一条会话。"""
+    return base_key if lane <= 0 else f"{base_key}#{lane}"
+
+
+class _thread_channel:
+    """Per-thread execution channel with N lanes.
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+    lane 0 与改动前完全一致（单线程顺序执行时永远拿到 lane 0，行为零变化）；
+    lane 1..N-1 只在「同一线程同时有多条 bash 在等」时才被用上，各持独立 warm shell。
+    所有车道都在忙时退回等 lane 0，保留原来先进先出的排队语义。
+    """
+
+    __slots__ = ("base_key", "lanes", "lane", "_lock")
+
+    def __init__(self, thread_key: str) -> None:
+        self.base_key = str(thread_key or "").strip() or "_default"
+        self.lanes = _bash_max_lanes_per_thread()
+        self.lane = 0
+        self._lock: threading.Lock | None = None
+
+    def __enter__(self) -> _thread_channel:
+        locks = [
+            _exec_lock_for(_lane_key(self.base_key, i)) for i in range(self.lanes)
+        ]
+        for i, lk in enumerate(locks):
+            if lk.acquire(blocking=False):
+                self.lane = i
+                self._lock = lk
+                return self
+        locks[0].acquire()
+        self.lane = 0
+        self._lock = locks[0]
+        return self
+
+    def __exit__(self, *_exc: object) -> bool:
+        lk = self._lock
+        if lk is not None:
+            self._lock = None
+            lk.release()
         return False
 
 
@@ -1211,6 +1282,7 @@ def _run_foreground_warm(
     explicit: bool,
     description: str,
     session_key: str,
+    lane: int = 0,
 ) -> str | None:
     """Reuse a per-thread bash process. Returns ``None`` to fall back to cold spawn."""
     from evoflow.tools.zcode_port import warm_bash as _wb
@@ -1220,6 +1292,8 @@ def _run_foreground_warm(
     if not shell:
         return None
     warm_key = (thread_id or session_key or tool_call_id or "_default").strip() or "_default"
+    # 车道 >0 用独立会话键，否则两条并行命令会写同一条 warm shell 的 stdin 互相踩。
+    warm_key = _lane_key(warm_key, lane)
     lo_risk = _is_libreoffice_risk_command(command)
     blocking_ms = _blocking_budget_ms(timeout_ms, explicit=explicit, promotable=not lo_risk)
     invocation = tool_call_id or uuid.uuid4().hex
@@ -1353,6 +1427,7 @@ def _run_foreground(
     explicit: bool = False,
     description: str = "",
     session_key: str = "",
+    lane: int = 0,
 ) -> str:
     invocation = tool_call_id or uuid.uuid4().hex
     # LibreOffice detaches from the process tree — it must not be backgrounded
@@ -1370,6 +1445,7 @@ def _run_foreground(
             explicit=explicit,
             description=description,
             session_key=session_key,
+            lane=lane,
         )
         if warm_out is not None:
             return warm_out
@@ -1695,7 +1771,7 @@ def bash_tool(
     # separate queue time from real execution time (handler wall time alone
     # made a queued `git show` look like 237s).
     queue_t0 = time.perf_counter()
-    with _exec_lock_for(tid or sk):
+    with _thread_channel(tid or sk) as channel:
         with _bash_concurrency_slot():
             try:
                 from evoflow.observability.tool_timing import note_tool_queue_wait
@@ -1723,5 +1799,6 @@ def bash_tool(
                 explicit=explicit,
                 description=desc,
                 session_key=sk,
+                lane=channel.lane,
             )
     return _maybe_stage_agent_browser_screenshot(runtime, command, cwd, tool_call_id, result)
