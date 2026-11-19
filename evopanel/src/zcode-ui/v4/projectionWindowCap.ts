@@ -35,6 +35,19 @@ export const PROJECTION_HEAVY_HORIZON = 60;
 const MIN_KEEP = 40;
 const LIGHT_TOOL_TEXT_CAP = 2_048;
 
+/**
+ * 直播轮行数顶满 / 超过 softCap 时，仍至少留给「上一问」的锚点预算。
+ * turnHeader + realUser 各 1 行；留到 4 可覆盖紧邻两轮的头+问，避免发消息后
+ * 上边历史整轮从窗口蒸发（用户体感：历史被吃掉一个）。
+ */
+const MIN_OLDER_ANCHOR_BUDGET = 4;
+
+/** softCap 扣掉直播轮后的剩余，再与锚点下限取 max。 */
+function olderAnchorBudget(softCap: number, liveLen: number): number {
+  const leftover = Math.max(0, Math.floor(softCap) - Math.max(0, Math.floor(liveLen)));
+  return Math.max(leftover, MIN_OLDER_ANCHOR_BUDGET);
+}
+
 function isTurnBoundary(row: ConversationRow | undefined): boolean {
   // 只认 turnHeader：落在 realUser 会裁掉紧前 header，半截轮界还会把旧结论挂窗顶。
   return !!row && row.kind === "turnHeader";
@@ -220,14 +233,53 @@ export function selectLiveTurnWithinBudget(
 }
 
 /**
+ * soft-cap prefer:tail 常把同 turn 里 rowId 更小的 tool/assistant 裁掉，
+ * 窗内只剩 turnHeader+user → 「AI 空了 / 已工作无内容」，高度塌缩像整段对话消失。
+ * 凡窗内已出现的 turnId，从 full 补回该 turn 的全部行（可略超 softCap）。
+ */
+export function repairPartialTurnsInProjectionWindow(
+  full: readonly ConversationRow[],
+  capped: readonly ConversationRow[],
+): ConversationRow[] {
+  if (!Array.isArray(full) || !Array.isArray(capped) || capped.length === 0) {
+    return Array.isArray(capped) ? [...capped] : [];
+  }
+  const present = new Set(capped.map((row) => row.rowId));
+  const turnIds = new Set(
+    capped.map((row) => String(row.turnId || "").trim()).filter(Boolean),
+  );
+  if (turnIds.size === 0) return capped as ConversationRow[];
+  let missing = 0;
+  for (const row of full) {
+    const turnId = String(row.turnId || "").trim();
+    if (!turnId || !turnIds.has(turnId)) continue;
+    if (present.has(row.rowId)) continue;
+    missing += 1;
+  }
+  if (missing === 0) return capped as ConversationRow[];
+  const byId = new Map<number, ConversationRow>();
+  for (const row of capped) byId.set(row.rowId, row);
+  for (const row of full) {
+    const turnId = String(row.turnId || "").trim();
+    if (!turnId || !turnIds.has(turnId)) continue;
+    byId.set(row.rowId, row);
+  }
+  return [...byId.values()].sort((a, b) => a.rowId - b.rowId);
+}
+
+/**
  * prefer=head 裁掉直播轮尾时：在 softCap 内把头窗与直播轮拼回。
- * 不是按埋深「只留当前轮」重建——有预算就尽量保留更早的完整 turn。
+ * 不是按埋深「只留当前轮」重建——有预算就尽量保留更早的完整 turn；
+ * 直播轮本身已顶满 softCap 时仍至少钉回上一问头+问（可略超 softCap）。
  */
 export function ensureLiveTurnInProjectionWindow(
   full: readonly ConversationRow[],
   capped: readonly ConversationRow[],
   softCap: number,
 ): readonly ConversationRow[] {
+  const finish = (window: readonly ConversationRow[]) =>
+    repairPartialTurnsInProjectionWindow(full, window);
+
   const span = liveTurnSpan(full);
   if (!span) {
     // 无直播轮（纯历史窗）：能对齐 turnHeader 就对齐；对齐不了别掏空窗口。
@@ -236,10 +288,10 @@ export function ensureLiveTurnInProjectionWindow(
       capped,
       Math.max(MIN_KEEP, Math.floor(softCap)),
     );
-    return aligned.length > 0 ? aligned : capped;
+    return finish(aligned.length > 0 ? aligned : capped);
   }
   const live = full.slice(span.turnStart);
-  if (live.length === 0) return capped;
+  if (live.length === 0) return finish(capped);
   const liveStartRowId = live[0]?.rowId ?? 0;
   const present = new Set(capped.map((r) => r.rowId));
   const liveMissing = live.some((r) => !present.has(r.rowId));
@@ -255,31 +307,40 @@ export function ensureLiveTurnInProjectionWindow(
       Math.max(MIN_KEEP, Math.floor(softCap) - live.length),
     );
     if (aligned.length === capped.length && aligned.every((row, i) => row.rowId === capped[i]?.rowId)) {
-      return capped;
+      // soft-cap prefer:tail 可能已把窗顶裁到直播轮起点，上一问整轮蒸发。
+      // 此时仍从 full 补回至少一轮头+问锚点（可略超 softCap，优先可见性）。
+      if (capped[0]?.rowId === liveStartRowId) {
+        const olderKeep = selectOlderCompleteTurnsWithinBudget(
+          full,
+          liveStartRowId,
+          MIN_OLDER_ANCHOR_BUDGET,
+        );
+        if (olderKeep.length > 0) return finish([...olderKeep, ...live]);
+      }
+      return finish(capped);
     }
     // align 若丢光 older 残片，保留原 capped 里的直播段 + 尽可能的完整 older。
     if (aligned.length === 0 || aligned[0]?.rowId === liveStartRowId) {
       const olderKeep = selectOlderCompleteTurnsWithinBudget(
         full,
         liveStartRowId,
-        Math.max(0, Math.floor(softCap) - live.length),
+        olderAnchorBudget(softCap, live.length),
       );
-      return olderKeep.length === 0 ? capped : [...olderKeep, ...live];
+      return finish(olderKeep.length === 0 ? capped : [...olderKeep, ...live]);
     }
-    return aligned;
+    return finish(aligned);
   }
 
   const cap = Math.max(MIN_KEEP, Math.floor(softCap));
   const liveKept = selectLiveTurnWithinBudget(live, span.userIdx, span.turnStart, cap);
-  if (liveKept.length >= cap) {
-    return liveKept;
-  }
+  // 即便直播轮已占满 softCap，也绝不能把「上一问」整轮丢掉——发消息后
+  // 长工具轮一撑大，旧逻辑 `liveKept.length >= cap → return liveKept` 会直接吃历史。
   const olderKeep = selectOlderCompleteTurnsWithinBudget(
     full,
     liveStartRowId,
-    cap - liveKept.length,
+    olderAnchorBudget(cap, liveKept.length),
   );
-  return [...olderKeep, ...liveKept];
+  return finish(olderKeep.length === 0 ? liveKept : [...olderKeep, ...liveKept]);
 }
 
 /**

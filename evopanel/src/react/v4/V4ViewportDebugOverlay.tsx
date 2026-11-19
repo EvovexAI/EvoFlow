@@ -2,10 +2,14 @@
  * V4 视口调试浮层：紧凑状态条 + 分页
  * - 运行：SSE / 轮询 / settled
  * - 消息：投影窗已显示/全序行数、用户气泡、loadOlder 预取带（≤2×视口）
- * - 流式：AG-UI / V4 原始 JSON（一行一条，贴底跟最新）
+ * - 流式：AG-UI / V4 原始 JSON（一行一条，全文可滚，会话目录落盘）
+ * - 计时：发送 → 出泡 → 上线 → 首字 → 结束（接 chat-turn-timing-log）
+ * - 滚轮：scrollTop 轨迹 / !JUMP / 到顶语义（能否自动拉历史 vs 已拉尽）
  * - 接口：页面相关 HTTP（subscribe / messages / catchup…）入参出参表
  * - 视口：DOM ↔ 投影 row
- * 布局诊断（!EST72 / gap / !HISTORY_TOP）仍在状态条。
+ * - 异常：流式无画面 / 最新气泡错位 / loadOlder 不前进 / 绘画埋没…（可监测表）
+ * 布局诊断（!EST72 / gap）仍在状态条；问题标记优先吃异常表。
+ * 抽头落盘：~/.evoflow/logs/stream-compare/{sessionId}/overlay/viewport-*.log
  *
  * 开启条件：调试模式（运维观测）开着，且 localStorage
  * `EVOFLOW_V4_VIEWPORT_OVERLAY` 不为 `'0'`（默认开）。
@@ -52,12 +56,37 @@ import {
   type ViewportApiTapFamily,
 } from "./v4-viewport-api-tap.js";
 import {
+  attachViewportScrollTap,
+  clearViewportScrollTap,
+  countViewportScrollJumps,
+  detachViewportScrollTap,
+  formatConversationRecordCounts,
+  formatScrollTopVerdict,
+  listViewportScrollTapEntries,
+  setViewportScrollHistoryContext,
+  setViewportScrollTapSessionId,
+  subscribeViewportScrollTap,
+  type ViewportScrollTapEntry,
+} from "./v4-viewport-scroll-tap.js";
+import {
   hasOlderRows,
 } from "@zcode/ui/v4/conversationProjectionStore.js";
 import {
   historyPrefetchTriggerPx,
   shouldTriggerLoadOlder,
 } from "@zcode/ui/v4/timelineScrollAnchor.js";
+import { buildConversationTurnRenderUnits } from "@zcode/ui/v4/conversationTurnRenderUnits.js";
+import {
+  classifyEmptyAssistantCompleted,
+  collectViewportAnomalies,
+  formatAnomalyBadge,
+  type ViewportAnomaly,
+} from "./v4-viewport-anomaly.js";
+import {
+  listChatTurnTimingRows,
+  subscribeChatTurnTiming,
+  type ChatTurnTimingRow,
+} from "../lib/chat-turn-timing-log.js";
 
 /** 与 session-reattach.reattachRunningSessionIfNeeded 默认一致。 */
 const HISTORY_WATCH_DEFAULT_POLL_SEC = 1.5;
@@ -383,11 +412,20 @@ function collectHistoryLoadProbe(
     const windowRows = snap?.rows?.window ?? [];
     const loadingOlder = !!state?.loadingOlder;
     const hasOlder = hasOlderRows(snap);
+    // 跟底中不预取（与 ConversationTimeline 一致）；否则短尾窗会假阳性 auto=1。
+    const followingAttr =
+      typeof document !== "undefined"
+        ? document
+            .querySelector('[data-v4-chat-host-visible="1"] [data-following]')
+            ?.getAttribute("data-following")
+        : null;
+    const following = followingAttr !== "false";
     const wouldTrigger = shouldTriggerLoadOlder({
       scrollTop,
       canLoadOlder: hasOlder,
       loadingOlder,
       triggerPx,
+      following,
     });
     let windowUserCount = 0;
     let windowTurnCount = 0;
@@ -495,20 +533,48 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
         : null;
     const orphanHeaderNoUser =
       !!header && headerOrigin === "userInput" && !hasUserInput;
-    const hasAssistantLike = raw.some((row) => {
-      const k = String(row.kind || "");
-      return (
-        k === "assistantText" ||
-        k === "reasoning" ||
-        k === "toolCall" ||
-        k === "subagent"
-      );
+    const executionKind =
+      header && typeof (header as { executionKind?: unknown }).executionKind === "string"
+        ? String((header as { executionKind: string }).executionKind)
+        : null;
+    const rawEmpty = classifyEmptyAssistantCompleted({
+      headerOrigin,
+      headerState,
+      executionKind,
+      rows: raw.map((row) => ({
+        kind: String(row.kind || ""),
+        origin:
+          typeof (row as { origin?: unknown }).origin === "string"
+            ? String((row as { origin: string }).origin)
+            : undefined,
+        text:
+          typeof (row as { text?: unknown }).text === "string"
+            ? String((row as { text: string }).text)
+            : undefined,
+      })),
     });
-    const emptyAssistantCompleted =
-      hasUserInput &&
-      !hasAssistantLike &&
-      !!headerState &&
-      (headerState.startsWith("completed") || headerState === "failed");
+    // 后方已有续跑正文时，渲染会撤掉本轮 empty-run；探针跟时间线一致。
+    let emptyAssistantCompleted = rawEmpty;
+    if (raw.length > 0) {
+      try {
+        const units = buildConversationTurnRenderUnits(raw, { sessionBusy: false });
+        emptyAssistantCompleted = units.some(
+          (unit) =>
+            unit.visibleUserInputs.some(
+              (u) =>
+                (!u.origin || u.origin === "realUser") &&
+                Boolean(String(u.text || "").trim()),
+            ) &&
+            unit.assistantTextRows.length === 0 &&
+            unit.assistantWorkRows.length === 0 &&
+            !!unit.header?.state &&
+            (String(unit.header.state).startsWith("completed") ||
+              unit.header.state === "failed"),
+        );
+      } catch {
+        emptyAssistantCompleted = rawEmpty;
+      }
+    }
     return {
       turnId: turnId || `anon-${i}`,
       dataIndex: el.getAttribute("data-index"),
@@ -547,13 +613,50 @@ const OVERLAY_EDGE_PAD = 8;
 const OVERLAY_HEADER_MIN_VISIBLE_PX = 44;
 const OVERLAY_TAB_LS_KEY = "EVOFLOW_V4_VIEWPORT_OVERLAY_TAB";
 
-type OverlayTab = "status" | "stream" | "api" | "viewport";
+type OverlayTab =
+  | "status"
+  | "stream"
+  | "timing"
+  | "scroll"
+  | "api"
+  | "viewport"
+  | "anomaly";
 type ApiFamilyFilter = "all" | ViewportApiTapFamily;
+
+/** 抽头条：完整换行，不用省略号 */
+const tapLineStyle: CSSProperties = {
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
+};
+
+const tapJsonPreStyle: CSSProperties = {
+  margin: "4px 0 0",
+  padding: 8,
+  borderRadius: 4,
+  border: "1px solid rgba(148,163,184,0.35)",
+  background: "rgba(2,6,23,0.92)",
+  color: "#f8fafc",
+  whiteSpace: "pre-wrap",
+  wordBreak: "break-word",
+  overflowWrap: "anywhere",
+  overflow: "auto",
+  fontSize: 11,
+  lineHeight: 1.35,
+};
 
 function readOverlayTab(): OverlayTab {
   try {
     const v = localStorage.getItem(OVERLAY_TAB_LS_KEY);
-    if (v === "status" || v === "stream" || v === "api" || v === "viewport") {
+    if (
+      v === "status" ||
+      v === "stream" ||
+      v === "timing" ||
+      v === "scroll" ||
+      v === "api" ||
+      v === "viewport" ||
+      v === "anomaly"
+    ) {
       return v;
     }
   } catch {
@@ -684,176 +787,252 @@ const paneStyle: CSSProperties = {
   lineHeight: 1.4,
 };
 
-/** 复制给 Agent 排查用的诊断包：布局 + 运行态 + 视口 turn + 最近流式帧 + 接口。 */
+function summarizeTurnRows(
+  rawRows: VisibleTurnProbe["rawRows"],
+): string {
+  if (rawRows.length === 0) return "（投影无此 turn）";
+  const kinds = new Map<string, number>();
+  for (const r of rawRows) {
+    const kind = String(r.kind || "?");
+    const key =
+      typeof r.toolName === "string"
+        ? `${kind}:${r.toolName}`
+        : typeof r.origin === "string"
+          ? `${kind}:${r.origin}`
+          : kind;
+    kinds.set(key, (kinds.get(key) ?? 0) + 1);
+  }
+  const head = [...kinds.entries()]
+    .slice(0, 8)
+    .map(([k, n]) => (n > 1 ? `${k}×${n}` : k))
+    .join(" | ");
+  const user = rawRows.find(
+    (r) => r.kind === "userInput" && typeof r.text === "string" && r.text.trim(),
+  );
+  const asst = rawRows.find(
+    (r) => r.kind === "assistantText" && typeof r.text === "string" && r.text.trim(),
+  );
+  const bits = [head];
+  if (user?.text) bits.push(`user「${clip(user.text, 48)}」`);
+  if (asst?.text) bits.push(`asst「${clip(asst.text, 48)}」`);
+  else if (!rawRows.some((r) => r.kind === "assistantText" || r.kind === "toolCall")) {
+    bits.push("无助手行");
+  }
+  return bits.join(" · ");
+}
+
+function pickDiagnosticTurns(
+  turns: OverlaySnapshot["turns"],
+): OverlaySnapshot["turns"] {
+  if (turns.length === 0) return turns;
+  const flagged = turns.filter(
+    (t) => t.orphanHeaderNoUser || t.emptyAssistantCompleted,
+  );
+  if (flagged.length > 0) {
+    // 异常轮 + 其前后各一（上下文），去重保序，最多 4
+    const want = new Set(flagged);
+    for (const t of flagged) {
+      const i = turns.indexOf(t);
+      if (i > 0) want.add(turns[i - 1]!);
+      if (i >= 0 && i < turns.length - 1) want.add(turns[i + 1]!);
+    }
+    return turns.filter((t) => want.has(t)).slice(0, 4);
+  }
+  // 健康时只留末 2 轮，够对「最新气泡 / 空回复」
+  return turns.slice(-2);
+}
+
+function isNoisyApiPath(path: string): boolean {
+  const p = path.toLowerCase();
+  return (
+    p.includes("file_changes") ||
+    p.includes("/assets/") ||
+    p.includes("/telemetry") ||
+    p.includes("/metrics")
+  );
+}
+
+function isSignalApiPath(path: string): boolean {
+  const p = path.toLowerCase();
+  return (
+    p.includes("rows_range") ||
+    p.includes("subscribe") ||
+    p.includes("catchup") ||
+    p.includes("/frames") ||
+    p.includes("snapshot")
+  );
+}
+
+/**
+ * 一键复制给 Agent：异常优先、短证据。
+ * 刻意不塞：流式整段 JSON、滚轮流水账、file_changes、百科提示——那些干扰排障。
+ */
 function buildOverlayDiagnosticText(opts: {
   tab: OverlayTab;
   snapshot: OverlaySnapshot | null;
   streamEntries: ViewportStreamTapEntry[];
+  scrollEntries: ViewportScrollTapEntry[];
   apiEntries: ViewportApiTapEntry[];
   problems: string;
+  anomalies: ViewportAnomaly[];
 }): string {
-  const { tab, snapshot, streamEntries, apiEntries, problems } = opts;
+  const {
+    tab,
+    snapshot,
+    streamEntries,
+    scrollEntries,
+    apiEntries,
+    problems,
+    anomalies,
+  } = opts;
   const lines: string[] = [];
-  lines.push("## EvoFlow V4 视口调试诊断");
-  lines.push(`- 复制时间: ${new Date().toISOString()}`);
-  lines.push(`- 当前页签: ${tab}`);
-  lines.push(`- 问题标记: ${problems || "OK"}`);
+  lines.push("## EvoFlow V4 视口诊断（精简）");
+  lines.push(
+    `- ${new Date().toISOString()} · tab=${tab} · ${problems || "OK"} · 异常=${anomalies.length}`,
+  );
   if (!snapshot) {
     lines.push("- 快照: （无可见对话）");
     return lines.join("\n");
   }
 
-  lines.push("");
-  lines.push("### 会话");
-  lines.push(`- title: ${snapshot.title || "∅"}`);
-  lines.push(`- tid: ${snapshot.tid}`);
-  lines.push(`- sessionKey: ${snapshot.sessionKey || "∅"}`);
-  lines.push(
-    `- scroll: top=${snapshot.scrollTop} height=${snapshot.scrollHeight} client=${snapshot.clientHeight}`,
-  );
-
   const h = snapshot.history;
-  lines.push("");
-  lines.push("### 消息 / 投影窗口");
-  lines.push(
-    `- rows: 已显示 ${h.windowCount} / 全序 ${h.totalCount ?? "∅"}（user气泡=${h.windowUserCount} turns=${h.windowTurnCount}）`,
-  );
-  lines.push(
-    `- rowId: first=${h.firstRowId ?? "∅"} window=${h.windowFirstRowId ?? "∅"}…${h.windowLastRowId ?? "∅"}`,
-  );
-  lines.push(
-    `- loadOlder: hasOlder=${h.hasOlder ? 1 : 0} loading=${h.loadingOlder ? 1 : 0} triggerPx=${h.triggerPx} inZone=${h.inPrefetchZone ? 1 : 0} wouldTrigger=${h.wouldTrigger ? 1 : 0}`,
-  );
-  lines.push(
-    `- 预取规则: scrollTop ≤ max(64, 2×clientHeight) 才自动 loadOlder；不是一上滚就拉`,
-  );
-
   const rs = snapshot.runStatus;
   lines.push("");
-  lines.push("### 运行状态");
-  lines.push(`- label: ${rs.label} (mode=${rs.mode})`);
+  lines.push("### 会话");
   lines.push(
-    `- phase=${rs.turnPhase} wire=${rs.streamWireSource || "∅"} frames=${rs.v4FramesSseOpen ? "connected" : "down"} settled=${rs.uiTurnSettled ? 1 : 0} executing=${rs.executing ? 1 : 0}`,
+    `- ${snapshot.title || "∅"} · tid=${snapshot.tid} · sk=${snapshot.sessionKey || "∅"}`,
   );
-  lines.push(`- why: ${rs.execWhy || "∅"}`);
   lines.push(
-    `- historyWatch=${rs.historyWatchActive ? 1 : 0} v4Busy=${rs.v4TimelineBusy ? 1 : 0}`,
+    `- scroll ${snapshot.scrollTop}/${snapshot.scrollHeight} client=${snapshot.clientHeight} · ${formatConversationRecordCounts({
+      windowCount: h.windowCount,
+      totalCount: h.totalCount,
+      windowTurnCount: h.windowTurnCount,
+      windowUserCount: h.windowUserCount,
+    })} · win=${h.windowFirstRowId ?? "∅"}…${h.windowLastRowId ?? "∅"} · hasOlder=${h.hasOlder ? 1 : 0} loading=${h.loadingOlder ? 1 : 0} wouldTrigger=${h.wouldTrigger ? 1 : 0}`,
   );
-  for (const p of rs.polls) {
+  lines.push(
+    `- run ${rs.label} phase=${rs.turnPhase} wire=${rs.streamWireSource || "∅"} frames=${rs.v4FramesSseOpen ? "up" : "down"} settled=${rs.uiTurnSettled ? 1 : 0} exec=${rs.executing ? 1 : 0} why=${rs.execWhy || "∅"}`,
+  );
+  const activePolls = rs.polls.filter((p) => p.active);
+  if (activePolls.length > 0) {
     lines.push(
-      `- poll ${p.active ? "ACTIVE" : "idle"} every ${p.intervalSec}s | ${p.owner} | ${p.target}`,
+      `- polls: ${activePolls.map((p) => `${p.owner}@${p.intervalSec}s`).join(", ")}`,
     );
   }
 
-  const host = snapshot.layout?.hosts.find((h) => h.visibleAttr === "1");
-  lines.push("");
-  lines.push("### 布局（左栏 DOM / virtualizer）");
+  const host = snapshot.layout?.hosts.find((x) => x.visibleAttr === "1");
+  const layoutBad =
+    !!host?.estimateStuck ||
+    !!host?.stacked ||
+    (snapshot.layout?.stackedHostCount ?? 0) > 0 ||
+    !!snapshot.layout?.composer?.drifted;
   if (host) {
     lines.push(
-      `- host visible v=${host.visibleAttr} focused=${host.focusedAttr} display=${host.display} vis=${host.visibility}`,
-    );
-    lines.push(
-      `- turns=${host.turnCount} uniqueTops=${host.uniqueTops} medianGap=${host.medianGap ?? "∅"} stacked=${host.stacked ? 1 : 0} estimateStuck=${host.estimateStuck ? 1 : 0}`,
-    );
-  } else {
-    lines.push("- （无 visible host）");
-  }
-  if (snapshot.layout) {
-    lines.push(
-      `- stackedHostCount=${snapshot.layout.stackedHostCount} composerDrift=${snapshot.layout.composer?.drifted ? 1 : 0}`,
+      `- layout turns=${host.turnCount} gap=${host.medianGap ?? "∅"} stuck=${host.estimateStuck ? 1 : 0} stacked=${host.stacked ? 1 : 0} hosts=${snapshot.layout?.stackedHostCount ?? 0} composerDrift=${snapshot.layout?.composer?.drifted ? 1 : 0}${layoutBad ? " ←" : ""}`,
     );
   }
 
   lines.push("");
-  lines.push("### 视口内 turn（左=DOM 字 / 右=投影 row）");
-  if (snapshot.turns.length === 0) {
-    lines.push("- （视口无 turn）");
-  } else {
-    for (const t of snapshot.turns) {
-      lines.push(
-        `- #${t.dataIndex ?? "∅"} turn=${t.turnId.slice(0, 12)} h=${t.height} gap→${t.gapToNext ?? "∅"}${t.orphanHeaderNoUser ? " !NO_USER" : ""}${t.emptyAssistantCompleted ? " !EMPTY_ASSISTANT" : ""}${t.headerState ? ` state=${t.headerState}` : ""}`,
-      );
-      lines.push(`  DOM: ${clip(t.displayText, 280) || "（空）"}`);
-      const rowBrief =
-        t.rawRows.length === 0
-          ? "（投影无此 turn）"
-          : t.rawRows
-              .map((r) => {
-                const kind = String(r.kind || "?");
-                if (typeof r.toolName === "string") {
-                  return `${kind}:${r.toolName}${r.status ? `[${r.status}]` : ""}`;
-                }
-                if (typeof r.text === "string" && r.text) {
-                  return `${kind}:${clip(r.text, 100)}`;
-                }
-                if (typeof r.origin === "string") {
-                  return `${kind}:origin=${r.origin}`;
-                }
-                if (typeof r.state === "string") {
-                  return `${kind}:state=${r.state}`;
-                }
-                return kind;
-              })
-              .join(" | ");
-      lines.push(`  ROW: ${rowBrief}`);
-    }
-  }
-
-  const recent = streamEntries.slice(-12);
-  lines.push("");
-  lines.push(
-    `### 最近流式帧（${recent.length}/${streamEntries.length}，含裁剪后 JSON）`,
-  );
-  if (recent.length === 0) {
+  lines.push(`### 异常（${anomalies.length}）`);
+  if (anomalies.length === 0) {
     lines.push("- （无）");
   } else {
-    for (const e of recent) {
-      lines.push(`- #${e.id} ${new Date(e.atMs).toISOString()} ${e.headline}`);
-      lines.push("```json");
-      lines.push(e.jsonText);
-      lines.push("```");
+    for (const a of anomalies) {
+      lines.push(`- [${a.severity}] ${a.code} · ${a.title} · ${a.detail}`);
     }
   }
 
-  const recentApi = apiEntries.slice(-10);
+  const turns = pickDiagnosticTurns(snapshot.turns);
   lines.push("");
   lines.push(
-    `### 最近页面接口（${recentApi.length}/${apiEntries.length}，入参/出参已裁剪）`,
+    `### 视口 turn（${turns.length}/${snapshot.turns.length}，异常优先）`,
+  );
+  if (turns.length === 0) {
+    lines.push("- （视口无 turn）");
+  } else {
+    for (const t of turns) {
+      const flags = [
+        t.orphanHeaderNoUser ? "!NO_USER" : "",
+        t.emptyAssistantCompleted ? "!EMPTY_ASSISTANT" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      lines.push(
+        `- #${t.dataIndex ?? "∅"} ${t.turnId.slice(0, 12)} h=${t.height}${flags ? ` ${flags}` : ""}${t.headerState ? ` ${t.headerState}` : ""}`,
+      );
+      lines.push(`  DOM: ${clip(t.displayText, 120) || "（空）"}`);
+      lines.push(`  ROW: ${summarizeTurnRows(t.rawRows)}`);
+    }
+  }
+
+  const needStreamDetail = anomalies.some(
+    (a) =>
+      a.code === "STREAM_AHEAD_OF_WINDOW" ||
+      a.code === "STREAM_LIVE_NO_DOM" ||
+      a.code === "EMPTY_ASSISTANT",
+  );
+  const recentStream = streamEntries.slice(needStreamDetail ? -6 : -4);
+  lines.push("");
+  lines.push(`### 流式 headline（${recentStream.length}/${streamEntries.length}，无整段 JSON）`);
+  if (recentStream.length === 0) {
+    lines.push("- （无）");
+  } else {
+    for (const e of recentStream) {
+      lines.push(`- #${e.id} ${e.headline}`);
+    }
+  }
+
+  const jumps = scrollEntries.filter((e) => e.jump).slice(-8);
+  const jumpTotal = scrollEntries.reduce((n, e) => n + (e.jump ? 1 : 0), 0);
+  lines.push("");
+  lines.push(`### 滚轮 !JUMP（${jumps.length} 条 / 总计 ${jumpTotal}）`);
+  if (jumps.length === 0) {
+    const last = scrollEntries.at(-1);
+    if (last) {
+      lines.push(
+        `- 最近非跳: top=${Math.round(last.scrollTop)} h=${Math.round(last.scrollHeight)} src=${last.source} follow=${last.followingAttr ?? "∅"} winFirst=${last.windowFirstRowId ?? "∅"}`,
+      );
+    } else {
+      lines.push("- （无）");
+    }
+  } else {
+    for (const e of jumps) {
+      lines.push(
+        `- #${e.id} ${e.headline} · src=${e.source} follow=${e.followingAttr ?? "∅"} dH=${Math.round(e.dHeight)} winFirst=${e.windowFirstRowId ?? "∅"} shown=${e.windowCount}/${e.totalCount ?? "∅"}`,
+      );
+    }
+  }
+
+  const signalApis = apiEntries.filter(
+    (e) => !e.ok || isSignalApiPath(e.path) || !isNoisyApiPath(e.path),
+  );
+  const recentApi = [
+    ...signalApis.filter((e) => !e.ok),
+    ...signalApis.filter((e) => e.ok && isSignalApiPath(e.path)),
+  ]
+    .filter((e, i, arr) => arr.findIndex((x) => x.id === e.id) === i)
+    .slice(-6);
+  lines.push("");
+  lines.push(
+    `### 接口（${recentApi.length} 条信号；已跳过 file_changes 等噪声）`,
   );
   if (recentApi.length === 0) {
     lines.push("- （无）");
   } else {
     for (const e of recentApi) {
       lines.push(
-        `- #${e.id} ${new Date(e.atMs).toISOString()} ${e.method} ${e.label} ${e.status} ${e.durationMs}ms ${e.ok ? "ok" : "FAIL"}`,
+        `- #${e.id} ${e.method} ${e.label} ${e.status} ${e.durationMs}ms ${e.ok ? "ok" : "FAIL"} · ${e.path}`,
       );
-      lines.push(`  path: ${e.path}${e.query ? `?${e.query}` : ""}`);
-      lines.push("  --- request ---");
-      lines.push(e.requestText || "（空）");
-      lines.push("  --- response ---");
-      lines.push(e.responseText || "（空）");
+      // 失败或 rows_range/subscribe：只留极短 body，够对 epoch/winFirst
+      if (!e.ok || e.path.includes("rows_range") || e.path.includes("subscribe")) {
+        const req = clip(e.requestText.replace(/\s+/g, " ").trim(), 160);
+        const res = clip(e.responseText.replace(/\s+/g, " ").trim(), 200);
+        if (req) lines.push(`  req: ${req}`);
+        if (res) lines.push(`  res: ${res}`);
+      }
     }
   }
 
-  lines.push("");
-  lines.push("### 给 Agent 的提示");
-  lines.push(
-    "- 叠字/空白/滚不到历史 → 看布局 estimateStuck、medianGap、视口 turn DOM↔ROW。",
-  );
-  lines.push("- 粘运行中/停不掉 → 看 phase/wire/settled/why 与 polls。");
-  lines.push("- 投影落后或劈 turn → 对流式 deltas/snapshot 与 ROW 摘要。");
-  lines.push(
-    "- 接口有正文、页面空 → 对「接口」页签 response 与视口 ROW；差在 hydrate/mirror/前端过滤。",
-  );
-  lines.push(
-    "- !EMPTY_ASSISTANT → 用户轮已 completed 却无助手行：多为中途 RUN_FINISHED 后迟到 TEXT 挂空 turnId（需 gateway 含 late-stream 挂回修复）；历史孤儿重载后无法自愈。",
-  );
-  lines.push(
-    "- 上拉到顶看不到更早消息 → 看「消息/投影窗口」hasOlder、wouldTrigger、!HISTORY_TOP；直播 overflow 尾窗曾整窗替换冲掉 loadOlder（需同 epoch 保历史）。",
-  );
-  lines.push(
-    "- 页面已停但浮层仍见 SSE/接口 → 先对 tid 与 stream topic / rows_range.sessionId：常是旁路会话或 prefetch，不是本页还在跑。",
-  );
   return lines.join("\n");
 }
 
@@ -881,37 +1060,120 @@ async function copyTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function problemBadge(
-  layout: V4ChatLayoutDump | null,
-  turns?: VisibleTurnProbe[] | null,
-  history?: HistoryLoadProbe | null,
-  scrollTop?: number,
-): string {
-  const parts: string[] = [];
-  if (layout) {
-    if (layout.hosts.some((h) => h.visibleAttr === "1" && h.estimateStuck)) {
-      parts.push("!EST72");
-    }
-    if (layout.stackedHostCount > 0) parts.push("!STACK");
-    if (layout.composer?.drifted) parts.push("!COMPOSER_DRIFT");
+function readToolDisplayMeta(row: ConversationRow): {
+  displayKind: string | undefined;
+  hasMedia: boolean;
+} {
+  if (row.kind !== "toolCall") return { displayKind: undefined, hasMedia: false };
+  const display =
+    (row as { display?: { kind?: string; media?: unknown } }).display ??
+    (row as { output?: { display?: { kind?: string; media?: unknown } } }).output
+      ?.display;
+  const displayKind =
+    display && typeof display.kind === "string" ? display.kind : undefined;
+  const hasMedia = Array.isArray(display?.media) && display!.media!.length > 0;
+  return { displayKind, hasMedia };
+}
+
+function collectAnomalyWindowRows(tid: string): NonNullable<
+  Parameters<typeof collectViewportAnomalies>[0]["windowRows"]
+> {
+  if (!tid) return [];
+  try {
+    const snap = getSharedV4SessionDataLayer()
+      .peekStore(tid)
+      ?.getState()?.snapshot;
+    const windowRows = snap?.rows?.window ?? [];
+    return windowRows.map((row) => {
+      const meta = readToolDisplayMeta(row);
+      return {
+        rowId: row.rowId,
+        kind: String(row.kind || ""),
+        origin:
+          typeof (row as { origin?: unknown }).origin === "string"
+            ? String((row as { origin: string }).origin)
+            : undefined,
+        turnId: String(row.turnId || ""),
+        text:
+          typeof (row as { text?: unknown }).text === "string"
+            ? String((row as { text: string }).text)
+            : undefined,
+        displayKind: meta.displayKind,
+        hasMedia: meta.hasMedia,
+      };
+    });
+  } catch {
+    return [];
   }
-  if (turns?.some((t) => t.orphanHeaderNoUser)) {
-    parts.push("!NO_USER");
-  }
-  if (turns?.some((t) => t.emptyAssistantCompleted)) {
-    parts.push("!EMPTY_ASSISTANT");
-  }
-  // 视觉已到顶，但投影仍声明有更早行 → 预取该响却可能卡住 / 刚被尾窗冲掉
-  if (
-    history &&
-    typeof scrollTop === "number" &&
-    scrollTop <= 8 &&
-    history.hasOlder &&
-    !history.loadingOlder
-  ) {
-    parts.push("!HISTORY_TOP");
-  }
-  return parts.join(" ");
+}
+
+function buildViewportAnomalies(input: {
+  snapshot: OverlaySnapshot | null;
+  streamEntries: ViewportStreamTapEntry[];
+  apiEntries: ViewportApiTapEntry[];
+  scrollEntries: ViewportScrollTapEntry[];
+}): ViewportAnomaly[] {
+  const snap = input.snapshot;
+  if (!snap) return [];
+  const host = snap.layout?.hosts.find((h) => h.visibleAttr === "1");
+  return collectViewportAnomalies({
+    tid: snap.tid,
+    scrollTop: snap.scrollTop,
+    scrollHeight: snap.scrollHeight,
+    clientHeight: snap.clientHeight,
+    executing: snap.runStatus.executing,
+    uiTurnSettled: snap.runStatus.uiTurnSettled,
+    history: {
+      hasOlder: snap.history.hasOlder,
+      loadingOlder: snap.history.loadingOlder,
+      wouldTrigger: snap.history.wouldTrigger,
+      firstRowId: snap.history.firstRowId,
+      windowFirstRowId: snap.history.windowFirstRowId,
+      windowLastRowId: snap.history.windowLastRowId,
+      windowCount: snap.history.windowCount,
+      totalCount: snap.history.totalCount,
+    },
+    turns: snap.turns,
+    layout: host
+      ? {
+          estimateStuck: !!host.estimateStuck,
+          stackedHostCount: snap.layout?.stackedHostCount ?? 0,
+          composerDrifted: !!snap.layout?.composer?.drifted,
+        }
+      : snap.layout
+        ? {
+            estimateStuck: false,
+            stackedHostCount: snap.layout.stackedHostCount,
+            composerDrifted: !!snap.layout.composer?.drifted,
+          }
+        : null,
+    windowRows: collectAnomalyWindowRows(snap.tid),
+    streamEntries: input.streamEntries.map((e) => ({
+      atMs: e.atMs,
+      channel: e.channel,
+      sessionId: e.sessionId,
+      headline: e.headline,
+      jsonText: e.jsonText,
+    })),
+    apiEntries: input.apiEntries.map((e) => ({
+      atMs: e.atMs,
+      path: e.path,
+      ok: e.ok,
+      sessionId: e.sessionId,
+      requestText: e.requestText,
+      responseText: e.responseText,
+    })),
+    scrollEntries: input.scrollEntries.map((e) => ({
+      atMs: e.atMs,
+      jump: e.jump,
+      source: e.source,
+      followingAttr: e.followingAttr,
+    })),
+  });
+}
+
+function problemBadge(anomalies: readonly ViewportAnomaly[]): string {
+  return formatAnomalyBadge(anomalies);
 }
 
 export function V4ViewportDebugOverlay() {
@@ -925,11 +1187,18 @@ export function V4ViewportDebugOverlay() {
   const [expandedApiId, setExpandedApiId] = useState<number | null>(null);
   const [apiFamily, setApiFamily] = useState<ApiFamilyFilter>("all");
   const [streamEntries, setStreamEntries] = useState<ViewportStreamTapEntry[]>(
-    () => listViewportStreamTapEntries({ limit: 48 }),
+    () => listViewportStreamTapEntries({ limit: 200 }),
   );
   const [apiEntries, setApiEntries] = useState<ViewportApiTapEntry[]>(() =>
-    listViewportApiTapEntries({ limit: 64 }),
+    listViewportApiTapEntries({ limit: 200 }),
   );
+  const [scrollEntries, setScrollEntries] = useState<ViewportScrollTapEntry[]>(
+    () => listViewportScrollTapEntries({ limit: 200 }),
+  );
+  const [timingRows, setTimingRows] = useState<ChatTurnTimingRow[]>(() =>
+    listChatTurnTimingRows({ limit: 40 }),
+  );
+  const [scrollJumpsOnly, setScrollJumpsOnly] = useState(false);
   const [copyHint, setCopyHint] = useState<string | null>(null);
   const [pos, setPos] = useState(defaultOverlayPos);
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -937,6 +1206,8 @@ export function V4ViewportDebugOverlay() {
   const streamFollowBottomRef = useRef(true);
   const apiScrollRef = useRef<HTMLDivElement | null>(null);
   const apiFollowBottomRef = useRef(true);
+  const scrollTrailRef = useRef<HTMLDivElement | null>(null);
+  const scrollFollowBottomRef = useRef(true);
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -997,7 +1268,7 @@ export function V4ViewportDebugOverlay() {
       listViewportStreamTapEntries({
         sessionKey: snapshot?.sessionKey ?? null,
         sessionId: snapshot?.tid ?? null,
-        limit: 48,
+        limit: 200,
       }),
     );
   }, [snapshot?.sessionKey, snapshot?.tid]);
@@ -1007,16 +1278,35 @@ export function V4ViewportDebugOverlay() {
       listViewportApiTapEntries({
         family: apiFamily,
         sessionId: snapshot?.tid ?? null,
-        limit: 64,
+        limit: 200,
       }),
     );
   }, [apiFamily, snapshot?.tid]);
+
+  const refreshScroll = useCallback(() => {
+    setScrollEntries(
+      listViewportScrollTapEntries({
+        limit: 200,
+        jumpsOnly: scrollJumpsOnly,
+      }),
+    );
+  }, [scrollJumpsOnly]);
+
+  const refreshTiming = useCallback(() => {
+    setTimingRows(
+      listChatTurnTimingRows({
+        sessionKey: snapshot?.sessionKey ?? null,
+        limit: 40,
+      }),
+    );
+  }, [snapshot?.sessionKey]);
 
   const active = obsEnabled && prefOn;
 
   useEffect(() => {
     if (!active) {
       setSnapshot(null);
+      detachViewportScrollTap();
       return;
     }
     refresh();
@@ -1030,6 +1320,7 @@ export function V4ViewportDebugOverlay() {
     };
     const host = document.querySelector('[data-v4-chat-host-visible="1"]');
     const sc = host ? findConversationScroll(host) : null;
+    attachViewportScrollTap(sc);
     sc?.addEventListener("scroll", schedule, { passive: true });
     window.addEventListener("resize", schedule);
     const timer = window.setInterval(schedule, 700);
@@ -1038,8 +1329,26 @@ export function V4ViewportDebugOverlay() {
       sc?.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       window.clearInterval(timer);
+      detachViewportScrollTap();
     };
   }, [active, refresh, snapshot?.tid]);
+
+  // 投影窗 / loadOlder 状态喂给滚轮轨迹，到顶行才能写清「还能自动拉吗」。
+  useEffect(() => {
+    if (!active || !snapshot) return;
+    const h = snapshot.history;
+    setViewportScrollTapSessionId(snapshot.tid);
+    setViewportScrollHistoryContext({
+      hasOlder: h.hasOlder,
+      loadingOlder: h.loadingOlder,
+      firstRowId: h.firstRowId,
+      windowFirstRowId: h.windowFirstRowId,
+      totalCount: h.totalCount,
+      windowCount: h.windowCount,
+      windowUserCount: h.windowUserCount,
+      windowTurnCount: h.windowTurnCount,
+    });
+  }, [active, snapshot]);
 
   useEffect(() => {
     if (!active) return;
@@ -1075,6 +1384,31 @@ export function V4ViewportDebugOverlay() {
     };
   }, [active, refreshApi]);
 
+  useEffect(() => {
+    if (!active) return;
+    refreshScroll();
+    let raf = 0;
+    const unsub = subscribeViewportScrollTap(() => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        refreshScroll();
+      });
+    });
+    return () => {
+      unsub();
+      if (raf) window.cancelAnimationFrame(raf);
+    };
+  }, [active, refreshScroll]);
+
+  useEffect(() => {
+    if (!active) return;
+    refreshTiming();
+    return subscribeChatTurnTiming(() => {
+      refreshTiming();
+    });
+  }, [active, refreshTiming]);
+
   const selectTab = useCallback((next: OverlayTab) => {
     setTab(next);
     writeOverlayTab(next);
@@ -1083,6 +1417,9 @@ export function V4ViewportDebugOverlay() {
     }
     if (next === "api") {
       apiFollowBottomRef.current = true;
+    }
+    if (next === "scroll") {
+      scrollFollowBottomRef.current = true;
     }
   }, []);
 
@@ -1101,6 +1438,14 @@ export function V4ViewportDebugOverlay() {
     if (!el) return;
     el.scrollTop = el.scrollHeight;
   }, [active, tab, apiEntries]);
+
+  // 滚轮轨迹：默认贴最新；上滚查阅历史样本。
+  useLayoutEffect(() => {
+    if (!active || tab !== "scroll" || !scrollFollowBottomRef.current) return;
+    const el = scrollTrailRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [active, tab, scrollEntries]);
 
   const clampToViewport = useCallback((left: number, top: number) => {
     const el = panelRef.current;
@@ -1144,16 +1489,17 @@ export function V4ViewportDebugOverlay() {
   };
   const resetPos = () => setPos(defaultOverlayPos());
 
-  const problems = useMemo(
+  const anomalies = useMemo(
     () =>
-      problemBadge(
-        snapshot?.layout ?? null,
-        snapshot?.turns ?? null,
-        snapshot?.history ?? null,
-        snapshot?.scrollTop,
-      ),
-    [snapshot],
+      buildViewportAnomalies({
+        snapshot,
+        streamEntries,
+        apiEntries,
+        scrollEntries,
+      }),
+    [snapshot, streamEntries, apiEntries, scrollEntries],
   );
+  const problems = useMemo(() => problemBadge(anomalies), [anomalies]);
   const visibleHost = snapshot?.layout?.hosts.find((h) => h.visibleAttr === "1");
 
   const flashCopyHint = useCallback((ok: boolean, label: string) => {
@@ -1165,25 +1511,31 @@ export function V4ViewportDebugOverlay() {
     // 复制前先刷一帧，避免贴出去的是过期快照。
     const fresh = collectOverlaySnapshot();
     if (fresh) setSnapshot(fresh);
+    const streamForCopy = listViewportStreamTapEntries({
+      sessionKey: (fresh ?? snapshot)?.sessionKey ?? null,
+      sessionId: (fresh ?? snapshot)?.tid ?? null,
+      limit: 16,
+    });
+    const scrollForCopy = listViewportScrollTapEntries({ limit: 32 });
+    const apiForCopy = listViewportApiTapEntries({
+      family: apiFamily,
+      sessionId: (fresh ?? snapshot)?.tid ?? null,
+      limit: 24,
+    });
+    const anomaliesForCopy = buildViewportAnomalies({
+      snapshot: fresh ?? snapshot,
+      streamEntries: streamForCopy,
+      apiEntries: apiForCopy,
+      scrollEntries: scrollForCopy,
+    });
     const text = buildOverlayDiagnosticText({
       tab,
       snapshot: fresh ?? snapshot,
-      streamEntries: listViewportStreamTapEntries({
-        sessionKey: (fresh ?? snapshot)?.sessionKey ?? null,
-        sessionId: (fresh ?? snapshot)?.tid ?? null,
-        limit: 48,
-      }),
-      apiEntries: listViewportApiTapEntries({
-        family: apiFamily,
-        sessionId: (fresh ?? snapshot)?.tid ?? null,
-        limit: 64,
-      }),
-      problems: problemBadge(
-        (fresh ?? snapshot)?.layout ?? null,
-        (fresh ?? snapshot)?.turns ?? null,
-        (fresh ?? snapshot)?.history ?? null,
-        (fresh ?? snapshot)?.scrollTop,
-      ),
+      streamEntries: streamForCopy,
+      scrollEntries: scrollForCopy,
+      apiEntries: apiForCopy,
+      anomalies: anomaliesForCopy,
+      problems: problemBadge(anomaliesForCopy),
     });
     const ok = await copyTextToClipboard(text);
     flashCopyHint(ok, "已复制诊断");
@@ -1250,7 +1602,7 @@ export function V4ViewportDebugOverlay() {
             onClick={() => {
               void copyDiagnostic();
             }}
-            title="复制诊断包（会话/运行态/布局/视口 turn DOM↔ROW/最近流式 JSON），直接贴给 Agent 排查"
+            title="复制精简诊断：异常优先 + 短证据（不含流式整段 JSON / 滚轮流水账）"
           >
             {copyHint || "复制诊断"}
           </button>
@@ -1412,7 +1764,18 @@ export function V4ViewportDebugOverlay() {
                 {(
                   [
                     ["status", "运行"],
+                    [
+                      "anomaly",
+                      anomalies.length
+                        ? `异常(${anomalies.length})`
+                        : "异常",
+                    ],
                     ["stream", `流式(${streamEntries.length})`],
+                    ["timing", `计时(${timingRows.length})`],
+                    [
+                      "scroll",
+                      `滚轮(${scrollEntries.length}${countViewportScrollJumps() ? `!${countViewportScrollJumps()}` : ""})`,
+                    ],
                     ["api", `接口(${apiEntries.length})`],
                     ["viewport", `视口(${snapshot.turns.length})`],
                   ] as const
@@ -1424,7 +1787,12 @@ export function V4ViewportDebugOverlay() {
                       ...tabBtnBase,
                       background:
                         tab === id ? "rgba(51,65,85,0.95)" : "transparent",
-                      color: tab === id ? "#f8fafc" : "#94a3b8",
+                      color:
+                        tab === id
+                          ? "#f8fafc"
+                          : id === "anomaly" && anomalies.length > 0
+                            ? "#fbbf24"
+                            : "#94a3b8",
                       borderColor:
                         tab === id
                           ? "rgba(148,163,184,0.35)"
@@ -1485,6 +1853,46 @@ export function V4ViewportDebugOverlay() {
                       {snapshot.runStatus.executing ? "1" : "0"}
                       {" · "}why={snapshot.runStatus.execWhy || "∅"}
                     </div>
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        background:
+                          anomalies.length > 0
+                            ? "rgba(127,29,29,0.28)"
+                            : "rgba(22,101,52,0.22)",
+                        color: anomalies.length > 0 ? "#fecaca" : "#86efac",
+                      }}
+                    >
+                      异常表{" "}
+                      <b>
+                        {anomalies.length > 0
+                          ? `${anomalies.length} 条 · ${anomalies
+                              .slice(0, 3)
+                              .map((a) => a.code)
+                              .join(" / ")}${
+                              anomalies.length > 3
+                                ? ` +${anomalies.length - 3}`
+                                : ""
+                            }`
+                          : "0 · OK"}
+                      </b>
+                      {anomalies.length > 0 ? (
+                        <button
+                          type="button"
+                          style={{
+                            ...btnStyle,
+                            marginLeft: 8,
+                            borderColor: "rgba(251,191,36,0.45)",
+                            color: "#fbbf24",
+                          }}
+                          onClick={() => selectTab("anomaly")}
+                        >
+                          打开异常
+                        </button>
+                      ) : null}
+                    </div>
                     {snapshot.runStatus.mode === "sse" ? (
                       <div style={{ color: "#a5f3fc", marginBottom: 6 }}>
                         AG-UI POST /runs/stream 仍开着（浏览器持有 live SSE）
@@ -1544,11 +1952,12 @@ export function V4ViewportDebugOverlay() {
                       }}
                     >
                       <div style={{ color: "#e2e8f0", fontWeight: 600 }}>
-                        消息计数 · 投影窗{" "}
-                        {snapshot.history.windowCount}/
-                        {snapshot.history.totalCount ?? "∅"}
-                        {" · "}用户气泡 {snapshot.history.windowUserCount}
-                        {" · "}轮 {snapshot.history.windowTurnCount}
+                        {formatConversationRecordCounts({
+                          windowCount: snapshot.history.windowCount,
+                          totalCount: snapshot.history.totalCount,
+                          windowTurnCount: snapshot.history.windowTurnCount,
+                          windowUserCount: snapshot.history.windowUserCount,
+                        })}
                       </div>
                       <div style={{ marginTop: 2, color: "#94a3b8" }}>
                         rowId first={snapshot.history.firstRowId ?? "∅"} · 窗=
@@ -1582,7 +1991,8 @@ export function V4ViewportDebugOverlay() {
                         {" · "}scrollTop={snapshot.scrollTop}
                       </div>
                       <div style={{ marginTop: 2, color: "#64748b", fontSize: 10 }}>
-                        规则：scrollTop ≤ max(64, 2×视口高) 才自动 loadOlder，不是一上滚就拉
+                        规则：未跟底且 scrollTop ≤ max(64, 2×视口高) 才自动
+                        loadOlder；跟底中绝不预取（防短尾窗死循环）
                       </div>
                     </div>
                   </div>
@@ -1663,7 +2073,8 @@ export function V4ViewportDebugOverlay() {
                       ) : (
                         streamEntries.map((entry, idx) => {
                           const newest = idx >= streamEntries.length - 2;
-                          const open = expandedStreamId === entry.id;
+                          const open =
+                            expandedStreamId === entry.id || newest;
                           const time = new Date(entry.atMs).toLocaleTimeString(
                             "zh-CN",
                             {
@@ -1677,14 +2088,15 @@ export function V4ViewportDebugOverlay() {
                             <div
                               key={entry.id}
                               style={{
-                                marginBottom: 2,
-                                borderRadius: 4,
+                                marginBottom: 8,
+                                padding: "6px 8px",
+                                borderRadius: 6,
                                 border: newest
-                                  ? "1px solid rgba(196,181,253,0.45)"
-                                  : "1px solid transparent",
+                                  ? "1px solid rgba(196,181,253,0.55)"
+                                  : "1px solid rgba(148,163,184,0.22)",
                                 background: newest
                                   ? "rgba(91, 33, 182, 0.28)"
-                                  : "transparent",
+                                  : "rgba(15,23,42,0.35)",
                               }}
                             >
                               <button
@@ -1700,36 +2112,383 @@ export function V4ViewportDebugOverlay() {
                                   display: "block",
                                   width: "100%",
                                   boxSizing: "border-box",
-                                  padding: "3px 6px",
                                   color: newest ? "#f5f3ff" : "#c4b5fd",
-                                  // 一行摘要必须看得见思考/正文/工具内容；过长才省略。
-                                  whiteSpace: "nowrap",
-                                  overflow: "hidden",
-                                  textOverflow: "ellipsis",
+                                  ...tapLineStyle,
                                 }}
-                                title={entry.headline}
                               >
-                                {open ? "▼" : "▶"} #{entry.id} {time}{" "}
+                                {open ? "▼" : "▶"} #{entry.id} {time}
+                                {"\n"}
                                 {entry.headline}
                               </button>
                               {open ? (
-                                <pre
+                                <div style={{ marginTop: 6 }}>
+                                  <div
+                                    style={{
+                                      color: "#a78bfa",
+                                      fontSize: 10,
+                                      marginBottom: 2,
+                                    }}
+                                  >
+                                    JSON · {entry.channel}/{entry.type}
+                                  </div>
+                                  <pre style={tapJsonPreStyle}>
+                                    {entry.jsonText}
+                                  </pre>
+                                </div>
+                              ) : null}
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {tab === "timing" ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      border: "1px solid rgba(56,189,248,0.4)",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "rgba(8, 47, 73, 0.28)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        ...mono,
+                        flexShrink: 0,
+                        padding: "6px 10px",
+                        background: "rgba(7, 89, 133, 0.55)",
+                        color: "#bae6fd",
+                        fontSize: 11,
+                      }}
+                    >
+                      发送 → 出泡(上屏) → 上线 → 首字 → 结束 · 落盘
+                      viewport-timing.log
+                    </div>
+                    <div
+                      style={{
+                        ...mono,
+                        flex: 1,
+                        minHeight: 0,
+                        overflow: "auto",
+                        padding: "4px 6px 8px",
+                        fontSize: 11,
+                        color: "#e0f2fe",
+                      }}
+                    >
+                      {timingRows.length === 0 ? (
+                        <div style={{ color: "#7dd3fc", padding: 8 }}>
+                          尚无回合计时。点发送后这里会出现一行：发送时刻、出泡、首字延迟。
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            display: "grid",
+                            gridTemplateColumns:
+                              "64px 1fr 52px 52px 52px 52px 1fr",
+                            gap: "4px 8px",
+                            alignItems: "start",
+                            padding: "4px 4px 0",
+                          }}
+                        >
+                          {(
+                            [
+                              "发送",
+                              "内容",
+                              "出泡",
+                              "上线",
+                              "首字",
+                              "结束",
+                              "首包预览",
+                            ] as const
+                          ).map((h) => (
+                            <div
+                              key={h}
+                              style={{
+                                color: "#7dd3fc",
+                                fontSize: 10,
+                                borderBottom:
+                                  "1px solid rgba(125,211,252,0.35)",
+                                paddingBottom: 4,
+                                position: "sticky",
+                                top: 0,
+                                background: "rgba(8,47,73,0.95)",
+                              }}
+                            >
+                              {h}
+                            </div>
+                          ))}
+                          {[...timingRows].reverse().map((row) => {
+                            const send = new Date(
+                              row.sendAt,
+                            ).toLocaleTimeString("zh-CN", {
+                              hour12: false,
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            });
+                            const ms = (at: number | null) =>
+                              at == null
+                                ? "—"
+                                : `${Math.max(0, at - row.sendAt)}ms`;
+                            const firstLabel =
+                              row.firstKind === "text"
+                                ? "正文"
+                                : row.firstKind === "reasoning"
+                                  ? "思考"
+                                  : row.firstKind === "tool"
+                                    ? "工具"
+                                    : row.firstKind || "—";
+                            return (
+                              <div key={row.id} style={{ display: "contents" }}>
+                                <div style={tapLineStyle}>{send}</div>
+                                <div style={tapLineStyle}>
+                                  {row.textPreview || "（空）"}
+                                </div>
+                                <div
                                   style={{
-                                    margin: "0 4px 6px",
-                                    padding: 8,
-                                    borderRadius: 4,
-                                    background: "rgba(2,6,23,0.88)",
-                                    color: "#f8fafc",
-                                    whiteSpace: "pre-wrap",
-                                    wordBreak: "break-word",
-                                    maxHeight: 200,
-                                    overflow: "auto",
-                                    fontSize: 11,
+                                    color:
+                                      row.userBubbleAt != null
+                                        ? "#86efac"
+                                        : "#fbbf24",
                                   }}
                                 >
-                                  {entry.jsonText}
-                                </pre>
-                              ) : null}
+                                  {ms(row.userBubbleAt)}
+                                </div>
+                                <div>{ms(row.wireAt)}</div>
+                                <div
+                                  style={{
+                                    color:
+                                      row.firstResponseAt != null &&
+                                      row.firstResponseAt - row.sendAt >= 3000
+                                        ? "#fbbf24"
+                                        : "#e0f2fe",
+                                  }}
+                                  title={firstLabel}
+                                >
+                                  {ms(row.firstResponseAt)}
+                                </div>
+                                <div>{ms(row.streamEndAt)}</div>
+                                <div style={tapLineStyle}>
+                                  {row.firstResponseAt != null
+                                    ? `${firstLabel} ${row.firstPreview || ""}`
+                                    : "等待首字"}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+
+                {tab === "scroll" ? (
+                  <div
+                    style={{
+                      flex: 1,
+                      minHeight: 0,
+                      display: "flex",
+                      flexDirection: "column",
+                      border: "1px solid rgba(251,191,36,0.4)",
+                      borderRadius: 8,
+                      overflow: "hidden",
+                      background: "rgba(120, 53, 15, 0.22)",
+                    }}
+                  >
+                    <div
+                      style={{
+                        ...mono,
+                        flexShrink: 0,
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 4,
+                        padding: "4px 8px",
+                        background: "rgba(146, 64, 14, 0.5)",
+                        color: "#fde68a",
+                        fontSize: 11,
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span>
+                          轨迹贴底 · !JUMP=猛跳 · 到顶写清能否自动拉历史
+                        </span>
+                        <span style={{ marginLeft: "auto", display: "flex", gap: 4 }}>
+                          <button
+                            type="button"
+                            style={{
+                              ...btnStyle,
+                              borderColor: scrollJumpsOnly
+                                ? "rgba(251,191,36,0.7)"
+                                : undefined,
+                              color: scrollJumpsOnly ? "#fbbf24" : undefined,
+                            }}
+                            title="只看猛跳样本"
+                            onClick={() => setScrollJumpsOnly((v) => !v)}
+                          >
+                            {scrollJumpsOnly ? "仅JUMP✓" : "仅JUMP"}
+                          </button>
+                          <button
+                            type="button"
+                            style={btnStyle}
+                            title="滚到最新并恢复跟新"
+                            onClick={() => {
+                              scrollFollowBottomRef.current = true;
+                              const el = scrollTrailRef.current;
+                              if (el) el.scrollTop = el.scrollHeight;
+                            }}
+                          >
+                            最新
+                          </button>
+                          <button
+                            type="button"
+                            style={btnStyle}
+                            title="清空滚轮轨迹"
+                            onClick={() => clearViewportScrollTap()}
+                          >
+                            清空
+                          </button>
+                        </span>
+                      </div>
+                      <div
+                        style={{
+                          marginTop: 4,
+                          padding: "6px 8px",
+                          borderRadius: 6,
+                          background: "rgba(154, 52, 18, 0.45)",
+                          border: "1px solid rgba(251, 146, 60, 0.55)",
+                          color: "#fff7ed",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          lineHeight: 1.4,
+                        }}
+                        title="已显示=客户端投影窗行数；全量=服务端会话全序行数。hasOlder=0 且已显示少于全量时，说明尾窗被软顶裁过，不是「历史本来就这么少」。"
+                      >
+                        对话记录 ·{" "}
+                        {formatConversationRecordCounts({
+                          windowCount: snapshot.history.windowCount,
+                          totalCount: snapshot.history.totalCount,
+                          windowTurnCount: snapshot.history.windowTurnCount,
+                          windowUserCount: snapshot.history.windowUserCount,
+                        })}
+                        {typeof snapshot.history.totalCount === "number" &&
+                        snapshot.history.windowCount < snapshot.history.totalCount &&
+                        !snapshot.history.hasOlder ? (
+                          <span style={{ color: "#fecaca", fontWeight: 600 }}>
+                            {" · !缺窗（已显示少于全量却 hasOlder=0）"}
+                          </span>
+                        ) : null}
+                      </div>
+                      <div style={{ color: "#fdba74", fontSize: 10, lineHeight: 1.35, marginTop: 4 }}>
+                        到顶语义：几何顶=scrollTop≈0；「应自动拉」=还有更早；「无更早」=历史已尽；
+                        「loading」=正在展开；「卡住」=到顶仍有更早却没触发。src=scrollToBottom /
+                        browser/native / wheel 可对照谁拽的。
+                      </div>
+                      <div style={{ color: "#fed7aa", fontSize: 10 }}>
+                        当前 scroll={snapshot.scrollTop}/{snapshot.scrollHeight} · hasOlder=
+                        {snapshot.history.hasOlder ? 1 : 0} · loading=
+                        {snapshot.history.loadingOlder ? 1 : 0} · wouldTrigger=
+                        {snapshot.history.wouldTrigger ? 1 : 0} · first=
+                        {snapshot.history.firstRowId ?? "∅"} · winFirst=
+                        {snapshot.history.windowFirstRowId ?? "∅"} · JUMP累计=
+                        {countViewportScrollJumps()}
+                      </div>
+                    </div>
+                    <div
+                      ref={scrollTrailRef}
+                      onScroll={(e) => {
+                        const el = e.currentTarget;
+                        const dist =
+                          el.scrollHeight - el.scrollTop - el.clientHeight;
+                        scrollFollowBottomRef.current = dist < 56;
+                      }}
+                      style={{
+                        ...mono,
+                        flex: 1,
+                        minHeight: 120,
+                        overflow: "auto",
+                        padding: "4px 6px 8px",
+                        fontSize: 11,
+                        color: "#ffedd5",
+                      }}
+                    >
+                      {scrollEntries.length === 0 ? (
+                        <div style={{ color: "#fdba74", padding: 8 }}>
+                          尚无轨迹。在对话区上下滚几下，这里会贴底记下位置变化；猛跳标
+                          !JUMP。
+                        </div>
+                      ) : (
+                        scrollEntries.map((entry, idx) => {
+                          const newest = idx >= scrollEntries.length - 2;
+                          const time = new Date(entry.atMs).toLocaleTimeString(
+                            "zh-CN",
+                            {
+                              hour12: false,
+                              hour: "2-digit",
+                              minute: "2-digit",
+                              second: "2-digit",
+                            },
+                          );
+                          const ms = String(entry.atMs % 1000).padStart(3, "0");
+                          return (
+                            <div
+                              key={entry.id}
+                              style={{
+                                marginBottom: 2,
+                                padding: "3px 6px",
+                                borderRadius: 4,
+                                border: entry.jump
+                                  ? "1px solid rgba(248,113,113,0.65)"
+                                  : newest
+                                    ? "1px solid rgba(251,191,36,0.45)"
+                                    : "1px solid transparent",
+                                background: entry.jump
+                                  ? "rgba(153, 27, 27, 0.45)"
+                                  : newest
+                                    ? "rgba(154, 52, 18, 0.35)"
+                                    : "transparent",
+                                color: entry.jump ? "#fecaca" : "#ffedd5",
+                              }}
+                              title={formatScrollTopVerdict(entry.verdict)}
+                            >
+                              <div style={tapLineStyle}>
+                                #{entry.id} {time}.{ms}{" "}
+                                {entry.jump ? (
+                                  <b style={{ color: "#f87171" }}>!JUMP </b>
+                                ) : null}
+                                {entry.headline}
+                              </div>
+                              <div
+                                style={{
+                                  ...tapLineStyle,
+                                  marginTop: 2,
+                                  fontSize: 10,
+                                  color: entry.jump ? "#fca5a5" : "#fdba74",
+                                }}
+                              >
+                                {formatScrollTopVerdict(entry.verdict)}
+                                {" · "}已显示{entry.windowCount}/全量
+                                {entry.totalCount ?? "∅"}
+                                {" · "}hasOlder={entry.hasOlder ? 1 : 0}
+                                {" · "}loading={entry.loadingOlder ? 1 : 0}
+                                {" · "}auto=
+                                {entry.wouldTrigger ? 1 : 0}
+                                {" · "}first={entry.firstRowId ?? "∅"}→win
+                                {entry.windowFirstRowId ?? "∅"}
+                                {" · "}follow={entry.followingAttr ?? "∅"}
+                              </div>
                             </div>
                           );
                         })
@@ -1883,7 +2642,8 @@ export function V4ViewportDebugOverlay() {
                       ) : (
                         apiEntries.map((entry, idx) => {
                           const newest = idx >= apiEntries.length - 2;
-                          const open = expandedApiId === entry.id;
+                          const open =
+                            expandedApiId === entry.id || newest;
                           const time = new Date(entry.atMs).toLocaleTimeString(
                             "zh-CN",
                             {
@@ -1897,15 +2657,16 @@ export function V4ViewportDebugOverlay() {
                             <div
                               key={entry.id}
                               style={{
-                                marginBottom: 2,
-                                borderRadius: 4,
+                                marginBottom: 8,
+                                padding: "6px 8px",
+                                borderRadius: 6,
                                 border: newest
                                   ? "1px solid rgba(110,231,183,0.45)"
-                                  : "1px solid transparent",
+                                  : "1px solid rgba(148,163,184,0.22)",
                                 background: newest
                                   ? "rgba(6, 95, 70, 0.35)"
                                   : entry.ok
-                                    ? "transparent"
+                                    ? "rgba(15,23,42,0.35)"
                                     : "rgba(127, 29, 29, 0.28)",
                               }}
                             >
@@ -1919,52 +2680,26 @@ export function V4ViewportDebugOverlay() {
                                 style={{
                                   all: "unset",
                                   cursor: "pointer",
-                                  display: "grid",
-                                  gridTemplateColumns:
-                                    "44px 56px 72px 40px 48px 1fr",
-                                  gap: 4,
+                                  display: "block",
                                   width: "100%",
                                   boxSizing: "border-box",
-                                  padding: "3px 6px",
                                   color: entry.ok ? "#d1fae5" : "#fecaca",
-                                  alignItems: "center",
+                                  ...tapLineStyle,
                                 }}
-                                title={entry.headline}
                               >
-                                <span>
-                                  {open ? "▼" : "▶"}
-                                  {entry.id}
-                                </span>
-                                <span>{time}</span>
-                                <span
-                                  style={{
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                  }}
-                                >
-                                  {entry.method.slice(0, 4)} {entry.label}
-                                </span>
-                                <span>{entry.status || "—"}</span>
-                                <span>{entry.durationMs}ms</span>
-                                <span
-                                  style={{
-                                    overflow: "hidden",
-                                    textOverflow: "ellipsis",
-                                    whiteSpace: "nowrap",
-                                    color: "#a7f3d0",
-                                  }}
-                                >
-                                  {entry.headline}
-                                </span>
+                                {open ? "▼" : "▶"} #{entry.id} {time}{" "}
+                                {entry.method} {entry.label} ·{" "}
+                                {entry.status || "—"} · {entry.durationMs}ms
+                                {"\n"}
+                                {entry.headline}
                               </button>
                               {open ? (
                                 <div
                                   style={{
-                                    margin: "0 4px 6px",
+                                    marginTop: 6,
                                     display: "grid",
                                     gridTemplateColumns: "1fr 1fr",
-                                    gap: 6,
+                                    gap: 8,
                                   }}
                                 >
                                   <div>
@@ -1975,23 +2710,10 @@ export function V4ViewportDebugOverlay() {
                                         fontSize: 10,
                                       }}
                                     >
-                                      入参 · {entry.path}
+                                      入参 JSON · {entry.path}
                                       {entry.query ? `?${entry.query}` : ""}
                                     </div>
-                                    <pre
-                                      style={{
-                                        margin: 0,
-                                        padding: 8,
-                                        borderRadius: 4,
-                                        background: "rgba(2,6,23,0.88)",
-                                        color: "#f8fafc",
-                                        whiteSpace: "pre-wrap",
-                                        wordBreak: "break-word",
-                                        maxHeight: 220,
-                                        overflow: "auto",
-                                        fontSize: 11,
-                                      }}
-                                    >
+                                    <pre style={tapJsonPreStyle}>
                                       {entry.requestText || "（无 body）"}
                                     </pre>
                                   </div>
@@ -2003,23 +2725,10 @@ export function V4ViewportDebugOverlay() {
                                         fontSize: 10,
                                       }}
                                     >
-                                      出参 · {entry.ok ? "ok" : "fail"} ·{" "}
+                                      出参 JSON · {entry.ok ? "ok" : "fail"} ·{" "}
                                       {entry.status}
                                     </div>
-                                    <pre
-                                      style={{
-                                        margin: 0,
-                                        padding: 8,
-                                        borderRadius: 4,
-                                        background: "rgba(2,6,23,0.88)",
-                                        color: "#f8fafc",
-                                        whiteSpace: "pre-wrap",
-                                        wordBreak: "break-word",
-                                        maxHeight: 220,
-                                        overflow: "auto",
-                                        fontSize: 11,
-                                      }}
-                                    >
+                                    <pre style={tapJsonPreStyle}>
                                       {entry.responseText || "（空）"}
                                     </pre>
                                   </div>
@@ -2133,12 +2842,11 @@ export function V4ViewportDebugOverlay() {
                               color: "#93c5fd",
                               ...mono,
                               fontSize: 11,
-                              whiteSpace: "nowrap",
-                              overflow: "hidden",
+                              ...tapLineStyle,
                             }}
                           >
-                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-                              #{t.dataIndex ?? "∅"} turn={t.turnId.slice(0, 8)} h=
+                            <span style={tapLineStyle}>
+                              #{t.dataIndex ?? "∅"} turn={t.turnId} h=
                               {t.height}
                               {t.gapToNext != null
                                 ? ` gap→${t.gapToNext}${gapWarn ? " ⚠" : ""}`
@@ -2218,6 +2926,93 @@ export function V4ViewportDebugOverlay() {
                         </div>
                       );
                     })}
+                  </div>
+                ) : null}
+
+                {tab === "anomaly" ? (
+                  <div
+                    style={{
+                      ...mono,
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "auto",
+                      fontSize: 11,
+                      color: "#cbd5e1",
+                      padding: "4px 2px",
+                    }}
+                  >
+                    <div style={{ marginBottom: 8, color: "#94a3b8" }}>
+                      机器可判异常（流式无画面 / 最新气泡 / loadOlder 不前进 /
+                      绘画埋没 / 跟底猛跳…）。标题栏问题标记优先吃本表。
+                    </div>
+                    {anomalies.length === 0 ? (
+                      <div style={{ color: "#86efac" }}>暂无异常 · OK</div>
+                    ) : (
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          tableLayout: "fixed",
+                        }}
+                      >
+                        <thead>
+                          <tr style={{ color: "#94a3b8", textAlign: "left" }}>
+                            <th style={{ width: 52, padding: "4px 6px" }}>级</th>
+                            <th style={{ width: 168, padding: "4px 6px" }}>
+                              代码
+                            </th>
+                            <th style={{ padding: "4px 6px" }}>说明 / 证据</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {anomalies.map((a) => (
+                            <tr
+                              key={a.code + a.detail}
+                              style={{
+                                borderTop: "1px solid rgba(148,163,184,0.18)",
+                                verticalAlign: "top",
+                              }}
+                            >
+                              <td
+                                style={{
+                                  padding: "6px",
+                                  color:
+                                    a.severity === "error"
+                                      ? "#f87171"
+                                      : a.severity === "warn"
+                                        ? "#fbbf24"
+                                        : "#67e8f9",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {a.severity}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "6px",
+                                  color: "#f8fafc",
+                                  wordBreak: "break-all",
+                                }}
+                              >
+                                {a.code}
+                              </td>
+                              <td style={{ padding: "6px" }}>
+                                <div style={{ color: "#e2e8f0" }}>{a.title}</div>
+                                <div
+                                  style={{
+                                    color: "#94a3b8",
+                                    marginTop: 2,
+                                    wordBreak: "break-word",
+                                  }}
+                                >
+                                  {a.detail}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
                   </div>
                 ) : null}
               </div>

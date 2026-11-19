@@ -271,13 +271,23 @@ export function historyPrefetchTriggerPx(viewportHeight: number): number {
   return Math.max(LOAD_OLDER_TRIGGER_PX, viewportHeight * LOAD_OLDER_PREFETCH_VIEWPORTS);
 }
 
-/** scroll 事件是否应触发 loadOlder（到顶 + 可拉 + 非在途）。 */
+/**
+ * scroll 事件是否应触发 loadOlder（到顶预取带 + 可拉 + 非在途）。
+ *
+ * 跟底中禁止预取：软顶后尾窗往往只有一屏多高，max(scrollTop) 永远 ≤ 2×视口，
+ * 若不看 following 会 loadOlder↔soft-cap↔scrollToBottom 死循环
+ * （发消息后最新消息不显示、上滚又被拽回底、切会话偶发正常再滚又乱）。
+ * ZCode 语义：following = 用户要看最新；只有上滚阅读历史才补更早页。
+ */
 export function shouldTriggerLoadOlder(input: {
   scrollTop: number;
   canLoadOlder: boolean;
   loadingOlder: boolean;
   triggerPx?: number;
+  /** 跟底中为 true 时绝不预取。省略则保持旧行为（仅几何）。 */
+  following?: boolean;
 }): boolean {
+  if (input.following === true) return false;
   return (
     input.canLoadOlder &&
     !input.loadingOlder &&

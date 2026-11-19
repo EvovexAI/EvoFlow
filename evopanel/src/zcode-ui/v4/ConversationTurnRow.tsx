@@ -38,6 +38,8 @@ interface ConversationTurnRowProps {
   assistantCodeCommentProjectionEnabled?: boolean;
   reasoningContentVariant?: "default" | "nested";
   userInputStatus?: string;
+  /** 末轮直播 sticky 置顶：气泡改为半透明磨砂，避免不透明底挡住下面的 AI 正文。 */
+  userInputStickyPinned?: boolean;
 }
 
 export function ConversationTurnRow({
@@ -57,6 +59,7 @@ export function ConversationTurnRow({
   assistantCodeCommentProjectionEnabled,
   reasoningContentVariant,
   userInputStatus,
+  userInputStickyPinned,
 }: ConversationTurnRowProps) {
   return (
     <ConversationRowView
@@ -76,6 +79,7 @@ export function ConversationTurnRow({
       assistantCodeCommentProjectionEnabled={assistantCodeCommentProjectionEnabled}
       reasoningContentVariant={reasoningContentVariant}
       userInputStatus={userInputStatus}
+      userInputStickyPinned={userInputStickyPinned}
     />
   );
 }

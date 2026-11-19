@@ -54,7 +54,7 @@ V4_WIRE_PROTOCOL_VERSION = 3
 #
 # Priority gate: user open (intent=open) jumps ahead of prefetch/hover warm
 # so "two chats running → click another stuck connecting" stops being FIFO.
-_hydrate_gate: "_HydratePriorityGate | None" = None
+_hydrate_gate: _HydratePriorityGate | None = None
 
 
 def _hydrate_concurrency_limit() -> int:
@@ -125,7 +125,7 @@ class _hydrate_slot:
         self._high = high_priority
         self._gate = _get_hydrate_gate()
 
-    async def __aenter__(self) -> "_hydrate_slot":
+    async def __aenter__(self) -> _hydrate_slot:
         await self._gate.acquire(high_priority=self._high)
         return self
 
@@ -593,12 +593,12 @@ class V4ConversationHub:
         if not tid or tid.startswith("v4-"):
             return {"ok": False, "changed": False, "reason": "bad-session-id"}
         try:
+            from app.gateway.v4.agui_mirror import mirror_thread_is_live
             from app.gateway.v4.hydration import (
                 force_rehydrate_session_from_transcript,
                 read_run_status_row,
                 transcript_fingerprint_for_thread,
             )
-            from app.gateway.v4.agui_mirror import mirror_thread_is_live
         except Exception as exc:
             logger.exception("[v4.catchup] import failed session=%s", tid)
             return {"ok": False, "changed": False, "reason": str(exc)}
@@ -1698,6 +1698,17 @@ class V4ConversationHub:
         return False
 
     def _build_snapshot(self, sess: _SessionState) -> dict[str, Any]:
+        # warm hub 上历史孤儿头（userInput 被挂走仍自称 origin=userInput）在出快照前降级，
+        # 否则订阅/切回仍见 !NO_USER / 左栏劈开。
+        try:
+            from app.gateway.v4.agui_mirror import mirror_heal_orphan_user_input_headers
+
+            mirror_heal_orphan_user_input_headers(str(sess.session_id or ""))
+        except Exception:
+            logger.exception(
+                "[v4.snapshot] heal orphan userInput headers failed session=%s",
+                sess.session_id,
+            )
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
         # 流式进行中：尾窗截断会把本轮 userInput 挤出；多会话切回时只剩工具/助手尾巴，
         # 用户气泡「没了」但 AI 还在回（2026-11-15 实锤）。live 时把本轮锚点钉进窗口。

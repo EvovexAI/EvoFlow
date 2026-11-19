@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationRow, ConversationSnapshot } from "../src/zcode-shared/zcode-protocol-v4/index.ts";
-import { mergePreservedOlderRowsIntoTailSnapshot } from "../src/zcode-ui/v4/conversationProjectionStore.ts";
+import {
+  mergeOlderRows,
+  mergePreservedOlderRowsIntoTailSnapshot,
+} from "../src/zcode-ui/v4/conversationProjectionStore.ts";
 
 function textRow(rowId: number, turnId: string, text: string): ConversationRow {
   return {
@@ -95,3 +98,49 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     expect(merged).toBe(incoming);
   });
 });
+
+describe("mergeOlderRows (loadOlder prefer=head)", () => {
+  it("窗首必须前进到本页更早行，即使直播轮已顶满 softCap", () => {
+    // 现场：winFirst=1997 卡住；rows/range 已返回更早页，合并后窗首仍不前进。
+    const window: ConversationRow[] = [];
+    window.push(textRow(1997, "live", "header"));
+    (window[0] as { kind: string }).kind = "turnHeader";
+    window.push({
+      ...textRow(1998, "live", "user"),
+      kind: "userInput",
+      origin: "realUser",
+      text: "q",
+    } as ConversationRow);
+    for (let i = 1999; i <= 2096; i += 1) {
+      window.push({
+        ...textRow(i, "live", `tool-${i}`),
+        kind: "toolCall",
+        status: "success",
+      } as ConversationRow);
+    }
+
+    const fetched: ConversationRow[] = [];
+    fetched.push({ ...textRow(1900, "prev", "h"), kind: "turnHeader" } as ConversationRow);
+    fetched.push({
+      ...textRow(1901, "prev", "u"),
+      kind: "userInput",
+      origin: "realUser",
+      text: "older",
+    } as ConversationRow);
+    for (let i = 1902; i <= 1996; i += 1) {
+      fetched.push(textRow(i, "prev", `t-${i}`));
+    }
+
+    const merged = mergeOlderRows(window, fetched, { softCap: 80, prefer: "head" });
+    expect(merged).not.toBeNull();
+    expect(merged![0]?.rowId).toBeLessThan(1997);
+    expect(merged!.some((r) => r.rowId === 1900)).toBe(true);
+    expect(merged!.some((r) => r.rowId === 1998)).toBe(true);
+  });
+
+  it("fetched 全不早于窗首时返回 null", () => {
+    const window = [textRow(10, "t", "a"), textRow(11, "t", "b")];
+    expect(mergeOlderRows(window, [textRow(10, "t", "a"), textRow(12, "t", "c")], { prefer: "head" })).toBeNull();
+  });
+});
+

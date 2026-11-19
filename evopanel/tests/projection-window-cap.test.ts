@@ -7,6 +7,7 @@ import {
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
   lightenProjectionRowsForMemory,
+  repairPartialTurnsInProjectionWindow,
   selectLiveTurnWithinBudget,
   selectOlderCompleteTurnsWithinBudget,
 } from '../src/zcode-ui/v4/projectionWindowCap.ts'
@@ -210,6 +211,44 @@ describe('ensureLiveTurnInProjectionWindow', () => {
     expect(pinned.some((r) => r.rowId === 122)).toBe(true)
     expect(pinned[0]?.rowId).not.toBe(56)
   })
+
+  it('keeps previous turn header+user when live turn alone fills softCap (post-send history eaten)', () => {
+    // 现场：发完「我已重启好了」后直播轮工具卡暴涨 ≥ softCap，旧逻辑
+    // `liveKept.length >= cap → return liveKept` 把上一问整轮从窗口拿掉。
+    const rows: ConversationRow[] = []
+    rows.push(row(1, 'turnHeader'))
+    rows.push(row(2, 'userInput', 'realUser'))
+    for (let i = 3; i <= 20; i += 1) rows.push(row(i, 'toolCall'))
+    rows.push(row(21, 'turnHeader'))
+    rows.push(row(22, 'userInput', 'realUser'))
+    for (let i = 23; i <= 200; i += 1) {
+      rows.push({ ...row(i, 'toolCall'), status: 'success' } as ConversationRow)
+    }
+    rows.push({
+      rowId: 201,
+      turnId: 'live',
+      kind: 'reasoning',
+      text: 'still thinking',
+      state: 'streaming',
+    } as ConversationRow)
+    for (const r of rows) {
+      if (r.rowId <= 20) (r as { turnId: string }).turnId = 'prev'
+      else (r as { turnId: string }).turnId = 'live'
+    }
+
+    // prefer:tail 软顶后窗内只剩直播轮尾（上一问已被裁掉）
+    const softCap = 80
+    const tailOnly = capProjectionWindow(rows, softCap, 'tail')
+    expect(tailOnly.some((r) => r.rowId === 2)).toBe(false)
+
+    const pinned = ensureLiveTurnInProjectionWindow(rows, [...tailOnly], softCap)
+    expect(pinned.some((r) => r.rowId === 1 && r.kind === 'turnHeader')).toBe(true)
+    expect(pinned.some((r) => r.rowId === 2 && r.kind === 'userInput')).toBe(true)
+    expect(pinned.some((r) => r.rowId === 22)).toBe(true)
+    expect(pinned.some((r) => r.kind === 'reasoning' && r.state === 'streaming')).toBe(
+      true,
+    )
+  })
 })
 
 describe('selectLiveTurnWithinBudget', () => {
@@ -266,6 +305,60 @@ describe('selectOlderCompleteTurnsWithinBudget', () => {
     expect(older[0]?.kind).toBe('turnHeader')
     expect(older[0]?.rowId).toBe(4)
     expect(older.every((r) => r.rowId < 8)).toBe(true)
+  })
+})
+
+describe('repairPartialTurnsInProjectionWindow', () => {
+  it('pulls back same-turn tools cut by soft-cap tail (orphan user heal)', () => {
+    const turnId = 'e7da31aa-1dc'
+    const full: ConversationRow[] = [
+      {
+        rowId: 600,
+        turnId,
+        kind: 'toolCall',
+        toolCallId: 'tc-600',
+        toolName: 'platform',
+        status: 'success',
+      } as ConversationRow,
+      {
+        rowId: 601,
+        turnId,
+        kind: 'toolCall',
+        toolCallId: 'tc-601',
+        toolName: 'bash',
+        status: 'success',
+      } as ConversationRow,
+      {
+        rowId: 620,
+        turnId,
+        kind: 'turnHeader',
+        state: 'completedSuccess',
+        origin: 'userInput',
+        startedAt: 1,
+      } as ConversationRow,
+      {
+        rowId: 621,
+        turnId,
+        kind: 'userInput',
+        origin: 'realUser',
+        text: '再来，再简单来一次',
+        createdAt: 2,
+      } as ConversationRow,
+      {
+        rowId: 650,
+        turnId: 'other',
+        kind: 'userInput',
+        origin: 'realUser',
+        text: '哈哈哈',
+        createdAt: 3,
+      } as ConversationRow,
+    ]
+    // soft-cap 尾窗只剩 header+user，工具落在窗外 → 用户看见 AI 空了
+    const capped = full.filter((r) => r.rowId >= 620)
+    const repaired = repairPartialTurnsInProjectionWindow(full, capped)
+    expect(repaired.some((r) => r.rowId === 600 && r.kind === 'toolCall')).toBe(true)
+    expect(repaired.some((r) => r.rowId === 601 && r.kind === 'toolCall')).toBe(true)
+    expect(repaired.some((r) => r.kind === 'userInput' && r.turnId === turnId)).toBe(true)
   })
 })
 

@@ -31,6 +31,8 @@ let activeEl: HTMLDivElement | null = null;
 let lastObservedTop = 0;
 let lastObservedScrollHeight = 0;
 let pendingWriteSource: string | null = null;
+/** 运维浮层滚轮轨迹用：不依赖 diag localStorage，始终保留最近一次挂名。 */
+let sharedPendingWriteSource: string | null = null;
 let wheelStopTimer: ReturnType<typeof setTimeout> | null = null;
 let sampleFinishTimer: ReturnType<typeof setTimeout> | null = null;
 let sampling = false;
@@ -52,8 +54,17 @@ function isEnabled(): boolean {
 
 /** 写入方挂名：改 scrollTop 之前调用，采样窗内该次变化归因到此 source。 */
 export function recordScrollWrite(source: string, el: HTMLDivElement | null): void {
+  const s = String(source || "").trim();
+  if (s) sharedPendingWriteSource = s;
   if (!isEnabled() || !el || el !== activeEl) return;
-  pendingWriteSource = source;
+  pendingWriteSource = s || source;
+}
+
+/** 运维浮层消费：取出并清空最近一次程序化 scrollTop 挂名。 */
+export function consumeSharedScrollWriteSource(): string | null {
+  const s = sharedPendingWriteSource;
+  sharedPendingWriteSource = null;
+  return s;
 }
 
 function pushSample(source: string): void {
