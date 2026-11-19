@@ -1173,12 +1173,25 @@ def _promote_to_background(
 
     threading.Thread(target=_pump, name=f"bash-bg-{task_id}", daemon=True).start()
     seconds = max(1, int(blocking_ms) // 1000)
+    # 【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：转后台时把**已经产出的部分输出**直接带回返回值，不再只给一个路径。
+    # 为什么：partial_stdout 早在这一行之前就拿到了（上面 write_text 落的盘），
+    #   原实现只把它写进文件、返回值里一个字都不给，于是 agent 想看一眼进度
+    #   就必须再调一次 Read —— 近 24h 176 次转后台里有 45 次（25.6%）真的这么做了，
+    #   每次都是白烧一个整轮。而 Read 拿到的内容与我这里能直接返回的完全相同。
+    partial_block = ""
+    _p = (partial_stdout or "").strip()
+    if _p:
+        _tail = _p if len(_p) <= 4000 else _p[-4000:]
+        _cut = "" if len(_p) <= 4000 else f"...(已省略前 {len(_p) - 4000} 字符) "
+        partial_block = f"partialOutput:\n{_cut}{_tail}\n"
     return (
         f"status: backgrounded\ninterrupted: false\nbackgroundTaskId: {task_id}\n"
-        f"persistedOutputPath: {output_path}\n"
+        f"persistedOutputPath: {output_path}\n{partial_block}"
         f"Command exceeded the assistant-mode blocking budget ({seconds}s) and was moved to the "
         f"background with ID: {task_id}. It is still running — you will be notified when it completes. "
-        f"Output is being written to: {output_path}. To check interim output, use Read on that file path."
+        f"Output is being written to: {output_path}. "
+        f"上面 partialOutput 是切到后台时已产出的部分；除非你要看**之后新增**的输出，否则不必再读该文件。"
     )
 
 
@@ -1331,12 +1344,22 @@ def _promote_warm_to_background(
 
     threading.Thread(target=_pump, name=f"bash-warm-bg-{task_id}", daemon=True).start()
     seconds = max(1, int(blocking_ms) // 1000)
+    # 【self-evolution-bot · 2026-11-19 · 第79轮 · 模型:deepseek-v4.1-flash-1017】
+    # 与冷路径 _promote_to_background 同型改动：partial 已产出却只落盘不回传，
+    # 迫使 agent 再 Read 一次才能看见进度（近24h 176 次转后台里 45 次真这么做）。
+    partial_block = ""
+    _p = (partial or "").strip()
+    if _p:
+        _tail = _p if len(_p) <= 4000 else _p[-4000:]
+        _cut = "" if len(_p) <= 4000 else f"...(已省略前 {len(_p) - 4000} 字符) "
+        partial_block = f"partialOutput:\n{_cut}{_tail}\n"
     return (
         f"status: backgrounded\ninterrupted: false\nbackgroundTaskId: {task_id}\n"
-        f"persistedOutputPath: {output_path}\n"
+        f"persistedOutputPath: {output_path}\n{partial_block}"
         f"Command exceeded the assistant-mode blocking budget ({seconds}s) and was moved to the "
         f"background with ID: {task_id}. It is still running — you will be notified when it completes. "
-        f"Output is being written to: {output_path}. To check interim output, use Read on that file path."
+        f"Output is being written to: {output_path}. "
+        f"上面 partialOutput 是切到后台时已产出的部分；除非你要看**之后新增**的输出，否则不必再读该文件。"
     )
 
 
