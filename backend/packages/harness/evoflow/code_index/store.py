@@ -287,6 +287,33 @@ _DRIFT_PATH_CAP = 400
 _CATCHUP_BUDGET_FILES = 24
 _CATCHUP_COOLDOWN_SECONDS = 120.0
 _drift_catchup_cooldown: dict[str, float] = {}
+# 【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+# 删除侧自愈的熔断闸（读一次现网数据就该有的东西，之前完全没有）。
+# 现网实测（2026-11-19 09:0x，本仓）：fts_content 7915 个 path 里 **12 个磁盘已不存在**
+# （0.152%），其中 6 个还留着 symbols 行（共 13 行）。它们会作为命中行返回给模型，
+# 近 10 天 1496 条符号命中里 20 条（1.34%）指向不存在的文件，catalog 里 1491 条路径有 22 条。
+# 而 `_schedule_drift_catchup` 对 deleted **只报不修**（注释说"删除交给 watcher 与下次全量重建"），
+# 但 watcher 默认 watcher_enabled=False 且重启后没人拉起，全量重建要 ~30min 且不常在——
+# 于是这些行事实上**永不清理**，越攒越多。
+#
+# 为什么必须带熔断：`deleted` 的语义是「库里有、磁盘遍历没看见」，
+# 一旦 root 解析口径与建库时不一致（thread 映射 / 符号链接 / 部分目录不可读），
+# 整库都会被算成已删除 —— 那时代码自动清库就是**自毁索引**（这正是原注释的顾虑，是对的）。
+# 所以判据换成「只有确认是少数派才动」：
+#   · 删除比例 ≤ _DELETE_PURGE_MAX_RATIO 才清；超了只记账不动作，等下一次全量重建；
+#   · 单轮最多清 _DELETE_CLEAN_BUDGET 个，剩余留给下一轮（与新增侧同一种预算思路）；
+#   · 与新增侧共用 120s 冷却，避免每次检索都去开写事务。
+# 0.15 取自现网：真实删除量 12/7915=0.152%（探针/临时文件），留一个数量级余量。
+_DELETE_PURGE_MAX_RATIO = 0.15
+_DELETE_CLEAN_BUDGET = 32
+# 【self-evolution-bot · 2026-11-19 · 第64轮】比例闸必须配一个**绝对量**地板，否则误伤小仓库：
+# 实测一个 5 文件的小仓库删掉 1 个 = 20%，纯比例闸直接判"疑似整库消失"而不清 ——
+# 而这条自愈对小仓库正是最该生效的（它们的重建也最快，反而最不需要救）。
+# 判据改成「比例超阈值 **且** 绝对删除数 > 预算」才拦：
+#   · 真实事故形态是「root 解析口径漂移 → 成百上千个文件同时变已删除」，绝对量必然远超 32；
+#   · 几个文件的删除是日常（探针/临时文件清理），哪怕在小仓库里占比很高也照清。
+# 最坏情况也有界：比例闸误判时最多清 _DELETE_CLEAN_BUDGET 条，且全量重建能补回。
+_DELETE_PURGE_ABS_FLOOR = _DELETE_CLEAN_BUDGET
 
 
 def _rel_path_prefix(root_path: Path) -> str:
@@ -565,12 +592,16 @@ def _schedule_drift_catchup(root: str, *, st: dict) -> dict:
     added = list(drift.get("added_paths") or [])
     changed = list(drift.get("changed_paths") or [])
     deleted_n = int(drift.get("deleted") or 0)
-    if not (added or changed):
-        # deleted 故意不自动清库：source_drift 的 deleted = 「库里有、磁盘遍历没看见」。
-        # 一旦 root 解析口径与建库时不一致（thread 映射 / 符号链接 / 部分目录不可读），
-        # 整库都会被算成已删除，自愈就会变成自毁。删除交给 watcher 与下次全量重建。
+    deleted_paths = list(drift.get("deleted_paths") or [])
+    deleted_plan = _plan_delete_cleanup(drift, deleted_paths, deleted_n, root=root)
+    if not (added or changed) and not deleted_plan["queue"]:
+        # 原先这里无条件 return：deleted **只报不修**（注释说「删除交给 watcher 与下次全量重建」）。
+        # 【self-evolution-bot · 2026-11-19 · 第64轮】但 watcher 默认关着、重启后没人拉起，
+        # 全量重建要 ~30min 且不常在 → 这些行事实上永不清理。现网实测 12 个幽灵文件、
+        # 13 行 symbols 仍在库里并且会被当作命中返回（近 10 天 20/1496 条命中指向不存在文件）。
+        # 所以把「什么都不做」拆成两条：确认是少数派才清（熔断见 _DELETE_PURGE_MAX_RATIO）。
         return {"ok": True, "status": "skipped", "reason": "no_add_change",
-                "deleted_seen": deleted_n}
+                "deleted_seen": deleted_n, **_delete_plan_report(deleted_plan)}
     _drift_catchup_cooldown[root] = now
 
     queue = (added + changed)[:_CATCHUP_BUDGET_FILES]
@@ -578,13 +609,150 @@ def _schedule_drift_catchup(root: str, *, st: dict) -> dict:
     from evoflow.code_index import hooks as _hooks
 
     _hooks._HOOK_POOL.submit(_run_drift_catchup, root, queue)
+    if deleted_plan["queue"]:
+        # 与新增侧同一条后台通道、同一个池：删除本身极便宜（纯 DELETE，无嵌入），
+        # 但**必须不在检索主路上**开写事务 —— 主路正在读这条库，写锁会把它堵住。
+        _hooks._HOOK_POOL.submit(_run_delete_cleanup, root, deleted_plan["queue"])
     return {
         "ok": True,
         "status": "queued",
         "queued": len(queue),
         "remaining_added": max(0, len(added) - len(queue)),
         "deleted_seen": deleted_n,
+        **_delete_plan_report(deleted_plan),
     }
+
+
+def _plan_delete_cleanup(
+    drift: dict,
+    deleted_paths: list[str],
+    deleted_n: int,
+    *,
+    root: str = "",
+) -> dict:
+    """把「报出来的删除」变成一份**可执行且带熔断**的清理计划。
+
+    【self-evolution-bot · 2026-11-19 · 第64轮 · 模型:deepseek-v4.1-flash-1017】
+    纯函数（不碰磁盘/库），便于反证：判定错就会把整库算成待删。
+    四条判据，任何一条不满足都只记账不动作：
+      ① `deleted_paths` 非空（`_DRIFT_PATH_CAP` 截断后仍有样本可核对）；
+      ② **根目录活性**：`root` 传了就必须真是一个目录。
+         这条是比例闸的唯一补漏 —— root 解析口径漂移（thread 映射 / 盘符变更）
+         会让磁盘遍历一个文件也看不见，此时 drift["total"] 也为 0，
+         比例算不出"整库消失"的形状，只有直接探测 root 才能分辨。
+      ③ 比例闸：deleted / total 超阈值 **且** 绝对删除数过地板才拦。
+         **这是自毁的唯一数值防线**：root 口径漂移会让「整库」变成「全部已删除」，
+         此时比例≈1，闸门必须拦住。
+      ④ 逐条复核：只有磁盘上**确实不存在**的路径才进队列 —— 防止 total 口径或
+         遍历瞬时失败（权限/占用）把活文件误判成删除。
+    """
+    if not deleted_paths or deleted_n <= 0:
+        return {"queue": [], "reason": "no_deleted_paths", "ratio": 0.0, "skipped_ratio": False}
+    if root:
+        try:
+            if not Path(root).is_dir():
+                # root 本身不在了 —— 任何"已删除"结论都不可信。
+                return {
+                    "queue": [],
+                    "reason": "root_unavailable",
+                    "ratio": None,
+                    "skipped_ratio": True,
+                }
+        except OSError:
+            return {
+                "queue": [],
+                "reason": "root_unavailable",
+                "ratio": None,
+                "skipped_ratio": True,
+            }
+    total = int(drift.get("total") or 0)
+    ratio = (deleted_n / total) if total > 0 else 1.0
+    # 双闸（AND）：比例超阈值 **且** 绝对删除数过地板才拦。
+    # 单个条件都不够：纯比例会误伤小仓库（5 个文件删 1 个 = 20%），
+    # 纯绝对量会在大仓库里放过真实事故（7915 个文件里 31 个 = 0.39% 也是要清的）。
+    if total <= 0 or (
+        ratio > _DELETE_PURGE_MAX_RATIO and deleted_n > _DELETE_PURGE_ABS_FLOOR
+    ):
+        return {
+            "queue": [],
+            "reason": "ratio_guard",
+            "ratio": round(ratio, 6),
+            "skipped_ratio": True,
+            "threshold": _DELETE_PURGE_MAX_RATIO,
+            "abs_floor": _DELETE_PURGE_ABS_FLOOR,
+        }
+    # 复核：磁盘上真没了才清。这里逐条 stat 一遍是刻意的——
+    # source_drift 的 deleted 只是「遍历没看见」，不等于「不存在」。
+    confirmed: list[str] = []
+    root_path = Path(root) if root else None
+    for rel in deleted_paths[:_DELETE_CLEAN_BUDGET]:
+        if root_path is None:
+            # 没给 root 就没法复核 —— 不猜，直接不清。
+            break
+        try:
+            if not (root_path / rel).exists():
+                confirmed.append(rel)
+        except OSError:
+            continue  # 探不动就不动，宁可留一行脏数据也不误删活文件
+    return {
+        "queue": confirmed,
+        "reason": "ok",
+        "ratio": round(ratio, 6),
+        "skipped_ratio": False,
+        "unconfirmed": max(0, len(deleted_paths[:_DELETE_CLEAN_BUDGET]) - len(confirmed)),
+        "remaining": max(0, len(deleted_paths) - _DELETE_CLEAN_BUDGET),
+    }
+
+
+def _delete_plan_report(plan: dict) -> dict:
+    """把清理计划压成检索页脚能带出去的少量字段（不泄长列表）。"""
+    out: dict[str, object] = {
+        "deleted_clean": len(plan.get("queue") or []),
+        "deleted_plan": str(plan.get("reason") or ""),
+    }
+    if plan.get("skipped_ratio"):
+        out["deleted_guard"] = {
+            "ratio": plan.get("ratio"),
+            "threshold": plan.get("threshold"),
+        }
+    return out
+
+
+def _run_delete_cleanup(root: str, queue: list[str]) -> int:
+    """后台池里清理已删除文件在库里的残留行（纯 DELETE，不读盘、不嵌入）。
+
+    与 `_run_drift_catchup` 分开写而不是塞进那个循环：那个循环走 `index_file`，
+    它会对不存在的路径走 `_normalize_relative_path` → `resolve_under_workspace`
+    再做 .gitignore / skipped 判定，链路长且可能因目录不存在抛错。
+    这里直接调 `_delete_path_from_index`：语义就是「把这个 path 的所有行删掉」。
+    """
+    if not queue:
+        return 0
+    done = 0
+    try:
+        conn = _connect(root)
+    except Exception:  # noqa: BLE001 - 清理失败不能影响检索
+        return 0
+    try:
+        _ensure_schema(conn)
+        for rel in queue:
+            try:
+                _delete_path_from_index(conn, rel)
+                done += 1
+            except Exception:  # noqa: BLE001 - 单个路径失败不能带走整轮
+                logger.debug("delete cleanup failed for %s", rel, exc_info=True)
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        logger.debug("delete cleanup aborted for %s", root, exc_info=True)
+    finally:
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+    if done:
+        # 清了库 → 漂移缓存必须作废，否则页脚会在 30s TTL 内继续报已清完的删除。
+        _purge_drift_cache(root)
+    return done
 
 
 def _run_drift_catchup(root: str, queue: list[str]) -> int:
