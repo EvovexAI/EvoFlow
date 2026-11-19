@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
@@ -47,6 +47,7 @@ from evoflow.community.media_generation.subtitle_utils import (
     build_vtt_from_srt,
     whisper_transcribe_srt,
 )
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_context import resolve_effective_outputs_dir
 
 logger = logging.getLogger(__name__)

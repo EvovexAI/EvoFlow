@@ -47,7 +47,11 @@ def _build_tool_runtime(ctx: LeadAgentRuntimeContext, *, tool_call_id: str) -> A
     tid = str(ctx.thread_id or "").strip()
     config = {"configurable": {"thread_id": tid}} if tid else {}
     try:
-        from langchain.tools import ToolRuntime
+        # 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+        # 这里要**真构造**实例，必须用真类；但 `langchain.tools` 会经
+        # `langgraph.prebuilt.tool_node` 间接拉 torch，所以直取同一类的来源模块，
+        # 并保持函数内延迟导入（只有审批回放这一条路才付这笔钱）。
+        from langgraph.prebuilt.tool_node import ToolRuntime
 
         return ToolRuntime(
             state={},

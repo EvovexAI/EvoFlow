@@ -4,8 +4,7 @@ import fnmatch
 from pathlib import Path
 from typing import Literal
 
-from langchain.tools import ToolRuntime
-
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path
 
 _DEFAULT_IGNORE = [

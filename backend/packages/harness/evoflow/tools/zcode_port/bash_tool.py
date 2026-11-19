@@ -17,10 +17,18 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：`ToolRuntime` 从 `langchain.tools` 换成轻量标记类。
+# 为什么：`langchain.tools` 顶层 `from langchain.tools.tool_node import ToolRuntime`
+# → `langgraph.prebuilt.tool_node` → `langchain_core.language_models.base:42`
+# 的顶层 `from transformers import GPT2TokenizerFast` 把 torch（715 模块）拉进每个进程。
+# 实测：`from langchain.tools import tool` 2371ms/2248 模块（拉 torch）vs
+#       `from langchain_core.tools import tool` 399ms/770 模块（不拉）。
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 
 from evoflow.agents.image_staging import command_with_staged_images, stage_image_entry
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.zcode_port.background import BackgroundBashTask, mark, new_task_id, register_task
 from evoflow.tools.zcode_port.capability import resolve_embedded_search_branch_capability
 from evoflow.tools.zcode_port.prelude import BASH_DESCRIPTION, BASH_DESCRIPTION_DIRECT, build_embedded_search_prelude

@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import re
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_path
 
 _PATTERN_FIX_DESCRIPTION = """Apply a single regex pattern replacement across multiple files simultaneously.

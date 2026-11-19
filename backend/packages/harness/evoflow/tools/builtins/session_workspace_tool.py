@@ -6,10 +6,11 @@ import json
 import logging
 from typing import Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 
 from evoflow.agents.thread_state import ThreadState
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.builtins.session_workspace_ops import (
     format_workspace_reply,
     workspace_mkdir,

@@ -5,11 +5,12 @@ from __future__ import annotations
 import json
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 
 from evoflow.collab.collab_tool_names import PROGRESS
 from evoflow.collab.task_progress import apply_subtask_progress_report
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.builtins.subtask_work_checklist_tool import _resolve_collab_ids
 
 

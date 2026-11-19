@@ -41,7 +41,9 @@ def runtime_with_workspace(root: str, thread_id: str | None = None) -> Any:
             return data.get(key, default)
 
     try:
-        from langchain.tools import ToolRuntime
+        # 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+        # 真构造实例用真类；直取 langgraph.prebuilt 以避免 `langchain.tools` 拉 torch。
+        from langgraph.prebuilt.tool_node import ToolRuntime
 
         return ToolRuntime(
             state={},

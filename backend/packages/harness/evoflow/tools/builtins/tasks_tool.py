@@ -10,9 +10,11 @@ import json
 import logging
 from typing import Annotated, Any, Literal
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.typing import ContextT
 from pydantic import BaseModel, BeforeValidator, Field
+
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 

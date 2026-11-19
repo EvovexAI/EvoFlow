@@ -10,8 +10,9 @@ import fnmatch
 import os
 from pathlib import Path
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.minimal_schema import FIND_TOOL_DESCRIPTION
 
 _DEFAULT_IGNORE_DIRS = frozenset(

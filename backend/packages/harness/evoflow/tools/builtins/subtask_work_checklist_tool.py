@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 
 from evoflow.collab.collab_tool_names import CHECKLIST
@@ -18,6 +18,7 @@ from evoflow.collab.work_checklist import (
     set_subtask_work_checklist,
     update_subtask_checklist_item,
 )
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 
 def _resolve_collab_ids(runtime: ToolRuntime[ContextT, dict] | None) -> tuple[str | None, str | None]:

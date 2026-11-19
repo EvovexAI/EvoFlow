@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.typing import ContextT
 from pydantic import Field
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.exploration_graph.mind_map_exec import execute_mind_map
 from evoflow.exploration_graph.mind_map_tool_description import MIND_MAP_TOOL_DESCRIPTION
 from evoflow.exploration_graph.tool_schema import MindMapOpItem

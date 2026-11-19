@@ -12,7 +12,10 @@ from __future__ import annotations
 import json
 import time
 
-from langchain.tools import tool
+# 【self-evolution-bot · 2026-11-19 · 第65轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：`tool` 改从 `langchain_core.tools` 取（本文件不用 ToolRuntime）。
+# 为什么：`langchain.tools` 会顺带拉 torch（实测多 1.9 秒/进程），这里只需要 `tool`。
+from langchain_core.tools import tool
 
 from evoflow.tools.zcode_port.background import get_task, stop_task, wait_task
 from evoflow.tools.zcode_port.prelude import TASK_OUTPUT_DESCRIPTION, TASK_STOP_DESCRIPTION

@@ -11,9 +11,9 @@ from __future__ import annotations
 import logging
 import uuid
 
-from langchain.tools import ToolRuntime
 from langgraph.typing import ContextT
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.builtins.supervisor.utils import _clamp_progress, _runtime_thread_id
 
 logger = logging.getLogger(__name__)

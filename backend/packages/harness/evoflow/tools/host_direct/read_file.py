@@ -3,9 +3,10 @@
 import os
 from pathlib import Path
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 from langgraph.types import Command
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.read_logic import apply_whole_file_read_gate, read_file_content
 from evoflow.tools.host_direct.workspace_context import resolve_tool_workspace_root
 from evoflow.tools.host_direct.workspace_path_guard import (

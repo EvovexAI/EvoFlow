@@ -28,10 +28,12 @@ import json
 import logging
 from typing import Annotated, Any
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, tool
 from langgraph.types import Command
 from pydantic import BaseModel, Field
+
+from evoflow.core.tool_runtime_type import ToolRuntime
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +433,14 @@ def _run(code: str, timeout_ms: int | None, title: str, runtime: ToolRuntime[Any
         # 报错也走同一通道：把已有文本 + 标记交给上层（Projector 仍可渲染失败态），
         # 模型侧则看到带错误说明的正文，而不是裸 RuntimeError。
         text = text or str(result.get("error") or "node_repl js failed")
-        text = f"{text}\n\n[node_repl] call failed."[:4000]
+        # 【self-evolution-bot · 2026-11-19 · 第66轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：先截正文到 4000，再拼失败标记（原来是 `f"{text}\n\n标记"[:4000]`）。
+        # 为什么：标记拼在正文**之后**再统一截断时，正文只要 ≥3975 字符就把标记本身切掉
+        # （实测：body=3975 → marker_kept=False），于是一个很长的失败 cell 会被记成 success，
+        # 下游 `_string_content_suggests_tool_error` 再怎么改也认不出来。
+        # 标记是判定失败的唯一凭据，它必须活到最后一刻。
+        body_budget = 4000 - len("\n\n[node_repl] call failed.")
+        text = f"{text[:body_budget]}\n\n[node_repl] call failed."
     else:
         text = _maybe_compact_browser_docs_dump(text)
 

@@ -6,8 +6,9 @@ import atexit
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
 
-from langchain.tools import ToolRuntime, tool
+from langchain_core.tools import tool
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.minimal_schema import SEARCH_CODE_INDEX_DESCRIPTION
 
 _MAX_WALL_SECONDS = 45.0

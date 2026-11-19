@@ -26,9 +26,10 @@ import uuid
 from pathlib import Path
 from typing import Annotated
 
-from langchain.tools import InjectedToolCallId, ToolRuntime, tool
+from langchain_core.tools import InjectedToolCallId, tool
 from pydantic import Field
 
+from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.tools.host_direct.workspace_path_guard import resolve_tool_workdir
 from evoflow.tools.minimal_schema import TERMINAL_TOOL_DESCRIPTION
 from evoflow.utils.subprocess_platform import (
