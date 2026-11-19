@@ -13,6 +13,7 @@ import {
   beginCuaGlowOverlay,
   hideCuaGlowOverlayForced,
   isCuaGlowOverlayActive,
+  updateCuaGlowStep,
 } from './cua-glow-overlay.js'
 
 /** CUA 进行中 / 顶栏亮着：跟手 */
@@ -31,6 +32,10 @@ const ROOT =
         epoch: 0,
         timer: null,
         lastActive: false,
+        lastStepSeq: 0,
+        // 【self-evolution-bot · 2026-11-19 · 第72轮】秒表起/停的比较基准；
+        // 缺这个字段会让 runChanged 恒为 true（undefined !== bool），每个 tick 都推。
+        lastRunning: false,
         tickInFlight: false,
         fetchErrorLoggedAt: 0,
         starting: false,
@@ -40,6 +45,10 @@ const ROOT =
         epoch: 0,
         timer: null,
         lastActive: false,
+        lastStepSeq: 0,
+        // 【self-evolution-bot · 2026-11-19 · 第72轮】秒表起/停的比较基准；
+        // 缺这个字段会让 runChanged 恒为 true（undefined !== bool），每个 tick 都推。
+        lastRunning: false,
         tickInFlight: false,
         fetchErrorLoggedAt: 0,
         starting: false,
@@ -111,12 +120,30 @@ async function tick(epoch) {
     const active = status.active === true
     const flipped = active !== ROOT.lastActive
     const needsReshow = active && !isCuaGlowOverlayActive()
-    if (!flipped && !needsReshow) return
+    // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+    // 原来这里 `!flipped && !needsReshow` 直接 return —— 于是 active 没翻转时
+    // 「做到第几步」永远不会更新（用户只能看到一句固定文案）。
+    // 现在多一条：step_seq 变了也要继续走下去。
+    const stepSeq = Number(status.step_seq) || 0
+    const stepChanged = active && stepSeq !== ROOT.lastStepSeq
+    // 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
+    // 秒表的起/停也必须放行：cell 结束时 running 1→0、步骤文案却没变，
+    // 若只在 stepChanged 时继续，卡片永远收不到「停表」信号，
+    // 用户就会看到「已停止操作、秒数还在跳」。
+    const runNow = (Number(status.running) || 0) > 0
+    const runChanged = active && runNow !== ROOT.lastRunning
+    if (!flipped && !needsReshow && !stepChanged && !runChanged) return
+    ROOT.lastStepSeq = active ? stepSeq : 0
+    ROOT.lastRunning = active ? runNow : false
     ROOT.lastActive = active
     if (active) {
       await pluginLog(
         `poll active=true running=${status.running ?? '?'} grace=${status.grace_ms_left ?? '-'} keys=${JSON.stringify(status.keys || [])}`,
       )
+      // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+      // 先推进度再亮条：show 时会带上当前步骤，避免首屏只有「正在操作电脑」。
+      // 【self-evolution-bot · 2026-11-19 · 第72轮】透传时长与秒表状态（grace 期间 running=0 ⇒ 停表）。
+      updateCuaGlowStep(status.step, status.steps_done, status.elapsed_ms, runNow)
       beginCuaGlowOverlay('glow-status-poll')
     } else {
       await pluginLog('poll active=false → hide')

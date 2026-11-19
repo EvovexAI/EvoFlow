@@ -399,6 +399,12 @@
           "markdownDescription": "Lets the embed guest answer Runtime.evaluate via invoke."
         },
         {
+          "description": "提示条窗口（cua-glow-*）唯一需要的应用命令：上报用户点了「解除控制」。窗口不能调用任何其他应用命令。",
+          "type": "string",
+          "const": "allow-cua-glow-stop",
+          "markdownDescription": "提示条窗口（cua-glow-*）唯一需要的应用命令：上报用户点了「解除控制」。窗口不能调用任何其他应用命令。"
+        },
+        {
           "description": "Allow the resource-manager window to sample CPU/memory snapshots.",
           "type": "string",
           "const": "allow-resource-manager",

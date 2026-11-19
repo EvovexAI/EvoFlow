@@ -6,6 +6,9 @@ description = "EvoFlow 桌面端 — 面向长任务的原生 Agent Runtime 与�
 authors = ["EvovexAI"]
 repository = "https://github.com/EvovexAI/EvoFlow"
 homepage = "https://www.evovexai.com"
+# 包名 evopanel ≠ 二进制 evoflow，且同时有 [lib]：tauri bundle 必须靠 default-run
+# 定位主程序，否则报 failed to find main binary。
+default-run = "evoflow"
 
 license-file = "../../LICENSE"
 
@@ -61,7 +64,12 @@ tokio = { version = "1", features = ["process", "time", "net", "io-util", "sync"
 [target.'cfg(target_os = "windows")'.dependencies]
 webview2-com = "0.38"
 windows-core = "0.61"
-windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading"] }
+# 【self-evolution-bot · 2026-11-19 · 第71轮 · 模型:deepseek-v4.1-flash-1017】
+# 加 Win32_UI_HiDpi：验收探针 cua_ring_probe --live 必须能调
+# SetProcessDpiAwarenessContext。不加时进程非 DPI 感知，GetSystemMetrics
+# 返回缩放后的逻辑分辨率（本机实测 2194x1234），而真实屏幕是 3840x2160 ——
+# 探针就会打印一个假尺寸，让人以为光晕带只有 197px。判据必须量物理像素。
+windows = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_System_Threading", "Win32_Graphics_Gdi", "Win32_System_LibraryLoader", "Win32_UI_HiDpi"] }
 
 # Used by pid_is_live_desktop_owner on macOS/Linux (kill(pid, 0) + path probe)
 # so stale sidecar.lock after crash/reboot does not block relaunch forever.

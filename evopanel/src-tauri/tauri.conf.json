@@ -3,6 +3,7 @@
   "productName": "EvoFlow",
   "version": "1.3.37",
   "identifier": "com.evovex.evoflow",
+  "mainBinaryName": "evoflow",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:1521",

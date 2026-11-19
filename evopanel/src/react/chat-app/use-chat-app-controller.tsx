@@ -4322,6 +4322,9 @@ export function useChatAppController() {
       setSessionTitle,
       syncSessionRowRef,
       wsClient,
+      // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
+      // 提示条「解除控制」要用真正的停止入口（ref 在下方 controller 里赋值）。
+      stopSessionExecutionRef,
     })
   }, [refreshSessions, scheduleRefreshSessions, loadModelCatalog, refreshSpeechConfigured])
 

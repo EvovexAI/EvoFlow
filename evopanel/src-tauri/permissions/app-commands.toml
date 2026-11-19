@@ -95,6 +95,19 @@ commands.allow = [
   "export_logs",
   "cua_glow_overlay_show",
   "cua_glow_overlay_hide",
+  # 【self-evolution-bot · 2026-11-19 · 第73轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：补上 4 个已在 lib.rs 注册、却不在 ACL 白名单的 CUA 命令。
+  # 为什么：`invoke_handler` 注册 ≠ 前端能调。本应用自定义了 permission
+  # （browser-embed.toml），Tauri 的 apply ACL 会对**未显式列出**的命令一律拒绝。
+  # 现网取证（plugin-control.log，探针触发时）：
+  #   `ring show failed: Command cua_glow_ring_show not allowed by ACL`
+  # 用户「没有蓝光」的直接原因就是这个 —— 不是没画、不是没调用，是被 ACL 拦在
+  # JS→Rust 边界外，前端一次都没进去。cua_glow_overlay_step 同理，
+  # 所以「做到第几步」也一直不刷新（500ms 轮询每 tick 都静默失败）。
+  "cua_glow_overlay_step",
+  "cua_glow_overlay_stop",
+  "cua_glow_ring_show",
+  "cua_glow_ring_hide",
   "wake_kws_start",
   "wake_kws_feed_pcm",
   "wake_kws_pause",
@@ -111,4 +124,24 @@ commands.allow = [
   "browser_embed_park",
   "browser_embed_close",
   "browser_embed_bridge_response",
+]
+
+# 【self-evolution-bot · 2026-11-19 · 第73轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增一个**极小**的 permission，只放提示条窗口自己能调的那 1 条命令。
+#
+# 为什么（第三处 ACL 缺口，与前两处同源但方向相反）：
+#   `cua-glow-overlay.json` 这个 capability 只列了 core:window:* 之类**窗口权限**，
+#   从来没引用 allow-app-commands。而「解除控制」按钮就长在那个窗口里，
+#   点击 → `invoke('cua_glow_overlay_stop')` —— 这条命令从没被任何 capability 授权。
+#   现网取证：全部日志里 `user pressed stop on CUA indicator` = 0 次，
+#   即这条链路**从未成功执行过一次**（按钮点下去静默失败，用户只会觉得"点了没反应"）。
+#
+# 为什么不直接把 allow-app-commands 引用给 cua-glow-overlay：
+#   allow-app-commands 是 113 条全量命令，等于把整个应用 API 暴露给一个
+#   浮在最上层、always-on-top 的小窗口。按最小权限，它只需要"上报用户点了停止"。
+[[permission]]
+identifier = "allow-cua-glow-stop"
+description = "提示条窗口（cua-glow-*）唯一需要的应用命令：上报用户点了「解除控制」。窗口不能调用任何其他应用命令。"
+commands.allow = [
+  "cua_glow_overlay_stop",
 ]
