@@ -32,23 +32,23 @@ def test_elapsed_starts_at_zero_and_grows_while_running():
     assert gs.get_cua_glow_status()["running"] == 1
 
 
-def test_elapsed_freezes_after_cell_ends():
-    """cell 结束（进入 grace）后秒表必须停 —— 这是「已停止但秒数还在跳」的防线。"""
+def test_elapsed_keeps_growing_during_grace():
+    """cell 结束进入 grace 后秒表必须继续走 —— 否则胶囊面上「秒数一直不动」。"""
     _reset_all()
     gs.pulse_cua_glow_start(key="c1")
-    time.sleep(0.15)
+    time.sleep(0.12)
     ended = gs.pulse_cua_glow_end(key="c1")
-    frozen = ended["elapsed_ms"]
-    assert frozen >= 100, f"收工时应已累计到几百毫秒，实测 {frozen}ms"
+    at_end = ended["elapsed_ms"]
+    assert at_end >= 100, f"收工时应已累计到几百毫秒，实测 {at_end}ms"
     assert ended["running"] == 0
+    assert ended["active"] is True, "收工后 30s 内提示条应仍然可见"
 
     time.sleep(0.20)
     later = gs.get_cua_glow_status()
-    assert later["elapsed_ms"] == frozen, (
-        f"grace 期间秒表不该继续走：收工时 {frozen}ms，0.2s 后变成 {later['elapsed_ms']}ms"
+    assert later["active"] is True
+    assert later["elapsed_ms"] >= at_end + 150, (
+        f"grace 期间秒表应继续走：收工时 {at_end}ms，0.2s 后变成 {later['elapsed_ms']}ms"
     )
-    # 提示条本身仍可见（ZCode 的 30s grace 语义没被改动）
-    assert later["active"] is True, "收工后 30s 内提示条应仍然可见"
 
 
 def test_elapsed_does_not_reset_between_cells_in_same_turn():

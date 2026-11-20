@@ -36,6 +36,8 @@ const ROOT =
         // 【self-evolution-bot · 2026-11-19 · 第72轮】秒表起/停的比较基准；
         // 缺这个字段会让 runChanged 恒为 true（undefined !== bool），每个 tick 都推。
         lastRunning: false,
+        // 上次推给胶囊的 elapsed；active 期间每 ~1s 要续推，否则 WebView2 未聚焦时秒数冻住。
+        lastElapsedMs: -1,
         tickInFlight: false,
         fetchErrorLoggedAt: 0,
         starting: false,
@@ -46,9 +48,8 @@ const ROOT =
         timer: null,
         lastActive: false,
         lastStepSeq: 0,
-        // 【self-evolution-bot · 2026-11-19 · 第72轮】秒表起/停的比较基准；
-        // 缺这个字段会让 runChanged 恒为 true（undefined !== bool），每个 tick 都推。
         lastRunning: false,
+        lastElapsedMs: -1,
         tickInFlight: false,
         fetchErrorLoggedAt: 0,
         starting: false,
@@ -132,18 +133,24 @@ async function tick(epoch) {
     // 用户就会看到「已停止操作、秒数还在跳」。
     const runNow = (Number(status.running) || 0) > 0
     const runChanged = active && runNow !== ROOT.lastRunning
-    if (!flipped && !needsReshow && !stepChanged && !runChanged) return
+    const elapsedNow = Number(status.elapsed_ms) || 0
+    // 提示条还亮着时秒表应继续走：用 active（含 grace）而不是 runNow。
+    // WebView2 未聚焦时常把页面 setInterval 掐死，所以 active 期间每 ~1s 从主面板续推 elapsed。
+    const elapsedTick =
+      active && (ROOT.lastElapsedMs < 0 || Math.abs(elapsedNow - ROOT.lastElapsedMs) >= 900)
+    if (!flipped && !needsReshow && !stepChanged && !runChanged && !elapsedTick) return
     ROOT.lastStepSeq = active ? stepSeq : 0
     ROOT.lastRunning = active ? runNow : false
+    ROOT.lastElapsedMs = active ? elapsedNow : -1
     ROOT.lastActive = active
     if (active) {
-      await pluginLog(
-        `poll active=true running=${status.running ?? '?'} grace=${status.grace_ms_left ?? '-'} keys=${JSON.stringify(status.keys || [])}`,
-      )
-      // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
-      // 先推进度再亮条：show 时会带上当前步骤，避免首屏只有「正在操作电脑」。
-      // 【self-evolution-bot · 2026-11-19 · 第72轮】透传时长与秒表状态（grace 期间 running=0 ⇒ 停表）。
-      updateCuaGlowStep(status.step, status.steps_done, status.elapsed_ms, runNow)
+      if (flipped || stepChanged || runChanged || needsReshow) {
+        await pluginLog(
+          `poll active=true running=${status.running ?? '?'} grace=${status.grace_ms_left ?? '-'} keys=${JSON.stringify(status.keys || [])}`,
+        )
+      }
+      // timerOn=active：grace 间隙秒数也要走，不能一停 cell 就冻在表面上。
+      updateCuaGlowStep(status.step, status.steps_done, elapsedNow, true)
       beginCuaGlowOverlay('glow-status-poll')
     } else {
       await pluginLog('poll active=false → hide')

@@ -253,16 +253,20 @@ def _persist_locked() -> None:
 
 
 def _snapshot_locked(now: float) -> dict[str, Any]:
-    global _GRACE_UNTIL_MS
+    global _GRACE_UNTIL_MS, _ACTIVE_SINCE_MS, _ELAPSED_FROZEN_MS
     active = bool(_RUNNING) or now < _GRACE_UNTIL_MS
-    if not active and _GRACE_UNTIL_MS:
-        _GRACE_UNTIL_MS = 0.0
+    if not active:
+        # 提示条真正熄灭才冻表：grace 间隙里秒数必须继续走，
+        # 否则用户看到的就是「秒数一直不动」（cell 之间大部分时间都在 grace）。
+        if _ACTIVE_SINCE_MS:
+            _ELAPSED_FROZEN_MS = max(0.0, now - _ACTIVE_SINCE_MS)
+            _ACTIVE_SINCE_MS = 0.0
+        if _GRACE_UNTIL_MS:
+            _GRACE_UNTIL_MS = 0.0
     step_label = str(_STEP["label"] or "")
-    # 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
-    # 本轮累计操作时长：正在跑就现算，收工后冻结在 last 值（grace 期间不该继续涨，
-    # 否则用户看到「已停止但秒数还在跳」，比不给时长更误导）。
+    # 本轮累计：提示条还亮着（running 或 grace）就现算；熄灭后用冻结值。
     elapsed_ms = (
-        max(0, int(now - _ACTIVE_SINCE_MS)) if _RUNNING and _ACTIVE_SINCE_MS
+        max(0, int(now - _ACTIVE_SINCE_MS)) if _ACTIVE_SINCE_MS
         else int(_ELAPSED_FROZEN_MS)
     )
     return {
@@ -367,18 +371,17 @@ def pulse_cua_glow_start(*, key: str = "") -> dict[str, Any]:
     with _LOCK:
         _sync_locked()
         was_idle = not _RUNNING
-        # 【self-evolution-bot · 2026-11-19 · 第72轮】同一轮 vs 新一轮的判据是 **grace 还在不在**：
-        # 一个 turn 里往往连续好几个 cell，中间空档 <30s；若每个 cell 都把秒表重置，
-        # 用户看到的永远是「最后一步花了几秒」，而不是「这轮已经操作了多久」。
-        same_round = now < _GRACE_UNTIL_MS
+        # 同一轮 vs 新一轮：grace 还在，或秒表锚点还在（grace 期间不再冻表）。
+        same_round = now < _GRACE_UNTIL_MS or bool(_ACTIVE_SINCE_MS)
         _RUNNING.add(kid)
         if was_idle:
-            if same_round and _ELAPSED_FROZEN_MS > 0:
-                # 把起点往前推，使累计接着上一段走（elapsed = now - _ACTIVE_SINCE_MS）。
+            if same_round and _ACTIVE_SINCE_MS:
+                # grace 间隙里秒表一直在走，锚点保留即可。
+                pass
+            elif same_round and _ELAPSED_FROZEN_MS > 0:
                 _ACTIVE_SINCE_MS = now - _ELAPSED_FROZEN_MS
             else:
-                # 真正的新一轮：秒表归零，步数也必须归零——
-                # 否则 clear/grace 过期后下一轮会从「第 17 步」起跳，用户看到步数不对。
+                # 真正的新一轮：秒表归零，步数也必须归零。
                 _ACTIVE_SINCE_MS = now
                 _ELAPSED_FROZEN_MS = 0.0
                 _reset_steps_locked()
@@ -398,11 +401,8 @@ def pulse_cua_glow_end(*, key: str = "") -> dict[str, Any]:
         _sync_locked()
         _RUNNING.discard(kid)
         if not _RUNNING:
-            # 【self-evolution-bot · 2026-11-19 · 第72轮】收工时把秒表冻结在这里。
-            # 不冻的话 grace 30s 里 _ACTIVE_SINCE_MS 还在，用户会看到「已停止但秒数还在跳」。
-            if _ACTIVE_SINCE_MS:
-                _ELAPSED_FROZEN_MS = max(0.0, now - _ACTIVE_SINCE_MS)
-                _ACTIVE_SINCE_MS = 0.0
+            # grace 期间秒表继续走（_ACTIVE_SINCE_MS 不清）：胶囊面上的秒数才不会冻住。
+            # 真正熄灭时由 _snapshot_locked 冻结。
             _GRACE_UNTIL_MS = now + AUTO_HIDE_MS
         _UPDATED_AT = now
         _persist_locked()

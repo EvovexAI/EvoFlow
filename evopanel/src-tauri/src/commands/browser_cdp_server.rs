@@ -448,22 +448,23 @@ fn handle_connection(mut socket: TcpStream, app: tauri::AppHandle) {
                 .to_string()
         }
         ("OPTIONS", path) if path.starts_with("/browser-cdp/") || path.starts_with("/main-cdp/") => {
-            "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type\r\nContent-Length: 0\r\n\r\n"
+            "HTTP/1.1 204 No Content\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: GET, POST, OPTIONS\r\nAccess-Control-Allow-Headers: Content-Type, X-EvoFlow-Panel-Token\r\nContent-Length: 0\r\n\r\n"
                 .to_string()
         }
-        // 主聊天窗 JS evaluate（排版 dump / 任意表达式）。与 embed CDP 共用端口，读
-        // ~/.evoflow/browser-cdp-http-port。
-        //   GET  /main-cdp/layout
-        //   POST /main-cdp/evaluate  body={"expression":"..."} 或 ?expression=
-        ("GET", path) if path.starts_with("/main-cdp/layout") => run_main_cdp_layout(app),
-        ("POST", path) if path.starts_with("/main-cdp/evaluate") => {
-            let body = extract_post_body(&buf);
-            let expr_q = query_param(path, "expression").map(|s| percent_decode(&s));
-            run_main_cdp_evaluate(app, &body, expr_q.as_deref())
-        }
-        ("GET", path) if path.starts_with("/main-cdp/evaluate") => {
-            let expr = query_param(path, "expression").map(|s| percent_decode(&s));
-            run_main_cdp_evaluate(app, "", expr.as_deref())
+        // 主聊天窗可控面（与 embed CDP 共用端口 ~/.evoflow/browser-cdp-http-port）：
+        //   layout | evaluate | snapshot | state | click | fill | type | scroll | action
+        //   cdp | ax | screenshot
+        (method, path) if path.starts_with("/main-cdp/") => {
+            if !panel_token_ok(&String::from_utf8_lossy(&buf)) {
+                http_json_response(r#"{"ok":false,"error":"unauthorized (X-EvoFlow-Panel-Token)","code":"unauthorized"}"#)
+            } else {
+                let body = if method == "POST" {
+                    extract_post_body(&buf)
+                } else {
+                    String::new()
+                };
+                run_main_cdp_route(app, method, path, &body)
+            }
         }
         // Blank boot page for embed create (about:blank / example.com are unusable).
         ("GET", path) if path.starts_with("/browser-embed/blank") => {
@@ -586,54 +587,286 @@ fn run_cdp_status(app: tauri::AppHandle, thread_id: String) -> String {
     http_json_response(&json)
 }
 
-fn run_main_cdp_layout(app: tauri::AppHandle) -> String {
-    log_line("[main-cdp] GET /main-cdp/layout");
-    let value = match super::browser_cdp::dump_main_chat_layout(&app) {
-        Ok(v) => v,
-        Err(e) => serde_json::json!({ "error": e }),
+fn panel_token_expected() -> Option<String> {
+    if let Ok(v) = std::env::var("EVOFLOW_PANEL_CDP_TOKEN") {
+        let t = v.trim().to_string();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    let path = evoflow_dir().join("panel-cdp-token");
+    if let Ok(s) = std::fs::read_to_string(path) {
+        let t = s.trim().to_string();
+        if !t.is_empty() {
+            return Some(t);
+        }
+    }
+    None
+}
+
+fn panel_token_ok(request_head: &str) -> bool {
+    let Some(expected) = panel_token_expected() else {
+        return true;
     };
-    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"error":"json"}"#.into());
+    for line in request_head.lines() {
+        if let Some((name, value)) = line.split_once(':') {
+            let name = name.trim().to_ascii_lowercase();
+            let value = value.trim();
+            if name == "x-evoflow-panel-token" {
+                return value == expected;
+            }
+            if name == "authorization" {
+                let lower = value.to_ascii_lowercase();
+                if let Some(tok) = lower.strip_prefix("bearer ") {
+                    // Compare using original casing from value after "Bearer "
+                    let raw = value[value.len() - tok.len()..].trim();
+                    return raw == expected;
+                }
+            }
+        }
+    }
+    false
+}
+
+fn json_body(body: &str) -> serde_json::Value {
+    serde_json::from_str(body).unwrap_or(serde_json::Value::Null)
+}
+
+fn js_string_literal(s: &str) -> String {
+    serde_json::to_string(s).unwrap_or_else(|_| "\"\"".into())
+}
+
+fn main_cdp_ok_wrap(v: serde_json::Value) -> String {
+    // If frontend already returned {ok,...}, pass through; else wrap.
+    let value = if v.get("ok").is_some() {
+        v
+    } else {
+        serde_json::json!({ "ok": true, "result": v })
+    };
+    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"ok":false,"error":"json"}"#.into());
     http_json_response(&json)
 }
 
-fn run_main_cdp_evaluate(
-    app: tauri::AppHandle,
-    body: &str,
-    expression_query: Option<&str>,
-) -> String {
-    let mut expression = expression_query.unwrap_or("").trim().to_string();
-    if expression.is_empty() {
-        if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
-            expression = v
-                .get("expression")
+fn main_cdp_err(code: &str, error: &str) -> String {
+    let value = serde_json::json!({ "ok": false, "error": error, "code": code });
+    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"ok":false,"error":"json"}"#.into());
+    http_json_response(&json)
+}
+
+fn run_main_cdp_route(app: tauri::AppHandle, method: &str, path: &str, body: &str) -> String {
+    let path_only = path.split('?').next().unwrap_or(path);
+    let route = path_only.trim_start_matches("/main-cdp").trim_start_matches('/');
+    let route = route.split('/').next().unwrap_or("");
+
+    match (method, route) {
+        ("GET", "layout") => {
+            log_line("[main-cdp] GET /main-cdp/layout");
+            match super::browser_cdp::dump_main_chat_layout(&app) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("GET" | "POST", "evaluate") => {
+            let mut expression = query_param(path, "expression")
+                .map(|s| percent_decode(&s))
+                .unwrap_or_default();
+            if expression.trim().is_empty() {
+                expression = json_body(body)
+                    .get("expression")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("")
+                    .to_string();
+            }
+            let expression = expression.trim().to_string();
+            if expression.is_empty() {
+                return main_cdp_err(
+                    "execution_error",
+                    "missing expression (POST JSON {\"expression\":\"...\"} or ?expression=)",
+                );
+            }
+            log_line(&format!(
+                "[main-cdp] evaluate expr={}",
+                {
+                    let t = expression.chars().take(120).collect::<String>();
+                    if expression.len() > 120 {
+                        format!("{t}…")
+                    } else {
+                        t
+                    }
+                }
+            ));
+            match super::browser_cdp::evaluate_on_main_webview(&app, &expression) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("GET" | "POST", "snapshot") => {
+            let opts = json_body(body);
+            let opts_js = serde_json::to_string(&opts).unwrap_or_else(|_| "{}".into());
+            log_line("[main-cdp] snapshot");
+            match super::browser_cdp::panel_api_call(&app, &format!("P.snapshot({opts_js})")) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("GET", "state") => {
+            log_line("[main-cdp] state");
+            match super::browser_cdp::panel_api_call(&app, "P.getState()") {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "click") => {
+            let v = json_body(body);
+            let r = v.get("ref").and_then(|x| x.as_str()).unwrap_or("").trim();
+            if r.is_empty() {
+                return main_cdp_err("ref_not_found", "click requires ref");
+            }
+            let call = format!("P.click({})", js_string_literal(r));
+            match super::browser_cdp::panel_api_call(&app, &call) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "fill") => {
+            let v = json_body(body);
+            let r = v.get("ref").and_then(|x| x.as_str()).unwrap_or("").trim();
+            let text = v.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            let clear = v.get("clear").and_then(|x| x.as_bool()).unwrap_or(true);
+            if r.is_empty() {
+                return main_cdp_err("ref_not_found", "fill requires ref");
+            }
+            let call = format!(
+                "P.fill({}, {}, {{clear:{}}})",
+                js_string_literal(r),
+                js_string_literal(text),
+                if clear { "true" } else { "false" }
+            );
+            match super::browser_cdp::panel_api_call(&app, &call) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "type") => {
+            let v = json_body(body);
+            let r = v.get("ref").and_then(|x| x.as_str()).unwrap_or("").trim();
+            let text = v.get("text").and_then(|x| x.as_str()).unwrap_or("");
+            if r.is_empty() {
+                return main_cdp_err("ref_not_found", "type requires ref");
+            }
+            let call = format!(
+                "P.type({}, {})",
+                js_string_literal(r),
+                js_string_literal(text)
+            );
+            match super::browser_cdp::panel_api_call(&app, &call) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "scroll") => {
+            let opts = json_body(body);
+            let opts_js = serde_json::to_string(&opts).unwrap_or_else(|_| "{}".into());
+            match super::browser_cdp::panel_api_call(&app, &format!("P.scroll({opts_js})")) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "action") => {
+            let v = json_body(body);
+            let action = v.get("action").and_then(|x| x.as_str()).unwrap_or("").trim();
+            if action.is_empty() {
+                return main_cdp_err("execution_error", "action requires action");
+            }
+            let params = v.get("params").cloned().unwrap_or(serde_json::json!({}));
+            // Also allow flat fields as params
+            let params = if params.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                let mut flat = v.clone();
+                if let Some(obj) = flat.as_object_mut() {
+                    obj.remove("action");
+                }
+                flat
+            } else {
+                params
+            };
+            let params_js = serde_json::to_string(&params).unwrap_or_else(|_| "{}".into());
+            let call = format!("P.dispatch({}, {})", js_string_literal(action), params_js);
+            log_line(&format!("[main-cdp] action={action}"));
+            match super::browser_cdp::panel_api_call_await(&app, &call) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("POST", "cdp") => {
+            let v = json_body(body);
+            let method_name = v
+                .get("method")
                 .and_then(|x| x.as_str())
                 .unwrap_or("")
                 .trim()
                 .to_string();
-        }
-    }
-    if expression.is_empty() {
-        return http_json_response(
-            r#"{"error":"missing expression (POST JSON {\"expression\":\"...\"} or ?expression=)"}"#,
-        );
-    }
-    log_line(&format!(
-        "[main-cdp] evaluate expr={}",
-        {
-            let t = expression.chars().take(120).collect::<String>();
-            if expression.len() > 120 {
-                format!("{t}…")
-            } else {
-                t
+            if method_name.is_empty() {
+                return main_cdp_err("execution_error", "cdp requires method");
+            }
+            let params = v.get("params").cloned().unwrap_or(serde_json::json!({}));
+            let params_json = serde_json::to_string(&params).unwrap_or_else(|_| "{}".into());
+            log_line(&format!("[main-cdp] cdp method={method_name}"));
+            match super::browser_cdp::call_cdp_on_main(&app, &method_name, &params_json) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
             }
         }
-    ));
-    let value = match super::browser_cdp::evaluate_on_main_webview(&app, &expression) {
-        Ok(v) => serde_json::json!({ "ok": true, "result": v }),
-        Err(e) => serde_json::json!({ "ok": false, "error": e }),
-    };
-    let json = serde_json::to_string(&value).unwrap_or_else(|_| r#"{"error":"json"}"#.into());
-    http_json_response(&json)
+        ("GET", "ax") => {
+            log_line("[main-cdp] ax");
+            match super::browser_cdp::call_cdp_on_main(
+                &app,
+                "Accessibility.getFullAXTree",
+                "{}",
+            ) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => {
+                    // Fallback to DOM axTree in panel API
+                    log_line(&format!("[main-cdp] ax CDP failed ({e}); DOM fallback"));
+                    match super::browser_cdp::panel_api_call(&app, "P.axTree({})") {
+                        Ok(v) => main_cdp_ok_wrap(v),
+                        Err(e2) => main_cdp_err("execution_error", &e2),
+                    }
+                }
+            }
+        }
+        ("GET", "screenshot") => {
+            log_line("[main-cdp] screenshot");
+            match super::browser_cdp::call_cdp_on_main(
+                &app,
+                "Page.captureScreenshot",
+                r#"{"format":"png","fromSurface":true}"#,
+            ) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("GET", "ws") | ("GET", "devtools") => {
+            // Advertise Playwright WS URL file if present
+            let ws = std::fs::read_to_string(evoflow_dir().join("main-cdp-ws-url"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let value = serde_json::json!({
+                "ok": true,
+                "result": {
+                    "wsUrl": ws,
+                    "hint": "Playwright: connect_over_cdp(wsUrl) then use page for label 'main' path /devtools/browser/main",
+                    "path": "/devtools/browser/main"
+                }
+            });
+            let json = serde_json::to_string(&value).unwrap_or_else(|_| "{}".into());
+            http_json_response(&json)
+        }
+        _ => main_cdp_err(
+            "capability_unsupported",
+            &format!("unknown /main-cdp route '{route}' (method {method})"),
+        ),
+    }
 }
 
 fn run_eval_poll(app: &tauri::AppHandle, label: &str) -> String {

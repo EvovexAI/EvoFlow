@@ -22,6 +22,7 @@ pub mod log_files;
 pub mod logs;
 pub mod mcp_market;
 pub mod update;
+pub mod cua_glow_cursor;
 pub mod cua_glow_overlay;
 pub mod cua_glow_ring;
 pub mod export_logs;

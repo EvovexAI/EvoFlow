@@ -110,7 +110,8 @@ export function updateCuaGlowStep(step, stepsDone, elapsedMs, running) {
   // 早退条件里必须带上 running：秒数由卡片自己走，所以 elapsed 变化不需要推送；
   // 但 running 翻转（收工/新一轮）**必须**推一次去停表或重起锚点，否则
   // 用户会看到「会话已停、秒数还在跳」或「新一轮开始了但秒数接着上轮继续」。
-  if (text === lastStep && done === lastStepsDone && isRunning === lastRunning) return
+  const elapsedMoved = Math.abs(elapsed - lastElapsedMs) >= 500
+  if (text === lastStep && done === lastStepsDone && isRunning === lastRunning && !elapsedMoved) return
   lastStep = text
   lastStepsDone = done
   lastRunning = isRunning

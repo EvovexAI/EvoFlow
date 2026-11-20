@@ -53,10 +53,9 @@ const OVERLAY_LABEL: &str = "cua-glow-0";
 ///   主文案 134 + 步骤 104 + 步数 40 + 按钮 62 + 呼吸点 18 + 间隙 36 + 内边距 26
 /// 250px 会把主文案压成「EvoFlow 正在…」，等于没解决用户的问题。
 /// 高度同理：56 - 上下 padding 18 = 38px，装不下 44px 卡片，会被 overflow 裁掉。
-// 【self-evolution-bot · 2026-11-20】白色长条退役 → 圆形胶囊 HUD。
-// 胶囊内容：dots + 「第 N 步」+ 秒数 + 「解除控制」，按 13px 字宽约 220–260；
-// 窗口略放余量给蓝光 shadow，高度装得下 40px 胶囊 + 上下 padding。
-const OVERLAY_WIDTH: f64 = 280.0;
+// 圆形胶囊 HUD：dots + 步骤标题 + 「第 N 步」+ 秒数 + 「解除控制」。
+// 标题要看得见，窗口不能再缩到 280；560 给步骤段约 180px 富余。
+const OVERLAY_WIDTH: f64 = 560.0;
 const OVERLAY_HEIGHT: f64 = 56.0;
 const CARD_TOP_OFFSET: f64 = 12.0;
 const SHADOW_INSET_TOP: f64 = 6.0;
@@ -219,7 +218,9 @@ fn push_overlay_step(
     elapsed_ms: i64,
     running: bool,
 ) -> bool {
-    if step.is_empty() && steps_done <= 0 && elapsed_ms <= 0 {
+    // running=true 且 elapsed=0 也要放行：刚起表时必须把秒表锚点推到页面，
+    // 否则「步骤还没文案」时秒数永远起不来。
+    if step.is_empty() && steps_done <= 0 && elapsed_ms <= 0 && !running {
         return false;
     }
     let step_js = serde_json::to_string(step).unwrap_or_else(|_| String::from("\"\""));

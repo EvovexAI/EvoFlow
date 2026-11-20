@@ -421,6 +421,8 @@ pub async fn cua_glow_ring_show(app: tauri::AppHandle) -> Result<(), String> {
     // Tauri 给的是物理像素；分层窗口要的就是物理像素，不换算。
     let pos = monitor.position();
     let size = monitor.size();
+    // 蓝光环亮起时同步换成蓝白 AI 光标（豆包同款观感）；失败不挡环。
+    crate::commands::cua_glow_cursor::install_cua_cursor();
     imp::spawn_ring(pos.x, pos.y, size.width as i32, size.height as i32)
 }
 
@@ -429,6 +431,7 @@ pub async fn cua_glow_ring_show(app: tauri::AppHandle) -> Result<(), String> {
 #[tauri::command]
 pub async fn cua_glow_ring_hide() -> Result<(), String> {
     imp::stop_ring();
+    crate::commands::cua_glow_cursor::restore_cua_cursor();
     Ok(())
 }
 

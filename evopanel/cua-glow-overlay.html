@@ -6,8 +6,8 @@
   <title>EvoFlow Computer Use</title>
   <!--
     Computer Use 顶部圆形胶囊 HUD。
-    透明宿主窗（对齐 voice_overlay）：只露出圆形胶囊 + 蓝光，不要白色长方形底框。
-    胶囊面上只显示「第 N 步」+ 已操作秒数；「解除控制」缩成右侧小按钮。
+    透明宿主窗：只露出圆形胶囊 + 蓝光，不要白色长方形底框。
+    胶囊面：步骤标题 + 「第 N 步」+ 已操作秒数 + 「解除控制」。
   -->
   <style>
     :root { color-scheme: light dark; --glow: #3b82f6; }
@@ -21,7 +21,6 @@
       padding: 6px 8px;
       font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
-    /* 圆形胶囊：整窗只有这一块可见，不要长方形白底。 */
     .indicator {
       display: flex; align-items: center; justify-content: flex-start; gap: 8px;
       height: 40px; max-width: 100%;
@@ -39,9 +38,17 @@
       animation: halo 2.2s ease-in-out infinite;
     }
     html[data-state="active"].flash .indicator { animation: enter 140ms ease-out both, halo 2.2s ease-in-out infinite; }
-    .label { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; }
+    .label { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 1 1 auto; }
+    .step {
+      font-weight: 600; color: #1e3a8a;
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      max-width: 180px; flex: 0 1 auto;
+    }
+    .step:empty { display: none; }
     .count {
-      font-weight: 700; font-size: 13px; color: #1d4ed8;
+      font-weight: 700; font-size: 12px; color: #1d4ed8;
+      background: rgba(59, 130, 246, 0.12);
+      border-radius: 999px; padding: 3px 8px;
       flex: 0 0 auto; white-space: nowrap;
     }
     .count:empty { display: none; }
@@ -51,12 +58,6 @@
       flex: 0 0 auto; white-space: nowrap;
     }
     .elapsed:empty { display: none; }
-    .elapsed::before {
-      content: "·";
-      margin-right: 8px;
-      opacity: .55;
-      font-weight: 700;
-    }
     .dots { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
     .dot {
       width: 4px; height: 4px; border-radius: 50%; background: #3b82f6;
@@ -91,7 +92,8 @@
       .indicator {
         color: #dbeafe; background: rgba(30, 41, 59, 0.96);
       }
-      .count, .elapsed { color: #93c5fd; }
+      .step, .count, .elapsed { color: #93c5fd; }
+      .count { background: rgba(96, 165, 250, 0.16); }
       .dot { background: #93c5fd; }
       .stop { color: #fca5a5; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.32); }
     }
@@ -105,6 +107,7 @@
   <div class="indicator" role="status" aria-live="polite">
     <span class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
     <span class="label">
+      <span id="cua-glow-step" class="step"></span>
       <span id="cua-glow-count" class="count"></span>
       <span id="cua-glow-elapsed" class="elapsed"></span>
     </span>
@@ -113,6 +116,7 @@
   <script>
     (function () {
       var isZh = typeof navigator !== 'undefined' && /^zh\b/i.test(String(navigator.language || (navigator.languages && navigator.languages[0]) || ''))
+      var stepEl = document.getElementById('cua-glow-step')
       var countEl = document.getElementById('cua-glow-count')
       var elapsedEl = document.getElementById('cua-glow-elapsed')
       var stopBtn = document.getElementById('cua-glow-stop')
@@ -121,12 +125,10 @@
       document.documentElement.dataset.state = 'active'
 
       /*
-        秒表放在页面里走，不靠 Rust 轮询推：
-        轮询 500ms 一次、且步骤没变时会早退（省 eval），靠它推秒数会冻住。
-        做法：记住「推送时刻的已过毫秒 + 本机时间戳」，之后每 1s 用本机时钟外推，
-        只有 running=false 才停表。
-        防回跳：已在跑时若新 base 比本地当前值落后超过 1.5s，忽略这次 base
-        （跨进程同步偶发 stale/0 会把「12s」瞬间打回「0s」——用户看到的就是秒数不对）。
+        秒表双通道：
+        ① 页面 setInterval(250ms) 本地外推 —— WebView2 未聚焦时 1s interval 常被掐死；
+        ② 主面板 500ms 轮询也会推 elapsed_ms —— 即使 interval 冻住，显示仍会跟手。
+        防回跳：已在跑时若新 base 比本地落后 >1.5s，丢掉这次 base。
       */
       var elapsedBaseMs = 0
       var elapsedAnchor = 0
@@ -153,7 +155,6 @@
       function renderElapsed() {
         if (!elapsedEl) return
         var ms = currentElapsedMs()
-        // 起表的第一秒是 0，也要显示 "0s"：不显示的话用户会以为没加时长功能。
         elapsedEl.textContent = (ms > 0 || elapsedRunning) ? formatElapsed(ms) : ''
       }
 
@@ -163,15 +164,15 @@
         var wantRun = running === true
         if (wantRun && elapsedRunning) {
           var local = currentElapsedMs()
-          // 已在跑：允许向前校正；落后超过 1.5s（含误推 0）就丢掉，防秒数回跳。
           if (base + 1500 < local) base = Math.floor(local)
         }
         elapsedBaseMs = base
         elapsedRunning = wantRun
         elapsedAnchor = elapsedRunning ? Date.now() : 0
         renderElapsed()
+        // 250ms：未聚焦 WebView2 常把 1s timer 节流到几乎不动；更密的 tick + 轮询双保险。
         if (elapsedRunning && !elapsedTimer) {
-          elapsedTimer = setInterval(renderElapsed, 1000)
+          elapsedTimer = setInterval(renderElapsed, 250)
         } else if (!elapsedRunning && elapsedTimer) {
           clearInterval(elapsedTimer)
           elapsedTimer = null
@@ -184,7 +185,6 @@
       }
 
       window.__cuaGlowOverlay = {
-        /* 真正「重新亮起」时调一次入场动画；后续推进度不再重放。 */
         setActive: function () {
           document.documentElement.dataset.state = 'active'
           document.documentElement.classList.add('flash')
@@ -193,16 +193,11 @@
           }, 260)
         },
         setLeaving: function () { document.documentElement.dataset.state = 'leaving' },
-        /*
-          进度：胶囊面上只显示步数 + 秒数。
-          elapsedMs / running：秒数由页面自己每秒走，不靠轮询推。
-        */
         setStep: function (text, doneCount, elapsedMs, running) {
+          if (stepEl) stepEl.textContent = String(text || '')
           if (countEl) {
             var n = Number(doneCount) || 0
             countEl.textContent = formatCount(n)
-            // 保留步骤文案到 aria，便于读屏；视觉上圆形胶囊只露步数/秒数。
-            countEl.title = String(text || '')
           }
           setElapsed(elapsedMs, running)
         },
