@@ -56,8 +56,19 @@ def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str 
 
     task_id: The task ID to get output from.
     block: Whether to wait for completion. Default true (short wait, see below).
-    timeout: Max wait time in ms. Default 5000, max 600000.
+    timeout: Max wait time in ms. Default 5000, capped at 30000.
     """
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：单次等待上限 600000ms → 30000ms（硬封顶，传更大也按 30s 走，回执里明说）。
+    # 为什么：现网 obs 近 4 天 348 次 taskoutput 里 89 次显式传了 90000~420000ms，
+    #   累计等待 3.89 小时，其中 **2.54 小时（65.4%）纯属白等**——把 30s 封顶后的复算
+    #   只有 1.35h。同一 task_id 连查 3 次的 5 组（96b4b795ed2c/94785dbb3bdc/40f5136003ce/
+    #   0e593a93a63a/5ccf82d2beb1）就烧掉 3429s，全是我自己在加大 timeout 重赌。
+    #   根因不是工具慢，是**上限允许 7 分钟**：只要上限在，我就一定会用满它；而 bash
+    #   完成时会由 schedule_bash_task_notification_turn 主动发 <task-notification>，
+    #   长等待从头到尾都是多余的。第86轮加的 <next_action> 只是等完才劝我别等，治不了本。
+    # 边界：not_ready / success 两支逐字不动；只有「请求值超过上限」时提前钳制并告知。
+    _TIMEOUT_CAP_MS = 30_000
     # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
     # 默认等待从 30000ms 降到 5000ms，并启用「静默宽限」提前返回。
     # 为什么：旧默认让每次查询最多按满 30s。近 7 天 543 次调用里
@@ -69,22 +80,44 @@ def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str 
     if not str(task_id or "").strip():
         return "errorCode: 1\nmessage: Task ID is required"
     should_block = block if isinstance(block, bool) else str(block).strip().lower() not in {"false", "0", "no"}
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 请求值超过 30s 上限时钳制，并把「你要的 vs 实际等的」写进回执，不静默改址。
+    timeout_capped_from = None
     try:
-        timeout_ms = max(0, min(int(timeout), 600_000))
+        _requested = int(timeout)
     except (TypeError, ValueError):
-        timeout_ms = 5_000
+        _requested = 5_000
+    if _requested > _TIMEOUT_CAP_MS:
+        timeout_capped_from = _requested
+        timeout_ms = _TIMEOUT_CAP_MS
+    else:
+        timeout_ms = max(0, _requested)
     task = get_task(task_id)
     if task is None:
         return f"errorCode: 2\nmessage: No task found with ID: {task_id}"
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：timeout 分支尾部追加 <next_action>，并报告真实等待毫秒数。
+    # 为什么：第64轮就立过这个案并写进了 craft/taskoutput-超时分支不指路导致加时重试.md，
+    #   但 git log 证明它**从未提交**（全仓 grep "next_action" 为 0 命中）——
+    #   配方里写着"已修"，代码里根本没有，属于最坏的一种静默失效。
+    #   现网复现（7 天）：同 task_id 连续 timeout 且第二次 timeout 更大 = 4 组，
+    #   0e593a93a63a 120000→300000、5ccf82d2beb1 180000→240000、
+    #   94785dbb3bdc 300000→420000、96b4b795ed2c 300000→420000，纯重试烧掉 480s。
+    #   根因不是工具慢，是这一支只回 <retrieval_status>timeout</retrieval_status>，
+    #   零下一步提示 →「加大 timeout 再赌一次」成了唯一可见动作。
+    # 边界：**只改 timeout 这一支**。not_ready（模型主动 block=false 瞄一眼，秒回）
+    #   与 success 逐字不动；信封 8 行保持字节一致，只在尾部追加。
+    _wait_started = time.monotonic()
     if should_block and task.status == "running":
         # 静默 1.5s 且已有输出 → 提前返回，不必等满 timeout
         task = wait_task(task_id, timeout_ms, idle_grace_ms=1_500) or task
+    spent_ms = int((time.monotonic() - _wait_started) * 1000)
     if task.status == "running":
         retrieval = "not_ready" if not should_block else "timeout"
     else:
         retrieval = "success"
     output = _read_output(task.output_path) if task.output_path.exists() else ""
-    return (
+    envelope = (
         f"<retrieval_status>{retrieval}</retrieval_status>\n"
         f"<task_id>{task.task_id}</task_id>\n"
         f"<task_type>bash</task_type>\n"
@@ -93,6 +126,24 @@ def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str 
         f"<exitCode>{task.exit_code}</exitCode>\n"
         f"<outputFile>{task.output_path}</outputFile>\n"
         f"<output>\n{output[-32000:]}\n</output>"
+    )
+    if retrieval != "timeout":
+        return envelope
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 接线第三处：timeout_capped_from 必须在超时回执里落盘，否则等于没声明。
+    _cap_note = (
+        f"你请求的 timeout={timeout_capped_from}ms 已按 {_TIMEOUT_CAP_MS}ms 上限执行（本工具硬封顶）。\n"
+        if timeout_capped_from
+        else ""
+    )
+    return (
+        f"{envelope}\n<next_action>\n"
+        f"{_cap_note}"
+        f"任务仍在运行，已等待 {spent_ms} ms（静默宽限可能提前返回，故不等于 timeout 上限）。"
+        "**不要再对同一个 task_id 加大 timeout 重试** —— 加大超时只是在原地烧时间，"
+        "任务不会因此跑得更快。现在这份输出已经在 <outputFile> 里，先 read 该文件拿到"
+        "跑到一半的内容；剩下的部分会在任务结束时通过 <task-notification> 主动送达。\n"
+        "</next_action>"
     )
 
 
