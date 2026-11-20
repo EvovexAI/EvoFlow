@@ -520,16 +520,30 @@ def _build_registry() -> dict[str, PlatformAction]:
             "把背景换成本地视频路径",
         ),
         # ui（右侧面板；原独立 panel_set 工具已并入）
+        # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+        # 新增 ui.kinds（模型调 ui.show 前先查契约，不再靠猜 kind/字段）；
+        # ui.show 描述从「打开右侧面板」降级为「申请展示，不抢视线」，示例改为 data.agentCode。
+        _A(
+            "ui.kinds",
+            "ui",
+            "查询右栏支持哪些面板类型、每种必需字段与触发语义（调 ui.show 前先查）",
+            "read",
+            "无",
+            H.ui_kinds,
+            "右栏能开哪些面板",
+            "ui.show 支持什么 kind",
+        ),
         _A(
             "ui.show",
             "ui",
-            "打开右侧面板（进度/网页/产物等；读操作无需 confirm）",
+            "申请在右侧展示面板（进度/网页/内嵌页等；会写入标签但不抢用户视线，用户点了才展开）",
             "read",
             "kind, data?, title?, layout?",
             H.ui_show,
             "打开任务工作流图 kind=collab-workflow data.mainTaskId",
-            "打开员工执行过程 kind=employeeProcess data.taskId+agentCode",
+            "打开员工执行过程 kind=employeeProcess data.agentCode",
             "打开节点进度 kind=collabSubtaskTranscript",
+            "给用户看网页 kind=web-embed data.url",
         ),
         _A(
             "ui.hide",
@@ -857,7 +871,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             "tasks",
             "行政侧创建 Task（值班开单/progress/handlers 结案优先用专用工具 tasks）",
             "write",
-            "name, description?, assignee?, role?/assigned_role?, main_task_id?, status?, source?, source_ref?, raised_by?, risk_level?, action_type?, round_id?, parent_task_id?",
+            "name, description?, assignee?, role?/assigned_role?, main_task_id?, status?, source?, source_ref?, raised_by?, risk_level?, action_type?, round_id?, parent_task_id?, allow_duplicate?, probe?",
             H.tasks_create,
             "建个待办给前端岗",
         ),

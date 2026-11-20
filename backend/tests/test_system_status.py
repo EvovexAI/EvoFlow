@@ -29,6 +29,19 @@ def test_build_system_status_snapshot_has_required_fields(tmp_path, monkeypatch)
 def test_diagnostics_status_handler_wraps_snapshot(tmp_path, monkeypatch):
     monkeypatch.setenv("EVOFLOW_HOME", str(tmp_path / "data"))
     monkeypatch.setenv("EVOFLOW_GATEWAY_PORT", "8456")
+    # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    # 本用例原来假设「进程里没有真实运行时文件」。开发机上网关正在跑，
+    # backend-runtime.json 里写着真实端口（8382），而 resolve_ports() 的
+    # 优先级是 runtime 文件 > EVOFLOW_GATEWAY_PORT 环境变量，于是 8456
+    # 被真实值盖掉 → 断言得到 8382 而红。这不是代码 bug，是测试没隔离环境。
+    # 做法：把 runtime 文件候选清空，让 env 成为唯一来源。
+    from evoflow.admin import system_status as _ss
+
+    monkeypatch.setattr(_ss, "_runtime_state_candidates", lambda: [], raising=True)
+    # EVOFLOW_GATEWAY_URL 在 resolve_gateway_base_url() 里优先级最高（甚至盖过
+    # EVOFLOW_GATEWAY_PORT），开发机/网关环境下它总是指向真实端口。
+    # 不清掉它，本用例在任何跑着网关的机器上都必红。
+    monkeypatch.delenv("EVOFLOW_GATEWAY_URL", raising=False)
     out = diagnostics_status({})
     assert out["ok"] is True
     assert out["action"] == "diagnostics.status"

@@ -1540,6 +1540,14 @@ class V4Mirror:
         existing = sess.rows.get(rid) if sess is not None else None
         if not isinstance(existing, dict) or str(existing.get("kind") or "") != "assistantText":
             return
+        # 只盖**本轮**的轮尾正文行：跨轮保留的 last_text_row_id 在续跑挂回时有效，
+        # 但新轮（last_turn_success 后开假新轮 / reset 重放）不得把用量串到上一轮行上。
+        # st.turn_id 为空 = 轮已 reset 的迟到帧兜底路径（早封 usage），此时上一轮
+        # 刚封口、不存在"更新的一轮"，允许按 last_turn_success 盖上一轮轮尾行。
+        cur_turn = str(st.turn_id or "").strip()
+        row_turn = str(existing.get("turnId") or "").strip()
+        if cur_turn and row_turn != cur_turn:
+            return
         if str(existing.get("state") or "") != "complete":
             return
         row_usage: dict[str, int] = {
@@ -1959,9 +1967,12 @@ class V4Mirror:
         st.last_turn_id = turn_id
         st.turn_header_row_id = header_rid
         st.turn_started_at_ms = started_at or now_ms
+        # 续跑挂回上一 product turn：last_text_row_id / last_turn_success 必须保留——
+        # usage CUSTOM 与 RUN_FINISHED 同批但后到（agui_stream_normalizer 先 seal 再 append），
+        # 若在此清掉，迟到 usage 的兜底盖章门控 ``not run_started and last_turn_success``
+        # 永远不成立 → 轮尾正文行丢用量（test_next_turn_resets_usage_context 回归）。
+        # 串轮风险由 _stamp_turn_usage 的 turnId 守卫挡住。
         st.turn_usage = None
-        st.last_text_row_id = 0
-        st.last_turn_success = False
         st.usage_bumped = False
         origin = str(header_origin or "").strip() or "userInput"
         self._hub.author_upsert_row(
@@ -2087,8 +2098,12 @@ class V4Mirror:
                 self._mark_assistant_text_interrupted(tid, st, now_ms=now_ms)
                 self._seal_streaming_reasoning(tid, st, now_ms=now_ms, state="interrupted")
 
-                if prev_turn_id and prev_header_rid > 0 and not pending_user:
-                    # 无新用户输入的「假新轮」（漏 FINISHED / 内部续跑）：续挂上一 product turn。
+                prev_had_text = int(st.last_text_row_id or 0) > 0
+                if prev_turn_id and prev_header_rid > 0 and not pending_user and not prev_had_text:
+                    # 无新用户输入、且上一轮**尚无正文**的「假新轮」（空流重试等）：
+                    # 续挂上一 product turn。已有正文的轮被新 runId 顶掉 = 真·新一轮
+                    # （RUN_FINISHED 漏发），必须开新 turn——否则迟到 usage 会串盖到
+                    # 上一轮轮尾行（test_next_turn_resets_usage_context）。
                     _, _, prev_origin = self._lookup_turn_header(tid, prev_turn_id)
                     self._reuse_product_turn(
                         tid,
@@ -2114,7 +2129,13 @@ class V4Mirror:
             # FINISHED 已清闩锁 / mirror_reset 后的内部续跑：没有 note_user_input →
             # 仍挂回上一轮。否则右栏会出现 goalContinuation 假新轮，左栏 AI 回复劈成两截
             # （浮层 #N userInput + #N+1 无气泡，正是用户贴的那种）。
-            if not pending_user:
+            # 例外：上一轮**成功收尾且已有正文**时又来不同 runId 的 START —— 这是真·
+            # 新一轮（漏发 RUN_FINISHED 等），不得续挂旧轮：否则迟到 usage 会串盖到
+            # 上一轮轮尾行（test_next_turn_resets_usage_context）。goalContinuation
+            # 续跑形态靠同 runId / 空流重试覆盖；工具循环中间 FINISHED 后正文尚未封口
+            # （last_text_row_id==0）的续跑仍走挂回路径（test_finished_then_run…）。
+            cont_success_with_text = st.last_turn_success and int(st.last_text_row_id or 0) > 0
+            if not pending_user and not (prior_reset and cont_success_with_text):
                 cont_tid = str(st.last_turn_id or "").strip() or self._latest_product_turn_id(
                     tid
                 )
@@ -2969,11 +2990,26 @@ class V4Mirror:
         if not any(triplet.values()):
             return
         st.turn_usage = triplet
-        if not st.run_started and st.last_turn_success:
+        if not st.run_started:
+            # 轮已 reset 的迟到帧：上一轮成功收尾才补盖（failed 轮不盖）。
+            if st.last_turn_success:
+                self._stamp_turn_usage(tid, st)
+                # 早封路径：RUN_FINISHED 先到（当时 turn_usage 还是 None，没并入过）
+                # → 迟到的这份累计就是本轮终值，在此补并入会话总计（usage_bumped 防双计）。
+                self._bump_session_usage_state(tid, st)
+            return
+        # 轮进行中（含续跑挂回后新正文尚未 START 的窗口）：若轮尾行已封口且属于本轮
+        # （TEXT_MESSAGE_END 先于 usage 到达），当场补盖——否则后续 RUN_FINISHED /
+        # 下一批事件会把 turn_usage 清掉导致用量永久丢失。
+        rid = int(st.last_text_row_id or 0)
+        sess = self._hub.get_session(tid) if rid > 0 else None
+        existing = sess.rows.get(rid) if sess is not None else None
+        if (
+            isinstance(existing, dict)
+            and str(existing.get("kind") or "") == "assistantText"
+            and str(existing.get("state") or "") == "complete"
+        ):
             self._stamp_turn_usage(tid, st)
-            # 早封路径：RUN_FINISHED 先到（当时 turn_usage 还是 None，没并入过）
-            # → 迟到的这份累计就是本轮终值，在此补并入会话总计（usage_bumped 防双计）。
-            self._bump_session_usage_state(tid, st)
 
     # -- task_*（subagent）事件 → subagent 行 ---------------------------------
     #

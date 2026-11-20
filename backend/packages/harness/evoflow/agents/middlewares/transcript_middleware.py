@@ -918,6 +918,51 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
             round_id=_round_id_from_runtime(runtime),
             principal_id=_principal_id_from_runtime(runtime),
         )
+        # 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】部门群回复镜像：
+        # 员工工作会话的回复同步写进群时间线，使「前端断线/关页面时回复不上墙」不再发生。
+        # 默认开启，EVOFLOW_DEPT_GROUP_REPLY_MIRROR=0 可关（关掉即退化为改造前行为）；
+        # 任何异常静默降级，绝不能拖垮正常的会话落库。
+        self._mirror_to_dept_group(session_key, new_msgs, thread_id=thread_id)
+
+    @staticmethod
+    def _mirror_to_dept_group(
+        session_key: str,
+        new_msgs: list[dict[str, Any]],
+        *,
+        thread_id: str,
+    ) -> None:
+        """把本批 AI 回复镜像进部门群时间线（best-effort，绝不抛错）。"""
+        try:
+            from evoflow.proactive.dept_group_reply_mirror import (
+                mirror_enabled,
+                mirror_reply_to_dept_group,
+                normalize_reply_text,
+            )
+
+            if not mirror_enabled():
+                return
+            run_id = _run_id_for_transcript(thread_id, session_key) or ""
+            for item in new_msgs:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("role") or "").strip().lower() not in ("assistant", "ai"):
+                    continue
+                text = normalize_reply_text(item.get("content"))
+                if not text:
+                    continue
+                mirror_reply_to_dept_group(
+                    session_key=session_key,
+                    content=item.get("content"),
+                    run_id=run_id,
+                    # _message_to_dict 的键是 "id"（不是 message_id）；
+                    # 取错键会让同一 run 内多轮回复塌成同一个镜像键。
+                    turn_key=str(item.get("id") or item.get("message_id") or ""),
+                    message_id="",
+                )
+        except Exception:
+            logger.debug(
+                "dept group reply mirror skipped session=%s", session_key, exc_info=True
+            )
 
     @staticmethod
     def _record_usage_for_skipped_ai_message(

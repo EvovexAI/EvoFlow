@@ -22,9 +22,13 @@ import re
 import shlex
 from pathlib import PurePath
 
-# Compound / side-effect markers — reject the whole command (mirrors
-# tool_approval_config._COMPOUND_CMD_RE, kept local to avoid import cycles).
-_COMPOUND_RE = re.compile(r"[;&`]|\|\||&&|\$\(|\$\{|[<>]{1,2}")
+# Side-effect / injection markers — reject the whole command.
+# ``&&`` is NOT here: most agent bash is ``cd <dir> && <cmd>`` (现网 ~93%)；
+# those chains are classified segment-by-segment (cd = cwd-only；其余走只读表).
+# ``|`` pipelines stay allowed via per-segment readonly checks.
+_UNSAFE_COMPOUND_RE = re.compile(r"[;`]|\|\||\$\(|\$\{|[<>]{1,2}")
+# Back-compat alias for older callers / tests that imported the old name.
+_COMPOUND_RE = _UNSAFE_COMPOUND_RE
 
 # Commands that are read-only with any arguments (still guarded: no compound
 # syntax, no redirects — those never reach per-command classification).
@@ -60,26 +64,57 @@ _RG_EXEC_FLAGS = {"--pre", "--pre-glob"}
 _FIND_EXEC_FLAGS = {"-delete", "-exec", "-execdir", "-ok", "-okdir", "-fls", "-fprintf", "-fprint", "-fprint0"}
 
 
-def _split_pipeline(command: str) -> list[str]:
-    """Split on ``|`` outside quotes. Callers must have rejected ``||`` already."""
+def _split_outside_quotes(command: str, sep: str) -> list[str]:
+    """Split on ``sep`` outside quotes. Callers must reject overlapping forms (``||``)."""
     segments: list[str] = []
     current: list[str] = []
     quote: str | None = None
-    for ch in command:
+    i = 0
+    n = len(command)
+    sep_len = len(sep)
+    while i < n:
+        ch = command[i]
         if quote:
             current.append(ch)
             if ch == quote:
                 quote = None
-        elif ch in "'\"":
+            i += 1
+            continue
+        if ch in "'\"":
             quote = ch
             current.append(ch)
-        elif ch == "|":
+            i += 1
+            continue
+        if sep_len == 1 and ch == sep:
             segments.append("".join(current))
             current = []
-        else:
-            current.append(ch)
+            i += 1
+            continue
+        if sep_len > 1 and command.startswith(sep, i):
+            segments.append("".join(current))
+            current = []
+            i += sep_len
+            continue
+        current.append(ch)
+        i += 1
     segments.append("".join(current))
     return segments
+
+
+def _split_pipeline(command: str) -> list[str]:
+    """Split on ``|`` outside quotes. Callers must have rejected ``||`` already."""
+    return _split_outside_quotes(command, "|")
+
+
+def _split_and_chain(command: str) -> list[str]:
+    """Split on ``&&`` outside quotes. Callers must have rejected ``||`` already."""
+    return _split_outside_quotes(command, "&&")
+
+
+def _is_cd_only_segment(tokens: list[str]) -> bool:
+    """``cd`` / ``chdir`` only change cwd — safe when the rest of the chain is read-only."""
+    exe = _exe_name(tokens[0])
+    return exe in {"cd", "chdir"}
 
 
 def _argv(segment: str) -> list[str] | None:
@@ -150,17 +185,34 @@ def _classify(exe: str, args: list[str]) -> bool:
     return False
 
 
+def _pipeline_readonly(segment: str) -> bool:
+    """True when one ``&&``-chain segment is a read-only ``|`` pipeline (or cd-only)."""
+    for pipe_seg in _split_pipeline(segment):
+        tokens = _argv(pipe_seg)
+        if tokens is None:
+            return False
+        if _is_cd_only_segment(tokens):
+            continue
+        if not _classify(_exe_name(tokens[0]), tokens[1:]):
+            return False
+    return True
+
+
 def is_readonly_shell_command(command: str) -> bool:
-    """True when the whole command is a read-only pipeline (safe to auto-run)."""
+    """True when the whole command is a read-only chain (safe to auto-run).
+
+    Allows ``cd <dir> && git log`` / ``cd X && rg … | head`` — the dominant
+    agent bash shape — by classifying each ``&&`` segment (cd = cwd-only).
+    Still rejects ``;`` / redirects / command substitution / ``||``.
+    """
     raw = str(command or "").strip()
     if not raw or "\n" in raw or "\r" in raw:
         return False
-    if _COMPOUND_RE.search(raw):
+    if _UNSAFE_COMPOUND_RE.search(raw):
         return False
-    for segment in _split_pipeline(raw):
-        tokens = _argv(segment)
-        if tokens is None:
+    for segment in _split_and_chain(raw):
+        if not str(segment or "").strip():
             return False
-        if not _classify(_exe_name(tokens[0]), tokens[1:]):
+        if not _pipeline_readonly(segment):
             return False
     return True

@@ -5,7 +5,7 @@ Standing MEMORY/USER/workspace blocks are frozen per thread and stay on system
 Pending ``_inbox/notes``, user profile and affect are **live** — they change per
 call, so appending them to system would invalidate the provider prefix cache
 from the top on every mutation (zcode: dynamic content rides the moving tail,
-never the stable prefix). They now ride a turn-tail HumanMessage
+never the stable prefix). They ride a turn-tail HumanMessage
 (``session_memory_live``), stripped and re-appended each user-turn call.
 Person/craft archival recall is query-keyed and must not rewrite system mid-session.
 """

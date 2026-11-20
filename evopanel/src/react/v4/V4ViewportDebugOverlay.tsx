@@ -4,7 +4,7 @@
  * - 消息：投影窗已显示/全序行数、用户气泡、loadOlder 预取带（≤2×视口）
  * - 流式：AG-UI / V4 原始 JSON（一行一条，全文可滚，会话目录落盘）
  * - 画面：约每秒一帧「页面上看得见什么」（用户/正文/思考/工具），排查乱套用
- * - 计时：发送 → 出泡 → 上线 → 首字 → 结束（接 chat-turn-timing-log）
+ * - 计时/水位线：发送 → 出泡上屏 → 上线 → 首字 → 结束；正常收紧、异常留证（复制诊断必带）
  * - 滚轮：scrollTop 轨迹 / !JUMP / 到顶语义（能否自动拉历史 vs 已拉尽）
  * - 接口：页面相关 HTTP（subscribe / messages / catchup…）入参出参表
  * - 视口：DOM ↔ 投影 row
@@ -86,6 +86,9 @@ import {
   type ViewportAnomaly,
 } from "./v4-viewport-anomaly.js";
 import {
+  classifyChatTurnTimingVerdict,
+  formatChatTurnWaterlineForDiag,
+  listChatTurnAnomalies,
   listChatTurnTimingRows,
   subscribeChatTurnTiming,
   type ChatTurnTimingRow,
@@ -1012,6 +1015,8 @@ function buildOverlayDiagnosticText(opts: {
   streamEntries: ViewportStreamTapEntry[];
   scrollEntries: ViewportScrollTapEntry[];
   apiEntries: ViewportApiTapEntry[];
+  /** 水位线对账用（subscribe/chatSend 等，可比 apiEntries 更宽） */
+  waterlineApiEntries?: ViewportApiTapEntry[];
   problems: string;
   anomalies: ViewportAnomaly[];
 }): string {
@@ -1021,9 +1026,13 @@ function buildOverlayDiagnosticText(opts: {
     streamEntries,
     scrollEntries,
     apiEntries,
+    waterlineApiEntries,
     problems,
     anomalies,
   } = opts;
+  const waterlineApis = waterlineApiEntries?.length
+    ? waterlineApiEntries
+    : apiEntries;
   const lines: string[] = [];
   lines.push("## EvoFlow V4 视口诊断（精简）");
   lines.push(
@@ -1035,8 +1044,26 @@ function buildOverlayDiagnosticText(opts: {
     "- 复现「叠字/错位」后立刻点「复制诊断」贴给 Agent——下面「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想。",
   );
   lines.push("- 不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。");
+  lines.push(
+    "- 「发送水位线」：发了几次、何时出泡上屏、上线/首字/收口是否正常；正常只留摘要，异常带前后接口。",
+  );
   if (!snapshot) {
     lines.push("- 快照: （无可见对话）");
+    // 无快照仍尽量带水位线（发了没回也能对账）
+    lines.push("");
+    lines.push(
+      ...formatChatTurnWaterlineForDiag({
+        apiHints: waterlineApis.map((e) => ({
+          at: e.atMs,
+          path: e.path || e.label,
+          ok: e.ok,
+          ms: e.durationMs ?? null,
+          status: e.status ?? null,
+          error: e.errorText || null,
+        })),
+        anomalies: listChatTurnAnomalies(),
+      }),
+    );
     return lines.join("\n");
   }
 
@@ -1104,6 +1131,27 @@ function buildOverlayDiagnosticText(opts: {
   }
 
   lines.push("");
+  lines.push(
+    ...formatChatTurnWaterlineForDiag({
+      sessionKey: snapshot.sessionKey || null,
+      apiHints: waterlineApis.map((e) => ({
+        at: e.atMs,
+        path: e.path || e.label,
+        ok: e.ok,
+        ms: e.durationMs ?? null,
+        status: e.status ?? null,
+        error: e.errorText || null,
+      })),
+      anomalies: listChatTurnAnomalies().filter(
+        (a) =>
+          !snapshot.sessionKey ||
+          !a.sessionKey ||
+          a.sessionKey === snapshot.sessionKey,
+      ),
+    }),
+  );
+
+  lines.push("");
   lines.push("### 会话 / 投影摘要");
   lines.push(
     `- ${snapshot.title || "∅"} · tid=${snapshot.tid} · sk=${snapshot.sessionKey || "∅"}`,
@@ -1143,7 +1191,15 @@ function buildOverlayDiagnosticText(opts: {
     lines.push("- （无）");
   } else {
     for (const a of anomalies) {
-      lines.push(`- [${a.severity}] ${a.code} · ${a.title} · ${a.detail}`);
+      const liveTag =
+        "live" in a && typeof (a as { live?: boolean }).live === "boolean"
+          ? (a as { live: boolean }).live
+            ? "现"
+            : "曾"
+          : "";
+      lines.push(
+        `- [${a.severity}${liveTag ? `·${liveTag}` : ""}] ${a.code} · ${a.title} · ${a.detail}`,
+      );
     }
   }
 
@@ -1864,6 +1920,7 @@ export function V4ViewportDebugOverlay() {
         prevTid: stickyTidRef.current,
         prev,
         live: liveAnomalies,
+        windowFirstRowId: snapshot?.history?.windowFirstRowId ?? null,
       });
       stickyTidRef.current = merged.tid;
       const next = merged.items;
@@ -1882,7 +1939,7 @@ export function V4ViewportDebugOverlay() {
         });
       return same ? prev : next;
     });
-  }, [liveAnomalies, snapshot?.tid]);
+  }, [liveAnomalies, snapshot?.tid, snapshot?.history?.windowFirstRowId]);
   // 展示 / 标题栏：优先锁定表（含「曾现」），不再跟 700ms 时间窗闪灭
   const anomalies = stickyAnomalies;
   const problems = useMemo(() => problemBadge(anomalies), [anomalies]);
@@ -1921,24 +1978,34 @@ export function V4ViewportDebugOverlay() {
       sessionId: (fresh ?? snapshot)?.tid ?? null,
       limit: 24,
     });
+    // 水位线要对账 subscribe/chatSend：不受当前接口 tab 过滤，多拿一批
+    const apiForWaterline = listViewportApiTapEntries({
+      family: "all",
+      sessionId: (fresh ?? snapshot)?.tid ?? null,
+      includeForeign: true,
+      limit: 48,
+    });
     const liveForCopy = buildViewportAnomalies({
       snapshot: fresh ?? snapshot,
       streamEntries: streamForCopy,
       apiEntries: apiForCopy,
       scrollEntries: scrollForCopy,
     });
+    const snapForCopy = fresh ?? snapshot;
     const stickyForCopy = mergeStickyViewportAnomalies({
-      tid: (fresh ?? snapshot)?.tid ?? "",
+      tid: snapForCopy?.tid ?? "",
       prevTid: stickyTidRef.current,
       prev: stickyAnomalies,
       live: liveForCopy,
+      windowFirstRowId: snapForCopy?.history?.windowFirstRowId ?? null,
     }).items;
     const text = buildOverlayDiagnosticText({
       tab,
-      snapshot: fresh ?? snapshot,
+      snapshot: snapForCopy,
       streamEntries: streamForCopy,
       scrollEntries: scrollForCopy,
       apiEntries: apiForCopy,
+      waterlineApiEntries: apiForWaterline,
       anomalies: stickyForCopy,
       problems: problemBadge(stickyForCopy),
     });
@@ -2799,8 +2866,8 @@ export function V4ViewportDebugOverlay() {
                         fontSize: 11,
                       }}
                     >
-                      发送 → 出泡(上屏) → 上线 → 首字 → 结束 · 落盘
-                      viewport-timing.log
+                      发送水位线：出泡(上屏)→上线→首字→结束 · 正常收紧 ·
+                      异常留证 · viewport-timing.log
                     </div>
                     <div
                       style={{
@@ -2815,14 +2882,14 @@ export function V4ViewportDebugOverlay() {
                     >
                       {timingRows.length === 0 ? (
                         <div style={{ color: "#7dd3fc", padding: 8 }}>
-                          尚无回合计时。点发送后这里会出现一行：发送时刻、出泡、首字延迟。
+                          尚无回合计时。点发送后这里会出现一行：发送时刻、出泡上屏、上线、首字、判定。
                         </div>
                       ) : (
                         <div
                           style={{
                             display: "grid",
                             gridTemplateColumns:
-                              "64px 1fr 52px 52px 52px 52px 1fr",
+                              "56px 72px 1fr 48px 48px 48px 48px 1fr",
                             gap: "4px 8px",
                             alignItems: "start",
                             padding: "4px 4px 0",
@@ -2831,6 +2898,7 @@ export function V4ViewportDebugOverlay() {
                           {(
                             [
                               "发送",
+                              "判定",
                               "内容",
                               "出泡",
                               "上线",
@@ -2868,6 +2936,15 @@ export function V4ViewportDebugOverlay() {
                               at == null
                                 ? "—"
                                 : `${Math.max(0, at - row.sendAt)}ms`;
+                            const verdict = classifyChatTurnTimingVerdict(row);
+                            const verdictColor =
+                              verdict.level === "ok"
+                                ? "#86efac"
+                                : verdict.level === "pending"
+                                  ? "#7dd3fc"
+                                  : verdict.level === "warn"
+                                    ? "#fbbf24"
+                                    : "#fca5a5";
                             const firstLabel =
                               row.firstKind === "text"
                                 ? "正文"
@@ -2879,6 +2956,15 @@ export function V4ViewportDebugOverlay() {
                             return (
                               <div key={row.id} style={{ display: "contents" }}>
                                 <div style={tapLineStyle}>{send}</div>
+                                <div
+                                  style={{
+                                    color: verdictColor,
+                                    fontWeight: 600,
+                                  }}
+                                  title={verdict.zh}
+                                >
+                                  {verdict.zh}
+                                </div>
                                 <div style={tapLineStyle}>
                                   {row.textPreview || "（空）"}
                                 </div>

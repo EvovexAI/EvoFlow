@@ -24,6 +24,7 @@ from evoflow.admin.errors import NotFoundError, ValidationError
 from evoflow.collab.id_format import make_subtask_id
 from evoflow.collab.storage import (
     find_main_task,
+    find_open_main_task_id_by_name,  # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】建单去重闸（原为 0 调用死代码）
     find_subtask_row_by_id,
     get_project_storage,
     main_task_mutation_lock,
@@ -35,7 +36,8 @@ from evoflow.collab.storage import (
 from evoflow.collab.task_handlers import normalize_task_handlers, task_handlers_of
 from evoflow.collab.task_outputs import (
     absolutize_handlers_paths,
-    absolutize_task_outputs,
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】删模块级 F401 死 import：
+    # absolutize_task_outputs 仅 :1432 函数体内局部 import 使用；HEAD 既有 ruff F401/F811 两处告警由此产生。
     agent_code_for_task_row,
     evidence_paths_from_outputs,
     normalize_task_outputs,
@@ -1183,6 +1185,20 @@ def set_task_state(
             updates["progress"] = 100
         elif target in {"failed", "cancelled"}:
             updates["failed_at"] = subtask.get("failed_at") or now
+        # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】补 started_at 盖章：
+        # 为什么：update_progress 在 executing 时落 started_at（本文件 :753 先例），
+        #   但 set_task_state 这条路径不落。现网实测 262 条已结主单里 153 条（58%）
+        #   started_at 为空——执行时长在库里不可度量，面板"跑了多久"只能拿 created_at 兜底。
+        elif target == "executing" and not subtask.get("started_at"):
+            updates["started_at"] = now
+        # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】结案回填：
+        # 为什么：现网 262 条已结主单 153 条（58%）started_at 为空——多数单走
+        #   tasks(state=executing→completed) 或直达 completed，不经 update_progress 的盖章路径。
+        #   无真实 started_at 时用 created_at 估算开工，并显式打 started_at_estimated，
+        #   度量端能区分实测/估算；已有真实章的单不动。
+        if target in {"completed", "awaiting_close", "failed"} and not subtask.get("started_at"):
+            updates["started_at"] = str(subtask.get("created_at") or now)
+            updates["started_at_estimated"] = True
         ok = patch_collab_subtask_in_project_storage(storage, mtid, sid, updates)
         if not ok:
             raise ValidationError("Failed to save subtask")
@@ -1263,6 +1279,15 @@ def set_task_state(
         updates["progress"] = 100
     elif target in {"failed", "cancelled"}:
         updates["failed_at"] = task.get("failed_at") or now
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】补 started_at 盖章（同子单分支）：
+    # 为什么：现网 262 条已结主单 153 条（58%）started_at 为空——agent 普遍走
+    #   tasks(state=executing→completed) 而不经 progress，执行时长全丢。
+    elif target == "executing" and not task.get("started_at"):
+        updates["started_at"] = now
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】结案回填（同子单分支）：
+    if target in {"completed", "awaiting_close", "failed"} and not task.get("started_at"):
+        updates["started_at"] = str(task.get("created_at") or now)
+        updates["started_at_estimated"] = True
     ok = patch_collab_main_task_in_project_storage(storage, tid, updates)
     if not ok:
         raise ValidationError("Failed to save task")
@@ -1699,6 +1724,12 @@ def create_task(
     parent_task_id: str | None = None,
     bypass_handoff_gate: bool = False,
     start: bool = True,
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+    # allow_duplicate: 跳过"同员工同题未结单"去重闸（见 _assert_no_open_duplicate）。
+    # probe: 声明这是开发自测/探针/锚点单——打 source_channel=dev_probe，
+    #   任务中心默认折叠（数据不删，tasks get / 关闭过滤仍可见）。
+    allow_duplicate: bool = False,
+    probe: bool = False,
 ) -> dict[str, Any]:
     """Create a task or subtask.
 
@@ -1782,6 +1813,10 @@ def create_task(
     # default value — a wrong source here would silently skip the role quota.
     default_src = TASK_SOURCE_ROLE if role_norm else TASK_SOURCE_CHAT
     source_canon, source_channel = resolve_write_source(source, default=default_src)
+    if probe:
+        # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+        # 显式探针声明 → 独立细渠道，任务中心默认折叠（数据保留，get/关过滤仍可见）。
+        source_channel = "dev_probe"
     # Per-cycle ceiling (P0): an employee may raise at most
     # ``max_initiatives_per_cycle`` work items per duty round. The agent-loop
     # path used to be unlimited (the prompt-only path truncated the LLM list).
@@ -1868,6 +1903,22 @@ def create_task(
         }
 
     # new standalone main task
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】同题未结单去重闸：
+    # 为什么：现网实测同名重复单 ——「电商内容台单品洞察」×19（两天）、「验证N6·中途stop与resume」×12、
+    #   「抖音博主分析技能注入后启动」×5。dispatch 有标题去重（find_open_work_item_by_title），
+    #   但 tasks 工具/CLI/平台建单走的是本函数，此前无任何闸；storage.find_open_main_task_id_by_name
+    #   写好了但全仓 0 调用（死代码）。现在把它接在唯一漏斗上。
+    # 边界（防误拦）：只拦"调用方显式指定了归属 + (归一化)同题 + 那张旧单还没结案"三条件同时成立；
+    #   eval/无归属单、probe 自测单不扫；确需重复时 allow_duplicate=true 显式逃生门。
+    explicit_owner = bool(str(assignee or "").strip() or str(assigned_role or "").strip())
+    if explicit_owner and assignee_norm and not allow_duplicate and not probe:
+        dup_tid = find_open_main_task_id_by_name(storage, nm, assignee=assignee_norm)
+        if dup_tid:
+            raise ValidationError(
+                f"duplicate open task: 同题未结案单已存在 {dup_tid}"
+                f"（assignee={assignee_norm}）；先结案/确认那张单再回来，"
+                f"确需另建传 allow_duplicate=true"
+            )
     project, task = new_project_bundle_root_task(nm, str(description or "").strip())
     task["status"] = status_norm
     task["assigned_to"] = assignee_norm

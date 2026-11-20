@@ -9,6 +9,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.gateway.db_async import run_db
 from evoflow.authz.http_guard import (
     require_kb_visible,
     require_org_admin,
@@ -137,19 +138,27 @@ class MoveDocumentBody(BaseModel):
 async def list_bases(request: Request, includeHidden: bool = False) -> dict[str, Any]:
     ensure_owned_kb_worker_started()
     authz = resolve_authz_from_request(request)
-    items = owned_service.list_bases(
-        is_admin=bool(authz.get("is_admin")),
-        personal_scope=authz.get("personal_scope"),
-        org_scope=authz.get("org_scope"),
-        principal=authz.get("principal"),
-        filter_visibility=True,
-        include_hidden=bool(includeHidden),
+    # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    # 原为**同步**调用 owned_service.list_bases(...) —— 直接跑在事件循环上。
+    # 本文件共 63 处 async 函数内同步调 owned_service，本端点是最热的一条：
+    # 2026-11-20 07:32:32 实测 7709ms（正常 47ms），且 lag_s=8.109 说明
+    # 它把整个事件循环按住了 8 秒，期间所有端点一起变慢。
+    # 改走 db_async 专用池（evoflow-db），返回前不占事件循环。
+    items = await run_db(
+        lambda: owned_service.list_bases(
+            is_admin=bool(authz.get("is_admin")),
+            personal_scope=authz.get("personal_scope"),
+            org_scope=authz.get("org_scope"),
+            principal=authz.get("principal"),
+            filter_visibility=True,
+            include_hidden=bool(includeHidden),
+        )
     )
     return {"items": items}
 
 
 @router.post("/bases")
-async def create_base(request: Request, body: CreateBaseBody) -> dict[str, Any]:
+def create_base(request: Request, body: CreateBaseBody) -> dict[str, Any]:
     payload = body.model_dump(exclude_none=True)
     # Drop empty optional strings so resolve_create_binding can use global default
     if not str(payload.get("embeddingModelRef") or "").strip():
@@ -180,7 +189,7 @@ async def create_base(request: Request, body: CreateBaseBody) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}")
-async def get_base(request: Request, kb_id: str) -> dict[str, Any]:
+def get_base(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     base = owned_service.get_base(kb_id)
     if not base:
@@ -189,7 +198,7 @@ async def get_base(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.patch("/bases/{kb_id}")
-async def patch_base(request: Request, kb_id: str, body: UpdateBaseBody) -> dict[str, Any]:
+def patch_base(request: Request, kb_id: str, body: UpdateBaseBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     payload = body.model_dump(exclude_unset=True)
     try:
@@ -208,7 +217,7 @@ class ReindexBaseBody(BaseModel):
 
 
 @router.post("/bases/{kb_id}/reindex")
-async def reindex_base(request: Request, kb_id: str, body: ReindexBaseBody | None = None) -> dict[str, Any]:
+def reindex_base(request: Request, kb_id: str, body: ReindexBaseBody | None = None) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     data = body.model_dump(exclude_unset=True) if body is not None else {}
     try:
@@ -224,14 +233,14 @@ async def reindex_base(request: Request, kb_id: str, body: ReindexBaseBody | Non
 
 
 @router.post("/bases/{kb_id}/requeue-orphans")
-async def requeue_orphan_docs(request: Request, kb_id: str) -> dict[str, Any]:
+def requeue_orphan_docs(request: Request, kb_id: str) -> dict[str, Any]:
     """Re-enqueue pending/processing docs that have no active index job."""
     require_kb_visible(request, kb_id)
     return owned_service.requeue_orphan_parse_docs(kb_id)
 
 
 @router.post("/bases/{kb_id}/documents/{doc_id}/retry")
-async def retry_document(request: Request, kb_id: str, doc_id: str) -> dict[str, Any]:
+def retry_document(request: Request, kb_id: str, doc_id: str) -> dict[str, Any]:
     """Re-enqueue ``parse_index`` for a single failed/stuck document.
 
     Used by the index-status banner's per-row "重试" button. The document
@@ -247,7 +256,7 @@ async def retry_document(request: Request, kb_id: str, doc_id: str) -> dict[str,
 
 
 @router.post("/bases/{kb_id}/purge-orphans")
-async def purge_orphan_jobs(request: Request, kb_id: str) -> dict[str, Any]:
+def purge_orphan_jobs(request: Request, kb_id: str) -> dict[str, Any]:
     """Clear the index ledger for one KB (orphans + terminal failures).
 
     UI label: 「一键清理失效任务」.
@@ -286,7 +295,7 @@ async def purge_orphan_jobs(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.delete("/bases/{kb_id}")
-async def delete_base(request: Request, kb_id: str) -> dict[str, Any]:
+def delete_base(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     try:
         owned_service.delete_base(kb_id)
@@ -298,7 +307,7 @@ async def delete_base(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/documents")
-async def list_documents(request: Request, kb_id: str) -> dict[str, Any]:
+def list_documents(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -309,7 +318,7 @@ async def list_documents(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/folders")
-async def list_folders(request: Request, kb_id: str) -> dict[str, Any]:
+def list_folders(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -317,7 +326,7 @@ async def list_folders(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.post("/bases/{kb_id}/folders")
-async def create_folder(request: Request, kb_id: str, body: CreateFolderBody) -> dict[str, Any]:
+def create_folder(request: Request, kb_id: str, body: CreateFolderBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -335,7 +344,7 @@ async def create_folder(request: Request, kb_id: str, body: CreateFolderBody) ->
 
 
 @router.patch("/bases/{kb_id}/folders")
-async def rename_folder(request: Request, kb_id: str, body: RenameFolderBody) -> dict[str, Any]:
+def rename_folder(request: Request, kb_id: str, body: RenameFolderBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -350,7 +359,7 @@ async def rename_folder(request: Request, kb_id: str, body: RenameFolderBody) ->
 
 
 @router.delete("/bases/{kb_id}/folders")
-async def delete_folder(request: Request, kb_id: str, path: str, mode: str = "move_up") -> dict[str, Any]:
+def delete_folder(request: Request, kb_id: str, path: str, mode: str = "move_up") -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -368,11 +377,14 @@ async def upload_document(
     folderPath: str = Form(""),
 ) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
-    if not owned_service.get_base(kb_id):
+    # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    # 本函数含 await file.read()，不能改 def；内部两处同步 DB 用 run_db 挪走。
+    if not await run_db(owned_service.get_base, kb_id):
         raise HTTPException(404, "knowledge base not found")
     data = await file.read()
     try:
-        return owned_service.upload_bytes(
+        return await run_db(
+            owned_service.upload_bytes,
             kb_id,
             file_name=file.filename or "upload.bin",
             data=data,
@@ -383,7 +395,7 @@ async def upload_document(
 
 
 @router.post("/bases/{kb_id}/documents/manual")
-async def create_manual(request: Request, kb_id: str, body: ManualDocBody) -> dict[str, Any]:
+def create_manual(request: Request, kb_id: str, body: ManualDocBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -399,7 +411,7 @@ async def create_manual(request: Request, kb_id: str, body: ManualDocBody) -> di
 
 
 @router.post("/bases/{kb_id}/import-folder")
-async def import_folder(request: Request, kb_id: str, body: ImportFolderBody) -> dict[str, Any]:
+def import_folder(request: Request, kb_id: str, body: ImportFolderBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -422,7 +434,7 @@ async def import_vault(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.post("/bases/{kb_id}/resync")
-async def resync_base(request: Request, kb_id: str, body: ResyncBody = ResyncBody()) -> dict[str, Any]:
+def resync_base(request: Request, kb_id: str, body: ResyncBody = ResyncBody()) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -433,7 +445,7 @@ async def resync_base(request: Request, kb_id: str, body: ResyncBody = ResyncBod
 
 
 @router.post("/bases/{kb_id}/sync-preview")
-async def sync_preview(request: Request, kb_id: str, body: SyncPreviewBody = SyncPreviewBody()) -> dict[str, Any]:
+def sync_preview(request: Request, kb_id: str, body: SyncPreviewBody = SyncPreviewBody()) -> dict[str, Any]:
     """Dry-run folder sync checklist (create / update / prune) before applying."""
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
@@ -479,7 +491,7 @@ async def put_owned_settings(request: Request, body: PrimaryBody) -> dict[str, A
 
 
 @router.get("/documents/{doc_id}")
-async def get_document(request: Request, doc_id: str) -> dict[str, Any]:
+def get_document(request: Request, doc_id: str) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     doc = owned_service.get_document(doc_id)
     if not doc:
@@ -488,7 +500,7 @@ async def get_document(request: Request, doc_id: str) -> dict[str, Any]:
 
 
 @router.get("/documents/{doc_id}/content")
-async def get_document_content(request: Request, doc_id: str) -> dict[str, Any]:
+def get_document_content(request: Request, doc_id: str) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     """Original / parsed body for the document reader (Lexiang-style page view)."""
     payload = owned_service.get_document_content(doc_id)
@@ -498,7 +510,7 @@ async def get_document_content(request: Request, doc_id: str) -> dict[str, Any]:
 
 
 @router.put("/documents/{doc_id}/content")
-async def put_document_content(request: Request, doc_id: str, body: UpdateContentBody) -> dict[str, Any]:
+def put_document_content(request: Request, doc_id: str, body: UpdateContentBody) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     """Overwrite text/markdown body and re-index (panel editor save)."""
     try:
@@ -510,7 +522,7 @@ async def put_document_content(request: Request, doc_id: str, body: UpdateConten
 
 
 @router.get("/documents/{doc_id}/file")
-async def get_document_file(request: Request, doc_id: str):
+def get_document_file(request: Request, doc_id: str):
     require_owned_doc_visible(request, doc_id)
     """Original blob for PDF / binary preview in the panel (inline, not attachment)."""
     resolved = owned_service.resolve_document_file(doc_id)
@@ -525,7 +537,7 @@ async def get_document_file(request: Request, doc_id: str):
 
 
 @router.post("/documents/{doc_id}/summary")
-async def enqueue_document_summary(request: Request, doc_id: str, body: SummaryBody = SummaryBody()) -> dict[str, Any]:
+def enqueue_document_summary(request: Request, doc_id: str, body: SummaryBody = SummaryBody()) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     """Enqueue or return existing document summary (Lexiang-style overview)."""
     try:
@@ -537,7 +549,7 @@ async def enqueue_document_summary(request: Request, doc_id: str, body: SummaryB
 
 
 @router.delete("/documents/{doc_id}")
-async def delete_document(request: Request, doc_id: str) -> dict[str, Any]:
+def delete_document(request: Request, doc_id: str) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     try:
         owned_service.delete_document(doc_id)
@@ -549,7 +561,7 @@ async def delete_document(request: Request, doc_id: str) -> dict[str, Any]:
 
 
 @router.patch("/documents/{doc_id}/folder")
-async def move_document(request: Request, doc_id: str, body: MoveDocumentBody) -> dict[str, Any]:
+def move_document(request: Request, doc_id: str, body: MoveDocumentBody) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     try:
         return owned_service.move_document(
@@ -565,7 +577,7 @@ async def move_document(request: Request, doc_id: str, body: MoveDocumentBody) -
 
 
 @router.get("/documents/{doc_id}/chunks")
-async def list_chunks(request: Request, doc_id: str) -> dict[str, Any]:
+def list_chunks(request: Request, doc_id: str) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     if not owned_service.get_document(doc_id):
         raise HTTPException(404, "document not found")
@@ -573,7 +585,7 @@ async def list_chunks(request: Request, doc_id: str) -> dict[str, Any]:
 
 
 @router.get("/documents/{doc_id}/links")
-async def document_links(request: Request, doc_id: str) -> dict[str, Any]:
+def document_links(request: Request, doc_id: str) -> dict[str, Any]:
     require_owned_doc_visible(request, doc_id)
     payload = owned_service.get_document_links(doc_id)
     if not payload:
@@ -597,7 +609,7 @@ async def search(request: Request, kb_id: str, body: SearchBody) -> dict[str, An
 
 
 @router.get("/bases/{kb_id}/tags")
-async def list_tags(request: Request, kb_id: str) -> dict[str, Any]:
+def list_tags(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -605,7 +617,7 @@ async def list_tags(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/doc-graph")
-async def document_graph(request: Request, kb_id: str, center: str | None = None, depth: int = 1) -> dict[str, Any]:
+def document_graph(request: Request, kb_id: str, center: str | None = None, depth: int = 1) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -631,7 +643,7 @@ async def ask(request: Request, kb_id: str, body: AskBody) -> dict[str, Any]:
 
 
 @router.get("/jobs/{job_id}")
-async def get_job(request: Request, job_id: str) -> dict[str, Any]:
+def get_job(request: Request, job_id: str) -> dict[str, Any]:
     require_owned_job_visible(request, job_id)
     job = owned_service.get_job(job_id)
     if not job:
@@ -640,7 +652,7 @@ async def get_job(request: Request, job_id: str) -> dict[str, Any]:
 
 
 @router.get("/activities")
-async def list_activities_global(request: Request, limit: int = 50, before: str | None = None) -> dict[str, Any]:
+def list_activities_global(request: Request, limit: int = 50, before: str | None = None) -> dict[str, Any]:
     require_org_admin(request)
     ensure_owned_kb_worker_started()
     return {
@@ -649,7 +661,7 @@ async def list_activities_global(request: Request, limit: int = 50, before: str 
 
 
 @router.get("/bases/{kb_id}/activities")
-async def list_activities_for_base(
+def list_activities_for_base(
     request: Request,
     kb_id: str,
     docId: str | None = None,
@@ -665,7 +677,7 @@ async def list_activities_for_base(
 
 
 @router.get("/bases/{kb_id}/jobs")
-async def list_jobs(request: Request, kb_id: str, limit: int = 40, activeOnly: bool = False) -> dict[str, Any]:
+def list_jobs(request: Request, kb_id: str, limit: int = 40, activeOnly: bool = False) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -716,7 +728,7 @@ class WikiPageUpdateBody(BaseModel):
 
 
 @router.get("/bases/{kb_id}/wiki/pages")
-async def wiki_list_pages(request: Request, kb_id: str, pageType: str | None = None) -> dict[str, Any]:
+def wiki_list_pages(request: Request, kb_id: str, pageType: str | None = None) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -726,7 +738,7 @@ async def wiki_list_pages(request: Request, kb_id: str, pageType: str | None = N
 
 
 @router.get("/bases/{kb_id}/wiki/pages/{slug:path}")
-async def wiki_get_page(request: Request, kb_id: str, slug: str) -> dict[str, Any]:
+def wiki_get_page(request: Request, kb_id: str, slug: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -739,7 +751,7 @@ async def wiki_get_page(request: Request, kb_id: str, slug: str) -> dict[str, An
 
 
 @router.put("/bases/{kb_id}/wiki/pages/{slug:path}")
-async def wiki_update_page(request: Request, kb_id: str, slug: str, body: WikiPageUpdateBody) -> dict[str, Any]:
+def wiki_update_page(request: Request, kb_id: str, slug: str, body: WikiPageUpdateBody) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -766,7 +778,7 @@ async def wiki_update_page(request: Request, kb_id: str, slug: str, body: WikiPa
 
 
 @router.get("/bases/{kb_id}/wiki/folders")
-async def wiki_list_folders(request: Request, kb_id: str) -> dict[str, Any]:
+def wiki_list_folders(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -776,7 +788,7 @@ async def wiki_list_folders(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/wiki/graph")
-async def wiki_graph(request: Request, kb_id: str, center: str | None = None, depth: int = 2) -> dict[str, Any]:
+def wiki_graph(request: Request, kb_id: str, center: str | None = None, depth: int = 2) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -786,7 +798,7 @@ async def wiki_graph(request: Request, kb_id: str, center: str | None = None, de
 
 
 @router.post("/bases/{kb_id}/wiki/rebuild")
-async def wiki_rebuild(request: Request, kb_id: str) -> dict[str, Any]:
+def wiki_rebuild(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -801,7 +813,7 @@ async def wiki_rebuild(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.get("/bases/{kb_id}/kg/graph")
-async def kg_graph(request: Request, kb_id: str, center: str | None = None) -> dict[str, Any]:
+def kg_graph(request: Request, kb_id: str, center: str | None = None) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -811,7 +823,7 @@ async def kg_graph(request: Request, kb_id: str, center: str | None = None) -> d
 
 
 @router.get("/bases/{kb_id}/kg/stats")
-async def kg_stats(request: Request, kb_id: str) -> dict[str, Any]:
+def kg_stats(request: Request, kb_id: str) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")
@@ -821,7 +833,7 @@ async def kg_stats(request: Request, kb_id: str) -> dict[str, Any]:
 
 
 @router.post("/bases/{kb_id}/kg/rebuild")
-async def kg_rebuild(request: Request, kb_id: str, heuristicOnly: bool = False) -> dict[str, Any]:
+def kg_rebuild(request: Request, kb_id: str, heuristicOnly: bool = False) -> dict[str, Any]:
     require_kb_visible(request, kb_id)
     if not owned_service.get_base(kb_id):
         raise HTTPException(404, "knowledge base not found")

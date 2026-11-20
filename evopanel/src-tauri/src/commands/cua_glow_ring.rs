@@ -341,14 +341,18 @@ pub mod imp {
         // CUA 靠截图判断该点哪里 —— 全屏蓝光出现在它自己的截图里会污染判断
         // （亮线被误读成窗口边缘/可点目标）。人眼仍可见，只是不进捕获。
         //
-        // 【验收开关】`EVOFLOW_CUA_RING_CAPTURABLE=1` 时不设排除。
-        // 为什么需要它：排除捕获后**截图里看不见环**，那就无法用截图证明「环真的画出来了」
-        // ——只能证明代码跑过。留这个开关，验收时开它截图看像素，生产默认关它。
+        // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+        // 默认值反转（与 cua_glow_overlay.rs 同一改动、同一理由）：远程控制/远程串流
+        // 本质是抓屏，`WDA_EXCLUDEFROMCAPTURE` 会让远端**完全看不到**蓝环 →
+        // 用户以为控制没在跑。实测 affinity=0x11、A/B 像素差 0、自建双窗口对照坐实；
+        // 且第三方远程（网易UU = GameViewerServer）不会置 SM_REMOTESESSION，无从自动检测。
+        // 现在：**默认可见**（不设排除）；`EVOFLOW_CUA_RING_CAPTURABLE=0` 才恢复排除捕获，
+        // 供需要纯净截图的自动化场景使用。
         let capturable = std::env::var("EVOFLOW_CUA_RING_CAPTURABLE")
-            .map(|v| v == "1")
-            .unwrap_or(false);
+            .map(|v| v != "0")
+            .unwrap_or(true);
         if capturable {
-            eprintln!("[cua-glow-ring] CAPTURABLE mode (acceptance only)");
+            eprintln!("[cua-glow-ring] capturable (default: visible to screen capture)");
         } else {
             unsafe {
                 use windows::Win32::UI::WindowsAndMessaging::{

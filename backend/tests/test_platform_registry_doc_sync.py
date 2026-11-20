@@ -6,12 +6,13 @@ from pathlib import Path
 
 from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 
-
 # Keep in sync with 04-http-platform.md / defect-registry scale line.
 # Prior stale 153/21; now includes media(5) + openai(3) + settings.invoke_model + other drifts → 179 / 24 domains;
 # 2026-11: + channels.send_message → 180; + employees.departments → 181;
-# - knowledge.enable（遗留 Obsidian Vault API 已随知识库归一移除）→ 180.
-EXPECTED_PLATFORM_ACTION_COUNT = 180
+# - knowledge.enable（遗留 Obsidian Vault API 已随知识库归一移除）→ 180;
+# 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+# + ui.kinds（右栏 ui 面板先读 kinds 再 show）→ 181。
+EXPECTED_PLATFORM_ACTION_COUNT = 181
 
 
 def test_assets_in_platform_domains() -> None:

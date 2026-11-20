@@ -322,6 +322,11 @@ def create_role_work_item(
     # Canonical 任务来源 = role；细渠道保留在 source_channel（via create_task）
     _canon, _ = resolve_write_source(src, default=TASK_SOURCE_ROLE)
 
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】allow_duplicate=True：
+    # 为什么：dispatch 在调本函数**之前**已做过标题去重（runner 的 find_open_work_item_by_title
+    #   + related 复用），fresh_round/eval 是它有意放行的并行场景。若这里再被通用闸拦，
+    #   异常会被 runner 吞成「没建板单」→ 叫醒照发但无 Task 行，反而制造孤儿轮次。
+    #   第86轮的去重闸目标是 **agent 工具/CLI/平台建单漏斗**，dispatch 保持自洽。
     created = admin_tasks.create_task(
         name=title[:200],
         description=description,
@@ -335,6 +340,7 @@ def create_role_work_item(
         action_type=action_type.value,
         round_id=str(round_id or "").strip() or None,
         parent_task_id=parent,
+        allow_duplicate=True,  # 第86轮：dispatch 已在调用前自做标题去重，见上方注释
     )
     task_id = str(created.get("task_id") or "").strip()
     if not task_id:

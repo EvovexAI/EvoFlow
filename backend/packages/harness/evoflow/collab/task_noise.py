@@ -5,10 +5,32 @@ from __future__ import annotations
 from typing import Any
 
 _MEETING_RAISERS = frozenset({"meeting_orchestrator"})
-_NOISE_CHANNELS = frozenset({"status_check", "upstream_receipt", "proactive_patrol"})
+# 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】dev_probe 通道：
+# 为什么：现网 71/293（24%）是验证/锚点/探针类自测单，与业务单混排——用户直观感受
+#   "大部分是无效任务"。新单可显式 probe=true 落此通道折叠；存量按下方名字规则补判。
+_NOISE_CHANNELS = frozenset({"status_check", "upstream_receipt", "proactive_patrol", "dev_probe"})
 _PLACEHOLDER_NAMES = frozenset({"main", "t", "smoke", "fan", "规划任务", "x"})
 _RECEIPT_PREFIX = "【下游回执】"
 _PATROL_TITLE_PREFIXES = ("【巡检】", "【值班】", "[巡检]", "[值班]")
+# 锚点/探针/日期化测试单的名字特征（宁窄勿宽，全部可在现网反证）：
+#   - dunder 包裹：__verify_round29_session_key__ / __probe_session_key_field__
+#   - 锚点单（wake --task-id 用，单内自述"勿手动结案"）
+#   - [验证]2026-10-31-待办A 这类带日期的演示夹具
+_PROBE_NAME_INFIXES = ("锚点单",)
+
+
+def is_probe_task_name(name: str) -> bool:
+    """开发自测类单名（不看 raised_by——用户手点的"验证员工功能正常"仍算业务演示，不折叠）。"""
+    s = str(name or "").strip()
+    if not s:
+        return False
+    if len(s) > 4 and s.startswith("__") and s.endswith("__"):
+        return True
+    if any(inf in s for inf in _PROBE_NAME_INFIXES):
+        return True
+    if s.startswith("[验证]") and any(ch.isdigit() for ch in s[:14]):
+        return True
+    return False
 
 
 def is_duty_patrol_task(task: dict[str, Any] | None) -> bool:
@@ -51,6 +73,9 @@ def is_task_center_noise(task: dict[str, Any] | None) -> bool:
         return True
     if is_duty_patrol_task(task):
         return True
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】探针/锚点单默认折叠
+    if is_probe_task_name(name):
+        return True
     if name.startswith(_RECEIPT_PREFIX):
         return True
     if raised in _MEETING_RAISERS or woken in _MEETING_RAISERS:
@@ -89,6 +114,16 @@ def classify_noise_cleanup_reason(
 
     if "EVAL_LIVE" in name or "live_wake eval" in desc.lower():
         return "eval_live"
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】只收**未结案**的探针单；
+    # 已结案的历史探针留在台账里可追溯（列表端由 is_task_center_noise 折叠，不删数据）。
+    if is_probe_task_name(name) and channel != "dev_probe":
+        st0 = str(task.get("status") or "").strip().lower()
+        if st0 not in {"completed", "reviewed", "cancelled", "canceled", "failed", "deleted"}:
+            return "probe_open"
+    if channel == "dev_probe":
+        st0 = str(task.get("status") or "").strip().lower()
+        if st0 not in {"completed", "reviewed", "cancelled", "canceled", "failed", "deleted"}:
+            return "probe_open"
     if name.startswith(_RECEIPT_PREFIX):
         return "upstream_receipt_wrapper"
     if raised in _MEETING_RAISERS or woken in _MEETING_RAISERS:

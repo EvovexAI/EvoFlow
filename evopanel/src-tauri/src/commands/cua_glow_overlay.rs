@@ -179,16 +179,38 @@ fn apply_overlay_chrome(window: &WebviewWindow) {
     // 当成可点目标，直接诱发误点。
     // `WDA_EXCLUDEFROMCAPTURE` 让本窗口对截屏/录屏不可见（人眼照常可见），
     // 正是 Electron `setContentProtection(true)` 在 Windows 上的等价实现。
+    //
+    // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+    // 反转默认值（第70轮原实现设错前提）："人眼照常可见"在**远程控制**下不成立。
+    // `WDA_EXCLUDEFROMCAPTURE` 会把窗口挡在**一切**抓屏之外，而远程串流本身就是抓屏
+    // （桌面复制/DXGI 捕获），于是远端**完全看不到**提示条与「解除控制」按钮 →
+    // 用户以为系统坏了。本轮实测坐实：提示条 affinity=0x11、A/B 像素差 0/35840、
+    // 自建双窗口对照（一个设 WDA 一个不设）红白分明；本机跑着网易UU远程
+    // （GameViewerServer / MiniHomePagePro），且 SM_REMOTESESSION=0 —— RDP 检测
+    // 对第三方远程无效，没法自动判"正在被远程"，只能靠默认值取"看得见"。
+    // 取舍：截图污染是**可控的次要问题**（提示条固定在顶部居中 560x64、蓝环是描边，
+    // AI 一眼可辨）；"用户看不见"是**不可控的主要问题**（功能等于不存在）。
+    // 默认不排除；需要纯净截图的自动化场景设 EVOFLOW_CUA_GLOW_CAPTURABLE=0。
+    let capturable = std::env::var("EVOFLOW_CUA_GLOW_CAPTURABLE")
+        .map(|v| v != "0")
+        .unwrap_or(true);
     #[cfg(target_os = "windows")]
-    if let Ok(hwnd) = window.hwnd() {
-        use windows::Win32::Foundation::HWND;
-        use windows::Win32::UI::WindowsAndMessaging::{
-            SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
-        };
-        let _ = unsafe {
-            SetWindowDisplayAffinity(HWND(hwnd.0 as *mut core::ffi::c_void), WDA_EXCLUDEFROMCAPTURE)
-        };
+    if !capturable {
+        if let Ok(hwnd) = window.hwnd() {
+            use windows::Win32::Foundation::HWND;
+            use windows::Win32::UI::WindowsAndMessaging::{
+                SetWindowDisplayAffinity, WDA_EXCLUDEFROMCAPTURE,
+            };
+            let _ = unsafe {
+                SetWindowDisplayAffinity(
+                    HWND(hwnd.0 as *mut core::ffi::c_void),
+                    WDA_EXCLUDEFROMCAPTURE,
+                )
+            };
+        }
     }
+    #[cfg(not(target_os = "windows"))]
+    let _ = capturable;
 }
 
 /// 把当前步骤 / 已执行步数推给提示条页面。
@@ -413,6 +435,51 @@ fn log_overlay_state(window: &WebviewWindow, phase: &str) {
     ));
 }
 
+/// 建窗后**有界轮询** HWND —— 照抄同仓已证真的 `browser_embed::wait_embed_hwnd_label`。
+///
+/// 【self-evolution-bot · 2026-11-19 · 第80轮 · 模型:deepseek-v4.1-flash-1017】
+/// 为什么把它加回来：第73轮我删掉了这段等待，理由是「`hwnd()` 要回主线程取句柄，
+/// 与主线程 await 互等 ⇒ 死锁」。**这条归因已被证伪**：
+///   - 源码：`hwnd()` → `dispatcher.window_handle()` → `get_raw_window_handle` →
+///     `window_getter!` → `getter!` = `send_user_message()` + `rx.recv()`。
+///     它**确实发消息**（我第78轮注释写「读缓存槽位、不发消息、不等事件循环」是错的，
+///     本轮更正），但收消息的是 tao 事件循环线程，不是 tokio 工作线程 ——
+///     `spawn_blocking` 里等它不会与任何人互等。
+///   - 同仓实证：`browser_embed` 在**同一个 spawn_blocking 路径**建窗并轮询 `hwnd()`，
+///     今日建窗 25 次、`wait_hwnd_label TIMEOUT` **0 次**、`ON-SCREEN visible=true` 79 次。
+///     而本窗口当日 3 次等待**全超时** ⇒ 差别不在「要不要等」，在等之前窗口是否还有救。
+/// 所以正确做法是照抄它：有界轮询 + `IsWindow` 校验（防止句柄早于窗口销毁）。
+/// 超时**不销毁窗口**：show() 仍可能成功，销毁等于把还能救的窗口先杀掉（第73轮的教训）。
+fn wait_overlay_hwnd(window: &WebviewWindow, timeout: Duration) -> bool {
+    #[cfg(target_os = "windows")]
+    {
+        use windows::Win32::UI::WindowsAndMessaging::IsWindow;
+        let deadline = std::time::Instant::now() + timeout;
+        let mut last = String::from("not ready");
+        while std::time::Instant::now() < deadline {
+            match window.hwnd() {
+                Ok(h) if unsafe { IsWindow(Some(h)).as_bool() } => {
+                    glow_log(&format!("hwnd ready {h:?}"));
+                    return true;
+                }
+                Ok(_) => last = "IsWindow=false".into(),
+                Err(e) => last = e.to_string(),
+            }
+            std::thread::sleep(Duration::from_millis(40));
+        }
+        glow_log(&format!(
+            "hwnd wait TIMEOUT after {}ms last={last} (window kept, show() still attempted)",
+            timeout.as_millis()
+        ));
+        false
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (window, timeout);
+        true
+    }
+}
+
 fn build_glow_window(
     app: &tauri::AppHandle,
     label: &str,
@@ -421,11 +488,47 @@ fn build_glow_window(
     // App HTML (self-contained). data: URLs need `webview-data-url` feature — we don't.
     // Opaque: transparent WebView2 often paints blank. Builder mirrors voice_overlay
     // (proven secondary window) plus explicit size/skip_taskbar.
+
+    // 【self-evolution-bot · 2026-11-19 · 第84轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：给提示条窗口加**独立的 WebView2 数据目录**（照抄同仓唯一建窗成功者
+    // `browser_embed::create_embed_window` 的 `.data_directory(...)`）。
+    //
+    // 为什么 —— 本轮第一次拿到了此前四轮都没有的**同进程硬对照**：
+    //   - 同一个重启后的进程（pid 51952）里，`browser_embed` 22:53:24.676 开始 build，
+    //     22:53:25.150 就打出 `window ready`（**474ms**）；
+    //     而本窗口 22:55 / 23:01 / 23:02 三次 build 全部
+    //     `hwnd wait TIMEOUT after 5000ms last=the underlying handle is not available`。
+    //   - 用 `EnumWindows` 按 pid 实时监视 8 秒：**0 个新窗口出现** ⇒ `build()` 返回的
+    //     `WebviewWindow` 只是个空壳对象，Win32 窗口从未被创建。
+    //     （不是「建了但没显示」，是「根本没建」——所以 show()/topmost 怎么调都没用。）
+    //   - 全部日志里 `after-show visible=true` 出现 **0 次** ⇒ 该提示条从未成功显示过。
+    //   - 两者唯一未被排除的结构性差异就是它。`browser_embed` 源码注释原文：
+    //     "Distinct data_directory so this child does not share the main WebView2
+    //      environment." 本窗口与 voice_overlay / resource_manager 都共享主环境。
+    //
+    // 机制：Tauri/wry 在 Windows 上，同一 WebView2 environment 内的
+    // `additional_browser_args` 必须一致；主窗口若自带自定义 args，后建的共享环境窗口
+    // 就会起不来 —— 与实测「build 返回 Ok 但 HWND 永不出现」完全吻合。
+    // 给独立目录 = 独立 environment，彻底绕开这条约束。
+    //
+    // 与前几轮的边界：第78轮改的 `.visible(true)` **保留**（它不是这里的病根，
+    // 且是本仓 browser_embed 已证真的做法，留着无害）；第80轮加的 `wait_overlay_hwnd`
+    // 也保留 —— 它是本轮的**判据**，改完必须看到它打 `hwnd_ready=true` 才算修好。
+    // 固定目录名（**不用 label**）：本窗口每失败一次就换一个 `cua-glow-N` label，
+    // 按 label 建目录会无限堆积 WebView2 用户数据（每个几十 MB）。同环境的多个窗口
+    // 共享一个 data_directory 是允许的（browser_embed 固定用 browser-embed-primary）。
+    let data_dir = {
+        let base = crate::commands::evoflow_dir().join("webview2-embed");
+        let _ = std::fs::create_dir_all(&base);
+        base.join("cua-glow")
+    };
+    glow_log(&format!("building overlay label={label} data_dir={}", data_dir.display()));
     let window = WebviewWindow::builder(
         app,
         label,
         WebviewUrl::App("cua-glow-overlay.html".into()),
     )
+    .data_directory(data_dir)
     .title("EvoFlow Computer Use")
     .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
     .position(pos.x, pos.y)
@@ -520,6 +623,21 @@ fn build_glow_window(
     // （先 show 再 chrome）仍导致「窗口对象在、Win32 窗口不在」——
     // 说明「在 blocking 线程取句柄会打断 webview 附着」这条归因不成立。
     // 本顺序仍保留的理由只剩一条客观事实：`hwnd()` 在 show 之前确实拿不到句柄。
+    //
+    // 【self-evolution-bot · 2026-11-19 · 第80轮 · 模型:deepseek-v4.1-flash-1017】
+    // 上面的「死锁」归因**本轮正式撤回**，并在这里接回有界轮询：
+    //   - 撤回依据：`hwnd()` 虽然发消息（getter! = send_user_message + rx.recv），
+    //     但收消息的是 tao 事件循环线程；同仓 `browser_embed` 在同一条 spawn_blocking
+    //     路径上轮询 hwnd()，今日 25 次建窗 / 0 次 TIMEOUT，证明这条路径不会互等。
+    //   - 为什么必须轮询而不是直接 show：本窗口当日 3 次「等待后仍取不到句柄」，
+    //     而同进程另一类窗口 0 次 —— 说明句柄确实需要时间来，只是「等到」和
+    //     「等不到」要分开处理：等到了就正常 show，等不到照样试 show（不销毁）。
+    let ready = wait_overlay_hwnd(&window, Duration::from_secs(5));
+    glow_log(&format!(
+        "build done label={} hwnd_ready={}",
+        window.label(),
+        ready
+    ));
     Ok(window)
 }
 
@@ -545,12 +663,17 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool)
     };
     if reusable {
         if let Some(existing) = active_overlay(app) {
-            // 【self-evolution-bot · 2026-11-19 · 第78轮】判据用 `hwnd()`：它读的是
-            // Tauri 内部**缓存槽位**（`dispatcher.window_handle()`），不发消息、不等事件
-            // 循环，窗口是真壳还是空壳一问即知（空壳返回 `HandleError::Unavailable`，
-            // 正是日志里那句 `the underlying handle is not available`）。
-            // 不要用 `outer_size()`/`outer_position()`：它们要发消息给事件循环，
-            // 对空壳窗口会返回 `failed to receive message from webview`，且可能挂住。
+            // 【self-evolution-bot · 2026-11-19 · 第80轮 · 模型:deepseek-v4.1-flash-1017】
+            // 更正第78轮我在这里写错的一句：`hwnd()` **会发消息**。
+            //   真实调用链：`Window::hwnd()` → `dispatcher.window_handle()` →
+            //   `get_raw_window_handle` → `window_getter!` → `getter!` =
+            //   `send_user_message()` + `rx.recv()`（阻塞等事件循环回包）。
+            //   我上轮写「读内部缓存槽位、不发消息、不等事件循环」是错的 ——
+            //   它既发消息也等回包。它能用的真实理由是：收消息的是 tao 事件循环线程，
+            //   不是 tokio 工作线程，所以在 async/blocking 上下文里等它不会自锁。
+            // 判据仍用 hwnd()：空壳窗口在这里会立刻返回 `HandleError::Unavailable`
+            // （即日志里的 `the underlying handle is not available`），不会像
+            // `outer_size()` 那样抛 `failed to receive message from webview`。
             if existing.hwnd().is_ok() {
                 // 尺寸/位置由 show 命令在主线程里补（见 §三之四）。
                 let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));

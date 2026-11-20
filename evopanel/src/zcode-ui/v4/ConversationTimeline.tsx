@@ -916,12 +916,13 @@ function ConversationTimelineImpl({
         !awayIntent &&
         !!scrollMemoryKey &&
         readChatSessionScrollMemoryState(scrollMemoryKey)?.wasPinnedToBottom === true;
+      // 先只恢复 following 标记，勿立刻 scrollToBottom——切回首帧 DOM/估高常未对齐，
+      // 贴底会把 scrollTop 钳到塌缩后的 scrollHeight（半屏白）。等双 rAF+measure 后再贴。
       if (!awayIntent && (followingRef.current || memoryPinned)) {
         if (!followingRef.current) {
           followingRef.current = true;
           setBackToBottomVisible(false);
         }
-        becomeVisibleFollowBottomRef.current?.();
       }
       let cancelled = false;
       let raf2 = 0;
@@ -929,6 +930,19 @@ function ConversationTimelineImpl({
         raf2 = window.requestAnimationFrame(() => {
           if (cancelled) return;
           virtualizer.measure();
+          // 再扫一遍挂载行：首帧 querySelector 可能还是隐藏态矮高
+          const root2 = scrollRef.current;
+          if (root2) {
+            root2.querySelectorAll("[data-v4-turn-unit][data-index]").forEach((node) => {
+              const idx = Number((node as HTMLElement).getAttribute("data-index"));
+              if (!Number.isFinite(idx)) return;
+              const h = Math.round((node as HTMLElement).getBoundingClientRect().height);
+              if (h <= DEFAULT_ROW_HEIGHT_ESTIMATE_PX) return;
+              const key = getUnitHeightCacheKey(units[idx]);
+              if (key !== undefined) cache?.set(key, h);
+              virtualizer.resizeItem(idx, h);
+            });
+          }
           layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
           const later = userScrollIntentRef.current;
           const laterAway =
@@ -1411,6 +1425,8 @@ function ConversationTimelineImpl({
     [],
   );
 
+  /** 上一帧 scrollHeight；骤降时禁止贴底，避免钳到 top≈0 半屏空白。 */
+  const lastStickScrollHeightRef = useRef(0);
   // 贴底必须 instant（scrollTop 赋值）：smooth 的中间帧会被 scroll 判定误读为「离底」。
   const scrollToBottom = useCallback(() => {
     const element = scrollRef.current;
@@ -1419,6 +1435,21 @@ function ConversationTimelineImpl({
     markLayoutScrollGuard();
     // 草稿安全居中允许内容在低高度下向下溢出；若沿用真实会话吸底，
     // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
+    const nextHeight = element.scrollHeight;
+    const prevHeight = lastStickScrollHeightRef.current;
+    // KeepAlive 切回 / 软顶裁窗时 scrollHeight 先掉几百～上千再涨回来。
+    // 骤降帧若仍 scrollTop=scrollHeight，会被钳到接近 0 → 半屏白；等测高恢复后再贴。
+    if (
+      !responsiveCenteredEmptyLayout &&
+      prevHeight > 0 &&
+      nextHeight < prevHeight - 400
+    ) {
+      recordScrollWrite("scrollToBottom", element);
+      lastStickScrollHeightRef.current = nextHeight;
+      lastObservedScrollTopRef.current = element.scrollTop;
+      return;
+    }
+    lastStickScrollHeightRef.current = nextHeight;
     recordScrollWrite("scrollToBottom", element);
     element.scrollTop = responsiveCenteredEmptyLayout ? 0 : element.scrollHeight;
     // 回读取钳制后的落点入账（浏览器会把赋值钳到最大可滚动距离）。

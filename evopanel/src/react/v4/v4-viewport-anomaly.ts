@@ -173,9 +173,34 @@ function parseRowsRangeNoAdvance(
       if (m) fetchedFirst = Number(m[1]);
       count = (e.responseText.match(/"rowId"/g) || []).length;
     }
-    if (fetchedFirst != null && fetchedFirst < beforeRowId && count > 0) {
-      return { beforeRowId, fetchedFirst, count };
+    if (fetchedFirst == null || !(fetchedFirst < beforeRowId) || count <= 0) {
+      continue;
     }
+    // 同窗内若已有「更晚」的上拉用了更小的 before，说明窗首已前进过，本条是过期证据。
+    let advancedLater = false;
+    for (let j = i + 1; j < entries.length; j += 1) {
+      const later = entries[j]!;
+      if (!later.ok || !later.path.includes("rows_range")) continue;
+      if (tid && later.sessionId && later.sessionId !== tid) continue;
+      let laterBefore: number | null = null;
+      try {
+        const req = JSON.parse(later.requestText) as {
+          body?: { beforeRowId?: number };
+          beforeRowId?: number;
+        };
+        const raw = req.body?.beforeRowId ?? req.beforeRowId;
+        if (typeof raw === "number") laterBefore = raw;
+      } catch {
+        const m2 = /"beforeRowId"\s*:\s*(\d+)/.exec(later.requestText);
+        if (m2) laterBefore = Number(m2[1]);
+      }
+      if (laterBefore != null && laterBefore < beforeRowId) {
+        advancedLater = true;
+        break;
+      }
+    }
+    if (advancedLater) continue;
+    return { beforeRowId, fetchedFirst, count };
   }
   return null;
 }
@@ -572,10 +597,30 @@ export type StickyViewportAnomaly = ViewportAnomaly & {
   live: boolean;
 };
 
+/** 从 LOADOLDER 证据串解析 before=；窗首已小于 before 视为上拉已前进、可解除锁定。 */
+export function loadOlderStuckBeforeFromDetail(detail: string): number | null {
+  const m = /before=(\d+)/.exec(String(detail || ""));
+  if (!m) return null;
+  const n = Number(m[1]);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function isLoadOlderNoAdvanceResolved(input: {
+  detail: string;
+  windowFirstRowId: number | null | undefined;
+}): boolean {
+  const stuckBefore = loadOlderStuckBeforeFromDetail(input.detail);
+  const winFirst = input.windowFirstRowId;
+  if (stuckBefore == null || winFirst == null) return false;
+  return winFirst < stuckBefore;
+}
+
 /**
  * 把本帧 live 异常并入锁定表。
  * - tid 变了 → 清空重来
  * - error/warn：锁定到手动清或换会话；live=false 时仍展示（标「曾现」）
+ * - LOADOLDER：若窗首已小于证据里的 before=，视为已前进，直接丢掉（避免粘滞误报）
+ * - DOM_OVERLAP：本帧已无叠层则丢掉（估高 thrash 的「曾」在肉眼正常时只会吓人）
  * - info：不锁定，只跟本帧
  */
 export function mergeStickyViewportAnomalies(input: {
@@ -584,6 +629,8 @@ export function mergeStickyViewportAnomalies(input: {
   prev: readonly StickyViewportAnomaly[];
   live: readonly ViewportAnomaly[];
   nowMs?: number;
+  /** 当前投影窗首；用于解除已自愈的 LOADOLDER 粘滞 */
+  windowFirstRowId?: number | null;
 }): { tid: string; items: StickyViewportAnomaly[] } {
   const now = input.nowMs ?? Date.now();
   const liveCodes = new Set(input.live.map((a) => a.code));
@@ -594,6 +641,16 @@ export function mergeStickyViewportAnomalies(input: {
   for (const a of input.live) {
     if (a.severity === "info") {
       // info 不进锁定表；展示层会把 live info 另拼
+      continue;
+    }
+    if (
+      a.code === "LOADOLDER_NO_ADVANCE" &&
+      isLoadOlderNoAdvanceResolved({
+        detail: a.detail,
+        windowFirstRowId: input.windowFirstRowId,
+      })
+    ) {
+      byCode.delete(a.code);
       continue;
     }
     const prev = byCode.get(a.code);
@@ -608,6 +665,19 @@ export function mergeStickyViewportAnomalies(input: {
   const items: StickyViewportAnomaly[] = [];
   for (const sticky of byCode.values()) {
     if (sticky.severity === "info") continue;
+    if (
+      sticky.code === "LOADOLDER_NO_ADVANCE" &&
+      isLoadOlderNoAdvanceResolved({
+        detail: sticky.detail,
+        windowFirstRowId: input.windowFirstRowId,
+      })
+    ) {
+      continue;
+    }
+    // 叠层只跟本帧：测高恢复后肉眼已正常，不必再挂「曾·DOM_OVERLAP」
+    if (sticky.code === "DOM_OVERLAP" && !liveCodes.has(sticky.code)) {
+      continue;
+    }
     items.push({
       ...sticky,
       live: liveCodes.has(sticky.code),

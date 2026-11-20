@@ -407,9 +407,21 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 try:
                     warmup_local_model(model_id)
                 except Exception as exc:
+                    # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 改了什么：先把异常绑到闭包外的局部变量，再让 `_fail` 使用它。
+                    # 为什么：`except ... as exc` 的 `exc` 在 except 块结束时被 Python **自动解绑**
+                    #   （PEP 3110，为打断 traceback 引用环），而 `_fail` 是经
+                    #   `loop.call_soon_threadsafe` **稍后**在事件循环线程里才执行的闭包 ——
+                    #   届时 `exc` 已不存在，`done.set_exception(exc)` 抛 NameError，
+                    #   被 call_soon 的默认异常处理器吞掉 → `done` 永不完结 → 第 428 行
+                    #   `await done`（无超时）**永久挂起**，表现为启动暖机卡死 / health 迟迟不就绪。
+                    #   这正是本函数上方注释反复警告的那类 hang，只是发生在失败分支上。
+                    # 判据：ruff F821 Undefined name `exc` 即命中；纯同步调用看不出（同步调用时 exc 还在）。
+                    _exc = exc
+
                     def _fail() -> None:
                         if not done.done():
-                            done.set_exception(exc)
+                            done.set_exception(_exc)
 
                     loop.call_soon_threadsafe(_fail)
                 else:
@@ -1072,7 +1084,9 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 logger.info("[Gateway] post-ready: waiting on langgraph_ready_event before starting channels")
                 try:
                     await asyncio.wait_for(langgraph_ready_event.wait(), timeout=_LANGGRAPH_READY_WAIT_TIMEOUT_S)
-                except asyncio.TimeoutError:
+                # 【self-evolution-bot · 2026-11-20 · 第70轮】
+                # 3.11+ 起 asyncio.TimeoutError 就是内置 TimeoutError 的别名（UP041）。
+                except TimeoutError:
                     logger.error(
                         "[Gateway] post-ready: langgraph_ready_event not set within %ss — starting channels anyway (degraded)",
                         _LANGGRAPH_READY_WAIT_TIMEOUT_S,
@@ -1230,7 +1244,23 @@ async def run_post_ready_warmups(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
         from evoflow.persistence.db import run_deferred_full_preflight
 
         _t_full = _st.perf_counter()
-        results = await asyncio.to_thread(run_deferred_full_preflight, base_dir=get_paths().base_dir)
+        # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+        # 原来这里是 asyncio.to_thread(...) —— 走**默认** ThreadPoolExecutor，
+        # 而 run_deferred_full_preflight 对 3 个库做全量 PRAGMA integrity_check
+        # + WAL truncate（现网 evoflow.db 3.14GB、observability.db 2.46GB），
+        # 实测占住默认池 **5 分 14 秒**（2026-11-20 07:32:17→07:37:31）。
+        # 同时段的端点全部走同一个默认池（routers/mcp.py:167、
+        # routers/tasks.py:868 …），于是被饿死：
+        #   /api/tasks        排队 10s → tasks_catalog_timeout → 503（07:35:05）
+        #   /api/mcp/config   正常 47ms，实际等到 26s 才回（07:35:24）
+        #   /api/knowledge/owned/bases  7.7s
+        # 判据是 lag_s=0.000 —— 事件循环没被阻塞，是线程池空转，
+        # 所以这不是「事件循环卡住」，改 asyncio 调度没用，必须换池。
+        # 修法：挪到 db_async 的专用池（thread_name_prefix=evoflow-db，8 worker），
+        # 让维护性重活与请求路径隔离——与第36轮 transcript/assets 落库同一个模式。
+        from app.gateway.db_async import run_db
+
+        results = await run_db(run_deferred_full_preflight, base_dir=get_paths().base_dir)
         st_log(f"post-ready full db preflight ({(_st.perf_counter() - _t_full) * 1000:.0f}ms) {results}")
         logger.info("Deferred full DB preflight done: %s", results)
     except Exception:

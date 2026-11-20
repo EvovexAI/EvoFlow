@@ -7,6 +7,7 @@ import {
   parseProactiveSessionKey,
 } from '../../react/lib/session-list/workspace-groups.js'
 import { normalizeRightStageKind } from './right-stage-types.js'
+import { describeMissingFields, missingContractFields } from './right-panel-contract.js'
 import { openCollabWorkflowInRightStage } from './open-collab-workflow-stage.js'
 import { openCollabSubtaskInRightStage } from './open-collab-subtask-stage.js'
 import { openEmployeeProcessInRightStage } from './open-employee-process-stage.js'
@@ -41,6 +42,25 @@ function firstStr(...vals: unknown[]): string {
 }
 
 /**
+ * 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+ * 改了什么：缺必填字段时给用户一句可读提示，而不是静默不开。
+ * 为什么：用户会点「查看进度」却什么也不发生，只能猜是坏了。用后端同一份
+ * 契约描述到底缺什么，直接告诉用户/开发者。
+ */
+function notifyMissingFields(kind: string, data: Record<string, unknown>): void {
+  const missing = missingContractFields(kind, data)
+  const text = describeMissingFields(kind, missing)
+  typeof console !== 'undefined' && console.warn(`[EvoFlow:right-stage] ${text}`)
+  // 非阻断提示：复用现有 toast 通道（不存在时静默降级，绝不因此抛错）
+  try {
+    const g = globalThis as unknown as { evoflowToast?: (m: string, k?: string) => void }
+    g.evoflowToast?.(text, 'warning')
+  } catch {
+    /* 提示失败不影响主流程 */
+  }
+}
+
+/**
  * @returns 打开的 tab id；无法识别则空串
  */
 export function openProgressFromPanelSet(
@@ -60,7 +80,15 @@ export function openProgressFromPanelSet(
   if (kind === 'collab-workflow') {
     const mainTaskId = firstStr(data.mainTaskId, data.main_task_id, data.taskId, data.task_id)
     if (!mainTaskId) {
-      logRightStage('openProgress:collab-workflow missing mainTaskId', { dataKeys: Object.keys(data) })
+      // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：缺字段时按契约给出可读原因，不再静默 return ''。
+      // 为什么：用户反馈「点了没反应 / 对不齐」——原来只有 console 日志，
+      // 界面一片空白。现在按后端同一份契约生成「缺少 data.mainTaskId」提示。
+      logRightStage('openProgress:collab-workflow missing mainTaskId', {
+        dataKeys: Object.keys(data),
+        missing: missingContractFields(kind, data),
+      })
+      notifyMissingFields(kind, data)
       return ''
     }
     const tabId = openCollabWorkflowInRightStage(
@@ -78,7 +106,10 @@ export function openProgressFromPanelSet(
   if (kind === 'collabSubtaskTranscript') {
     const subtaskId = firstStr(data.subtaskId, data.subtask_id)
     const mainTaskId = firstStr(data.mainTaskId, data.main_task_id, data.taskId, data.task_id)
-    if (!subtaskId) return ''
+    if (!subtaskId) {
+      notifyMissingFields(kind, data)
+      return ''
+    }
     return openCollabSubtaskInRightStage(
       {
         subtaskId,
@@ -109,7 +140,11 @@ export function openProgressFromPanelSet(
     )
     const agentCode = firstStr(data.agentCode, data.agent_code, data.assigned_to)
     // 派发/唤醒常只有 agent：仍开右栏实时进度（对话面板）
-    if (!agentCode) return ''
+    // 契约真源（right_panel_kinds.py）同样只强制 agentCode，taskId 可选——两端口径一致。
+    if (!agentCode) {
+      notifyMissingFields(kind, data)
+      return ''
+    }
     const employeeSk = employeeOwnedSessionKey(
       firstStr(data.sessionKey, data.session_key, data.employeeSessionKey),
       agentCode,
@@ -132,6 +167,7 @@ export function openProgressFromPanelSet(
     const path = firstStr(data.path, data.route, data.href, data.url)
     if (!path) {
       logRightStage('openProgress:shell-page missing path', { dataKeys: Object.keys(data) })
+      notifyMissingFields(kind, data)
       return ''
     }
     const entityLabel = firstStr(

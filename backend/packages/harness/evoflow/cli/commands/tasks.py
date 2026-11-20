@@ -190,6 +190,17 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default="user",
         help="提起人: user（你）或 agent_code（智能体员工）。默认 user",
     )
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】去重闸/探针开关透传（同工具层）。
+    create_p.add_argument(
+        "--allow-duplicate",
+        action="store_true",
+        help="同题未结案单存在时仍强行新建（默认被拒，报错带旧单 id）",
+    )
+    create_p.add_argument(
+        "--probe",
+        action="store_true",
+        help="声明为开发自测/锚点单：任务中心默认折叠（source_channel=dev_probe）",
+    )
     create_p.add_argument(
         "--source-ref",
         default="",
@@ -427,5 +438,7 @@ def _create(args: argparse.Namespace):
             "action_type": str(getattr(args, "action_type", "") or "").strip() or None,
             "round_id": str(getattr(args, "round_id", "") or "").strip() or None,
             "parent_task_id": str(getattr(args, "parent_task_id", "") or "").strip() or None,
+            "allow_duplicate": bool(getattr(args, "allow_duplicate", False)),
+            "probe": bool(getattr(args, "probe", False)),
         }
     )

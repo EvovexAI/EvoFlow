@@ -222,7 +222,7 @@ class DeptGroupRunReceiptTest(unittest.TestCase):
         update_run_status("run-idem-1", "completed", result_summary="一次")
         update_run_status("run-idem-1", "completed", result_summary="二次")
         update_run_status("run-idem-1", "completed", result_summary="三次")
-        rows = self._wait_receipt("run-idem-1")
+        self._wait_receipt("run-idem-1")  # 只等落库，不再取 rows（ruff F841，第84轮）
         deadline = time.monotonic() + 2.0
         while time.monotonic() < deadline and len(self._receipt_rows("run-idem-1")) > 1:
             time.sleep(0.1)
@@ -266,7 +266,9 @@ class DeptGroupRunReceiptTest(unittest.TestCase):
             build_dept_group_im_block,
         )
 
-        self.assertIn('version="2"', DEPT_GROUP_IM_OPEN)
+        # 【self-evolution-bot · 2026-11-19 · 第85轮 · 模型:qwen3.8-flash】
+        # 提示词块 1.3.25(89aab537) 已升 version="3"，此处旧断言未同步导致假红；跟随升级。
+        self.assertIn('version="3"', DEPT_GROUP_IM_OPEN)
         for steward in (True, False):
             block = build_dept_group_im_block(dept_name="研发群", steward=steward, roster=["开发A"])
             self.assertIn("回合结束前必须交代结果", block)

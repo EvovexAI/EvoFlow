@@ -41,6 +41,9 @@ export default defineConfig({
     // 其余 tests/*.test.js 使用 node:test，由 `node --test` 单独运行
     include: [
       'tests/shell-session-list-menu.test.tsx',
+      // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+      // 右栏面板契约：前端校验与后端 right_panel_kinds.py 同口径
+      'tests/right-panel-contract.test.js',
       'tests/platform-scope-ui.test.js',
       'tests/codex-auth-panel.test.js',
       'tests/v4-wire-conformance.test.ts',
@@ -251,6 +254,14 @@ export default defineConfig({
       'tests/dept-group-dispatch-status.test.js',
       'tests/dept-group-mentions.test.js',
       'tests/dept-group-transcript.test.js',
+      // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+      // 群近期上下文按 token 预算裁剪（用户拍板「不按天翻篇」）。不登记 = 这测试不存在。
+      'tests/dept-group-context.test.js',
+      // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+      'tests/dept-group-wake-persist.test.js',
+      // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+      // 渲染期冒烟：tsc 抓不到渲染异常，必须真挂载组件看 DOM
+      'tests/dept-group-chat-render.test.tsx',
       'tests/dept-chat-list-cache.test.ts',
       'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',
@@ -276,6 +287,8 @@ export default defineConfig({
       'tests/chat-turn-timing-stalled.test.js',
       // 首帧响应按回合幂等：后台回合无 sendTrace 时每 delta 双 IPC 落盘的洪水（1.2 万条/日）
       'tests/chat-turn-timing-first-response-latch.test.js',
+      // 发送水位线：正常收紧 / 异常留证 + 前后接口
+      'tests/chat-turn-waterline.test.js',
       'tests/live-execution-busy.test.js',
       // 多会话钉住 V4 投影：peekStore + pin 租约，切回不冷开空白
       'tests/v4-pin-sessions.test.js',

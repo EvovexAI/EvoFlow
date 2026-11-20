@@ -13,6 +13,7 @@ from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from app.gateway.db_async import run_db
 from evoflow.knowledge import service as kb_service
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class SearchRequest(BaseModel):
 
 @router.get("")
 @router.get("/")
-async def list_knowledge_bases():
+def list_knowledge_bases():
     """List all knowledge bases."""
     return {"items": kb_service.list_datasets()}
 
@@ -121,7 +122,7 @@ async def create_knowledge_base(req: CreateDatasetRequest, background_tasks: Bac
 
 
 @router.get("/{dataset_id}")
-async def get_knowledge_base(dataset_id: str):
+def get_knowledge_base(dataset_id: str):
     """Get knowledge base details."""
     ds = kb_service.get_dataset(dataset_id)
     if ds is None:
@@ -130,7 +131,7 @@ async def get_knowledge_base(dataset_id: str):
 
 
 @router.put("/{dataset_id}")
-async def update_knowledge_base(dataset_id: str, req: UpdateDatasetRequest):
+def update_knowledge_base(dataset_id: str, req: UpdateDatasetRequest):
     """Update knowledge base settings."""
     ds = kb_service.update_dataset(
         dataset_id,
@@ -149,7 +150,7 @@ async def update_knowledge_base(dataset_id: str, req: UpdateDatasetRequest):
 
 
 @router.delete("/{dataset_id}")
-async def delete_knowledge_base(dataset_id: str):
+def delete_knowledge_base(dataset_id: str):
     """Delete a knowledge base and all its files, chunks, and vectors."""
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -161,7 +162,7 @@ async def delete_knowledge_base(dataset_id: str):
 @router.post("/{dataset_id}/sync-local/")
 async def sync_local_source(dataset_id: str, req: SyncLocalRequest | None = None):
     """Re-scan the bound local folder and index new/changed files."""
-    if kb_service.get_dataset(dataset_id) is None:
+    if await run_db(kb_service.get_dataset, dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     force = bool(req.force) if req else False
     try:
@@ -187,7 +188,7 @@ async def upload_file(
     relative_path: str = Form(default=""),
 ):
     """Upload a file to a knowledge base folder for automatic indexing."""
-    if kb_service.get_dataset(dataset_id) is None:
+    if await run_db(kb_service.get_dataset, dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
 
     content = await file.read()
@@ -214,7 +215,7 @@ async def upload_file(
 
 @router.get("/{dataset_id}/folders")
 @router.get("/{dataset_id}/folders/")
-async def list_folders(dataset_id: str):
+def list_folders(dataset_id: str):
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     return {"items": kb_service.list_folders(dataset_id)}
@@ -223,7 +224,7 @@ async def list_folders(dataset_id: str):
 @router.post("/{dataset_id}/folders")
 @router.post("/{dataset_id}/folders/")
 @router.post("/{dataset_id}/folder")
-async def create_folder(dataset_id: str, req: CreateFolderRequest):
+def create_folder(dataset_id: str, req: CreateFolderRequest):
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     try:
@@ -234,7 +235,7 @@ async def create_folder(dataset_id: str, req: CreateFolderRequest):
 
 
 @router.put("/{dataset_id}/folders/{folder_id}")
-async def rename_folder(dataset_id: str, folder_id: str, req: RenameFolderRequest):
+def rename_folder(dataset_id: str, folder_id: str, req: RenameFolderRequest):
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     try:
@@ -247,7 +248,7 @@ async def rename_folder(dataset_id: str, folder_id: str, req: RenameFolderReques
 
 
 @router.delete("/{dataset_id}/folders/{folder_id}")
-async def delete_folder(dataset_id: str, folder_id: str):
+def delete_folder(dataset_id: str, folder_id: str):
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     try:
@@ -261,7 +262,7 @@ async def delete_folder(dataset_id: str, folder_id: str):
 
 
 @router.get("/{dataset_id}/files")
-async def list_files(dataset_id: str, folder_id: str | None = Query(default=None)):
+def list_files(dataset_id: str, folder_id: str | None = Query(default=None)):
     """List source files in a knowledge base, optionally scoped to a folder."""
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -269,7 +270,7 @@ async def list_files(dataset_id: str, folder_id: str | None = Query(default=None
 
 
 @router.delete("/{dataset_id}/files/{file_id}")
-async def delete_file(dataset_id: str, file_id: str):
+def delete_file(dataset_id: str, file_id: str):
     """Delete a source file and its chunks/vectors."""
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -284,7 +285,7 @@ async def delete_file(dataset_id: str, file_id: str):
 
 
 @router.get("/{dataset_id}/chunks")
-async def list_chunks(
+def list_chunks(
     dataset_id: str,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=50, ge=1, le=200),
@@ -303,7 +304,7 @@ async def list_chunks(
 @router.post("/{dataset_id}/search")
 async def search(dataset_id: str, req: SearchRequest):
     """Semantic search across a knowledge base."""
-    if kb_service.get_dataset(dataset_id) is None:
+    if await run_db(kb_service.get_dataset, dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
     try:
         results = await kb_service.search(
@@ -326,7 +327,7 @@ async def search(dataset_id: str, req: SearchRequest):
 
 
 @router.get("/{dataset_id}/status")
-async def get_status(dataset_id: str):
+def get_status(dataset_id: str):
     """Get processing status for a knowledge base."""
     if kb_service.get_dataset(dataset_id) is None:
         raise HTTPException(status_code=404, detail="Knowledge base not found")
@@ -382,7 +383,7 @@ async def embed_text(req: EmbedRequest):
         mc = None
         dim = None
         if req.dataset_id:
-            ds = kb_service.get_dataset(req.dataset_id)
+            ds = await run_db(kb_service.get_dataset, req.dataset_id)
             if ds is None:
                 raise HTTPException(status_code=404, detail=f"Dataset {req.dataset_id} not found")
             mc = resolve_embedding_model_config(str(ds.get("embedding_model") or "")) or None

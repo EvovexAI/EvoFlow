@@ -1288,6 +1288,33 @@ CREATE TABLE IF NOT EXISTS evoflow_duty_runs (
     updated_at TEXT NOT NULL
 );
 
+-- 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+-- 部门群聊叫醒队列落库。改前队列只活在前端 `useRef`：刷新/断线/关页面即全部丢失，
+-- 用户看到的是「@ 了人却没回复」，且没有任何记录可查。
+-- 判据要点：`running` 不等于「还活着」——必须看 `heartbeat_at` 是否超时，
+-- 否则前端崩溃留下的 running 行会永久卡住该 agent 的队头。
+CREATE TABLE IF NOT EXISTS evoflow_dept_group_wake_jobs (
+    job_id TEXT PRIMARY KEY,
+    dept_id TEXT NOT NULL DEFAULT '',
+    agent_code TEXT NOT NULL,
+    role_name TEXT NOT NULL DEFAULT '',
+    goal TEXT NOT NULL DEFAULT '',
+    goal_norm TEXT NOT NULL DEFAULT '',
+    depth INTEGER NOT NULL DEFAULT 0,
+    chain_key TEXT NOT NULL DEFAULT '',
+    steward_mode INTEGER NOT NULL DEFAULT 0,
+    from_agent_name TEXT NOT NULL DEFAULT '',
+    source_msg_id TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'queued',
+    attempts INTEGER NOT NULL DEFAULT 0,
+    error TEXT NOT NULL DEFAULT '',
+    owner TEXT NOT NULL DEFAULT '',
+    enqueued_at TEXT NOT NULL DEFAULT '',
+    started_at TEXT NOT NULL DEFAULT '',
+    heartbeat_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS evoflow_session_child_works (
     work_id TEXT PRIMARY KEY,
     session_key TEXT NOT NULL,
@@ -2290,6 +2317,9 @@ _POST_BASELINE_TABLES: tuple[str, ...] = (
     "evoflow_departments",
     "evoflow_role_push_bindings",
     "evoflow_v4_session_goals",
+    # 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    # 群叫醒队列落库；已 stamped 的库靠这条 backfill 建表。
+    "evoflow_dept_group_wake_jobs",
 )
 
 

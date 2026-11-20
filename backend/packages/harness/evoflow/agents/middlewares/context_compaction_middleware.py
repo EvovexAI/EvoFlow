@@ -1417,6 +1417,26 @@ def _record_fold_outcome(
             invalidate_standing_memory(tid or None)
         except Exception:
             pass
+        # 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：真正发生 fold（消息变少）时，清掉本会话的读回执。
+        # 为什么：回执的语义是「**你上下文里**已经有这份内容」。fold 会把旧的工具结果
+        # 折叠/裁掉（``_prune_old_tool_results`` 换成占位符、tool_history 只留摘要），
+        # 内容已经不在上下文里了，回执却还留着 → 我再读同一个文件就收到
+        # 「Wasted call，去翻你之前那条 tool_result」，而那条已被折叠。
+        # 这正是我这轮亲身踩到的（compaction 后读 skill 被拒）。
+        # 方向选择：宁可多允一次重复读（多花几千 token），也不许把「已经看不到的内容」
+        # 说成「你刚看过」——后者让人卡死在原地重试。
+        try:
+            from evoflow.tools.zcode_port.read_file_state import forget_thread_reads
+
+            # 只在拿到**真实** thread_id 时清账：``_thread_id_from_runtime`` 在
+            # runtime 为空时会回退成字面量 "default"，那不是一个会话，拿它清账
+            # 会误伤所有无 runtime 的调用。
+            _tid_forget = _thread_id_from_runtime(runtime) if runtime is not None else ""
+            if _tid_forget and _tid_forget != "default":
+                forget_thread_reads(_tid_forget)
+        except Exception:
+            pass
 
 
 def _fill_empty_tool_messages(messages: list[BaseMessage]) -> list[BaseMessage]:

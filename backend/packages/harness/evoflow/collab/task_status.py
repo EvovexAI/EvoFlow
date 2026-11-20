@@ -37,6 +37,11 @@ STATUS_ZH_MAP: dict[str, str] = {
     "failed": "失败",
     "cancelled": "已取消",
     "timed_out": "超时",
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】补 paused：
+    # 为什么：task_reclaim.stuck_executing_dead 把死单写成 paused（现网 3 条），
+    #   但词表/转换表都没这个状态 → status_zh 显示"未知"、can_transition 永远 False、
+    #   后续一切合法流转都要走"强改补丁"旁路。僵尸收口写的是非法态，本身就是缺陷。
+    "paused": "已暂停",
 }
 
 ALLOWED_TASK_STATES = {
@@ -52,6 +57,7 @@ ALLOWED_TASK_STATES = {
     "completed",
     "failed",
     "cancelled",
+    "paused",
 }
 
 TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
@@ -92,7 +98,13 @@ TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
         "completed",
         "failed",
         "cancelled",
+        # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+        # task_reclaim 对"进程死在半路"的死单写的就是 paused；此前这条边不在表里，
+        # 收口只能走强改补丁旁路（见 _apply_reclaim_row 的 except ValidationError）。
+        "paused",
     },
+    # 机器暂停（stuck_executing_dead）→ 复活续跑 / 放弃收口成失败；人也可手动恢复。
+    "paused": {"executing", "completed", "failed", "cancelled"},
     # waiting_dispatch means "needs next dispatch decision", but monitoring can continue.
     "waiting_dispatch": {
         "executing",
@@ -112,6 +124,36 @@ TASK_STATE_TRANSITIONS: dict[str, set[str]] = {
     "failed": {"pending", "executing"},
     "cancelled": set(),
 }
+
+
+# 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】未结案状态集（唯一出处）
+# 为什么：建单去重闸（storage.find_open_main_task_id_by_name）与噪声清理都要判
+#   "这单还活着吗"。此前 storage 里的旧判据只认 pending/planning 两态，
+#   executing/paused/awaiting_close 上的同题单照样再建——「电商内容台单品洞察」
+#   两天 19 条、同名 12 条的「验证N6」就是这么漏进来的。终态集合外一律算活着。
+OPEN_TASK_STATUSES: frozenset[str] = frozenset(
+    {
+        "inbox",
+        "pending",
+        "planning",
+        "planned",
+        "executing",
+        "in_progress",
+        "running",
+        "waiting_dispatch",
+        "waiting_user",
+        "awaiting_close",
+        "paused",
+        "blocked",
+        "verifying",
+        "reflecting",
+    }
+)
+
+
+def is_open_status(value: str | None) -> bool:
+    """True when the status is not terminal (task is still on the board as work)."""
+    return normalize_state(value) in OPEN_TASK_STATUSES
 
 
 def normalize_state(value: str | None) -> str:

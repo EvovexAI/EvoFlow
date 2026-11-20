@@ -348,22 +348,42 @@ def _unwrap_vendor_message_dict(msg: dict[str, Any]) -> dict[str, Any]:
 
 
 def extract_latest_user_preview_from_vendor_payload(payload: dict[str, Any]) -> str:
-    """Latest non-summary user message from vendor HTTP body (for observability UI)."""
+    """Latest real user message from vendor HTTP body (for observability UI).
+
+    Skips compaction / memory-live / skill / affect footers so the debug panel
+    does not show ``<affect>`` or ``[探索过久]`` as the user's latest question.
+    """
     messages = payload.get("messages")
     if not isinstance(messages, list):
         return ""
+    try:
+        from evoflow.agents.message_analysis_utils import is_real_user_message, is_synthetic_user_message
+    except Exception:
+        is_real_user_message = None  # type: ignore[assignment]
+        is_synthetic_user_message = None  # type: ignore[assignment]
+    try:
+        from evoflow.agents.middlewares.session_transcript_hydration_middleware import (
+            _is_injected_runtime_human_text,
+        )
+    except Exception:
+        _is_injected_runtime_human_text = None  # type: ignore[assignment]
+
     for msg in reversed(messages):
         if not isinstance(msg, dict):
             continue
         body = _unwrap_vendor_message_dict(msg)
         if _normalize_vendor_message_role(body) != "user":
             continue
-        name = str(body.get("name") or "").strip()
-        if name == "conversation_summary":
+        if is_synthetic_user_message is not None and is_synthetic_user_message(body):
+            continue
+        if is_real_user_message is not None and not is_real_user_message(body):
             continue
         text = _message_content_to_plain_text(body.get("content")).strip()
-        if text:
-            return text
+        if not text:
+            continue
+        if _is_injected_runtime_human_text is not None and _is_injected_runtime_human_text(text):
+            continue
+        return text
     return ""
 
 

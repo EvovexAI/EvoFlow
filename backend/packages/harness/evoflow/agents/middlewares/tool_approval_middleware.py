@@ -164,6 +164,38 @@ def _canonical_tool_name(request: ToolCallRequest) -> str:
     return canonical_tool_name(_tool_name(request))
 
 
+def _global_grant_all_active() -> bool:
+    """True when app-wide default is grant_all (完全访问)."""
+    try:
+        from evoflow.persistence.tool_approval_policy import (
+            get_global_default_policy,
+            is_grant_all_policy,
+        )
+
+        return is_grant_all_policy(get_global_default_policy())
+    except Exception:
+        return False
+
+
+def _request_already_granted(
+    request: ToolCallRequest,
+    *,
+    name: str,
+    args: dict[str, Any],
+) -> bool:
+    """grant_all / 签名 / 工具名已授权 → 跳过闸门。
+
+    tid 缺失时仍看全局 grant_all，避免 worker 一时拿不到 thread 就误弹授权。
+    """
+    tid = _thread_id_from_request(request)
+    ws_root = _workspace_root_from_request(request) or None
+    if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+        return True
+    if not tid and _global_grant_all_active():
+        return True
+    return False
+
+
 def _trace_decision(
     event: str,
     request: ToolCallRequest,
@@ -250,6 +282,8 @@ def _register_sibling_pending_approvals(
             continue
         if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
             continue
+        if not tid and _global_grant_all_active():
+            continue
         summary = summarize_tool_for_approval(name, args)
         sibling_req = ToolCallRequest(
             tool_call={"id": tc_id, "name": raw_name, "args": args},
@@ -323,6 +357,8 @@ def _stream_pending_tool_approval(request: ToolCallRequest, pending_msg: ToolMes
 def _stream_batch_pending_approvals(request: ToolCallRequest, *, leader_tool_call_id: str) -> None:
     """Push pending_approval frames for every gated sibling in the same model turn."""
     leader = str(leader_tool_call_id or "").strip()
+    tid = _thread_id_from_request(request)
+    ws_root = _workspace_root_from_request(request) or None
     for tc in _sibling_tool_calls_for_request(request):
         tc_id = str(tc.get("id") or "").strip()
         if not tc_id or tc_id == leader:
@@ -331,6 +367,11 @@ def _stream_batch_pending_approvals(request: ToolCallRequest, *, leader_tool_cal
         name = canonical_tool_name(raw_name)
         args = tc.get("args") if isinstance(tc.get("args"), dict) else {}
         if not tool_requires_approval(name, args):
+            continue
+        # 与 _register_sibling_pending_approvals 对齐：grant_all / 已授权勿推 pending 帧
+        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+            continue
+        if not tid and _global_grant_all_active():
             continue
         summary = summarize_tool_for_approval(name, args)
         pending_msg = _build_pending_tool_message(
@@ -869,12 +910,14 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
         tid = _thread_id_from_request(request)
         canon_name = _canonical_tool_name(request)
         ws_root = _workspace_root_from_request(request) or None
-        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+        if _request_already_granted(request, name=name, args=args):
             _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
-            _clear_deny_counter(tid, canon_name)
-            result = handler(request)
-            consume_signature_grant(tid, name, args, workspace_root=ws_root)
-            return result
+            if tid:
+                _clear_deny_counter(tid, canon_name)
+                result = handler(request)
+                consume_signature_grant(tid, name, args, workspace_root=ws_root)
+                return result
+            return handler(request)
 
         # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
         if tid and _get_deny_count(tid, canon_name) >= _DENY_MAX_RETRIES:
@@ -931,12 +974,14 @@ class ToolApprovalMiddleware(AgentMiddleware[AgentState]):
         tid = _thread_id_from_request(request)
         canon_name = _canonical_tool_name(request)
         ws_root = _workspace_root_from_request(request) or None
-        if tid and is_granted_for_thread(tid, name, args, workspace_root=ws_root):
+        if _request_already_granted(request, name=name, args=args):
             _trace_decision("放行：会话已授权（grant_all / 签名 / 工具名）", request)
-            _clear_deny_counter(tid, canon_name)
-            result = await handler(request)
-            consume_signature_grant(tid, name, args, workspace_root=ws_root)
-            return result
+            if tid:
+                _clear_deny_counter(tid, canon_name)
+                result = await handler(request)
+                consume_signature_grant(tid, name, args, workspace_root=ws_root)
+                return result
+            return await handler(request)
 
         # 防止 deny 后无限重试：同一工具被拒绝超过阈值后直接拦截
         if tid and _get_deny_count(tid, canon_name) >= _DENY_MAX_RETRIES:

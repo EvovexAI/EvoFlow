@@ -787,7 +787,11 @@ def append_pending(thread_id: str, entry: dict[str, Any]) -> None:
     sk, tid = _session_for_thread(thread_id)
     # 完全访问 / grant_all：中间件本应提前放行；这里再挡一道，避免竞态
     # （刚切档位、兄弟工具批量登记）仍写出 pending，UI 像「还要授权」。
-    if sk and is_grant_all_policy(effective_policy(sk)):
+    # sk 为空时仍看全局默认——否则 worker 一时找不到会话会误挂 pending + pause。
+    from evoflow.persistence.tool_approval_policy import get_global_default_policy
+
+    policy = effective_policy(sk) if sk else get_global_default_policy()
+    if is_grant_all_policy(policy):
         logger.info(
             "Skip tool approval pending under grant_all thread=%s tool=%s tc=%s",
             tid,

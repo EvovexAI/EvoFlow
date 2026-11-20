@@ -54,7 +54,16 @@ class McpToolInfo(BaseModel):
 class McpServerRuntimeStatus(BaseModel):
     """Per-server MCP load/runtime status."""
 
-    load_status: Literal["disabled", "pending", "ready", "error"] = "pending"
+    # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+    # 这里原来只允许 disabled/pending/ready/error 四个值，但
+    # `evoflow.mcp.status.build_mcp_status_snapshot` 在「配置里有、数据源里没有」
+    # 时（memory 冷 / 快照落后于配置变更）会产出 **"unknown"** ——
+    # 与本 Literal 不匹配 → pydantic ValidationError → `GET /api/mcp/config` 直接 500。
+    # 现网实证：2026-11-19 19:56:52 与 20:22:08 各一次，error_type=ValidationError。
+    # 修法：把生产侧真实存在的 "unknown" 补进取值域（前端多处以 `load_status?: string`
+    # 消费，本就能吃下这个值），而不是在状态机里硬改成 pending —— 那会把
+    # 「没加载过」伪装成「正在加载」，观测上更糟。
+    load_status: Literal["disabled", "pending", "ready", "error", "unknown"] = "pending"
     error: str | None = None
     tool_count: int = 0
     tools: list[McpToolInfo] = Field(default_factory=list)
@@ -155,7 +164,13 @@ async def get_mcp_configuration(request: Request) -> McpConfigResponse:
 
     try:
         # May import ~/.cursor/mcp.json into SQLite when DB is empty or corrupt
-        snap = await asyncio.to_thread(build_mcp_status_snapshot)
+        # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+        # 原为 asyncio.to_thread（默认池）。2026-11-20 07:35 实测：后台
+        # run_deferred_full_preflight 占满默认池 5 分 14 秒，本端点正常 47ms
+        # 却排到 26 秒才返回。改走 db_async 专用池，与维护性重活隔离。
+        from app.gateway.db_async import run_db
+
+        snap = await run_db(build_mcp_status_snapshot)
     except Exception as exc:
         logger.warning("MCP status snapshot failed; returning degraded response: %s", exc, exc_info=True)
         snap = {

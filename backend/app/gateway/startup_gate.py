@@ -48,6 +48,12 @@ _EXTENDED_ROUTE_PREFIXES = (
     "/api/platform",
     "/api/config",
     "/api/stage/news",
+    # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    # 新增 /api/stage/right-stage/kinds（右栏契约）。它与 stage/news 同属
+    # register_extended_routers 懒挂载，漏登记的话启动窗口内前端预取会拿到裸 404，
+    # 契约退回内置兜底表 → 后端新增的 kind 前端看不见。测试
+    # test_startup_gate_prefix_coverage 已把我这次遗漏抓出来。
+    "/api/stage/right-stage",
     "/api/meetings",
     "/api/organizations",
     "/api/resource-market",
@@ -58,6 +64,38 @@ _EXTENDED_ROUTE_PREFIXES = (
     "/api/trace",
     "/api/client",
     "/api/a2a",
+    # A2A 的公开发现端点不在 /api 下（routers/a2a.py:77）。漏掉的话启动窗口内
+    # 外部 agent 打 /.well-known/agent.json 拿到裸 404 → 判定「本机不支持 A2A」，
+    # 而不是「还在启动」。现网 0 次调用（无外部 agent 常连），但判据由测试兜住。
+    "/.well-known",
+    # 【self-evolution-bot · 2026-11-19 · 第69轮 · 模型:deepseek-v4.1-flash-1017】
+    # 以下 5 个前缀在 register_extended_routers 里懒挂载，但本名单漏了它们，
+    # 于是「已 bind 端口、路由还没挂完」的那个窗口里，请求会穿透本闸门被
+    # Starlette 直接回裸 404（实测耗时 0.4~1.7ms，无 response body），
+    # 面板把它当「接口不存在」而不是「正在启动」。
+    # 现网实证（2026-11-19，全天 404 里成簇出现在每次进程启动后 0~10 秒）：
+    #   /api/browser/log            76 次（16:18:57 / 19:09:09 / 19:35:52 / 20:52:40 / 22:53:27 / 23:38:02）
+    #   /api/cua/glow-status        56 次（同时刻簇）
+    #   /api/plugins/*              —
+    #   /api/audit/actions          —
+    #   /openai/v1/*                —
+    # 同一路径在窗口过后均返回 200（实测 23:38:10 起 /api/browser/log 连续 200），
+    # 证明不是「前端调了不存在的端点」，而是启动竞态。
+    # 判据不是「现在 curl 一下没问题」——窗口只有几秒，永远碰不上；
+    # 判据是「本名单 ⊇ register_extended_routers 实际挂载的每个前缀」，
+    # 由 tests/test_startup_gate_prefix_coverage.py 常驻校验。
+    "/api/browser",
+    "/api/cua",
+    "/api/plugins",
+    "/api/audit",
+    # 注意：/api/v4 与 /api/threads **刻意不列**。
+    #   /api/v4/*     —— core 阶段（pre-ready）已挂载，实测 89 次 404 耗时 2.4~3.0ms
+    #                    且集中在 22:33（最近一次重启前 20 分钟），是 handler 内的
+    #                    业务 404（session/turn row 不存在），不是裸路由 404。
+    #                    列进来会对正常工作的 v4 聊天链路回 503，属于制造故障。
+    #   /api/threads/* —— core threads.py 拥有，extended 只补了几条子路径；
+    #                    屏蔽会 503 掉本来能用的 core 路由。
+    "/openai/v1",
     "/mcp",
     "/v1",
 )

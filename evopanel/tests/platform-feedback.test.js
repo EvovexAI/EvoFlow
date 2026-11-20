@@ -40,7 +40,7 @@ describe('parsePlatformUiFeedback', () => {
     expect(ui?.title).toContain('待办事项')
   })
 
-  it('skips preview / confirm; list reads open shell-page feedback', () => {
+  it('skips preview / confirm; list reads give clickable card without auto-open', () => {
     const preview = JSON.stringify({
       ok: true,
       pending_confirm: true,
@@ -48,6 +48,10 @@ describe('parsePlatformUiFeedback', () => {
     })
     expect(parsePlatformUiFeedback(preview)).toBeNull()
 
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：断言从 autoOpen===true 反转为不开。
+    // 为什么：用户要求「有通知就够了，右侧不要突然展开」；items.list 是纯只读，
+    // 它只要出可点卡片即可，自动展开会让右栏莫名其妙弹出来。
     const listed = JSON.stringify({
       ok: true,
       action: 'items.list',
@@ -57,10 +61,16 @@ describe('parsePlatformUiFeedback', () => {
     expect(ui).not.toBeNull()
     expect(ui?.actions?.[0]?.openStage?.kind).toBe('shell-page')
     expect(ui?.actions?.[0]?.openStage?.data?.path).toBe('/tasks/items')
-    expect(ui?.actions?.[0]?.autoOpen).toBe(true)
+    expect(ui?.actions?.[0]?.autoOpen).toBeFalsy()
   })
 
-  it('items.create enriches shell-page autoOpen for V4 right stage', () => {
+  // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：本用例原断言 items.create 的 autoOpen===true，现反转为不自动开。
+  // 为什么：items.create 不在后端 AUTO_OPEN_ACTIONS 里（should_auto_open 返 False），
+  // 前端原先有一行硬编码 `autoOk || action === 'items.create' ...` 把统一判据整个
+  // 绕过了——这就是用户说的「莫名其妙打开右栏」。判据改为只认 autoOk 后，
+  // 这条断言按旧值必红，反转后才是与真源同口径。
+  it('items.create 出可点卡片但不再自动展开右栏', () => {
     const raw = JSON.stringify({
       ok: true,
       action: 'items.create',
@@ -76,10 +86,105 @@ describe('parsePlatformUiFeedback', () => {
       },
     })
     const ui = parsePlatformUiFeedback(raw)
-    expect(ui?.actions?.[0]?.autoOpen).toBe(true)
+    // 卡片仍在（用户可点开），只是不抢视线
     expect(ui?.actions?.[0]?.openStage?.kind).toBe('shell-page')
     expect(ui?.actions?.[0]?.openStage?.data?.path).toBe('/tasks/items')
     expect(ui?.actions?.[0]?.openStage?.data?.mountId).toBe('items.board')
+    expect(ui?.actions?.[0]?.autoOpen).toBeFalsy()
+  })
+
+  // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：新增 3 条用例，锚住第88轮删掉的硬编码 OR。
+  // 为什么：第87轮只抓了 items.* 一处，同一文件还有 tasks.list / employees.list 三类 /
+  // workflow.run_status 三处绕过。**注意夹具必须命中被改的那条分支**——我第一版
+  // 用 route:'/proactive' 传 tasks.list，根本没进 /tasks 那段，重新注入 OR 仍然全绿，
+  // 等于没测（反证一跑就露）。
+  it('tasks.list 的 /tasks 卡片不自动展开右栏', () => {
+    const ui = parsePlatformUiFeedback(
+      JSON.stringify({
+        ok: true,
+        action: 'tasks.list',
+        ui: {
+          kind: 'success',
+          title: '任务列表',
+          domain: 'tasks',
+          action: 'tasks.list',
+          actions: [{ label: '打开任务', route: '/tasks' }],
+        },
+      }),
+    )
+    const cta = (ui?.actions || []).find((a) => a.openStage?.kind === 'shell-page')
+    expect(cta).toBeTruthy()
+    expect(cta?.openStage?.data?.path).toBe('/tasks')
+    expect(cta?.autoOpen).toBeFalsy()
+  })
+
+  for (const action of ['employees.list', 'employees.org_status', 'employees.board_overview']) {
+    it(`${action} 的 /proactive 看板卡片不自动展开右栏`, () => {
+      const ui = parsePlatformUiFeedback(
+        JSON.stringify({
+          ok: true,
+          action,
+          ui: {
+            kind: 'success',
+            title: '员工看板',
+            domain: 'employees',
+            action,
+            actions: [{ label: '打开 BOT', route: '/proactive' }],
+          },
+        }),
+      )
+      const cta = (ui?.actions || []).find((a) => a.openStage?.kind === 'shell-page')
+      expect(cta).toBeTruthy()
+      expect(cta?.openStage?.data?.path).toBe('/proactive')
+      expect(cta?.autoOpen).toBeFalsy()
+    })
+  }
+
+  it('workflow.run_status 不自动展开工作流图（真跑的 run 仍开）', () => {
+    // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：拆成「带 route / 不带 route」两条夹具。
+    // 为什么：enrich 里 workflow 有**两条**产生 collab-workflow 的分支——
+    // ① 已有 CTA 且 route 是 /apps/…/run → 原地升级；② 没有可升级的 CTA → unshift 补一条。
+    // 我第一版只给了带 route 的夹具，unshift 那条根本没执行；把 `autoOpen: true` 写回去
+    // 测试照样全绿（反证一跑就露）。两条都必须单独锚住。
+    const mk = (action, actions) =>
+      parsePlatformUiFeedback(
+        JSON.stringify({
+          ok: true,
+          action,
+          ui: {
+            kind: 'success',
+            title: '工作流',
+            domain: 'workflow',
+            action,
+            // tid 取自 entityId（enrich 里 `tid = siblingTid || entityId`）
+            entityId: 'mt-1',
+            actions,
+          },
+        }),
+      )
+    const runRoute = [{ label: '打开工作流', route: '/apps/App_1/run?runId=r-1' }]
+    const noRoute = [{ label: '打开工作流' }]
+
+    for (const [tag, actions] of [
+      ['升级分支', runRoute],
+      ['unshift 分支', noRoute],
+    ]) {
+      for (const [action, expectAuto] of [
+        ['workflow.run_status', false],
+        ['workflow.run', true],
+      ]) {
+        const ui = mk(action, actions)
+        const ctas = (ui?.actions || []).filter(
+          (a) => a.openStage?.kind === 'collab-workflow',
+        )
+        expect(ctas.length, `${tag}/${action} 没生成工作流 CTA`).toBeGreaterThan(0)
+        for (const c of ctas) {
+          expect(c.autoOpen, `${tag}/${action} autoOpen 不符`).toBe(expectAuto)
+        }
+      }
+    }
   })
 
   it('reads preserved appearance settings after output slimming', () => {
@@ -394,31 +499,24 @@ describe('V4 platform_ui progress display', () => {
 })
 
 describe('tryEagerAutoOpenPlatformFromArgs', () => {
-  it('employees.list args 即可拉开员工名册，不必等 RESULT', async () => {
+  it('employees.list args 不再自动拉开右栏（只读：只给通知卡）', async () => {
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：断言从 opened===true 反转为不开。
+    // 为什么：用户 2026-11-20 要求「有通知就够了，右侧不要突然展开」。
+    // employees.list 是纯只读查询，模型每查一次名单就弹右栏正是要修的毛病。
     const { tryEagerAutoOpenPlatformFromArgs } = await import(
       '../src/lib/right-stage/platform-feedback.ts'
     )
     const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
     rightStageStore.hideAll()
-    // f31b7138 起 hideAll 会钉住「收起锁」；补一次显式展开，模拟「用户未收起」，
-    // 这样 eager 打开员工名册才会把面板留在展开态。
     rightStageStore.expand()
     const diag = tryEagerAutoOpenPlatformFromArgs(
       JSON.stringify({ action: 'employees.list' }),
       { toolCallId: 'eager-emp-list-1', toolName: 'platform' },
     )
-    expect(diag.opened).toBe(true)
-    expect(diag.action).toBe('employees.list')
+    expect(diag.opened).toBe(false)
     const snap = rightStageStore.getSnapshot()
-    expect(snap.collapsed).toBe(false)
-    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(true)
-    // 同 toolCallId 不重复开
-    expect(
-      tryEagerAutoOpenPlatformFromArgs(JSON.stringify({ action: 'employees.list' }), {
-        toolCallId: 'eager-emp-list-1',
-        toolName: 'platform',
-      }).reason,
-    ).toBe('already-eager')
+    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(false)
   })
 
   it('employees.wake args 拉开 employeeProcess', async () => {
@@ -435,6 +533,131 @@ describe('tryEagerAutoOpenPlatformFromArgs', () => {
     expect(rightStageStore.getSnapshot().tabs.some((t) => t.kind === 'employeeProcess')).toBe(
       true,
     )
+  })
+
+  it('契约声明某 EAGER 动作不自动展开时，args 阶段也不开（真源优先）', async () => {
+    // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：新增本用例，钉住「EAGER 表不再单独决定开不开」。
+    // 为什么：EAGER 表原本直接写 autoOpen:true，绕过真源判据——是同一文件里
+    // 第 5 处私有白名单。它的 4 个成员当时恰好都在自动展开白名单里，
+    // 所以旧代码在这条用例下才会红、旧测试全绿也发现不了。
+    const { __resetRightPanelContractCache, loadRightPanelContract } = await import(
+      '../src/lib/right-stage/right-panel-contract.ts'
+    )
+    const { tryEagerAutoOpenPlatformFromArgs } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+
+    __resetRightPanelContractCache()
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          kinds: [{ kind: 'employeeProcess', required: ['data.agentCode'] }],
+          autoOpenActions: [],
+          readOnlyActions: ['employees.wake'],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      )
+    let contract
+    try {
+      contract = await loadRightPanelContract()
+    } finally {
+      globalThis.fetch = prevFetch
+    }
+    // 契约必须真的加载成功，否则下面走的是兜底分支，本用例就测了个寂寞
+    expect(contract.ok).toBe(true)
+
+    rightStageStore.hideAll()
+    rightStageStore.expand()
+    const diag = tryEagerAutoOpenPlatformFromArgs(
+      JSON.stringify({ action: 'employees.wake', agent_code: 'clerk' }),
+      { toolCallId: 'eager-wake-contract-1', toolName: 'platform' },
+    )
+    expect(diag.opened).toBe(false)
+    expect(rightStageStore.getSnapshot().tabs.some((t) => t.kind === 'employeeProcess')).toBe(
+      false,
+    )
+    __resetRightPanelContractCache()
+  })
+
+  it('用线上真实接口载荷回放：用户抱怨的那 5 个动作都不再自动开右栏', async () => {
+    // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：新增本用例，夹具直接读 __fixture_live_kinds.json（= 重启后线上接口原样返回体）。
+    // 为什么：前面几条用例的契约都是我手写的「期望值」，等于自己出题自己判卷。
+    // 这条拿**真机返回的字节**灌进前端，验证前端认的就是后端此刻真给的那份 —— 断掉的
+    // 恰恰是最常见的「函数层绿、接线层错」那一米。
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const { fileURLToPath } = await import('node:url')
+    const here = path.dirname(fileURLToPath(import.meta.url))
+    const live = JSON.parse(
+      fs.readFileSync(path.join(here, '__fixture_live_kinds.json'), 'utf8'),
+    )
+    // 夹具必须是「真·线上口径」，否则本用例名不副实
+    expect(live.ok).toBe(true)
+    expect(live.count).toBe(8)
+    expect(live.autoOpenActions).not.toContain('tasks.update')
+    expect(live.readOnlyActions).toHaveLength(21)
+
+    const { __resetRightPanelContractCache, loadRightPanelContract } = await import(
+      '../src/lib/right-stage/right-panel-contract.ts'
+    )
+    const { tryEagerAutoOpenPlatformFromArgs } = await import(
+      '../src/lib/right-stage/platform-feedback.ts'
+    )
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+
+    __resetRightPanelContractCache()
+    const prevFetch = globalThis.fetch
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify(live), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    let contract
+    try {
+      contract = await loadRightPanelContract()
+    } finally {
+      globalThis.fetch = prevFetch
+    }
+    expect(contract.ok).toBe(true)
+    // 前端吃进去的条数必须与线上一致（证明字段名透传没丢）
+    expect(contract.autoOpenActions).toHaveLength(13)
+    expect(contract.readOnlyActions).toHaveLength(21)
+
+    // 用户投诉「右侧突然展开」的那几个动作：只读类必须不再开
+    const readOnlyComplaints = [
+      'tasks.list',
+      'employees.list',
+      'employees.get',
+      'employees.brief',
+      'tasks.get',
+      'workflow.run_status',
+    ]
+    for (const action of readOnlyComplaints) {
+      rightStageStore.hideAll()
+      rightStageStore.expand()
+      const before = rightStageStore.getSnapshot().tabs.length
+      const diag = tryEagerAutoOpenPlatformFromArgs(
+        JSON.stringify({ action, agent_code: 'clerk', task_id: 't-1' }),
+        { toolCallId: `live-ro-${action}`, toolName: 'platform' },
+      )
+      expect(diag.opened, `${action} 不该自动开右栏`).toBe(false)
+      expect(rightStageStore.getSnapshot().tabs.length).toBe(before)
+    }
+
+    // 真在办事的写动作仍要开：能力没被砍掉
+    rightStageStore.hideAll()
+    const wake = tryEagerAutoOpenPlatformFromArgs(
+      JSON.stringify({ action: 'employees.wake', agent_code: 'clerk' }),
+      { toolCallId: 'live-wake-1', toolName: 'platform' },
+    )
+    expect(wake.opened).toBe(true)
+
+    __resetRightPanelContractCache()
   })
 
   it('incomplete JSON / 无关 action 不开栏', async () => {

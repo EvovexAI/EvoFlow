@@ -890,7 +890,7 @@ def _root_task_sql_filters(
             """
             NOT (
               LOWER(COALESCE(json_extract(extra_json, '$.source_channel'), ''))
-                IN ('status_check', 'upstream_receipt', 'proactive_patrol')
+                IN ('status_check', 'upstream_receipt', 'proactive_patrol', 'dev_probe')
               OR name LIKE '【巡检】%'
               OR name LIKE '【值班】%'
               OR name LIKE '[巡检]%'

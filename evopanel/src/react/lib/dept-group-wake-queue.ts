@@ -18,6 +18,14 @@ export type WakeJobSnapshot = {
   error?: string
   /** 触发这条叫醒的消息（用于派工条对状态） */
   sourceMsgId?: string
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+   * 恢复队列时需要它们才能重建防环语义：depth 决定「是不是新一轮用户点名」，
+   * chainKey 决定 A→B→C 是否成环。没有这两个字段，刷新后恢复出来的任务
+   * 会把「嵌套叫醒」当成「用户点名」，从而绕开防环。
+   */
+  depth?: number
+  chainKey?: string
   updatedAt: number
 }
 
@@ -162,6 +170,10 @@ export class DeptGroupWakeQueue {
         attempts: j.attempts,
         error: j.error,
         sourceMsgId: j.sourceMsgId,
+        // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+        // 必须透出，否则恢复队列时防环语义丢失
+        depth: j.depth,
+        chainKey: j.chainKey,
         updatedAt: j.updatedAt,
       }))
       .sort((a, b) => a.updatedAt - b.updatedAt)

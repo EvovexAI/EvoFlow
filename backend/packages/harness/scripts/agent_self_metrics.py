@@ -61,8 +61,18 @@ DEFAULT_SLOW_MS = 3000.0  # 与 EVOFLOW_TOOL_OBS_SLOW_MS 默认值保持一致
 # 时间窗口一律在 Python 侧过滤（见 _in_window）：两表 started_at 都是 ISO 文本，
 # 但历史写入的时区写法不统一（+08:00 / Z / 无偏移），按字典序在 SQL 里比 >= <= 会整体错位 ——
 # 实测这样捞模型表会返回 0 行（该 agent 明明有 1704 行 main）。统一交给 _parse_ts 吸收。
+# 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：多取 ``substr(output_text,1,240)`` 当 ``output_head``。
+# 为什么：``error_message`` 这一列是 **11-16 才开始填充**的——现网实测 11-12~11-15 的
+# 非成功行里空 message 分别是 92/24/61/3 条，11-16 起才是 0 条。于是任何
+# 「前半期 vs 后半期」对比，都会把 11-16 之前的**老错误**整片算成「(无类型)」，
+# 后半期自然多出一堆「新增报错模式」。我这轮就被它骗了一次：表上写着
+# ``↑ assets · write_path_not_allowed  后半 14 次 / 前半 2 次``，
+# 换成 output_text 复核才发现前半期同样有 30 次、只是当时没写进 error_message。
+# 判据：message 为空时从工具返回原文的**头部**取签名，绝不把「没记账」读成「没发生」。
 _TOOL_ROWS_SQL = """
-    SELECT tool_name, status, error_type, error_message, duration_ms, queue_wait_ms, started_at
+    SELECT tool_name, status, error_type, error_message, duration_ms, queue_wait_ms, started_at,
+           substr(coalesce(output_text, ''), 1, 240) AS output_head
     FROM evoflow_obs_tool_invocations
     WHERE agent_code IN ({placeholders})
 """
@@ -190,6 +200,26 @@ def _tool_stats(rows: list[dict[str, Any]], slow_ms: float) -> dict[str, Any]:
     }
 
 
+def _error_signature_text(r: dict[str, Any]) -> str:
+    """取用于归类的报错文本：优先 ``error_message``，空则回落到工具返回原文头部。
+
+    【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么：``error_message`` 是 11-16 才补齐的列（11-12~11-15 有 92/24/61/3 条空），
+    只认它会把 11-16 之前的全部老错误压成「(无类型)」，前后半对比必然报假新增。
+    回落文本从头部取，避免把「正文里恰好提到某个错误词」的**成功输出**误当报错——
+    工具的错误信封（``{"ok": false...}`` / ``Error:``）都在开头，正文不会跑到第 1 行。
+    """
+    msg = str(r.get("error_message") or "").strip()
+    if msg:
+        return msg
+    head = str(r.get("output_head") or "")
+    first = head.strip().splitlines()[0] if head.strip() else ""
+    # 只认「确实是错误信封」的头部，否则宁可空着（空签名比假签名好）
+    if '"ok": false' in first or first.startswith("Error:") or "已拦截" in first:
+        return first
+    return ""
+
+
 def _failure_signature(rows: list[dict[str, Any]]) -> dict[tuple[str, str], int]:
     """(tool, error_type) → 次数。error_type 太粗时补 message 首个关键词，避免整类糊成一个。"""
     sig: dict[tuple[str, str], int] = {}
@@ -198,7 +228,7 @@ def _failure_signature(rows: list[dict[str, Any]]) -> dict[tuple[str, str], int]
             continue
         tool = str(r.get("tool_name") or "?")
         etype = str(r.get("error_type") or "").strip() or "(无类型)"
-        msg = str(r.get("error_message") or "").strip()
+        msg = _error_signature_text(r)
         stub = _message_stub(msg) if msg else ""
         # 【self-evolution-bot · 2026-11-16 · 第19轮】error_type 与文案首词相同时别印两遍：
         # 现网实测出现 ``write_path_not_allowed::write_path_not_allowed``，读起来像两个不同的东西。

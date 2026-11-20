@@ -197,6 +197,99 @@ export async function ensureDeptGroupSession(opts: {
   return sk
 }
 
+const MIRROR_ID_PREFIX = 'dept-reply-'
+
+function isMirrorMsg(m: DeptGroupTimelineMsg): boolean {
+  return String(m?.id || '').startsWith(MIRROR_ID_PREFIX)
+}
+
+/**
+ * 读取侧兜底去重：**只**在「后端镜像条目」与「前端气泡」互为重复时合并。
+ *
+ * 为什么需要：后端镜像（dept-reply-*）与前端气泡（agent-*）是两条独立写入路径。
+ * 镜像优先接管前端占位行，但占位行若比镜像晚落库，就会各留一条 → 群里同一句
+ * 出现两遍。写入侧已尽力，读取侧再兜一层。
+ *
+ * 判据的边界（故意收窄，宁可少删不可多删）：
+ * - 只有「一条带 dept-reply- 前缀、另一条不带」才算同一句的两份拷贝；
+ * - 两条都是前端气泡（同一 Agent 两轮都回「收到」）→ **都留**，那是两次真实发言；
+ * - 两条都是镜像、id 不同 → 也留，确定性键不同说明是不同轮次；
+ * - 窗口 10 分钟；命中时保留非镜像那条（带 wakeJobId/workSessionKey，交互信息更全），
+ *   并且**原位替换**，不打乱时间顺序。
+ *
+ * 另有一类专门处理：**幽灵占位行**——正文为空、`streaming` 一直没定稿的前端气泡
+ * （前端跑到一半被关掉就会留下）。现网实测它比镜像晚 19 秒落库，若不过滤，
+ * 群里会出现「（回复未完成）」+ 真实回复两条。
+ *
+ * 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+ */
+export function dedupeMirroredReplies(
+  msgs: DeptGroupTimelineMsg[],
+  opts?: { windowMs?: number },
+): DeptGroupTimelineMsg[] {
+  const windowMs = opts?.windowMs ?? 10 * 60 * 1000
+  const norm = (t: string) => String(t || '').replace(/\s+/g, ' ').trim()
+  const kept: DeptGroupTimelineMsg[] = []
+  const seen = new Map<string, number[]>()
+  for (const m of msgs) {
+    const text = m.kind === 'agent' ? norm(m.text) : ''
+    if (!text) {
+      kept.push(m)
+      continue
+    }
+    const key = `${m.agentCode || ''}::${text}`
+    const idxs = seen.get(key) || []
+    const mirror = isMirrorMsg(m)
+    const dupIdx = idxs.find((idx) => {
+      const other = kept[idx]
+      if (Math.abs((other?.ts || 0) - (m.ts || 0)) > windowMs) return false
+      // 只有「镜像 ↔ 前端」这一对才算重复；同类条目一律各留
+      return isMirrorMsg(other) !== mirror
+    })
+    if (mirror && dupIdx !== undefined) {
+      // 镜像让位
+      continue
+    }
+    if (!mirror && dupIdx !== undefined) {
+      // 前端那条后到：原位替换镜像条目（顺序不变，信息更全）
+      kept[dupIdx] = m
+      continue
+    }
+    idxs.push(kept.length)
+    seen.set(key, idxs)
+    kept.push(m)
+  }
+
+  // 幽灵占位行：正文空 + 仍停在 streaming + **确认已死** + 同发言人已有一条镜像回复。
+  //
+  // 时间基准不能直接用 `m.ts`：现网实测那条幽灵行的 `created_at` 是**裸 UTC 串**
+  // （`2026-11-20 00:12:00`，实为本地 08:12），前端按本地解析得到 8 小时前，
+  // 与镜像行差 -480 分钟 → 只按 ts 比窗口永远抓不到它。所以时间优先取
+  // 前端气泡 id 末段的毫秒（`agent-{code}-{epochMs}`，不受时区写法影响；
+  // 现网样本：id 末段 1795133520906 vs 镜像 1795133501753，差 19s）。
+  //
+  // 「确认已死」这一条不能省：用户再次 @ 同一人时，前端会先写一条同人的空占位
+  // （正文空、streaming），若只按「同人时间相近」过滤，会把**正在流式中**的
+  // 真气泡提前删掉。判据是它已经超过 STREAMING_STALE_MS（15 分钟）——活着的前端
+  // 早就 finalize 了，超窗还空着就是跑到一半被杀掉的残留。
+  const timeOf = (m: DeptGroupTimelineMsg): number => {
+    const hit = /(\d{12,})$/.exec(String(m?.id || ''))
+    const fromId = hit ? Number(hit[1]) : NaN
+    return Number.isFinite(fromId) ? fromId : Number(m.ts || 0)
+  }
+  const now = Date.now()
+  const mirrorReplies = kept.filter((m) => isMirrorMsg(m) && norm(m.text))
+  return kept.filter((m) => {
+    if (m.kind !== 'agent' || norm(m.text) || !m.streaming) return true
+    // 还活着（未超 stale 窗口）→ 正在流式输出，必须留
+    if (now - Number(m.ts || 0) < STREAMING_STALE_MS) return true
+    const at = timeOf(m)
+    return !mirrorReplies.some(
+      (r) => r.agentCode === m.agentCode && Math.abs(timeOf(r) - at) <= windowMs,
+    )
+  })
+}
+
 export async function loadDeptGroupMessages(
   deptId: string,
   opts?: {
@@ -221,7 +314,7 @@ export async function loadDeptGroupMessages(
     const mapped = rows
       .map((r: any) => mapApiRowToDeptGroupMsg(r))
       .filter(Boolean) as DeptGroupTimelineMsg[]
-    const cleaned = staleStreamingToError(mapped)
+    const cleaned = staleStreamingToError(dedupeMirroredReplies(mapped))
     if (finalizeStale) {
       for (const before of mapped) {
         if (!before.streaming) continue

@@ -37,6 +37,14 @@ from PIL import Image
         "time rg foo",
         "FOO=1 rg foo",
         "find . -name '*.py'",
+        # 现网主流：cd … && 只读（此前 && 一刀切导致误弹授权）
+        "cd /d/dev/github/EvoFlow && git log --oneline -4",
+        'cd "D:/dev/github/EvoFlow" && git log --oneline -4 -- backend/x.py',
+        "cd /d/repo && git status",
+        "cd /d/repo && rg pattern src/ | head -5",
+        "cd /d/repo && cat a && cat b",
+        "cat a && cat b",  # 纯只读 && 链也应放行
+        "cd /d X:\\repo && git diff HEAD",
     ],
 )
 def test_readonly_commands(command: str) -> None:
@@ -50,7 +58,6 @@ def test_readonly_commands(command: str) -> None:
     [
         "rm -rf x",
         "echo hi > f.txt",
-        "cat a && cat b",
         "cat a; cat b",
         "echo `rm x`",
         "echo $(rm x)",
@@ -76,6 +83,10 @@ def test_readonly_commands(command: str) -> None:
         "bash -c 'rm x'",
         "sed -i 's/a/b/' f.txt",
         "cat f | tee out.txt",
+        # cd 链上混入写操作仍要拦
+        "cd /tmp && rm -rf x",
+        "cd /repo && git push origin main",
+        "cd /repo && echo hi > f.txt",
     ],
 )
 def test_not_readonly_commands(command: str) -> None:
@@ -91,6 +102,15 @@ def test_tool_risk_level_readonly_bypass() -> None:
     assert tool_risk_level("bash", {"command": "rg pattern src/"}) == RISK_AUTO
     assert tool_risk_level("bash", {"command": "rm -rf x"}) == RISK_CONFIRM
     assert tool_risk_level("bash", {"command": ""}) == RISK_CONFIRM
+    # 复现现场：cd && git log 不应再 confirm
+    incident = (
+        "cd D:/dev/github/EvoFlow && git log --oneline -4 -- "
+        "backend/packages/harness/evoflow/tools/builtins/browser_debug_log.py"
+    )
+    assert tool_risk_level("bash", {"command": incident}) == RISK_AUTO
+    from evoflow.agents.tool_approval_config import tool_requires_approval
+
+    assert tool_requires_approval("bash", {"command": incident}) is False
 
 
 # ── Read file_unchanged short-circuit ───────────────────────────────────────

@@ -109,6 +109,35 @@ def test_late_usage_event_after_finish_stamps(clean_hub) -> None:
     assert texts[0]["usage"]["inputTokens"] == 1200
 
 
+def test_usage_stamped_when_run_finished_never_arrives(clean_hub) -> None:
+    """正文已封口、usage 到达，但 RUN_FINISHED 永远不来（用户停止/断线/上游漏发）。
+
+    【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本用例，锁住「轮进行中当场补盖轮尾行」这条路径。
+    为什么：HEAD 版本只在 ``not run_started and last_turn_success`` 时盖章，即**必须**
+    先收到 RUN_FINISHED。缺 FINISHED 时 usage 只暂存在 ``st.turn_usage``，下一轮
+    ``_reset_turn_ephemeral`` 一清就永久丢失。实测（同序列，仅差有无 FINISHED）：
+    HEAD → usage 保住 False；修后 → True。此用例在 HEAD 上必红。
+    """
+    tid = clean_hub("nofinish")
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "问一句", message_id="u-nf-1")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-1"},
+            {"type": "TEXT_MESSAGE_START", "messageId": "m1"},
+            {"type": "TEXT_MESSAGE_CONTENT", "messageId": "m1", "delta": "答一"},
+            {"type": "TEXT_MESSAGE_END", "messageId": "m1"},
+            # 故意不发 RUN_FINISHED
+            {"type": "CUSTOM", "name": "usage", "value": {"type": "usage", "usage": _USAGE}},
+        ],
+    )
+    texts = _texts(tid, "run-1")
+    assert len(texts) == 1, texts
+    assert texts[0]["usage"]["inputTokens"] == 1200, "缺 RUN_FINISHED 时用量被永久丢弃"
+
+
 def test_failed_turn_not_stamped(clean_hub) -> None:
     """失败轮不盖 usage（V4 动作行不渲染，也没有可信的轮累计）。"""
     tid = clean_hub("failed")
@@ -149,9 +178,21 @@ def test_usage_event_without_usage_payload_ignored(clean_hub) -> None:
 
 
 def test_next_turn_resets_usage_context(clean_hub) -> None:
-    """开新轮必须清上一轮的 usage 记账，避免旧累计盖到新轮正文行。"""
+    """开新轮必须清上一轮的 usage 记账，避免旧累计盖到新轮正文行。
+
+    【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：run-2 前补 ``note_user_input``，让它成为**真·新轮**。
+    为什么：本用例 2026-11-15 写入时还没有「无用户输入的 RUN_STARTED 续跑挂回上一
+    product turn」这条规则；2026-11-17 的 26b62808 加上该规则后，这个用例的 run-2
+    被当成内部续跑挂回 run-1，``_texts(tid,"run-2")`` 必然为空 —— 红的是**测试假设**，
+    不是代码：同批次 ``test_agui_mirror_multi_turn.py::test_finished_then_run_without_user_reuses_turn``
+    明确要求「无用户输入时必须挂回同轮、左栏不得劈成两截」，两条用例的事件序列
+    原本一模一样却期望相反。补用户输入后二者不再冲突，且本用例才真正测到它
+    docstring 声称的「开新轮」。
+    """
     tid = clean_hub("reset")
     mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "第一问", message_id="u-reset-1")
     mirror.feed_events(
         tid,
         [
@@ -162,6 +203,7 @@ def test_next_turn_resets_usage_context(clean_hub) -> None:
             {"type": "RUN_FINISHED", "threadId": tid, "runId": "run-1"},
         ],
     )
+    mirror.note_user_input(tid, "第二问", message_id="u-reset-2")
     mirror.feed_events(
         tid,
         [

@@ -895,8 +895,11 @@ def _skip_observability_startup_preflight() -> bool:
 def preflight_database_startup(path: Path, *, label: str = "") -> bool:
     """Fast boot path: ``quick_check`` + passive WAL checkpoint (never blocks on multi-GB integrity_check).
 
-    Full ``integrity_check`` + TRUNCATE repair runs in background via
-    :func:`schedule_deferred_full_preflight` after ``ready to serve``.
+    A cheap ``quick_check`` + PASSIVE checkpoint runs in background via
+    :func:`run_deferred_full_preflight` after ``ready to serve``.
+    Full ``integrity_check`` is opt-in only (``EVOFLOW_STARTUP_DB_PREFLIGHT=full``):
+    on 2026-11-20 it cost 5m14s of default-pool time on 5.6GB of databases.
+    【self-evolution-bot · 2026-11-20 · 第70轮】
     """
     tag = label or path.name
     mode = _startup_preflight_mode()
@@ -1035,8 +1038,80 @@ def preflight_database(path: Path, *, label: str = "") -> bool:
                 pass
 
 
+def preflight_database_deferred(path: Path, *, label: str = "") -> bool:
+    """Post-``ready to serve`` background check — intentionally the CHEAP variant.
+
+    【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：延后全量 preflight 从 ``preflight_database``（full integrity_check +
+    WAL TRUNCATE）换成 ``quick_check`` + ``PASSIVE`` checkpoint。
+    为什么：2026-11-20 07:32:17→07:37:31 现网日志空窗 5 分 14 秒，期间默认线程池被
+    这条 preflight 独占，``/api/tasks`` 排队 10s 直接 503、``/api/mcp/config`` 等到 26s。
+    换池只能解排队，不能让这 5 分钟消失——第36轮已记「差值消失不等于路径变轻」，
+    所以必须同时把它本身变轻。实测（2026-11-20，只读打开）：
+      evoflow.db 3217MB  quick_check  9441ms
+      observability.db 2460MB quick_check 13366ms
+    对照 full integrity_check + TRUNCATE 的 314s，降两个数量级。
+    为什么敢降级：``PRAGMA integrity_check`` 是**诊断**不是**修复**，它发现损坏也只会
+    打日志然后 degraded 运行；启动期已由 ``preflight_database_startup`` 做过 quick_check。
+    真要全量仍可用 ``EVOFLOW_STARTUP_DB_PREFLIGHT=full`` 显式开启（保留逃生舱）。
+    遥测库默认直接跳过：它是可丢弃的（retention 每日裁剪），不值得为它每次启动扫 2.4GB。
+    """
+    tag = label or path.name
+    mode = _startup_preflight_mode()
+    if mode == "skip":
+        return True
+    if mode == "full":
+        # 显式要求全量时才跑 integrity_check + TRUNCATE（启动期 5 分钟级的老行为）。
+        return preflight_database(path, label=label)
+    if _skip_observability_startup_preflight() and (
+        "observability" in tag.lower() or "observability" in str(path).lower()
+    ):
+        logger.info(
+            "deferred preflight: %s skipped (telemetry DB; disposable)", tag
+        )
+        return True
+
+    if not path.is_file():
+        return True
+
+    conn: sqlite3.Connection | None = None
+    t0 = time.perf_counter()
+    try:
+        conn = sqlite3.connect(str(path), timeout=10.0)
+        conn.execute("PRAGMA busy_timeout=3000")
+        result = _quick_check(conn)
+        if result != "ok":
+            logger.error("deferred preflight: %s quick_check FAILED: %s", tag, result[:500])
+            return False
+        try:
+            _wal_checkpoint_passive(conn)
+        except sqlite3.OperationalError as exc:
+            logger.debug("deferred preflight: %s passive checkpoint failed: %s", tag, exc)
+        logger.info(
+            "deferred preflight: %s quick_check=ok size=%.1fMB elapsed=%.0fms",
+            tag,
+            _db_size_mb(path),
+            (time.perf_counter() - t0) * 1000.0,
+        )
+        return True
+    except Exception as exc:
+        logger.error("deferred preflight: %s unexpected error: %s", tag, exc, exc_info=True)
+        return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+
 def run_deferred_full_preflight(*, base_dir: Path | None = None) -> dict[str, bool]:
-    """Background full ``integrity_check`` + TRUNCATE WAL (post ``ready to serve``)."""
+    """Background DB health pass (post ``ready to serve``) — cheap by design.
+
+    Runs :func:`preflight_database_deferred` per database: ``quick_check`` plus a
+    PASSIVE WAL checkpoint. The old full ``integrity_check`` + ``wal_checkpoint
+(TRUNCATE)`` version is still reachable via ``EVOFLOW_STARTUP_DB_PREFLIGHT=full``.
+    """
     from evoflow.config.data_paths import (
         checkpoints_db_path,
         observability_db_path,
@@ -1064,7 +1139,7 @@ def run_deferred_full_preflight(*, base_dir: Path | None = None) -> dict[str, bo
     results: dict[str, bool] = {}
     for label, db_path in paths:
         try:
-            ok = preflight_database(db_path, label=label)
+            ok = preflight_database_deferred(db_path, label=label)
             results[label] = ok
         except Exception:
             logger.exception("deferred full preflight failed: %s", label)

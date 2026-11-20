@@ -409,16 +409,23 @@ export function renderRightStageBody(
       wsClient?.getSessionThreadId?.(selectedSessionKey || '') || '',
     )
     return sidePanelHeavyMount ? (
-      <V4SubagentTranscriptPane
-        taskId={taskId}
-        title={String(surface.title || data.title || '子代理')}
-        sessionKey={String(data.sessionKey || selectedSessionKey || '')}
-        fallbackText={typeof data.fallbackText === 'string' ? data.fallbackText : undefined}
-        fallbackStatus={typeof data.fallbackStatus === 'string' ? data.fallbackStatus : undefined}
-        parentThreadId={parentThreadId || undefined}
-        liveTask={liveTask as { phase?: string; liveOutput?: string; progressHint?: string; error?: string } | undefined}
-        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
-      />
+      // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：给 V4SubagentTranscriptPane 包上 RightStageTabErrorBoundary。
+      // 为什么：子代理 transcript 是对话类面板之一，此前与 employeeProcess /
+      // collab-* 一样没被 boundary 包住；它内部要消费实时 liveOutput 与多键回退，
+      // 异常概率不低，崩了会连累整条右栏。
+      <RightStageTabErrorBoundary title={String(surface.title || '子代理输出')}>
+        <V4SubagentTranscriptPane
+          taskId={taskId}
+          title={String(surface.title || data.title || '子代理')}
+          sessionKey={String(data.sessionKey || selectedSessionKey || '')}
+          fallbackText={typeof data.fallbackText === 'string' ? data.fallbackText : undefined}
+          fallbackStatus={typeof data.fallbackStatus === 'string' ? data.fallbackStatus : undefined}
+          parentThreadId={parentThreadId || undefined}
+          liveTask={liveTask as { phase?: string; liveOutput?: string; progressHint?: string; error?: string } | undefined}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title={surface.title || '子代理输出'} />
     )
@@ -427,9 +434,24 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const subtaskId = String(data.subtaskId || '').trim()
     const mainTaskId = String(data.mainTaskId || collabSubtasksTaskId || sidebarActiveTaskId || '').trim()
-    if (!subtaskId || !mainTaskId) return null
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：① 缺参不再静默 return null，改为说出缺哪几个字段；
+    // ② 给 V4CollabSubtaskTranscriptPane 包上 RightStageTabErrorBoundary。
+    // 为什么：契约里 collabSubtaskTranscript 必需 mainTaskId + subtaskId，
+    // 缺了就空白一片用户无法分辨；而它同样是用户常看的进度面板，
+    // 未包 boundary 时内部异常会连累整条右栏（与 employeeProcess 同一处口径）。
+    if (!subtaskId || !mainTaskId) {
+      const miss = [!mainTaskId && 'mainTaskId', !subtaskId && 'subtaskId'].filter(Boolean)
+      return (
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-4 text-ui-sm text-foreground-subtlest">
+          <p>无法打开「协作节点进度」：缺少 {miss.join(' / ')}</p>
+          <p className="text-[11px]">可由模型调用 platform action=ui.kinds 查看该面板所需参数</p>
+        </div>
+      )
+    }
     return sidePanelHeavyMount ? (
-      <V4CollabSubtaskTranscriptPane
+      <RightStageTabErrorBoundary title={String(surface.title || '节点进度')}>
+        <V4CollabSubtaskTranscriptPane
         mainTaskId={mainTaskId}
         subtaskId={subtaskId}
         leadThreadId={String(data.leadThreadId || chatThreadIdForSidebar || '').trim()}
@@ -445,7 +467,8 @@ export function renderRightStageBody(
             : null
         }
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
-      />
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title={surface.title || '节点进度'} />
     )
@@ -573,8 +596,14 @@ export function renderRightStageBody(
     )
   }
   if (kind === 'collab-workflow') {
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：给 CollabWorkflowStageBody 包上 RightStageTabErrorBoundary。
+    // 为什么：工作流图是协作任务的主视图，节点数据来自实时 threadPanelState，
+    // 未包 boundary 时任一节点渲染异常会崩掉整条右栏（其它签一起消失），
+    // 用户只看到空白。补齐后只坏这一签、并显示错误与「重试」。
     return sidePanelHeavyMount ? (
-      <CollabWorkflowStageBody
+      <RightStageTabErrorBoundary title={String(surface.title || '工作流')}>
+        <CollabWorkflowStageBody
         surface={surface}
         agents={agents}
         fallbackMainTaskId={String(collabSubtasksTaskId || sidebarActiveTaskId || '').trim()}
@@ -591,7 +620,8 @@ export function renderRightStageBody(
             ? () => closeCollabWorkflowSurface(surface)
             : closeCollabExecPanel
         }
-      />
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title="工作流" className="react-chat-right-stage-panel" />
     )
@@ -600,7 +630,19 @@ export function renderRightStageBody(
   if (kind === 'employeeProcess') {
     const data = surface.data || {}
     const agentCode = String(data.agentCode || '').trim()
-    if (!agentCode) return null
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：缺 agentCode 时不再 return null 静默空白，改为给出「缺什么」的提示。
+    // 为什么：静默空白 = 用户看到一个空面板、不知道是没数据还是坏了。
+    // 契约（right_panel_kinds.py）里 employeeProcess 必需 data.agentCode；
+    // 这里把违反契约的事实说出来，和 describeMissingFields 的文案口径一致。
+    if (!agentCode) {
+      return (
+        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-4 text-ui-sm text-foreground-subtlest">
+          <p>无法打开「员工执行过程」：缺少 agentCode</p>
+          <p className="text-[11px]">可由模型调用 platform action=ui.kinds 查看该面板所需参数</p>
+        </div>
+      )
+    }
     const roleName = String(data.roleName || '').trim()
     // 标题只用岗位/员工中文名；禁止把 agent_code 当标题传下去
     const empTitle = resolveEmployeeProcessTabTitle({
@@ -608,8 +650,14 @@ export function renderRightStageBody(
       roleName,
       agentCode,
     })
+    // 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：给 V4EmployeeProcessPane 包上 RightStageTabErrorBoundary。
+    // 为什么：它是用户最常看的进度面板，却和 terminal/asset/file/sessionRuntime 不同，
+    // 没被 boundary 包住——内部一抛异常整条右栏一起白屏（boundary 的 docstring 写明
+    // 存在的意义就是「不许一块 lazy chunk 崩掉整条 rail」）。补齐口径。
     return sidePanelHeavyMount ? (
-      <V4EmployeeProcessPane
+      <RightStageTabErrorBoundary title={empTitle || '执行过程'}>
+        <V4EmployeeProcessPane
         agentCode={agentCode}
         roleName={roleName}
         busy={!!data.busy}
@@ -622,7 +670,8 @@ export function renderRightStageBody(
         ).trim() || undefined}
         pendingSendMessage={String(data.pendingSendMessage || '').trim() || undefined}
         onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
-      />
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title={empTitle} />
     )

@@ -1161,14 +1161,56 @@ def collab_execution_gate_error(main_task_id: str, runtime_thread_id: str | None
     return None
 
 
-def find_open_main_task_id_by_name(storage: ProjectStorage, task_name: str) -> str | None:
-    """If a root task with this name exists in pending/planning, return its id (supervisor dedupe)."""
+def _is_open_task_status(status: str | None) -> bool:
+    """唯一出处在 evoflow.collab.task_status.is_open_status（第86轮下沉）。"""
+    from evoflow.collab.task_status import is_open_status
+
+    return is_open_status(status)
+
+
+def find_open_main_task_id_by_name(
+    storage: ProjectStorage,
+    task_name: str,
+    *,
+    assignee: str | None = None,
+) -> str | None:
+    """If a root task with this name exists in pending/planning, return its id (supervisor dedupe).
+
+    【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+    改动：① 旧判据只认 pending/planning 两态——executing/paused/awaiting_close 上的
+      同题单照样新建，「电商内容台单品洞察」两天 19 条就是这么来的；现在按上面
+      整个未结案状态集判"活着"。② 标题用 normalize_proactive_title 归一后比对
+      （dispatch 侧同款判据，同一件事两种写法能塌缩）；归一化不可用时退回原名精确匹配。
+      ③ 新增 assignee：只塌缩"同一归属"的同题单——跨员工同名是合法扇出，不拦。
+    该函数此前写好后 0 个调用点（第86轮现网取证）；本轮接进 admin.tasks.create_task。
+    """
+    want = str(task_name or "").strip()
+    if not want:
+        return None
+    who = str(assignee or "").strip().lower()
+    try:
+        from evoflow.proactive.title_similarity import normalize_proactive_title
+
+        want_norm = normalize_proactive_title(want) or want.lower()
+    except Exception:
+        normalize_proactive_title = None  # type: ignore[assignment]
+        want_norm = want.lower()
     for project_summary in storage.list_projects():
         project = storage.load_project(project_summary["id"])
         if not project:
             continue
         for task in project.get("tasks", []):
-            if task.get("name") == task_name and task.get("status") in ("pending", "planning"):
+            if not isinstance(task, dict):
+                continue
+            if not _is_open_task_status(task.get("status")):
+                continue
+            if who and str(task.get("assigned_to") or "").strip().lower() != who:
+                continue
+            name = str(task.get("name") or "").strip()
+            if not name:
+                continue
+            hit = (normalize_proactive_title(name) or name.lower()) == want_norm if normalize_proactive_title else name == want
+            if hit:
                 tid = task.get("id")
                 return str(tid) if tid else None
     return None

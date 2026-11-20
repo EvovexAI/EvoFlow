@@ -50,7 +50,7 @@ fn main() {
 
         // 【self-evolution-bot · 2026-11-19 · 第71轮】实机预览模式：
         //   cua_ring_probe --live 8   → 在真实主屏上画环并保持 8 秒
-        // 配合 EVOFLOW_CUA_RING_CAPTURABLE=1 可以截图肉眼确认（否则被排除捕获，截图看不见）。
+        // 配合 EVOFLOW_CUA_RING_CAPTURABLE=0 可模拟"排除捕获"分支（否则默认可截图）。
         {
             let args: Vec<String> = std::env::args().collect();
             if let Some(idx) = args.iter().position(|a| a == "--live") {
@@ -242,22 +242,27 @@ fn main() {
 
             // 【self-evolution-bot · 2026-11-19 · 第70轮】验「不污染 AI 自己的截图」
             // CUA 靠截图定位点击目标；环若出现在截图里会被误读成窗口边缘/可点区。
-            // WDA_EXCLUDEFROMCAPTURE = 17；验收开关 EVOFLOW_CUA_RING_CAPTURABLE=1 时应为 0。
+            //
+            // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+            // 口径随产品默认值反转：现在**默认可捕获（affinity=0）**，理由是远程控制/
+            // 串流本质是抓屏，排除捕获会让远端彻底看不到环，用户以为控制没在跑
+            // （现网实测 affinity=0x11 + A/B 像素差 0 已坐实）。要排除捕获得显式设
+            // EVOFLOW_CUA_RING_CAPTURABLE=0，此时 affinity 必须是 17。
             let affinity = display_affinity(hwnd);
             let capturable = std::env::var("EVOFLOW_CUA_RING_CAPTURABLE")
-                .map(|v| v == "1")
-                .unwrap_or(false);
+                .map(|v| v != "0")
+                .unwrap_or(true);
             println!("  GetWindowDisplayAffinity = {affinity}（17=排除捕获, 0=可捕获）");
             if capturable {
                 check!(
                     affinity == 0,
-                    "验收开关下可被截图（否则无法用截图自证）",
-                    format!("affinity={affinity}")
+                    "默认可被截图（远程控制/串流本质是抓屏，排除即等于看不见）",
+                    format!("affinity={affinity}，预期 0")
                 );
             } else {
                 check!(
                     affinity == 17,
-                    "默认不进入 AI 截图（不污染自身判断）",
+                    "显式 EVOFLOW_CUA_RING_CAPTURABLE=0 时不进入 AI 截图",
                     format!("affinity={affinity}，预期 17")
                 );
             }

@@ -88,6 +88,7 @@ def classify_zombie_reclaim(
     stuck_days: int = 3,
     awaiting_close_days: int = 3,
     dead_days: int = 1,
+    paused_stale_days: int = 7,
     now: datetime | None = None,
 ) -> dict[str, Any] | None:
     """Return reclaim action dict or None if task is healthy.
@@ -95,6 +96,7 @@ def classify_zombie_reclaim(
     Actions:
       - stuck_executing_100 → target completed
       - stuck_executing_dead → target paused (process gone, work incomplete)
+      - stale_paused (第86轮) → target cancelled（暂停后长期无人救、子树全闭）
       - awaiting_close_all_children_done → target completed
       - awaiting_close_orphan_stale (no children, stale) → target completed
     """
@@ -131,6 +133,25 @@ def classify_zombie_reclaim(
             "updated_at": task.get("updated_at") or task.get("created_at"),
         }
 
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】paused 僵尸收口：
+    # 为什么：stuck_executing_dead 把死单写成 paused 后**没有任何规则再管它**——
+    #   现网 3 条 paused（最老 643h 未动）永远躺在看板上，即用户说的"状态没完结"。
+    # 判据：paused 且超过 paused_stale_days 没动、且**所有直接子单已全闭**才收口成
+    #   cancelled（还有活子树的不许动，宁慢勿错杀）。
+    if status == "paused" and _is_stale(task, days=paused_stale_days, now=ref):
+        rollup = _children_all_fully_closed(tid)
+        if rollup["all_done"]:
+            return {
+                "task_id": tid,
+                "name": name,
+                "from_status": status,
+                "to_status": "cancelled",
+                "reason": "stale_paused",
+                "progress": _progress(task),
+                "updated_at": task.get("updated_at") or task.get("created_at"),
+                "children_total": rollup["total"],
+            }
+
     if status == "awaiting_close" and _is_stale(task, days=awaiting_close_days, now=ref):
         rollup = _children_all_fully_closed(tid)
         if rollup["total"] == 0:
@@ -164,6 +185,7 @@ def list_zombie_reclaim_candidates(
     stuck_days: int = 3,
     awaiting_close_days: int = 3,
     dead_days: int = 1,
+    paused_stale_days: int = 7,
 ) -> list[dict[str, Any]]:
     from evoflow.collab.storage import get_project_storage
 
@@ -182,6 +204,7 @@ def list_zombie_reclaim_candidates(
                 stuck_days=stuck_days,
                 awaiting_close_days=awaiting_close_days,
                 dead_days=dead_days,
+                paused_stale_days=paused_stale_days,
                 now=now,
             )
             if action:

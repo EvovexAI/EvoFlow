@@ -524,11 +524,15 @@ def _is_injected_runtime_human_text(text: str) -> bool:
         "[深度压缩摘要",
         "[MODEL_SWITCH]",
         "[重复探索",
+        "[探索过久]",
         "[tool:history]",
         "[tool:summary]",
         "__evf_tool_approval_v1__:",
         "__evf_tool_approval_replay_v1__:",
         "<task-notification>",
+        "<affect>",
+        "<user_profile>",
+        "<standing_memory>",
     )
     return any(t.startswith(m) for m in markers)
 
@@ -566,12 +570,18 @@ def _collect_missing_state_humans(
 
     Only the latest non-injected HumanMessage from state may be appended, and only when
     its id *and* text are both absent from the DB load (true in-flight race).
-    """
-    if _db_lc_has_compaction_summary(db_lc):
-        return []
 
+    Compaction summary in ``db_lc`` must **not** disable this merge: FE fire-and-forget
+    appends the user row while POST /runs/stream already starts; without the merge,
+    ``replace_messages_in_state`` drops the new Human and the model answers the
+    previous user turn (observed after ``conversation_summary`` stitch).
+    """
     db_ids = {_lc_message_id(m) for m in db_lc if _lc_message_id(m)}
-    db_texts = {_human_message_text(getattr(m, "content", None)).strip() for m in db_lc if isinstance(m, HumanMessage)}
+    db_texts = {
+        _human_message_text(getattr(m, "content", None)).strip()
+        for m in db_lc
+        if isinstance(m, HumanMessage)
+    }
 
     last_human: HumanMessage | None = None
     for m in reversed(list(state_messages or [])):
@@ -579,6 +589,14 @@ def _collect_missing_state_humans(
             continue
         if _is_tool_approval_replay_human(m):
             continue
+        # Named synthetic footers (memory live / skills / KB) are not the user turn.
+        try:
+            from evoflow.agents.message_analysis_utils import is_synthetic_user_message
+
+            if is_synthetic_user_message(m):
+                continue
+        except Exception:
+            pass
         text = _human_message_text(getattr(m, "content", None)).strip()
         if _is_injected_runtime_human_text(text):
             continue
@@ -806,6 +824,15 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
         # messages for subsequent turns even when DB watermark advanced (new user /
         # assistant rows). Only rebuild on compaction change, injects, or cold cache.
         # Never trust a slimmed checkpoint (messages cleared after_agent).
+        # Hot path may trust runtime when watermark only advanced with append-only
+        # assistant/tool rows. Never trust when the *latest* state Human is absent
+        # from the last hydrate fingerprint — that is the FE fire-and-forget race
+        # (new user in LG input, DB row still landing). The old
+        # ``or any(HumanMessage)`` escape hatch skipped rebuild after compaction
+        # and left the model answering the previous user turn.
+        latest_human_missing = _state_humans_missing_from_ids(
+            state_messages, cached.human_ids if cached else frozenset()
+        )
         trust_runtime = (
             _trust_runtime_state_enabled()
             and hydration_cache_enabled()
@@ -815,7 +842,7 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
             and not stale_checkpoint
             and not slim_checkpoint
             and len(state_messages) > 0
-            and (cached.max_seq == max_seq or not _state_humans_missing_from_ids(state_messages, cached.human_ids) or any(isinstance(m, HumanMessage) for m in state_messages))
+            and not latest_human_missing
         )
         if can_skip or trust_runtime:
             if trust_runtime and not can_skip and hydration_cache_enabled():

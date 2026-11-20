@@ -314,10 +314,245 @@ export type ChatTurnTimingRow = {
   outcome: string | null
 }
 
+export type ChatTurnTimingVerdictLevel = 'ok' | 'pending' | 'warn' | 'error'
+
+export type ChatTurnTimingVerdict = {
+  level: ChatTurnTimingVerdictLevel
+  /** 短中文：正常 / 进行中 / 偏慢首字 / 久等无首字 … */
+  zh: string
+}
+
+/** 复制诊断 / 水位线旁路：把同一时间窗内的接口成败挂到异常回合上 */
+export type ChatTurnWaterlineApiHint = {
+  at: number
+  path: string
+  ok: boolean
+  ms: number | null
+  status?: number | null
+  error?: string | null
+}
+
 const TIMING_RING_MAX = 40
+/** 正常收口的回合只保留最近若干条；异常/进行中全留（直到环满） */
+const TIMING_OK_KEEP = 8
 const timingRing: ChatTurnTimingRow[] = []
 const timingListeners = new Set<() => void>()
 let activeTimingId: string | null = null
+
+/**
+ * 水位线判定：页面出泡 / 上线 / 首字 / 收口是否正常。
+ * 正常 → 诊断里一行摘要，环内会收紧；异常 → 留阶段差 + 前后接口。
+ */
+export function classifyChatTurnTimingVerdict(
+  row: ChatTurnTimingRow,
+  nowMs: number = Date.now(),
+): ChatTurnTimingVerdict {
+  const age = Math.max(0, nowMs - row.sendAt)
+  const firstMs =
+    row.firstResponseAt != null ? Math.max(0, row.firstResponseAt - row.sendAt) : null
+
+  if (row.outcome === 'stream_error') {
+    return { level: 'error', zh: '流错误' }
+  }
+  if (row.outcome === 'sse_aborted') {
+    return { level: 'error', zh: '断流' }
+  }
+  if (row.outcome === 'sse_final' || row.outcome === 'ui_stop' || row.outcome === 'other') {
+    if (row.firstResponseAt == null) {
+      return { level: 'warn', zh: '收口但无首字' }
+    }
+    if (firstMs != null && firstMs >= 30_000) {
+      return { level: 'warn', zh: `慢首字 ${firstMs}ms` }
+    }
+    if (firstMs != null && firstMs >= SLOW_FIRST_MS) {
+      return { level: 'warn', zh: `偏慢首字 ${firstMs}ms` }
+    }
+    if (row.outcome === 'ui_stop') {
+      return { level: 'ok', zh: '用户停止' }
+    }
+    if (row.outcome === 'other') {
+      return { level: 'warn', zh: '其它结束' }
+    }
+    return { level: 'ok', zh: '正常' }
+  }
+
+  // 未收口：按卡住阶段升级
+  if (row.wireAt == null && age >= 5_000) {
+    return { level: 'error', zh: '未上线' }
+  }
+  if (row.firstResponseAt == null && age >= 30_000) {
+    return { level: 'error', zh: '久等无首字' }
+  }
+  if (row.firstResponseAt == null && age >= 12_000) {
+    return { level: 'warn', zh: '等首字中' }
+  }
+  if (
+    row.firstResponseAt != null &&
+    row.streamEndAt == null &&
+    age >= STREAM_END_DEAD_MS
+  ) {
+    return { level: 'error', zh: '久等无收口' }
+  }
+  if (row.firstResponseAt != null) {
+    return { level: 'pending', zh: '流式中' }
+  }
+  return { level: 'pending', zh: '进行中' }
+}
+
+function pruneTimingRingKeepAbnormal(): void {
+  const now = Date.now()
+  const okIds: string[] = []
+  const mustKeep = new Set<string>()
+  for (const r of timingRing) {
+    const v = classifyChatTurnTimingVerdict(r, now)
+    if (v.level === 'ok') okIds.push(r.id)
+    else mustKeep.add(r.id)
+  }
+  const okKeep = new Set(okIds.slice(-TIMING_OK_KEEP))
+  const next = timingRing.filter((r) => mustKeep.has(r.id) || okKeep.has(r.id))
+  if (next.length === timingRing.length) return
+  timingRing.length = 0
+  timingRing.push(...next)
+  notifyTiming()
+}
+
+function fmtClock(at: number): string {
+  try {
+    return new Date(at).toLocaleTimeString('zh-CN', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  } catch {
+    return String(at)
+  }
+}
+
+function fmtDelta(at: number | null, sendAt: number): string {
+  if (at == null) return '—'
+  return `+${Math.max(0, at - sendAt)}ms`
+}
+
+/**
+ * 运维「发送水位线」：发了几次、何时上屏、接口/首字/收口是否正常。
+ * 正常回合一行摘要；异常回合展开阶段差 + 时间窗内接口。
+ */
+export function formatChatTurnWaterlineForDiag(opts?: {
+  sessionKey?: string | null
+  limit?: number
+  apiHints?: ChatTurnWaterlineApiHint[]
+  anomalies?: ChatTurnAnomaly[]
+}): string[] {
+  const rows = listChatTurnTimingRows({
+    sessionKey: opts?.sessionKey,
+    limit: opts?.limit ?? TIMING_RING_MAX,
+  })
+  const lines: string[] = []
+  const now = Date.now()
+  const verdicts = rows.map((r) => ({
+    row: r,
+    v: classifyChatTurnTimingVerdict(r, now),
+  }))
+  const abnormal = verdicts.filter(
+    (x) => x.v.level === 'warn' || x.v.level === 'error',
+  )
+  const pending = verdicts.filter((x) => x.v.level === 'pending')
+  lines.push(
+    `### 发送水位线（本会话 ${rows.length} 发 · 异常 ${abnormal.length} · 进行中 ${pending.length}）`,
+  )
+  lines.push(
+    '- 策略：正常收口只留摘要；异常保留阶段差 + 前后接口，方便下次诊断「发了几次 / 卡在哪」',
+  )
+  if (rows.length === 0) {
+    lines.push('- （尚无发送记录；点发送后会出现：发送时刻 → 出泡上屏 → 上线 → 首字 → 收口）')
+    return lines
+  }
+
+  // 倒序：最近发送在上
+  const ordered = [...verdicts].reverse()
+  for (let i = 0; i < ordered.length; i++) {
+    const { row, v } = ordered[i]!
+    const n = ordered.length - i
+    const preview = (row.textPreview || '（空）').slice(0, 40)
+    const tag =
+      v.level === 'ok'
+        ? '正常'
+        : v.level === 'pending'
+          ? '进行中'
+          : v.level === 'warn'
+            ? `异常·${v.zh}`
+            : `异常·${v.zh}`
+    const base =
+      `${n}. [${tag}] ${fmtClock(row.sendAt)} 「${preview}」` +
+      ` 出泡${fmtDelta(row.userBubbleAt, row.sendAt)}` +
+      ` 上线${fmtDelta(row.wireAt, row.sendAt)}` +
+      ` 开跑${fmtDelta(row.runStartedAt, row.sendAt)}` +
+      ` 首字${fmtDelta(row.firstResponseAt, row.sendAt)}` +
+      ` 结束${fmtDelta(row.streamEndAt, row.sendAt)}`
+    lines.push(`- ${base}`)
+
+    if (v.level === 'ok') continue
+
+    // 异常 / 进行中：展开阶段 + 时间窗接口
+    const stageBits: string[] = []
+    if (row.userBubbleAt == null) stageBits.push('页面未出用户泡')
+    else if (row.wireAt == null) stageBits.push('已出泡、未上线(chatSend)')
+    else if (row.runStartedAt == null) stageBits.push('已上线、等 RUN_STARTED')
+    else if (row.firstResponseAt == null) stageBits.push('已开跑、等首字')
+    else if (row.streamEndAt == null) stageBits.push('已有首字、等收口')
+    if (row.outcome) stageBits.push(`outcome=${row.outcome}`)
+    if (stageBits.length) {
+      lines.push(`  卡点: ${stageBits.join(' · ')}`)
+    }
+
+    const winStart = row.sendAt - 2_000
+    const winEnd = (row.streamEndAt ?? now) + 2_000
+    const apis = (opts?.apiHints || []).filter(
+      (a) => a.at >= winStart && a.at <= winEnd,
+    )
+    const signalApis = apis
+      .filter((a) => {
+        const p = a.path.toLowerCase()
+        return (
+          !a.ok ||
+          p.includes('subscribe') ||
+          p.includes('chatsend') ||
+          p.includes('/chat') ||
+          p.includes('run')
+        )
+      })
+      .slice(-8)
+    if (signalApis.length > 0) {
+      lines.push(
+        `  前后接口: ${signalApis
+          .map((a) => {
+            const ms = a.ms != null ? `${a.ms}ms` : '?'
+            const st = a.status != null ? ` ${a.status}` : ''
+            const err = a.error ? ` ${String(a.error).slice(0, 40)}` : ''
+            return `${a.path} ${a.ok ? '✓' : '✗'}${st} ${ms}${err}`
+          })
+          .join('；')}`,
+      )
+    }
+
+    const turns = (opts?.anomalies || []).filter((a) => {
+      if (a.sessionKey && row.sessionKey && a.sessionKey !== row.sessionKey) {
+        return false
+      }
+      return a.at >= winStart && a.at <= winEnd
+    })
+    if (turns.length > 0) {
+      lines.push(
+        `  回合异常: ${turns
+          .slice(-4)
+          .map((a) => `${a.event}@${a.sinceSendMs}ms(${a.stage})`)
+          .join('；')}`,
+      )
+    }
+  }
+  return lines
+}
 
 function notifyTiming(): void {
   for (const fn of timingListeners) {
@@ -353,13 +588,67 @@ function persistTimingRow(row: ChatTurnTimingRow): void {
   })
 }
 
-function upsertTimingRow(patch: Partial<ChatTurnTimingRow> & { id?: string }): ChatTurnTimingRow | null {
-  const id = patch.id || activeTimingId
+/**
+ * 收口/首字要绑「真正开跑的那一行」，不能只信 activeTimingId：
+ * 连点/卡住重发会顶掉 active，导致 sse_final 落在空行上，诊断里仍显示「久等无收口」。
+ */
+function resolveTimingRowId(opts?: {
+  id?: string | null
+  sessionKey?: string | null
+  runId?: string | null
+  preferOpen?: boolean
+}): string | null {
+  const explicit = String(opts?.id || '').trim()
+  if (explicit && timingRing.some((r) => r.id === explicit)) return explicit
+
+  const runId = String(opts?.runId || '').trim()
+  if (runId) {
+    for (let i = timingRing.length - 1; i >= 0; i--) {
+      const r = timingRing[i]!
+      if (r.runId && r.runId === runId) return r.id
+    }
+  }
+
+  const sk = String(opts?.sessionKey || '').trim()
+  if (sk && opts?.preferOpen) {
+    for (let i = timingRing.length - 1; i >= 0; i--) {
+      const r = timingRing[i]!
+      if (r.sessionKey !== sk) continue
+      if (r.streamEndAt != null) continue
+      // 优先已上线/已有首字的行，跳过连点留下的空壳
+      if (r.wireAt != null || r.firstResponseAt != null || r.runStartedAt != null) {
+        return r.id
+      }
+    }
+  }
+
+  if (activeTimingId && timingRing.some((r) => r.id === activeTimingId)) {
+    return activeTimingId
+  }
+  return null
+}
+
+function upsertTimingRow(
+  patch: Partial<ChatTurnTimingRow> & {
+    id?: string
+    /** 按 runId / 同会话未收口行回绑（stream_end / first_response） */
+    rebind?: boolean
+  },
+): ChatTurnTimingRow | null {
+  const id = resolveTimingRowId({
+    id: patch.id,
+    sessionKey: patch.sessionKey,
+    runId: patch.runId,
+    preferOpen: !!patch.rebind,
+  })
   if (!id) return null
   const idx = timingRing.findIndex((r) => r.id === id)
   if (idx < 0) return null
-  const next = { ...timingRing[idx], ...patch, id }
+  const { rebind: _rebind, ...rest } = patch
+  const next = { ...timingRing[idx], ...rest, id }
   timingRing[idx] = next
+  // 收口绑回真实行时，同步 active，避免后续补丁再落到空壳
+  if (patch.rebind) activeTimingId = id
   notifyTiming()
   persistTimingRow(next)
   return next
@@ -370,6 +659,19 @@ function beginTimingRow(opts: {
   textPreview: string
   sendAt: number
 }): ChatTurnTimingRow {
+  // 同毫秒/同文案连点：复用已有空壳，避免诊断「4 发」里混进未上线幽灵行
+  const sk = opts.sessionKey
+  const preview = opts.textPreview
+  for (let i = timingRing.length - 1; i >= 0; i--) {
+    const r = timingRing[i]!
+    if (r.sessionKey !== sk) continue
+    if (r.textPreview !== preview) continue
+    if (r.wireAt != null || r.streamEndAt != null) continue
+    if (Math.abs(r.sendAt - opts.sendAt) > 1500) continue
+    activeTimingId = r.id
+    notifyTiming()
+    return r
+  }
   const id = `t-${opts.sendAt}-${Math.random().toString(36).slice(2, 7)}`
   const row: ChatTurnTimingRow = {
     id,
@@ -843,6 +1145,7 @@ export function logChatTurnRunStarted(opts: {
   if (runId) sendTrace.runId = runId
   upsertTimingRow({
     runStartedAt: Date.now(),
+    rebind: true,
     ...(runId ? { runId } : {}),
     ...(sessionKey ? { sessionKey } : {}),
   })
@@ -983,6 +1286,7 @@ export function logChatTurnFirstResponse(opts: {
     firstResponseAt: Date.now(),
     firstKind: opts.kind,
     firstPreview: preview,
+    rebind: true,
     ...(runId ? { runId } : {}),
     ...(sessionKey ? { sessionKey } : {}),
   })
@@ -1052,6 +1356,7 @@ export function logChatTurnStreamEnd(opts: {
   upsertTimingRow({
     streamEndAt: Date.now(),
     outcome,
+    rebind: true,
     ...(endRunId ? { runId: endRunId } : {}),
     ...(sessionKey ? { sessionKey } : {}),
   })
@@ -1069,6 +1374,8 @@ export function logChatTurnStreamEnd(opts: {
   }, level)
   stopFirstTokenWatch()
   stopStreamEndWatch()
+  // 正常收口 → 收紧旧「正常」行；异常全留，下次诊断还能看到发了几次、卡在哪
+  pruneTimingRingKeepAbnormal()
   // 结束后清本轮锚点，避免下一轮误绑 sinceSendMs
   if (sendTrace && sendTrace.streamEndLogged) {
     sendTrace = null

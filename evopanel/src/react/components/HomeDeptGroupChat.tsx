@@ -11,7 +11,7 @@ import {
   type ReactNode,
 } from 'react'
 import { Loader2, Send, Square, Volume2, VolumeX, X } from 'lucide-react'
-import { api, getGatewayBaseUrl } from '../../lib/tauri-api.js'
+import { api, getGatewayBaseUrl, gatewayProxy } from '../../lib/tauri-api.js'
 import {
   ensureMeReady,
   getCachedMe,
@@ -51,6 +51,10 @@ import {
   deptGroupWakeChainKey,
   shouldAutoNestWake,
 } from '../lib/dept-group-nest-policy.js'
+// 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+// 叫醒队列旁路持久化：刷新/断线/崩溃后仍能捡回未完成任务。
+// 旁路=失败静默，编排语义仍在前端 DeptGroupWakeQueue 内，不改变现有行为。
+import { DeptGroupWakePersist } from '../lib/dept-group-wake-persist.js'
 import {
   mergeWakeJobSnapshots,
   resolveMentionDispatchStatus,
@@ -72,6 +76,9 @@ import {
   workSessionKeyForSpeaker,
   type DeptGroupTimelineMsg,
 } from '../lib/dept-group-transcript.js'
+// 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+// 群近期上下文改按 token 预算裁剪（用户拍板：不按天翻篇，也不该按条数硬编码）
+import { buildRecentGroupContext } from '../lib/dept-group-context.js'
 import {
   isPersonOnDuty,
   personDutyLabel,
@@ -1311,6 +1318,19 @@ export function HomeDeptGroupChat({
 
   useEffect(() => {
     const wakeSigByJob = new Map<string, string>()
+    // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    // 叫醒队列旁路持久化实例。transport 直接走网关 HTTP：
+    // 失败（后端未重启到该版本 / 401 / 网络断）由 DeptGroupWakePersist 内部吞掉，
+    // 群聊行为与改造前一致——这是「不破坏现有前端」的硬要求。
+    const persistWake = new DeptGroupWakePersist({
+      transport: {
+        post: (path, body) => gatewayProxy('POST', path, body),
+        get: (path, query) => gatewayProxy('GET', path, null, query),
+      },
+      onError: (where, err) => {
+        console.warn('[dept-group] wake persist failed', where, err)
+      },
+    })
     const q = new DeptGroupWakeQueue({
       run: (input) => runWakeJobRef.current(input),
       onChange: (jobs) => {
@@ -1337,6 +1357,24 @@ export function HomeDeptGroupChat({
               error: j.error || undefined,
               goal: String(j.goal || '').slice(0, 160),
             },
+          })
+          // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+          // 旁路持久化：先把「入队」事实抄一份，再同步状态。
+          // 全部 best-effort（persist 内部吞异常），失败只退化成今天的行为。
+          void persistWake.recordEnqueue({
+            jobId: j.id,
+            deptId: dept.id,
+            agentCode: j.agentCode,
+            roleName: j.roleName,
+            goal: j.goal,
+            depth: j.depth,
+            sourceMsgId: j.sourceMsgId,
+          })
+          void persistWake.recordStatus({
+            jobId: j.id,
+            status: j.status,
+            error: j.error,
+            requeue: j.status === 'queued' && j.attempts > 0,
           })
           void persistDeptGroupWakeEvent({
             deptId: dept.id,
@@ -1421,7 +1459,55 @@ export function HomeDeptGroupChat({
       },
     })
     wakeQueueRef.current = q
+    // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    // 恢复上次未完成的任务（刷新/断线/崩溃后）。三条纪律：
+    // 1) 必须走后端 claim，不能直接重排——否则每开一次页面就重跑一轮（重复回复+计费）；
+    // 2) 整个恢复是 best-effort，后端未升级/不可用时什么都不做，行为退化成今天；
+    // 3) 只恢复 queued（已终态的不该再跑）。
+    let restoreCancelled = false
+    void (async () => {
+      try {
+        const pending = await persistWake.loadPending(dept.id)
+        if (restoreCancelled || !pending.length) return
+        const seenAgents = new Set<string>()
+        for (const p of pending) {
+          if (restoreCancelled) return
+          // 同一个人只恢复一条（后端本来就按人串行，多取无益）
+          if (seenAgents.has(p.agent_code)) continue
+          seenAgents.add(p.agent_code)
+          const claimed = await persistWake.claim(dept.id, p.agent_code, 'evopanel')
+          if (!claimed || restoreCancelled) continue
+          const person = membersRef.current.find((m) => m.agent_code === claimed.agent_code)
+          if (!person) {
+            // 成员已不在本部门：任务作废，别让它永远卡在 queued
+            void persistWake.recordStatus({
+              jobId: claimed.job_id,
+              status: 'failed',
+              error: '成员已不在本部门，恢复时作废',
+            })
+            continue
+          }
+          try {
+            await q.enqueue({
+              agentCode: person.agent_code,
+              roleName: person.role_name,
+              goal: claimed.goal,
+              depth: claimed.depth,
+              fromAgentName: claimed.from_agent_name || undefined,
+              stewardMode: claimed.steward_mode,
+              sourceMsgId: claimed.source_msg_id || undefined,
+              chainKey: claimed.chain_key || undefined,
+            })
+          } catch (err) {
+            console.warn('[dept-group] restore enqueue failed', claimed.job_id, err)
+          }
+        }
+      } catch (err) {
+        console.warn('[dept-group] wake restore failed', err)
+      }
+    })()
     return () => {
+      restoreCancelled = true
       q.dispose()
       if (wakeQueueRef.current === q) wakeQueueRef.current = null
     }
@@ -1618,15 +1704,10 @@ export function HomeDeptGroupChat({
 
     try {
       // 群近期发言作首轮提示；每人 sticky 会话自带多轮 harness 历史
-      const recentCtx = msgsRef.current
-        .filter((m) => m.kind !== 'system' && !m.streaming && String(m.text || '').trim())
-        .slice(-8)
-        .map((m) => {
-          const who =
-            m.kind === 'user' ? '用户' : String(m.agentName || m.agentCode || '成员')
-          return `${who}：${String(m.text || '').trim().slice(0, 240)}`
-        })
-        .join('\n')
+      // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+      // 原实现写死「最近 8 条 × 每条 240 字」——条数与真实上下文压力无关：
+      // 8 条长的和 8 条短的能差好几倍 token。改成按 token 预算从新往旧累加。
+      const recentCtx = buildRecentGroupContext(msgsRef.current)
       // 未 @ → 小V；@ 多人 → 各人入队（同人串行、异人并行；忙则重试）。
       // 入队即解锁：不 await 整轮回复，否则输入框被锁到所有目标说完（busy 退避可拖几分钟）。
       // 回复进度看时间线气泡与派工条。

@@ -12,7 +12,6 @@ from pydantic import BaseModel, Field
 from app.gateway.cancellation import mark_task_cancelled
 from app.gateway.deps.license import require_premium
 from app.gateway.events import event_queue
-from app.gateway.events.task_events import TaskCancelEvent
 from app.gateway.routers.errors import (
     ErrorCode,
     raise_task_error,
@@ -575,12 +574,15 @@ def _message_dedupe_key(msg: dict[str, Any]) -> str:
 
 # Cancel helpers moved to the shared module (E-2) so App-run cancel reaches the
 # same depth as Task Center cancel. Names are re-exported for local callers.
+# 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+# 原来这里还再导出 cancel_app_run_deep，注释说是给 local callers 用，但全仓 grep
+# 没有任何消费者（唯一调用点 apps.py:813 直接从 app.gateway.task_cancel_support
+# 导入）。留着只是让 ruff F401 一直红，故移除。
 from app.gateway.task_cancel_support import (  # noqa: E402
     _cancel_plan_worker,
     _cancel_supervisor_monitor,
     _collect_running_subtask_ids,
     _publish_task_cancel_event,
-    cancel_app_run_deep,
 )
 
 
@@ -864,8 +866,16 @@ async def list_tasks(
         try:
             t_work0 = _time.perf_counter()
             try:
+                # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+                # 原为 asyncio.to_thread（默认池）。2026-11-20 07:35:05 现网实测：
+                # 后台 DB preflight 占满默认池，本 catalog 排队 10 秒后
+                # tasks_catalog_timeout → 直接 503（acquire_ms=0 说明不是抢槽失败，
+                # 是真跑不出去）。改走 db_async 专用池（evoflow-db，8 worker），
+                # 与维护性重活隔离。这是第36轮 transcript/assets 的同一模式。
+                from app.gateway.db_async import run_db
+
                 payload = await asyncio.wait_for(
-                    asyncio.to_thread(
+                    run_db(
                         _list_tasks_catalog_sync,
                         status=status,
                         source=source,

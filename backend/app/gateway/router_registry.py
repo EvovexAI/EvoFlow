@@ -98,6 +98,9 @@ def register_core_routers(app: FastAPI) -> None:
     _include_module_router(app, "app.gateway.routers.events", label="events")
     _include_module_router(app, "app.gateway.routers.stream_resume", label="stream_resume")
     _include_module_router(app, "app.gateway.routers.chat_sessions", label="chat_sessions")
+    # 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
+    # 部门群叫醒队列落库（只做持久化，编排语义仍在前端）
+    _include_module_router(app, "app.gateway.routers.dept_groups", label="dept_groups")
     _include_module_router(app, "app.gateway.routers.share", label="share")
     _include_module_router(app, "app.gateway.routers.speech", label="speech")
     _include_module_router(app, "app.gateway.routers.panel_settings", label="panel_settings")
@@ -168,6 +171,8 @@ def register_extended_routers(app: FastAPI) -> None:
         ("app.gateway.routers.browser_snapshots", "browser_snapshots", {}),
         ("app.gateway.routers.browser_stream", "browser_stream", {}),
         ("app.gateway.routers.stage_news", "stage_news", {}),
+        # 右栏面板类型清单（前后端共用一份真源；第87轮新增）
+        ("app.gateway.routers.stage_right_panel", "stage_right_panel", {}),
         ("app.gateway.routers.auth", "auth", {}),
         ("app.gateway.routers.openai_compat_apps", "openai_compat_apps", {}),
         ("app.gateway.routers.openai_compat_models", "openai_compat_models", {}),

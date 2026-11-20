@@ -113,6 +113,78 @@ if [[ "$QUICK" == true ]]; then
   else
     echo "ci-local --quick: NOTE — no changes under evopanel/, frontend typecheck skipped (compiler not installed)." >&2
   fi
+  # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：quick 门禁新增「本轮署名必须带模型名」检查，只扫**本次 diff 新增行**。
+  # 为什么：第86轮我把 10 个文件 23 处署名写成上一轮的模型名（qwen3.8-flash），
+  #   而自查命令在 craft/代码改动署名注释格式.md 里写得很清楚——我没跑。
+  #   缺的不是配方，是强制：靠"我记得要自查"的规则，必然在第 4 次复发时失效。
+  # 边界：全仓 278 处历史署名缺模型名（实测 grep 计数），所以**只查新增行**；
+  #   若扫全仓，一上线就被历史债刷红 = 没人看 = 等于没报（与第10轮 ruff 同一教训）。
+  # 判据：新增行含 `self-evolution-bot · YYYY-MM-DD · 第N轮】` 却无 `模型:` → 失败。
+  _sig_files=(backend evopanel/src scripts)
+  _sig_diff="$(
+    { git diff -U0 -- "${_sig_files[@]}" 2>/dev/null || true
+      git diff --cached -U0 -- "${_sig_files[@]}" 2>/dev/null || true
+    } | grep -E '^\+' | grep -vE '^\+\+\+' || true
+  )"
+  # 未跟踪新文件也要查（新建文件里的署名同样是本轮产出）
+  _sig_new=""
+  while IFS= read -r _f; do
+    [[ -z "$_f" ]] && continue
+    _sig_new+="$(cat "$_f" 2>/dev/null || true)"$'\n'
+  done < <(git ls-files --others --exclude-standard -- "${_sig_files[@]}" 2>/dev/null || true)
+
+  _sig_bad="$(
+    { printf '%s\n' "$_sig_diff"; printf '%s\n' "$_sig_new"; } \
+      | grep -E 'self-evolution-bot · [0-9]{4}-[0-9]{2}-[0-9]{2} · 第[0-9]+轮】' \
+      | grep -vE '模型:' || true
+  )"
+  if [[ -n "$_sig_bad" ]]; then
+    echo "ci-local --quick: FAIL — 本轮署名缺模型名（必须逐字取自本轮 <session> 的「模型:」行）。" >&2
+    _sig_n="$(printf '%s\n' "$_sig_bad" | grep -c . || true)"
+    echo "  不合格行（共 ${_sig_n} 处）:" >&2
+    printf '%s\n' "$_sig_bad" | sed -n '1,5p' | sed 's/^/    /' >&2
+    echo "  正确格式：# 【self-evolution-bot · YYYY-MM-DD · 第N轮 · 模型:<本轮模型名>】改了什么 / 为什么" >&2
+    echo "  明知要跳过：SKIP_SIGNATURE=1 git commit …（会记录在案，不静默）" >&2
+    if [[ "${SKIP_SIGNATURE:-}" != "1" ]]; then
+      exit 1
+    fi
+    echo "  SKIP_SIGNATURE=1 set — continuing WITHOUT signature check (logged, not silent)." >&2
+  else
+    echo "  ci-local: 署名检查通过（本轮新增行均带模型名）"
+  fi
+  # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：quick 门禁接入 scripts/maintainer/windows/ps1-gate.ps1（BOM + 语法 + 接线断言）。
+  # 为什么：第87轮我要用 dev-self-verify.ps1 跑「构建→重启→自唤醒」，它一跑就 ParserError。
+  #   根因是 dev-self-verify.ps1 与 selfverify-watchdog.ps1 的 UTF-8 BOM 丢了（HEAD 里也没有）：
+  #   两个文件分别有 2656 / 3330 个非 ASCII 字符，PS 5.1 按 GBK 解码 → 中文注释吞掉闭合引号 →
+  #   「表达式或语句中包含意外的标记」。而 ps1-gate.ps1 **早就存在、早就报了 FAIL、GATE_PASS=0**，
+  #   只是没人调用它——判据在仓库里，闸门没接上，等于没有（第16轮接线教训的同一类）。
+  #   收益：这类「脚本自己载入不了」只有语法门禁能照出来，py_compile/tsc/ruff 全都看不见。
+  # 边界：本机无 powershell 时跳过并留痕，不做静默通过。
+  if command -v powershell >/dev/null 2>&1; then
+    _ps1_gate="scripts/maintainer/windows/ps1-gate.ps1"
+    if [[ -f "$_ps1_gate" ]]; then
+      _ps1_out="$(powershell -NoProfile -ExecutionPolicy Bypass -File "$_ps1_gate" 2>&1 || true)"
+      if printf '%s' "$_ps1_out" | grep -q 'GATE_PASS=1'; then
+        echo "  ci-local: ps1 门禁通过（BOM/语法/接线断言）"
+      else
+        echo "ci-local --quick: FAIL — ps1 门禁未通过（GATE_PASS != 1）。" >&2
+        printf '%s\n' "$_ps1_out" | grep -E '\[FAIL\]' | sed -n '1,8p' | sed 's/^/    /' >&2
+        echo "  修法：含中文的 .ps1 必须 UTF-8 with BOM；本地复跑：" >&2
+        echo "    powershell -NoProfile -ExecutionPolicy Bypass -File $_ps1_gate" >&2
+        if [[ "${SKIP_PS1_GATE:-}" != "1" ]]; then
+          exit 1
+        fi
+        echo "  SKIP_PS1_GATE=1 set — continuing WITHOUT ps1 gate (logged, not silent)." >&2
+      fi
+    else
+      echo "  ci-local: NOTE — 未找到 $_ps1_gate，跳过 ps1 门禁" >&2
+    fi
+  else
+    echo "  ci-local: NOTE — 无 powershell，跳过 ps1 门禁（BOM/语法未校验）" >&2
+  fi
+
   echo ""
   echo "=========================================="
   echo "  CI local: --quick checks passed."

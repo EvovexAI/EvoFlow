@@ -66,6 +66,65 @@ describe('collectViewportAnomalies', () => {
     expect(anomalies.some((a) => a.code === 'LOADOLDER_NO_ADVANCE')).toBe(true)
   })
 
+  it('LOADOLDER：后续上拉 before 已变小则不算卡住', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      history: {
+        ...base.history,
+        windowFirstRowId: 1997,
+      },
+      apiEntries: [
+        {
+          atMs: 980_000,
+          path: '/api/v4/conversation/rows_range',
+          ok: true,
+          sessionId: 'tid-1',
+          requestText: JSON.stringify({
+            body: { sessionId: 'tid-1', beforeRowId: 1997, limit: 60 },
+          }),
+          responseText: JSON.stringify({
+            rows: [{ rowId: 1937 }, { rowId: 1938 }],
+          }),
+        },
+        {
+          atMs: 980_200,
+          path: '/api/v4/conversation/rows_range',
+          ok: true,
+          sessionId: 'tid-1',
+          requestText: JSON.stringify({
+            body: { sessionId: 'tid-1', beforeRowId: 1937, limit: 60 },
+          }),
+          responseText: JSON.stringify({
+            rows: [{ rowId: 1877 }],
+          }),
+        },
+      ],
+    })
+    expect(anomalies.some((a) => a.code === 'LOADOLDER_NO_ADVANCE')).toBe(false)
+  })
+
+  it('sticky LOADOLDER 在窗首已前进后自动解除', () => {
+    const held = mergeStickyViewportAnomalies({
+      tid: 'tid-1',
+      prevTid: 'tid-1',
+      prev: [
+        {
+          code: 'LOADOLDER_NO_ADVANCE',
+          severity: 'error',
+          title: 'rows_range 已返回更早行，窗首未前进',
+          detail: 'before=2217 fetchedFirst=2157 n=22 winFirst仍=2217',
+          firstSeenAt: 1,
+          lastSeenAt: 1,
+          live: false,
+        },
+      ],
+      live: [],
+      nowMs: 2,
+      windowFirstRowId: 1857,
+    })
+    expect(held.items.some((a) => a.code === 'LOADOLDER_NO_ADVANCE')).toBe(false)
+  })
+
   it('does not flag tools-before-user when user-first render heals it', () => {
     // 重启后 late-mirror 常见：tool rowId 小于 realUser；时间线 normalize 后气泡在上。
     const anomalies = collectViewportAnomalies({
@@ -142,10 +201,24 @@ describe('collectViewportAnomalies', () => {
     expect(anomalies.some((a) => a.code === 'PAINT_MEDIA_BURIED')).toBe(true)
   })
 
-  it('sticky merge keeps error after live evidence leaves the time window', () => {
+  it('sticky merge keeps JUMP warn after live evidence leaves; DOM_OVERLAP 安静即丢', () => {
     const live = collectViewportAnomalies({
       ...base,
-      executing: false,
+      executing: true,
+      scrollEntries: [
+        {
+          atMs: 999_000,
+          jump: true,
+          source: 'scrollToBottom',
+          followingAttr: 'true',
+        },
+        {
+          atMs: 999_100,
+          jump: true,
+          source: 'scrollToBottom',
+          followingAttr: 'true',
+        },
+      ],
       turns: [
         {
           orphanHeaderNoUser: false,
@@ -163,6 +236,7 @@ describe('collectViewportAnomalies', () => {
       live,
       nowMs: 1_000_000,
     })
+    expect(first.items.some((a) => a.code === 'FOLLOW_STREAM_JUMP' && a.live)).toBe(true)
     expect(first.items.some((a) => a.code === 'DOM_OVERLAP' && a.live)).toBe(true)
     const held = mergeStickyViewportAnomalies({
       tid: 'tid-1',
@@ -171,9 +245,9 @@ describe('collectViewportAnomalies', () => {
       live: [],
       nowMs: 1_000_500,
     })
-    const stuck = held.items.find((a) => a.code === 'DOM_OVERLAP')
-    expect(stuck?.live).toBe(false)
-    expect(stuck?.detail).toContain('叠层')
+    // JUMP 可粘「曾」；叠层安静后不粘，避免肉眼正常还挂 error
+    expect(held.items.find((a) => a.code === 'FOLLOW_STREAM_JUMP')?.live).toBe(false)
+    expect(held.items.some((a) => a.code === 'DOM_OVERLAP')).toBe(false)
     const cleared = mergeStickyViewportAnomalies({
       tid: 'tid-2',
       prevTid: 'tid-1',

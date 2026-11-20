@@ -184,12 +184,27 @@ function extractSystemPromptFromJsonText(text: string): string {
   return ''
 }
 
+function isInjectedUserPreviewText(text: string): boolean {
+  const t = String(text || '').trim()
+  if (!t) return true
+  return (
+    t.startsWith('[CONTEXT COMPACTION') ||
+    t.startsWith('[探索过久]') ||
+    t.startsWith('<affect>') ||
+    t.startsWith('<user_profile>') ||
+    t.startsWith('<standing_memory>') ||
+    t.startsWith('[MODEL_SWITCH]') ||
+    t.toLowerCase().startsWith('here is a summary of the conversation to date') ||
+    t.toLowerCase().startsWith("here's a summary of the conversation to date")
+  )
+}
+
 function extractLatestUserFromJsonText(text: string): string {
   const re = /"role"\s*:\s*"(?:user|human)"[\s\S]*?"content"\s*:\s*"((?:\\.|[^"\\])*)"/gi
   let last = ''
   for (const m of text.matchAll(re)) {
     const decoded = decodeJsonStringLiteral(m[1] || '').trim()
-    if (decoded) last = decoded
+    if (decoded && !isInjectedUserPreviewText(decoded)) last = decoded
   }
   return last
 }

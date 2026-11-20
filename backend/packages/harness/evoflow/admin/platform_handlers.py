@@ -2102,6 +2102,10 @@ def tasks_create(args: dict[str, Any]) -> dict[str, Any]:
             action_type=_arg_str(args, "action_type", "actionType") or None,
             round_id=_arg_str(args, "round_id", "roundId") or None,
             parent_task_id=_arg_str(args, "parent_task_id", "parentTaskId") or None,
+            # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】透传去重逃生门与探针声明。
+            # _arg_bool 只认一个 key（第三参是 default），两种驼峰写法分开取。
+            allow_duplicate=_arg_bool(args, "allow_duplicate") or _arg_bool(args, "allowDuplicate"),
+            probe=_arg_bool(args, "probe"),
         ),
     }
 
@@ -3399,9 +3403,15 @@ def ui_show(args: dict[str, Any]) -> dict[str, Any]:
 
     panel = _ui_panel_args(args)
     if not panel.get("kind"):
+        # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：报错里点名「先调 ui.kinds」，而不是只列几个 kind 名。
+        # 为什么：用户要求「模型展开前应先读一下当前支持什么类型、怎么展开」。
+        # 光报错不指路，模型下一轮还是会用同一个错 kind 再撞一次。
         raise ValidationError(
-            "ui.show requires kind "
-            "(collab-workflow | collabSubtaskTranscript | employeeProcess | web-embed | artifacts | …)"
+            "ui.show requires kind. Call platform action=ui.kinds first to read "
+            "supported kinds and their required fields "
+            "(collab-workflow | collabSubtaskTranscript | employeeProcess | "
+            "sessionRuntime | web-embed | shell-page)."
         )
     return apply_right_panel(action="show", **panel)
 
@@ -3419,6 +3429,39 @@ def ui_hide(_args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.tools.builtins.stage_tool import apply_right_panel
 
     return apply_right_panel(action="hide")
+
+
+def ui_kinds(_args: dict[str, Any]) -> dict[str, Any]:
+    """右栏支持哪些类型、每种必需字段是什么、谁能触发。
+
+    【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 platform action=ui.kinds，把「右栏能开什么、怎么传参」暴露给模型。
+    为什么：用户要求「模型展开前应先读一下当前支持什么类型、这些类型怎么展开」。
+    以前这份知识只存在于前端 render 分支和后端零散 if 里，模型只能猜；猜错就被
+    后端 reject 一个回合。现在模型先查这张表，再按 example 调 ui.show。
+    数据源是 stage/right_panel_kinds.py 唯一真源，与校验/前端同源。
+    """
+    from evoflow.stage.right_panel_kinds import (
+        AUTO_OPEN_ACTIONS,
+        READ_ONLY_ACTIONS,
+        kind_specs,
+    )
+
+    kinds = [spec for spec in kind_specs() if spec.get("kind") != "artifacts"]
+    return {
+        "ok": True,
+        "action": "ui.kinds",
+        "count": len(kinds),
+        "kinds": kinds,
+        "autoOpenActions": sorted(AUTO_OPEN_ACTIONS),
+        "readOnlyActions": sorted(READ_ONLY_ACTIONS),
+        "rules": {
+            "auto": "只有 autoOpenActions 里的动作会自动展开右栏；只读动作永不自动弹。",
+            "agent": "ui.show 属于「申请展示」：会写入标签但不抢用户视线，用户点了才展开。",
+            "user": "用户亲手点的才会强制撑开（forceExpand）。",
+            "artifacts": "已退役，勿用；产物走侧栏 Info Rail。",
+        },
+    }
 
 
 # ── extensions（Agent应用 / UI 扩展；侧栏 #/extensions）─────────────────────

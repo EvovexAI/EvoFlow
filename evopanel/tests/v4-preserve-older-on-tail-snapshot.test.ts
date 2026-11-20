@@ -209,5 +209,41 @@ describe("mergeOlderRows (loadOlder prefer=head)", () => {
     const window = [textRow(10, "t", "a"), textRow(11, "t", "b")];
     expect(mergeOlderRows(window, [textRow(10, "t", "a"), textRow(12, "t", "c")], { prefer: "head" })).toBeNull();
   });
+
+  it("同轮中段上拉（无 turnHeader）窗首也必须前进——现场 before=2217 fetchedFirst=2157", () => {
+    // 巨型已完成轮只露出尾部；直播是下一小轮。上拉同轮更早 tool/reasoning，本页仍无 header。
+    const mega = "mega";
+    const live = "live";
+    const window: ConversationRow[] = [];
+    for (let i = 2217; i <= 2270; i += 1) {
+      window.push({
+        ...textRow(i, mega, `tool-${i}`),
+        kind: "toolCall",
+        status: "success",
+      } as ConversationRow);
+    }
+    window.push({ ...textRow(2271, live, "h"), kind: "turnHeader" } as ConversationRow);
+    window.push({
+      ...textRow(2272, live, "u"),
+      kind: "userInput",
+      origin: "realUser",
+      text: "重启好了",
+    } as ConversationRow);
+    window.push(textRow(2273, live, "empty"));
+
+    const fetched: ConversationRow[] = [];
+    for (let i = 2157; i <= 2216; i += 1) {
+      fetched.push({
+        ...textRow(i, mega, `older-${i}`),
+        kind: i % 3 === 0 ? "reasoning" : "toolCall",
+        status: "success",
+      } as ConversationRow);
+    }
+
+    const merged = mergeOlderRows(window, fetched, { softCap: 80, prefer: "head" });
+    expect(merged).not.toBeNull();
+    expect(merged![0]?.rowId).toBe(2157);
+    expect(merged!.some((r) => r.rowId === 2272)).toBe(true);
+  });
 });
 

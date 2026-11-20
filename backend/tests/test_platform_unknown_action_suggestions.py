@@ -28,10 +28,17 @@ def _unknown(action: str) -> dict:
     [
         ("assets.search", "assets"),
         ("employees.status", "employees"),
-        ("agents.catalog", "agents"),
-        ("settings.catalog", "settings"),
+        # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：agents.catalog / settings.catalog / employees.help 换成同域不存在的
+        #   agents.search / settings.rename / employees.transfer。
+        # 为什么：第79轮（f21fc02c）新增「<域>.catalog / <域>.help 归一化为顶层 catalog/help」，
+        #   这三个拼法**不再是 unknown action**，本用例 `_unknown()` 的前置断言 ok is False
+        #   必然失败（实测 ok=True / domain=None）。参数表跟着契约一起漂移，否则红的是测试自己。
+        #   原意图不变：仍是「同域动作拼错 → 建议必须落在被调域」。
+        ("agents.search", "agents"),
+        ("settings.rename", "settings"),
         ("tasks.comment", "tasks"),
-        ("employees.help", "employees"),
+        ("employees.transfer", "employees"),
     ],
 )
 def test_suggestions_belong_to_called_domain(action: str, domain: str) -> None:
