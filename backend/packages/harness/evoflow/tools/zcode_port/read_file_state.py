@@ -46,11 +46,46 @@ class _ReadEntry:
 # resolved path -> last model-visible read
 _SEEN: dict[str, _ReadEntry] = {}
 
+# 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增「按线程」的已读登记 ``_SEEN_BY_THREAD[(thread_id, resolved_path)]``，
+# 专门回答「**这个会话**有没有看到过这份内容」，供 ``unchanged_since_last_read``
+# 的短路径（Wasted call）判据使用。
+# 为什么：``_SEEN`` 是进程级全局字典，键只有路径。于是 A 岗位读过的文件，
+# B 岗位/别的线程再读时被判成「你刚读过、别浪费」，直接返回一句
+# "Wasted call — refer to that earlier tool_result instead"——**而那条 tool_result
+# 根本不在 B 的上下文里**，B 只能换个写法重试或直接卡死。
+# 现网实证（obs，agent 全岗，2026-11-12~19，70 次 Wasted call）：
+#   同线程有登记 28（其中一部分是压缩后内容已被移出上下文）
+#   同岗别的线程 10、别的岗位 31 —— **41/70 = 58.6% 是跨线程误判**
+#   （如 release-engineer 读 fullstack-dev 刚读过的文档被拦、atmosphere-vote-bot 读
+#    atmosphere-director 的 craft 被拦）
+# 修复后两种「本线程没看见」都不会再被拦：跨线程靠线程键分开，压缩靠
+# ``forget_thread_reads`` 在 fold 真正丢掉工具结果时清账。
+# 边界：``_SEEN`` 保持全局不动——``edit_guard_failure`` / ``stale_read_hint``
+# 语义是「磁盘上这份内容有没有人读过 + 有没有被改」，与本缺口无关，改它会扩大影响面。
+_SEEN_BY_THREAD: dict[tuple[str, str], _ReadEntry] = {}
+
 
 def reset_read_state() -> None:
     """清空已读状态（测试隔离 / 诊断用；进程内全局注册表）。"""
     with _LOCK:
         _SEEN.clear()
+        _SEEN_BY_THREAD.clear()
+
+
+def forget_thread_reads(thread_id: str | None) -> int:
+    """Drop this thread's read receipts (e.g. after compaction removed their tool results).
+
+    Returns the number of entries dropped.
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return 0
+    with _LOCK:
+        stale = [k for k in _SEEN_BY_THREAD if k[0] == tid]
+        for k in stale:
+            _SEEN_BY_THREAD.pop(k, None)
+    return len(stale)
 
 
 def _content_hash(text: str) -> str:
@@ -78,7 +113,19 @@ def file_content_hash(path: str | Path) -> str | None:
         return None
 
 
-def note_read(path: str, *, full_read: bool = True, content_hash: str | None = None) -> None:
+def note_read(
+    path: str,
+    *,
+    full_read: bool = True,
+    content_hash: str | None = None,
+    thread_id: str | None = None,
+) -> None:
+    """Record a model-visible read.
+
+    【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：加 ``thread_id`` 入参，同时写进程级 ``_SEEN`` 与线程级
+    ``_SEEN_BY_THREAD``。为什么见 ``_SEEN_BY_THREAD`` 上方注释。
+    """
     raw = str(path or "").strip()
     if not raw:
         return
@@ -89,15 +136,26 @@ def note_read(path: str, *, full_read: bool = True, content_hash: str | None = N
     except OSError:
         return
     with _LOCK:
-        _SEEN[resolved] = _ReadEntry(
+        entry = _ReadEntry(
             mtime=stat.st_mtime,
             size=stat.st_size,
             full_read=full_read,
             content_hash=content_hash,
         )
+        _SEEN[resolved] = entry
+        if thread_id:
+            _SEEN_BY_THREAD[(str(thread_id).strip(), resolved)] = entry
 
 
-def note_write(path: str, *, content: str | None = None) -> None:
+def runtime_thread_id(runtime: object) -> str:
+    """Best-effort ``thread_id`` from a ToolRuntime (dict-like ``.context``)."""
+    ctx = getattr(runtime, "context", None)
+    if ctx is not None and hasattr(ctx, "get"):
+        return str(ctx.get("thread_id") or "").strip()
+    return ""
+
+
+def note_write(path: str, *, content: str | None = None, thread_id: str | None = None) -> None:
     """Refresh state after a successful edit/write (zcode recordEditedReadState).
 
     Records the new mtime as a full view so consecutive edits need no re-Read.
@@ -112,27 +170,42 @@ def note_write(path: str, *, content: str | None = None) -> None:
     except OSError:
         return
     with _LOCK:
-        _SEEN[resolved] = _ReadEntry(
+        entry = _ReadEntry(
             mtime=stat.st_mtime,
             size=stat.st_size,
             full_read=True,
             content_hash=_content_hash(content) if content is not None else None,
         )
+        _SEEN[resolved] = entry
+        if thread_id:
+            _SEEN_BY_THREAD[(str(thread_id).strip(), resolved)] = entry
 
 
 def _stat_same(entry: _ReadEntry, stat: object) -> bool:
     return abs(stat.st_mtime - entry.mtime) <= 1e-6 and stat.st_size == entry.size
 
 
-def unchanged_since_last_read(path: str | Path) -> bool:
-    """True when *path* was fully read before and mtime + size are unchanged."""
+def unchanged_since_last_read(path: str | Path, *, thread_id: str | None = None) -> bool:
+    """True when *this session* already showed this file and mtime + size are unchanged.
+
+    【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：判据从进程级 ``_SEEN`` 换成线程级 ``_SEEN_BY_THREAD``（传了 thread_id 时）。
+    为什么：短路径的语义是「**你**刚看到过，别重复要」。进程级账本会把别的会话看到的
+    内容算到本会话头上，返回一句指向**不存在的** tool_result 的提示，调用方只能重试。
+    现网 70 次里 41 次（58.6%）是这种跨线程误判。
+    边界：拿不到 thread_id（裸调 / 老调用点）时回退旧的全局判据，保持行为不变。
+    """
     try:
         resolved = str(Path(path).resolve())
         stat = Path(path).stat()
     except OSError:
         return False
+    tid = str(thread_id or "").strip()
     with _LOCK:
-        entry = _SEEN.get(resolved)
+        if tid:
+            entry = _SEEN_BY_THREAD.get((tid, resolved))
+        else:
+            entry = _SEEN.get(resolved)
     if entry is None or not entry.full_read:
         return False
     return _stat_same(entry, stat)

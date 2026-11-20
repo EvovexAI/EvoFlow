@@ -155,9 +155,12 @@ def str_replace_hd(
         p.write_text(new_content, encoding="utf-8")
 
         # Refresh read state so consecutive edits need no re-Read (zcode semantics).
-        from evoflow.tools.zcode_port.read_file_state import note_write
+        # 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+        # 传 thread_id：写后刷新也要登记到线程级账本，否则本会话紧接着 read 会被
+        # 自己刚写过的文件误判成「已读过」（跨线程那支见 read_file_state.py）。
+        from evoflow.tools.zcode_port.read_file_state import note_write, runtime_thread_id
 
-        note_write(str(p), content=new_content)
+        note_write(str(p), content=new_content, thread_id=runtime_thread_id(runtime))
 
         added = len(new_string) - len(old_string)
         match_pos = -1

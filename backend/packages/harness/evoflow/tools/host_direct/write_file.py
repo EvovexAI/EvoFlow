@@ -149,9 +149,11 @@ def write_file_hd(
         result += " (file state is current in your context — no need to Read it back)"
 
         # Refresh read state so consecutive edits need no re-Read (zcode semantics).
-        from evoflow.tools.zcode_port.read_file_state import note_write
+        # 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+        # 同上：写后回执登记到线程级账本。
+        from evoflow.tools.zcode_port.read_file_state import note_write, runtime_thread_id
 
-        note_write(str(p), content=final_content)
+        note_write(str(p), content=final_content, thread_id=runtime_thread_id(runtime))
 
         # Final "done" event (carries no content_delta; modal already has it from args stream).
         emit_write_progress(
