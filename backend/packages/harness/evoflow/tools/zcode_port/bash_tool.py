@@ -648,6 +648,30 @@ def _same_workspace(saved: str, now: str) -> bool:
         return a == b
 
 
+def _msys_tmp_to_windows(path: str) -> str:
+    """把 Git Bash 的 ``/tmp`` 映射到它真实的 Windows 目录；映射不出来返回空串。
+
+    【self-evolution-bot \u00b7 2026-11-20 \u00b7 \u7b2c89\u8f6e \u00b7 \u6a21\u578b:deepseek-v4.1-flash-1017】
+    \u6539\u4e86\u4ec0\u4e48/\u4e3a\u4ec0\u4e48\uff1a``from_bash_posix_path`` \u6709\u610f\u4e0d\u8f6c\u6362 ``/tmp``\u3001``/dev`` \u8fd9\u7c7b MSYS \u865a\u62df\u6302\u8f7d\uff0c
+    \u4e14 docstring \u628a\u5b83\u5f53\u4f5c\u201c\u666e\u901a POSIX \u8def\u5f84\u4fdd\u7559\u539f\u6837\u201d\u3002\u4f46 Git Bash \u7684 ``/tmp`` \u5b9e\u9645\u5c31\u662f ``%TEMP%``\uff1a
+    \u5b9e\u6d4b ``cygpath -w /tmp`` \u2192 ``C:\\Users\\admin\\AppData\\Local\\Temp``\uff0c\u4e0e ``os.environ['TEMP']`` \u540c\u4e00\u5904\u3002
+    \u4e0d\u6620\u5c04\u7684\u540e\u679c\uff1a``Path('/tmp/x').is_dir()`` \u6052\u4e3a False\uff0c\u4e8e\u662f ``_remember_cwd``
+    **\u9759\u9ed8\u4e22\u5f03**\u6574\u4e2a cwd\uff0c\u800c\u6a21\u578b\u4ee5\u4e3a cd \u8fc7\u4e86\uff0c\u76f8\u5bf9\u8def\u5f84\u5374\u62fc\u5230\u65e7\u6839\u4e0a\u3002
+    \u5b9e\u8bc1\uff1a2026-11-20 \u91cd\u542f\u540e\u5b9e\u6d4b\uff0c``cd /tmp/evoflow-cwd-proof`` \u540e read \u62a5\u9519\u91cc
+    \u201cbash \u5f53\u524d\u76ee\u5f55\u201d\u4ecd\u662f\u4e0a\u4e00\u4e2a\u76ee\u5f55\u3002
+
+    \u53ea\u5904\u7406 ``/tmp`` \u4e0e ``/tmp/...``\uff1b``/dev``\u3001``/usr`` \u4e0d\u52a8\uff08\u5b83\u4eec\u6ca1\u6709\u53ef\u9760\u7684 Windows \u5bf9\u5e94\u7269\uff09\u3002
+    """
+    norm = str(path or "").replace("\\", "/")
+    if norm != "/tmp" and not norm.startswith("/tmp/"):
+        return ""
+    base = os.environ.get("TEMP") or os.environ.get("TMP") or ""
+    if not base:
+        return ""
+    rest = norm[len("/tmp"):].strip("/")
+    return os.path.join(base, rest.replace("/", os.sep)) if rest else base
+
+
 def _remember_cwd(thread_id: str, cwd: str, workspace_root: str = "") -> None:
     # 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
     # 改了什么/为什么：bash 的标记行回的是 Git-Bash posix 路径（`/c/Users/...`），
@@ -662,6 +686,17 @@ def _remember_cwd(thread_id: str, cwd: str, workspace_root: str = "") -> None:
 
     tid = str(thread_id or "").strip()
     path = from_bash_posix_path(str(cwd or "").strip())
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # from_bash_posix_path 有意不转换 /tmp 这类 MSYS 虚拟挂载（它把 /tmp 当“普通
+    # POSIX 路径”原样返回），于是 Path('/tmp/x').is_dir() 恒 False，下面那行
+    # `return` 会把整个 cwd 静默丢掉——模型以为 cd 生效了，相对路径却拼到旧根。
+    # 重启后实测：cd /tmp/evoflow-cwd-proof 后 read 报错里的「bash 当前目录」
+    # 仍是上一个目录。补一条 /tmp → %TEMP% 的映射兜底（cygpath -w /tmp 实测
+    # 就是 C:\Users\admin\AppData\Local\Temp）。
+    if path and not Path(path).is_dir():
+        mapped = _msys_tmp_to_windows(path)
+        if mapped and Path(mapped).is_dir():
+            path = mapped
     if not tid or not path or not Path(path).is_dir():
         return
     root = str(workspace_root or "").strip()

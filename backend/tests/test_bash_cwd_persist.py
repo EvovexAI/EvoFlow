@@ -158,3 +158,46 @@ def test_two_threads_do_not_share_cwd(tmp_path) -> None:
 
     assert _reported_cwd(_run_ws("pytest-iso-A", str(ws_a), "pwd")) == bt._to_posix(str(ws_a))
     assert _reported_cwd(_run_ws("pytest-iso-B", str(ws_b), "pwd")) == bt._to_posix(str(ws_b))
+
+
+# ─────────── /tmp 这类 MSYS 虚拟路径的 cwd 不许静默丢弃（第89轮补）───────────
+
+
+def test_msys_tmp_cwd_is_mapped_not_dropped(tmp_path, monkeypatch):
+    """Git Bash 的 `/tmp` 转不成 Windows 路径时，曾把整个 cwd 静默丢掉。
+
+    `from_bash_posix_path` 有意不转换 `/tmp`（当它“普通 POSIX 路径”原样返回），
+    于是 `Path('/tmp/x').is_dir()` 恒 False，`_remember_cwd` 直接 return——
+    模型以为 cd 生效了，read 的相对路径却拼到旧根上。
+    实证：2026-11-20 重启后实测 `cd /tmp/evoflow-cwd-proof` 后 read 报错里的
+    「bash 当前目录」仍是上一个目录。
+
+    判据：映射到 %TEMP% 之后必须**记得住**，而不是记得住「原样 /tmp」。
+    """
+    import importlib
+
+    bt = importlib.import_module("evoflow.tools.zcode_port.bash_tool")
+    bt._PERSISTED_CWD.clear()
+
+    real = tmp_path / "evoflow-cwd-proof"
+    real.mkdir()
+    # 让 /tmp 映射到 tmp_path，构造一个真实存在但 posix 形式不可解析的目录
+    monkeypatch.setenv("TEMP", str(tmp_path))
+    monkeypatch.setenv("TMP", str(tmp_path))
+
+    bt._remember_cwd("t-tmp-map", "/tmp/evoflow-cwd-proof")
+    got = bt.thread_cwd_for("t-tmp-map")
+
+    assert got, "/tmp 下的 cwd 被静默丢弃了（本缺陷的原始形态）"
+    assert got.replace("\\", "/").endswith("evoflow-cwd-proof"), got
+    assert "/tmp" not in got.replace("\\", "/").rstrip("/").split("/")[:1]
+
+
+def test_tmp_mapping_ignores_unmappable_paths():
+    """`/dev`、`/usr` 没有可靠 Windows 对应物，不许硬映射成假路径。"""
+    import importlib
+
+    bt = importlib.import_module("evoflow.tools.zcode_port.bash_tool")
+    assert bt._msys_tmp_to_windows("/dev/null") == ""
+    assert bt._msys_tmp_to_windows("/usr/bin") == ""
+    assert bt._msys_tmp_to_windows("") == ""
