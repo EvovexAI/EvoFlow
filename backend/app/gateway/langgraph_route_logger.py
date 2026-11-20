@@ -13,6 +13,40 @@ from fastapi import FastAPI
 logger = logging.getLogger(__name__)
 
 
+def _remint_cors_headers(scope) -> list[tuple[bytes, bytes]]:
+    """remint 手工响应的 CORS 头（与本文件顶部 CORSMiddleware 同语义）。
+
+    LangGraphRouteLoggerMiddleware 在 CORSMiddleware 之外（后注册者在外层），
+    404 remint 的 loopback re-dispatch 手工构造 response.start 会绕过 CORS：
+    curl / Rust 代理不校验所以正常，WebView2 fetch 强制校验 → Failed to fetch
+    （2026-11-18 部门群唤醒「服务未启动」实锤）。FE 还必须能从
+    expose-headers 读到 remint 新线程 id，否则永远用旧 tid → 404 死循环。
+    """
+    origin = ""
+    for k, v in (scope.get("headers") or []):
+        if k.decode("latin-1").lower() == "origin":
+            origin = v.decode("latin-1").strip()
+            break
+    if not origin:
+        return []
+    try:
+        from app.gateway.config import get_gateway_config
+
+        if origin not in get_gateway_config().cors_origins:
+            return []
+    except Exception:
+        return []
+    return [
+        (b"access-control-allow-origin", origin.encode("latin-1")),
+        (b"access-control-allow-credentials", b"true"),
+        (
+            b"access-control-expose-headers",
+            b"Accept-Ranges, Content-Range, Content-Length, x-evoflow-new-thread-id, x-evoflow-old-thread-id",
+        ),
+        (b"vary", b"Origin"),
+    ]
+
+
 class LangGraphRouteLoggerMiddleware:
     def __init__(self, app):
         self.app = app
@@ -995,6 +1029,9 @@ class LangGraphRouteLoggerMiddleware:
                                 "status": _up.status_code,
                                 "headers": [
                                     (b"content-type", b"text/event-stream; charset=utf-8"),
+                                    # 手工响应绕过外层 CORSMiddleware，必须自带 CORS 头
+                                    # （缺了会被 WebView2 CORS 校验拒收 → Failed to fetch）
+                                    *_remint_cors_headers(new_scope),
                                 ],
                             }
                         )
