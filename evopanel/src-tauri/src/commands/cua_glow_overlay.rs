@@ -53,13 +53,11 @@ const OVERLAY_LABEL: &str = "cua-glow-0";
 ///   主文案 134 + 步骤 104 + 步数 40 + 按钮 62 + 呼吸点 18 + 间隙 36 + 内边距 26
 /// 250px 会把主文案压成「EvoFlow 正在…」，等于没解决用户的问题。
 /// 高度同理：56 - 上下 padding 18 = 38px，装不下 44px 卡片，会被 overflow 裁掉。
-// 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
-// 520 → 560：加「已操作时长」后按字宽实测，520 只剩 138px 给步骤段（需要 156），
-// 560 有 178px 富余。排字宽用 node 算过，不是拍的：
-//   内容 518 − dots 18 − gap 16 − 按钮 62 = 422
-//   固定占（主文案 135 + 计数 46 + 时长 26 + 两个 6px gap）= 219 ⇒ 步骤可用 178px。
-const OVERLAY_WIDTH: f64 = 560.0;
-const OVERLAY_HEIGHT: f64 = 64.0;
+// 【self-evolution-bot · 2026-11-20】白色长条退役 → 圆形胶囊 HUD。
+// 胶囊内容：dots + 「第 N 步」+ 秒数 + 「解除控制」，按 13px 字宽约 220–260；
+// 窗口略放余量给蓝光 shadow，高度装得下 40px 胶囊 + 上下 padding。
+const OVERLAY_WIDTH: f64 = 280.0;
+const OVERLAY_HEIGHT: f64 = 56.0;
 const CARD_TOP_OFFSET: f64 = 12.0;
 const SHADOW_INSET_TOP: f64 = 6.0;
 
@@ -241,17 +239,14 @@ fn push_overlay_step(
 /// 为什么要热区而不是整窗收事件：这块条悬在屏幕顶部居中，正压在窗口标题栏上，
 /// 而 CUA 就要往那里点；整窗收事件会把自动化自己的点击吃掉。
 ///
-/// 数值必须和 `cua-glow-overlay.html` 的排版逐项对上（实测推导，非估算）。
-/// 右缩进**与窗口宽度无关**，从右边缘倒推即可（所以这里不抄窗口宽度，
-/// 免得窗口一改宽注释就撒谎）：
-///   body 右 padding 10 + 卡片右 padding 8 = 18（按钮右缘到窗口右缘）
-///   按钮宽 = 4 个汉字 11px(44) + 左右 padding 16 + 边框 2 ≈ 62
-///   按钮高 = 行高 11 + 上下 padding 8 + 边框 2 ≈ 21
-/// 热区只放 4px 余量（66 / 28），**故意收紧**：热区越宽松，越容易把 CUA
-/// 本来要落在卡片上的点击抢走。用户是照着可见按钮点的，不需要大发慈悲。
-const STOP_BTN_RIGHT_INSET: f64 = 18.0;
-const STOP_BTN_WIDTH: f64 = 66.0;
-const STOP_BTN_HEIGHT: f64 = 28.0;
+/// 数值必须和 `cua-glow-overlay.html` 圆形胶囊排版对上：
+///   body 右 padding 8 + 胶囊右 padding 6 = 14（按钮右缘到窗口右缘）
+///   按钮 ≈ 4 汉字 11px + 左右 padding 20 + 边框 2 ≈ 66
+///   按钮高 ≈ 行高 11 + 上下 padding 10 + 边框 2 ≈ 24
+/// 热区只放少量余量，避免抢走 CUA 本该落到胶囊上的点击。
+const STOP_BTN_RIGHT_INSET: f64 = 14.0;
+const STOP_BTN_WIDTH: f64 = 70.0;
+const STOP_BTN_HEIGHT: f64 = 30.0;
 const HIT_TEST_INTERVAL_MS: u64 = 80;
 /// 窗口不可见时的空转间隔（只读一次 is_visible，几乎无成本）。
 const HIT_TEST_IDLE_MS: u64 = 400;
@@ -486,8 +481,8 @@ fn build_glow_window(
     pos: LogicalPosition<f64>,
 ) -> Result<WebviewWindow, String> {
     // App HTML (self-contained). data: URLs need `webview-data-url` feature — we don't.
-    // Opaque: transparent WebView2 often paints blank. Builder mirrors voice_overlay
-    // (proven secondary window) plus explicit size/skip_taskbar.
+    // Transparent：对齐同仓已证真的 voice_overlay。圆形胶囊 HUD 需要透出桌面，
+    // 否则不透明灰/白底会再画出用户不要的长方形背景框。
 
     // 【self-evolution-bot · 2026-11-19 · 第84轮 · 模型:deepseek-v4.1-flash-1017】
     // 改了什么：给提示条窗口加**独立的 WebView2 数据目录**（照抄同仓唯一建窗成功者
@@ -533,7 +528,7 @@ fn build_glow_window(
     .inner_size(OVERLAY_WIDTH, OVERLAY_HEIGHT)
     .position(pos.x, pos.y)
     .decorations(false)
-    .transparent(false)
+    .transparent(true)
     .shadow(false)
     .always_on_top(true)
     .focused(false)

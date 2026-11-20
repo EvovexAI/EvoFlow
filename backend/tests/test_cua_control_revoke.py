@@ -71,6 +71,20 @@ def test_revoke_marks_revoked_without_stopping_session(fake_db):
     assert gs.is_cua_control_revoked(session_key="agent:main:abc") is True
 
 
+def test_revoke_resets_steps_done(fake_db):
+    """解除控制后步数必须归零，下次亮起从第 1 步开始。"""
+    _reset()
+    fake_db.max_user_seq = 2
+    gs.pulse_cua_glow_start(key="c1")
+    gs.set_cua_glow_step("正在点击")
+    gs.set_cua_glow_step("正在输入")
+    assert gs.get_cua_glow_status()["steps_done"] == 2
+
+    snap = gs.revoke_cua_control(session_key="agent:main:abc")
+    assert snap["steps_done"] == 0
+    assert gs.get_cua_glow_status()["steps_done"] == 0
+
+
 def test_revoke_does_not_reset_ai_turn_state(fake_db):
     """收回只动电脑控制，不许动 AI 回合 —— 这是本轮用户纠正的核心。"""
     _reset()

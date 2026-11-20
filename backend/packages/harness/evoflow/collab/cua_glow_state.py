@@ -339,16 +339,21 @@ def set_cua_glow_step(label: str, *, key: str = "") -> dict[str, Any]:
         return _snapshot_locked(now)
 
 
+def _reset_steps_locked() -> None:
+    """锁内清零步数。clear / revoke / 新一轮起表共用，避免步骤跨会话累加。"""
+    _STEP["label"] = ""
+    _STEP["seq"] = 0
+    _STEP["done"] = 0
+    _STEP["started_at_ms"] = 0.0
+
+
 def reset_cua_glow_steps() -> dict[str, Any]:
     """新一轮开始 / 用户解除控制：清零步骤计数。"""
     global _UPDATED_AT
     now = _now_ms()
     with _LOCK:
         _sync_locked()
-        _STEP["label"] = ""
-        _STEP["seq"] = 0
-        _STEP["done"] = 0
-        _STEP["started_at_ms"] = 0.0
+        _reset_steps_locked()
         _UPDATED_AT = now
         _persist_locked()
         return _snapshot_locked(now)
@@ -372,8 +377,11 @@ def pulse_cua_glow_start(*, key: str = "") -> dict[str, Any]:
                 # 把起点往前推，使累计接着上一段走（elapsed = now - _ACTIVE_SINCE_MS）。
                 _ACTIVE_SINCE_MS = now - _ELAPSED_FROZEN_MS
             else:
+                # 真正的新一轮：秒表归零，步数也必须归零——
+                # 否则 clear/grace 过期后下一轮会从「第 17 步」起跳，用户看到步数不对。
                 _ACTIVE_SINCE_MS = now
                 _ELAPSED_FROZEN_MS = 0.0
+                _reset_steps_locked()
         # Running cell owns visibility; grace is for the gap after it ends.
         _GRACE_UNTIL_MS = 0.0
         _UPDATED_AT = now
@@ -413,6 +421,8 @@ def clear_cua_glow() -> dict[str, Any]:
         # 用户点了「解除控制」还看到「已操作 2 分 13 秒」，等于告诉他控制没停。
         _ACTIVE_SINCE_MS = 0.0
         _ELAPSED_FROZEN_MS = 0.0
+        # 步数一并清零：否则下次亮起仍显示上一轮累计的「第 N 步」。
+        _reset_steps_locked()
         _UPDATED_AT = now
         _persist_locked()
         return _snapshot_locked(now)
@@ -451,6 +461,8 @@ def revoke_cua_control(*, session_key: str = "", reason: str = "user_revoked") -
         _GRACE_UNTIL_MS = 0.0
         _ACTIVE_SINCE_MS = 0.0
         _ELAPSED_FROZEN_MS = 0.0
+        # 步数清零：解除后再开控制应从第 1 步起，不能接着上一轮。
+        _reset_steps_locked()
         _UPDATED_AT = now
         _persist_locked()
         return _snapshot_locked(now)

@@ -5,83 +5,58 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>EvoFlow Computer Use</title>
   <!--
-    Self-contained (ZCode windowsCuaOperationIndicatorContent).
-    Opaque host window: solid page bg so WebView2 always paints (transparent often blanks).
-
-    【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
-    改了什么：原来只有「正在操作电脑」一行固定文字，用户看不出做到哪一步、也没有解除入口。
-      ① 显示当前步骤（$step）+ 已执行步数（$stepsDone）；
-      ② 右上角「解除控制」按钮 → 回调 window.__cuaGlowOverlay.onStop()；
-      ③ 卡片加蓝色光环 + 呼吸，跟「正在被控制」这件事对上（用户说的「蓝光」）。
-    为什么仍用不透明窗：Rust 侧注释写明 transparent 的 WebView2 常常画不出来（实测过）。
-      所以外发光只能画在**卡片本身**（box-shadow），不能做整屏透明描边。
+    Computer Use 顶部圆形胶囊 HUD。
+    透明宿主窗（对齐 voice_overlay）：只露出圆形胶囊 + 蓝光，不要白色长方形底框。
+    胶囊面上只显示「第 N 步」+ 已操作秒数；「解除控制」缩成右侧小按钮。
   -->
   <style>
     :root { color-scheme: light dark; --glow: #3b82f6; }
     * { box-sizing: border-box; }
     html, body {
       width: 100%; height: 100%; margin: 0; overflow: hidden;
-      background: #f3f4f6 !important; pointer-events: none; user-select: none;
+      background: transparent !important; pointer-events: none; user-select: none;
     }
     body {
       display: flex; align-items: center; justify-content: center;
-      /* 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
-         原来 padding 上下合计 18px，而卡片高 44px ⇒ 窗口 56px 装不下，
-         overflow:hidden 会把卡片上下各削掉 —— 用户看到的是一个被切边的条。
-         改成 8px + 卡片 44px = 52px，窗口 64px 有余量。 */
-      padding: 8px 10px;
+      padding: 6px 8px;
       font-family: "Segoe UI Variable", "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
     }
+    /* 圆形胶囊：整窗只有这一块可见，不要长方形白底。 */
     .indicator {
       display: flex; align-items: center; justify-content: flex-start; gap: 8px;
-      width: 100%; height: 44px; padding: 0 8px 0 14px;
-      color: #202124; background: #ffffff;
-      border: 1px solid rgba(59, 130, 246, 0.45); border-radius: 12px;
+      height: 40px; max-width: 100%;
+      padding: 0 6px 0 14px;
+      color: #1e3a8a;
+      background: rgba(239, 246, 255, 0.96);
+      border: 0;
+      border-radius: 999px;
       box-shadow:
-        0 0 0 1px rgba(59, 130, 246, 0.25),
         0 0 14px 2px rgba(59, 130, 246, 0.55),
         0 6px 12px -6px rgba(15, 23, 42, 0.18);
       font-size: 13px; font-weight: 600; line-height: 1; white-space: nowrap;
       opacity: 1; transform: translateY(0);
       transition: opacity 120ms ease, transform 120ms ease;
-      /* 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
-         只有「光环呼吸」常驻；入场动画由 setActive() 在真正重新亮起时才加类触发。
-         否则每推进一个步骤（500ms 轮询）就重放一次 enter，整条提示条会一直抖。 */
       animation: halo 2.2s ease-in-out infinite;
     }
     html[data-state="active"].flash .indicator { animation: enter 140ms ease-out both, halo 2.2s ease-in-out infinite; }
-    .label { display: flex; align-items: baseline; gap: 6px; min-width: 0; flex: 0 1 auto; }
-    /* 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
-       主文案是「我在被控制」这件事本身，绝不能被省略成「EvoFlow 正在…」；
-       空间不够时只让「步骤」这一段收缩。 */
-    #cua-glow-label { flex: 0 0 auto; white-space: nowrap; }
-    /* 【self-evolution-bot · 2026-11-19 · 第71轮 · 模型:deepseek-v4.1-flash-1017】
-       宽度账（窗口 520）：520 − body 左右 padding 20 = 500 卡片
-         − 卡片 padding 22 = 478 内容
-         − dots 18 − indicator gap 16 − 按钮 62 = 382 给 label
-       138(主文案) + 12(label 内 gap) + 58(第 N 步) = 208 ⇒ 步骤可用 174px
-       ⇒ max-width 156px 不会被挤压（原先 118px 只够 9 个字，模型写的标题等于白写）。 */
-    .step {
-      font-weight: 500; color: #1d4ed8; opacity: .95;
-      overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 156px;
-      flex: 0 1 auto;
-    }
-    .step:empty { display: none; }
+    .label { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex: 0 1 auto; }
     .count {
-      font-weight: 600; font-size: 11px; color: #1d4ed8;
-      background: rgba(59, 130, 246, 0.12);
-      border-radius: 999px; padding: 2px 7px;
+      font-weight: 700; font-size: 13px; color: #1d4ed8;
+      flex: 0 0 auto; white-space: nowrap;
     }
     .count:empty { display: none; }
-    /* 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
-       用户要「时长」。等宽数字（tabular-nums）是必须的 —— 否则秒数每跳一次字宽就变，
-       「1:09 → 1:10」会让后面整行左右轻微位移，一秒抖一下比不显示时长更烦。 */
     .elapsed {
-      font-weight: 600; font-size: 11px; color: #1d4ed8; opacity: .9;
+      font-weight: 600; font-size: 12px; color: #1d4ed8; opacity: .95;
       font-variant-numeric: tabular-nums;
       flex: 0 0 auto; white-space: nowrap;
     }
     .elapsed:empty { display: none; }
+    .elapsed::before {
+      content: "·";
+      margin-right: 8px;
+      opacity: .55;
+      font-weight: 700;
+    }
     .dots { display: flex; align-items: center; gap: 3px; flex: 0 0 auto; }
     .dot {
       width: 4px; height: 4px; border-radius: 50%; background: #3b82f6;
@@ -90,11 +65,11 @@
     .dot:nth-child(2) { animation-delay: 120ms; }
     .dot:nth-child(3) { animation-delay: 240ms; }
     .stop {
-      flex: 0 0 auto; margin-left: auto; pointer-events: auto; cursor: pointer;
+      flex: 0 0 auto; margin-left: 2px; pointer-events: auto; cursor: pointer;
       font: inherit; font-size: 11px; font-weight: 600;
       color: #b91c1c; background: rgba(185, 28, 28, 0.08);
-      border: 1px solid rgba(185, 28, 28, 0.28); border-radius: 7px;
-      padding: 4px 8px; line-height: 1; white-space: nowrap;
+      border: 1px solid rgba(185, 28, 28, 0.28); border-radius: 999px;
+      padding: 5px 10px; line-height: 1; white-space: nowrap;
     }
     .stop:hover { background: rgba(185, 28, 28, 0.16); }
     .stop:active { transform: translateY(1px); }
@@ -109,17 +84,14 @@
       35% { opacity: 1; transform: scale(1); }
     }
     @keyframes halo {
-      0%, 100% { box-shadow: 0 0 0 1px rgba(59,130,246,.22), 0 0 10px 1px rgba(59,130,246,.42), 0 6px 12px -6px rgba(15,23,42,.18); }
-      50% { box-shadow: 0 0 0 1px rgba(59,130,246,.38), 0 0 20px 4px rgba(59,130,246,.72), 0 6px 12px -6px rgba(15,23,42,.18); }
+      0%, 100% { box-shadow: 0 0 10px 1px rgba(59,130,246,.42), 0 6px 12px -6px rgba(15,23,42,.18); }
+      50% { box-shadow: 0 0 20px 4px rgba(59,130,246,.72), 0 6px 12px -6px rgba(15,23,42,.18); }
     }
     @media (prefers-color-scheme: dark) {
-      html, body { background: #1f2329 !important; }
       .indicator {
-        color: #f8fafc; background: #2b3038;
-        border-color: rgba(96, 165, 250, 0.5);
+        color: #dbeafe; background: rgba(30, 41, 59, 0.96);
       }
-      .step, .count { color: #93c5fd; }
-      .count { background: rgba(96, 165, 250, 0.16); }
+      .count, .elapsed { color: #93c5fd; }
       .dot { background: #93c5fd; }
       .stop { color: #fca5a5; background: rgba(248, 113, 113, 0.12); border-color: rgba(248, 113, 113, 0.32); }
     }
@@ -133,8 +105,6 @@
   <div class="indicator" role="status" aria-live="polite">
     <span class="dots" aria-hidden="true"><span class="dot"></span><span class="dot"></span><span class="dot"></span></span>
     <span class="label">
-      <span id="cua-glow-label">EvoFlow 正在操作电脑</span>
-      <span id="cua-glow-step" class="step"></span>
       <span id="cua-glow-count" class="count"></span>
       <span id="cua-glow-elapsed" class="elapsed"></span>
     </span>
@@ -143,22 +113,20 @@
   <script>
     (function () {
       var isZh = typeof navigator !== 'undefined' && /^zh\b/i.test(String(navigator.language || (navigator.languages && navigator.languages[0]) || ''))
-      var label = document.getElementById('cua-glow-label')
-      var stepEl = document.getElementById('cua-glow-step')
       var countEl = document.getElementById('cua-glow-count')
       var elapsedEl = document.getElementById('cua-glow-elapsed')
       var stopBtn = document.getElementById('cua-glow-stop')
-      if (label) label.textContent = isZh ? 'EvoFlow 正在操作电脑' : 'EvoFlow is controlling your computer'
       if (stopBtn) stopBtn.textContent = isZh ? '解除控制' : 'Stop'
       document.documentElement.lang = isZh ? 'zh-CN' : 'en'
       document.documentElement.dataset.state = 'active'
 
-      /* 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
-         秒表放在页面里走，不靠 Rust 轮询推：
-         轮询 500ms 一次、且步骤没变时会早退（省 eval），靠它推秒数会冻住。
-         做法：记住「推送时刻的已过毫秒 + 本机时间戳」，之后每 1s 用本机时钟外推，
-         只有 running=false 才停表。偏差只来自这一次 RPC 的网络延迟，可忽略。
-         格式：不足 1 分钟显示 "12s"，之后 "1:05"，超过 1 小时 "1:02:03"。
+      /*
+        秒表放在页面里走，不靠 Rust 轮询推：
+        轮询 500ms 一次、且步骤没变时会早退（省 eval），靠它推秒数会冻住。
+        做法：记住「推送时刻的已过毫秒 + 本机时间戳」，之后每 1s 用本机时钟外推，
+        只有 running=false 才停表。
+        防回跳：已在跑时若新 base 比本地当前值落后超过 1.5s，忽略这次 base
+        （跨进程同步偶发 stale/0 会把「12s」瞬间打回「0s」——用户看到的就是秒数不对）。
       */
       var elapsedBaseMs = 0
       var elapsedAnchor = 0
@@ -176,22 +144,30 @@
         return s + 's'
       }
 
-      function renderElapsed() {
-        if (!elapsedEl) return
+      function currentElapsedMs() {
         var ms = elapsedBaseMs
         if (elapsedRunning && elapsedAnchor) ms += Date.now() - elapsedAnchor
+        return ms
+      }
+
+      function renderElapsed() {
+        if (!elapsedEl) return
+        var ms = currentElapsedMs()
         // 起表的第一秒是 0，也要显示 "0s"：不显示的话用户会以为没加时长功能。
         elapsedEl.textContent = (ms > 0 || elapsedRunning) ? formatElapsed(ms) : ''
       }
 
       function setElapsed(ms, running) {
         var base = Number(ms) || 0
-        elapsedBaseMs = base > 0 ? base : 0
-        // 【self-evolution-bot · 2026-11-19 · 第72轮】这里**不能**要求 base>0 才起表。
-        // 第一步刚开始时基数恰好是 0，而下一次推送要等步骤文案或 running 变化 ——
-        // 中间可能几十秒，用户就会看到「明明在操作、却一直没有时长」。
-        // 只要 running=true 就起表，靠锚点外推（0 + 本机时间差）。
-        elapsedRunning = running === true
+        if (base < 0) base = 0
+        var wantRun = running === true
+        if (wantRun && elapsedRunning) {
+          var local = currentElapsedMs()
+          // 已在跑：允许向前校正；落后超过 1.5s（含误推 0）就丢掉，防秒数回跳。
+          if (base + 1500 < local) base = Math.floor(local)
+        }
+        elapsedBaseMs = base
+        elapsedRunning = wantRun
         elapsedAnchor = elapsedRunning ? Date.now() : 0
         renderElapsed()
         if (elapsedRunning && !elapsedTimer) {
@@ -200,6 +176,11 @@
           clearInterval(elapsedTimer)
           elapsedTimer = null
         }
+      }
+
+      function formatCount(n) {
+        if (!(n >= 1)) return ''
+        return isZh ? ('第 ' + n + ' 步') : ('step ' + n)
       }
 
       window.__cuaGlowOverlay = {
@@ -212,21 +193,19 @@
           }, 260)
         },
         setLeaving: function () { document.documentElement.dataset.state = 'leaving' },
-        /* 进度：step 为空则只剩主文案（不编造）
-           【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】
-           加 elapsedMs / running：秒数由页面自己每秒走，**不靠轮询推** ——
-           步骤文案不变时 Rust 侧 updateCuaGlowStep 会早退（省 eval），
-           靠它推时长会冻在第一次的数字上。running=false 就停表。
+        /*
+          进度：胶囊面上只显示步数 + 秒数。
+          elapsedMs / running：秒数由页面自己每秒走，不靠轮询推。
         */
         setStep: function (text, doneCount, elapsedMs, running) {
-          if (stepEl) stepEl.textContent = String(text || '')
           if (countEl) {
             var n = Number(doneCount) || 0
-            countEl.textContent = n > 1 ? (isZh ? ('第 ' + n + ' 步') : ('step ' + n)) : ''
+            countEl.textContent = formatCount(n)
+            // 保留步骤文案到 aria，便于读屏；视觉上圆形胶囊只露步数/秒数。
+            countEl.title = String(text || '')
           }
           setElapsed(elapsedMs, running)
         },
-        /* Rust 侧注入：点「解除控制」时回调这里 */
         onStop: null,
       }
 
@@ -240,7 +219,6 @@
               window.__cuaGlowOverlay.onStop()
             }
           } catch (e) {}
-          /* 立刻转 leaving，别让用户觉得没反应 */
           document.documentElement.dataset.state = 'leaving'
         })
       }

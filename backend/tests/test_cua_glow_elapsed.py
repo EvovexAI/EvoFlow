@@ -79,6 +79,24 @@ def test_clear_resets_elapsed_to_zero():
     assert gs.get_cua_glow_status()["elapsed_ms"] == 0
 
 
+def test_clear_and_new_round_reset_steps_done():
+    """步数不能跨会话累加——否则胶囊面上会显示「第 17 步」这种错数。"""
+    _reset_all()
+    gs.pulse_cua_glow_start(key="c1")
+    gs.set_cua_glow_step("正在点击")
+    gs.set_cua_glow_step("正在输入")
+    assert gs.get_cua_glow_status()["steps_done"] == 2
+
+    gs.clear_cua_glow()
+    assert gs.get_cua_glow_status()["steps_done"] == 0, "clear 必须清零步数"
+
+    # 新一轮起表也要从 0 起；随后的第一步才是第 1 步。
+    gs.pulse_cua_glow_start(key="c2")
+    assert gs.get_cua_glow_status()["steps_done"] == 0
+    gs.set_cua_glow_step("正在截图")
+    assert gs.get_cua_glow_status()["steps_done"] == 1
+
+
 def test_elapsed_is_exposed_on_the_status_payload():
     """HTTP 出口（/cua/glow-status）逐字透传快照 —— 字段必须在快照里存在。"""
     _reset_all()
