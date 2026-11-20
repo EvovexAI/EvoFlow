@@ -671,6 +671,37 @@ def _remember_cwd(thread_id: str, cwd: str, workspace_root: str = "") -> None:
     with _PERSISTED_CWD_LOCK:
         _PERSISTED_CWD[tid] = (root, path)
 
+def thread_cwd_for(thread_id: str, workspace_root: str = "") -> str:
+    """该 thread 在 bash 里学到的当前目录；read/replace/grep 复用它。
+
+    【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么/为什么：此前 bash 学到的 cwd **只对 bash 自己生效**，read/replace/grep
+    各自按「进程 cwd / 会话工作区根」拼——三套「当前目录」互不相通。于是 bash 返回
+    `cwd: /d/dev/github/EvoFlow` 时，read 仍拼出 `backend/backend/...`、
+    grep 仍拼到 profile 目录，模型只能每次都写 `D:/dev/github/EvoFlow/...` 全量路径。
+    现网实证（近7天 obs）：read/replace/grep 相对路径调用失败 116 次，其中 41 次
+    两边都没有（探针）、16 次目标文件其实就在仓库根下——判据不是路径写错，是根不对。
+    统一成一个「当前目录」= IDE 语义，也让 cwd 持久化那次修复真正对全部工具生效。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return ""
+    with _PERSISTED_CWD_LOCK:
+        entry = _PERSISTED_CWD.get(tid)
+    if not entry:
+        return ""
+    saved_root, path = entry
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 与 _cwd 同一条判据：记住 cwd 时一并记了当时的工作区 root，root 变了就作废。
+    # 否则同一会话在 UI 里切换工作区后，上一个工作区的目录仍会当作「当前目录」，
+    # 相对路径就被拼到本轮工作区之外 —— 这正是第 68 轮修过的同类缺陷。
+    want_root = str(workspace_root or "").strip()
+    if want_root and saved_root and not _same_workspace(saved_root, want_root):
+        return ""
+    cand = str(path or "").strip()
+    return cand if cand and os.path.isdir(cand) else ""
+
+
 
 def _no_window() -> dict:
     if sys.platform == "win32":

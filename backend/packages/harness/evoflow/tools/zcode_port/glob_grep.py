@@ -30,9 +30,19 @@ def _workspace_root(runtime: ToolRuntime, path: str | None) -> Path:
     resolved = resolve_search_workspace_root(runtime=runtime)
     if isinstance(resolved, str):
         raise RuntimeError(resolved)
-    root, _thread = resolved
+    root, thread = resolved
     rel = (path or ".").strip() or "."
     if rel in (".", ""):
+        # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么/为什么：不传 path 时旧实现直接用「会话工作区根」。同一个 session 里
+        # bash 已经 cd 到仓库根、read/replace 也按那个 cwd 解析，grep 却还扎在会话根，
+        # 于是「当前目录」在第三个工具上又分叉了一次（本轮的原始问题就是它）。
+        # IDE 语义下未指定 path = 当前目录；只在 bash 真学到目录时才改，否则原样回落。
+        from evoflow.tools.host_direct.workspace_path_guard import _bash_cwd_for_thread
+
+        cwd = _bash_cwd_for_thread(str(thread or ""), root)
+        if cwd is not None and cwd.is_dir():
+            return cwd
         return Path(root)
     target = resolve_tool_path(rel, runtime=runtime, must_exist=True)
     if isinstance(target, str):

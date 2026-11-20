@@ -185,6 +185,37 @@ def _resolve_relative_under_root(root: Path, raw: str) -> Path:
     return (root / rel.lstrip("/")).resolve()
 
 
+def _bash_cwd_for_thread(thread_id: str, workspace_root: str = "") -> Path | None:
+    """同一 thread 在 bash 里学到的当前目录；read/replace/grep 相对路径复用它。
+
+    【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么/为什么：此前 bash 学到的 cwd **只对 bash 自己生效**，而 read/replace/grep
+    按「进程 cwd / 会话工作区根」各自拼接——三套「当前目录」互不相通。于是 bash 返回
+    `cwd: /d/dev/github/EvoFlow` 之后，read 仍拼出 `backend/backend/...`、grep 仍拼到
+    profile 目录，模型只能每条都写 `D:/dev/github/EvoFlow/...` 全量路径。
+    现网实证（近7天 obs）：read/replace/grep 相对路径调用 209 次、失败 116 次，
+    其中目标文件真在仓库根下的 16 次 —— 判据不是路径写错，是「当前目录」不一致。
+
+    惰性 import：bash_tool 顶层已 import 本模块，反向顶层 import 会成环。
+    """
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return None
+    try:
+        from evoflow.tools.zcode_port.bash_tool import thread_cwd_for
+
+        cand = thread_cwd_for(tid, str(workspace_root or "").strip())
+    except Exception:
+        return None
+    if not cand:
+        return None
+    try:
+        p = Path(cand)
+        return p.resolve() if p.is_dir() else None
+    except (OSError, ValueError):
+        return None
+
+
 def resolve_tool_path(
     path: str,
     *,
@@ -236,6 +267,23 @@ def resolve_tool_path(
         )
 
     root_s, _tid = resolve_tool_workspace_root(runtime=runtime)
+
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 相对路径优先按**该 thread 在 bash 里学到的 cwd** 解析：IDE 语义下一个 session
+    # 只有一个「当前目录」，不该 bash 认仓库根、read 认进程 cwd、grep 认会话根。
+    # 只在命中真实存在才采用；未命中一律回落下面的旧逻辑，错误文案保持不变。
+    bash_cwd = _bash_cwd_for_thread(_tid, root_s)
+    if bash_cwd is not None:
+        cand = (bash_cwd / expanded).resolve()
+        if cand.exists():
+            return _finalize_path(
+                cand,
+                must_exist=must_exist,
+                must_be_file=must_be_file,
+                must_be_dir=must_be_dir,
+                label=path,
+            )
+
     if root_s:
         root = Path(os.path.expanduser(os.path.expandvars(root_s))).resolve()
         norm_root = _normalize_bound_workspace_dir(root)

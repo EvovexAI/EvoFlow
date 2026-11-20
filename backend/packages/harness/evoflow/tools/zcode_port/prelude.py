@@ -17,6 +17,7 @@ UGREP_DEFAULT_ARGS = "-G --ignore-files --hidden -I --exclude-dir=.git --exclude
 BASH_DESCRIPTION = """Executes a bash command and returns its output.
 
 - Working directory **persists between calls** (per thread): a `cd` you run now is where the next command starts. Every finished call also ends with a `cwd: <path>` line — read that instead of prefixing commands with `cd … &&`.
+- The **same cwd applies to read / replace / grep / glob**: once a `cd` sticks, relative paths in those tools resolve from it too, so `backend/app/x.py` works without the `D:/...` prefix. Absolute paths are unchanged.
   Shell state (env vars, functions) does not persist across calls (each command runs in a fresh subshell; the host may reuse a warm bash process).
 - IMPORTANT: Avoid using this tool to run `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user.
 - `timeout` is in milliseconds: default 120000, max 600000. Short read-only probes (`git status`/`log`, `ls`, …) soft-cap at 30000 when timeout is omitted.
@@ -58,7 +59,9 @@ TASK_OUTPUT_DESCRIPTION = """【self-evolution-bot · 2026-11-19 · 第67轮 · 
 - Returns the task output along with status information
 - block=true (default) 会等一小段：默认 5000ms，且一旦有输出并静默 1.5s 就提前返回
 - block=false 立即返回当前状态
-- 真要长时间等完，显式传 timeout=600000（会阻塞对话，长任务请依赖完成通知）
+- 单次最多等 30s（硬封顶，传更大的值按 30s 走并在回执里说明）。
+  **要等任务跑完不要靠加大 timeout**：bash 任务结束时由 harness 主动发
+  <task-notification> 并把输出文件路径推给你，比阻塞查询省得多。
 - Task IDs can be found using the /tasks command
 - Works with all task types: background shells, async agents, and remote sessions"""
 
