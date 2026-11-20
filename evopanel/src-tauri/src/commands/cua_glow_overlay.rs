@@ -674,7 +674,12 @@ fn ensure_overlay_window(app: &tauri::AppHandle) -> Result<(WebviewWindow, bool)
             // 判据仍用 hwnd()：空壳窗口在这里会立刻返回 `HandleError::Unavailable`
             // （即日志里的 `the underlying handle is not available`），不会像
             // `outer_size()` 那样抛 `failed to receive message from webview`。
-            if existing.hwnd().is_ok() {
+            // `WebviewWindow::hwnd()` 仅 Windows 存在；macOS/Linux 编译会 E0599（1.3.39 CI）。
+            #[cfg(target_os = "windows")]
+            let reuse_ok = existing.hwnd().is_ok();
+            #[cfg(not(target_os = "windows"))]
+            let reuse_ok = true;
+            if reuse_ok {
                 // 尺寸/位置由 show 命令在主线程里补（见 §三之四）。
                 let _ = existing.set_size(LogicalSize::new(OVERLAY_WIDTH, OVERLAY_HEIGHT));
                 let _ = existing.set_position(pos);
