@@ -33,6 +33,8 @@ handlers_empty_reason: 本岗有下级但本轮确实不派时必填短因（如
 小V（系统前台）代用户可更新任意单。身份由运行时绑定，勿自报 agent_code。
 create：assignee/role=派给谁；raised_by 系统盖章勿传。
 start=true（默认）=建单即开工（系统叫醒对方），勿再单独 wake；start=false=只建单不叫醒。
+同题去重（第86轮）：同一 assignee 已有**同名未结案**单时 create 会被拒（报错带旧单 id）——
+  先结案/续跑旧单；确需并行另建传 allow_duplicate=true。自测/锚点/探针单传 probe=true（任务中心默认折叠）。
 wake 仅用于续跑已有未结单 / busy 重试。
 
 任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）、
@@ -424,6 +426,13 @@ def tasks_tool(
     round_id: str = "",
     confirm: bool = False,
     start: bool = True,
+    # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】create 专用两枚新参。
+    # 为什么：建单去重闸与探针标记落在 admin.tasks.create_task（唯一漏斗），工具层必须透传，
+    #   否则函数层全绿而模型看不见开关（第12/14轮「测接线」同型坑）。
+    # allow_duplicate: 同员工同题已有未结案时确需另建（默认被拒，报错点名旧单 id）。
+    # probe=true: 声明本单是开发自测/锚点/探针——source_channel=dev_probe，任务中心默认折叠。
+    allow_duplicate: bool = False,
+    probe: bool = False,
     subtasks_only: bool = False,
     include_subtasks: bool = False,
     limit: int = 10,
@@ -629,6 +638,9 @@ def tasks_tool(
             # A fallback owner means "we could not honour the requested owner".
             # Do not wake the system front desk for a shell task nobody asked for.
             start=bool(start) and not assignee_is_fallback,
+            # 【self-evolution-bot · 2026-11-20 · 第86轮 · 模型:deepseek-v4.1-flash-1017】透传两枚新开关（见签名注释）。
+            allow_duplicate=bool(allow_duplicate),
+            probe=bool(probe),
         )
         # 【fullstack-dev · 2026-11-15 · 第13轮】建单成功但描述有问题时，在回执点名。
         # 为什么：10:38 我建的交接单正文传给了 content（与 create 的 description 串位），

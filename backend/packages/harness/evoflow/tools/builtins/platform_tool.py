@@ -148,6 +148,9 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
         pass
 
 
+# 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+# 描述里 Right panel 段改写：先调 ui.kinds 查契约；只读动作永不自动弹栏；
+# 逐 kind 列出必需字段（web-embed/shell-page/employeeProcess/collab-workflow/…）。
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
 action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*).
@@ -156,7 +159,12 @@ catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; 
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
 sessions.status = current conversation run/context usage; sessions.compact (confirm=true) = manually compress context (same as /compact; applies to later turns).
-Right panel: ui.show kind+data (collab-workflow / collabSubtaskTranscript / employeeProcess / web-embed / artifacts…); ui.hide to close. Read-risk, no confirm. Only when user should watch progress — not after every write.
+Right panel: call action=ui.kinds FIRST to read supported kinds + required fields, then ui.show kind+data.
+Nothing auto-opens the panel except actions the user is actively waiting on
+(employees.wake/dispatch/resume/chat_send, workflow.run) — read-only ops (list/get/brief) never pop it.
+Required fields: web-embed data.url; shell-page data.path (site-internal route);
+employeeProcess data.agentCode (taskId optional); collab-workflow data.mainTaskId;
+collabSubtaskTranscript data.mainTaskId+subtaskId; sessionRuntime data.sessionKey.
 OpenAI-compat analysis (CLI evoflow openai / models invoke): openai.models → openai.chat (confirm=true) for text; openai.vision (confirm=true, image+message) for vision; settings.invoke_model also covers text invoke.
 Media: media.catalog → media.generate_image (confirm=true, sync poll) / media.generate_video (confirm=true, async) → media.task_wait. Default Volcengine jimeng (Agent Plan Seedream/Seedance). Do not call retired media_* tool names.
 UI shows image/video preview from absolute_path — do not paste ![markdown] again.

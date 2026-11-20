@@ -70,7 +70,12 @@ Deliverables: kind=artifacts, data.items[{type,path|url|content}].
 Web for the user: kind=web-embed, data.url — do not only paste a bare link in chat.
 Do not auto-open write preview after write/replace — only when user asks.
 Progress (any chat): collab-workflow data.mainTaskId; collabSubtaskTranscript data.mainTaskId+subtaskId;
-employeeProcess data.taskId+agentCode — only when user should watch live progress (not after every platform call).
+employeeProcess data.agentCode (taskId optional) — only when user should watch live progress (not after every platform call).
+【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+改了什么：employeeProcess 那行由 data.taskId+agentCode 改为 data.agentCode (taskId optional)。
+为什么：上一处只改了 _build_progress_surface 的校验，没改这段给模型看的描述——
+校验说「只要 agentCode」，描述仍说「要 taskId+agentCode」，模型照描述传参就白传一个
+taskId 或以为必须带 task，等于同一件事又写了两份且互相矛盾。
 """
 
 
@@ -126,7 +131,14 @@ def _build_progress_surface(
             data.get("mainTaskId"), data.get("main_task_id"), data.get("taskId"), data.get("task_id")
         )
         if not main_id:
-            return None, "collab-workflow requires data.mainTaskId (or taskId)"
+            # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：缺字段报错补上「怎么查/怎么传」，指向 ui.kinds。
+            # 为什么：只报缺什么，模型下一轮仍要猜第二个字段叫什么。
+            return (
+                None,
+                "collab-workflow requires data.mainTaskId (or taskId); "
+                "call platform action=ui.kinds for the full contract",
+            )
         data["mainTaskId"] = main_id
         lead = _first_str(
             data.get("leadThreadId"),
@@ -174,13 +186,25 @@ def _build_progress_surface(
         return surface, None
 
     if kind == "employeeProcess":
+        # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：employeeProcess 只强制 agentCode，taskId 改为可选。
+        # 为什么：契约真源（stage/right_panel_kinds.py）里 taskId 本就是可选——
+        # 跟岗/唤醒场景只有 agent 没有 task，前端 open-progress-from-panel-set.ts
+        # 早就只查 agentCode。是这里多要了一个 taskId，导致「模型按前端能开的方式
+        # 调、后端却报错」这一类对不齐。生产侧自动开 CTA 一直靠 live:{code} 兜底
+        # 才没暴露，属规则写了两份且不一致。
         task_id = _first_str(
             data.get("taskId"), data.get("task_id"), data.get("mainTaskId"), data.get("main_task_id")
         )
         code = _first_str(data.get("agentCode"), data.get("agent_code"), data.get("assigned_to"))
-        if not task_id or not code:
-            return None, "employeeProcess requires data.taskId and data.agentCode"
-        data["taskId"] = task_id
+        if not code:
+            return None, "employeeProcess requires data.agentCode"
+        if task_id:
+            data["taskId"] = task_id
+        else:
+            # 跟岗占位：不写假 taskId，避免拼出 proactive:…:task:live-… 这种死链
+            data.pop("taskId", None)
+            data.pop("task_id", None)
         data["agentCode"] = code
         round_id = _first_str(data.get("roundId"), data.get("round_id"), data.get("source_ref"))
         if round_id:
@@ -190,7 +214,8 @@ def _build_progress_surface(
         label = str(title or "").strip() or _first_str(data.get("title")) or "执行过程"
         data["title"] = label
         surface = {
-            "id": f"process:{task_id}",
+            # taskId 缺失（跟岗）时用 agentCode 兜底，别拼出 "process:" 这种空 id
+            "id": f"process:{task_id or code}",
             "kind": kind,
             "title": label,
             "layout": layout or "wide",
