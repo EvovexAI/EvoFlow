@@ -220,13 +220,30 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
         return target
 
     root_s, _tid = resolve_tool_workspace_root(runtime=runtime)
+
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # read 是调用量最高的文件工具（近7天 1549 次），但它**没走** `resolve_tool_path`：
+    # 普通相对路径在这里按「会话工作区根 / 进程 cwd」自己拼，于是第 89 轮给
+    # `resolve_tool_path` 加的「复用 bash 学到的 cwd」对它完全没生效——
+    # 上一笔提交 message 写「read 也生效」是不准确的，这里补上真接线。
+    # 语义取最保守形态：只在 bash cwd 下**真实存在**时采用，否则一律回落旧逻辑。
+    from evoflow.tools.host_direct.workspace_path_guard import _bash_cwd_for_thread
+
+    _bcwd = _bash_cwd_for_thread(_tid, root_s)
+    if _bcwd is not None:
+        _cand = (_bcwd / expanded).resolve()
+        if _cand.is_file():
+            return _cand
+
     if root_s:
         root = Path(os.path.expanduser(os.path.expandvars(root_s))).resolve()
         if not root.is_dir():
             return f"Error: Workspace root is not a directory: {root}"
         target = _resolve_relative_under_root(root, raw.replace("\\", "/"))
+        _base_dir, _base_kind = root, "会话工作区根"
     else:
         target = (Path.cwd() / expanded).resolve()
+        _base_dir, _base_kind = Path.cwd(), "进程当前目录"
 
     if not target.is_file():
         if target.is_dir():
@@ -264,6 +281,11 @@ def _resolve_read_target(path: str, *, runtime: ToolRuntime) -> Path | str:
                 f"；相对路径是按进程当前目录 {Path.cwd()} 拼接的"
                 "（已向上查找同名文件，未命中）；仓库内文件请传 D:/... 绝对路径"
             )
+        # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+        # 第 89 轮起相对路径会**先**按 bash 学到的 cwd 试一次。若上面报的是工作区根
+        # 或进程 cwd，不再补这一句会让调用方以为没试过 bash 的当前目录。
+        if _bcwd is not None and not _is_absolute_path(expanded, expanded):
+            detail += f"（bash 当前目录 {_bcwd} 下也未命中）"
         return detail
 
     # 【self-evolution-bot · 2026-11-19 · 第67轮 · 模型:deepseek-v4.1-flash-1017】
@@ -333,11 +355,22 @@ def _resolve_upward_fallback(target: Path) -> Path | None:
     return None
 
 
-def _note_model_read(path: Path, *, full_read: bool = True, content_hash: str | None = None) -> None:
+def _note_model_read(
+    path: Path,
+    *,
+    full_read: bool = True,
+    content_hash: str | None = None,
+    thread_id: str = "",
+) -> None:
     try:
         from evoflow.tools.zcode_port.read_file_state import note_read
 
-        note_read(str(path), full_read=full_read, content_hash=content_hash)
+        note_read(
+            str(path),
+            full_read=full_read,
+            content_hash=content_hash,
+            thread_id=thread_id or None,
+        )
     except Exception:
         return
 
@@ -393,6 +426,14 @@ def read_file_hd(
         run_view_image_refs,
     )
 
+    # 【self-evolution-bot · 2026-11-19 · 第83轮 · 模型:deepseek-v4.1-flash-1017】
+    # 本会话 id：读回执按线程记账，否则别的岗位/别的线程读过的文件会让我这边
+    # 收到「Wasted call，去翻你之前那条 tool_result」——而那条根本不在我上下文里。
+    # 现网 70 次 Wasted call 里 41 次（58.6%）就是这么来的（详见 read_file_state.py）。
+    from evoflow.tools.zcode_port.read_file_state import runtime_thread_id
+
+    _tid = runtime_thread_id(runtime)
+
     # Staged-image Commands must carry the originating tool call id; the real
     # graph always provides it via ToolRuntime (node_repl_tool uses the same
     # pattern — no InjectedToolCallId param, so direct ``.invoke()`` keeps working).
@@ -447,7 +488,7 @@ def read_file_hd(
 
         text = read_pdf_file(resolved, pages=pages)
         if not str(text).startswith("Error:"):
-            _note_model_read(resolved, full_read=False)
+            _note_model_read(resolved, full_read=False, thread_id=_tid)
         return text
     if symbol:
         content = resolved.read_text(encoding="utf-8", errors="replace")
@@ -470,7 +511,7 @@ def read_file_hd(
             text += f"\n\n… [symbol '{symbol}' body is {total} lines; showing first {_SYMBOL_MAX_LINES}. Read the rest with offset={start + _SYMBOL_MAX_LINES}, limit={min(_SYMBOL_MAX_LINES, remaining)}]"
             return text
         text = "\n".join(f"{start + i}: {line}" for i, line in enumerate(body_lines))
-        _note_model_read(resolved, full_read=False)
+        _note_model_read(resolved, full_read=False, thread_id=_tid)
         return text
     # ZCode-style file_unchanged short-circuit: a full-text re-read of an
     # unchanged file returns a one-line marker instead of resending content.
@@ -478,7 +519,7 @@ def read_file_hd(
         try:
             from evoflow.tools.zcode_port.read_file_state import unchanged_since_last_read
 
-            if unchanged_since_last_read(resolved):
+            if unchanged_since_last_read(resolved, thread_id=_tid):
                 return (
                     "Wasted call — file unchanged since your last Read. "
                     "Refer to that earlier tool_result instead. "
@@ -506,5 +547,5 @@ def read_file_hd(
             from evoflow.tools.zcode_port.read_file_state import file_content_hash
 
             content_hash = file_content_hash(resolved)
-        _note_model_read(resolved, full_read=full_read, content_hash=content_hash)
+        _note_model_read(resolved, full_read=full_read, content_hash=content_hash, thread_id=_tid)
     return text

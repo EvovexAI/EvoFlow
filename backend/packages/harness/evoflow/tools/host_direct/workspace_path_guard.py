@@ -291,8 +291,19 @@ def resolve_tool_path(
             return norm_root
         root = norm_root
         target = _resolve_relative_under_root(root, norm)
+        base_dir: Path | None = root
+        base_kind = "会话工作区根"
     else:
         target = (Path.cwd() / expanded).resolve()
+        base_dir = Path.cwd()
+        base_kind = "进程当前目录"
+
+    # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    # 把**真正参与拼接的根**传给报错文案。原先 _not_found_detail 无条件写
+    # 「按会话工作区根拼的」，而现网 6/8 会话根本没绑工作区、拼的是进程 cwd，
+    # 照着那句假话去改路径只会更错。
+    if bash_cwd is not None:
+        base_kind = f"{base_kind}（bash 当前目录 {bash_cwd} 下未命中，已回落）"
 
     return _finalize_path(
         target,
@@ -300,6 +311,8 @@ def resolve_tool_path(
         must_be_file=must_be_file,
         must_be_dir=must_be_dir,
         label=path,
+        base_dir=base_dir,
+        base_kind=base_kind,
     )
 
 
@@ -379,7 +392,13 @@ def format_tool_path_label(resolved: Path, *, runtime: Any = None) -> str:
         return resolved.as_posix()
 
 
-def _not_found_detail(p: Path, label: str) -> str:
+def _not_found_detail(
+    p: Path,
+    label: str,
+    *,
+    base_dir: Path | None = None,
+    base_kind: str = "",
+) -> str:
     r"""路径不存在时的报错：回显入参 + 实际查找的绝对路径。
 
     【self-evolution-bot · 2026-11-19 · 第60轮 · 模型:deepseek-v4.1-flash-1017】
@@ -395,6 +414,16 @@ def _not_found_detail(p: Path, label: str) -> str:
     evopanel/src/lib/chat-normalize.js:1221 用
     /Error: (?:Path not found|File not found):\s*(.+?)(?:\r?\n|$)/ 从这句里抽路径显示给用户，
     操作端只读第一行；补充信息必须放第二行起，否则前端会把整段当成路径。
+
+    【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：第二行原来**无条件**写「相对路径是按会话工作区根拼的」。现网实测这句
+    在三种情况下都不成立：① 会话未绑定工作区（最近 8 条会话 6 条 local_workspace_root=None）
+    时拼的是**网关进程当前目录**（`EvoFlow/backend`）；② 第 89 轮起相对路径先按 bash
+    学到的 cwd 试；③ 目标根是 profile 目录时也不是「会话工作区根」。
+    为什么必须改：本岗亲测在 `EvoFlow/backend` 下 read `backend/app/...` 被拼成
+    `backend/backend/...`，文案却说「按会话工作区根拼的」——照着这句去改只会更错。
+    现在由调用方把**真正参与拼接的那个根**（base_dir / base_kind）传进来，按实回报；
+    没传就只报绝对路径，不再猜一个根名。
     """
     base = f"Error: Path not found: {label}"
     try:
@@ -414,11 +443,13 @@ def _not_found_detail(p: Path, label: str) -> str:
         return f"{base}\n（实际查找的绝对路径：{actual}）"
     if actual == str(label):
         return base
-    return (
-        f"{base}\n"
-        f"（实际查找的绝对路径：{actual}；相对路径是按会话工作区根拼的，"
-        f"如果你想指的是仓库，请改用 D:/ 开头的绝对路径）"
-    )
+    if base_dir is not None and base_kind:
+        return (
+            f"{base}\n"
+            f"（实际查找的绝对路径：{actual}；相对路径是按{base_kind} "
+            f"{base_dir} 拼接的，如果你想指的是仓库，请改用 D:/ 开头的绝对路径）"
+        )
+    return f"{base}\n（实际查找的绝对路径：{actual}）"
 
 
 def _finalize_path(
@@ -428,9 +459,11 @@ def _finalize_path(
     must_be_file: bool,
     must_be_dir: bool,
     label: str,
+    base_dir: Path | None = None,
+    base_kind: str = "",
 ) -> Path | str:
     if must_exist and not p.exists():
-        return _not_found_detail(p, label)
+        return _not_found_detail(p, label, base_dir=base_dir, base_kind=base_kind)
     if must_be_file and p.exists() and not p.is_file():
         hint = " Use terminal (e.g. dir / ls) to browse a directory, or read with a concrete file path (e.g. outputs/result.txt), not the workspace root '.'." if p.is_dir() else ""
         return f"Error: Path is not a file: {label}.{hint}" if hint else f"Error: Path is not a file: {label}"

@@ -140,3 +140,67 @@ def test_cwd_void_after_workspace_switch():
 
     assert bt.thread_cwd_for("t-switch", "D:/dev/github/EvoFlow") != "", "同一工作区应保留 cwd"
     assert bt.thread_cwd_for("t-switch", "D:/some/other/workspace") == "", "切换工作区后旧 cwd 必须作废"
+
+
+# ───────────── 第89轮补：read 走的是自己的解析器，必须单独验接线 ─────────────
+
+
+def test_read_tool_relative_path_uses_bash_cwd(tmp_path):
+    """read 是调用量最高的文件工具，它**不走** resolve_tool_path，必须单独验接线。
+
+    第89轮上一笔提交只在 resolve_tool_path 里接了 cwd，read 的普通相对路径仍按
+    「会话根 / 进程 cwd」拼，等于 read 上这个缺陷没修。
+
+    夹具刻意用临时目录：仓库相对路径会被 read 第67轮的「向上找同名文件」兜底救回来，
+    于是**接线坏掉测试也照样绿**（我第一次就这么假绿了，注入 if False 后 11 条全绿）。
+    这里 `sub/target.txt` 在 backend/ 及所有祖先目录下都不存在，兜底救不到，
+    只有 bash cwd 接线生效才可能解析成功。
+    """
+    rf = importlib.import_module("evoflow.tools.host_direct.read_file")
+    proj = tmp_path / "proj"
+    (proj / "sub").mkdir(parents=True)
+    (proj / "sub" / "target.txt").write_text("hi", encoding="utf-8")
+    rel = "sub/target.txt"
+
+    rt = _Runtime("t-read-wire")
+    before = rf._resolve_read_target(rel, runtime=rt)
+    assert isinstance(before, str), f"前置条件不成立：未学 cwd 时不该命中，实际 {before!r}"
+
+    bt._remember_cwd("t-read-wire", str(proj).replace("\\", "/"))
+    after = rf._resolve_read_target(rel, runtime=rt)
+    assert isinstance(after, Path), f"read 没接上 bash cwd，实际返回 {after!r}"
+    assert after == (proj / "sub" / "target.txt").resolve()
+
+
+def test_read_tool_missing_relative_reports_real_base(tmp_path):
+    """相对路径确实不存在时：报错要点名**真正参与拼接的根**，不许无条件说「会话工作区根」。
+
+    第89轮实测：未绑定工作区（6/8 会话如此）时拼的是网关进程 cwd，旧文案却说
+    「按会话工作区根拼的」——照那句去改路径只会更错。
+    """
+    rf = importlib.import_module("evoflow.tools.host_direct.read_file")
+    rt = _Runtime("t-read-miss")
+    got = rf._resolve_read_target("no_such_dir/__read_probe__.py", runtime=rt)
+
+    assert isinstance(got, str), f"应当返回报错串，实际 {got!r}"
+    assert got.startswith("Error: File not found: "), got
+    assert "实际查找的绝对路径" in got, got
+    # 文案里的根必须是真实参与拼接的那个，不能凭空断言「会话工作区根」
+    if "会话工作区根" in got:
+        assert str(Path.cwd()).replace("\\", "/").lower() not in got.replace("\\", "/").lower(), (
+            f"未绑定工作区却说是会话工作区根：{got}"
+        )
+
+
+def test_replace_missing_relative_points_at_real_root(tmp_path):
+    """replace 的缺路径文案同样要按实际根说话（共用 _finalize_path）。"""
+    guard = _guard()
+    rt = _Runtime("t-replace-miss")
+    got = guard.resolve_tool_path(
+        "no_such_dir/__replace_probe__.md", runtime=rt, must_exist=True
+    )
+
+    assert isinstance(got, str), f"应当返回报错串，实际 {got!r}"
+    first = got.splitlines()[0]
+    assert first == "Error: Path not found: no_such_dir/__replace_probe__.md", got
+    assert "实际查找的绝对路径" in got, got
