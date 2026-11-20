@@ -610,19 +610,12 @@ async def probe_embedding_model(http_request: Request, request: EmbeddingProbeRe
     if mc is None:
         raise HTTPException(status_code=404, detail=f"Model '{request.model_name}' not found")
 
-    # Windows: never start ST import in Gateway — wait_for cannot kill GIL-held
-    # worker (2026-11-19 15:03 hang: embedding-probe → stall 132s).
+    # Local models on Windows go through embed_worker (subprocess) — never import
+    # ST in Gateway. Give the first cold load more time than cloud probes.
     vendor = str(getattr(mc, "vendor", "") or "").strip().lower()
-    if vendor == "local":
-        from evoflow.knowledge.embedding.local_provider import (
-            _WIN32_INPROCESS_BLOCK_MSG,
-            inprocess_local_embed_allowed,
-        )
-
-        if not inprocess_local_embed_allowed():
-            return {"ok": False, "message": _WIN32_INPROCESS_BLOCK_MSG}
-
     timeout_s = _embedding_probe_timeout_s()
+    if vendor == "local":
+        timeout_s = max(timeout_s, 45.0)
 
     async def _probe() -> list[float]:
         # Import inside the task so first-hit registry/torch cost is cancellable

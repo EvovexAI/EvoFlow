@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **安装包默认捆绑本地向量模型**：`bge-small-zh` 权重 + torch/ST，知识库与代码索引可离线语义检索；精简构建用 `EVOFLOW_GATEWAY_LEAN=1` / `-LeanNoLocalEmbedding` 关闭
+
 ## [1.3.40] - 2026-11-20
 
 相对 **1.3.39**：电脑控制提示条步骤与秒表恢复走动并换蓝白光标；右栏切签/后台刷新不再抢走视线，不支持面板不再永久转圈；长对话时间线裁窗更稳。

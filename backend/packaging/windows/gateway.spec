@@ -13,9 +13,8 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
 )
 
-# Desktop installers stay lean by default: local BGE embedding (torch/ST/scipy)
-# is opt-in via EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1. Cloud embedding is
-# the default path; users who need offline vectors rebuild with the flag.
+# Product desktop builds set EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1 (torch/ST
+# + bundled bge-small-zh). Lean CI / size-budget builds leave it unset/0.
 _INCLUDE_LOCAL_EMBEDDING = os.environ.get(
     "EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING", ""
 ).strip().lower() in {"1", "true", "yes", "on"}

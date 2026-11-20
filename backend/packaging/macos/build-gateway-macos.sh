@@ -65,6 +65,27 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 echo "[gateway-build-macos] official-plugins-bundle OK"
 
+# Local embedding (product default ON). Opt out: EVOFLOW_GATEWAY_LEAN=1 or INCLUDE=0.
+env_lean=0
+case "${EVOFLOW_GATEWAY_LEAN:-}" in 1|true|TRUE|yes|YES|on|ON) env_lean=1 ;; esac
+env_include_off=0
+case "${EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING:-}" in 0|false|FALSE|no|NO|off|OFF) env_include_off=1 ;; esac
+bundle_local_embed=1
+if [[ "${env_lean}" == "1" || "${env_include_off}" == "1" ]]; then
+  bundle_local_embed=0
+fi
+if [[ "${bundle_local_embed}" == "1" ]]; then
+  export EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1
+  echo "[gateway-build-macos] local embedding ON (torch/ST + bundled bge-small-zh)"
+  HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}" \
+    uv run python "${BACKEND_DIR}/packaging/windows/prepare_local_embed_model.py" \
+      --model-id "BAAI/bge-small-zh-v1.5" \
+      --out-dir "${BACKEND_DIR}/packaging/windows/local-embed-models/BAAI/bge-small-zh-v1.5"
+else
+  export EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=0
+  echo "[gateway-build-macos] local embedding OFF (lean sidecar)"
+fi
+
 AB_BUNDLE="${BACKEND_DIR}/packaging/agent-browser-bundle"
 echo "[gateway-build-macos] clearing quarantine xattrs on agent-browser bundle"
 xattr -cr "${AB_BUNDLE}" 2>/dev/null || true
@@ -163,6 +184,20 @@ if [[ -d "${PUBLIC_SKILLS}" ]]; then
   bash "${BACKEND_DIR}/packaging/scripts/prune-bundled-skills.sh" "${SKILLS_TARGET}/public"
 else
   echo "[gateway-build-macos] skills/public not found, skip: ${PUBLIC_SKILLS}"
+fi
+
+# Bundle offline bge-small-zh weights next to the Gateway binary.
+LOCAL_EMBED_SRC="${BACKEND_DIR}/packaging/windows/local-embed-models/BAAI/bge-small-zh-v1.5"
+LOCAL_EMBED_TARGET="${OUTPUT_PATH}/tools/local-embed/models/BAAI/bge-small-zh-v1.5"
+if [[ "${bundle_local_embed}" == "1" && -f "${LOCAL_EMBED_SRC}/config.json" ]]; then
+  rm -rf "${LOCAL_EMBED_TARGET}"
+  mkdir -p "$(dirname "${LOCAL_EMBED_TARGET}")"
+  cp -R "${LOCAL_EMBED_SRC}" "${LOCAL_EMBED_TARGET}"
+  echo "[gateway-build-macos] bundled local embed model -> ${LOCAL_EMBED_TARGET}"
+elif [[ "${bundle_local_embed}" == "1" ]]; then
+  echo "[gateway-build-macos] WARNING: local-embed model missing at ${LOCAL_EMBED_SRC}" >&2
+else
+  rm -rf "${OUTPUT_PATH}/tools/local-embed"
 fi
 
 chmod +x "${OUTPUT_PATH}/evoflow-gateway" 2>/dev/null || true

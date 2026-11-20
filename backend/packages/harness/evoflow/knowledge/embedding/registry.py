@@ -32,6 +32,7 @@ from evoflow.config.model_config import ModelConfig
 from evoflow.knowledge.embedding.base import (
     DEFAULT_EMBEDDING_DIM,
     DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_LOCAL_MODEL,
     MAX_BATCH_SIZE,
     EmbeddingDimensionError,
     EmbeddingError,
@@ -80,6 +81,14 @@ def get_embedding_config() -> ModelConfig:
         default_ref = owned_settings.get_default_embedding_model()
     except Exception:
         default_ref = ""
+    # Prefer shared owned-KB default resolver (seed bge-small-zh when bundled).
+    if not default_ref:
+        try:
+            from evoflow.knowledge.owned.embedding_bind import default_embedding_ref
+
+            default_ref = default_embedding_ref()
+        except Exception:
+            default_ref = ""
     if default_ref:
         for m in models:
             name = str(getattr(m, "name", "") or "").strip()
@@ -88,6 +97,16 @@ def get_embedding_config() -> ModelConfig:
             if default_ref in (name, model_id, display):
                 logger.debug("Using default embedding model from settings: %s", name or model_id)
                 return m
+        # Settings/registry name may lag seed — synthesize local config for code index.
+        if default_ref in ("bge-small-zh", DEFAULT_LOCAL_MODEL) or "bge-small-zh" in default_ref.lower():
+            return ModelConfig(
+                name="bge-small-zh",
+                model=DEFAULT_LOCAL_MODEL,
+                vendor="local",
+                base_url="",
+                api_key="",
+                use="",
+            )
 
     for m in models:
         name_lower = (getattr(m, "name", "") or "").lower()
@@ -99,6 +118,23 @@ def get_embedding_config() -> ModelConfig:
         if "embedding" in name_lower or "embedding" in model_lower or vendor_lower == "local":
             logger.debug("Using embedding model config: %s", m.name)
             return m
+
+    # Bundled offline default before cloud fallback.
+    try:
+        from evoflow.knowledge.embedding.bundled import bundled_local_model_available
+        from evoflow.knowledge.embedding.local_provider import local_embedding_deps_available
+
+        if bundled_local_model_available() and local_embedding_deps_available():
+            return ModelConfig(
+                name="bge-small-zh",
+                model=DEFAULT_LOCAL_MODEL,
+                vendor="local",
+                base_url="",
+                api_key="",
+                use="",
+            )
+    except Exception:
+        logger.debug("bundled local embedding default skipped", exc_info=True)
 
     logger.warning(
         "No embedding model found in config. Using default '%s' (dim=%d). Configure an embedding model in Settings → Models for best results.",

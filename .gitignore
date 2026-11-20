@@ -346,6 +346,8 @@ backend/packaging/official-plugins-bundle.zip
 # kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore (removed)
 # Legacy Playwright bundle (no longer used by gateway builds)
 backend/packaging/windows/.playwright-browsers/
+# Staged offline BGE weights (~95MB); prepared at gateway build time
+backend/packaging/windows/local-embed-models/
 
 # Local stream/E2E acceptance machine output (JSON + generated reports)
 backend/scripts/_e2e_output/

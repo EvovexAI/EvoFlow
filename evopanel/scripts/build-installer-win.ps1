@@ -347,10 +347,23 @@ if (!(Test-Path $BackendOutputDir)) {
   throw "Backend output dir not found: $BackendOutputDir"
 }
 
-# Even with -SkipBackendBuild, refuse to NSIS-pack a fat/stale sidecar.
+# Even with -SkipBackendBuild, refuse to NSIS-pack a stale/wrong sidecar.
+# Product default ships local BGE (torch+ST); allow that when env/flag says so.
 $LeanAssert = Join-Path $RepoRoot "backend\packaging\windows\assert-lean-gateway-bundle.ps1"
-Write-Step "assert lean gateway sidecar (no Chromium/torch unless explicitly opted in)"
-& $LeanAssert -GatewayDir $BackendOutputDir
+$allowLocalEmbedAssert = $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING -and (
+  $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING.Trim().ToLower() -in @("1", "true", "yes", "on")
+)
+# Default product path includes local embed; lean-only when EVOFLOW_GATEWAY_LEAN=1.
+$leanOnly = $env:EVOFLOW_GATEWAY_LEAN -and (
+  $env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")
+)
+if (-not $leanOnly) { $allowLocalEmbedAssert = $true }
+Write-Step "assert gateway sidecar (Chromium still forbidden; local embed allowed unless EVOFLOW_GATEWAY_LEAN=1)"
+if ($allowLocalEmbedAssert) {
+  & $LeanAssert -GatewayDir $BackendOutputDir -AllowLocalEmbedding
+} else {
+  & $LeanAssert -GatewayDir $BackendOutputDir
+}
 
 $ManifestPath = Join-Path $BackendOutputDir "sidecar-manifest.json"
 $ExpectedVer = (Get-Content -LiteralPath (Join-Path $DeerpanelDir "VERSION") -Raw).Trim()

@@ -5,7 +5,8 @@ Windows / macOS desktop builds ship:
 1. **Tauri UI** — Vite `evopanel/dist` (includes pruned `public/kws`)
 2. **Gateway sidecar** — PyInstaller onedir under `src-tauri/binaries/evoflow-gateway/`
 3. **Bundled tools** — `tools/ripgrep`; Chromium / whisper are opt-in (`EVOFLOW_BUNDLE_CHROMIUM` / `EVOFLOW_BUNDLE_WHISPER`)
-4. **Skills seed** — `skills/public` (pruned at copy time)
+4. **Local embedding (product default)** — `torch` + `sentence-transformers` (~470MB) plus offline weights at `tools/local-embed/models/BAAI/bge-small-zh-v1.5` (~95MB). Opt out with `-LeanNoLocalEmbedding` / `EVOFLOW_GATEWAY_LEAN=1`.
+5. **Skills seed** — `skills/public` (pruned at copy time)
 
 ## Automatic prunes (build scripts)
 
@@ -25,7 +26,8 @@ Scripts:
 | Item | Approx. | Notes |
 |------|---------|--------|
 | `tools/agent-browser` | ~500 MB | Chromium for browser automation |
-| `torch` + sentence-transformers | ~470 MB | local BGE embedding via PyInstaller `collect_all` |
+| `torch` + sentence-transformers | ~470 MB | local BGE embedding via PyInstaller `collect_all` (default ON) |
+| `tools/local-embed` (bge-small-zh) | ~95 MB | offline weights; no first-run HF download |
 | `kb-mcp` under `backend/packaging/` | ~700 MB | **not** copied into installer today |
 
 Frontend KWS lean bundle: see `docs/kws-packaging.md`.

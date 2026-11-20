@@ -8,6 +8,11 @@ param(
   # Offline Whisper ASR sidecar (~500MB+ torch). Lean desktop omits it by
   # default; set -IncludeWhisper or EVOFLOW_BUNDLE_WHISPER=1 to ship it.
   [switch]$IncludeWhisper,
+  # Local BGE embedding (torch+ST ~470MB + bge-small-zh ~95MB). Default ON so
+  # knowledge base + code index work offline; pass -LeanNoLocalEmbedding to
+  # keep the old lean sidecar.
+  [switch]$IncludeLocalEmbedding,
+  [switch]$LeanNoLocalEmbedding,
   # Enable PyArmor code obfuscation (requires: pip install pyarmor)
   [switch]$EnablePyArmor
 )
@@ -128,6 +133,33 @@ try {
     throw "[gateway-build] official-plugins-bundle incomplete or stub (bad: $($hint -join ', ')). Run packaging/windows/sync-official-plugins-bundle.ps1 / fetch with EVOFLOW_OFFICIAL_PLUGINS_URL"
   }
   Write-Host "[gateway-build] official-plugins-bundle OK ($($OfficialPluginDirs.Count) plugin dirs)"
+
+  # Local embedding stack + bundled bge-small-zh weights (product default ON).
+  # Opt out: -LeanNoLocalEmbedding or EVOFLOW_GATEWAY_LEAN=1 (or INCLUDE=0).
+  # Opt in override: -IncludeLocalEmbedding even when INCLUDE was previously 0.
+  $envLean = $env:EVOFLOW_GATEWAY_LEAN -and (
+    $env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")
+  )
+  $envIncludeOff = $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING -and (
+    $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING.Trim().ToLower() -in @("0", "false", "no", "off")
+  )
+  if ($LeanNoLocalEmbedding -or $envLean) {
+    $bundleLocalEmbed = $false
+  } elseif ($IncludeLocalEmbedding) {
+    $bundleLocalEmbed = $true
+  } elseif ($envIncludeOff) {
+    $bundleLocalEmbed = $false
+  } else {
+    $bundleLocalEmbed = $true
+  }
+  if ($bundleLocalEmbed) {
+    $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING = "1"
+    Write-Host "[gateway-build] local embedding ON (torch/ST + bundled bge-small-zh)" -ForegroundColor Cyan
+    & (Join-Path $ScriptDir "prepare-local-embed-model.ps1")
+  } else {
+    $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING = "0"
+    Write-Host "[gateway-build] local embedding OFF (lean sidecar)"
+  }
 
   # Whisper ASR: opt-in only. openai-whisper pulls torch and blows past the
   # lean sidecar budget (~564MB -> ~1.1GB). Cloud ASR remains the default.
@@ -310,6 +342,26 @@ try {
     }
   }
 
+  # Bundle offline bge-small-zh weights next to the Gateway binary.
+  $LocalEmbedSrc = Join-Path $ScriptDir "local-embed-models\BAAI\bge-small-zh-v1.5"
+  $LocalEmbedTarget = Join-Path $OutputAbs "tools\local-embed\models\BAAI\bge-small-zh-v1.5"
+  if ($bundleLocalEmbed -and (Test-Path -LiteralPath (Join-Path $LocalEmbedSrc "config.json"))) {
+    if (Test-Path -LiteralPath $LocalEmbedTarget) {
+      Remove-Item -LiteralPath $LocalEmbedTarget -Recurse -Force
+    }
+    New-Item -ItemType Directory -Path (Split-Path -Parent $LocalEmbedTarget) -Force | Out-Null
+    Copy-Item -Path $LocalEmbedSrc -Destination $LocalEmbedTarget -Recurse -Force
+    Write-Host "[gateway-build] bundled local embed model -> $LocalEmbedTarget"
+  } elseif ($bundleLocalEmbed) {
+    Write-Host "[gateway-build] WARNING: local-embed model missing at $LocalEmbedSrc (prepare-local-embed-model.ps1)" -ForegroundColor Yellow
+  } else {
+    $LocalEmbedRoot = Join-Path $OutputAbs "tools\local-embed"
+    if (Test-Path -LiteralPath $LocalEmbedRoot) {
+      Write-Host "[gateway-build] scrubbing stale local-embed: $LocalEmbedRoot"
+      Remove-Item -LiteralPath $LocalEmbedRoot -Recurse -Force
+    }
+  }
+
   # Do not duplicate Vite UI inside the sidecar by default (Tauri frontendDist already ships it).
   # Headless Gateway WebUI: pass -IncludeEvopanelDist or set EVOFLOW_EVOPANEL_DIST at runtime.
   if ($IncludeEvopanelDist) {
@@ -329,7 +381,11 @@ try {
   }
 
   # Hard gate: refuse to ship fat Chromium/torch in the default desktop sidecar.
-  & (Join-Path $ScriptDir "assert-lean-gateway-bundle.ps1") -GatewayDir $OutputAbs
+  if ($bundleLocalEmbed) {
+    & (Join-Path $ScriptDir "assert-lean-gateway-bundle.ps1") -GatewayDir $OutputAbs -AllowLocalEmbedding
+  } else {
+    & (Join-Path $ScriptDir "assert-lean-gateway-bundle.ps1") -GatewayDir $OutputAbs
+  }
 
   # native-style pin: desktop CARGO_PKG_VERSION must match this at startup.
   & (Join-Path $ScriptDir "write-sidecar-manifest.ps1") -GatewayDir $OutputAbs
