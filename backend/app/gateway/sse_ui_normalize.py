@@ -1246,6 +1246,8 @@ class UiStreamNormalizer:
     tuple_tools_kicked: bool = False
     # tool_call_id 已在本轮向前端下发过；无对应 tool_call 的 tool_result 多为 LangGraph 历史回放。
     emitted_tool_call_ids: set[str] = field(default_factory=set)
+    # 已下发过 tool_result 的 id（values 兜底与 messages 路径去重）。
+    emitted_tool_result_ids: set[str] = field(default_factory=set)
     # 流式 AI 块：同 id 上 tool_calls 出现前暂存正文，确认带工具则丢弃（非用户可见回复）。
     stream_ai_id: str = ""
     pending_text_by_ai_id: dict[str, str] = field(default_factory=dict)
@@ -1772,6 +1774,7 @@ class UiStreamNormalizer:
         self.final_text = ""
         self.prev_turn_assistant_id = ""
         self.emitted_tool_call_ids.clear()
+        self.emitted_tool_result_ids.clear()
         self.stream_ai_id = ""
         self.pending_text_by_ai_id.clear()
         self.tool_call_ai_ids.clear()
@@ -2104,6 +2107,9 @@ class UiStreamNormalizer:
                 if not self.anchored:
                     return out
                 self.emitted_tool_call_ids.add(tcid)
+            if tcid in self.emitted_tool_result_ids:
+                return out
+            self.emitted_tool_result_ids.add(tcid)
             result_frame: dict[str, Any] = {
                 "type": "tool_result",
                 "tool": tool_payload,
@@ -2143,6 +2149,24 @@ class UiStreamNormalizer:
         tool_names = [
             str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip() for tc in turn_calls_for_state if _chat_panel_visible_tool_call(tc) and str(tc.get("name") or (tc.get("function") or {}).get("name") or "").strip()
         ]
+        # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+        # 去重（保留**最后一次**出现的位置）再进 thread_state 签名。
+        # 为什么：toolNames 是「本轮用过哪些工具」的集合语义，前端只用最后一个做
+        # 活动详情（`data.toolNames[data.toolNames.length - 1]`，见 ws-client.js）。
+        # 而它在工具调用增加时会变成 ['read','read'] —— 一个纯粹重复的名字却把
+        # dedup 签名改掉，于是每多一次同名工具调用就白推一帧 thread_state，
+        # 正是 test_stream_thread_state_dedup 要守的那类噪声。
+        # 保留最后位置而不是简单 dict.fromkeys：同名工具重跑后，「最近用的是谁」
+        # 这个语义不能变（A,B,A 必须仍然是 A 在末尾）。
+        if tool_names:
+            _seen_names: set[str] = set()
+            _reversed_unique: list[str] = []
+            for _name in reversed(tool_names):
+                if _name in _seen_names:
+                    continue
+                _seen_names.add(_name)
+                _reversed_unique.append(_name)
+            tool_names = list(reversed(_reversed_unique))
         activity_kind, activity_detail, last_assistant_calls = _resolve_thread_activity_from_messages(
             messages,
             human_idx_for_state,
@@ -2212,6 +2236,50 @@ class UiStreamNormalizer:
                     self.tuple_tools_kicked = True
                 out.extend(self._emit_tool_calls_list_passthrough(visible_turn_calls, source="values"))
 
+        # messages 流偶发不推 tool 行时，values 里已有 ToolMessage——补发 tool_result，
+        # 否则 V4 卡永久 inputStreaming（「等待中」），尽管 transcript 已有全文。
+        out.extend(self._emit_tool_results_from_values(messages, human_idx))
+
+        return out
+
+    def _emit_tool_results_from_values(
+        self, messages: list[dict[str, Any]], human_idx: int
+    ) -> EvfPayloadList:
+        """Emit missing tool_result frames from values snapshot for this turn."""
+        if human_idx < 0 or not self.anchored:
+            return []
+        out: EvfPayloadList = []
+        for m in messages[human_idx + 1 :]:
+            if not isinstance(m, dict) or not _is_tool(m):
+                continue
+            if tool_omit_from_chat_panel(
+                str(m.get("name") or m.get("tool_name") or "tool")
+            ):
+                continue
+            tool_payload = _slim_tool_result_message(m)
+            tcid = str(
+                tool_payload.get("tool_call_id") or tool_payload.get("id") or ""
+            ).strip()
+            if not tcid:
+                continue
+            # 只补「本轮已下发过 START」的结果，避免历史 ToolMessage 回放造卡。
+            if tcid not in self.emitted_tool_call_ids:
+                continue
+            if tcid in self.emitted_tool_result_ids:
+                continue
+            self.emitted_tool_result_ids.add(tcid)
+            result_frame: dict[str, Any] = {
+                "type": "tool_result",
+                "tool": tool_payload,
+                "tool_call_id": tcid,
+                "name": tool_payload.get("name") or tool_payload.get("tool_name") or "tool",
+                "content": tool_payload.get("content"),
+                "status": tool_payload.get("status") or "ok",
+            }
+            if tool_payload.get("truncated"):
+                result_frame["truncated"] = True
+                result_frame["content_bytes"] = tool_payload.get("content_bytes")
+            out.append(_attach_platform_ui_to_tool_result_frame(result_frame, tool_payload))
         return out
 
     def _on_custom(self, data: Any) -> EvfPayloadList:
@@ -2437,6 +2505,10 @@ class UiStreamNormalizer:
             tcid = str(chunk.get("tool_call_id") or "").strip()
             if not tcid:
                 return out
+            if tcid in self.emitted_tool_result_ids:
+                return out
+            self.emitted_tool_call_ids.add(tcid)
+            self.emitted_tool_result_ids.add(tcid)
             tool_name = str(chunk.get("tool_name") or "tool").strip()
             wire_status = str(chunk.get("status") or "ok").strip() or "ok"
             content = chunk.get("content")

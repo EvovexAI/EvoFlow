@@ -182,6 +182,9 @@ export default defineConfig({
       'tests/message-row-timeline.test.js',
       'tests/turn-display-phase.test.js',
       'tests/turn-timing.test.js',
+      // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+      // 工具卡运行中耗时不动（结束才出现）的回归锚点。
+      'tests/tool-card-live-elapsed.test.tsx',
       'tests/message-row-reasoning-display.test.js',
       'tests/reasoning-display-text.test.js',
       'tests/activity-fold-visible-content.test.js',
@@ -229,6 +232,8 @@ export default defineConfig({
       'tests/decide-right-stage.test.js',
       'tests/publish-platform-entries.test.js',
       'tests/open-progress-from-panel-set.test.js',
+      'tests/employee-process-round-switch.test.js',
+      'tests/employee-process-dispatch-cta-e2e.test.js',
       'tests/shell-page-mount-table.test.js',
       'tests/subtask-conversation-history.test.js',
       'tests/right-stage-tab-layout.test.ts',
@@ -238,9 +243,21 @@ export default defineConfig({
       'tests/right-stage-artifacts-session-stamp.test.ts',
       'tests/bridge-theme-dark.test.ts',
       'tests/right-stage-force-mount.test.ts',
+      'tests/right-stage-no-permanent-loading.test.ts',
+      // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+      // chat_send 单 owner：服务端已受理时前端不许再 pendingSend，否则同一句话两遍。
+      'tests/employee-chat-send-single-owner.test.js',
+      // 右栏「当前在看哪一页」上报 + 切到已有标签：用户明确要求可查、可切。
+      'tests/right-stage-state-report.test.ts',
+      'tests/right-stage-activate.test.ts',
+      // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+      // 不可用终态提示的 DOM 渲染用例：断言实际渲染文本里没有「加载中」。
+      'tests/right-stage-unavailable-shell.test.tsx',
       'tests/right-stage-overlay-commit.test.ts',
       'tests/right-stage-session-persistence.test.ts',
       'tests/browser-panel-node-repl-intent.test.js',
+      // 主窗口 __evoflowPanel snapshot/click/fill（platform ui.panel /main-cdp）
+      'tests/panel-api-snapshot.test.js',
       'tests/cua-glow-agui.test.js',
       'tests/cua-glow-ring-wiring.test.js',
       'tests/cua-glow-elapsed-page.test.js',
@@ -348,6 +365,7 @@ export default defineConfig({
       'tests/v4-viewport-scroll-tap.test.ts',
       // 视口异常表：流式落后窗 / loadOlder 不前进 / 用户气泡错位 / 绘画埋没
       'tests/v4-viewport-anomaly.test.ts',
+      'tests/v4-viewport-virtualization-probe.test.ts',
       // search_code_index 卡片：不得被 family=search 抢去渲染成不可展开的一行式块
       // 【self-evolution-bot · 2026-11-17 · 第33轮】新增用例必须登记，否则 vitest 根本不会跑它
       'tests/search-code-index-card.test.ts',

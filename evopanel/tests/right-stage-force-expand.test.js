@@ -149,3 +149,134 @@ describe('platform CTA → shell-page right stage', () => {
     expect(tab?.data?.focusId).toBe('it-1')
   })
 })
+
+/**
+ * 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+ * 改了什么：新增这一组用例，锁住 `surface.expand` → `store.show(forceExpand)` 的接线。
+ * 为什么：用户要求「用平台工具打开面板给我看」。第91轮实测发现右栏被用户收起后
+ * `platform ui.show` 返回 ok:true 但 DOM 里 `.react-chat-right-stage-shell` 根本不存在
+ * —— 工具说「已打开」、用户屏幕上什么都没有。根因是 `applyRemote` 调 `show()` 时
+ * 从不传 forceExpand。修法是加显式 `expand` 标记，本组用例从 store 层直接证行为，
+ * 不靠源码字符串断言。
+ */
+describe('applyRemote surface.expand 展开语义', () => {
+  beforeEach(() => {
+    resetStore()
+  })
+
+  it('expand:true 会撑开被用户收起的右栏（这是 ui.show 让用户真看见的唯一通道）', () => {
+    rightStageStore.collapse()
+    expect(rightStageStore.getSnapshot().collapsed).toBe(true)
+
+    rightStageStore.applyRemote({
+      action: 'show',
+      surface: {
+        id: 'primary',
+        kind: 'shell-page',
+        data: { path: '/tasks' },
+        title: '任务',
+        expand: true,
+      },
+    })
+
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(true)
+  })
+
+  it('不带 expand 时仍尊重收起锁（模型不得抢用户视线）', () => {
+    rightStageStore.collapse()
+
+    rightStageStore.applyRemote({
+      action: 'show',
+      surface: {
+        id: 'primary',
+        kind: 'shell-page',
+        data: { path: '/tasks' },
+        title: '任务',
+      },
+    })
+
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(true) // 只写签，不撑开
+    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(true)
+  })
+
+  it('expand:true 对已有的同键标签也要能撑开（update 分支同口径）', () => {
+    rightStageStore.applyRemote({
+      action: 'show',
+      surface: { id: 'primary', kind: 'shell-page', data: { path: '/tasks' }, title: '任务' },
+    })
+    rightStageStore.collapse()
+    expect(rightStageStore.getSnapshot().collapsed).toBe(true)
+
+    // 同一份 surface（title/data 完全一致）→ store 走 same 早退分支
+    rightStageStore.applyRemote({
+      action: 'show',
+      surface: {
+        id: 'primary',
+        kind: 'shell-page',
+        data: { path: '/tasks' },
+        title: '任务',
+        expand: true,
+      },
+    })
+
+    expect(rightStageStore.getSnapshot().collapsed).toBe(false)
+  })
+})
+
+// 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：锁住「后台 update 不得抢走用户正在看/正在聊的标签」。
+// 为什么：用户场景是「我让另一个 AI 干活、右栏实时显示、我还要接着跟它聊」。
+//   实测 chat_send 打开「发版工程师」后约 10 秒 active 自己跳到「任务」，
+//   因为 applyRemote 的 update 分支无条件 activeKey = key。续聊当场被打断。
+describe('update 分支不得抢走用户已钉住的标签', () => {
+  it('用户钉在员工对话上时，别的面板 update 只更新内容不切 active', () => {
+    // 先开员工对话并钉住（模拟用户点开 / chat_send 打开）
+    rightStageStore.show({
+      kind: 'employeeProcess',
+      id: 'process:live:release-engineer',
+      title: '发版工程师',
+      sessionKey: 'proactive:release-engineer:chat:2026-11-18T17-31-25.538Z',
+      forceExpand: true,
+    })
+    rightStageStore.activateTab('employeeProcess:process:live:release-engineer')
+    const pinnedKey = rightStageStore.getSnapshot().activeKey
+    expect(pinnedKey).toBe('employeeProcess:process:live:release-engineer')
+
+    // 另一个面板刷新（任务页 / 运行中）
+    rightStageStore.applyRemote({
+      action: 'update',
+      surface: { id: 'primary', kind: 'shell-page', data: { path: '/tasks' }, title: '任务' },
+    })
+
+    const snap = rightStageStore.getSnapshot()
+    // 关键断言：焦点没被抢走，内容仍可更新
+    expect(snap.activeKey).toBe(pinnedKey)
+    expect(snap.tabs.some((t) => t.kind === 'shell-page')).toBe(true)
+  })
+
+  it('显式 expand:true 的 update 仍允许抢焦点（用户明确要求展示）', () => {
+    rightStageStore.show({
+      kind: 'employeeProcess',
+      id: 'process:live:release-engineer',
+      title: '发版工程师',
+      forceExpand: true,
+    })
+    rightStageStore.activateTab('employeeProcess:process:live:release-engineer')
+
+    rightStageStore.applyRemote({
+      action: 'update',
+      surface: {
+        id: 'primary',
+        kind: 'shell-page',
+        data: { path: '/tasks' },
+        title: '任务',
+        expand: true,
+      },
+    })
+
+    expect(rightStageStore.getSnapshot().activeKey).toBe('shell-page:primary')
+  })
+})

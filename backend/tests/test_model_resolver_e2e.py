@@ -28,7 +28,6 @@ from evoflow.models.resolver import (
     SOURCE_RUNTIME,
 )
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -60,6 +59,24 @@ def _install_fake_config(models: list[str], primary: str | None = None) -> None:
     """Install a _FakeAppConfig for the resolver to read."""
     reset_app_config()
     _set_real_app_config(_FakeAppConfig(models, primary))  # type: ignore[arg-type]
+
+
+@pytest.fixture(autouse=True)
+def _restore_real_app_config():
+    """每个用例结束把全局 AppConfig 还原成「从文件重载」。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    `_install_fake_config` 调的是 `set_app_config()`，它把模块级
+    `_app_config_is_custom=True` 永久置上——**整个进程**从此都返回这个
+    `_FakeAppConfig`（本文件只有 `.name`，连 `.model` 都没有）。
+    于是后续任何读配置的用例都炸：
+      `test_platform_readback_hygiene` 3 条 → `admin/models.py:45`
+      `AttributeError: '_FakeModel' object has no attribute 'model'`
+    证据：本文件 + 那三个用例合跑 → 3 failed；反之单跑 → 全绿。
+    这类「装上全局单例却不拆」是测试隔离缺陷：断言不必放宽，补 teardown 即可。
+    """
+    yield
+    reset_app_config()
 
 
 # ---------------------------------------------------------------------------

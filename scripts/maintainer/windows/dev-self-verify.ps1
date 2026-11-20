@@ -9,11 +9,22 @@
 .SYNOPSIS
   一键：（可选）构建 setup.exe → 登记看门狗 → 本进程立刻退出。
 .EXAMPLE
-  # 只登记（安装包已存在，自动取 bundle\nsis 下最新一个）
-  .\dev-self-verify.ps1 -TaskId Task_xxx -Goal "验证 1.3.28 会话标题不再截断"
+  # 常规「装完自己接着验」：只安装+拉起，不唤醒任何人（**本岗默认用法**）
+  .\dev-self-verify.ps1 -SkipWake
 .EXAMPLE
-  # 先构建再登记（构建耗时数分钟，Agent 侧请后台跑）
-  .\dev-self-verify.ps1 -Build -TaskId Task_xxx
+  # 先构建再安装，同样不唤醒
+  .\dev-self-verify.ps1 -Build -SkipWake
+.EXAMPLE
+  # 只有发版流水线这类跨进程接力才用 -TaskId，且必须同时显式 -AllowWake
+  .\dev-self-verify.ps1 -TaskId Task_xxx -AllowWake -Goal "验证 1.3.28 会话标题不再截断"
+.NOTES
+  【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+  用户 2026-11-20 当面定的硬禁令：**验证不许「新开一单 + 唤醒自己」**。
+  原话：「不是让你在新开一个任务，然后让他去唤醒，然后去继续去验证……当前哪个对话处理的
+  需要去验证的，还是在这个对话上面去推。我不想要唤醒这个方式。」
+  所以：需要重启/重装的，用 `-SkipWake`（装完拉起就收工，我自己在当前对话里接着验），
+  不要再为了「装完回来复验」去建锚点单再 wake。`-TaskId` 仅保留给发版流水线等
+  确有「跨进程接力」需求的场景，不要拿它做本轮验收。
 #>
 [CmdletBinding()]
 param(
@@ -53,6 +64,12 @@ param(
   # 用途：用户只要「重建+重启」、不想被 Agent 插一轮对话时用。
   # 注意这不是自检模式 —— 安装与拉起照常做，只跳过最后一步 wake。
   [switch] $SkipWake,
+  # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：新增显式放行开关；传 -TaskId 但没同时传它，脚本直接 throw，不再默默走 wake。
+  # 为什么：用户当面否掉「新开一单 + 唤醒自己」这条验证方式（见 .NOTES）。
+  #   光在文档里写禁令不够——本脚本的默认用法就是建锚点单再 wake，光是"存在这条路"，
+  #   下一轮我又会照着 EXAMPLE 走回去。把默认改成拦、要接力得显式说明理由。
+  [switch] $AllowWake,
   [switch] $DryRun
 )
 
@@ -78,6 +95,16 @@ function Resolve-Cli {
 }
 
 # ── 0. 构建前先验 wake 锚点单未结案（这一步必须排在 -Build 之前）────────────
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：在下面的锚点校验之前加一道默认拦截 —— 传了 -TaskId 但没传 -AllowWake 就 throw。
+# 为什么：用户 2026-11-20 当面否掉「新开一单 + 唤醒自己」的验证方式。本脚本原来的默认用法
+#   恰恰就是那条路（.EXAMPLE 第一条即 -TaskId），只在资产里写禁令拦不住下一轮的我。
+#   判据：默认拒绝 > 文档提醒。真要跨进程接力（发版流水线）必须显式 -AllowWake 并写明理由。
+if ($TaskId -and -not $AllowWake) {
+  throw ("-TaskId 已弃用于本岗验收。用户 2026-11-20 定：验证必须在**当前正在处理的对话**里继续做，" +
+         "不许新开一单再靠 wake 把自己叫回来。要「装完自己接着验」请用：.\dev-self-verify.ps1 -Build -SkipWake。" +
+         "只有确有跨进程接力需求（如发版流水线）才同时传 -AllowWake -TaskId，并在调用处写明为什么不能在本轮验完。")
+}
 # 【self-evolution-bot · 2026-11-16 · 第20轮】改了什么：登记前用 tasks get 查锚点单状态，
 # 已结案/查不到就当场 throw，既不构建也不注册计划任务。
 # 为什么：`wake --task-id` 指向已结案单时，看门狗第 4 步 done-guard 返回 skipped=true、exit=0
@@ -104,7 +131,10 @@ if ($TaskId) {
   }
   Say "wake 锚点单 $TaskId 状态=$taskStatus（未结案，可投递）" "Green"
 } elseif (-not $SkipWake) {
-  Say "未传 -TaskId：看门狗只做普通叫醒，续不上本轮上下文（要续轮请传未结案单号）" "Yellow"
+  # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：这句原来写「要续轮请传未结案单号」，等于把用户否掉的路径当默认推荐。
+  # 改成提示本岗该用的用法，不再怂恿去建锚点单。
+  Say "未传 -TaskId：本岗默认就是这种用法（装完拉起即返回，验在当前对话里自己继续）。若只装机不拉起，再加 -SkipWake" "Green"
 }
 
 Ensure-Dir $OutDir
@@ -283,6 +313,13 @@ Say "===== 接下来会发生什么（重要）=====" "Yellow"
 Say "1) $DelaySec 秒后看门狗启动，静默安装 $SetupExe"
 Say "2) 安装器会强制结束 EvoFlow 桌面 + Gateway + 本仓相关 python/bash/node —— 也就是**我会当场断线**，本轮回复到此为止"
 Say "3) 装完自动拉起 $(Join-Path $InstallDir 'evoflow.exe')，等 backend-runtime.json 换代且 /health 通过"
-Say "4) 用 '$CliExe employees wake $AgentCode$(if($TaskId){" --task-id $TaskId"}) --resume-round' 把我叫醒，续同一轮工作脉络做验收"
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】第4步原来无条件
+# 声称「把我叫醒」，可 -SkipWake / 未传 -TaskId 时根本不 wake —— 文案与行为不一致会让下一轮的
+# 我照这句话去等一次不会到来的唤醒。改成按实际分支打印。
+if ($SkipWake -or -not $TaskId -or -not $AllowWake) {
+  Say "4) 不唤醒任何人（本轮验证由我在当前对话里继续做）：装完拉起即收工"
+} else {
+  Say "4) 用 '$CliExe employees wake $AgentCode --task-id $TaskId --resume-round' 叫醒岗位续轮"
+}
 Say "日志: $OutDir\watchdog.log    结果: $OutDir\watchdog-result.json"
 Say "取消（在安装开始前）: Unregister-ScheduledTask -TaskName $TaskName -Confirm:`$false"

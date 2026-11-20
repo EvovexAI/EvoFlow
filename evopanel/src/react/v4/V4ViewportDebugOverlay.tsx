@@ -8,6 +8,7 @@
  * - 滚轮：scrollTop 轨迹 / !JUMP / 到顶语义（能否自动拉历史 vs 已拉尽）
  * - 接口：页面相关 HTTP（subscribe / messages / catchup…）入参出参表
  * - 视口：DOM ↔ 投影 row
+ * - 虚拟化：投影软顶 / 窗首尾 / 流式 tip / 直播轮（转圈+SSE、上滚历史必看）
  * - 异常：流式无画面 / 最新气泡错位 / loadOlder 不前进 / 绘画埋没…（可监测表）
  * 布局诊断（!EST72 / gap）仍在状态条；问题标记优先吃异常表。
  * 抽头落盘：~/.evoflow/logs/stream-compare/{sessionId}/overlay/viewport-*.log
@@ -85,6 +86,11 @@ import {
   type StickyViewportAnomaly,
   type ViewportAnomaly,
 } from "./v4-viewport-anomaly.js";
+import {
+  collectVirtualizationProbe,
+  formatVirtualizationProbeForDiag,
+  type VirtualizationProbe,
+} from "./v4-viewport-virtualization-probe.js";
 import {
   classifyChatTurnTimingVerdict,
   formatChatTurnWaterlineForDiag,
@@ -465,6 +471,7 @@ function collectHistoryLoadProbe(
   tid: string,
   scrollTop: number,
   clientHeight: number,
+  scrollHeight: number = 0,
 ): HistoryLoadProbe {
   const triggerPx = historyPrefetchTriggerPx(clientHeight);
   const inPrefetchZone = scrollTop <= triggerPx;
@@ -487,12 +494,18 @@ function collectHistoryLoadProbe(
             ?.getAttribute("data-following")
         : null;
     const following = followingAttr !== "false";
+    const distanceFromBottom = Math.max(
+      0,
+      (scrollHeight || 0) - scrollTop - clientHeight,
+    );
     const wouldTrigger = shouldTriggerLoadOlder({
       scrollTop,
       canLoadOlder: hasOlder,
       loadingOlder,
       triggerPx,
       following,
+      distanceFromBottom,
+      viewportHeight: clientHeight,
     });
     let windowUserCount = 0;
     let windowTurnCount = 0;
@@ -683,7 +696,7 @@ function collectOverlaySnapshot(): OverlaySnapshot | null {
     clientHeight,
     layout,
     runStatus: collectRunStatusProbe(sessionKey, tid),
-    history: collectHistoryLoadProbe(tid, scrollTop, clientHeight),
+    history: collectHistoryLoadProbe(tid, scrollTop, clientHeight, scrollHeight),
     turns,
     windowRows: windowRowsFlat,
   };
@@ -708,6 +721,7 @@ type OverlayTab =
   | "scroll"
   | "api"
   | "viewport"
+  | "virt"
   | "anomaly";
 type ApiFamilyFilter = "all" | ViewportApiTapFamily | "history";
 
@@ -744,6 +758,7 @@ function readOverlayTab(): OverlayTab {
       v === "scroll" ||
       v === "api" ||
       v === "viewport" ||
+      v === "virt" ||
       v === "anomaly"
     ) {
       return v;
@@ -1019,6 +1034,7 @@ function buildOverlayDiagnosticText(opts: {
   waterlineApiEntries?: ViewportApiTapEntry[];
   problems: string;
   anomalies: ViewportAnomaly[];
+  virt?: VirtualizationProbe | null;
 }): string {
   const {
     tab,
@@ -1029,6 +1045,7 @@ function buildOverlayDiagnosticText(opts: {
     waterlineApiEntries,
     problems,
     anomalies,
+    virt,
   } = opts;
   const waterlineApis = waterlineApiEntries?.length
     ? waterlineApiEntries
@@ -1046,6 +1063,9 @@ function buildOverlayDiagnosticText(opts: {
   lines.push("- 不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。");
   lines.push(
     "- 「发送水位线」：发了几次、何时出泡上屏、上线/首字/收口是否正常；正常只留摘要，异常带前后接口。",
+  );
+  lines.push(
+    "- 「虚拟化」表：软顶/窗首尾/流式 tip/直播轮——转圈但 SSE 在动、上滚没历史，先对这一节。",
   );
   if (!snapshot) {
     lines.push("- 快照: （无可见对话）");
@@ -1184,6 +1204,23 @@ function buildOverlayDiagnosticText(opts: {
       `- layout turns=${host.turnCount} uniqueY=${host.uniqueTops} gap=${host.medianGap ?? "∅"} stuck=${host.estimateStuck ? 1 : 0} stacked=${host.stacked ? 1 : 0} hosts=${snapshot.layout?.stackedHostCount ?? 0} composerDrift=${snapshot.layout?.composer?.drifted ? 1 : 0}${layoutBad ? " ←" : ""}`,
     );
   }
+
+  const virtProbe =
+    virt ??
+    collectVirtualizationProbe({
+      tid: snapshot.tid,
+      windowRows: snapshot.windowRows || [],
+      windowCount: h.windowCount,
+      totalCount: h.totalCount,
+      winFirst: h.windowFirstRowId,
+      winLast: h.windowLastRowId,
+      hasOlder: h.hasOlder,
+      loadingOlder: h.loadingOlder,
+      wouldTrigger: h.wouldTrigger,
+      streamEntries,
+    });
+  lines.push("");
+  lines.push(...formatVirtualizationProbeForDiag(virtProbe));
 
   lines.push("");
   lines.push(`### 异常（${anomalies.length}）`);
@@ -1907,6 +1944,33 @@ export function V4ViewportDebugOverlay() {
       }),
     [snapshot, streamEntries, apiEntries, scrollEntries],
   );
+
+  const virtProbe = useMemo((): VirtualizationProbe | null => {
+    if (!snapshot) return null;
+    let following = true;
+    try {
+      following =
+        document
+          .querySelector('[data-v4-chat-host-visible="1"] [data-following]')
+          ?.getAttribute("data-following") !== "false";
+    } catch {
+      following = true;
+    }
+    const h = snapshot.history;
+    return collectVirtualizationProbe({
+      tid: snapshot.tid,
+      windowRows: snapshot.windowRows || [],
+      windowCount: h.windowCount,
+      totalCount: h.totalCount,
+      winFirst: h.windowFirstRowId,
+      winLast: h.windowLastRowId,
+      hasOlder: h.hasOlder,
+      loadingOlder: h.loadingOlder,
+      wouldTrigger: h.wouldTrigger,
+      following,
+      streamEntries,
+    });
+  }, [snapshot, streamEntries]);
   useEffect(() => {
     const tid = snapshot?.tid ?? "";
     if (!tid) {
@@ -1999,6 +2063,30 @@ export function V4ViewportDebugOverlay() {
       live: liveForCopy,
       windowFirstRowId: snapForCopy?.history?.windowFirstRowId ?? null,
     }).items;
+    let following = true;
+    try {
+      following =
+        document
+          .querySelector('[data-v4-chat-host-visible="1"] [data-following]')
+          ?.getAttribute("data-following") !== "false";
+    } catch {
+      following = true;
+    }
+    const virtForCopy = snapForCopy
+      ? collectVirtualizationProbe({
+          tid: snapForCopy.tid,
+          windowRows: snapForCopy.windowRows || [],
+          windowCount: snapForCopy.history.windowCount,
+          totalCount: snapForCopy.history.totalCount,
+          winFirst: snapForCopy.history.windowFirstRowId,
+          winLast: snapForCopy.history.windowLastRowId,
+          hasOlder: snapForCopy.history.hasOlder,
+          loadingOlder: snapForCopy.history.loadingOlder,
+          wouldTrigger: snapForCopy.history.wouldTrigger,
+          following,
+          streamEntries: streamForCopy,
+        })
+      : null;
     const text = buildOverlayDiagnosticText({
       tab,
       snapshot: snapForCopy,
@@ -2008,6 +2096,7 @@ export function V4ViewportDebugOverlay() {
       waterlineApiEntries: apiForWaterline,
       anomalies: stickyForCopy,
       problems: problemBadge(stickyForCopy),
+      virt: virtForCopy,
     });
     const ok = await copyTextToClipboard(text);
     flashCopyHint(ok, "已复制诊断");
@@ -2259,6 +2348,12 @@ export function V4ViewportDebugOverlay() {
                         ).length || snapshot.turns.length
                       })`,
                     ],
+                    [
+                      "virt",
+                      virtProbe?.flags.length
+                        ? `虚拟化(!${virtProbe.flags.length})`
+                        : "虚拟化",
+                    ],
                   ] as const
                 ).map(([id, label]) => (
                   <button
@@ -2273,7 +2368,9 @@ export function V4ViewportDebugOverlay() {
                           ? "#f8fafc"
                           : id === "anomaly" && anomalies.length > 0
                             ? "#fbbf24"
-                            : "#94a3b8",
+                            : id === "virt" && (virtProbe?.flags.length ?? 0) > 0
+                              ? "#fbbf24"
+                              : "#94a3b8",
                       borderColor:
                         tab === id
                           ? "rgba(148,163,184,0.35)"
@@ -3831,6 +3928,155 @@ export function V4ViewportDebugOverlay() {
                         </>
                       );
                     })()}
+                  </div>
+                ) : null}
+
+                {tab === "virt" ? (
+                  <div
+                    style={{
+                      ...mono,
+                      flex: 1,
+                      minHeight: 0,
+                      overflow: "auto",
+                      fontSize: 11,
+                      color: "#cbd5e1",
+                      padding: "4px 2px",
+                    }}
+                  >
+                    <div
+                      style={{
+                        marginBottom: 8,
+                        padding: "6px 8px",
+                        borderRadius: 6,
+                        background:
+                          (virtProbe?.flags.length ?? 0) > 0
+                            ? "rgba(127,29,29,0.28)"
+                            : "rgba(22,101,52,0.22)",
+                        color:
+                          (virtProbe?.flags.length ?? 0) > 0
+                            ? "#fecaca"
+                            : "#86efac",
+                        lineHeight: 1.4,
+                      }}
+                    >
+                      <b>虚拟化 / 投影窗</b>
+                      {" · "}
+                      {virtProbe?.flags.length
+                        ? virtProbe.flags.join(" · ")
+                        : "窗跟流正常"}
+                      <div style={{ marginTop: 4, color: "#94a3b8", fontSize: 10 }}>
+                        对齐 ZCode：follow=1 查 tip/STREAM_AHEAD；follow=0 查上拉；
+                        soft-cap 只在 snapshot/loadOlder（delta 不裁）。窗首&gt;窗尾 → UNSORTED。
+                      </div>
+                    </div>
+                    {virtProbe ? (
+                      <table
+                        style={{
+                          width: "100%",
+                          borderCollapse: "collapse",
+                          fontSize: 11,
+                        }}
+                      >
+                        <tbody>
+                          {(
+                            [
+                              ["软顶 softCap", String(virtProbe.softCap)],
+                              [
+                                "已显示 / 全量",
+                                `${virtProbe.windowCount} / ${virtProbe.totalCount ?? "∅"}`,
+                              ],
+                              [
+                                "占比 softCap",
+                                `${virtProbe.softCapRatio}${virtProbe.balloon ? " !BALLOON" : ""}`,
+                              ],
+                              [
+                                "窗两端(数组)",
+                                `${virtProbe.winFirst ?? "∅"} … ${virtProbe.winLast ?? "∅"}`,
+                              ],
+                              [
+                                "真实 min/max",
+                                `${virtProbe.winMin ?? "∅"} … ${virtProbe.winMax ?? "∅"}${virtProbe.unsortedEnds ? " !UNSORTED" : ""}`,
+                              ],
+                              [
+                                "流式 tip streamMax",
+                                String(virtProbe.streamMaxRowId ?? "∅"),
+                              ],
+                              [
+                                "窗尾 winLast",
+                                String(virtProbe.winLast ?? "∅"),
+                              ],
+                              [
+                                "STREAM_AHEAD",
+                                virtProbe.streamAhead
+                                  ? `是 · Δ+${virtProbe.streamAheadDelta}`
+                                  : "否",
+                              ],
+                              [
+                                "直播轮 tid",
+                                virtProbe.liveTurnId
+                                  ? virtProbe.liveTurnId.slice(0, 16)
+                                  : "∅",
+                              ],
+                              [
+                                "直播 tip liveTip",
+                                String(virtProbe.liveTipRowId ?? "∅"),
+                              ],
+                              [
+                                "inFlight 轮/窗",
+                                `${virtProbe.liveInFlight} / ${virtProbe.windowInFlight}`,
+                              ],
+                              [
+                                "上滚 hasOlder",
+                                virtProbe.hasOlder ? "1" : "0",
+                              ],
+                              [
+                                "loadingOlder",
+                                virtProbe.loadingOlder ? "1" : "0",
+                              ],
+                              [
+                                "wouldTrigger",
+                                virtProbe.wouldTrigger ? "1" : "0",
+                              ],
+                              [
+                                "跟底 follow",
+                                virtProbe.following ? "1" : "0",
+                              ],
+                            ] as const
+                          ).map(([k, v]) => (
+                            <tr key={k}>
+                              <td
+                                style={{
+                                  padding: "3px 6px",
+                                  color: "#94a3b8",
+                                  whiteSpace: "nowrap",
+                                  verticalAlign: "top",
+                                  width: "42%",
+                                }}
+                              >
+                                {k}
+                              </td>
+                              <td
+                                style={{
+                                  padding: "3px 6px",
+                                  color:
+                                    String(v).includes("!") ||
+                                    (k === "STREAM_AHEAD" && v.startsWith("是"))
+                                      ? "#fbbf24"
+                                      : "#e2e8f0",
+                                  wordBreak: "break-all",
+                                }}
+                              >
+                                {v}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    ) : (
+                      <div style={{ color: "#64748b", padding: 8 }}>
+                        无投影快照（打开对话后再看）
+                      </div>
+                    )}
                   </div>
                 ) : null}
 

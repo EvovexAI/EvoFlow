@@ -121,6 +121,22 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
 
   // 标签归属钉在「当前 UI 会话」（主聊 / 部门群），不要空着靠 freeze——
   // 空归属在草稿/切会话时会被滤掉，表现为「右栏有内容但上面没标签、点不回去」。
+  // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：服务端 wake 已受理（queued=true）时，**只开面板不再 pendingSend**；
+  //   wake 没受理才回退到面板本地发送。
+  // 为什么（现网取证 2026-11-20 20:07）：chat_send 服务端跑了（落 task 桶 20:07:33 回一条），
+  //   前端 pendingSend 又跑了一遍（落 chat 桶 20:07:34 再回一条）——同一句话两遍、两个桶。
+  //   第100轮把服务端 pin 到同一个 chat 桶后，两遍会挤进同一屏，用户会看到两条一样的消息。
+  // 判据：服务端已真跑（queued）→ 前端只负责把那一屏拉开；服务端没跑（queued=false/失败）→
+  //   前端本地发，保证用户仍有来有回（手机/主聊场景没有面板，走的是服务端那条腿）。
+  const serverHandled = obj.queued === true
+  const pendingSendMessage = serverHandled ? undefined : message
+  logRightStagePlatform('employee_chat_send.send-owner', {
+    serverHandled,
+    willPendingSend: !serverHandled,
+    agentCode,
+    sessionKey,
+  })
   const ownerSk = String(getCurrentRightStageSessionKey() || '').trim() || undefined
   const tabId = openEmployeeProcessInRightStage(
     {
@@ -130,7 +146,7 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
       title: roleName || undefined,
       busy: true,
       employeeSessionKey: sessionKey,
-      pendingSendMessage: message,
+      pendingSendMessage,
     },
     { layout: 'wide', sessionKey: ownerSk },
   )

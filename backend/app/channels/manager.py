@@ -3312,7 +3312,11 @@ class ChannelManager:
                     sk = str(session_key or "").strip()
                     if sk:
                         # Run in thread pool to avoid blocking the async loop
-                        import asyncio
+                        # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+                        # 删掉这里函数内的 `import asyncio`：它让 asyncio 在本函数内变成局部名，
+                        # 使前面第 3232 行 `await asyncio.sleep(0.35)`（thread busy 重试）抛
+                        # UnboundLocalError —— 即 IM 链路「线程忙 → 取消陈旧 run → 退避重试」
+                        # 这条分支必然崩。ruff F823 已长期报此点，HEAD 上就有。
                         rows = await asyncio.get_event_loop().run_in_executor(
                             None,
                             lambda: _query_latest_ai_message_from_db(sk),

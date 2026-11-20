@@ -80,6 +80,25 @@ def maybe_wake_agent_for_new_task(
     try:
         from evoflow.proactive.runner import get_proactive_runner
 
+        # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:qwen3.8-flash】改了什么：把发起屏会话键透传给派单。
+        # 为什么：现网铁证（同日 19:25 vs 19:26）——看门狗 wake 带钉键走到第98轮的重定向，
+        # 投对了用户当前屏；而 tasks create 自动派单**不带任何键**，fire_and_forget 入口
+        # 的 prefer_newest_human_session 对空键恒回 unpinned → 落 task 桶另起一屏，
+        # 用户在原屏看不见干活（本轮值班简报就是被这条路投错的）。
+        # 边界：只认 chat 桶（真人对着说话的屏）；duty/task 是工作轨迹，传过去反而会把
+        # 值班轮灌进历史语义不明的会话（normalize_pinned_session_key 同口径）。
+        origin_sk = ""
+        try:
+            from evoflow.proactive.chat_session import parse_proactive_session_key
+
+            ref = str(task.get("source_ref") or "").strip()
+            if ref.startswith("proactive:"):
+                parsed = parse_proactive_session_key(ref)
+                if parsed.get("kind") == "chat" and parsed.get("agent_code") == assigned_to:
+                    origin_sk = ref
+        except Exception:
+            logger.debug("task_startup_accelerator: origin session parse failed", exc_info=True)
+
         active = runner if runner is not None else get_proactive_runner()
         if active is not None and hasattr(active, "schedule_dispatch_fire_and_forget"):
             active.schedule_dispatch_fire_and_forget(
@@ -89,6 +108,7 @@ def maybe_wake_agent_for_new_task(
                 related_task_id=task_id,
                 source="task_assigned",
                 priority="normal",
+                pinned_session_key=origin_sk,
             )
             return True
     except Exception:

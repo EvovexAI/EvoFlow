@@ -240,8 +240,11 @@ export function liveTurnSpan(
         if (!String((row as { text?: string }).text || "").trim()) continue;
         userScore = Math.max(userScore, realUserRecencyKey(row));
       }
-      // 有用户气泡用用户时间；否则用 in-flight 最大 rowId
-      const score = userScore >= 0 ? userScore : meta.maxRowId;
+      // 流式 tip（本轮 in-flight 最大 rowId）优先：旧轮卡住的 running 工具若仍按
+      // 「用户气泡更新」赢，会把真正在涨的新轮钉到 rest，soft-cap prefer:tail
+      // 裁掉 tip → STREAM_AHEAD（现场 streamRow=2154 > winLast=2080）。
+      // 用户时间只作同 tip 水位下的并列破平。
+      const score = meta.maxRowId * 1e15 + Math.max(0, userScore);
       if (score > bestScore) {
         bestScore = score;
         bestTurnId = tid;
@@ -426,6 +429,9 @@ export function isInFlightProjectionRow(row: ConversationRow | undefined): boole
 /**
  * 直播轮超 softCap：保留轮头+用户 + 全部 in-flight + 尽量多的尾部完成行。
  * 旧逻辑只 head+tail，会把中间正在流的思考行裁掉 → wire 仍有思考 Δ，页面空白。
+ *
+ * 硬约束：`after` 的最后一行（流式 tip）必须保留——否则 streamRow > winLast，
+ * 页面转圈但投影不涨（STREAM_AHEAD_OF_WINDOW 现场：2154 > 2080）。
  */
 export function selectLiveTurnWithinBudget(
   live: readonly ConversationRow[],
@@ -439,23 +445,46 @@ export function selectLiveTurnWithinBudget(
   const userIdxInLive = Math.max(0, userIdxInFull - turnStartInFull);
   const head = live.slice(0, userIdxInLive + 1);
   const after = live.slice(userIdxInLive + 1);
+  if (after.length === 0) return [...head];
+
+  // tip = after 内最大 rowId（不依赖调用方是否已按 id 排好）
+  let tip = after[0]!;
+  let tipId = Number(tip.rowId) || 0;
+  for (let i = 1; i < after.length; i += 1) {
+    const rid = Number(after[i]!.rowId) || 0;
+    if (rid >= tipId) {
+      tip = after[i]!;
+      tipId = rid;
+    }
+  }
   const inFlight = after.filter((row) => isInFlightProjectionRow(row));
   const inFlightIds = new Set(inFlight.map((row) => row.rowId));
   const settled = after.filter((row) => !inFlightIds.has(row.rowId));
+  const tipIsInFlight = inFlightIds.has(tip.rowId);
 
-  const reserved = head.length + inFlight.length;
-  if (reserved >= cap) {
-    // in-flight 本身已顶满：保头 + in-flight（可略超 cap，优先可见性）
-    return [...head, ...inFlight];
+  const afterBudget = Math.max(0, cap - head.length);
+  const reserved = inFlight.length + (tipIsInFlight ? 0 : 1);
+  if (reserved >= afterBudget) {
+    // in-flight 顶满：保 tip + 最近一段 in-flight（可略超，优先 tip 可见）
+    const room = Math.max(0, afterBudget - 1);
+    const restInFlight = inFlight.filter((row) => row.rowId !== tip.rowId);
+    const keepIds = new Set<number>([
+      ...restInFlight.slice(-room).map((row) => row.rowId),
+      tip.rowId,
+    ]);
+    return [...head, ...after.filter((row) => keepIds.has(row.rowId))];
   }
-  const tailBudget = cap - reserved;
-  const tail = tailBudget > 0 ? settled.slice(-tailBudget) : [];
+
+  const tipSlot = tipIsInFlight ? 0 : 1;
+  const tailBudget = Math.max(0, afterBudget - inFlight.length - tipSlot);
+  const settledNoTip = settled.filter((row) => row.rowId !== tip.rowId);
+  const tail = tailBudget > 0 ? settledNoTip.slice(-tailBudget) : [];
   const keepIds = new Set<number>([
-    ...head.map((r) => r.rowId),
-    ...inFlight.map((r) => r.rowId),
-    ...tail.map((r) => r.rowId),
+    ...inFlight.map((row) => row.rowId),
+    ...tail.map((row) => row.rowId),
+    tip.rowId,
   ]);
-  return live.filter((row) => keepIds.has(row.rowId));
+  return [...head, ...after.filter((row) => keepIds.has(row.rowId))];
 }
 
 /**
@@ -505,10 +534,33 @@ export function ensureLiveTurnInProjectionWindow(
 ): readonly ConversationRow[] {
   const span = liveTurnSpan(full);
   const liveTurnId = span ? turnIdAt(full, span.turnStart) : "";
+  const capLimit = Math.max(MIN_KEEP, Math.floor(softCap));
   const finish = (window: readonly ConversationRow[]) => {
-    const repaired = repairPartialTurnsInProjectionWindow(full, window);
+    let repaired = repairPartialTurnsInProjectionWindow(full, window);
     // repair 按 rowId 排序会把「低 rowId 的新直播问」埋回旧轮中间；必须再钉回窗尾。
-    return liveTurnId ? pinTurnRowsAtTail(repaired, liveTurnId) : repaired;
+    if (liveTurnId) repaired = pinTurnRowsAtTail(repaired, liveTurnId);
+    // repairPartialTurns 会把直播轮「缺的行」整轮补回，长工具轮又撑破 softCap。
+    // 超 1.5× 时再裁直播段，保留头+问+in-flight+尾，避免 500+ 窗拖死测高（#185）。
+    if (!liveTurnId || repaired.length <= Math.floor(capLimit * 1.5)) {
+      return repaired;
+    }
+    const liveRows = rowsForTurnId(repaired, liveTurnId);
+    if (liveRows.length <= capLimit) return repaired;
+    const liveSorted = [...liveRows].sort((a, b) => a.rowId - b.rowId);
+    let userPos = liveSorted.findIndex((r) => isRealUserRow(r));
+    if (userPos < 0) userPos = 0;
+    const liveKept = selectLiveTurnWithinBudget(liveSorted, userPos, 0, capLimit);
+    const liveStart = Math.min(...liveKept.map((r) => r.rowId));
+    const olderKeep = selectOlderCompleteTurnsWithinBudget(
+      full,
+      liveStart,
+      olderAnchorBudget(capLimit, liveKept.length),
+      liveTurnId,
+    );
+    return pinTurnRowsAtTail(
+      olderKeep.length === 0 ? liveKept : [...olderKeep, ...liveKept],
+      liveTurnId,
+    );
   };
 
   if (!span) {
@@ -536,11 +588,23 @@ export function ensureLiveTurnInProjectionWindow(
   const liveTurnStartInFull = span.turnStart;
 
   // 直播轮已完整在窗内，且没有 in-flight 被裁掉：只修窗顶半截轮，并钉尾。
+  // 长工具轮（现场 250+ 行）若整轮无脑拼回，会把 window 撑到 500–700 → 测高跟底
+  // 叠成 React #185。超过 softCap 时与缺行路径一样走 selectLiveTurnWithinBudget。
   if (!liveMissing && !inFlightMissing) {
+    const capNow = Math.max(MIN_KEEP, Math.floor(softCap));
+    const liveSortedPresent = [...live].sort((a, b) => a.rowId - b.rowId);
+    const userPosPresent = Math.max(
+      0,
+      liveSortedPresent.findIndex((r) => r.rowId === full[liveUserIdxInFull]?.rowId),
+    );
+    const liveForWindow =
+      liveSortedPresent.length > capNow
+        ? selectLiveTurnWithinBudget(liveSortedPresent, userPosPresent, 0, capNow)
+        : liveSortedPresent;
     const aligned = alignLeadingToTurnHeader(
       full,
       capped,
-      Math.max(MIN_KEEP, Math.floor(softCap) - live.length),
+      Math.max(MIN_KEEP, capNow - liveForWindow.length),
     );
     if (aligned.length === capped.length && aligned.every((row, i) => row.rowId === capped[i]?.rowId)) {
       // soft-cap prefer:tail 可能已把窗顶裁到直播轮起点，上一问整轮蒸发。
@@ -550,7 +614,7 @@ export function ensureLiveTurnInProjectionWindow(
         MIN_OLDER_ANCHOR_BUDGET,
         liveTurnId,
       );
-      if (olderKeep.length > 0) return finish([...olderKeep, ...live]);
+      if (olderKeep.length > 0) return finish([...olderKeep, ...liveForWindow]);
       return finish(capped);
     }
     // align 若丢光 older 残片，保留原 capped 里的直播段 + 尽可能的完整 older。
@@ -558,10 +622,10 @@ export function ensureLiveTurnInProjectionWindow(
       const olderKeep = selectOlderCompleteTurnsWithinBudget(
         full,
         liveStartRowId,
-        olderAnchorBudget(softCap, live.length),
+        olderAnchorBudget(softCap, liveForWindow.length),
         liveTurnId,
       );
-      return finish(olderKeep.length === 0 ? capped : [...olderKeep, ...live]);
+      return finish(olderKeep.length === 0 ? capped : [...olderKeep, ...liveForWindow]);
     }
     return finish(aligned);
   }

@@ -605,6 +605,30 @@ def test_vectors_only_embeds_only_files_missing_vectors(
         "src/other.py": "def other_symbol():\n    return 3\n",
     }
     root = _build_workspace(tmp_path, files)
+
+    # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    # 本用例要验的是「vectors_only 只补缺向量的文件」这条**分流逻辑**，
+    # 与向量质量无关。原实现依赖真实嵌入模型产出向量，而 win32 上网关
+    # 禁止进程内加载本地向量模型（2026-11-19 `311a401c`，冷导入会卡死界面），
+    # 于是 `code_vec` 恒为 0 行 → 夹具断言 "夹具没留下任何已有向量，用例无意义" 必红。
+    # 改为注入确定性假嵌入：每块一个固定维度向量，不碰模型、不碰网络。
+    _DIM = 8
+
+    def _fake_embed_sync(texts: list[str]) -> list[list[float]]:
+        import hashlib
+
+        out: list[list[float]] = []
+        for t in texts:
+            h = hashlib.sha256(t.encode("utf-8")).digest()
+            out.append([(h[i] / 255.0) for i in range(_DIM)])
+        return out
+
+    monkeypatch.setattr(S, "_embed_texts_sync", _fake_embed_sync)
+    monkeypatch.setattr(
+        S,
+        "_embed_texts_with_bisect",
+        lambda batch: _fake_embed_sync([t for _, t in batch]),
+    )
     S.build_index(workspace_root=root, force=True)
 
     # 人为制造「部分文件缺向量」：删掉 src/fill.py 的全部向量

@@ -120,6 +120,11 @@ export type V4EmployeeProcessPaneProps = {
   title?: string
   taskId?: string
   roundId?: string
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+   * 本次派发时刻。roundId 在派单路径恒为空，故用它判「是否换了新一轮」。
+   */
+  roundStamp?: string
   busy?: boolean
   /** 归属主会话（文件预览 tab 挂靠）；缺省用员工 session_key */
   sessionKey?: string
@@ -191,6 +196,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     title,
     taskId = '',
     roundId = '',
+    roundStamp = '',
     busy = false,
     sessionKey = '',
     employeeSessionKeyHint = '',
@@ -298,6 +304,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       title: String(title || '').trim() || null,
       taskId: taskId || null,
       roundId: roundId || null,
+      roundStamp: roundStamp || null,
       ownerSessionKey: String(sessionKey || '').trim() || null,
       employeeSessionKeyHint: String(employeeSessionKeyHint || '').trim() || null,
       pendingSendLen: String(pendingSendMessage || '').trim().length,
@@ -309,6 +316,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     title,
     taskId,
     roundId,
+    roundStamp,
     sessionKey,
     employeeSessionKeyHint,
     pendingSendMessage,
@@ -333,6 +341,14 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         roundId,
         sessionKey: hintSk || undefined,
         ensureThread: ensureChatThread,
+        // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：无 hint 且是一轮新派发时，把「本轮开始时刻」交给解析器当闸。
+        // 为什么：换轮不继承旧会话键后要靠自动挑，而自动挑优先 running —— 同一员工
+        // 可能正在跑别的对话派的任务，不设闸就会把别人的会话显示到这一屏。
+        // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：闸门条件从「有 roundId」放宽成「有 roundId 或 roundStamp」。
+        // 为什么：派单路径 roundId 恒空，原来的条件让这道防串台闸门永不生效。
+        autoBindSince: !hintSk && (roundId || roundStamp) ? openedAtRef.current : 0,
       })
       let tid = String(meta.thread_id || '').trim()
       const metaSk = employeeOwnedSessionKey(meta.session_key || '', code)
@@ -410,7 +426,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
       })
       setLoaded(true)
     }
-  }, [code, taskId, roundId, employeeSessionKeyHint, employeeSessionKey, sessionKey])
+  }, [code, taskId, roundId, roundStamp, employeeSessionKeyHint, employeeSessionKey, sessionKey])
 
   const statusLow = String(runStatus || '').toLowerCase()
   // 后端 run_status 是权威；busy 只在尚未取到时兜底。
@@ -469,7 +485,18 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     setLoaded(false)
     setThreadId('')
     setRunStatus('')
-  }, [code, taskId, roundId, employeeSessionKeyHint])
+    // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：换轮/换任务时把「上次手挑的会话」清回 hint（无 hint 即空）。
+    // 为什么：上面 open-employee-process-stage 已不再把旧 employeeSessionKey 继承进
+    // 新轮，但本组件 state 里还留着上一次的值，fetchMeta 走
+    // `employeeSessionKeyHint || employeeSessionKey` 又会回落上去 —— 等于白改。
+    // 症状就是派了新任务、右栏仍显示上一轮对话。手挑会话（switchEmployeeSession）
+    // 不改这些依赖，因此不会被误清。
+    setEmployeeSessionKey(employeeOwnedSessionKey(employeeSessionKeyHint, agentCode))
+    // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+    // roundStamp 必须进依赖：派单路径 roundId 恒空，只靠 roundId 时这条重置
+    // 在「同一员工再派一单」时根本不会跑，state 里的旧手挑键照样回落。
+  }, [code, taskId, roundId, roundStamp, employeeSessionKeyHint, agentCode])
 
   useEffect(() => {
     setDisplayRole(resolveEmployeeProcessTabTitle({ title, roleName, agentCode: code }))

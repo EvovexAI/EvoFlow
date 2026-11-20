@@ -458,7 +458,55 @@ def test_assets_get_profile_blank_template_flag_is_per_user_md():
         assert blank["empty_template"] is True, "空白模板被判成已填写"
 
 
-def test_settings_list_models_hoists_shared_config_without_losing_variance():
+@pytest.fixture()
+def _fake_model_rows(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """给 `settings.list_models` 一组确定性模型行：20 条，19 条同值 + 1 条少数派。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    下面的用例原来直接读 `evoflow.admin.models.list_models()`——即**本机现网配置**。
+    本机返回 0 条时 `assert len(orig) >= 2` 直接红，报错「现网模型太少，本去重不适用」。
+    这不是用例要守的语义：要验的是去重逻辑，数据就该由测试自己造。
+    证据：单跑本文件绿（前面的用例装了假 AppConfig 留下 2 个假模型），
+    全量跑红（0 条）——判据取决于「前面谁跑过」，属测试不隔离。
+    修法：注入 20 条确定性行。条数取 20 而不是 5：去重要回 sharedConfig +
+    configOmitted + note 三段开销（约 280 B），条数太少时净体积反而变大
+    （5 条实测 slim=1950 > full=1938），会误红「没有减重」这条真断言。
+    19/20 = 0.95 ≥ 0.8 → thinking 提走，其差异值留在第 1 条；
+    use 12/20 = 0.6 < 0.8 → 不许提走，全留着。
+    """
+    rows: list[dict] = []
+    for i in range(20):
+        rows.append(
+            {
+                "name": f"m{i}",
+                "vendor": "v",
+                "model": f"model-{i}",
+                "display_name": f"M{i}",
+                "description": "",
+                "base_url": None,
+                "api_key": "",
+                "supports_thinking": True,
+                "supports_reasoning_effort": False,
+                "supports_vision": False,
+                "max_tokens": 4096,
+                "context_length": 8192,
+                "thinking": {"type": "enabled", "budget": 1024},
+                "when_thinking_enabled": {"temperature": 1.0},
+                "use": "chat",
+            }
+        )
+    # 少数派：thinking 取值不同 —— 19/20 仍达阈值，但它的差异值必须留在条目上
+    rows[0]["thinking"] = {"type": "enabled", "budget": 4096}
+    # use 只有 12/20 相同（0.6 < 0.8）→ 不许提走，20 条全保留
+    for i in range(8, 20):
+        rows[i]["use"] = "embedding"
+
+    monkeypatch.setattr("evoflow.admin.models.list_models", lambda: {"models": rows})
+    monkeypatch.setattr("evoflow.admin.models.get_primary_model", lambda: {"primary_model": "m0"})
+    return rows
+
+
+def test_settings_list_models_hoists_shared_config_without_losing_variance(_fake_model_rows):
     """`settings.list_models` 默认把「多数模型相同」的实例化开关提到 sharedConfig。
 
     反证价值：
@@ -476,7 +524,7 @@ def test_settings_list_models_hoists_shared_config_without_losing_variance():
 
     orig = full["models"]
     assert len(slim["models"]) == len(orig), "条目数被改了"
-    assert len(orig) >= 2, "现网模型太少，本去重不适用"
+    assert len(orig) == 20, "夹具没生效（应为 20 条确定性模型）"
 
     shape = slim.get("configOmitted") or []
     assert shape, "一个都没提到 sharedConfig，等于没省"

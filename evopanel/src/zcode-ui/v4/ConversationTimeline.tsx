@@ -1158,6 +1158,10 @@ function ConversationTimelineImpl({
   const tryLoadOlderNearTop = useCallback((element: HTMLDivElement, following: boolean) => {
     const loadOlder = loadOlderRef.current;
     const triggerPx = historyPrefetchTriggerPx(element.clientHeight);
+    const distanceFromBottom = Math.max(
+      0,
+      element.scrollHeight - element.scrollTop - element.clientHeight,
+    );
     if (
       !shouldTriggerLoadOlder({
         scrollTop: element.scrollTop,
@@ -1165,6 +1169,8 @@ function ConversationTimelineImpl({
         loadingOlder: loadOlder.loadingOlder,
         triggerPx,
         following,
+        distanceFromBottom,
+        viewportHeight: element.clientHeight,
       })
     ) {
       return false;

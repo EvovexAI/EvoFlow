@@ -25,6 +25,7 @@ describe("V4 timeline scroll anchor (history upscroll)", () => {
         following: true,
       }),
     ).toBe(false);
+    // 已离开近底（gap≥视口）才允许预取
     expect(
       shouldTriggerLoadOlder({
         scrollTop: 302,
@@ -32,6 +33,36 @@ describe("V4 timeline scroll anchor (history upscroll)", () => {
         loadingOlder: false,
         triggerPx: 1230,
         following: false,
+        distanceFromBottom: 800,
+        viewportHeight: 600,
+      }),
+    ).toBe(true);
+  });
+
+  it("short tail near-bottom does not prefetch (prevents prepend JUMP bounce)", () => {
+    // 现场：66/122 近底 gap≈0、follow=false、scrollTop 仍≤2×视口 → 一上滚就
+    // loadOlder → prependAnchorAdjust !JUMP「蹦高」。
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 389,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+        distanceFromBottom: 0,
+        viewportHeight: 600,
+      }),
+    ).toBe(false);
+    // 真到顶（scrollTop≤64）即使近底几何也允许拉
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 40,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+        distanceFromBottom: 0,
+        viewportHeight: 600,
       }),
     ).toBe(true);
   });

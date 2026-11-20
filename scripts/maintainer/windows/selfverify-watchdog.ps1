@@ -188,9 +188,49 @@ try {
     Write-Log "[selftest] skipInstall=1，跳过安装（仅验就绪/名册/wake）" "WARN"
   } else {
     Write-Log "开始静默安装（超时 ${InstallTimeout}s）: $SetupExe $($InstallArgs -join ' ')"
+    # 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：安装前后各记一次主程序 (LastWriteTime, Length)，装完必须变，否则抛错。
+    # 为什么：本轮 setup 跑了 40s 且 exit=0，看门狗照常拉起+wake，但
+    #   D:\app\EvoFlow\evoflow.exe 的 mtime 仍是 16:53:38、md5 未变、
+    #   安装包内 996 个前端 chunk 只命中 737 个（本轮修复所在的 ws-client-*
+    #   这个 chunk 根本不在里面）—— 也就是「装了个寂寞」，整轮构建白跑，
+    #   而日志全程只有 exit=0 一句话。exit code 骗人的坑我踩过多次
+    #   （见 craft/验证-重启后生效-不能拿-exe-明文-grep-当判据.md），
+    #   所以这里用「产物指纹是否真的变了」当判据，不看退出码。
+    $preExe = if (Test-Path -LiteralPath $installedExe) { Get-Item -LiteralPath $installedExe } else { $null }
+    $preSig = if ($preExe) { "$($preExe.LastWriteTimeUtc.Ticks)/$($preExe.Length)" } else { "<absent>" }
+    Write-Log "安装前主程序指纹: $preSig"
+
     $p = Start-Process -FilePath $SetupExe -ArgumentList $InstallArgs -PassThru -Wait
     Write-Log "安装进程退出 code=$($p.ExitCode)"
     if ($null -ne $p.ExitCode -and $p.ExitCode -ne 0) { throw "安装失败 exit=$($p.ExitCode)（可能需要提权：见 README「UAC」一节）" }
+
+    if (-not (Test-Path -LiteralPath $installedExe)) { throw "安装后找不到主程序: $installedExe" }
+    $postExe = Get-Item -LiteralPath $installedExe
+    $postSig = "$($postExe.LastWriteTimeUtc.Ticks)/$($postExe.Length)"
+    Write-Log "安装后主程序指纹: $postSig"
+    if ($preSig -eq $postSig) {
+      # 兜底（同上署名）：安装器 exit=0 但主程序没换 —— 已证实的成因是
+      #   PREINSTALL 的 taskkill 后句柄未完全释放 / 目标被占用时 NSIS 的
+      #   `File` 是**静默跳过**（它不 Abort，所以退出码照样 0）。
+      # 这里直接从构建产物 <release>\evoflow.exe 覆盖，覆盖后仍不一致才抛错。
+      # 不引入新依赖、不改安装器语义，只是把「构建白跑」变成「能落地」。
+      $releaseDir = $SetupExe
+      1..3 | ForEach-Object { $releaseDir = Split-Path -Parent $releaseDir }
+      $buildExe = Join-Path $releaseDir "evoflow.exe"
+      if (-not (Test-Path -LiteralPath $buildExe)) {
+        throw "安装器未替换主程序（$postSig），且构建产物不存在: $buildExe —— 本次构建未落地，勿拉起。"
+      }
+      $buildItem = Get-Item -LiteralPath $buildExe
+      Write-Log "安装器未落地，改从构建产物覆盖: $buildExe (指纹 $($buildItem.LastWriteTimeUtc.Ticks)/$($buildItem.Length))" "WARN"
+      Copy-Item -LiteralPath $buildExe -Destination $installedExe -Force
+      $postExe = Get-Item -LiteralPath $installedExe
+      $postSig = "$($postExe.LastWriteTimeUtc.Ticks)/$($postExe.Length)"
+      Write-Log "覆盖后主程序指纹: $postSig"
+      if ($preSig -eq $postSig) {
+        throw "兜底覆盖后主程序仍未被替换（$postSig）—— 请检查是否有进程占用 $installedExe。"
+      }
+    }
   }
 
   # ── 2. 拉起客户端 ────────────────────────────────────────────────────

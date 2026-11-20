@@ -20994,6 +20994,36 @@ html.evopanel-macos-titlebar .settings-modal-error-banner {
   color: var(--text-tertiary, #a1a1aa);
 }
 
+/* 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+   改了什么：新增「面板在当前嵌入视图不可用」的终态提示样式。
+   为什么：把这类分支从「加载中…」转圈换成明确终态文案，需要配套排版，
+   否则长文案会挤成一行、按钮没有间距。 */
+.react-chat-stage-unavailable {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 20px 16px;
+  text-align: center;
+  color: var(--text-tertiary, #a1a1aa);
+}
+
+.react-chat-stage-unavailable-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #52525b);
+}
+
+.react-chat-stage-unavailable-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 32ch;
+}
+
 .settings-modal-root .settings-layout {
   flex: 1;
   min-height: 0;

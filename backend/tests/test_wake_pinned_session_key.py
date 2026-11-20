@@ -162,6 +162,9 @@ def test_admin_dispatch_omits_session_key_when_empty():
 
 
 # ── 第 4 层：admin.wake() 必须把键一路传到 dispatch() ──────────────────────
+# 【self-evolution-bot · 2026-11-20 · 第97轮】加了投递时校正（prefer_newest_human_session）
+# 后，这条用例会读**现网库**，命中真实的最新真人屏而换键 —— 与它要验的「穿透」无关。
+# 这里把校正钉成 kept，只测穿透；校正本身由 test_wake_retarget_newest_human_session.py 覆盖。
 def test_admin_wake_forwards_session_key_to_dispatch():
     target = SimpleNamespace(agent_code="self-evolution-bot", role_name="自我进化BOT", status="active")
     seen: dict = {}
@@ -174,6 +177,7 @@ def test_admin_wake_forwards_session_key_to_dispatch():
     with (
         patch.object(emp, "resolve_role_ref", lambda t: target),
         patch("evoflow.proactive.work_items.all_referenced_tasks_done", lambda *a, **k: (False, [])),
+        patch("evoflow.proactive.chat_session.prefer_newest_human_session", lambda code, sk, **kw: (sk, "kept")),
         patch.object(emp, "dispatch", _fake_dispatch),
     ):
         emp.wake("self-evolution-bot", "验证装完机回到同一屏", from_agent="user", session_key=SK)
@@ -273,6 +277,10 @@ def test_fire_and_forget_forwards_key_to_bg_dispatch():
         patch.object(rn, "resolve_dispatch_round_id", lambda **k: ("round-x", True)),
         patch.object(rn, "validate_dispatch_org_relationship", lambda **k: ""),
         patch("evoflow.proactive.work_items.all_referenced_tasks_done", lambda *a, **k: (False, [])),
+        # 【self-evolution-bot · 2026-11-20 · 第99轮】钉成 kept：本用例验「穿透」，
+        # 加了空钉兜底后这条会读现网库命中真实最新屏 —— 与穿透无关（同第4层 wake 用例做法）。
+        patch("evoflow.proactive.chat_session.prefer_newest_human_session", lambda code, sk, **kw: (sk, "kept")),
+        patch("evoflow.proactive.chat_session.latest_human_session_key", lambda code, **kw: ("", "")),
     ):
         asyncio.run(
             rn.ProactiveRunner.dispatch_task_fire_and_forget(
@@ -290,7 +298,15 @@ def test_fire_and_forget_forwards_key_to_bg_dispatch():
 
 
 def test_fire_and_forget_bg_dispatch_defaults_empty():
-    """不传键时必须保持原行为（空串 → task/duty 自动分桶），不能凭空造键。"""
+    """不传键时必须保持原行为（空串 → task/duty 自动分桶），不能凭空造键。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：补两条 patch 把本用例与现网库隔离（同第 248 行那条的做法）。
+    为什么：本轮给「空钉 + 人为来源」加了「投该岗最新真人屏」的兜底，而这条用例
+    原本直接读真实 DB —— 现网库里有真人发言，于是它抓到 ...chat:2026-11-19T16-15-39.290Z
+    变成假红。本用例要验的判据没变（**无真人信号时不得凭空造键**），
+    所以只隔离数据源、断言照旧：库里没信号 → 键仍是空串。
+    """
     from evoflow.proactive import runner as rn
 
     captured: dict = {}
@@ -322,6 +338,8 @@ def test_fire_and_forget_bg_dispatch_defaults_empty():
         patch.object(rn, "resolve_dispatch_round_id", lambda **k: ("round-x", True)),
         patch.object(rn, "validate_dispatch_org_relationship", lambda **k: ""),
         patch("evoflow.proactive.work_items.all_referenced_tasks_done", lambda *a, **k: (False, [])),
+        # 【第100轮】与现网库隔离：本用例验「无信号不失真」，不验真实数据命中
+        patch("evoflow.proactive.chat_session.latest_human_session_key", lambda code, **kw: ("", "")),
     ):
         asyncio.run(
             rn.ProactiveRunner.dispatch_task_fire_and_forget(
@@ -338,7 +356,8 @@ def test_fire_and_forget_bg_dispatch_defaults_empty():
 def test_enqueue_pending_wake_keeps_session_key():
     from evoflow.proactive import runner as rn
 
-    captured: dict = {}
+    # 【self-evolution-bot · 2026-11-20 · 第97轮】删掉未使用的 `captured`（HEAD 遗留 F841，
+    # 与本轮改动无关；顺手清掉以便 ruff 能对本轮改的文件真跑门禁）。
     role = SimpleNamespace(agent_code="self-evolution-bot", role_name="自我进化BOT", status="active")
 
     class _R:

@@ -1374,6 +1374,12 @@ class V4Mirror:
         self._seal_orphan_open_tool_rows(
             tid, st, now_ms=now_ms, status=seal, preserve_pending_approval=preserve_pending_approval
         )
+        # 最后兜底：任意 turn 上仍 open 的工具，只要 transcript 已有正文就升级。
+        # 覆盖 turn_id 错位 / reuse 清 map / SSE 丢 RESULT 叠在一起的现场。
+        if seal == "cancelled":
+            self._heal_open_tools_from_transcript(
+                tid, st, now_ms=now_ms, preserve_pending_approval=preserve_pending_approval
+            )
 
     def _apply_transcript_backfill_to_tool_row(
         self,
@@ -1458,6 +1464,64 @@ class V4Mirror:
                     tid, st, tcid=tcid, row_out=row_out
                 )
             self._hub.author_upsert_row(tid, row_out)
+
+    def _heal_open_tools_from_transcript(
+        self,
+        tid: str,
+        st: _MirrorState,
+        *,
+        now_ms: int,
+        preserve_pending_approval: bool = False,
+    ) -> int:
+        """Upgrade any open toolCall rows that already have transcript bodies.
+
+        Does not depend on ``tool_row_ids`` or matching ``turn_id`` — those are
+        exactly what go missing when reuse clears maps / RESULT is dropped.
+        """
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return 0
+        healed = 0
+        for row in list(sess.rows.values()):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("kind") or "") != "toolCall":
+                continue
+            tcid = str(row.get("toolCallId") or "").strip()
+            if not tcid:
+                continue
+            cur = str(row.get("status") or "").strip()
+            if cur and cur not in self._OPEN_TOOL_STATUSES:
+                continue
+            if preserve_pending_approval and self._tool_row_is_pending_approval(row):
+                continue
+            try:
+                row_id = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if row_id <= 0:
+                continue
+            created_at, started_at = self._preserve_tool_timestamps(row, now_ms=now_ms)
+            row_out: dict[str, Any] = {
+                "rowId": row_id,
+                "turnId": str(row.get("turnId") or st.turn_id or "").strip(),
+                "kind": "toolCall",
+                "toolCallId": tcid,
+                "toolName": str(row.get("toolName") or self._tool_name(st, tcid, {}) or "tool"),
+                "status": "cancelled",
+                "inputText": str(row.get("inputText") or ""),
+                "createdAt": created_at,
+                "createdAtSeq": self._seq_now(tid),
+                "startedAt": started_at,
+                "endedAt": now_ms,
+            }
+            if not self._apply_transcript_backfill_to_tool_row(
+                tid, st, tcid=tcid, row_out=row_out
+            ):
+                continue
+            self._hub.author_upsert_row(tid, row_out)
+            healed += 1
+        return healed
 
     def _seal_streaming_assistant_text(
         self, tid: str, st: _MirrorState, *, now_ms: int, state: str = "complete"
@@ -1961,6 +2025,9 @@ class V4Mirror:
             next_run_id,
         )
         if clear_stream_maps:
+            # 先封未收口工具再清 map——否则 search_code_index 等慢工具会永久
+            # inputStreaming（「等待中」），而 RESULT 若再被 SSE 丢掉就再也收不了口。
+            self._seal_open_tool_calls(tid, st, now_ms=now_ms, status="cancelled")
             self._clear_stream_row_maps(st)
         st.run_started = True
         st.turn_id = turn_id
@@ -2562,21 +2629,26 @@ class V4Mirror:
             input_text = st.tool_acc.get(tcid, "") or (
                 str(existing.get("inputText") or "") if isinstance(existing, dict) else ""
             )
-            self._hub.author_upsert_row(
-                tid,
-                {
-                    "rowId": rid,
-                    "turnId": self._preserve_tool_turn_id(existing, st),
-                    "kind": "toolCall",
-                    "toolCallId": tcid,
-                    "toolName": self._tool_name(st, tcid, ev),
-                    "status": "running",
-                    "inputText": input_text,
-                    "createdAt": created_at,
-                    "createdAtSeq": self._seq_now(tid),
-                    "startedAt": started_at,
-                },
+            row_out: dict[str, Any] = {
+                "rowId": rid,
+                "turnId": self._preserve_tool_turn_id(existing, st),
+                "kind": "toolCall",
+                "toolCallId": tcid,
+                "toolName": self._tool_name(st, tcid, ev),
+                "status": "running",
+                "inputText": input_text,
+                "createdAt": created_at,
+                "createdAtSeq": self._seq_now(tid),
+                "startedAt": started_at,
+            }
+            # TranscriptMiddleware 在工具返回前就落库；SSE RESULT 常丢。
+            # END 时若库里已有正文，直接升 success，避免卡永久「等待中/执行中」。
+            self._apply_transcript_backfill_to_tool_row(
+                tid, st, tcid=tcid, row_out=row_out
             )
+            if row_out.get("status") == "success":
+                row_out["endedAt"] = now_ms
+            self._hub.author_upsert_row(tid, row_out)
             return
 
         if et == "TOOL_CALL_RESULT":

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ConversationRow, ConversationSnapshot } from "../src/zcode-shared/zcode-protocol-v4/index.ts";
 import {
+  applyMemoryPressureToProjectionWindow,
   mergeOlderRows,
   mergePreservedOlderRowsIntoTailSnapshot,
 } from "../src/zcode-ui/v4/conversationProjectionStore.ts";
@@ -163,6 +164,46 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
         (r) => r.kind === "userInput" && (r as { text?: string }).text === "777",
       ),
     ).toBe(true);
+  });
+});
+
+describe("applyMemoryPressureToProjectionWindow", () => {
+  it("上滚在途或已上拉大窗：不裁行数（防 2004↔52 抖动）", () => {
+    const rows: ConversationRow[] = [];
+    for (let i = 1; i <= 200; i += 1) {
+      rows.push(textRow(i, "t", `r${i}`));
+    }
+    expect(applyMemoryPressureToProjectionWindow(rows, { loadingOlder: true })).toBeNull();
+    const out = applyMemoryPressureToProjectionWindow(rows, { loadingOlder: false });
+    if (out) {
+      expect(out.length).toBe(rows.length);
+      expect(out[0]?.rowId).toBe(1);
+      expect(out[out.length - 1]?.rowId).toBe(200);
+    }
+  });
+});
+
+describe("mergePreservedOlderRowsIntoTailSnapshot under critical softCap", () => {
+  it("prefer:tail 裁到 winFirst=94 后仍钉回已上拉的更早窗首，不得弹回 94", () => {
+    // 对齐诊断：softCap=50、loadOlder 已前插到 1…、shrink prefer:tail → 94…，
+    // mergePreserved 必须保住窗首，否则 beforeRowId=94 连打 / HISTORY_TOP_STUCK。
+    const previousRows: ConversationRow[] = [];
+    for (let i = 1; i <= 150; i += 1) {
+      previousRows.push(textRow(i, i < 94 ? "old" : "live", `r${i}`));
+    }
+    const previous = snap(previousRows, { firstRowId: 1, totalCount: 223 });
+    const incoming = snap(
+      previousRows.filter((r) => r.rowId >= 94).slice(0, 50),
+      { firstRowId: 1, totalCount: 223 },
+    );
+    expect(incoming.rows.window[0]?.rowId).toBe(94);
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    expect(merged.rows.window[0]?.rowId).toBeLessThan(94);
+    expect(merged.rows.window.some((r) => r.rowId === 1)).toBe(true);
+    expect(merged.rows.window[merged.rows.window.length - 1]?.rowId).toBeGreaterThanOrEqual(
+      incoming.rows.window[incoming.rows.window.length - 1]!.rowId,
+    );
   });
 });
 

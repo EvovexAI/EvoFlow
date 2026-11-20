@@ -75,9 +75,20 @@ describe('inspectConversationDisplayOrder', () => {
     expect(report.findings.some((f) => f.code === 'expected_user_missing')).toBe(true)
   })
 
-  it('flags buried latest user under a long tool tail', () => {
-    const rows: ConversationRow[] = [user(1, '新问题')]
-    for (let i = 0; i < 30; i += 1) rows.push(tool(2 + i))
+  it('does not flag same-turn long tool tail (贴底跟流看不见问句是常态)', () => {
+    const rows: ConversationRow[] = [user(1, '好啦，好，我又重启好了')]
+    for (let i = 0; i < 30; i += 1) rows.push(tool(2 + i, 'turn-new'))
+    const report = inspectConversationDisplayOrder(rows, {
+      turnLive: true,
+      buryWarnRows: 25,
+    })
+    expect(report.findings.some((f) => f.code === 'latest_user_buried')).toBe(false)
+    expect(report.latestUser?.indexFromEnd).toBe(30)
+  })
+
+  it('flags buried latest user when tail belongs to another turn', () => {
+    const rows: ConversationRow[] = [user(1, '新问题', 'turn-new')]
+    for (let i = 0; i < 30; i += 1) rows.push(tool(2 + i, 'turn-old'))
     const report = inspectConversationDisplayOrder(rows, {
       turnLive: true,
       buryWarnRows: 25,

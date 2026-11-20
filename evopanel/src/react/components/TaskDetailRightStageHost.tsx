@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { RightStagePanel } from './RightStagePanel.js'
 import { CollabExecutionPanel } from './CollabExecutionPanel.js'
-import { SidePanelBootShell } from './SidePanelBootShell.js'
+import { RightStageUnavailableShell } from './RightStageUnavailableShell.js'
 import { WorkspaceFilePreviewPanel } from './WorkspaceFilePreviewPanel.js'
 import { useRightStageStore } from '../../lib/right-stage/use-right-stage.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
@@ -113,6 +113,14 @@ export function TaskDetailRightStageHost({
     (surface: RightStageSurface) => {
       const kind = normalizeRightStageKind(surface.kind)
       const data = surface.data || {}
+      // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：本函数据实是「注册表都没命中」时才被调到的兜底渲染器
+      //   （RightStagePanel.renderTabBody 先问 getRightStageKind，查不到才走
+      //   renderContent ?? UnknownStageKind）。所以这里不许再写「先问注册表」——
+      //   我第一版加的那段是死代码，永远拿不到 registered。
+      // 为什么重要：本函数下面每个 return 都会直接上屏，兜底分支一旦返回
+      //   <SidePanelBootShell>（渲染为「加载中…」转圈），就是永久转圈——
+      //   没有任何后续数据会把它变成 ready。
       if (kind === 'collab-workflow') {
         return (
           <CollabExecutionPanel
@@ -149,7 +157,16 @@ export function TaskDetailRightStageHost({
       // 【V4 权威】禁止 ProactiveLiveProcessHost mode=panel
       if (kind === 'employeeProcess') {
         const agentCode = String(data.agentCode || '').trim()
-        if (!agentCode) return <SidePanelBootShell title="执行过程" />
+        // 缺 agentCode 是终态（数据不合法），不是「还在加载」——必须说清而不是转圈。
+        if (!agentCode) {
+          return (
+            <RightStageUnavailableShell
+              title={String(surface.title || '执行过程')}
+              kind={kind}
+              onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+            />
+          )
+        }
         const roleName = String(data.roleName || '').trim()
         const empTitle =
           String(surface.title || data.title || roleName || agentCode).trim() || '执行过程'
@@ -169,7 +186,15 @@ export function TaskDetailRightStageHost({
       if (kind === 'collabSubtaskTranscript') {
         const subtaskId = String(data.subtaskId || '').trim()
         const mainTaskId = String(data.mainTaskId || tid).trim()
-        if (!subtaskId || !mainTaskId) return <SidePanelBootShell title="节点进度" />
+        if (!subtaskId || !mainTaskId) {
+          return (
+            <RightStageUnavailableShell
+              title={String(surface.title || '节点进度')}
+              kind={kind}
+              onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+            />
+          )
+        }
         return (
           <V4CollabSubtaskTranscriptPane
             mainTaskId={mainTaskId}
@@ -229,7 +254,22 @@ export function TaskDetailRightStageHost({
           />
         )
       }
-      return <SidePanelBootShell title={surface.title || kind || '面板'} />
+      // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：最后兜底由 <SidePanelBootShell>（永久「加载中…」）改为终态提示。
+      // 为什么：这条分支只会被执行到「注册表和 if 链都不认这个 kind」，永远不会
+      //   有后续数据把它变成 ready——用载入占位等于骗用户一直在等。
+      // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：本宿主认不得的 kind（典型：workspace-browse / asset）不再画「加载中…」，
+      //   改成终态说明 + 「去主区打开」出路。
+      // 为什么：产物卡点预览会带 sessionKey=task-center:{taskId} 落到本宿主，
+      //   而这几个 kind 不在本宿主的 if 链里 —— 原样 return BootShell 就是永久转圈。
+      return (
+        <RightStageUnavailableShell
+          title={String(surface.title || kind || '面板')}
+          kind={kind}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+        />
+      )
     },
     [tid, lead, stageSk, apiMainTask, apiSubtasks, agents],
   )

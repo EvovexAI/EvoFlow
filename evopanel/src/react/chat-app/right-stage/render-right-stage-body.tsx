@@ -663,6 +663,7 @@ export function renderRightStageBody(
         busy={!!data.busy}
         title={empTitle}
         roundId={String(data.roundId || '').trim()}
+        roundStamp={String(data.roundStamp || '').trim()}
         taskId={String(data.taskId || '').trim()}
         sessionKey={String(surface.sessionKey || selectedSessionKey || '').trim() || undefined}
         employeeSessionKeyHint={String(

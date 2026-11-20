@@ -7,6 +7,7 @@ import {
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
   lightenProjectionRowsForMemory,
+  liveTurnSpan,
   pinLiveTurnAfterDeltas,
   pinTurnRowsAtTail,
   repairPartialTurnsInProjectionWindow,
@@ -454,6 +455,43 @@ describe('ensureLiveTurnInProjectionWindow', () => {
   })
 })
 
+describe('ensureLiveTurnInProjectionWindow mega live', () => {
+  it('does not re-inflate a 400-row live turn already fully in window (anti #185 balloon)', () => {
+    const softCap = 80
+    const live: ConversationRow[] = []
+    live.push({ ...row(1, 'turnHeader'), turnId: 'live', state: 'running' } as ConversationRow)
+    live.push({
+      ...row(2, 'userInput', 'realUser'),
+      turnId: 'live',
+      text: '好啦，好，我又重启好了',
+    } as ConversationRow)
+    for (let i = 3; i <= 400; i += 1) {
+      live.push({
+        ...row(i, 'toolCall'),
+        turnId: 'live',
+        status: 'success',
+      } as ConversationRow)
+    }
+    // 上一问锚点
+    const older: ConversationRow[] = [
+      { ...row(1001, 'turnHeader'), turnId: 'older', state: 'completedSuccess' } as ConversationRow,
+      {
+        ...row(1002, 'userInput', 'realUser'),
+        turnId: 'older',
+        text: '上一问',
+      } as ConversationRow,
+    ]
+    // rowId 交错：直播问 rowId 小、旧轮 append 大——full 按 rowId 排
+    const full = [...live, ...older].sort((a, b) => a.rowId - b.rowId)
+    const pinned = ensureLiveTurnInProjectionWindow(full, [...full], softCap)
+    expect(pinned.length).toBeLessThanOrEqual(Math.floor(softCap * 1.5) + 8)
+    expect(pinned.some((r) => r.kind === 'userInput' && String(r.text || '').includes('重启'))).toBe(
+      true,
+    )
+    expect(pinned[pinned.length - 1]?.turnId).toBe('live')
+  })
+})
+
 describe('selectLiveTurnWithinBudget', () => {
   it('keeps mid-turn streaming reasoning that head+tail would drop', () => {
     const live: ConversationRow[] = []
@@ -483,6 +521,90 @@ describe('selectLiveTurnWithinBudget', () => {
     expect(kept.some((r) => r.kind === 'reasoning' && r.state === 'streaming')).toBe(
       true,
     )
+  })
+
+  it('never drops the max rowId tip even when in-flight alone exceeds softCap', () => {
+    // STREAM_AHEAD 现场：streamRow=2154 > winLast=2080 —— tip 被 in-flight 顶满路径裁掉
+    const live: ConversationRow[] = []
+    live.push({ ...row(1, 'turnHeader'), turnId: 'live', state: 'running' } as ConversationRow)
+    live.push({
+      ...row(2, 'userInput', 'realUser'),
+      turnId: 'live',
+      text: '还有哪些没考虑到的',
+    } as ConversationRow)
+    for (let i = 3; i <= 100; i += 1) {
+      live.push({
+        ...row(i, 'toolCall'),
+        turnId: 'live',
+        status: 'running',
+      } as ConversationRow)
+    }
+    live.push({
+      ...row(2154, 'toolCall'),
+      turnId: 'live',
+      status: 'inputStreaming',
+      toolName: 'read',
+    } as ConversationRow)
+
+    const kept = selectLiveTurnWithinBudget(live, 1, 0, 40)
+    expect(kept.some((r) => r.rowId === 2154)).toBe(true)
+    expect(Math.max(...kept.map((r) => r.rowId))).toBe(2154)
+  })
+})
+
+describe('liveTurnSpan stream tip', () => {
+  it('prefers higher in-flight tip turn even when only the older turn has a realUser in window', () => {
+    // 现场：新问还在 optimistic、投影里只有上一问「这」；SSE 已在新 turn tip=2154。
+    // 旧算法按用户气泡钉旧轮 → soft-cap 裁掉 2154 → STREAM_AHEAD / 页面转圈。
+    const rows: ConversationRow[] = [
+      {
+        ...row(2000, 'turnHeader'),
+        turnId: 'old',
+        state: 'running',
+        createdAt: 5_000,
+      } as ConversationRow,
+      {
+        ...row(2001, 'userInput', 'realUser'),
+        turnId: 'old',
+        text: '这',
+        createdAt: 5_000,
+      } as ConversationRow,
+      {
+        ...row(2080, 'toolCall'),
+        turnId: 'old',
+        status: 'running',
+      } as ConversationRow,
+      {
+        ...row(2100, 'turnHeader'),
+        turnId: 'new',
+        state: 'running',
+        createdAt: 6_000,
+      } as ConversationRow,
+      // 故意无 realUser：对齐「投影无此 turn / 只有 optimistic」
+      {
+        ...row(2154, 'toolCall'),
+        turnId: 'new',
+        status: 'inputStreaming',
+        toolName: 'read',
+      } as ConversationRow,
+      {
+        ...row(2366, 'toolCall'),
+        turnId: 'orphan',
+        status: 'success',
+      } as ConversationRow,
+    ]
+
+    const span = liveTurnSpan(rows)
+    expect(span).toBeTruthy()
+    expect(rows[span!.turnStart]?.turnId).toBe('new')
+
+    const softCap = 40
+    const sorted = [...rows].sort((a, b) => a.rowId - b.rowId)
+    const tailOnly = capProjectionWindow(sorted, softCap, 'tail')
+    const pinned = ensureLiveTurnInProjectionWindow(sorted, [...tailOnly], softCap)
+    expect(pinned.some((r) => r.rowId === 2154)).toBe(true)
+    expect(pinned[pinned.length - 1]?.turnId).toBe('new')
+    expect(Math.max(...pinned.map((r) => r.rowId))).toBeGreaterThanOrEqual(2154)
   })
 })
 

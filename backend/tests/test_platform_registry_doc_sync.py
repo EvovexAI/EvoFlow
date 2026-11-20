@@ -12,7 +12,11 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 # - knowledge.enable（遗留 Obsidian Vault API 已随知识库归一移除）→ 180;
 # 【self-evolution-bot · 2026-11-20 · 第70轮 · 模型:deepseek-v4.1-flash-1017】
 # + ui.kinds（右栏 ui 面板先读 kinds 再 show）→ 181。
-EXPECTED_PLATFORM_ACTION_COUNT = 181
+# 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+# + ui.current（查用户右栏停在哪一页）→ 182；
+# + ui.activate（切到用户已开的某个标签）→ 183。
+# + ui.panel（主窗口 CDP：snapshot/click/action…）→ 184。
+EXPECTED_PLATFORM_ACTION_COUNT = 184
 
 
 def test_assets_in_platform_domains() -> None:
@@ -96,8 +100,9 @@ def test_http_platform_doc_lists_registry_actions() -> None:
     assert "archive" not in emp_line
     assert "已退役" in text
     assert "`employees.delete`" in text
-    assert "180" in text
+    assert "184" in text
     assert "bindings" in text
+    assert "ui.panel" in text or "panel" in text
     assert "**extensions：**" in text
     assert "**plugins：**" in text
     assert "**org：**" in text

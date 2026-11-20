@@ -306,7 +306,11 @@ class ExecutionBridge:
         )
 
         # Wait for completion (with timeout)
-        import asyncio
+        # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+        # 删掉这里的函数内 `import asyncio`：它让 asyncio 在整个函数里变成局部名，
+        # 使前面第 209 行 `await asyncio.to_thread(...)` 抛
+        # UnboundLocalError: cannot access local variable 'asyncio'
+        # （2026-11-20 18:26:45 现网堆栈，wake 派发就此断掉）。模块顶部已 import。
 
         # Resolve per-role timeout if configured (fallback to global default)
         timeout_seconds = DEFAULT_TIMEOUT_SECONDS
@@ -361,8 +365,8 @@ class ExecutionBridge:
         Args:
             timeout: Max polling seconds. Defaults to DEFAULT_TIMEOUT_SECONDS.
         """
-        import asyncio
-
+        # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+        # 同上：函数内 import 会让 asyncio 成为局部名，删掉（模块顶部已 import）。
         max_iterations = timeout or DEFAULT_TIMEOUT_SECONDS
         for _ in range(max_iterations):
             await asyncio.sleep(1)

@@ -75,6 +75,15 @@ def test_second_run_keeps_user_edits(ext_home: Path) -> None:
 
 
 def test_version_bump_refreshes_copy(ext_home: Path) -> None:
+    """旧版本已装 + 源模板升级 → 必须重新拷贝并同步版本号。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    原断言把 ``fresh["version"] == "1.0.0"`` 写死，而
+    ``assets/builtin_ext_apps/demo-workbench/evoflow.extension.json`` 已升到
+    1.0.2（模板随实现演进），测试没跟着改 → 契约漂移必红。
+    改为「与源模板的 version 相等」，这样模板再升版也不会误报，仍能抓
+    「刷新后版本没跟上模板」这个真正的缺陷。
+    """
     builtin_ext_apps.ensure_builtin_ext_apps_registered(ORIGIN)
     dest = _installed_dir(ext_home)
     manifest_path = dest / "evoflow.extension.json"
@@ -88,7 +97,13 @@ def test_version_bump_refreshes_copy(ext_home: Path) -> None:
     assert by_id["demo-workbench"] == "refreshed"
     assert (dest / "app.js").read_text(encoding="utf-8") != "// stale"
     fresh = json.loads(manifest_path.read_text(encoding="utf-8-sig"))
-    assert fresh["version"] == "1.0.0"
+    src_manifest = json.loads(
+        (dict(builtin_ext_apps.iter_builtin_ext_app_dirs())["demo-workbench"] / "evoflow.extension.json").read_text(
+            encoding="utf-8-sig"
+        )
+    )
+    assert fresh["version"] == src_manifest["version"]
+    assert fresh["version"] != "0.0.1-user"
 
 
 def test_disabled_row_stays_disabled(ext_home: Path) -> None:

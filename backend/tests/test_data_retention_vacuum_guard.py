@@ -81,9 +81,30 @@ def test_guard_exception_propagates_to_caller(vacuum_paths_env: list[Path]) -> N
 
 
 def test_runner_guard_blocks_when_streams_active(monkeypatch: pytest.MonkeyPatch) -> None:
-    """网关侧：有活跃流 → 不允许 VACUUM；空 → 允许；探测异常 → fail-open 允许。"""
+    """网关侧：有活跃流 → 不允许 VACUUM；空 → 允许；探测异常 → fail-open 允许。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    本用例原来只桩 `list_active_stream_proxies`，另两道判据（事件循环 lag /
+    inflight REST）读的是**真实进程状态**，于是判据变成「套件跑了多久」：
+      `hang_diagnostics._last_loop_beat` 在模块 import 时初始化，单跑该文件
+      （~1.8s）lag < 2.0s → 绿；全量跑（231s）lag ≈ 231s ≥ 2.0s → 永远 False，
+      断言 `is True` 必红。
+    证据：全量 6 failed 里这一条三处断言只有中间那条红（前一条有流、后一条
+    fail-open 都成立），且单跑三文件 36 passed。
+    修法：把另两道探测也桩成「健康」（lag=0、无 inflight），语义回到本用例
+    真正要守的东西——「流注册表为空就该放行」。同文件
+    `test_runner_guard_blocks_any_inflight` 早已是这么写的。
+    """
     import app.gateway.data_retention_runner as runner
 
+    monkeypatch.setattr(
+        "app.gateway.hang_diagnostics.get_event_loop_lag_seconds",
+        lambda: 0.0,
+    )
+    monkeypatch.setattr(
+        "app.gateway.hang_diagnostics.snapshot_inflight_requests",
+        lambda: {"count": 0, "by_lane": {}, "all": [], "long_waiting": []},
+    )
     monkeypatch.setattr(
         "app.gateway.routers.langgraph_proxy.list_active_stream_proxies",
         lambda: [{"thread_id": "t1"}],

@@ -41,7 +41,12 @@ TIER0_SKILL_DESC_CHARS = 160
 # so an oversized catalog never ships half-cut prose (each skill stays
 # discoverable by name at the floor).
 TIER0_SKILLS_SECTION_CHARS = 6000
-TIER0_ASSET_TOTAL_CHARS = 900
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】这里原本是个**假上限**：
+# 只有 legacy SQLite-memory 路径会 cap（``guidance.build_assets_block`` 里 ``if asset_mode: return body``
+# 直接早退），默认 asset 模式下它一行都不生效。实测 self-evolution-bot 注入 12,315 字符，
+# 而这个常量写 900 —— 差 13.7 倍，光看常量会得出相反结论。现标注为 legacy 遗留预算，
+# 别当 asset 模式的 ceiling 读。asset 模式的真实体积由 profile 内容决定（64 个员工里中位数约 100 字符）。
+TIER0_ASSET_TOTAL_CHARS = 900  # legacy-only; asset mode is uncapped by design
 
 # Tier 1 Recall (turn-tail)
 TIER1_RECALL_TOP_K = 4

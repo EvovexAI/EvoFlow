@@ -1064,6 +1064,7 @@ export function useChatAppController() {
       /* ignore */
     }
   }, [selectedSessionKey])
+
   // 已选会话但还没有 threadId：主动 ensure，否则 V4 会停在 no-thread→「加载中…」
   // 部门群聊是本地 IM 面（dept:{id}:chat），不要 ensure-thread / 建假会话，否则会卡住导航。
   useEffect(() => {
@@ -2485,6 +2486,54 @@ export function useChatAppController() {
     selectedSessionKey,
     selectedSessionRowForExec,
   )
+
+  // Main-panel CDP bridge: /main-cdp/action sendMessage|selectSession without DOM scraping.
+  useEffect(() => {
+    let cancelled = false
+    void import('../../lib/panel-cdp/panel-bridge.ts')
+      .then((m) => {
+        if (cancelled) return
+        m.registerPanelChatBridge({
+          sendMessage: (text) => handleSendRef.current(text),
+          selectSession: (sessionKey) => selectSessionFromShellRef.current(sessionKey),
+          focusComposer: () => {
+            try {
+              document
+                .querySelector<HTMLElement>(
+                  '[data-composer-input], textarea.composer-input, .chat-composer textarea',
+                )
+                ?.focus?.()
+            } catch {
+              /* ignore */
+            }
+          },
+          setComposerText: (text) => {
+            try {
+              const el = document.querySelector<HTMLTextAreaElement>(
+                '[data-composer-input], textarea.composer-input, .chat-composer textarea',
+              )
+              if (!el) return
+              const desc = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+              desc?.set?.call(el, text)
+              el.dispatchEvent(new Event('input', { bubbles: true }))
+            } catch {
+              /* ignore */
+            }
+          },
+          isStreaming: () => !!selectedTurnBusy,
+        })
+      })
+      .catch(() => {
+        /* panel CDP optional */
+      })
+    return () => {
+      cancelled = true
+      void import('../../lib/panel-cdp/panel-bridge.ts')
+        .then((m) => m.clearPanelChatBridge())
+        .catch(() => {})
+    }
+  }, [selectedTurnBusy])
+
   // V4 时间线仍有 streaming/工具时，sse_final 可能已关 selectedTurnBusy——Composer 齿轮/停止要并上。
   const v4TimelineBusyEpoch = useSyncExternalStore(
     subscribeV4TimelineBusy,

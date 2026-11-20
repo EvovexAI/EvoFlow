@@ -11,6 +11,7 @@ import { getCurrentRightStageSessionKey, resolveTabSessionKey, scopeOfKind } fro
 import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 import { isProgressStageKind } from './open-progress-from-panel-set.js'
 import { logPanelSet, logRightStage } from './panel-set-debug-log.js'
+import { reportRightStageState } from './right-stage-state-report.js'
 
 /** RUN_FINISHED / 平台 toast 收栏时不得拆掉的 kind（用户还要盯进度 / 浏览器）。 */
 function isProtectedIdleHideKind(kind: string | null | undefined): boolean {
@@ -304,6 +305,15 @@ export class RightStageStore {
   private bump() {
     this.rev += 1
     this.rebuildSnapshot()
+    // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：每次右栏状态变化，把「用户当前在看的签」上报给后端（节流 400ms）。
+    // 为什么（用户 2026-11-20 指出）：模型要开面板时**根本不知道用户此刻右栏停在哪一页**。
+    //   `grep activeKey backend --include=*.py` 命中 0 次 —— 这份状态此前只活在前端内存里。
+    //   后果：用户正盯着一份文档/一个员工进程，模型再 ui.show 一个东西就直接把视线抢走；
+    //   或者反过来，该复用的那一页被新开成第二个签。
+    // 判据：上报必须是「状态真的变了」才发（bump 是唯一收敛点），且失败静默——
+    //   上报通道绝不能反过来影响 UI。
+    reportRightStageState(this.cachedSnapshot)
     for (const fn of this.listeners) {
       try {
         fn()
@@ -750,9 +760,21 @@ export class RightStageStore {
   applyRemote(payload: {
     action?: string
     surface?: Partial<RightStageSurface> | null
+    key?: string
     stream?: RightStageStreamChunk & { action?: string; format?: string; path?: string; title?: string }
   }) {
     const action = String(payload.action || '').trim().toLowerCase()
+    // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：把 activate 接在 hide 判断**之前**（下面那条判据是
+    //   `action === 'hide' || payload.surface === null`，而 activate 天然没有 surface）。
+    // 为什么：同型缺陷本轮已在 right-stage-agui.ts 撞过一次 —— activate 带 surface:null
+    //   会被当成「收起右栏」，用户点切签反而整个面板关掉。这里当前虽未走到，
+    //   但入口语义必须一致，不能让下一个人重踩。
+    if (action === 'activate') {
+      const k = String(payload.key || '').trim()
+      if (k) this.activateTab(k)
+      return
+    }
     if (action === 'hide' || payload.surface === null) {
       logRightStage('store.applyRemote:hide', { action, surfaceNull: payload.surface === null }, {
         stack: true,
@@ -800,6 +822,7 @@ export class RightStageStore {
           title: surfNorm.title,
           layout: surfNorm.layout,
           data: surfNorm.data || {},
+          forceExpand: surfNorm.expand === true,
         })
       } else {
         this.tabs = this.tabs.map((t) =>
@@ -807,8 +830,34 @@ export class RightStageStore {
             ? { ...t, ...surfNorm, data: { ...t.data, ...(surfNorm.data || {}) } }
             : t,
         )
-        if (this.activeKey !== key) {
+        // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：update 分支不再无条件抢焦点，改成与 show() 同一套 pinAlive 判据
+        //   （用户已钉在别的签上且该签还活着 → 只更新内容，不切 active；
+        //    显式 expand=true 仍然可以抢）。
+        // 为什么：用户场景是「我让另一个 AI 干活，右栏实时显示，我还要能接着跟它聊」。
+        //   实测 `employees.chat_send` 打开「发版工程师」后 active 正确，但约 10 秒后
+        //   自己跳到「任务」标签——因为同会话里 shell-page 之类的面板持续发 update，
+        //   而这里 `if (this.activeKey !== key) this.activeKey = key` 是无条件的，
+        //   任何一个面板刷新都把人正在看的对话抢走，续聊当场断掉。
+        //   与 show() 的 shouldActivate = forceExpand || !pinAlive 对齐后，
+        //   后台刷新只灌内容，不再夺走视线。
+        const updatePinned = this.userPinnedActiveKey
+        const updatePinAlive =
+          Boolean(updatePinned) &&
+          updatePinned !== key &&
+          this.tabs.some((t) => this.tabKeyOf(t) === updatePinned)
+        const updateCanSteal = surfNorm.expand === true || !updatePinAlive
+        if (updateCanSteal && this.activeKey !== key) {
           this.activeKey = key
+        }
+        // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：update 分支也要认 expand，撑开被用户收起的右栏。
+        // 为什么：`ui.update` 走这条分支，原先即使带了 expand 也不会展开，
+        // 与 show 分支行为不一致。
+        if (surfNorm.expand === true) {
+          this.userCollapsed = false
+          this.collapsed = false
+          this.userPinnedActiveKey = key
         }
         this.bump()
       }
@@ -820,12 +869,25 @@ export class RightStageStore {
       title: surfNorm.title,
       layout: surfNorm.layout,
       data: surfNorm.data || {},
+      // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：applyRemote 把 surface.expand 映射为 show() 的 forceExpand。
+      // 为什么：此前 applyRemote 调 show() 从不传 forceExpand，导致
+      // `ui.show` 在用户收起右栏时只写标签不展开 —— 工具回 ok、用户看不见。
+      forceExpand: surfNorm.expand === true,
     })
   }
 }
 
 /** Process-wide default store (per-tab). Session scoping stays in ChatApp wiring. */
 export const rightStageStore = new RightStageStore()
+
+// Main-panel CDP getState() reads this without dynamic import (ExecuteScript is sync).
+try {
+  ;(window as Window & { __evoflowRightStageStore?: RightStageStore }).__evoflowRightStageStore =
+    rightStageStore
+} catch {
+  /* ignore */
+}
 
 /** 只关掉匹配 kind 的标签；不能再 hideAll，否则会把其它 kind 一并清掉。 */
 export function hideRightStageIfKind(...kinds: string[]) {

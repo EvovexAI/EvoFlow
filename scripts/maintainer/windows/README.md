@@ -22,24 +22,29 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
 （等价于下面的 `-BuildDesktopInstaller`；可选参数 `-InstallNpmDeps`。）  
 默认 `EVOFLOW_SKIP_UPDATER_SIGN=1`，避免本机 `updater-signing.key` 弹出 Password 卡住；正式发版仍走 CI 签名。
 
-## 本地自验证闭环（Agent 自己改码 → 自己重装 → 自己醒来验收）
+## 本地自验证闭环（Agent 自己改码 → 自己重装 → **在当前对话里**接着验收）
+
+【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】**硬禁令**（用户当面定）：
+验证不许「新开一单 + 唤醒自己」。需要重装/重启这类自己做不了的动作，用 `-SkipWake` 让看门狗
+只装只拉，装完**我自己在当前正在处理的对话里继续验**；不要为此建锚点单再 `employees wake` 把自己叫回来。
+脚本已改成：传 `-TaskId` 而不传 `-AllowWake` 直接 throw（默认拦，不靠文档提醒）。
 
 【fullstack-dev · 2026-11-15 · 第13轮】新增 `dev-self-verify.ps1` + `selfverify-watchdog.ps1`。
 
 **为什么需要两个脚本**：NSIS 安装器（`windows/installer-hooks.nsh` 的
 `EvpKillRunningAppProcesses`）会 `taskkill /F /T` 桌面父进程树，`kill-install-orphans.ps1`
 还会按「CommandLine 含安装目录」扫杀 python/bash/node。Agent 的 gateway + bash 正在这张网里，
-所以**发起方必死在安装中途**，"装完拉起 + 找回对话"没人做。解法：把后续步骤交给
+所以**发起方必死在安装中途**，"装完拉起"没人做。解法：把后续步骤交给
 Task Scheduler 拉起的一次性任务（宿主 `svchost` → `powershell.exe`，既不在进程树内，也不在杀名单内）。
 
 ```powershell
 # 1) 先空跑看清将要发生什么（不注册任务、不安装）
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows\dev-self-verify.ps1 `
-  -DryRun -TaskId Task_xxx
+  -DryRun -SkipWake
 
-# 2) 实测：构建安装包 + 30 秒后开始"重装→拉起→唤醒"
+# 2) 实测（本岗默认用法）：构建安装包 + 30 秒后"重装→拉起"，**不唤醒任何人**
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows\dev-self-verify.ps1 `
-  -Build -TaskId Task_xxx -Goal "验证 xxx 改动已生效"
+  -Build -SkipWake
 
 # 3) 反悔（只在 DelaySec 窗口内有效）
 Unregister-ScheduledTask -TaskName EvoFlow-SelfVerify-Watchdog -Confirm:$false
@@ -54,10 +59,15 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
   -AgentCode self-evolution-bot
 ```
 
+> 仍保留 wake 能力，但只给**确有跨进程接力需求**的场景（如发版流水线上的无人值守验收）：
+> `-TaskId Task_xxx -AllowWake -Goal "..."`，并在调用处写明为什么不能在本轮对话里验完。
+
 | 参数 | 默认 | 说明 |
 |---|---|---|
 | `-Build` | 关 | 先跑 `local-publish.ps1 -BuildDesktopInstaller`（复用 `-InstallNpmDeps`）；不加则取 `bundle\nsis` 下最新 setup.exe |
-| `-TaskId` / `-RoundId` | 空 | 透传给 `evoflow employees wake --resume-round`，用于**续同一轮工作脉络**（不给就只按 agent_code 叫醒） |
+| `-TaskId` / `-RoundId` | 空 | **本岗验收不要传**（用户 2026-11-20 定：验证在当前对话里继续做）。仅发版流水线这类跨进程接力用，且必须同时传 `-AllowWake`，否则脚本直接 throw |
+| `-AllowWake` | 关 | 显式放行 wake 的开关。只传 `-TaskId` 不传它 → 当场报错退出，不会默默走唤醒 |
+| `-SkipWake` | 关 | 只装只拉、不叫醒任何人。**本岗需要重装时用这个**（配 `-Build -SkipWake`） |
 | `-InstallDir` | `D:\app\EvoFlow` | 被安装目录；安装器按此路径扫杀孤儿进程 |
 | `-DelaySec` | 30 | 留给你收尾/落盘的时间窗；此间可 `Unregister-ScheduledTask -TaskName EvoFlow-SelfVerify-Watchdog -Confirm:$false` 取消 |
 | `-ReadyTimeoutSec` | 240 | 等 `backend-runtime.json` 换代（pid 变或 generation 变大）**且** `GET /health` 通过 |
@@ -67,8 +77,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
 | `-SkipInstall` / `-SkipLaunch` | 关 | **看门狗**的参数：跳过安装 / 跳过拉起，只验后半段（自检模式）。`dev-self-verify.ps1` 不认这两个，别往触发端传 |
 | `-StateFile` | `outputs\selfverify\state.json` | **看门狗**可指定别的 state；路径含安装目录时注意别进命令行 |
 
-`-TaskId` 必须指向一张**还没结案**的单：CLI 的 done-guard 对已结案单返回 `skipped=true`（`exit=0` 但没投递），
-第16轮实测就是这样白跑一轮 —— 要验 wake 先建单或复用未结单。
+`-TaskId` 若真要用于跨进程接力，它必须指向一张**还没结案**的单：CLI 的 done-guard 对已结案单返回 `skipped=true`（`exit=0` 但没投递），
+第16轮实测就是这样白跑一轮 —— 要验 wake 先建单或复用未结单。（本岗日常验收不走这条路，见上方硬禁令。）
 
 看门狗**只从 `outputs\selfverify\state.json` 读路径与 goal**，安装目录字串不进命令行，
 否则会被 `kill-install-orphans.ps1` 的 CommandLine 匹配连带杀掉（goal 里若含安装目录也会被剥成 `<install-dir>`）。

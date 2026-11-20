@@ -38,7 +38,21 @@ class _FakeRequest:
 
 
 def _patch_obs_queries(monkeypatch, rows):
-    """桩掉 list_model_invocations，记录 kwargs；返回 (calls, restore)。"""
+    """桩掉 `list_model_invocations`，记录 kwargs；返回 calls 列表。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    原来这里是 `monkeypatch.setitem(sys.modules, "evoflow.observability.queries", _Q)`
+    ——把自己造的空壳模块塞进 `sys.modules`。它只在「真模块还没被 import 过」时
+    才生效：一旦 `evoflow.observability.queries` 已经被真实导入（全量套件 3000+
+    用例里必然发生），`from evoflow.observability import queries` 走的是**包属性**
+    快照，拿到真实模块，桩完全不生效 → 用例去查真库，本机没有 thread 对应的
+    model invocation 记录 → 尾注退化成 `[obs] 5000ms · 慢调用`，两条红。
+    证据：`test_platform_readback_hygiene.py` + 本文件合跑 28 passed（真模块尚未
+    导入时桩生效）；全量跑必然红，且报错正是「没有 模型侧」而非抛错。
+    修法：打在**被测模块自己持有的名字**上（`mw` 在函数内 `from ... import
+    queries as obs_queries`），并让 `monkeypatch.setattr` 负责还原——这才是
+    「无论前面跑过什么，桩都生效」的写法。
+    """
 
     calls: list[dict] = []
 
@@ -48,7 +62,9 @@ def _patch_obs_queries(monkeypatch, rows):
             calls.append(kwargs)
             return {"items": rows}
 
-    monkeypatch.setitem(__import__("sys").modules, "evoflow.observability.queries", _Q)
+    import evoflow.observability.queries as _real_queries
+
+    monkeypatch.setattr(_real_queries, "list_model_invocations", _Q.list_model_invocations)
     return calls
 
 

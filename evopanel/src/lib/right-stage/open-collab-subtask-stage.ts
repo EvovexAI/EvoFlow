@@ -42,6 +42,15 @@ export type OpenCollabSubtaskStageOpts = {
   sessionKey?: string | null
   /** 默认 wide：与子代理 transcript 同口径 */
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+   * 改了什么：补 forceExpand 选项并透传给 store.show。
+   * 为什么：`ui.show(kind=collabSubtaskTranscript, expand=true)` 实测只建签、不切激活
+   * —— 因为这里从不传 forceExpand，落进 store.show 的 `shouldActivate = forceExpand || !pinAlive`
+   * 分支后，用户已钉在别的签上就只写签不激活。同批 4 个进度 kind 里
+   * shell-page/collab-workflow/employeeProcess 都有这个参数，唯独这里漏了。
+   */
+  forceExpand?: boolean
 }
 
 export function collabSubtaskStageTabId(subtaskId: string, sessionKey?: string | null): string {
@@ -67,6 +76,7 @@ export function openCollabSubtaskInRightStage(
     title,
     layout: opts?.layout || 'wide',
     sessionKey: sk,
+    forceExpand: opts?.forceExpand === true,
     data: {
       subtaskId: sid,
       mainTaskId: String(payload.mainTaskId || '').trim(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Annotated, Any, Literal
 
@@ -15,6 +16,15 @@ from pydantic import BeforeValidator, Field
 
 from evoflow.core.tool_runtime_type import ToolRuntime
 from evoflow.stage.stage_context import clear_thread_stage, set_thread_stage
+
+# 【self-evolution-bot · 2026-11-20 · 第100轮续 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增专用 logger。为什么：右栏推送失败原先被 `except: pass` 吞掉，
+# 工具返回 ok 而屏幕上什么都没发生，排查时一点线索都没有（用户明确要求加日志）。
+_RIGHT_STAGE_LOGGER_NAME = "evoflow.right_stage"
+
+
+def get_right_stage_logger() -> logging.Logger:
+    return logging.getLogger(_RIGHT_STAGE_LOGGER_NAME)
 
 
 def _coerce_to_dict_or_none(v: Any) -> dict[str, Any] | None:
@@ -271,11 +281,84 @@ def _resolve_session_key(runtime: ToolRuntime[ContextT, Any]) -> str:
 
 
 def _emit(event: dict[str, Any]) -> None:
+    """把右栏事件推给前端。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮续 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：`except: pass` 改为记日志（含事件类型、action、是否真有 writer、失败原因）。
+    为什么（用户当场指出 + 明确建议）：「我看你调用右侧工具的时候，右侧的侧边面板
+      我没看到打开。如果你查不到问题的话，可以加一点日志呀。」
+      此前这里一旦 writer 为 None 或抛异常，工具照样返回 ok，而屏幕上什么都没有 ——
+      **工具层「成功」与「屏幕变了」之间没有任何留痕**，我只能靠猜。
+      日志落到 gateway 日志文件，排查时直接 grep `[right-stage-emit]`。
+    """
+    action = event.get("action") or event.get("type")
     try:
         writer = get_stream_writer()
-        if callable(writer):
-            writer(event)
-    except Exception:
+    except Exception as exc:  # noqa: BLE001 - 取不到 writer 也是重要事实
+        _audit_emit("no-writer", event, action, detail=f"{type(exc).__name__}: {exc}")
+        get_right_stage_logger().warning(
+            "[right-stage-emit] no writer (error=%s) type=%s action=%s",
+            type(exc).__name__,
+            event.get("type"),
+            action,
+        )
+        return
+    if not callable(writer):
+        # 这条最关键：工具返回值仍是 ok，但根本没有通道把事件送到前端。
+        _audit_emit("writer-not-callable", event, action, detail=type(writer).__name__)
+        get_right_stage_logger().warning(
+            "[right-stage-emit] writer is not callable (writer=%r) type=%s action=%s",
+            type(writer).__name__,
+            event.get("type"),
+            action,
+        )
+        return
+    try:
+        writer(event)
+        _audit_emit("sent", event, action)
+        get_right_stage_logger().info(
+            "[right-stage-emit] sent type=%s action=%s surface=%s key=%s",
+            event.get("type"),
+            action,
+            (event.get("surface") or {}).get("kind") if isinstance(event.get("surface"), dict) else None,
+            event.get("key"),
+        )
+    except Exception as exc:  # noqa: BLE001 - 推送失败必须留痕，不许静默
+        _audit_emit("writer-failed", event, action, detail=f"{type(exc).__name__}: {exc}")
+        get_right_stage_logger().warning(
+            "[right-stage-emit] writer failed (error=%s: %s) type=%s action=%s",
+            type(exc).__name__,
+            exc,
+            event.get("type"),
+            action,
+        )
+
+
+def _audit_emit(outcome: str, event: dict[str, Any], action: Any, detail: str | None = None) -> None:
+    """把一次推送决策写进 ``right-stage-YYYY-MM-DD.log``（含事件全文）。
+
+    【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：``_emit`` 的三个分支（取不到 writer / writer 不可调用 / 已发出）
+    统一落到专用审计文件，而不是只写 stdlib logger。
+    为什么（现网实测）：本轮检查 ``grep -c 'right-stage-emit'`` 在
+      ``gateway-2026-11-20.log`` 与 ``langgraph-2026-11-20.log`` 里都是 **0** ——
+      上一轮加的 logger 在这两个进程里根本没进文件（langgraph 会重建 logging 树）。
+      于是「工具说 ok、屏幕没动」这个现象我依然查不了。改成直接写文件，
+      与 ``browser_debug_log`` 同型：单锁 append、失败静默。
+    判据：调一次右栏工具后 ``right-stage-<今天>.log`` 必须新增一行 ``[py]``；
+      outcome 三态可区分（sent / no-writer / writer-failed），不许只写"成功"。
+    """
+    try:
+        from evoflow.stage.right_stage_audit_log import right_stage_log
+
+        payload = dict(event)
+        right_stage_log(
+            "py",
+            f"emit {outcome} type={event.get('type')} action={action}"
+            + (f" detail={detail}" if detail else "")
+            + f" event={json.dumps(payload, ensure_ascii=False, default=str)}",
+        )
+    except Exception:  # noqa: BLE001 - 审计绝不冒泡
         pass
 
 
@@ -339,11 +422,21 @@ def apply_right_panel(
     text: str | None = None,
     thread_id: str | None = None,
     session_key: str | None = None,
+    expand: bool = False,
+    key: str | None = None,
 ) -> dict[str, Any]:
     """Core right-panel driver used by ``platform ui.*`` (and legacy ``panel_set`` wrapper).
 
     Emits ``right_stage`` / ``right_stage_stream`` / ``chat_artifacts`` SSE; returns a
     plain result dict (no LangChain Command).
+
+    【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``expand`` 参数；为真时在 surface 上带 ``expand: true``。
+    为什么：用户让我「直接用平台工具打开面板给他看」，我实测发现右栏一旦被用户
+    收起（``userCollapsed`` = true），``ui.show`` 返回 ok 但**完全不撑开**，
+    用户屏幕上什么都没有——工具说「已打开」，人看不见，这就是最直接的一步绕路。
+    默认仍为 False，保持「模型不得抢用户视线」的既有语义；只有调用方
+    （用户明确要求展示）显式传 expand 才撑开。
     """
     act = str(action or "show").strip().lower() or "show"
     tid = str(thread_id or "").strip() or _resolve_thread_id_loose()
@@ -354,6 +447,33 @@ def apply_right_panel(
             clear_thread_stage(tid)
         _emit_surface("hide", None)
         return {"ok": True, "action": "hide", "surface": None}
+
+    if act == "activate":
+        # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：新增 act="activate" —— 把右栏**切到用户已有的某个标签页**。
+        # 为什么（用户明确指出）：「你要知道当前是哪一个，然后怎么去切换到哪一个要处理好。」
+        #   此前只有 show/update/hide：update 只能对着某个 kind 灌内容，hide 是整体收起，
+        #   **没有任何"切到第 N 个签"的表达**。模型想让用户看回某页时只能重新 show 一遍，
+        #   结果是同一份东西被新开成第二个签（用户原话担心的正是这个）。
+        # 与 show 的区别（这是本动作存在的唯一理由）：
+        #   show 会写标签/改 data，甚至 forceExpand 抢视线；
+        #   activate **只改 activeKey**，不新建签、不改内容、不删内容，
+        #   用户自己拉开的其它签原样保留（tabCount 不变）。
+        target = str(key or "").strip()
+        if not target:
+            return {
+                "ok": False,
+                "action": "activate",
+                "error": "key is required (read it from platform action=ui.current → activeKey/tabs[].key)",
+            }
+        _emit({"type": "right_stage", "action": "activate", "surface": None, "key": target})
+        return {
+            "ok": True,
+            "action": "activate",
+            "key": target,
+            "note": "已请求前端切到该标签；只改当前查看的签，不新建/不关闭任何标签。",
+            "userScreen": _describe_user_screen_for_activate(target),
+        }
 
     if act == "stream":
         sid = str(stream_id or "write_file").strip() or "write_file"
@@ -411,13 +531,25 @@ def apply_right_panel(
         if err or not progress_surface:
             return {"ok": False, "error": err or "invalid progress panel"}
         surface = progress_surface
+        if expand:
+            surface["expand"] = True
         if act == "update":
             _emit_surface("update", surface)
         else:
             _emit_surface("show", surface)
         if tid:
             set_thread_stage(tid, kind=k, data=surface.get("data"))
-        return {"ok": True, "action": act, "kind": k, "surface": surface}
+        # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+        # 为什么必须在这里也补：进度类面板（collab-workflow / collabSubtaskTranscript /
+        # employeeProcess）走的是这条**独立 return 分支**，主分支加的 userScreen 覆盖不到。
+        # 我第一次只改了主分支，测试当场红——这就是「改一处、漏另一处」的老毛病。
+        return {
+            "ok": True,
+            "action": act,
+            "kind": k,
+            "surface": surface,
+            "userScreen": _describe_user_screen_before_after(act=act, kind=k, surface=surface),
+        }
 
     surface = {
         "id": "primary",
@@ -430,6 +562,11 @@ def apply_right_panel(
         surface["layout"] = "workspace-write"
     if panel_title:
         surface["title"] = panel_title
+    # 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+    # 非进度类面板（web-embed / shell-page / file / mind-map …）同样要能把
+    # 「用户明确要我看」透传到前端，否则用户收起右栏后 ui.show 就是空转。
+    if expand:
+        surface["expand"] = True
 
     if act == "update":
         _emit_surface("update", surface)
@@ -444,7 +581,113 @@ def apply_right_panel(
     if tid:
         set_thread_stage(tid, kind=k, data=surface.get("data"))
 
-    return {"ok": True, "action": act, "kind": k, "surface": surface}
+    return {
+        "ok": True,
+        "action": act,
+        "kind": k,
+        "surface": surface,
+        # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：每次开/更新面板都带回「用户原本在看哪一页」以及是否被顶掉。
+        # 为什么（用户明确指出）：模型开面板时不知道用户右栏正在看什么，抢了视线自己还不知道。
+        #   现在把 before/after 一起回给调用方，模型下一句就能说清楚「我把你原来的 X 换成 Y 了」。
+        "userScreen": _describe_user_screen_before_after(act=act, kind=k, surface=surface),
+    }
+
+
+def _describe_user_screen_before_after(
+    *,
+    act: str,
+    kind: str,
+    surface: dict[str, Any],
+) -> dict[str, Any]:
+    """把「用户原本停在哪一页」与「这次操作是复用还是新开」如实描述出来。"""
+    try:
+        from app.gateway.routers.stage_right_panel import read_right_stage_state
+
+        prev = read_right_stage_state()
+    except Exception:
+        prev = {"known": False}
+
+    if not prev.get("known"):
+        return {
+            "known": False,
+            "note": "前端还没上报过右栏状态，无法判断是否抢了用户的视线。",
+        }
+
+    prev_key = str(prev.get("activeKey") or "")
+    prev_kind = str(prev.get("activeKind") or "")
+    target_key_hint = f"{kind}:{surface.get('id') or 'primary'}"
+    same_kind = bool(prev_kind) and prev_kind == kind
+    return {
+        "known": True,
+        "action": act,
+        "before": {
+            "activeKey": prev_key or None,
+            "activeKind": prev_kind or None,
+            "activeTitle": prev.get("activeTitle") or None,
+            "collapsed": prev.get("collapsed") is True,
+        },
+        "target": {"kind": kind, "id": surface.get("id") or "primary", "keyHint": target_key_hint},
+        # 同一 kind 通常沿用同一个签（store.tabKeyOf）；换 kind 才会多一个签。
+        "reusedSameKindTab": same_kind,
+        "mayStealFocus": bool(prev_key) and not same_kind and act != "update",
+        "note": (
+            "用户原本就在同类页面上，本次多半是原地更新。"
+            if same_kind
+            else "用户原本停在别的页面；若担心抢视线，用 ui.update 或先问一句。"
+        ),
+    }
+
+
+def _describe_user_screen_for_activate(target_key: str) -> dict[str, Any]:
+    """切换动作的前后描述：目标签在不在、切完会不会多出/少掉一个签。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么单写一份：``_describe_user_screen_before_after`` 的判据是「kind 是否相同」，
+    而 activate 的判据是「这个 key 在不在用户已开的标签里」——两者混用会把
+    「切到不存在签」误报成「复用成功」，那正是用户担心的情况（他一拉开东西就被顶掉）。
+    """
+    try:
+        from app.gateway.routers.stage_right_panel import read_right_stage_state
+
+        prev = read_right_stage_state()
+    except Exception:
+        prev = {"known": False}
+
+    if not prev.get("known"):
+        return {
+            "known": False,
+            "target": target_key,
+            "note": (
+                "前端还没上报过右栏状态，无法确认该标签是否存在；"
+                "切换请求已发出，但请以用户看到的为准。"
+            ),
+        }
+
+    tabs = prev.get("tabs") if isinstance(prev.get("tabs"), list) else []
+    keys = [str((t or {}).get("key") or "") for t in tabs]
+    exists = target_key in keys
+    prev_key = str(prev.get("activeKey") or "")
+    return {
+        "known": True,
+        "target": target_key,
+        "targetExists": exists,
+        "before": {
+            "activeKey": prev_key or None,
+            "activeKind": prev.get("activeKind") or None,
+            "activeTitle": prev.get("activeTitle") or None,
+            "collapsed": prev.get("collapsed") is True,
+        },
+        # 切签不动标签集合：tabCount 前后必须一样，用户拉开的东西不会被关掉。
+        "tabCountBefore": len(keys),
+        "tabCountAfter": len(keys),
+        "note": (
+            "目标签确实存在，已切过去（其它标签原样保留）。"
+            if exists
+            else f"目标签不在用户当前标签里（现有 {len(keys)} 个：{keys}）；"
+            "请先 ui.current 核对 key，或改用 ui.show 新建。已开的标签不会被关掉。"
+        ),
+    }
 
 
 def _apply_artifacts_panel(

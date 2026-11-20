@@ -1640,6 +1640,16 @@ async fn start_broker(app: tauri::AppHandle) -> Result<String, String> {
     let broker = app.state::<Arc<BrowserCdpBroker>>().inner().clone();
     let cdp_state = app.state::<Arc<CdpBrokerState>>().inner().clone();
 
+    // Advertise main-panel Playwright target (same broker, label=main).
+    {
+        let main_ws = format!("ws://127.0.0.1:{port}{CDP_WS_PATH}/main");
+        let _ = std::fs::write(
+            crate::commands::evoflow_dir().join("main-cdp-ws-url"),
+            format!("{main_ws}\n"),
+        );
+        browser_cdp_server::log_line(&format!("[browser-broker] main panel WS {main_ws}"));
+    }
+
     tauri::async_runtime::spawn(async move {
         browser_cdp_server::log_line(&format!("[browser-broker] listening on 127.0.0.1:{port}"));
         loop {

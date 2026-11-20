@@ -21,6 +21,8 @@
 - 桌面安装包与公仓 `update/latest.json` 由维护者按 [RELEASE.md](../../RELEASE.md) 发版（草稿在 `scripts/maintainer/update/`），普通 PR 不要手改版本假数据。
 
 ## 建议改动落点
+- 主窗口 CDP（/main-cdp / platform ui.panel）：见 [main-panel-cdp.md](./main-panel-cdp.md)
+
 
 | 你想做的事 | 优先改 |
 |------------|--------|

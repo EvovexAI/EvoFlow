@@ -186,6 +186,7 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     # from evoflow.tools.builtins.read_lints_tool import read_lints_tool  # retired — 诊断走 Bash（pyright/ruff），对齐 ZCode
     # panel_set / stage_set retired as standalone tool — use platform ui.show / ui.hide
     from evoflow.tools.builtins.subtask_outcome_report_tool import done_tool
+
     from evoflow.tools.builtins.subtask_progress_tool import progress_tool
     from evoflow.tools.builtins.subtask_work_checklist_tool import checklist_tool
     from evoflow.tools.builtins.supervisor_tool import supervisor_tool

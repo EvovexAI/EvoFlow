@@ -1177,6 +1177,53 @@ pub fn dump_main_chat_layout(app: &AppHandle) -> Result<Value, String> {
     )
 }
 
+/// Call an arbitrary CDP method against the main chat webview (not embed).
+pub fn call_cdp_on_main(app: &AppHandle, method: &str, params_json: &str) -> Result<Value, String> {
+    // Ensure stash so Runtime.evaluate / screenshot paths that prefer COM work.
+    let window = app
+        .get_webview_window(MAIN_WEBVIEW_LABEL)
+        .ok_or_else(|| "main window not found".to_string())?;
+    if !has_stashed_core_webview2(MAIN_WEBVIEW_LABEL) {
+        capture_main_core_webview2(app, &window);
+    }
+    let raw = call_cdp(app, MAIN_WEBVIEW_LABEL, method, params_json)?;
+    serde_json::from_str(&raw).or_else(|_| Ok(Value::String(raw)))
+}
+
+/// Sync call into `window.__evoflowPanel.<expr>` (ExecuteScript).
+pub fn panel_api_call(app: &AppHandle, js_call: &str) -> Result<Value, String> {
+    let expression = format!(
+        "(function(){{var P=window.__evoflowPanel;if(!P)return {{ok:false,error:'__evoflowPanel not mounted',code:'renderer_unreachable'}};return {js_call};}})()"
+    );
+    evaluate_on_main_webview(app, &expression)
+}
+
+/// Async panel API (dispatch etc.) via Runtime.evaluate awaitPromise.
+pub fn panel_api_call_await(app: &AppHandle, js_call: &str) -> Result<Value, String> {
+    let window = app
+        .get_webview_window(MAIN_WEBVIEW_LABEL)
+        .ok_or_else(|| "main window not found".to_string())?;
+    if !has_stashed_core_webview2(MAIN_WEBVIEW_LABEL) {
+        capture_main_core_webview2(app, &window);
+    }
+    let expression = format!(
+        "(async function(){{var P=window.__evoflowPanel;if(!P)return {{ok:false,error:'__evoflowPanel not mounted',code:'renderer_unreachable'}};return await ({js_call});}})()"
+    );
+    let raw = eval_await_on_stashed(app, MAIN_WEBVIEW_LABEL, &expression)?;
+    // CDP wraps as { result: { type, value } } or { exceptionDetails }
+    let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::String(raw.clone()));
+    if let Some(exc) = parsed.get("exceptionDetails") {
+        return Err(format!("panel evaluate exception: {exc}"));
+    }
+    if let Some(v) = parsed.pointer("/result/value") {
+        return Ok(v.clone());
+    }
+    if let Some(r) = parsed.get("result") {
+        return Ok(r.clone());
+    }
+    Ok(parsed)
+}
+
 /// Keep CDP logs readable: screenshot payloads and DOM snapshots run to
 /// megabytes, and the tail is what identifies the call.
 fn truncate(text: &str, limit: usize) -> String {

@@ -179,6 +179,11 @@ export async function fetchProactiveTranscript(opts = {}) {
  *   roundId?: string,
  *   sessionKey?: string,
  *   ensureThread?: (sessionKey: string) => Promise<string>,
+ *   // 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+ *   // 改了什么：补上 autoBindSince 的声明（运行时第 271 行早就在读它）。
+ *   // 为什么：调用点 v4-employee-process-pane.tsx:351 传了该字段，JSDoc 里没有，
+ *   // tsc 报 TS2353 → 整个前端构建被卡住，构建不了就谈不上「构建重启」。
+ *   autoBindSince?: number,
  * }} opts
  * @returns {Promise<{
  *   session_key: string,
@@ -261,11 +266,40 @@ export async function resolveProactiveProcessMeta(opts = {}) {
     }
   }
 
+  // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：加了「自动绑定不得早于本次派发时刻」这道闸。
+  // 为什么：同一员工同一时刻只跑一个任务，A 对话派单时它可能正跑着 B 对话派的任务。
+  // 上一处修复把「换轮不继承旧会话键」改成清空后重新自动挑，而自动挑优先选
+  // run_status=running 的那条 —— 恰好会挑到别人对话派的任务，用户看到的就是
+  // 「我在这个对话派的话，右栏显示的是别的对话的内容」。宁可短暂空着继续轮询
+  // （面板有 45s 宽限期），也不许把别人的会话显示到这一屏。
+  const autoBindSince = Number(opts.autoBindSince) > 0 ? Number(opts.autoBindSince) : 0
+  if (autoBindSince && !explicitSk && !taskId) {
+    // 时钟/入库抖动容忍：会话行 created_at 可能比派发返回早几百毫秒
+    const sinceMs = autoBindSince - 3000
+    const createdAtMs = (c) => {
+      const raw = String(c?.created_at || c?.createdAt || '').trim()
+      const t = raw ? Date.parse(raw) : NaN
+      return Number.isFinite(t) ? t : 0
+    }
+    const eligible = convs.filter((c) => !looksLikeForeignSession(c?.session_key) && createdAtMs(c) >= sinceMs)
+    if (!eligible.length) {
+      return { session_key: '', thread_id: '', run_status: '', role_name: roleName || undefined }
+    }
+    convs = eligible
+  }
+
   if (looksLikeForeignSession(sk)) {
     sk =
       (taskId ? buildProactiveTaskSessionKey(code, taskId) : '') ||
       (roundId ? buildProactiveDutySessionKey(code, roundId) : '') ||
       buildProactiveLegacySessionKey(code)
+  }
+
+  // 闸生效时，不许再用「拼出来的猜测键」擅自绑会话（拼出来的键不是本次派发产生的那条）
+  if (autoBindSince && !explicitSk && !taskId) {
+    const picked = pickProactiveConversationSessionKey(convs, { taskId, roundId })
+    sk = looksLikeForeignSession(picked) ? '' : picked
   }
 
   const hit =

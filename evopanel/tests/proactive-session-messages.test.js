@@ -166,3 +166,90 @@ describe('proactive session message keys', () => {
     }
   })
 })
+
+// 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+// 防串台：同一员工同一时刻只跑一个任务，A 对话派单时它可能正跑着 B 对话派的任务。
+// 自动绑定必须拒绝「早于本次派发时刻创建的会话」，否则 A 的右栏会显示 B 的内容。
+describe('resolveProactiveProcessMeta 自动绑定不得早于本次派发', () => {
+  const mk = (rows) => async () => ({ role_name: '发版工程师', conversations: rows })
+
+  it('唯一在跑的会话早于本次派发 => 不绑定（宁可空着继续轮询）', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    // 别人的任务：18:09:19 建（早于本次派发），且正在 running
+    api.proactiveListConversations = mk([
+      {
+        kind: 'task',
+        session_key: 'proactive:release-engineer:task:OLD_OTHER',
+        task_id: 'OLD_OTHER',
+        thread_id: 'thread-old',
+        run_status: 'running',
+        created_at: '2026-11-20T18:09:19.218000+08:00',
+      },
+    ])
+    try {
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'release-engineer',
+        roundId: 'dispatch:2026-11-20T18:20:00.000+08:00',
+        autoBindSince: Date.parse('2026-11-20T18:20:00.000+08:00'),
+        ensureThread: async () => 'should-not-be-used',
+      })
+      assert.equal(meta.session_key, '', '不许绑到别人对话派的任务')
+      assert.equal(meta.thread_id, '')
+    } finally {
+      api.proactiveListConversations = orig
+    }
+  })
+
+  it('本次派发之后创建的会话 => 正常绑定', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    api.proactiveListConversations = mk([
+      {
+        kind: 'task',
+        session_key: 'proactive:release-engineer:task:NEW_MINE',
+        task_id: 'NEW_MINE',
+        thread_id: 'thread-new',
+        run_status: 'running',
+        created_at: '2026-11-20T18:20:01.000000+08:00',
+      },
+    ])
+    try {
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'release-engineer',
+        roundId: 'dispatch:2026-11-20T18:20:00.000+08:00',
+        autoBindSince: Date.parse('2026-11-20T18:20:00.000+08:00'),
+        ensureThread: async () => '',
+      })
+      assert.equal(meta.session_key, 'proactive:release-engineer:task:NEW_MINE')
+      assert.equal(meta.thread_id, 'thread-new')
+    } finally {
+      api.proactiveListConversations = orig
+    }
+  })
+
+  it('闸只在无 hint 时生效：显式 hint 照旧绑定（用户手选的会话不被冲掉）', async () => {
+    const { api } = await import('../src/lib/tauri-api.js')
+    const orig = api.proactiveListConversations
+    api.proactiveListConversations = mk([
+      {
+        kind: 'chat',
+        session_key: 'proactive:release-engineer:chat:2026-11-18T17-31-25.538Z',
+        thread_id: 'thread-chat',
+        run_status: 'done',
+        created_at: '2026-11-18T17:31:25.538Z',
+      },
+    ])
+    try {
+      const meta = await resolveProactiveProcessMeta({
+        agentCode: 'release-engineer',
+        sessionKey: 'proactive:release-engineer:chat:2026-11-18T17-31-25.538Z',
+        roundId: 'dispatch:2026-11-20T18:20:00.000Z',
+        autoBindSince: Date.parse('2026-11-20T18:20:00.000Z'),
+      })
+      assert.equal(meta.session_key, 'proactive:release-engineer:chat:2026-11-18T17-31-25.538Z')
+    } finally {
+      api.proactiveListConversations = orig
+    }
+  })
+})

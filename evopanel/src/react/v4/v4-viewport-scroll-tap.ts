@@ -215,6 +215,8 @@ export function classifyScrollTopVerdict(input: {
     loadingOlder: input.loadingOlder,
     triggerPx,
     following,
+    distanceFromBottom: gapBottom,
+    viewportHeight: input.clientHeight,
   });
 
   if (atGeomTop) {
@@ -401,6 +403,8 @@ function sample(
     loadingOlder: historyCtx.loadingOlder,
     triggerPx,
     following,
+    distanceFromBottom: gapBottom,
+    viewportHeight: m.clientHeight,
   });
   const verdict = classifyScrollTopVerdict({
     scrollTop: m.scrollTop,

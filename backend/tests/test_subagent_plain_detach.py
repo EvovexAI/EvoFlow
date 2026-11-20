@@ -29,7 +29,22 @@ def test_schedule_task_notification_turn_dedupes(monkeypatch):
     def _fake_schedule(coro, *, name=None):
         scheduled.append(str(name or ""))
 
-    monkeypatch.setattr(nc, "_DEDUP", set())
+    # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    # 原用例把 `_DEDUP` 换成 `set()`，但实现早已改成 **有界 LRU**
+    # （`OrderedDict[str, None]`，见 notify_continuation 顶部注释：旧版整体
+    # `_DEDUP.clear()` 导致重启后重复通知）。于是 `_DEDUP[mid] = None` 抛
+    # `TypeError: 'set' object does not support item assignment`，用例红。
+    # 换成与实现同类型的有界 LRU，并显式清空，保持「同一 message_id 第二次必须
+    # 被去重」这条原意。
+    from collections import OrderedDict as _OrderedDict
+
+    monkeypatch.setattr(nc, "_DEDUP", _OrderedDict())
+    # 持久账本（evoflow_session_inject_receipts）会对同一 message_id 落 claim，
+    # 跨进程/跨轮次仍然有效——本机真库里这条 mid 早就被上一轮跑过一次，
+    # 于是 ok1 直接 False（不是内存去重的锅）。本用例只验内存快路径去重，
+    # 账本一律放行。
+    monkeypatch.setattr(nc, "_ledger_claim", lambda sk, mid: True)
+    monkeypatch.setattr(nc, "_ledger_release", lambda sk, mid: None)
     monkeypatch.setattr(
         "evoflow.subagents.detached_poll_scheduler.schedule_detached_poll",
         _fake_schedule,
@@ -51,6 +66,13 @@ def test_schedule_task_notification_turn_dedupes(monkeypatch):
     )
     assert ok1 is True
     assert ok2 is False
+    # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    # 原断言「两次调用后 scheduled 立刻有 1 条」已过时：实现改成了**按线程批量合并**
+    # （同一 thread 在 `_BATCH_WINDOW_SECONDS` 收集窗内的通知合成一个 follow-up turn，
+    # 见 notify_continuation 顶部「per-thread batching」与 `_flush_thread_batch`）。
+    # 所以断言时 scheduled 必然还是空的——不是缺陷，是延迟。这里显式触发一次 flush，
+    # 既保住「同一 message_id 只产生一条 turn」的原意，也不再依赖真实计时器抖动。
+    nc._flush_thread_batch("tid-1")  # noqa: SLF001
     assert len(scheduled) == 1
 
 

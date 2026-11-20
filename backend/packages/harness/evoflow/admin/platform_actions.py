@@ -174,6 +174,8 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "when": (
             "查当前对话状态/上下文占用用 sessions.status；"
             "主动压缩上下文用 sessions.compact（confirm=true）；"
+            "**自己已经通读过这段对话时**，把结构化摘要正文写进 summary 参数一并传，"
+            "可免掉压缩模型重读一遍（更快、更准，因为它没有你手上的细节）；"
             "按关键词检索历史会话用 sessions.search"
         ),
         "not": "不是当前对话内 todo；不是系统级端口/目录（用 diagnostics.status）",
@@ -197,12 +199,16 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "not": "不是模型配置（用 settings.*）；改完后客户端会自动刷新界面",
     },
     "ui": {
-        "title": "右侧面板",
+        "title": "右侧面板 / 主窗口",
         "when": (
-            "要在右侧打开/关闭面板时：工作流图、节点进度、员工执行过程、网页内嵌、产物等。"
-            "用户要盯进度时用 ui.show（勿对每次写操作都开）"
+            "要开右侧栏/关闭面板时：工作流图、节点进度、员工执行过程、网页内嵌等；"
+            "用户要盯进度时用 ui.show（勿对每次写操作都开）。"
+            "要操作主窗口 DOM/产品动作（点按钮、填输入、开小V、发消息）用 ui.panel。"
         ),
-        "not": "不是改主题/液态玻璃（用 appearance）；不是跳页面路由（用反馈卡 CTA）",
+        "not": (
+            "不是改主题/液态玻璃等 appearance；不是整页路由（用方舟或 CTA）；"
+            "侧栏网页浏览用 browser/skill，不是 ui.panel。"
+        ),
     },
     "media": {
         "title": "生图/生视频",
@@ -533,6 +539,37 @@ def _build_registry() -> dict[str, PlatformAction]:
             "右栏能开哪些面板",
             "ui.show 支持什么 kind",
         ),
+        # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+        # 新增 ui.current：让模型在开面板前知道**用户此刻右栏停在哪一页**。
+        # 为什么（用户明确指出）：此前后端对右栏状态一无所知（grep activeKey backend 命中 0），
+        # 模型 ui.show 只能盲开——要么抢走用户正看的东西，要么把同一页开成第二个签。
+        # 判据：known=false（前端从没上报）时不得假设「右栏为空」，要点明这一不确定性。
+        _A(
+            "ui.current",
+            "ui",
+            "读取用户当前右栏停在哪一页（activeKey/标签清单/是否收起）；开面板前先查，避免抢视线或重复开签",
+            "read",
+            "无",
+            H.ui_current,
+            "我右栏现在开着什么",
+            "用户当前在看哪个标签页",
+        ),
+        # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+        # 新增 ui.activate：切到**用户已开的某个标签页**。
+        # 为什么（用户明确指出）：「你要知道当前是哪一个，然后怎么去切换到哪一个要处理好。」
+        #   只有 show/update/hide 时，模型想让人看回某页只能重新 show ——
+        #   那会把同一份东西开成第二个签，正好破坏「用户右栏还拉开着东西」的现场。
+        #   activate 只改 activeKey：不新建、不关闭、不改内容，tabCount 前后相等。
+        _A(
+            "ui.activate",
+            "ui",
+            "把右栏切到用户已存在的某个标签页（只改当前查看的签；不新建/不关闭/不改内容，用户拉开的其它标签原样保留）",
+            "read",
+            "key（先 ui.current 取 tabs[].key）",
+            H.ui_activate,
+            "切回刚才那个员工执行过程标签",
+            "让用户看回他开着的文件页",
+        ),
         _A(
             "ui.show",
             "ui",
@@ -612,6 +649,19 @@ def _build_registry() -> dict[str, PlatformAction]:
             "kind, data?, title?, layout?",
             H.ui_update,
             "刷新节点进度面板数据",
+        ),
+        # 主窗口 CDP（非侧栏 embed browser）：经 /main-cdp/* 控制产品 chrome
+        _A(
+            "ui.panel",
+            "ui",
+            "控制主窗口（非侧栏浏览器）：snapshot/click/fill/type/scroll/state/action/ax/screenshot/cdp/ws；产品动作走 op=action + name",
+            "read",
+            "op, ref?, text?, direction?, amount?, clear?, name?, params?, method?, max_elements?, include_hidden?",
+            H.ui_panel,
+            "先 snapshot 再按 eN ref 点击主界面按钮",
+            "op=action name=openXiaomi 打开小V",
+            "op=action name=sendMessage text=你好",
+            "op=state 看当前路由/会话/右栏",
         ),
         # agents
         _A(
@@ -1300,10 +1350,11 @@ def _build_registry() -> dict[str, PlatformAction]:
             "sessions",
             "主动压缩当前（或指定）对话上下文（与 /compact 同引擎；需 confirm=true）",
             "write",
-            "session_key?/thread_id?, confirm=true",
+            "session_key?/thread_id?, summary?, confirm=true",
             H.sessions_compact,
             "帮我压缩一下上下文",
             "上下文太满了，压缩当前对话",
+            "我自己写好了摘要，按这个压缩上下文",
         ),
         # diagnostics（系统已知日志源 + 异常扫描 + 可转发时间线）
         _A(

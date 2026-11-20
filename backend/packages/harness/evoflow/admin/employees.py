@@ -2388,6 +2388,12 @@ def wake(
     #   为什么：原来 wake 只能在 task/duty 两个桶里落会话，用户「续不上我这个对话」
     #   就是这个。空值 = 原行为，对现有 wake 调用方零影响。
     session_key: str = "",
+    # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：新增 pin_is_fresh —— 调用方声明「这个键是我**当下刚算出来**的」，跳过 retarget 协商。
+    # 为什么（现网取证 20:07）：chat_send 按最新会话算出 sk 交给 wake，wake 又拿它跟
+    #   latest_human_session_key 比；新 mint 的 chat 会话里还没有真人消息 → pinned_ms=0 →
+    #   gap 判据不成立 → 被 retarget 回**旧屏**，刚算出来的键白算。默认 False = 原有协商语义不变。
+    pin_is_fresh: bool = False,
 ) -> dict[str, Any]:
     """Wake a teammate (``@``) — resolve by agent_code or role_name, then dispatch.
 
@@ -2532,6 +2538,35 @@ def wake(
     # Do not stuff woken_by=/task_id= into description — those pollute board「要做什么」.
     # Human notes (if any) pass through; wake metadata lives in goal / result fields.
 
+    # 【self-evolution-bot · 2026-11-20 · 第97轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：投递前用「谁最近真的说过话」校正钉住的会话键，再往下传。
+    # 为什么（现网取证）：2026-11-20 17:45:11 自验证脚本把 sessionKey 写进 state.json
+    # （当时最新屏 …16-15-39.290Z，最后真人发言 17:43:29）；17:45:27 用户在**另一屏**
+    # （…16-17-14-53.207Z）发话；17:47:08 看门狗照旧键 wake，消息投进了旧屏。
+    # 用户盯着的那一屏到 17:56 才等到下一条消息 —— 表现就是「重启完卡在那里叫不醒」。
+    # 判据：会话键只能在**投递时**按真人发言时间重算，注册时快照一定会过期。
+    wake_session_key, wake_session_reason = session_key, "unpinned"
+    if pin_is_fresh and str(session_key or "").strip():
+        # 调用方刚算出来的键，直接采信，不再协商（否则新 mint 的屏必被换回旧屏）
+        wake_session_key, wake_session_reason = str(session_key).strip(), "fresh"
+    else:
+        try:
+            from evoflow.proactive.chat_session import prefer_newest_human_session
+
+            wake_session_key, wake_session_reason = prefer_newest_human_session(
+                target_role.agent_code,
+                session_key,
+            )
+            if wake_session_reason == "retargeted":
+                logger.info(
+                    "employees.wake: retarget session (user moved to newer screen) agent=%s pinned=%s -> %s",
+                    target_role.agent_code,
+                    str(session_key or ""),
+                    wake_session_key,
+                )
+        except Exception:
+            logger.debug("employees.wake: session retarget failed (keep caller pin)", exc_info=True)
+
     result = dispatch(
         target_role.agent_code,
         goal_s,
@@ -2545,10 +2580,12 @@ def wake(
         fresh_round=bool(fresh_round),
         skip_done_guard=skip_done_guard,
         # 【self-evolution-bot · 2026-11-17 · 第28轮】把「回哪一屏」透传到底
-        session_key=session_key,
+        # 【self-evolution-bot · 2026-11-20 · 第97轮】改为传校正后的键（未过期的那一屏）
+        session_key=wake_session_key,
     )
     if isinstance(result, dict):
         result.setdefault("woken", True)
+        result.setdefault("session_retarget", wake_session_reason)
         result.setdefault("target_role_name", target_role.role_name)
         if from_role:
             result.setdefault("from_agent_code", from_role.agent_code)
@@ -2667,8 +2704,22 @@ def chat_send(
         else:
             sk = proactive_chat_session_key(code, utc_now_iso_z())
 
+    # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：source 不再直接当员工身份用——先试解析成 active role，解析不出来一律按平台身份 xiaomi。
+    # 为什么（现网取证 2026-11-20 20:07:30）：platform employees.chat_send 传 source="role"
+    #   （dispatch 的默认来源标签）时，旧写法把 "role" 当员工名交给 wake →
+    #   resolve_role_ref("role") 抛 NotFoundError → 服务端 wake 直接失败，但 chat_send 仍
+    #   返回 client_effect=employee_chat_send，面板照样在本地把消息发出去 —— 面板里有来有回，
+    #   服务端一个字没跑，是典型「假成功」。
+    # 判据：source 是「谁发起的」标签，不是身份；只有能解析成真实 role 的才当 from_agent。
     src = str(source or "xiaomi").strip() or "xiaomi"
-    from_agent = "xiaomi" if src.casefold() in {"xiaomi", "user", "panel", "desktop"} else src
+    from_agent = "xiaomi"
+    if src.casefold() not in {"xiaomi", "user", "panel", "desktop", "role", "manual", "system"}:
+        try:
+            resolve_role_ref(src)
+            from_agent = src
+        except Exception:
+            logger.debug("chat_send: source %r is not a role, treating as platform", src)
 
     wake_result: dict[str, Any] | None = None
     wake_error = ""
@@ -2681,6 +2732,15 @@ def chat_send(
             description=text[:2000],
             source="xiaomi" if from_agent == "xiaomi" else src,
             resume_round=bool(tid),
+            # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：把上面辛苦算出来的 sk 交给 wake（旧代码算完就丢了，wake 恒空钉）。
+            # 为什么：面板按 sk 打开（proactive:reviewer:chat:dept-…），服务端却因空钉落
+            #   proactive:reviewer:task:2611…，同一句话两个桶、两张脸。20:07 实证：面板桶
+            #   20:07:32/34 有来有回，服务端桶 20:07:31→47 另跑一轮还白建一张任务单。
+            # pin_is_fresh：这个键是**当下刚算出来的**，不是注册时的旧快照，不许再被
+            #   prefer_newest_human_session 协商换掉（否则新 mint 的屏必然被换成旧屏）。
+            session_key=sk,
+            pin_is_fresh=True,
         )
     except Exception as exc:
         wake_error = str(exc).strip() or type(exc).__name__

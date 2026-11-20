@@ -1030,6 +1030,57 @@ def test_seal_heals_orphan_open_tool_when_map_cleared(
     assert "[index] last updated" in out
 
 
+def test_tool_call_end_backfills_success_from_transcript(
+    mirror_session: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """TOOL_CALL_END 时若 transcript 已有正文，直接升 success——不等可能丢失的 RESULT。
+
+    现网：search_code_index 执行完仍「等待中」，因为 END 只写 running，RESULT 被 SSE 丢掉。
+    """
+    tid = mirror_session + "-end-backfill"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+
+    monkeypatch.setattr(
+        "app.gateway.v4.agui_mirror._transcript_tool_result_text",
+        lambda _tid, tcid: (
+            (
+                "search_code_index",
+                "[index] last updated 2s ago (age=2s)\n\nSymbols:\n  - function end_bf",
+            )
+            if tcid == "tc-end-bf"
+            else None
+        ),
+    )
+
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "搜")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-end-bf"},
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-end-bf",
+                "toolCallName": "search_code_index",
+            },
+            {
+                "type": "TOOL_CALL_ARGS",
+                "toolCallId": "tc-end-bf",
+                "delta": '{"query":"end_bf"}',
+            },
+            # 无 TOOL_CALL_RESULT
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-end-bf"},
+        ],
+    )
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] == "success", tool
+    out = (tool.get("output") or {}).get("text") or ""
+    assert "end_bf" in out
+    assert int(tool.get("endedAt") or 0) > 0
+
+
 def test_reasoning_end_writes_duration_ms(mirror_session: str) -> None:
     """思考行完成时必须带 durationMs，否则 V4 只显示「几秒」而不是真实秒数。"""
     tid = mirror_session + "-reasoning-dur"

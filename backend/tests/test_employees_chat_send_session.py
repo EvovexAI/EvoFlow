@@ -5,7 +5,25 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import pytest
+
 from evoflow.admin import employees as emp
+
+
+@pytest.fixture(autouse=True)
+def _stub_wake(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``chat_send`` 会真的调 ``wake``；本机没有 douyin-analyst 这个 role 的 profile，
+    真实 wake 必抛 "Role ... not found" → ``ok`` 恒 False，三条用例全红。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    被测语义是「session_key 归属判定 / 注入的主聊 key 必须被忽略」，与 wake 是否
+    在本机跑通无关。autouse 打桩把 wake 固定成 accepted，用例回到只测分派逻辑。
+    """
+    monkeypatch.setattr(
+        emp,
+        "wake",
+        lambda *a, **kw: {"task_id": None, "skipped": False, "accepted": True},
+    )
 
 
 def _role():

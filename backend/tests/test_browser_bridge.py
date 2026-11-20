@@ -9,11 +9,10 @@ unmapped commands return structured errors.
 from __future__ import annotations
 
 import json
+import json as _json
 import threading
-from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-import json as _json
 import pytest
 
 
@@ -93,14 +92,47 @@ def gateway_stub():
 
 @pytest.fixture(scope="module")
 def kernel(gateway_stub):
-    """node-repl-host kernel with the bridge setup pre-verified."""
+    """node-repl-host kernel with the bridge setup pre-verified.
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    只设 ``EVOFLOW_GATEWAY_PORT`` 不够：``resolve_gateway_base_url()`` 的优先级是
+    ``EVOFLOW_GATEWAY_URL`` > ``EVOFLOW_GATEWAY_PORT``，而本机 shell（由网关拉起的
+    进程）本来就注入了 ``EVOFLOW_GATEWAY_URL=http://127.0.0.1:8382``。于是内核桥
+    绕过本 fixture 的 stub 端口，真的去打现网网关：``list()`` 返回桌面端当前标签
+    （``browser-embed/blank``）而不是 stub 的 ``https://example.com/``，四条用例
+    连带失败（execute / viewportSet / Edge 拒绝同样打在真网关上）。
+    两个变量必须在同一个 fixture 里覆盖并在退出时还原，否则 module 级作用域会把
+    8382 泄漏给同进程后续用例。
+    """
     port, _received = gateway_stub
     import os
 
+    saved = {
+        k: os.environ.get(k)
+        for k in ("EVOFLOW_GATEWAY_PORT", "EVOFLOW_GATEWAY_URL", "EVOFLOW_LANGGRAPH_URL")
+    }
     os.environ["EVOFLOW_GATEWAY_PORT"] = str(port)
+    os.environ["EVOFLOW_GATEWAY_URL"] = f"http://127.0.0.1:{port}"
+    os.environ.pop("EVOFLOW_LANGGRAPH_URL", None)
+    from evoflow.plugins import node_repl
+
+    # 内核进程懒起且粘住首次解析到的 base：上一个用例留下的进程会带着旧 base
+    # 继续服务，必须先关掉才能用 stub 端口重新拉起。
+    node_repl.shutdown()
     from evoflow.plugins.node_repl import call_node_repl_js
 
-    return call_node_repl_js
+    try:
+        yield call_node_repl_js
+    finally:
+        try:
+            node_repl.shutdown()
+        except Exception:
+            pass
+        for key, val in saved.items():
+            if val is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = val
 
 
 def test_bridge_symbol_registered(kernel) -> None:

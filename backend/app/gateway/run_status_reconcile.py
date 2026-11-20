@@ -727,6 +727,29 @@ async def sweep_expired_stream_mirrors_on_startup() -> dict[str, int]:
 
 async def wait_and_reconcile_on_startup() -> None:
     """Background-friendly startup hook (called from gateway lifespan)."""
+    # 【self-evolution-bot · 2026-11-20 · 第96轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：启动时先把「心跳已停但仍 running」的 live 快照标成终态，再走会话收尾。
+    # 为什么（本轮现网取证）：收尾只清 `evoflow_chat_sessions.run_status`，**从不碰
+    # `evoflow_chat_live_runs`**；而重启=taskkill，前端不会有机会 DELETE、stream 也不会
+    # 走正常 flush。实测现网 118 条 running 快照、116 条心跳早于当天 17:00（最旧停在 11-18）。
+    # `GET /{sk}/live-run/check` 靠 `status.startswith("completed_")` 判完成，这些行于是
+    # 永远回 completed=False —— 前端一直尝试接续一条已经死掉的 run，表现为重启后卡住。
+    # 顺序：先清快照再收会话，收尾里的 `_live_snapshot_is_stale` 才不会读到伪造的新鲜心跳。
+    try:
+        from evoflow.persistence.live_run_repositories import sweep_stale_running_snapshots
+
+        swept = await asyncio.to_thread(
+            sweep_stale_running_snapshots,
+            max_age_s=_STARTUP_STALE_RUN_MAX_AGE_S,
+        )
+        if swept.get("swept"):
+            logger.info(
+                "startup: swept %d stale live-run snapshot(s) (scanned=%d) — marked completed_error",
+                swept["swept"],
+                swept["scanned"],
+            )
+    except Exception:
+        logger.exception("live-run snapshot sweep at startup failed")
     try:
         await asyncio.sleep(0.5)
         await reconcile_stale_session_runs(wait_for_langgraph=True)

@@ -178,3 +178,84 @@ describe('openProgressFromPanelSet', () => {
     expect(openProgressFromPanelSet({ kind: 'employeeProcess', data: { taskId: 'x' } })).toBe('')
   })
 })
+
+// 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：新增 3 组回归测试，锁死「expand 必须真的把新签切为激活」与
+// 「sessionRuntime 必须有实现」两条判据。
+// 为什么：本轮现网矩阵实测（8 kind 全量）暴露三处真缺陷：
+//   ① collabSubtaskTranscript 的 open 选项里没有 forceExpand → 只建签不激活；
+//   ② employeeProcess 分支只传 sessionKey/layout，forceExpand 被吞 → 同上；
+//   ③ sessionRuntime 在 isProgressStageKind 名单里、契约真源也要求 data.sessionKey，
+//      但 openProgressFromPanelSet 里**没有实现分支** → ui.show 静默丢弃、标签不出现。
+// 这三条的共同症状都是「工具回 ok:true，用户屏幕上什么都没变」，所以断言必须落在
+// store 的 activeKey 上，不能只断言「标签存在」——标签存在正是当时的假绿来源。
+describe('expand 必须真的激活新签（第95轮矩阵实测缺陷回归）', () => {
+  const SK = 'proactive:probe-bot:chat:2026-11-20T00-00-00.000Z'
+
+  afterEach(() => {
+    rightStageStore.hideAll()
+  })
+
+  /** 先钉在 A 签上，模拟「用户正看着别的面板」。 */
+  function pinOtherTab() {
+    rightStageStore.show({ kind: 'shell-page', id: 'shell:/tasks', title: '任务', sessionKey: SK })
+    rightStageStore.activateTab('shell-page:shell:/tasks')
+    expect(rightStageStore.getSnapshot().activeKey).toBe('shell-page:shell:/tasks')
+  }
+
+  it('collabSubtaskTranscript + forceExpand 切到新签', () => {
+    pinOtherTab()
+    const id = openProgressFromPanelSet(
+      {
+        kind: 'collabSubtaskTranscript',
+        title: '节点进度',
+        data: { mainTaskId: 'mt-x', subtaskId: 'sub-x' },
+      },
+      { sessionKey: SK, forceExpand: true },
+    )
+    expect(id).toBe('collabSubtaskTranscript:sub-x')
+    expect(rightStageStore.getSnapshot().activeKey).toBe(`collabSubtaskTranscript:${id}`)
+  })
+
+  it('collabSubtaskTranscript 不带 forceExpand 时只写签不抢激活（保持既有语义）', () => {
+    pinOtherTab()
+    openProgressFromPanelSet(
+      {
+        kind: 'collabSubtaskTranscript',
+        data: { mainTaskId: 'mt-y', subtaskId: 'sub-y' },
+      },
+      { sessionKey: SK },
+    )
+    // 用户已钉在别的签上：auto show 不得抢走视线
+    expect(rightStageStore.getSnapshot().activeKey).toBe('shell-page:shell:/tasks')
+    expect(
+      rightStageStore.getSnapshot().tabs.some((t) => t.id === 'collabSubtaskTranscript:sub-y'),
+    ).toBe(true)
+  })
+
+  it('employeeProcess + forceExpand 切到新签', () => {
+    pinOtherTab()
+    const id = openProgressFromPanelSet(
+      { kind: 'employeeProcess', data: { agentCode: 'probe-bot', busy: true } },
+      { sessionKey: SK, forceExpand: true },
+    )
+    expect(id).toBe('process:live:probe-bot')
+    expect(rightStageStore.getSnapshot().activeKey).toBe(`employeeProcess:${id}`)
+  })
+
+  it('sessionRuntime 有实现：按 data.sessionKey 建签并激活', () => {
+    pinOtherTab()
+    const id = openProgressFromPanelSet(
+      { kind: 'sessionRuntime', data: { sessionKey: SK } },
+      { sessionKey: SK, forceExpand: true },
+    )
+    expect(id).toBe(`sessionRuntime:${SK}`)
+    const tab = rightStageStore.getSnapshot().tabs.find((t) => t.kind === 'sessionRuntime')
+    expect(tab?.data?.sessionKey).toBe(SK)
+    expect(rightStageStore.getSnapshot().activeKey).toBe(`sessionRuntime:${id}`)
+  })
+
+  it('sessionRuntime 缺 sessionKey 时返回空串（不静默建残签）', () => {
+    expect(openProgressFromPanelSet({ kind: 'sessionRuntime', data: {} })).toBe('')
+  })
+})

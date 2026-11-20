@@ -1,20 +1,252 @@
-"""右栏面板类型清单接口 —— 前端与模型共用同一份真源。
+"""右栏面板类型清单 + 当前状态接口 —— 前端与模型共用同一份真源。
 
 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
 改了什么：新增 GET /api/stage/right-stage/kinds，直接读
 ``evoflow.stage.right_panel_kinds``，把类型契约暴露给前端。
 为什么：用户 2026-11-20 要求「前端跟后端架构不能是混乱的」。此前
-「右栏支持哪些 kind / 每种必需什么字段」在前端（open-progress-from-panel-set.ts
+「右栏支持哪些 kind / 每种必需字段」在前端（open-progress-from-panel-set.ts
 逐个 if 校验）和后端（stage_tool._build_progress_surface 逐个 if 校验）各写一遍，
 已经漂移（后端要 taskId、前端只查 agentCode）。现在只有后端一份，前端从这里取；
 若取不到则退回本地默认表，保证离线/构建期不炸。
+
+【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+改了什么：新增 POST /api/stage/right-stage/state 与 GET 同名接口 + ``read_right_stage_state()``。
+为什么（用户明确指出）：「你知道我当前右侧标签页是哪个吗？这个在你的管理体系里边能查到吗？」
+  答：查不到 —— 右栏 activeKey 此前只活在前端内存（``grep activeKey backend`` 命中 0 次）。
+  于是模型 ui.show 时不知道用户正在看什么：要么把视线抢走，要么把同一份东西开成第二个签。
+现在前端每次状态变化上报（尾部节流 400ms），后端保存最新一份，模型用
+``platform action=ui.current`` 读回来后再决定「复用/切换/新开」。
+
+【self-evolution-bot · 2026-11-20 · 第100轮续 · 模型:deepseek-v4.1-flash-1017】
+改了什么：状态落盘（``{data_root}/stage/right-stage-state.json``），不再只用进程内 dict。
+为什么（重启后现网实测抓到的真缺陷 —— 本轮的第二个「写了等于没写」）：
+  打包形态下 **gateway 与模型工具是两个独立 Python 进程**：
+    网关      pid 19288/10588  ``gateway_entry.py --mode gateway --port 8382``
+    模型工具  pid 19368/31584  ``gateway_entry.py --mode langgraph --port 8384``
+  而 ``_STATE`` 是模块级 dict = 各自进程一份。前端 POST 写进网关进程，
+  ``ui.current`` 却在工具进程里读 —— 实测同一秒：curl GET 返回
+  ``known:true, activeKey=employeeProcess:process:live:reviewer``，
+  而 ``platform action=ui.current`` 返回 ``known:false, reason=no_report_yet``。
+  也就是说读侧「通了但永远空」，用户看到的就是「你查不到我开的标签页」。
+  只用内存还有第二个隐患：网关重启即丢失。
+现在写侧落盘 + 读侧先看内存再看盘（网关进程自己写内存也写盘，工具进程读盘），
+两个进程都能看到同一份事实；盘上没有时仍老实返回 ``known=False``。
 """
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+import json
+import os
+import threading
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, Body
 
 router = APIRouter(prefix="/api/stage/right-stage", tags=["stage-right-panel"])
+
+# 进程内缓存：同进程（网关自己）读写走这里；跨进程以落盘文件为准。
+_STATE_LOCK = threading.Lock()
+_STATE: dict[str, Any] = {}
+_STATE_FILE_REL = ("stage", "right-stage-state.json")
+
+
+def right_stage_state_path() -> Path | None:
+    """右栏状态的落盘路径（跨进程共享）。解析失败返回 None，退化为纯内存。
+
+    用 harness 的 ``resolve_data_root()``：gateway 进程与 langgraph 工具进程
+    都会解析到同一个 profile 数据目录（``~/.evoflow/profiles/<id>/data``）。
+    """
+    try:
+        from evoflow.config.data_paths import resolve_data_root
+
+        root = resolve_data_root()
+    except Exception:
+        return None
+    try:
+        directory = root.joinpath(*_STATE_FILE_REL[:-1])
+        directory.mkdir(parents=True, exist_ok=True)
+        return directory / _STATE_FILE_REL[-1]
+    except OSError:
+        return None
+
+
+def _tab_key(tab: dict[str, Any]) -> str:
+    """按 store 的口径算 key：显式 key 优先，否则 ``${kind}:${id}``。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮续 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：**后端自己补 key**，不再假定前端上报里带 key；并用 ``keyRepairable``
+    如实标记补不出来的情况。
+    为什么（现网实测原文，2026-11-20 21:37:34 那份上报）::
+
+        tabs:[{"key":"","kind":"employeeProcess","title":"审核员",...},
+              {"key":"","kind":"employeeProcess","title":"发版工程师",...}]
+
+    打包 exe（20:34）内嵌的是旧前端：它读 ``surface.key``，而 RightStageSurface
+    根本没有这个字段（键由 ``tabKeyOf`` 算 ``${kind}:${id}``），**而且它连 ``id`` 都没上报**。
+    所以后端**无法**凭空还原 key —— 靠 kind/title/data 去猜 id 会让 ui.activate
+    指向错误的签，比报错更糟。这里只补能补的（有 id 就补），补不了的老实标记。
+    """
+    explicit = str(tab.get("key") or "")
+    if explicit:
+        return explicit
+    kind = str(tab.get("kind") or "")
+    ident = str(tab.get("id") or "")
+    if kind and ident:
+        return f"{kind}:{ident}"
+    return ""
+
+
+def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_tabs = payload.get("tabs")
+    tabs: list[dict[str, Any]] = []
+    keys_repairable = True
+    if isinstance(raw_tabs, list):
+        for raw in raw_tabs:
+            if not isinstance(raw, dict):
+                continue
+            tab = dict(raw)
+            tab["key"] = _tab_key(tab)
+            # key 里带着 kind，回填给缺 kind 的条目。
+            if not tab.get("kind") and ":" in tab["key"]:
+                tab["kind"] = tab["key"].split(":", 1)[0]
+            if not tab["key"]:
+                keys_repairable = False
+            tabs.append(tab)
+
+    active_key = str(payload.get("activeKey") or "") or None
+    active_kind = str(payload.get("activeKind") or "") or None
+    active_title = str(payload.get("activeTitle") or "") or None
+
+    # activeKey 的 ``kind:`` 前缀是精确事实（不是猜），老前端报 null 时用它回填。
+    if active_key and active_kind is None and ":" in active_key:
+        active_kind = active_key.split(":", 1)[0] or None
+    # 标题只能靠 activeKey 命中同一 tab；命中不了就留 null，不编。
+    if active_key and active_title is None:
+        hit = next((t for t in tabs if t.get("key") == active_key), None)
+        if hit is not None:
+            active_title = str(hit.get("title") or "") or None
+
+    return {
+        "activeKey": active_key,
+        "activeKind": active_kind,
+        "activeTitle": active_title,
+        "collapsed": payload.get("collapsed") is True,
+        "tabs": tabs,
+        # 【self-evolution-bot · 2026-11-20 · 第100轮续】补不了 key 时如实标记：
+        # 模型据此知道「能读当前页、但还不能按 key 切签」，而不是拿到一堆空键瞎切。
+        "keysRepairable": keys_repairable,
+        "rev": int(payload.get("rev") or 0),
+        "reportedAt": str(payload.get("reportedAt") or "") or None,
+    }
+
+
+def _write_state_file(clean: dict[str, Any]) -> None:
+    """原子写：先写 .tmp 再 replace，避免读侧读到半个 JSON。"""
+    path = right_stage_state_path()
+    if path is None:
+        return
+    try:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp.write_text(json.dumps(clean, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        # 落盘失败不拖垮接口：内存里那份仍然可用（同进程调用方）。
+        return
+
+
+def _read_state_file() -> dict[str, Any] | None:
+    path = right_stage_state_path()
+    if path is None:
+        return None
+    try:
+        if not path.is_file():
+            return None
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    clean = _clean_payload(data)
+    return clean if clean.get("reportedAt") or clean.get("activeKey") is not None else None
+
+
+def store_right_stage_state(payload: dict[str, Any]) -> dict[str, Any]:
+    """保存前端上报的右栏状态（覆盖式，只留最新一份）：内存 + 落盘。"""
+    if not isinstance(payload, dict):
+        raise ValueError("right stage state must be an object")
+    clean = _clean_payload(payload)
+    with _STATE_LOCK:
+        _STATE.clear()
+        _STATE.update(clean)
+    _write_state_file(clean)
+    return clean
+
+
+def read_right_stage_state() -> dict[str, Any]:
+    """读回最新一次上报。**从没上报过**时返回 ``known=False``，不要假装「右栏是空的」。
+
+    顺序：本进程内存 → 落盘（跨进程）。两处都没有才算「真的没上报过」。
+    """
+    with _STATE_LOCK:
+        snap = dict(_STATE)
+    if not snap:
+        from_file = _read_state_file()
+        if from_file:
+            snap = from_file
+    if not snap:
+        return {
+            "ok": True,
+            "known": False,
+            "reason": "no_report_yet",
+            "hint": "前端还没上报过右栏状态（可能窗口没开或刚重启）；此时不要假设右栏为空。",
+        }
+    snap["ok"] = True
+    snap["known"] = True
+    return snap
+
+
+@router.post("/state")
+def post_right_stage_state(payload: dict[str, Any] = Body(default_factory=dict)) -> dict:
+    """前端每次右栏状态变化上报一份（只含身份字段，不含预览载荷）。
+
+    【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：每次上报额外 append 一行到 ``{logs}/right-stage-YYYY-MM-DD.log``。
+    为什么（用户明确要求）：「你可以在日志文件里看到操作了什么样的工具、右侧有什么
+      东西出现…有助于你方便排查后面处理这种问题。」
+      此前 ``_STATE`` 是覆盖式单快照，只留最新一份 —— 于是「我调工具那一刻，
+      用户右栏到底是什么样」永远查不回来。这正是本轮排查卡住的原因：
+      22:19 我派出 chat_send，22:22 再读状态已经变成别的会话的标签，
+      中间那一步到底展开没展开，没有任何时刻可以回溯。
+    判据：日志里每次上报一行，带 activeKey / collapsed / 标签数与各签 key，
+      能按时间对齐 ``[py] emit sent ...`` 那几行做「发了什么 → 变成什么样」。
+    """
+    saved = store_right_stage_state(payload)
+    _audit_state("report", saved)
+    return {"ok": True, "activeKey": saved.get("activeKey"), "tabs": len(saved.get("tabs") or [])}
+
+
+def _audit_state(phase: str, saved: dict[str, Any]) -> None:
+    """把一次上报/读回写进右栏审计日志（失败静默，绝不影响接口）。"""
+    try:
+        from evoflow.stage.right_stage_audit_log import right_stage_log
+
+        tabs = saved.get("tabs") or []
+        keys = [str((t or {}).get("key") or "-") for t in tabs]
+        right_stage_log(
+            "web-state",
+            f"{phase} activeKey={saved.get('activeKey')} kind={saved.get('activeKind')} "
+            f"collapsed={saved.get('collapsed')} tabs={len(tabs)} keys={keys} "
+            f"keysRepairable={saved.get('keysRepairable')} rev={saved.get('rev')}",
+        )
+    except Exception:  # noqa: BLE001 - 审计绝不冒泡
+        pass
+
+
+@router.get("/state")
+def get_right_stage_state() -> dict:
+    """模型/调试读回用户当前右栏停在哪一页。"""
+    return read_right_stage_state()
 
 
 @router.get("/kinds")

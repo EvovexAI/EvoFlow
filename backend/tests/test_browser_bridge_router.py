@@ -110,7 +110,6 @@ def test_tabs_single_webview_model(client: TestClient, bridge_headers: dict[str,
 
 def test_log_endpoint_appends_to_unified_file(client: TestClient, tmp_path, monkeypatch) -> None:
     """POST /api/browser/log 把前端日志追加进统一 logs/plugin-control.log。"""
-    from app.gateway.routers import browser_bridge as router
     from evoflow.tools.builtins import browser_debug_log
 
     log_file = tmp_path / "logs" / "plugin-control.log"
@@ -154,18 +153,29 @@ def test_browser_debug_log_creates_file(tmp_path, monkeypatch) -> None:
 
 
 def test_unified_log_path_under_logs_english(tmp_path, monkeypatch) -> None:
-    """Default path is ``{evoflow_dir}/logs/plugin-control.log`` (not Chinese root name)."""
+    """Default path is ``{evoflow_dir}/logs/plugin-control-YYYY-MM-DD.log``.
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    2026-11-03 ``298d4d0a`` 把统一日志改成按日滚动
+    （``plugin-control-{day}.log``，见模块 ``unified_log_path`` docstring 与
+    ``_LEGACY_ROOT_NAMES`` 注释），本用例仍断言固定的 ``plugin-control.log``，
+    契约漂移导致必红。断言改为「去掉日期后缀后就是 plugin-control」，
+    既保住「落在 logs/ 且英文名」的原意，也不再锁死某一天。
+    """
     from evoflow.tools.builtins import browser_debug_log
 
     monkeypatch.setenv("EVOFLOW_CONFIG_DIR", str(tmp_path))
     path = browser_debug_log.unified_log_path()
-    assert path.name == "plugin-control.log"
     assert path.parent.name == "logs"
     assert path.parent.parent == tmp_path
+    # Daily rotation: plugin-control-YYYY-MM-DD.log
+    assert path.name.startswith("plugin-control-")
+    assert path.name.endswith(".log")
+    assert len(path.name) == len("plugin-control-YYYY-MM-DD.log")
 
 
 def test_unified_log_migrates_legacy_chinese_root(tmp_path, monkeypatch) -> None:
-    """First write moves root-level ``插件控制日志.log`` into logs/plugin-control.log."""
+    """First write moves root-level ``插件控制日志.log`` into logs/plugin-control-<day>.log."""
     from evoflow.tools.builtins import browser_debug_log
 
     monkeypatch.setenv("EVOFLOW_CONFIG_DIR", str(tmp_path))
@@ -173,7 +183,9 @@ def test_unified_log_migrates_legacy_chinese_root(tmp_path, monkeypatch) -> None
     legacy.write_text("legacy\n", encoding="utf-8")
 
     browser_debug_log.browser_debug_log("py", "fresh")
-    dest = tmp_path / "logs" / "plugin-control.log"
+    # 目标名按日滚动，不能写死 plugin-control.log（见上一条用例的说明）
+    dest = browser_debug_log.unified_log_path()
+    assert dest == tmp_path / "logs" / dest.name
     assert dest.is_file()
     text = dest.read_text(encoding="utf-8")
     assert "legacy" in text

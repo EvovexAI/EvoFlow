@@ -343,6 +343,63 @@ def _dispatch_title(goal: str, *, max_len: int = 80) -> str:
     return line[: max_len - 1] + "…"
 
 
+def _dispatch_prefers_human_screen(source: str) -> bool:
+    """空钉派单时，是否该把这轮投回「该岗最新真人屏」。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么需要这层白名单而不是无脑兜底：自动巡检 / 定时心跳 / eval 这类派单本来
+    就不该抢用户视线 —— 它们没有「用户点名这件事」的语义，投进真人屏只会让用户
+    以为自己刚才说的话触发了这轮。判据取**来源取值域**（现网 13 次 fire_and_forget
+    全量分桶：role=8 / xiaomi=1 / task_assigned=1，其余为 manual 默认），因此这里
+    用黑名单而非白名单：新出现的来源默认按「人为触发」处理（漏投用户看不见比漏拦
+    巡检更糟），只有明确自动化来源才排除。
+    """
+    src = str(source or "").strip().lower() or "manual"
+    return src not in {
+        "eval",
+        "live_eval",
+        "eval_live",
+        "scheduler",
+        "scheduled",
+        "heartbeat",
+        "patrol",
+        "cron",
+        "timer",
+        "system",
+        "internal",
+    }
+
+
+def _human_screen_fresh_enough(last_human_at: str, *, max_age_s: float = 6 * 3600.0) -> bool:
+    """最新真人发言是否还算「用户此刻可能在看的屏」。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么加时效：`latest_human_session_key` 是全库该岗最新一条真人消息，可能是几天前的。
+    把一轮派单投进一个「三天前说过话的屏」比投进 task 桶更糟 —— 用户看不见，还污染
+    历史对话。取 6h 是因为现网同一岗位一天内会有多屏切换（2026-11-20 该岗 chat 桶
+    真人发言分布在 05:07 / 11:43 / 12:56 / 15:50 / 16:15 / 18:36 六屏），6h 能覆盖
+    「今天这一轮对话」，又不会跨日误投。取不到时间戳（空串/解析失败）时返回 True：
+    查得到屏名却查不到时间，宁可投它（可见）也不投 task 桶（不可见）。
+    """
+    raw = str(last_human_at or "").strip()
+    if not raw:
+        return True
+    try:
+        from datetime import UTC, datetime
+
+        from evoflow.persistence.timestamps import iso_z_to_ms
+
+        last_ms = iso_z_to_ms(raw)
+        if last_ms <= 0:
+            return True
+        now_ms = datetime.now(UTC).timestamp() * 1000.0
+        age_s = (now_ms - float(last_ms)) / 1000.0
+        # 未来时间戳（时钟漂移）当作新鲜，不因机器时间差把用户屏判死
+        return age_s <= max_age_s
+    except Exception:
+        return True
+
+
 def _dispatch_skip_title_dedupe(
     source: str,
     description: str,
@@ -3260,6 +3317,72 @@ class ProactiveRunner:
         round_id_s = str(round_id or "").strip()
         interrupted = False
 
+        # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：在 fire-and-forget 入口补一次「投递时按最新真人发言重算会话键」。
+        # 为什么：第97轮只把重定向加在 admin/employees.py 的 wake() 里，但看门狗、
+        # 任务调度器、平台派单实际走的是这条 fire_and_forget —— 现网铁证
+        # （2026-11-20 19:01:55）：日志是
+        #   proactive.dispatch.fire_and_forget ... round=proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z
+        # 而用户当时正看着的是 ...chat:2026-11-19T05-07-10.588Z；同一时段
+        # `employees.wake` 日志 0 条 = 我上一轮的重定向根本没被调用。
+        # 结论：会话键校正必须放在「所有投递的公共入口」，不能挂在某一条调用链上。
+        # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:qwen3.8-flash】改了什么：校正从「只认钉键」扩到
+        # 「无钉但引用了未结 Task」时也按最新真人屏重算；并把校正挪到 done-guard **之前**。
+        # 为什么（同日现网双铁证）：① 19:25 看门狗带钉 wake → retargeted 投对屏 ✅；
+        #   19:26 tasks create 自动派单**不带任何键** → prefer 恒回 unpinned → 落 task 桶另起一屏 ❌。
+        #   accelerator 已补透传 source_ref，但 CLI / UI / 平台直建不保证带键，故公共入口必须自己兜底：
+        #   related_task_id 引用未结单 = 用户点名续跑那件事 → 回到该岗最新真人屏（task 桶是工作轨迹，不是他盯着的屏）。
+        # 边界：心跳/巡检派单 related_tid 为空 → 不碰、零影响；done-guard 语义不变（skipped 分支仍在校正之后，
+        #   已结案的单根本不会投递，先校正只是多一次只读查询）。
+        pinned_session_key = str(pinned_session_key or "")
+        try:
+            from evoflow.proactive.chat_session import (
+                latest_human_session_key,
+                normalize_pinned_session_key,
+                prefer_newest_human_session,
+            )
+
+            # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：上一轮那段「空钉 + 引用 Task 兜底」是**死代码**，本轮删掉，换成直接取
+            #   该岗最新真人屏当 pin；并在同处加 source 黑名单（eval/定时/心跳/巡检不回屏）。
+            # 为什么：旧写法是
+            #     _probe = latest_human_session_key(code)[0]          # 已经是最新屏
+            #     prefer_newest_human_session(code, _probe)            # 再问「有没有比它更新的屏」
+            #   → 恒返回 ("<同一屏>", "kept") → 恒被下面 `!= "retargeted"` 判空 → 分支永不生效。
+            #   现网铁证（2026-11-20 19:26:55）：source=task_assigned、round=dispatch:2026-11-20T19-26-55…，
+            #   同类看门狗 wake 带键那次是 ...chat:2026-11-19T16-15-39.290Z（用户可见）——
+            #   同一条派单两条腿落两个桶，因为空钉这条腿根本没人给它 pin。
+            # 判据（这版）：空钉 + 非自动化来源 → 直接投 `latest_human_session_key`（按代码查，不会串岗），
+            #   不在这一步做 retarget 协商（没有旧钉可协商）。带钉的语义完全不变，仍走 prefer 的
+            #   kept/retargeted 三分支。
+            if not pinned_session_key and _dispatch_prefers_human_screen(source):
+                _cand, _cand_at = latest_human_session_key(code)
+                if _cand and _human_screen_fresh_enough(_cand_at) and normalize_pinned_session_key(code, _cand) == _cand:
+                    logger.info(
+                        "proactive.dispatch.fire_and_forget: pin adopted from newest human screen agent=%s source=%s related=%s pin=%s last_human=%s",
+                        code,
+                        str(source or "").strip() or "manual",
+                        related_tid or "-",
+                        _cand,
+                        _cand_at or "-",
+                    )
+                    pinned_session_key = _cand
+            _retarget_key, _retarget_why = prefer_newest_human_session(code, pinned_session_key)
+            if _retarget_key and _retarget_key != pinned_session_key:
+                logger.info(
+                    "proactive.dispatch.fire_and_forget: retarget session (%s) agent=%s pinned=%s -> %s",
+                    _retarget_why,
+                    code,
+                    pinned_session_key or "-",
+                    _retarget_key,
+                )
+                pinned_session_key = _retarget_key
+        except Exception:
+            logger.debug(
+                "proactive.dispatch.fire_and_forget: session retarget failed (keep caller pin)",
+                exc_info=True,
+            )
+
         # HIGH-001: validate that ``from_agent`` (when an employee) is allowed to
         # dispatch to the target role. user / empty / xiaomi → always allowed;
         # ordinary employee → direct superior→subordinate / peer→peer /
@@ -3482,6 +3605,12 @@ class ProactiveRunner:
         fresh_round: bool = False,
         skip_done_guard: bool = False,
         interrupt: bool = False,
+        # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:qwen3.8-flash】改了什么：补透传 pinned_session_key。
+        # 为什么：本 helper 是任务调度器（task_startup_accelerator）的唯一派单入口，原来没有这个形参，
+        # 第98轮挂在 fire_and_forget 公共入口的会话键重定向对「建单即开工」这条路**恒为 unpinned**、
+        # 等于没接上。现网铁证（同日 19:25/19:26）：看门狗 wake 带钉键 → retargeted 投对用户当前屏；
+        # 同一张单经 tasks create 自动派单 → 落 task 桶另起一屏，用户在原屏看不见干活。
+        pinned_session_key: str = "",
     ) -> dict[str, Any]:
         """Schedule wake onto the Gateway runner loop (safe for sync/platform callers).
 
@@ -3516,6 +3645,8 @@ class ProactiveRunner:
             fresh_round=fresh_round,
             skip_done_guard=skip_done_guard,
             interrupt=interrupt,
+            # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:qwen3.8-flash】带上钉键，否则调度器派单永远走不到重定向
+            pinned_session_key=str(pinned_session_key or ""),
         )
         try:
             running = asyncio.get_running_loop()

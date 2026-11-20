@@ -227,7 +227,17 @@ export function inspectConversationDisplayOrder(
   }
 
   const buryAt = opts?.buryWarnRows ?? BURY_WARN_ROWS;
-  if (opts?.turnLive && latestUser && latestUser.indexFromEnd >= buryAt) {
+  // 同轮长工具流：用户泡上面、工具在尾是正常形态（贴底跟流自然看不见问句）。
+  // 只在「尾轮 ≠ 最新用户轮」时报警——那才是软顶挤丢直播问 / 串轮。
+  const lastTurnId = String(last?.turnId || "").trim();
+  const latestTurnId = String(latestUser?.turnId || "").trim();
+  const sameLiveTurn = Boolean(latestTurnId && lastTurnId && latestTurnId === lastTurnId);
+  if (
+    opts?.turnLive &&
+    latestUser &&
+    latestUser.indexFromEnd >= buryAt &&
+    !sameLiveTurn
+  ) {
     findings.push({
       code: "latest_user_buried",
       detail: `最新用户「${latestUser.text}」距窗口底 ${latestUser.indexFromEnd} 行（阈值 ${buryAt}）；贴底滚动时看不见气泡`,
@@ -235,11 +245,10 @@ export function inspectConversationDisplayOrder(
   }
 
   if (opts?.turnLive && latestUser && last && last.kind === "assistantText") {
-    const lastTurn = String(last.turnId || "");
-    if (lastTurn && latestUser.turnId && lastTurn !== latestUser.turnId) {
+    if (lastTurnId && latestTurnId && lastTurnId !== latestTurnId) {
       findings.push({
         code: "stale_prev_turn_tail",
-        detail: `窗口尾是上轮 assistantText(turn=${lastTurn.slice(0, 12)})，最新用户在 turn=${latestUser.turnId.slice(0, 12)} 且距底 ${latestUser.indexFromEnd} 行`,
+        detail: `窗口尾是上轮 assistantText(turn=${lastTurnId.slice(0, 12)})，最新用户在 turn=${latestTurnId.slice(0, 12)} 且距底 ${latestUser.indexFromEnd} 行`,
       });
     }
   }

@@ -203,6 +203,43 @@ import { startBackendReadyPoll, showBackendDownOverlay } from './boot/backend-wa
 // 并存不冲突) 抽到 ./boot/service-banner.js,export installGlobalServiceBanner
 import { installGlobalServiceBanner } from './boot/service-banner.js'
 
+// 【self-evolution-bot · 2026-11-20 · 第95轮续 · 模型:qwen3.8-flash】
+// 改了什么：装后复验探针的 window 事件监听器——收到 `evoflow:rs-probe` 时动态 import
+//   open-progress-from-panel-set 并调它（与 SSE 真入口同一条链路）。
+// 为什么：右栏 store 模块没有任何 window 出口，CDP 探针只能量 DOM、注入不了 show/update
+//   事件，「派单→右栏实时显示→能续聊」的抢焦点判据（pinAlive）装机后无法反证。
+//   本模块是 main.js 静态闭包（实测 91 个文件不触右栏核心），动态 import 保证
+//   首屏不拖入 right-stage chunk；监听器只转发调用，无业务语义。
+try {
+  window.addEventListener('evoflow:rs-probe', (ev) => {
+    const detail = ev && ev.detail
+    if (!detail || !detail.surface) return
+    void import('./lib/right-stage/open-progress-from-panel-set.js')
+      .then((m) =>
+        m.openProgressFromPanelSet(detail.surface, {
+          sessionKey: detail.sessionKey || null,
+          forceExpand: detail.forceExpand === true,
+        }),
+      )
+      .catch((e) => console.warn('[rs-probe] failed', e))
+  })
+} catch (e) {
+  console.warn('[boot] rs-probe listener failed', e)
+}
+
+// Main-panel CDP: window.__evoflowPanel for /main-cdp/* (snapshot/click/fill/action).
+try {
+  void import('./lib/panel-cdp/panel-api.ts')
+    .then((m) => {
+      m.mountPanelApi(window)
+      // Warm right-stage store export for getState()
+      return import('./lib/right-stage/right-stage-store.js')
+    })
+    .catch((e) => console.warn('[boot] panel CDP mount failed', e))
+} catch (e) {
+  console.warn('[boot] panel CDP import failed', e)
+}
+
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
 initFontSizePreference()

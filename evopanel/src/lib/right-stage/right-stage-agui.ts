@@ -18,6 +18,13 @@ function mayAutoShowWritePanel(): boolean {
 export type StageSetPayload = {
   action?: string
   surface?: Partial<RightStageSurface> | null
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+   * 新增：`action='activate'` 时的目标标签 key（形如 `employeeProcess:primary`）。
+   * 为什么：切签只认 key，不能靠 surface 反推——surface 会被写进标签/改内容，
+   * 而切签必须做到「不新建、不关闭、不改内容」，只能有一个纯 key 通道。
+   */
+  key?: string
 }
 
 export const STAGE_SET_APPLIED_EVENT = 'evopanel:stage-set-applied'
@@ -80,6 +87,15 @@ export function buildStageSetPayload(argsText?: string, result?: string | null):
   if (action === 'hide') {
     return { action: 'hide', surface: null }
   }
+  // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：activate 动作从工具 result 里取 key（没有 surface，不能走下面的 kind 校验）。
+  // 为什么：漏了这里，`platform ui.activate` 的返回会在解析阶段被判成「无 kind → null」，
+  //   于是后端说切了、前端没动——又一个「工具回 ok 而用户屏幕没变化」。
+  if (action === 'activate') {
+    const targetKey = String(resultObj?.key || '').trim()
+    if (!targetKey) return null
+    return { action: 'activate', surface: null, key: targetKey }
+  }
 
   const resultSurface = resultObj?.surface
   if (resultSurface && typeof resultSurface === 'object' && !Array.isArray(resultSurface)) {
@@ -130,6 +146,36 @@ export function applyStageSetPayload(
     ownerSessionKey: ownerSessionKey || '(空)',
     dataKeys: payload.surface?.data ? Object.keys(payload.surface.data) : [],
   })
+  // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把 activate 分支提到 hide 判断**之前**。
+  // 为什么（这是我本轮自己撞出来的真缺陷，测试一开始没抓到）：
+  //   下面 hide 的判据是 `action === 'hide' || payload.surface === null`。
+  //   而 activate **天然没有 surface**：
+  //     · SSE 实时通道 → surface 是 `undefined`，`!== null` 所以侥幸没进 hide；
+  //     · 工具 result 回放通道 → buildStageSetPayload 返回 `surface: null`，
+  //       于是「切到某签」会被当成「收起右栏」，用户看到的是面板整个关了。
+  //   两条通道一条侥幸绿、一条真坏 —— 正是「一条绿不能推另一条绿」那类缺陷。
+  //   顺序改对之后，activate 无论 surface 是 null 还是 undefined 都先被自己接住。
+  if (action === 'activate') {
+    const targetKey = String(payload.key || '').trim()
+    if (!targetKey) {
+      logPanelSet('① 动作=activate 失败：缺 key')
+      return false
+    }
+    const snap0 = rightStageStore.getSnapshot()
+    const before = { activeKey: snap0.activeKey || null, tabCount: (snap0.tabs || []).length }
+    rightStageStore.activateTab(targetKey)
+    const snap1 = rightStageStore.getSnapshot()
+    const ok = String(snap1.activeKey || '') === targetKey
+    logPanelSet('① 动作=activate 已切签', {
+      targetKey,
+      ok,
+      before,
+      after: { activeKey: snap1.activeKey || null, tabCount: (snap1.tabs || []).length },
+    })
+    dispatchStageSetApplied({ action: 'activate', key: targetKey })
+    return ok
+  }
   if (action === 'hide' || payload.surface === null) {
     logPanelSet('① 动作=hide，收起右栏')
     rightStageStore.applyRemote({ action: 'hide', surface: null })
@@ -161,7 +207,11 @@ export function applyStageSetPayload(
         ...payload.surface,
         kind,
       },
-      { sessionKey: stampSk },
+      // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：把 surface.expand 映射成 forceExpand 透传给 openProgressFromPanelSet。
+      // 为什么：用户收起右栏后 ui.show 只写标签不撑开（本轮实测 shellExists=false），
+      // expand=true 是调用方明确要求「让用户看见」，语义等同用户亲手点开。
+      { sessionKey: stampSk, forceExpand: payload.surface.expand === true },
     )
     if (!opened) {
       logPanelSet('① 进度面板打开失败：缺必填 data')
@@ -311,9 +361,20 @@ export function applyRightStageAgUiCustom(
   const stagePayload: StageSetPayload = {
     action: String(payload.action || 'show'),
     surface: payload.surface as Partial<RightStageSurface> | null | undefined,
+    // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：SSE custom 流也把 key 透传给 applyStageSetPayload。
+    // 为什么：后端 activate 走的是 stream_writer({type:'right_stage', action:'activate', key})，
+    //   这里不取 key，实时通道就切不动签（只有工具 result 回放那条路能切），
+    //   表现为「工具说切了、屏幕没动」。两条通道都得通。
+    ...(String(payload.key || '').trim() ? { key: String(payload.key).trim() } : {}),
   }
-  applyStageSetPayload(stagePayload, options)
-  return true
+  // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把 applyStageSetPayload 的返回值如实返回，不再无条件 `return true`。
+  // 为什么：本文件所有调用方（ws-client / 工具 result 回放）都拿这个 bool 判断「是否落地」。
+  //   无条件 true 会让「activate 缺 key」「surface.kind 缺失」「进度面板缺必填 data」
+  //   这些真失败全部报成完成 —— 就是「工具回 ok、用户屏幕没变化」那类假成功。
+  //   本轮新加的测试一眼照出来：缺 key 时 expected false，received true。
+  return applyStageSetPayload(stagePayload, options)
 }
 
 /** Build news context block for harness prompt injection. */

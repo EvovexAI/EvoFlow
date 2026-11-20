@@ -81,7 +81,16 @@ def test_gate_closed_returns_none_and_opens_after_warmup(store_mod, monkeypatch)
 
 
 def test_warmup_is_single_flight_within_cooldown(store_mod, monkeypatch):
-    """冷却期内重复调用不得反复起暖机线程（否则每次检索都新起一个）。"""
+    """冷却期内重复调用不得反复起暖机线程（否则每次检索都新起一个）。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    2026-11-19 ``311a401c`` 给 ``_start_embed_warmup`` 加了 win32 早退
+    （进程内冷导入会卡死界面 1~2 分钟，改走子进程 build_worker），
+    本用例没跟着改 → 在 Windows 上 ``started`` 恒为 0，必红。
+    单飞语义本身仍要守，所以按被测代码自己的逃生舱
+    ``EVOFLOW_EMBEDDING_WARMUP=1`` 打开暖机，再验「冷却期内只起一次」。
+    """
+    monkeypatch.setenv("EVOFLOW_EMBEDDING_WARMUP", "1")
     store_mod._embed_gate_open = False
     store_mod._embed_warm_last_try = 0.0
 
@@ -100,3 +109,25 @@ def test_warmup_is_single_flight_within_cooldown(store_mod, monkeypatch):
     store_mod._start_embed_warmup()
     store_mod._start_embed_warmup()
     assert len(started) == 1, f"冷却期内只应起一次暖机线程，实际 {len(started)} 次"
+
+
+def test_warmup_skipped_on_win32_by_default(store_mod, monkeypatch):
+    """默认（win32、未设逃生舱）必须一次线程都不起——这是 311a401c 的正向断言。"""
+    monkeypatch.delenv("EVOFLOW_EMBEDDING_WARMUP", raising=False)
+    if sys.platform != "win32":
+        pytest.skip("win32-only guard")
+    store_mod._embed_gate_open = False
+    store_mod._embed_warm_last_try = 0.0
+
+    started: list[int] = []
+
+    class _FakeThread:
+        def __init__(self, *, target, name, daemon):  # noqa: ARG002
+            started.append(1)
+
+        def start(self) -> None:
+            return None
+
+    monkeypatch.setattr(store_mod.threading, "Thread", _FakeThread)
+    store_mod._start_embed_warmup()
+    assert started == [], "win32 默认必须跳过进程内暖机（否则冷导入会卡死界面）"

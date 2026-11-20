@@ -1084,6 +1084,25 @@ function ToolCallListInner({
 
   const hasLiveToolTicker = useMemo(() => {
     if (showToolTiming && hasRunningTools) return true
+    // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：除 isToolRunning 外，再加一条「已开始、未结束、不在等授权」的时间戳兜底。
+    // 为什么：上面那行只认 status 严格 == running/in_progress，而流式首帧常常还没有
+    //   status（见 MessageRow 顶部注释「首帧常无 status」）。一旦漏判，1Hz 定时器不启动，
+    //   nowTs 冻住 → 整段执行期间工具卡耗时不动、结束时才突然冒出一个数字。
+    //   用户本轮原话：「这个耗时感觉不太灵活，它不会动，好像结束才会动。」
+    if (
+      showToolTiming &&
+      list.some((tool) => {
+        const rec = tool as Record<string, unknown>
+        if (isToolPendingApproval(rec)) return false
+        return (
+          parseToolTimeMs(rec._uiStartedAtMs) != null &&
+          parseToolTimeMs(rec._uiEndedAtMs) == null
+        )
+      })
+    ) {
+      return true
+    }
     for (const tool of list) {
       if (isToolRunning(tool)) return true
       const t = tool as Record<string, unknown>
@@ -1312,14 +1331,28 @@ function ToolCallListInner({
               elapsedText = formatToolElapsedSeconds(toolStartTs, nowTs)
             }
           } else {
-            let toolEndTs =
-              uiEndedTs ?? streamEndTs ?? toolEndTimes.get(key) ?? null
-            if (toolStartTs && !toolEndTs && toolStartTimes.has(key)) {
-              queueMicrotask(() => setToolEndTimes((prev) => { const m = new Map(prev); m.set(key, nowTs); return m }))
-              toolEndTs = nowTs
-            }
-            if (toolStartTs && toolEndTs) {
-              elapsedText = formatToolElapsedSeconds(toolStartTs, toolEndTs)
+            // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+            // 改了什么：`running` 为假但「已开始、未结束」时，也用 nowTs 走表。
+            // 为什么：`running = isToolRunning(...)`，而流式首帧/中间帧可能还没有 status，
+            //   走到这个 else 分支就只认 toolEndTs，拿不到就整段不显示耗时 —— 用户看到的
+            //   「不动，结束才出现」正是这里。判据用**时间戳有起点无终点**，不依赖 status。
+            const notEndedYet =
+              toolStartTs != null &&
+              uiEndedTs == null &&
+              streamEndTs == null &&
+              !toolEndTimes.has(key)
+            if (notEndedYet) {
+              elapsedText = formatToolElapsedSeconds(toolStartTs!, nowTs)
+            } else {
+              let toolEndTs =
+                uiEndedTs ?? streamEndTs ?? toolEndTimes.get(key) ?? null
+              if (toolStartTs && !toolEndTs && toolStartTimes.has(key)) {
+                queueMicrotask(() => setToolEndTimes((prev) => { const m = new Map(prev); m.set(key, nowTs); return m }))
+                toolEndTs = nowTs
+              }
+              if (toolStartTs && toolEndTs) {
+                elapsedText = formatToolElapsedSeconds(toolStartTs, toolEndTs)
+              }
             }
           }
         }

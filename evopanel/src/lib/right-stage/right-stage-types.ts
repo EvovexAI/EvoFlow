@@ -22,6 +22,14 @@ export type RightStageSurface = {
   data: Record<string, unknown>
   /** 归属会话；有值时 UI 按当前 sessionKey 过滤可见标签。 */
   sessionKey?: string
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+   * 改了什么：新增 expand 标记，从 platform `ui.show(expand=true)` 一路透传到 store.show。
+   * 为什么：用户收起右栏后，ui.show 只写标签不撑开，工具回 ok 但用户屏幕无变化
+   * （第91轮实测 shellExists=false）。expand=true 表示「调用方明确要用户看见」，
+   * 等价于用户亲手点开：清掉收起锁并撑开。缺省 undefined = 沿用「不抢视线」。
+   */
+  expand?: boolean
 }
 
 export type RightStageStreamChunk = {

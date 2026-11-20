@@ -2189,6 +2189,12 @@ async def process_approval(
 
                 set_work_item_status(tid, "pending", result="角色忙，暂缓执行")
             else:
+                # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+                # 删掉函数内这行 `import asyncio`：它让 asyncio 在本函数内成为局部名，
+                # 使前面第 2090/2091/2092/2097/2129/2141/2143/2145/2146/2176 共 10 处
+                # `await asyncio.to_thread(...)` / `asyncio.create_task(...)` 抛
+                # UnboundLocalError —— 即「审批通过 → 执行工作项」这条路进来就崩。
+                # 模块顶部第 9 行已有 import asyncio。
                 safe_task = asyncio.create_task(_safe_execute_approved_work_item(tid, role_agent_code or ""))
                 safe_task.add_done_callback(_log_create_task_result)
 
@@ -2266,6 +2272,9 @@ async def process_approval(
             updated_init.status = InitiativeStatus.EXECUTING
             await asyncio.to_thread(ProactiveRepository.save_initiative, updated_init)
             # Execute in background (non-blocking)
+            # 【self-evolution-bot · 2026-11-20 · 第98轮 · 模型:deepseek-v4.1-flash-1017】
+            # 同上：删掉函数内 `import asyncio`，否则本函数前面第 2273 行
+            # `await asyncio.to_thread(ProactiveRepository.save_initiative, ...)` 必崩。
             task = asyncio.create_task(_safe_execute_approved_initiative(engine, updated_init))
             task.add_done_callback(_log_create_task_result)
 

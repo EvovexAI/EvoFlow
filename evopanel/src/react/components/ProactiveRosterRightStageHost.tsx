@@ -3,7 +3,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { RightStagePanel } from './RightStagePanel.js'
-import { SidePanelBootShell } from './SidePanelBootShell.js'
+import { RightStageUnavailableShell } from './RightStageUnavailableShell.js'
 import { useRightStageStore } from '../../lib/right-stage/use-right-stage.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { EMPLOYEES_ROSTER_STAGE_SESSION_KEY } from '../../lib/right-stage/employees-roster-stage-key.js'
@@ -70,9 +70,23 @@ export function ProactiveRosterRightStageHost() {
     (surface: RightStageSurface) => {
       const kind = normalizeRightStageKind(surface.kind)
       const data = surface.data || {}
+      // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：兜底由 <SidePanelBootShell>（永久「加载中…」）改为终态提示。
+      // 为什么：与 TaskDetailRightStageHost 同型缺陷——把瞬时载入占位当成「不支持」
+      //   的兜底，用户会看到永不结束的「加载中」。注意本函数只在注册表查不到时
+      //   才被调到（RightStagePanel 先问 getRightStageKind），所以这里不需要、
+      //   也不许再问一次注册表（问了也永远 undefined，是死代码）。
       if (kind === 'employeeProcess') {
         const agentCode = String(data.agentCode || '').trim()
-        if (!agentCode) return <SidePanelBootShell title="工作过程" />
+        if (!agentCode) {
+          return (
+            <RightStageUnavailableShell
+              title={String(surface.title || '工作过程')}
+              kind={kind}
+              onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+            />
+          )
+        }
         const roleName = String(data.roleName || '').trim()
         const empTitle =
           String(surface.title || data.title || roleName || agentCode).trim() || '工作过程'
@@ -89,7 +103,13 @@ export function ProactiveRosterRightStageHost() {
           />
         )
       }
-      return <SidePanelBootShell title={surface.title || kind || '面板'} />
+      return (
+        <RightStageUnavailableShell
+          title={String(surface.title || kind || '面板')}
+          kind={kind}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+        />
+      )
     },
     [stageSk],
   )

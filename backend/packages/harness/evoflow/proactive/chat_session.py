@@ -995,3 +995,154 @@ def list_employee_conversation_sessions(
         if len(out) >= lim:
             break
     return out
+# 【self-evolution-bot · 2026-11-20 · 第97轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增 `latest_human_session_key()`——按**真人发言时间**找该岗位最新的对话屏。
+# 为什么（本轮现网取证，已复算）：重启后的自唤醒不是没发生，是**投错了屏**。
+#   2026-11-20 17:45:11 自验证脚本把 sessionKey 写进 state.json（当时确实是最新屏
+#   …16-15-39.290Z，最后真人发言 17:43:29）；17:45:27 用户在**另一屏**
+#   （…16-17-14-53.207Z）发话；17:47:08 看门狗照旧键 wake，消息投进 16-15-39.290Z。
+#   用户等的那一屏直到 17:56 才有下一条消息 —— 界面表现就是「重启完卡在那里」。
+# 结论：会话键**不能在注册时快照、投递时盲用**，必须在投递时按「谁最近说过话」重算。
+# 判据（不是猜的，已用现网全量反向验证）：面板真人消息的 content_json 形如
+#   {"content":[{"type":"text",...}]} —— `json_type(content_json,'$.content')='array'`；
+#   系统注入（<task-notification> / [CONTEXT COMPACTION / # 值班 / 推进…）一律是纯 str。
+#   现网 6000 条 user 消息分桶：array=2061（真人，0 条带系统前缀）、text=2131（全系统注入）。
+def latest_human_session_key(
+    agent_code: str,
+    *,
+    kinds: list[str] | None = None,
+    limit: int = 8,
+) -> tuple[str, str]:
+    """Return ``(session_key, last_human_at)`` for the employee's newest human-active screen.
+
+    「真人发言」= Panel 发出的消息（content 是片段数组），**不含**系统注入的
+    task-notification / 上下文压缩 / 值班简报。这些注入必须排除：它们发生在被唤醒之后，
+    算进去就会把「刚被系统写过的会话」误当成「用户正在看的会话」。
+
+    ``kinds`` 默认只看 ``chat`` 桶；task/duty 会话是工作轨迹，不是用户对着说话的屏。
+    返回 ``("", "")`` 表示没有任何真人发言记录。
+    """
+    code = str(agent_code or "").strip()
+    if not code:
+        return "", ""
+    lim = max(1, min(int(limit), 50))
+    kind_filter = {str(k).strip().lower() for k in (kinds or ["chat"]) if str(k).strip()}
+    prefix = f"proactive:{code}"
+    try:
+        from evoflow.persistence.db import get_db
+
+        rows = (
+            get_db()
+            .execute(
+                """
+                SELECT m.session_key AS sk,
+                       MAX(julianday(m.created_at)) AS last_jd,
+                       MAX(m.created_at) AS last_at
+                FROM evoflow_chat_messages m
+                JOIN evoflow_chat_sessions s ON s.session_key = m.session_key
+                WHERE m.role = 'user'
+                  AND s.is_deleted = 0
+                  AND (s.session_key = ? OR s.session_key LIKE ?)
+                  AND CASE WHEN json_valid(m.content_json)
+                           THEN json_type(m.content_json, '$.content') END = 'array'
+                GROUP BY m.session_key
+                ORDER BY last_jd DESC
+                LIMIT ?
+                """,
+                (prefix, f"{prefix}:%", lim * 3),
+            )
+            .fetchall()
+        )
+    except Exception:
+        logger.debug("latest_human_session_key failed code=%s", code, exc_info=True)
+        return "", ""
+
+    for row in rows:
+        sk = str(row["sk"] or "").strip()
+        if not sk:
+            continue
+        parsed = parse_proactive_session_key(sk)
+        if str(parsed.get("agent_code") or "").strip() != code:
+            continue
+        if parsed.get("legacy"):
+            continue
+        if kind_filter and str(parsed.get("kind") or "legacy").lower() not in kind_filter:
+            continue
+        return sk, str(row["last_at"] or "").strip()
+    return "", ""
+
+
+# 【self-evolution-bot · 2026-11-20 · 第97轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增 `prefer_newest_human_session()`——投递前用「谁最近说过话」校正钉住的会话键。
+# 为什么：见上面 `latest_human_session_key` 的现网取证。钉住的键在注册时是对的、投递时
+# 已过期（中间只隔 2 分钟，用户换了屏）。所以校正必须发生在**投递时**。
+# 边界（防误伤）：① 只在调用方**显式钉了**会话键时校正 —— 空键走原 task/duty 分桶，
+# 对心跳/协作派发零影响；② 目标键本身还有新鲜真人发言就**不动**（多屏同时用的情况）；
+# ③ 只有新屏比旧屏新出 ``min_gap_s`` 以上才切换，避免同一秒内的写入竞争；
+# ④ 新键同样过 `normalize_pinned_session_key`（归属校验），不属于该岗位一律丢弃。
+def prefer_newest_human_session(
+    agent_code: str,
+    pinned_session_key: str | None,
+    *,
+    min_gap_s: float = 60.0,
+) -> tuple[str, str]:
+    """Return ``(session_key, reason)`` — corrected pin when the user moved to another screen.
+
+    ``reason``: ``kept``(钉住的键仍是最新屏) / ``retargeted``(换到新屏) / ``unpinned``(入参为空)。
+    """
+    pinned = str(pinned_session_key or "").strip()
+    if not pinned:
+        return "", "unpinned"
+    newest, newest_at = latest_human_session_key(agent_code)
+    if not newest or newest == pinned:
+        return pinned, "kept"
+
+    from evoflow.persistence.timestamps import iso_z_to_ms
+
+    newest_ms = iso_z_to_ms(newest_at) if newest_at else 0
+    if newest_ms <= 0:
+        return pinned, "kept"
+
+    pinned_ms = _session_last_human_ms(pinned)
+    if pinned_ms and (newest_ms - pinned_ms) < max(0.0, float(min_gap_s)) * 1000.0:
+        return pinned, "kept"
+
+    if not normalize_pinned_session_key(agent_code, newest):
+        return pinned, "kept"
+    return newest, "retargeted"
+
+
+def _session_last_human_ms(session_key: str) -> float:
+    """Epoch-ms of the last human-typed message in one session (0 when none)."""
+    sk = str(session_key or "").strip()
+    if not sk:
+        return 0.0
+    try:
+        from evoflow.persistence.db import get_db
+
+        row = (
+            get_db()
+            .execute(
+                """
+                SELECT MAX(created_at) AS last_at
+                FROM evoflow_chat_messages
+                WHERE session_key = ?
+                  AND role = 'user'
+                  AND CASE WHEN json_valid(content_json)
+                           THEN json_type(content_json, '$.content') END = 'array'
+                """,
+                (sk,),
+            )
+            .fetchone()
+        )
+    except Exception:
+        logger.debug("_session_last_human_ms failed session=%s", sk, exc_info=True)
+        return 0.0
+    if not row:
+        return 0.0
+    last_at = str(row["last_at"] or "").strip()
+    if not last_at:
+        return 0.0
+    from evoflow.persistence.timestamps import iso_z_to_ms
+
+    return iso_z_to_ms(last_at)

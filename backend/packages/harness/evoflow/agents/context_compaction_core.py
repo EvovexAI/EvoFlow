@@ -26,7 +26,6 @@ from evoflow.config.tool_results_config import (
     tool_result_shaping_active,
 )
 from evoflow.context.compaction_token_utils import (
-    _CHARS_PER_TOKEN,
     _CJK_RE,
     count_text_tokens,
 )
@@ -355,17 +354,42 @@ def _cap_summary_text(text: str, *, context_length: int) -> str:
         prefix = ""
         body = raw
     budget = max(256, max_tokens - count_text_tokens(prefix) - 32)
-    if count_text_tokens(body) <= budget:
+    body_tokens = count_text_tokens(body)
+    if body_tokens <= budget:
         return raw
 
-    # head + tail 保留：按 token 预算的 70/30 分配（reserve ~16 tokens for marker）
-    head_budget = int(budget * 0.70)
-    tail_budget = max(64, budget - head_budget - 16)
+    # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：字符窗改按**实测 token/char 比**换算，并在拼完后再复算一次、超了再收。
+    # 为什么（本轮实测）：原来写死 `_CHARS_PER_TOKEN = 4`（英文经验值），而中文实测
+    # **0.87 字符/token（1 个字 ≈ 1.15 token）**，于是「上限 5%×context_length」的闸门
+    # 按字符算被放大 4.6 倍，一个都没截住：我拿 24153 tokens 的摘要跑，落盘后 24164
+    # （只多了那段截断标记，正文一字未减）。现网 profile 库佐证：256k 上下文上限应为
+    # 12800，实测有摘要行 15137 / 14401 / 13425 三条超限。
+    # 判据：修完必须能看到「输入 24153 → 落盘 ≤ 6400（128k）」这种真下降。
+    tokens_per_char = body_tokens / max(1, len(body))
+    head_chars = max(256, int(int(budget * 0.70) / tokens_per_char))
+    tail_chars = max(256, int(max(64, budget - int(budget * 0.70) - 16) / tokens_per_char))
 
-    # 字符近似（4 chars/token），按段落边界裁剪以保留章节结构
-    head_chars = max(256, head_budget * _CHARS_PER_TOKEN)
-    tail_chars = max(256, tail_budget * _CHARS_PER_TOKEN)
+    candidate = _compose_truncated_summary(prefix, body, head_chars, tail_chars)
+    # 字符近似到 token 有残差（断句/标点），收敛两轮即可，别做无界循环。
+    for _ in range(2):
+        got = count_text_tokens(candidate)
+        if got <= max_tokens:
+            return candidate
+        scale = (max_tokens / max(1, got)) * 0.97
+        head_chars = max(256, int(head_chars * scale))
+        tail_chars = max(256, int(tail_chars * scale))
+        candidate = _compose_truncated_summary(prefix, body, head_chars, tail_chars)
+    return candidate
 
+
+def _compose_truncated_summary(prefix: str, body: str, head_chars: int, tail_chars: int) -> str:
+    """Head+tail 截断拼装：保留章节结构（在段落边界切，不切半个标题）。
+
+    【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：从 `_cap_summary_text` 里抽出本函数。
+    为什么：主函数需要**反复收敛**（拼完复算 token，超了再收），抽出后不重复那段断句逻辑。
+    """
     if len(body) <= head_chars + tail_chars + 64:
         # body 太短，无法做 head/tail 切分，退化为简单 head 截断
         truncated_body = body[: head_chars + tail_chars].rstrip()
@@ -385,7 +409,10 @@ def _cap_summary_text(text: str, *, context_length: int) -> str:
     if 0 < nl_tail < tail_chars // 2:
         tail_part = tail_part[nl_tail:].lstrip()
 
-    truncated_body = f"{head_part.rstrip()}\n\n[... earlier summary content truncated to fit context budget ...]\n\n{tail_part.lstrip()}"
+    truncated_body = (
+        f"{head_part.rstrip()}\n\n[... earlier summary content truncated to fit context budget ...]"
+        f"\n\n{tail_part.lstrip()}"
+    )
     return f"{prefix}\n{truncated_body}" if prefix else truncated_body
 
 
@@ -508,6 +535,7 @@ def detect_user_language(messages: Sequence[BaseMessage]) -> Literal["zh", "en"]
             "tool_history",
             "todo_reminder",
             "collab_phase_hint",
+            "context_usage_hint",
         }:
             continue
         text = message_content_str(msg).strip()
@@ -2490,6 +2518,161 @@ class ContextCompactionEngine:
                     exc,
                 )
         return folded
+
+    def fold_with_supplied_summary(
+        self,
+        messages: list[BaseMessage],
+        *,
+        summary: str,
+        thread_id: str,
+        context_length: int,
+        threshold_ratio: float,
+        aggressive_ratio: float,
+        protect_first_n: int,
+        protect_tail_messages: int,
+        protect_tail_tool_rounds: int = 3,
+        session_key: str | None = None,
+    ) -> tuple[list[BaseMessage], bool]:
+        """用**调用方自带的摘要正文**做结构化折叠，不调用压缩模型。
+
+        【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        改了什么：新增本方法。此前手工压缩（sessions.compact / 面板 /compact）与
+        自动压缩都只能走 `_generate_summary()` —— 另起一次 `invocation_kind="compress"`
+        的模型调用，把整段 transcript 序列化后喂给另一个模型重读一遍。而正在跑的 agent
+        本身就持有这份上下文，让它直接写摘要正文能省掉整整一次长上下文调用。
+        为什么不复用 `try_apply_pending_summary()`：那条路径服务于后台 LLM 队列，且
+        `upgrade_conversation_summary` 返回 None 时会静默不动；这里需要的是「无条件
+        折叠 + 显式回报是否真的变了」。
+        为什么先落盘再折叠：`apply_compaction_with_summary` 只改内存视图，
+        落盘 `conversation_summary` 行后下一轮 hydration 才会拼成
+        [bridge][summary][tail] 直接透传（见 should_passthrough_db_hydrated_transcript）。
+        """
+        text = str(summary or "").strip()
+        if not text:
+            return messages, False
+        # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：自带摘要加一道**最小质量闸**。
+        # 为什么（本轮实测）：传 summary="ok" 时，压缩照样把 80 条折成 4 条、
+        # gate 17816→4901，**76 条对话静默消失且不报错**。压缩是「用摘要替换中间段」，
+        # 摘要质量直接决定丢多少信息；老路径有上游 LLM 保证，新路径的输入是人/agent 手写，
+        # 没有下限就等于给了一个「一句话抹掉整段历史」的接口。
+        # 阈值取 `_MIN_SUMMARY_TOKENS`（800 tokens，与 _cap_summary_text 的下限同源），
+        # 不足则**拒绝压缩并说明原因**，不静默按差摘要折。
+        min_tokens = _MIN_SUMMARY_TOKENS
+        provided_tokens = count_text_tokens(text)
+        if provided_tokens < min_tokens:
+            logger.warning(
+                "[context-compaction] supplied-summary rejected (too short) thread=%s tokens=%d need>=%d",
+                self._tid(thread_id)[:16],
+                provided_tokens,
+                min_tokens,
+            )
+            # 报错而不是静默按差摘要折：调用方必须知道「这次没压」，否则它以为
+            # 上下文已经交代清楚了，下一轮却仍在长上下文里跑，或者更糟——以为压过
+            # 就放心丢了细节。
+            raise ValueError(
+                f"摘要太短（{provided_tokens} tokens，至少需 {min_tokens}）："
+                "压缩是用这份摘要替换掉整段中间对话，太短会静默丢失大量上下文。"
+                "请按摘要章节模板（目标/进展/关键决策/已解决问题/待处理用户请求/"
+                "相关文件/剩余工作/关键上下文/工具与模式）写全后再调用。"
+            )
+        text = text if text.startswith(MAIN_SUMMARY_PREFIX[:20]) else _with_summary_prefix(text)
+        text = _cap_summary_text(text, context_length=context_length)
+
+        plan = _resolve_compaction_plan(
+            messages,
+            context_length=context_length,
+            threshold_ratio=threshold_ratio,
+            aggressive_ratio=aggressive_ratio,
+            protect_first_n=protect_first_n,
+            protect_tail_messages=protect_tail_messages,
+            protect_tail_tool_rounds=protect_tail_tool_rounds,
+            aggressive=False,
+            # force=True：调用方已明确要求压缩，不再受「够不够长」的结构保护规则拦。
+            force=True,
+        )
+        # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：删掉这里原本的**无条件** `set_previous_summary()`。
+        # 为什么（本轮探针实测）：它在「能不能折叠」「折叠有没有省」两个判断**之前**就跑，
+        # 于是库里每次调用都多一行 conversation_summary（实测连续两次调用后磁盘 3 行，
+        # 而 `_prune_stale_compaction_summary_rows` 只在 hydration 侧保留最新 1 行）。
+        # `persist_conversation_summary` 是 INSERT + force_write，不去重、不更新，
+        # 所以那两行纯属垃圾，且 3.4GB 主库上会一直长。
+        # 连带修掉第二处：plan is None（对话太短 / 无可折叠中间段）时，原来的行为是
+        # **照样把摘要写进 transcript 尾部**——那等于「压缩」反而给上下文加了一段，
+        # 与老路径不一致（老路径 folded is None → reason="no_op"，不落盘）。
+        # 新口径：摘要只在**真的折叠成功且在下一轮真能省 token** 之后落一次盘。
+        if plan is None:
+            logger.info(
+                "[context-compaction] supplied-summary not folded (no plan, conversation too short) "
+                "thread=%s — not persisted, nothing changed",
+                self._tid(thread_id)[:16],
+            )
+            return messages, False
+
+        folded = apply_compaction_with_summary(plan, text)
+        before = compaction_token_snapshot(messages, context_length=context_length)["gate_tokens"]
+        after_fold = compaction_token_snapshot(folded, context_length=context_length)["gate_tokens"]
+        # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：先判断「这次折叠到底有没有省下东西」，没省就不落盘、不插新行。
+        # 为什么（实测踩到）：同一段对话连续压两次，第 2 次 `changed=False` 但库里
+        # 仍多出第 2 条 conversation_summary 行（实测 summary 行数 1→2）。
+        # `persist_conversation_summary` 是 INSERT 不是 UPDATE，重复行会一直堆在
+        # transcript 里（`_prune_stale_compaction_summary_rows` 只在 hydration 侧
+        # 过滤，磁盘上照样增长）。判据：折叠后没有更省 → 视为无效压缩，直接返回原文。
+        if after_fold >= before and len(folded) >= len(messages):
+            logger.info(
+                "[context-compaction] supplied-summary no-op (no saving) thread=%s gate %d→%d msgs %d→%d",
+                self._tid(thread_id)[:16],
+                before,
+                after_fold,
+                len(messages),
+                len(folded),
+            )
+            return messages, False
+        self.set_previous_summary(
+            thread_id,
+            text,
+            session_key=session_key,
+            context_length=context_length,
+        )
+        # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：落盘后**从库重新 hydration**，与本轮返回的列表对齐。
+        # 为什么（用户 2026-11-20 点破的）：摘要行是 append 到 transcript 尾部的，
+        # 下一轮 `list_lead_chat_rows_for_model_hydration` 会从 compaction_seq 起拼
+        # [压缩前用户轮 bridge] → [summary] → [压缩后尾部]，**只保留压缩点之后的行**。
+        # 只在内存里 fold 会造出两套不一样的东西：实测本轮 55 条 / 30654 tokens，
+        # 下一轮却只有 4 条 / 5817 tokens。本轮不 rehydrate 就会出现
+        # 「本轮自以为保留了尾部、实际下一轮全被砍掉」的隐性丢上下文。
+        # 老路径 compress_messages 一直有这一步，新通路必须对齐。
+        folded = _rehydrate_model_messages_after_compress(
+            session_key=session_key or self._resolve_session_key(thread_id),
+            thread_id=thread_id,
+            fallback=folded,
+        )
+        after = compaction_token_snapshot(folded, context_length=context_length)["gate_tokens"]
+        # 【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：补记 `mark_compress_completed()`，与老路径 compress_messages /
+        # compress_messages_fast 对齐。
+        # 为什么：这个调用会写入压缩冷却窗口（compaction_cooldown_seconds）。新通路
+        # 此前不记，后果是——我刚手工压完，自动压缩的 gate 仍认为「没压过」，可能
+        # 在下一轮立刻再压一次，白烧一次折叠 + 一次缓存全量重算。
+        self.mark_compress_completed(
+            thread_id,
+            before_gate_tokens=before,
+            message_count=len(messages),
+            after_gate_tokens=after,
+            session_key=session_key or self._resolve_session_key(thread_id),
+        )
+        logger.info(
+            "[context-compaction] supplied-summary fold thread=%s %d→%d msgs gate %d→%d",
+            self._tid(thread_id)[:16],
+            len(messages),
+            len(folded),
+            before,
+            after,
+        )
+        return folded, after < before or len(folded) < len(messages)
 
     async def generate_summary_for_turns(
         self,

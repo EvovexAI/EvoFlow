@@ -10,7 +10,6 @@ from typing import Any
 
 import pytest
 
-
 # ── DB 隔离（对齐 test_chat_session_create_takeover_guard 的 env 法） ─────────
 
 
@@ -125,13 +124,17 @@ def test_repo_patch_guard_blocked_when_paused_write_active_only(goal_db: str) ->
 @pytest.mark.asyncio
 async def test_engine_set_verify_failopen_and_verified(goal_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
     from app.gateway.v4.conversation import HUB
-    from app.gateway.v4.goal_engine import get_v4_goal_engine
+    from app.gateway.v4.goal_engine import get_v4_goal_engine, verifier_failed_open_result
 
     engine = get_v4_goal_engine()
     sid = "engine-verify-1"
     sess = HUB._get_or_create_session(sid)  # noqa: SLF001
 
     outcome = engine.set_goal(sid, "finish the demo report")
+    # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    # `set_goal` 的返回值此前被赋值却从未断言（ruff F841 存量）。这里补上断言：
+    # 目标被接受时不该返回错误信息，否则下面所有断言都建立在一个被拒的目标上。
+    assert not (isinstance(outcome, dict) and outcome.get("error")), outcome
     state = engine.get_goal_state(sid)
     assert state is not None and state["objective"] == "finish the demo report"
     assert state["status"] in ("active", "verifying")
@@ -142,6 +145,20 @@ async def test_engine_set_verify_failopen_and_verified(goal_db: str, monkeypatch
     assert "pauseGoal" in snapshot["availability"]
 
     # verifier：无模型环境 → fail-open → verified
+    # 【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    # 本用例原来「等真实 verifier 去跑」——它假设当前环境没有可用模型，于是
+    # `_run_verifier` 秒级抛错、fail-open 立刻置 verified。实测该假设不成立：
+    # 本机能连到云端模型，verifier 一次真实调用 4~17 秒；等 80×0.05s=4s 必然
+    # 超时 → 断言拿到 `status='active'`。
+    # 症状特征：**单跑绿、跟别的文件同跑红**（同跑时前置文件占了连接/线程，
+    # 真实调用更慢；也可能反过来被别的用例预先塞了模型客户端）。这是测试依赖
+    # 「外部模型有多快」的典型缺陷，不是引擎回归。
+    # 改成注入确定性的 fail-open 结果：被测语义是「verifier 失败 → 目标判 verified
+    # 且 iteration=1、marker 落 pass」，与真实模型延迟无关。
+    async def _fake_verifier(_sid: str, _row: dict[str, Any]) -> dict[str, Any]:
+        return verifier_failed_open_result("test: no model in pytest")
+
+    monkeypatch.setattr(engine, "_run_verifier", _fake_verifier)
     engine.on_run_finished(sid, run_id="run-1")
     for _ in range(80):
         await asyncio.sleep(0.05)
@@ -283,8 +300,7 @@ async def test_engine_circuit_breaker_pauses_on_repeated_next_action(goal_db: st
 
 @pytest.mark.asyncio
 async def test_engine_plan_goal_mutual_exclusion(goal_db: str, monkeypatch: pytest.MonkeyPatch) -> None:
-    from app.gateway.v4.goal_engine import get_v4_goal_engine
-    from app.gateway.v4.goal_engine import GoalRejectedError
+    from app.gateway.v4.goal_engine import GoalRejectedError, get_v4_goal_engine
 
     engine = get_v4_goal_engine()
     sid = "engine-plan-1"

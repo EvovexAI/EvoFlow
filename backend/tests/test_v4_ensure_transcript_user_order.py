@@ -25,11 +25,30 @@ def _rows(tid: str) -> list[dict[str, Any]]:
 
 @pytest.fixture()
 def mirror_thread(monkeypatch: pytest.MonkeyPatch) -> str:
+    """给本用例一个干净的 thread，并保证 `_get_mirror()` 指向当前 `HUB`。
+
+    【self-evolution-bot · 2026-11-20 · 第92轮 · 模型:deepseek-v4.1-flash-1017】
+    原来只清 `HUB._sessions[tid]`。但 `agui_mirror._MIRROR` 是**进程级单例**，
+    第一次 `_get_mirror()` 时把当时的 `conversation.HUB` 绑死在
+    `V4Mirror._hub` 上；此后任何替换过 `conversation.HUB` 的用例
+    （本仓 `test_v4_catchup_from_transcript.py:241` 就是这么做的）跑在前面，
+    这里的 `mirror_ensure_transcript_user_input()` 就写进**另一个 hub**，
+    而断言用 `HUB.get_session(tid)` 查的是本模块 import 的那个 → `sess is None`。
+    证据：`test_v4_catchup_from_transcript.py` + 本文件合跑 → 2 failed；
+    本文件单跑 → 5 passed。
+    修法：进入/退出都把 `_MIRROR` 重置为 `None`，让它按当前 HUB 惰性重建。
+    """
     monkeypatch.setattr("app.gateway.v4.agui_mirror._MIRROR_DISABLED", False)
+    # 不用 monkeypatch 管 `_MIRROR`：它退出时会把这个**过期的**单例还原回去，
+    # 等于把污染留给下一个用例。进入与退出都显式置 None，下次调用按当次 HUB 重建。
+    from app.gateway.v4 import agui_mirror as _am
+
+    _am._MIRROR = None  # noqa: SLF001
     tid = "ensure-transcript-order-test"
     if tid in getattr(HUB, "_sessions", {}):
         del HUB._sessions[tid]  # noqa: SLF001
     yield tid
+    _am._MIRROR = None  # noqa: SLF001
     if tid in getattr(HUB, "_sessions", {}):
         del HUB._sessions[tid]  # noqa: SLF001
 

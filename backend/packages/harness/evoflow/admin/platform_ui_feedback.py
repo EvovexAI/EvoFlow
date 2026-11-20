@@ -578,6 +578,7 @@ def _employee_process_cta(
     task_id: str,
     agent_code: str,
     round_id: str = "",
+    round_stamp: str = "",
     role_name: str = "",
     session_key: str = "",
     label: str = "查看进度",
@@ -589,6 +590,13 @@ def _employee_process_cta(
     data: dict[str, Any] = {"taskId": tid, "agentCode": code, "busy": True}
     if round_id:
         data["roundId"] = round_id
+    # 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：把「本次派发时刻」单独下发给右栏（roundStamp），与 roundId 并存。
+    # 为什么：roundId 在派单路径恒为空（见上层注释），前端「换轮不继承旧手挑会话」
+    # 的判据需要一个**每轮必变**的值；roundStamp 只服务这个判据，不参与会话键拼接。
+    stamp = str(round_stamp or "").strip()
+    if stamp:
+        data["roundStamp"] = stamp
     sk = _employee_owned_session_key(session_key, code)
     if sk:
         data["sessionKey"] = sk
@@ -661,6 +669,19 @@ def _progress_open_stage_action(
         task.get("source_ref"),
         args.get("round_id"),
     )
+    # 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：新增独立的 `round_stamp`（= 本次派发时刻），不改 round_id 语义。
+    # 为什么：`employees.dispatch` 的 in-process 分支回的是**调用方传入的** round_id
+    # （`round_id_s or None`），真实轮次 preview_round 在后台任务里生成、不回传；
+    # Platform 工具调 dispatch 时又不带 round_id ⇒ 前端拿到的 roundId 恒为空，
+    # 「换轮不继承旧会话」的判据永远不触发（死代码），症状就是派了新任务、右栏
+    # 仍死盯用户上次手挑的历史对话。round_id 不能挪用：前端拿它去匹配 `:duty:`
+    # 会话键，塞时间戳会污染匹配。故单开一个只为「这一轮有没有变」服务的字段。
+    round_stamp = _first_str(
+        result.get("dispatched_at"),
+        result.get("dispatchedAt"),
+        task.get("last_dispatch_at"),
+    )
     role_name = _first_str(
         result.get("role_name"),
         result.get("roleName"),
@@ -700,6 +721,7 @@ def _progress_open_stage_action(
             task_id=tid if tid and not str(tid).startswith("live:") else _first_str(result.get("task_id"), args.get("task_id")),
             agent_code=assigned,
             round_id=round_id,
+            round_stamp=round_stamp,
             role_name=role_name,
             session_key=sk,
             label="打开对话" if action == "employees.chat_send" else "查看进度",
@@ -713,6 +735,7 @@ def _progress_open_stage_action(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
+                round_stamp=round_stamp,
                 role_name=role_name,
                 auto_open=True,
             )
@@ -734,6 +757,7 @@ def _progress_open_stage_action(
                 task_id=tid,
                 agent_code=assigned,
                 round_id=round_id,
+                round_stamp=round_stamp,
                 role_name=role_name,
                 auto_open=True,
             )

@@ -75,11 +75,15 @@ fn main() {
                     "LIVE 虚拟屏 {vw}x{vh} @({vx},{vy}) 光晕带={band}px 实线={}px 保持 {secs}s (dpi_aware={dpi_aware})",
                     edge_thickness_for(band)
                 );
+                // 同步预览蓝白 AI 光标（与生产路径 cua_glow_ring_show 一致）。
+                evopanel_lib::commands::cua_glow_cursor::install_cua_cursor();
+                println!("LIVE 已切换蓝白 AI 光标；看屏幕四边蓝光环");
                 imp::spawn_ring(vx, vy, vw, vh).expect("spawn");
                 std::thread::sleep(Duration::from_secs(secs));
                 imp::stop_ring();
+                evopanel_lib::commands::cua_glow_cursor::restore_cua_cursor();
                 std::thread::sleep(Duration::from_millis(400));
-                println!("LIVE 结束，环已收掉");
+                println!("LIVE 结束，环与光标已恢复");
                 return;
             }
         }

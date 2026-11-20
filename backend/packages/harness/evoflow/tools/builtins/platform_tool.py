@@ -159,7 +159,10 @@ catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; 
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
 Reusable craft/experience → assets tool (not platform experience.*).
 sessions.status = current conversation run/context usage; sessions.compact (confirm=true) = manually compress context (same as /compact; applies to later turns).
-Right panel: call action=ui.kinds FIRST to read supported kinds + required fields, then ui.show kind+data.
+If you have already read the transcript yourself, pass args_json {"summary":"<your structured summary>"} —
+that folds without a compress-model call (faster, and more accurate because that model lacks your details).
+Omit summary to use the compress model.
+Right panel: call action=ui.kinds FIRST to read supported kinds + required fields, then ui.show kind+data.\nMain window CDP (not embed browser): action=ui.panel op=snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws.\nProduct actions: ui.panel op=action name=openXiaomi|sendMessage|selectSession|navigate|…
 Nothing auto-opens the panel except actions the user is actively waiting on
 (employees.wake/dispatch/resume/chat_send, workflow.run) — read-only ops (list/get/brief) never pop it.
 Required fields: web-embed data.url; shell-page data.path (site-internal route);

@@ -308,3 +308,64 @@ def check_run_completed(thread_id: str, *, conn: Any | None = None) -> dict[str,
         "run_id": run_id,
         "status": completion_status,
     }
+
+
+# 【self-evolution-bot · 2026-11-20 · 第96轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增 `sweep_stale_running_snapshots()`——把「心跳早就停了但状态仍是
+# running」的快照就地标成 `completed_error`。
+# 为什么（本轮现网取证）：`evoflow_chat_live_runs` 里进程被杀后留下的 running 行
+# **没有任何回收路径**。`delete_live_run_snapshot()` 只有两个调用点：前端主动 DELETE，
+# 或 stream 正常收尾 flush。重启=tokill，两者都不会发生。实测现网 118 条 running，
+# 其中 **116 条心跳早于当天 17:00**，最早停在 11-18。
+# 后果链条：`GET /{sk}/live-run/check` 用 `status.startswith("completed_")` 判完成 →
+# 这些行永远返回 completed=False → 前端 `install-visibility-reattach` 认为「run 还没结束、
+# 只是没在流」，于是一直等着接续一条早已死掉的 run，表现就是重启后卡住、叫不醒。
+# 为什么不直接 DELETE：标 `completed_error` 才能让 `/live-run/check` 返回 completed=True，
+# 前端据此刷新消息并自行清快照；直接删会让它退化成「没有快照」的旧分支，仍要等超时。
+def sweep_stale_running_snapshots(*, max_age_s: float, conn: Any | None = None) -> dict[str, int]:
+    """Mark ``running`` snapshots whose heartbeat is older than ``max_age_s`` as terminal.
+
+    ``max_age_s <= 0`` disables the sweep (returns zeros). Rows without any
+    ``last_event_at`` are treated as stale too — a running row with no heartbeat
+    can never become fresh again on its own.
+    """
+    stats = {"scanned": 0, "swept": 0}
+    if max_age_s is None or float(max_age_s) <= 0:
+        return stats
+    import time as _time
+
+    # 用 epoch 毫秒比较，避免手搓 ISO 串时区/格式差异（库里既有 +08:00 也有 Z 结尾）。
+    cutoff_ms = (_time.time() - float(max_age_s)) * 1000.0
+
+    def _tx(db: Any) -> dict[str, int]:
+        rows = db.execute(
+            """
+            SELECT session_key, run_id, last_event_at, updated_at
+            FROM evoflow_chat_live_runs
+            WHERE lower(status) = 'running'
+            """
+        ).fetchall()
+        current_time = now_iso_z()
+        local: dict[str, int] = {"scanned": 0, "swept": 0}
+        for row in rows:
+            d = dict(row)
+            local["scanned"] += 1
+            beat = str(d.get("last_event_at") or d.get("updated_at") or "").strip()
+            beat_ms = iso_z_to_ms(beat) if beat else 0
+            if beat_ms and beat_ms >= cutoff_ms:
+                continue
+            cur = db.execute(
+                """
+                UPDATE evoflow_chat_live_runs
+                SET status = 'completed_error', updated_at = ?
+                WHERE session_key = ? AND lower(status) = 'running'
+                """,
+                (current_time, str(d.get("session_key") or "")),
+            )
+            if int(cur.rowcount or 0) > 0:
+                local["swept"] += 1
+        return local
+
+    if conn is not None:
+        return _tx(conn)
+    return run_db_transaction(_tx)

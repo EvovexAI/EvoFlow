@@ -107,7 +107,8 @@ const STREAM_RECENT_MS = 8_000;
 const API_RECENT_MS = 60_000;
 const SCROLL_RECENT_MS = 30_000;
 
-function extractStreamMaxRowId(
+/** 近窗流式 headline/json 里出现的最大 rowId（供异常表 / 虚拟化表共用）。 */
+export function extractStreamMaxRowId(
   entries: NonNullable<ViewportAnomalyInput["streamEntries"]>,
   tid: string,
   sinceMs: number,

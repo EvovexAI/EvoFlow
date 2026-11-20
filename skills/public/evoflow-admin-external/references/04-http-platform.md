@@ -17,7 +17,7 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
-> 计数：`len(get_registry())` = **180**（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
+> 计数：`len(get_registry())` = **184**（含 ui.panel 主窗口 CDP）（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
 
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  

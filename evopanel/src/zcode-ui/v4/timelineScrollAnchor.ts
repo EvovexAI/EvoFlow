@@ -278,6 +278,11 @@ export function historyPrefetchTriggerPx(viewportHeight: number): number {
  * 若不看 following 会 loadOlder↔soft-cap↔scrollToBottom 死循环
  * （发消息后最新消息不显示、上滚又被拽回底、切会话偶发正常再滚又乱）。
  * ZCode 语义：following = 用户要看最新；只有上滚阅读历史才补更早页。
+ *
+ * 短尾窗近底也禁止预取（即便 follow=false）：内容只有一屏多时整条滚动条都落在
+ * 「距顶 ≤ 2×视口」里，刚离底上滚一点就会 loadOlder → prepend 把 scrollTop
+ * 猛推一截（滚轮 !JUMP prependAnchorAdjust「蹦高」）。须先离开近底区，或真到顶
+ * （scrollTop≤64）才拉。
  */
 export function shouldTriggerLoadOlder(input: {
   scrollTop: number;
@@ -286,8 +291,22 @@ export function shouldTriggerLoadOlder(input: {
   triggerPx?: number;
   /** 跟底中为 true 时绝不预取。省略则保持旧行为（仅几何）。 */
   following?: boolean;
+  /** 距底像素；与 viewportHeight 一起用于短尾窗近底门闸。 */
+  distanceFromBottom?: number;
+  viewportHeight?: number;
 }): boolean {
   if (input.following === true) return false;
+  const viewport = Number(input.viewportHeight);
+  const gap = Number(input.distanceFromBottom);
+  if (
+    Number.isFinite(viewport) &&
+    viewport > 0 &&
+    Number.isFinite(gap) &&
+    gap < viewport &&
+    input.scrollTop > LOAD_OLDER_TRIGGER_PX
+  ) {
+    return false;
+  }
   return (
     input.canLoadOlder &&
     !input.loadingOlder &&

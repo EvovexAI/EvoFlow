@@ -69,10 +69,10 @@
 
 | | |
 |--|--|
-| **ZCode** | `shouldTriggerLoadOlder`：`scrollTop ≤ max(64, 2×视口)` 且可拉且非在途。**无 following 参数**——因为上游 **没有 soft-cap**，窗口够长，跟底时 scrollTop 不会永远落在预取带。SessionPane 另有「首 turn 缺 header」自动补拉（与滚动无关）。 |
-| **EvoFlow** | soft-cap 后尾窗常只有 ~80 行 → max(scrollTop)≈300 永远 ≤ 2×视口 → 跟底中狂打 loadOlder → soft-cap 再裁 → `scrollToBottom` !JUMP 死循环。已加：`following===true → 禁止预取`。 |
-| **状态** | ✅ soft-cap **配套**已修（相对现场死循环）；❌ 若「对齐」回纯几何预取会复发 |
-| **动作** | 文档锁定为故意门闸；验收：跟底时 `auto=0`；上滚 `follow=0` 后才 `loading=1` |
+| **ZCode** | `shouldTriggerLoadOlder`：仅几何（近顶 + 可拉 + 非在途）。**无 following 参数**——上游无 soft-cap，窗够长。`mergeOlderRows` = **纯前插** `[...older, ...window]`，不裁行。前插后 `prependVirtualAnchor` 平移 scrollTop。 |
+| **EvoFlow** | soft-cap 后尾窗短 → 跟底时 scrollTop 常落在预取带 → 已加 `following===true → 禁止预取`（故意门闸）。`mergeOlderRows` **已收回纯前插**（2026-11-20），不再在上滚路径 soft-cap+钉直播。 |
+| **状态** | ✅ 跟底门闸 + 近底短窗门闸 + 上滚纯前插对齐 ZCode 语义 |
+| **动作** | 验收：跟底 `auto=0`；近底刚离底不预取；上滚离开近底或真到顶后 `loading=1` 且 winFirst 前进（A4） |
 
 ### A4 · prepend 锚定
 
@@ -98,8 +98,8 @@
 |--|--|
 | **ZCode** | snapshot 整窗替换；loadOlder 纯前插；流式 delta 只改尾轮；`advanceConversationRowsPartition` 冻结历史引用。 |
 | **EvoFlow** | snapshot：`applySoftCap` + `mergePreservedOlderRowsIntoTailSnapshot`；loadOlder：cap + ensureLive；**delta 路径禁止 soft-cap**（对齐「直播只增不减」）。无 rowPool/partition。 |
-| **状态** | ✅ snapshot/preserve/delta 不裁 已修；⚠️ partition 未跟 |
-| **动作** | backlog：评估回港 partition（与 soft-cap 正交，降每帧 O(N)） |
+| **状态** | ✅ snapshot/preserve/delta 不裁 已修（2026-11-20 再次拆掉 delta balloon soft-cap 回潮——曾致 STREAM_AHEAD）；⚠️ partition 未跟 |
+| **动作** | backlog：评估回港 partition（与 soft-cap 正交，降每帧 O(N)）；**禁止**再在 delta 热路径加 cap |
 
 ### A7 · 冷快照首 turn 补齐
 
@@ -168,7 +168,8 @@
 - 离底停 scroll/interval heal；KeepAlive 尊重 awayFromBottom（A10）
 - 到顶继续上滚：wheel 补触发 loadOlder（不再只靠 scroll）（A3）
 - loadOlder 纪元字符串比较 + 空页/窗首未前进打日志；prefer=head 强制保住本页更早行（A3/A5）
-- 内存 shrink prefer=tail 后 mergePreservedOlder，不吃掉已上拉历史（A5）
+- 内存 shrink：**只瘦身永不裁行**（loadingOlder 跳过）；防上滚 2004↔52 / prepend !JUMP 抖动（A5/A3，2026-11-20）
+- mergePreserved 抬 effectiveCap + 硬保窗首（snapshot 尾窗替换配套）
 
 ### 故意偏离（写进评审）
 

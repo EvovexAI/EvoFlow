@@ -2726,7 +2726,13 @@ def sessions_status(args: dict[str, Any]) -> dict[str, Any]:
 
 
 def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
-    """主动压缩当前（或指定）会话上下文 — 与 UI ``/compact`` 同引擎。"""
+    """主动压缩当前（或指定）会话上下文 — 与 UI ``/compact`` 同引擎。
+
+    【self-evolution-bot · 2026-11-20 · 第94轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增可选 ``summary``。传了就用**调用方自己写的摘要正文**做结构化折叠，
+    不再另起 compress 模型重读 transcript；不传则沿用原路径（压缩模型生成摘要）。
+    为什么：正在跑的 agent 本来就持有这份上下文，让它直接总结能省一次长上下文调用。
+    """
     from evoflow.admin import sessions as sess
     from evoflow.agents.manual_context_compaction import ManualCompactionError, run_manual_context_compaction
 
@@ -2734,9 +2740,14 @@ def sessions_compact(args: dict[str, Any]) -> dict[str, Any]:
         session_key=_arg_str(args, "session_key", "sessionKey", "session"),
         thread_id=_arg_str(args, "thread_id", "threadId"),
     )
+    supplied = _arg_str(args, "summary", "compacted_summary", "digest")
     try:
         result = _run_coro_sync(
-            run_manual_context_compaction(prep["session_key"], session_row=prep["session_row"])
+            run_manual_context_compaction(
+                prep["session_key"],
+                session_row=prep["session_row"],
+                supplied_summary=supplied or None,
+            )
         )
     except ManualCompactionError as exc:
         return {
@@ -3376,6 +3387,12 @@ def _ui_panel_args(args: dict[str, Any]) -> dict[str, Any]:
     kind = _arg_str(args, "kind", "panel_kind", "surface_kind")
     title = _arg_str(args, "title") or None
     layout = _arg_str(args, "layout") or None
+    # 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：新增 expand 参数并透传给 apply_right_panel。
+    # 为什么：用户要求「用平台工具打开面板给我看」，但右栏被用户收起后
+    # ui.show 只写标签不撑开，返回 ok 而用户屏幕无变化（本轮实测 shellExists=false）。
+    # 默认 False 保持「不抢视线」语义；expand=True 才撑开。
+    expand = _arg_bool(args, "expand")
     data = args.get("data")
     if data is None:
         # Allow flat progress fields at top level for convenience.
@@ -3391,11 +3408,44 @@ def _ui_panel_args(args: dict[str, Any]) -> dict[str, Any]:
                 "layout",
                 "action",
                 "confirm",
+                "expand",
             }
         }
     if not isinstance(data, dict):
         data = {}
-    return {"kind": kind or None, "title": title, "layout": layout, "data": data}
+    return {
+        "kind": kind or None,
+        "title": title,
+        "layout": layout,
+        "data": data,
+        "expand": expand,
+    }
+
+
+def ui_activate(args: dict[str, Any]) -> dict[str, Any]:
+    """把右栏切到**用户已有的某个标签页**（不新建、不关闭、不改内容）。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 platform action=ui.activate。
+    为什么（用户明确指出）：「你要知道当前是哪一个，然后怎么去切换到哪一个要处理好。」
+      此前模型只有 show/update/hide 三种表达，**没有"切到某个已开的签"**。
+      想让人看回某页只能重新 show —— 而那会把同一份东西开成第二个签，
+      正好是用户担心的「用户还在右栏拉开了一些东西」被破坏的场景。
+    判据：只发 ``activate`` + ``key``，前端只改 activeKey；tabCount 前后必须相等。
+    """
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    key = _arg_str(args, "key", "tab_key", "activeKey", "active_key")
+    if not key:
+        from app.gateway.routers.stage_right_panel import read_right_stage_state as _read
+
+        cur = _read()
+        keys = [str((t or {}).get("key") or "") for t in (cur.get("tabs") or [])]
+        raise ValidationError(
+            "ui.activate requires key (the tab key, e.g. 'employeeProcess:primary'). "
+            f"Read it from platform action=ui.current first. Current tabs: {keys or 'unknown'}"
+        )
+    return apply_right_panel(action="activate", key=key)
 
 
 def ui_show(args: dict[str, Any]) -> dict[str, Any]:
@@ -3431,6 +3481,30 @@ def ui_hide(_args: dict[str, Any]) -> dict[str, Any]:
     return apply_right_panel(action="hide")
 
 
+def ui_current(_args: dict[str, Any]) -> dict[str, Any]:
+    """读用户当前右栏停在哪一页。
+
+    【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 platform action=ui.current。
+    为什么（用户明确指出）：「你知道我当前右侧标签页是哪个吗？这个在你的管理体系里边能查到吗？」
+      此前后端对右栏一无所知（``grep activeKey backend --include=*.py`` 命中 0 次），
+      模型 ui.show 只能盲开：要么抢走用户正看的页面，要么把同一页开成第二个签。
+    判据：``known=false`` 表示前端还没上报过（窗口没开/刚重启），
+      此时**不许**假设「右栏是空的」，要把这份不确定性如实带回给模型。
+    """
+    from app.gateway.routers.stage_right_panel import read_right_stage_state
+
+    data = read_right_stage_state()
+    out = {**data, "action": "ui.current"}
+    if not data.get("known"):
+        out["hint"] = (
+            "未知右栏状态：前端还没上报过（窗口可能没开或刚重启）。"
+            "此时不要假设右栏为空——若要开面板，优先用 ui.show 而非 ui.update，"
+            "避免对着不存在的签更新。"
+        )
+    return out
+
+
 def ui_kinds(_args: dict[str, Any]) -> dict[str, Any]:
     """右栏支持哪些类型、每种必需字段是什么、谁能触发。
 
@@ -3462,6 +3536,186 @@ def ui_kinds(_args: dict[str, Any]) -> dict[str, Any]:
             "artifacts": "已退役，勿用；产物走侧栏 Info Rail。",
         },
     }
+
+
+
+
+def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
+    """Drive the main desktop window via ``/main-cdp/*`` (not the embed browser).
+
+    Requires EvoFlow desktop. Optional auth: env ``EVOFLOW_PANEL_CDP_TOKEN`` or
+    ``~/.evoflow/panel-cdp-token``.
+    """
+    from evoflow.tools.builtins.panel_engine import panel_request
+
+    op = _arg_str(args, "op", "action", "cmd").lower()
+    if not op:
+        raise ValidationError(
+            "ui.panel requires op: snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
+        )
+
+    def _params_obj() -> dict[str, Any]:
+        raw = args.get("params")
+        if isinstance(raw, dict):
+            return dict(raw)
+        if isinstance(raw, str) and raw.strip():
+            import json as _json
+
+            try:
+                loaded = _json.loads(raw)
+            except Exception as exc:
+                raise ValidationError(f"params must be a JSON object: {exc}") from exc
+            if not isinstance(loaded, dict):
+                raise ValidationError("params must be a JSON object")
+            return loaded
+        return {}
+
+    if op == "snapshot":
+        body: dict[str, Any] = {}
+        if args.get("max_elements") is not None or args.get("maxElements") is not None:
+            body["maxElements"] = int(args.get("max_elements") or args.get("maxElements") or 150)
+        if _arg_bool(args, "include_hidden", False) or _arg_bool(args, "includeHidden", False):
+            body["includeHidden"] = True
+        env = panel_request("POST", "snapshot", body=body or None)
+        # Compact text for the model when elements are present
+        result = env.get("result") if isinstance(env, dict) else None
+        snap = result if isinstance(result, dict) else {}
+        if isinstance(result, dict) and "elements" not in result and isinstance(result.get("result"), dict):
+            snap = result["result"]
+        elements = snap.get("elements") if isinstance(snap, dict) else None
+        if env.get("ok") and isinstance(elements, list):
+            lines = [
+                f"URL: {snap.get('url') or ''}",
+                f"Title: {snap.get('title') or ''}",
+                f"Elements ({len(elements)}" + (" truncated" if snap.get("truncated") else "") + "):",
+            ]
+            for el in elements[:150]:
+                if not isinstance(el, dict):
+                    continue
+                ref = el.get("ref") or "?"
+                role = el.get("role") or el.get("tag") or ""
+                name = str(el.get("name") or el.get("text") or "").replace("\n", " ")[:80]
+                line = f"  [{ref}] {role}"
+                if name:
+                    line += f' "{name}"'
+                if el.get("inViewport") is False:
+                    line += " (out of view)"
+                lines.append(line)
+            env = {**env, "text": "\n".join(lines), "action": "ui.panel", "op": op}
+        else:
+            env = {**env, "action": "ui.panel", "op": op} if isinstance(env, dict) else env
+        return env if isinstance(env, dict) else {"ok": False, "error": "bad response", "action": "ui.panel"}
+
+    if op == "click":
+        ref = _arg_str(args, "ref").lstrip("@")
+        if not ref:
+            raise ValidationError("ui.panel op=click requires ref (e.g. e2 from snapshot)")
+        env = panel_request("POST", "click", body={"ref": ref})
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "fill":
+        ref = _arg_str(args, "ref").lstrip("@")
+        if not ref:
+            raise ValidationError("ui.panel op=fill requires ref")
+        clear = True if "clear" not in args else _arg_bool(args, "clear", True)
+        env = panel_request(
+            "POST",
+            "fill",
+            body={"ref": ref, "text": str(args.get("text") or ""), "clear": clear},
+        )
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "type":
+        ref = _arg_str(args, "ref").lstrip("@")
+        if not ref:
+            raise ValidationError("ui.panel op=type requires ref")
+        env = panel_request("POST", "type", body={"ref": ref, "text": str(args.get("text") or "")})
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "scroll":
+        body = {}
+        ref = _arg_str(args, "ref").lstrip("@")
+        if ref:
+            body["ref"] = ref
+        direction = _arg_str(args, "direction")
+        if direction:
+            body["direction"] = direction.lower()
+        if args.get("amount") is not None:
+            body["amount"] = int(args.get("amount") or 0)
+        if args.get("x") is not None:
+            body["x"] = float(args["x"])
+        if args.get("y") is not None:
+            body["y"] = float(args["y"])
+        env = panel_request("POST", "scroll", body=body)
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "state":
+        env = panel_request("GET", "state")
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "action":
+        name = _arg_str(args, "name", "action_name", "panel_action")
+        if not name:
+            raise ValidationError(
+                "ui.panel op=action requires name "
+                "(navigate|openXiaomi|sendMessage|selectSession|setComposerText|focusComposer|openRightStage)"
+            )
+        params = _params_obj()
+        text = str(args.get("text") or "").strip()
+        if text and "text" not in params and "message" not in params:
+            params["text"] = text
+        # Flat alias fields for navigate / selectSession
+        for key in ("path", "hash", "route", "sessionKey", "key", "surface", "kind"):
+            if key in args and key not in params and args.get(key) not in (None, ""):
+                params[key] = args.get(key)
+        env = panel_request("POST", "action", body={"action": name, "params": params})
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "ax":
+        env = panel_request("GET", "ax")
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "screenshot":
+        env = panel_request("GET", "screenshot")
+        # Strip huge base64 from default return; keep a short note
+        if isinstance(env, dict) and env.get("ok"):
+            result = env.get("result")
+            data_b64 = None
+            if isinstance(result, dict):
+                data_b64 = result.get("data")
+                if data_b64 is None and isinstance(result.get("result"), dict):
+                    data_b64 = result["result"].get("data")
+            if data_b64:
+                return {
+                    "ok": True,
+                    "action": "ui.panel",
+                    "op": op,
+                    "hasImage": True,
+                    "bytesApprox": int(len(str(data_b64)) * 3 / 4),
+                    "hint": (
+                        "Screenshot captured via CDP. Prefer op=snapshot for readable refs; "
+                        "raw base64 omitted from tool result to protect context."
+                    ),
+                    "data": data_b64 if _arg_bool(args, "include_data", False) else None,
+                }
+        return {**(env if isinstance(env, dict) else {"ok": False, "error": str(env)}), "action": "ui.panel", "op": op}
+
+    if op == "cdp":
+        method = _arg_str(args, "method", "cdp_method")
+        if not method:
+            raise ValidationError("ui.panel op=cdp requires method (e..find Runtime.evaluate)")
+        env = panel_request("POST", "cdp", body={"method": method, "params": _params_obj()})
+        return {**env, "action": "ui.panel", "op": op}
+
+    if op == "ws":
+        env = panel_request("GET", "ws")
+        return {**env, "action": "ui.panel", "op": op}
+
+    raise ValidationError(
+        f"unsupported ui.panel op={op!r}; "
+        "use snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
+    )
+
 
 
 # ── extensions（Agent应用 / UI 扩展；侧栏 #/extensions）─────────────────────
