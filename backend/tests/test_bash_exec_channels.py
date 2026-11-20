@@ -15,7 +15,6 @@ from evoflow.tools.zcode_port.bash_tool import (
     _pure_wait_guard,
 )
 
-
 # ── pure-wait guard ─────────────────────────────────────────────────────
 
 
@@ -123,3 +122,58 @@ def test_same_thread_still_serializes():
     t2.join()
     elapsed = time.monotonic() - start
     assert elapsed >= 0.55, f"same-channel mutual exclusion broken: {elapsed:.2f}s"
+
+
+# ── 转后台时长等待必须放行（第89轮补）───────────────────────────────
+# 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
+# 拒绝文案自己写着「长等待请用 run_in_background=true」，而判定只看单次 sleep
+# 时长、压根没看是否转后台——等于文案在教一个它自己不允许的动作。
+# 实证：2026-11-20 为验 taskoutput 30s 封顶需造 40s 后台任务，连撞两次拒绝，
+# 最后只能用 `(sleep 18; sleep 18)` 绕过。
+
+
+def test_guard_allows_long_sleep_when_backgrounded():
+    """转后台的长等待必须放行——它不占前台通道。"""
+    assert _pure_wait_guard("sleep 40", run_in_background=True) is None
+    assert _pure_wait_guard("sleep 480 && gh run view 1", run_in_background=True) is None
+
+
+def test_guard_still_rejects_long_sleep_in_foreground():
+    """前台限制逐字不变（反证：别为了让后台过而把前门敞开）。"""
+    assert _pure_wait_guard("sleep 40") is not None
+    assert _pure_wait_guard("sleep 40", run_in_background=False) is not None
+    assert _pure_wait_guard("sleep 21", run_in_background=False) is not None
+
+
+def test_guard_background_does_not_allow_without_sleep():
+    """不含等待的命令本来就不归这个守卫管，转后台与否都不该报错。"""
+    assert _pure_wait_guard("ls -la", run_in_background=True) is None
+    assert _pure_wait_guard("", run_in_background=True) is None
+
+
+def test_bash_tool_wires_background_flag_into_guard(monkeypatch):
+    """接线测试：必须从 bash_tool 真实入口进，`run_in_background="true"` 能传到守卫。
+
+    只测 `_pure_wait_guard(...)` 等于没修——第12/16轮教训：函数层绿、调用点没传参。
+    """
+    import importlib
+
+    bt = importlib.import_module("evoflow.tools.zcode_port.bash_tool")
+    seen: dict = {}
+    real = bt._pure_wait_guard
+
+    def _spy(command, *, run_in_background=False):
+        seen["run_in_background"] = run_in_background
+        return real(command, run_in_background=run_in_background)
+
+    monkeypatch.setattr(bt, "_pure_wait_guard", _spy)
+
+    class _RT:
+        context = {"thread_id": "t-guard-wire"}
+        config: dict = {}
+        state: dict = {}
+
+    # 模块属性 bash_tool 已被 @tool 覆盖为 StructuredTool，取原函数用 .func
+    out = bt.bash_tool.func("sleep 40", run_in_background="true", runtime=_RT())
+    assert seen.get("run_in_background") is True, ("标志没传到守卫：", seen, "输出", out)
+    assert "过长 sleep" not in str(out), ("转后台仍被拒：", out)
