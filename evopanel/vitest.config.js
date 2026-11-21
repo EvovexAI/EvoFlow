@@ -237,6 +237,12 @@ export default defineConfig({
       'tests/employee-process-round-switch.test.js',
       'tests/employee-process-dispatch-cta-e2e.test.js',
       'tests/shell-page-mount-table.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+      // 右栏「任务」签恒空：asList 只认顶层信封，错过 {success,data:{tasks}}。不登记 include 等于没写。
+      'tests/tasks-center-compact-envelope.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+      // 工作流签绑错任务：显式 mainTaskId 被当前会话 thread 覆盖 → 标题串、节点 0。
+      'tests/collab-workflow-stage-binding.test.ts',
       'tests/subtask-conversation-history.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
@@ -252,6 +258,8 @@ export default defineConfig({
       // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
       // chat_send 单 owner：服务端已受理时前端不许再 pendingSend，否则同一句话两遍。
       'tests/employee-chat-send-single-owner.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】面板发送桥判据
+      'tests/employee-pane-send-bridge.test.js',
       // 右栏「当前在看哪一页」上报 + 切到已有标签：用户明确要求可查、可切。
       'tests/right-stage-state-report.test.ts',
       'tests/right-stage-activate.test.ts',

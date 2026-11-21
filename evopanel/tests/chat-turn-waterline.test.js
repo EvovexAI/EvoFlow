@@ -59,6 +59,16 @@ describe('chat turn waterline', () => {
           error: 'timeout',
         },
       ],
+      stopHints: [
+        {
+          atMs: Date.parse('2026-11-20T01:00:02.000Z'),
+          whoZh: '用户点击 V4 停止按钮',
+          trigger: 'v4_stop_button',
+          kind: 'ui_stop',
+          sessionKey: 'sk-ok',
+          fromUiStopButton: true,
+        },
+      ],
     })
     const blob = lines.join('\n')
     expect(blob).toContain('发送水位线')
@@ -68,6 +78,51 @@ describe('chat turn waterline', () => {
     expect(blob).toContain('前后接口')
     expect(blob).toContain('subscribe')
     expect(blob).toContain('timeout')
+    expect(blob).toContain('停止归因')
+    expect(blob).toContain('用户点击 V4 停止按钮')
+    expect(blob).toContain('v4_stop_button')
+  })
+
+  it('stores endWhoZh on stream_end and surfaces it on waterline', async () => {
+    const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
+    const sk = 'sk-who'
+    mod.logChatTurnSendClick({ sessionKey: sk, text: '谁停的' })
+    mod.logChatTurnUserBubbleVisible({ sessionKey: sk })
+    mod.logChatTurnSendWire({ sessionKey: sk })
+    mod.logChatTurnRunStarted({ sessionKey: sk, runId: 'r-who' })
+    mod.logChatTurnFirstResponse({
+      sessionKey: sk,
+      kind: 'text',
+      preview: '…',
+      runId: 'r-who',
+    })
+    mod.logChatTurnStreamEnd({
+      sessionKey: sk,
+      runId: 'r-who',
+      outcome: 'sse_aborted',
+      whoZh: '网关冷 attach：后端批量停止 panel run（非用户点停）',
+      trigger: 'client_attach',
+      hasEndMarker: false,
+    })
+    const row = mod.listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === 'r-who')
+    expect(row?.endWhoZh).toContain('非用户点停')
+    expect(row?.endTrigger).toBe('client_attach')
+    const blob = mod
+      .formatChatTurnWaterlineForDiag({
+        sessionKey: sk,
+        stopHints: [
+          {
+            atMs: Date.now(),
+            whoZh: '网关冷 attach：后端批量停止 panel run（非用户点停）',
+            trigger: 'client_attach',
+            kind: 'abnormal',
+            sessionKey: sk,
+          },
+        ],
+      })
+      .join('\n')
+    expect(blob).toContain('谁=网关冷 attach')
+    expect(blob).toContain('client_attach')
   })
 
   it('binds stream_end to the wired row after a duplicate send_click', async () => {

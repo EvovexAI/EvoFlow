@@ -24,11 +24,18 @@ VENDOR_KEY = "aliyun"
 CATALOG_ID = "aliyun.token_plan"
 PREFERRED_PRIMARY_IDS = (
     "auto",
+    "qwen4-max",
     "qwen3.8-flash",
     "qwen3.8-max",
     "deepseek-v4.1-flash",
     "qwen3.7-plus",
 )
+
+# 百炼官方模型页（2026-11）核对：多数旗舰已是 1M 上下文；勿再一刀切写 256K。
+# DeepSeek V4* max_output=393216；Qwen3.8/3.7 ≈131072；Qwen3.6-flash=65536。
+_DEFAULT_CONTEXT = 1_000_000
+_DEFAULT_MAX_OUT = 131_072
+_DEEPSEEK_MAX_OUT = 393_216
 
 _TIER_RANK = {"lite": 0, "essential": 1, "standard": 2, "pro": 3}
 _DATED_ID = re.compile(r"-\d{6}$")
@@ -45,13 +52,17 @@ _SKIP_SUBSTR = (
     "realtime",
 )
 
-# Official 套餐概览 chat IDs（个人版，对齐 2026-11 文档）
+# Official 套餐概览 chat IDs（个人版，对齐 2026-11-21 百炼模型页）
+# 【self-evolution-bot · 2026-11-21 · 第110轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：去掉「全家 256K/65K」占位；按官方 context_window / max_output 写入。
+# 为什么：压缩闸门与用量提示读 evoflow_models.context_length——写小了会过早压上下文，
+# 且 DeepSeek/Qwen 旗舰官方已是 1M（火山 Agent Plan 侧早已按 1M 写）。
 TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "auto",
         "label": "Auto",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -59,10 +70,29 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
         "notes": "智能路由，按请求匹配底层模型",
     },
     {
+        "id": "qwen4-max",
+        "label": "Qwen 4 Max",
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": 262_144,  # 思考+输出合计上限；非思考 131072
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "lite",
+    },
+    {
+        "id": "qwen4-max-preview",
+        "label": "Qwen 4 Max Preview",
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,  # 393216，思考与回答共享
+        "vision": True,
+        "reasoning": True,
+        "min_tier": "lite",
+        "notes": "预览期至 2026-11-25；别名 qwen4.0-max-preview",
+    },
+    {
         "id": "qwen3.8-max",
         "label": "Qwen 3.8 Max",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -71,8 +101,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "qwen3.8-flash",
         "label": "Qwen 3.8 Flash",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -81,8 +111,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "qwen3.7-plus",
         "label": "Qwen 3.7 Plus",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -90,8 +120,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "qwen3.7-max",
         "label": "Qwen 3.7 Max",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -99,8 +129,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "qwen3.6-flash",
         "label": "Qwen 3.6 Flash",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": 65_536,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -108,8 +138,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "deepseek-v4.1-flash",
         "label": "DeepSeek V4.1 Flash",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -118,8 +148,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "deepseek-v4.1-flash-1017",
         "label": "DeepSeek V4.1 Flash 1017",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,
         "vision": True,
         "reasoning": True,
         "min_tier": "lite",
@@ -128,8 +158,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "deepseek-v4-pro",
         "label": "DeepSeek V4 Pro",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -137,8 +167,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "deepseek-v4-pro-0813",
         "label": "DeepSeek V4 Pro 0813",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -147,8 +177,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "deepseek-v4-flash-0731",
         "label": "DeepSeek V4 Flash 0731",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEEPSEEK_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -157,8 +187,8 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "glm-5.3",
         "label": "GLM 5.3",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
@@ -166,11 +196,21 @@ TOKEN_PLAN_CHAT_MODELS: list[dict[str, Any]] = [
     {
         "id": "glm-5.2",
         "label": "GLM 5.2",
-        "context_window": 256000,
-        "max_output": 65536,
+        "context_window": 1_048_576,
+        "max_output": _DEFAULT_MAX_OUT,
         "vision": False,
         "reasoning": True,
         "min_tier": "lite",
+    },
+    {
+        "id": "decision-model-preview",
+        "label": "Decision Model Preview",
+        "context_window": _DEFAULT_CONTEXT,
+        "max_output": 65_536,
+        "vision": False,
+        "reasoning": False,
+        "min_tier": "lite",
+        "notes": "领域决策模型；限时调用不消耗 Credits",
     },
 ]
 
@@ -198,13 +238,19 @@ TOKEN_PLAN_CAPABILITIES: list[dict[str, Any]] = [
     {
         "id": "asr",
         "label": "语音识别",
-        "summary": "套餐 Key 写入通义 ASR；模型 qwen-audio-3.0-asr-flash。",
+        "summary": "套餐 Key 写入通义 ASR；模型 qwen-audio-3.0-asr-flash / realtime。",
         "min_tier": "lite",
         "items": [
             {
                 "id": "qwen-audio-3.0-asr-flash",
                 "label": "Qwen Audio ASR Flash",
                 "min_tier": "lite",
+            },
+            {
+                "id": "qwen-audio-3.0-realtime-plus",
+                "label": "Qwen Audio Realtime Plus",
+                "min_tier": "lite",
+                "notes": "实时语音对话（套餐概览列在千问能力表）",
             },
         ],
     },
@@ -392,8 +438,8 @@ def resolve_chat_models(
                 {
                     "id": mid,
                     "label": mid,
-                    "context_window": 256000,
-                    "max_output": 65536,
+                    "context_window": _DEFAULT_CONTEXT,
+                    "max_output": _DEFAULT_MAX_OUT,
                     "vision": False,
                     "reasoning": True,
                     "min_tier": "lite",
@@ -456,8 +502,8 @@ def _model_document(
     model_id = str(spec["id"])
     reasoning = bool(spec.get("reasoning", True))
     vision = bool(spec.get("vision"))
-    context = int(spec.get("context_window") or 256000)
-    max_out = int(spec.get("max_output") or 65536)
+    context = int(spec.get("context_window") or _DEFAULT_CONTEXT)
+    max_out = int(spec.get("max_output") or _DEFAULT_MAX_OUT)
     notes = str(spec.get("notes") or "").strip()
     desc = "百炼 Token Plan"
     if notes:
@@ -496,6 +542,67 @@ def _model_document(
         binding_id=binding_id,
     )
     return doc
+
+
+def sync_token_plan_limits_from_catalog() -> int:
+    """Align context / max_tokens / vision on existing Token Plan rows with catalog.
+
+    Older binds still have the blanket 256K/65K placeholder; heal on rematerialize
+    without requiring the user to delete and re-paste the Key.
+    """
+    from evoflow.persistence import config_repositories as cfg_repo
+
+    want_by_id = {
+        str(m["id"]): m
+        for m in TOKEN_PLAN_CHAT_MODELS
+        if str(m.get("id") or "").strip()
+    }
+    fixed = 0
+    for row in list(cfg_repo.list_models() or []):
+        mid = str(row.get("model") or "").strip()
+        spec = want_by_id.get(mid)
+        if not spec:
+            continue
+        vendor = str(row.get("vendor") or "").strip().lower()
+        plan_type = str(row.get("plan_type") or "").strip().lower()
+        base = str(row.get("base_url") or "").lower()
+        if vendor != VENDOR_KEY and plan_type != "aliyun_token" and "token-plan" not in base:
+            continue
+        context = int(spec.get("context_window") or _DEFAULT_CONTEXT)
+        max_out = int(spec.get("max_output") or _DEFAULT_MAX_OUT)
+        vision = bool(spec.get("vision"))
+        cur_ctx = int(row.get("context_length") or 0)
+        cur_in = int(row.get("input_context_length") or 0)
+        cur_out = int(row.get("output_context_length") or 0)
+        cur_max = int(row.get("max_tokens") or 0)
+        if (
+            cur_ctx == context
+            and cur_in == context
+            and cur_out == max_out
+            and cur_max == max_out
+            and bool(row.get("supports_vision")) == vision
+        ):
+            continue
+        doc = dict(row)
+        doc["context_length"] = context
+        doc["input_context_length"] = context
+        doc["output_context_length"] = max_out
+        doc["max_tokens"] = max_out
+        doc["supports_vision"] = vision
+        if spec.get("label"):
+            doc["display_name"] = str(spec["label"])
+        cfg_repo.upsert_model(doc)
+        fixed += 1
+        logger.info(
+            "Token Plan limits heal: model=%s context %s->%s max_out %s->%s vision=%s",
+            mid,
+            cur_ctx,
+            context,
+            cur_out,
+            max_out,
+            vision,
+        )
+    return fixed
 
 
 def upsert_token_plan_chat_models(
@@ -546,4 +653,5 @@ def upsert_token_plan_chat_models(
                         break
             cfg_repo.set_app_setting("primary_model", pick or names[0])
 
-    return {"count": len(names), "source": source, "names": names}
+    healed = sync_token_plan_limits_from_catalog()
+    return {"count": len(names), "source": source, "names": names, "limits_healed": healed}

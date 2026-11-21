@@ -89,11 +89,34 @@ function renderItemRows(items, focusId) {
   )
 }
 
-function asList(payload, keys) {
+// 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：asList 增加「往 data 信封里再找一层」，并容忍 data 本身是数组。
+// 为什么：/api/tasks 返回的是 {success:true,data:{tasks:[...],total:n}}（见 tasks.js:2297 的解包
+//   注释），而这里原来只在顶层找 tasks/items/results —— data 是对象不是数组，于是逐个 miss，
+//   返回 []，右栏「任务」签恒显示「暂无任务」。实测现网 /api/tasks 有 40 条、任务中心主页正常，
+//   唯独右栏空；同一个 asList 用在待办上却正常，因为 /api/items 回的是 {ok:true,items:[...]}（顶层）。
+//   两边信封形状不同，这就是只有一侧坏掉的原因。
+//   判据：改后右栏「任务」签条数必须与 /api/tasks 的 data.tasks 长度同源可比，不再是 0。
+export function asList(payload, keys) {
   if (Array.isArray(payload)) return payload
   if (!payload || typeof payload !== 'object') return []
-  for (const k of keys) {
-    if (Array.isArray(payload[k])) return payload[k]
+  const pick = (obj) => {
+    if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
+    for (const k of keys) {
+      if (Array.isArray(obj[k])) return obj[k]
+    }
+    return null
+  }
+  const direct = pick(payload)
+  if (direct) return direct
+  // 网关统一失败/成功信封：{success:true,data:{...}} 或 {ok:true,data:{...}}
+  if (Array.isArray(payload.data)) return payload.data
+  const nested = pick(payload.data)
+  if (nested) return nested
+  // 少数路由多包一层 {data:{data:[...]}}
+  if (payload.data && typeof payload.data === 'object') {
+    const deep = pick(payload.data.data)
+    if (deep) return deep
   }
   return []
 }

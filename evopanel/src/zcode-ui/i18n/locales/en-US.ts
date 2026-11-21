@@ -4654,6 +4654,8 @@ const enUS: Record<string, string> = {
   "chat.userInput.goalContinuation": "Goal push",
   "chat.history.worked": "Worked",
   "chat.history.stopped": "Stopped",
+  "chat.history.stoppedByUser": "Stopped by user",
+  "chat.history.stoppedAbnormal": "Stream interrupted",
   "chat.history.duration.day": "d",
   "chat.history.duration.hour": "h",
   "chat.history.duration.minute": "m",

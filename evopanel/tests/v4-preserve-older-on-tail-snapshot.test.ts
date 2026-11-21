@@ -137,6 +137,26 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     ).toBe(true);
   });
 
+  it("incoming.totalCount 已声明权威 tip 时，禁止粘回更高 rowId 幽灵尾", () => {
+    // 现场：hub tip=2042 / FE 仍钉 2055 旧轮；同 epoch recovery 不得把 2053…粘回。
+    const previousRows: ConversationRow[] = [];
+    for (let i = 2000; i <= 2055; i += 1) {
+      previousRows.push(textRow(i, i <= 2042 ? "live" : "ghost", `r${i}`));
+    }
+    const previous = snap(previousRows, { firstRowId: 1, totalCount: 2055 });
+    previous.seq = 300;
+    const incoming = snap(
+      previousRows.filter((r) => r.rowId >= 1983 && r.rowId <= 2042),
+      { firstRowId: 1, totalCount: 2042 },
+    );
+    incoming.seq = 310;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    const ids = merged.rows.window.map((r) => r.rowId);
+    expect(Math.max(...ids)).toBe(2042);
+    expect(ids.some((id) => id > 2042)).toBe(false);
+  });
+
   it("过期 snapshot（seq 更小）不回退客户端已推进的窗尾", () => {
     const previous = snap(
       [

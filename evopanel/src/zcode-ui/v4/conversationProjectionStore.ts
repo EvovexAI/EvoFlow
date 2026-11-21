@@ -311,7 +311,19 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
   const older = previous.rows.window.filter((row) => row.rowId < cut);
   // 尾窗偏短 / 收尾 snapshot 未带上本地已 delta 进窗的更新行：粘回 rowId > 窗尾。
   // 同 epoch 下 snapshot 不应静默丢最新轮；真要裁尾应走 row.removed / 换 epoch。
-  const newer = previous.rows.window.filter((row) => row.rowId > incomingLast);
+  // 例外：incoming.totalCount 已声明权威全量 tip，高于它的本地行是 rehydrate 前幽灵，禁止粘回
+  // （现场：hub tip=2042 / FE 仍钉 2055 旧轮，optimistic 悬空）。
+  const authorityTip =
+    typeof incoming.rows.totalCount === "number" &&
+    Number.isFinite(incoming.rows.totalCount) &&
+    incoming.rows.totalCount > 0
+      ? Math.floor(incoming.rows.totalCount)
+      : null;
+  const newer = previous.rows.window.filter((row) => {
+    if (row.rowId <= incomingLast) return false;
+    if (authorityTip != null && row.rowId > authorityTip) return false;
+    return true;
+  });
   if (older.length === 0 && newer.length === 0) return incoming;
   const byId = new Map<number, ConversationRow>();
   for (const row of older) byId.set(row.rowId, row);

@@ -718,6 +718,18 @@ fn run_main_cdp_route(app: tauri::AppHandle, method: &str, path: &str, body: &st
                 Err(e) => main_cdp_err("execution_error", &e),
             }
         }
+        ("GET" | "POST", "viewport-diag")
+        | ("GET" | "POST", "viewport_diag")
+        | ("GET" | "POST", "viewportDiag") => {
+            log_line("[main-cdp] viewport-diag");
+            match super::browser_cdp::panel_api_call(
+                &app,
+                "(P.viewportDiag?P.viewportDiag():(typeof window.__evoflowV4ViewportDiag==='function'?{ok:true,result:window.__evoflowV4ViewportDiag()}:{ok:false,code:'execution_error',error:'V4 viewport diag not mounted'}))",
+            ) {
+                Ok(v) => main_cdp_ok_wrap(v),
+                Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
         ("GET" | "POST", "page-dump") | ("GET" | "POST", "page_dump") => {
             let opts = json_body(body);
             let opts = if opts.is_null() {

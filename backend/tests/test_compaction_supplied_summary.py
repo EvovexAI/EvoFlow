@@ -673,3 +673,62 @@ def test_cjk_summary_is_actually_capped():
         capped = _cap_summary_text(big, context_length=ctx)
         got = count_text_tokens(capped)
         assert got <= ceiling, f"ctx={ctx} 上限 {ceiling} tokens，实际落盘 {got}"
+
+
+def test_manual_compact_does_not_double_persist_summary(monkeypatch):
+    """UI「压缩上下文」只应落盘 1 条 conversation_summary，不能引擎+set_previous_summary 各插一次。
+
+    【self-evolution-bot · 2026-11-21 · 第110轮 · 模型:deepseek-v4.1-flash-1017】
+    现网实证：点一次 compact-context → seq 10370/10371 同正文、~79ms 间隔。
+    根因是 build_ephemeral_model_messages 已 persist，manual 路径又 set_previous_summary。
+    """
+    import asyncio
+
+    from evoflow.agents import manual_context_compaction as mcc
+
+    summary_text = f"{MAIN_SUMMARY_PREFIX}\n" + _realistic_summary("手工压缩双写回归")
+    folded = [
+        HumanMessage(content=summary_text, name="conversation_summary"),
+        HumanMessage(content="压缩后尾部用户句"),
+        AIMessage(content="压缩后尾部助手句"),
+    ]
+    set_calls: list[dict[str, Any]] = []
+
+    async def _fake_build(messages, runtime, force=False, trigger_source="auto"):
+        assert force is True
+        assert trigger_source == "manual"
+        return folded
+
+    def _spy_set_previous_summary(self, thread_id, summary, **kwargs):
+        set_calls.append({"thread_id": thread_id, "summary": summary, **kwargs})
+        raise AssertionError("manual path must not call set_previous_summary after engine already persisted")
+
+    monkeypatch.setattr(mcc, "list_lead_chat_rows_for_model_hydration", lambda sk: [{"role": "u"}])
+    monkeypatch.setattr(mcc, "lead_transcript_rows_to_lc_messages", lambda rows: _long_transcript())
+    monkeypatch.setattr(mcc, "build_ephemeral_model_messages", _fake_build)
+    monkeypatch.setattr(
+        "evoflow.agents.context_compaction_core.ContextCompactionEngine.set_previous_summary",
+        _spy_set_previous_summary,
+    )
+    monkeypatch.setattr(
+        "evoflow.persistence.session_context_usage.persist_session_context_usage",
+        lambda sk, usage: None,
+    )
+
+    result = asyncio.run(
+        mcc.run_manual_context_compaction(
+            "agent:main:no-double",
+            session_row={
+                "sessionKey": "agent:main:no-double",
+                "threadId": "tid-no-double",
+                "modelName": "test-model",
+            },
+        )
+    )
+
+    assert set_calls == [], f"二次落盘被触发：{set_calls}"
+    assert result.ok is True
+    assert result.reason == "manual_compact"
+    assert result.changed is True
+    assert result.persisted_summary is True
+    assert is_conversation_summary_human(folded[0])

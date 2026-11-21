@@ -644,14 +644,23 @@ export function syncEvoflowV4PinnedSessions(
 
 /** In-flight + last catchup — coalesce observer 1.5s ticks. */
 const _catchupInFlight = new Set<string>();
-const _catchupStableAt = new Map<string, { at: number; reason: string }>();
+const _catchupStableAt = new Map<
+  string,
+  { at: number; reason: string; hubTip?: number | null }
+>();
 /** V4 已有投影时，旁观只做低频 soft reconcile；高频 catchup 会与 live mirror 对打（189↔351）。 */
 const CATCHUP_READY_SOFT_MS = 20_000;
 const CATCHUP_AFTER_REHYDRATE_MS = 12_000;
 const CATCHUP_STABLE_MS = 2_800;
 
 function _catchupCooldownMs(reason: string, softIntervalMs = CATCHUP_READY_SOFT_MS): number {
-  if (reason === "post-rehydrate" || reason === "rehydrated") return CATCHUP_AFTER_REHYDRATE_MS;
+  if (
+    reason === "post-rehydrate" ||
+    reason === "rehydrated" ||
+    reason === "client-stale-resync"
+  ) {
+    return CATCHUP_AFTER_REHYDRATE_MS;
+  }
   if (reason === "ready-soft") return softIntervalMs;
   return CATCHUP_STABLE_MS;
 }
@@ -733,34 +742,57 @@ export function refreshEvoflowV4Session(
     return;
   }
 
-  // 已有 V4 投影：旁观 tick 不要每 1.5s wipe；只低频 soft reconcile。
+  // 先读本机 tip/epoch：既用于请求体对账，也用于判断是否跳过 soft coalesce。
+  let clientTipRowId: number | null = null;
+  let clientLogEpoch: string | null = null;
+  let clientTotalCount: number | null = null;
+  let localRowCount = 0;
   try {
     const layer = getSharedLayer();
     if (layer.has(id)) {
       const lease = layer.acquire(id);
       try {
-        const st = lease.store.getState();
-        const n =
-          st.snapshot?.rows?.totalCount ?? st.snapshot?.rows?.window?.length ?? 0;
-        if (st.snapshot && n > 0) {
-          const last = _catchupStableAt.get(id);
-          const softDue = !last || Date.now() - last.at >= softIntervalMs;
-          if (!softDue) {
-            console.info("[observer-hw] v4 catchup skipped (ready)", {
-              threadId: id,
-              rows: n,
-              ageMs: last ? Date.now() - last.at : null,
-              softIntervalMs,
-            });
-            return;
-          }
-        }
+        const snap = lease.store.getState().snapshot;
+        const win = snap?.rows?.window ?? [];
+        const last = win.length ? win[win.length - 1] : null;
+        const tip = Number(last?.rowId);
+        clientTipRowId = Number.isFinite(tip) && tip > 0 ? tip : null;
+        clientLogEpoch = snap?.logEpoch != null ? String(snap.logEpoch) : null;
+        const total = Number(snap?.rows?.totalCount);
+        clientTotalCount =
+          Number.isFinite(total) && total > 0 ? Math.floor(total) : null;
+        localRowCount =
+          clientTotalCount ?? (win.length > 0 ? win.length : 0);
       } finally {
         try {
           lease.release();
         } catch {
           /* ignore */
         }
+      }
+    }
+  } catch {
+    /* ignore local meta */
+  }
+
+  // 已有 V4 投影：旁观 tick 不要每 1.5s wipe；只低频 soft reconcile。
+  // 例外：本机 tip 高于上次对账的 hub tip → 幽灵膨胀，强制再 catchup。
+  try {
+    if (localRowCount > 0) {
+      const last = _catchupStableAt.get(id);
+      const softDue = !last || Date.now() - last.at >= softIntervalMs;
+      const tipGhostVsLastHub =
+        last?.hubTip != null &&
+        clientTipRowId != null &&
+        clientTipRowId > last.hubTip;
+      if (!softDue && !tipGhostVsLastHub) {
+        console.info("[observer-hw] v4 catchup skipped (ready)", {
+          threadId: id,
+          rows: localRowCount,
+          ageMs: last ? Date.now() - last.at : null,
+          softIntervalMs,
+        });
+        return;
       }
     }
   } catch {
@@ -772,6 +804,9 @@ export function refreshEvoflowV4Session(
     let catchupChanged = false;
     let catchupOk = false;
     let catchupReason = "";
+    let serverTip: number | null = null;
+    let serverRows: number | null = null;
+    let serverEpoch: string | null = null;
     try {
       const resp = await evoflowFetch("/api/v4/conversation/catchup", {
         method: "POST",
@@ -779,6 +814,8 @@ export function refreshEvoflowV4Session(
         body: JSON.stringify({
           sessionId: id,
           ...(preferSettleOnly ? { preferSettleOnly: true } : {}),
+          ...(clientTipRowId != null ? { clientTipRowId } : {}),
+          ...(clientLogEpoch ? { clientLogEpoch } : {}),
         }),
       });
       if (resp.ok) {
@@ -788,20 +825,37 @@ export function refreshEvoflowV4Session(
             changed?: boolean;
             rows?: number;
             reason?: string;
+            tipRowId?: number | null;
+            logEpoch?: string | number | null;
           };
           catchupChanged = Boolean(body?.changed);
           catchupReason = String(body?.reason || "");
+          const tipN = Number(body?.tipRowId);
+          serverTip = Number.isFinite(tipN) && tipN > 0 ? tipN : null;
+          const rowsN = Number(body?.rows);
+          serverRows = Number.isFinite(rowsN) && rowsN >= 0 ? rowsN : null;
+          serverEpoch =
+            body?.logEpoch != null && String(body.logEpoch).trim()
+              ? String(body.logEpoch)
+              : null;
           console.info("[observer-hw] v4 catchup", {
             threadId: id,
             changed: catchupChanged,
             rows: body?.rows,
+            tipRowId: body?.tipRowId,
+            logEpoch: body?.logEpoch,
+            clientTipRowId,
+            clientLogEpoch,
             reason: catchupReason,
           });
           _catchupStableAt.set(id, {
             at: Date.now(),
             reason: catchupChanged
-              ? "post-rehydrate"
+              ? catchupReason === "client-stale-resync"
+                ? "client-stale-resync"
+                : "post-rehydrate"
               : catchupReason || "ready-soft",
+            hubTip: serverTip ?? serverRows,
           });
         } catch {
           /* ignore parse */
@@ -824,11 +878,29 @@ export function refreshEvoflowV4Session(
         warmEvoflowV4Session(id, { force: true });
         return;
       }
-      // catchup HTTP 成功则禁止再 resync：
-      // - changed=true：服务端已广播 recovery
-      // - changed=false：投影未变 / live-mirror，再 resync 也会整页 recovery → 抖动
-      // 仅 catchup 失败时才 recoverFromStaleAuthority。
-      if (catchupOk) {
+      // catchup HTTP 成功：
+      // - changed=true：服务端已广播 recovery（含 client-stale-resync）
+      // - 但本机 tip 仍高于 hub tip / epoch 不一致时，说明错过了帧 → 主动 recover
+      // - changed=false 且 tip 对齐：禁止再 resync（防抖动）
+      // 仅 catchup 失败时才无条件 recoverFromStaleAuthority。
+      const hubTip = serverTip ?? serverRows;
+      const tipGhost =
+        clientTipRowId != null &&
+        hubTip != null &&
+        clientTipRowId > hubTip;
+      const totalGhost =
+        clientTotalCount != null &&
+        serverRows != null &&
+        clientTotalCount > serverRows;
+      const epochMismatch =
+        !!clientLogEpoch &&
+        !!serverEpoch &&
+        clientLogEpoch !== serverEpoch &&
+        tipGhost;
+      const clientStale =
+        tipGhost || totalGhost || epochMismatch || catchupReason === "client-stale-resync";
+
+      if (catchupOk && !clientStale) {
         if (catchupChanged) {
           console.info("[observer-hw] v4 skip resync (catchup already recovered)", {
             threadId: id,
@@ -839,6 +911,18 @@ export function refreshEvoflowV4Session(
       }
       const lease = layer.acquire(id);
       try {
+        if (catchupOk && clientStale) {
+          console.warn("[observer-hw] v4 client-stale after catchup → recover", {
+            threadId: id,
+            reason: catchupReason || "tip-ghost",
+            clientTipRowId,
+            hubTip,
+            clientTotalCount,
+            serverRows,
+            clientLogEpoch,
+            serverEpoch,
+          });
+        }
         lease.store.recoverFromStaleAuthority();
       } finally {
         try {

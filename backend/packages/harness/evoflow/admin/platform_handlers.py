@@ -1401,6 +1401,16 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
         session_key=_arg_str(args, "session_key", "sessionKey") or "",
         task_id=_arg_str(args, "task_id", "taskId", "related_task_id", "relatedTaskId") or "",
         source=_arg_str(args, "source") or "xiaomi",
+        # 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把 deliver 透传给 chat_send。
+        # 为什么（用户 2026-11-21 点破）：默认 wake=后台跑，面板里没有流式、啥也看不到。
+        #   传 deliver="panel" 时改由桌面面板本地 chatSend，走 live SSE 逐字流，
+        #   与用户手打消息同一条通路。
+        # 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：默认从 "wake" 改成 "auto"（不传就让 chat_send 自己选）。
+        # 为什么：用户要的是「和我在面板手打一样能看到流」，默认走后台 wake 就是
+        #   页面上啥也看不到。auto = 面板在就驱面板（真流式），面板不在才回落 wake。
+        deliver=_arg_str(args, "deliver", "delivery") or "auto",
     )
     # Display: Chinese role_name, else agent_name; never use English agent_code as title.
     display = str(role.role_name or "").strip()
@@ -3780,7 +3790,8 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
         if not name:
             raise ValidationError(
                 "ui.panel op=action requires name "
-                "(navigate|openXiaomi|sendMessage|selectSession|setComposerText|focusComposer|openRightStage)"
+                "(navigate|openXiaomi|sendMessage|selectSession|setComposerText|focusComposer|"
+                "openRightStage|employeeChatSend)"
             )
         params = _params_obj()
         text = str(args.get("text") or "").strip()

@@ -1,0 +1,37 @@
+{
+  "_comment": [
+    "【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】",
+    "@ts-nocheck 屏蔽文件里「运行时会崩」的类型错误基线（Cannot find name 一族）。",
+    "为什么需要基线：71 个文件被 @ts-nocheck 屏蔽，撤掉 tsc 的屏蔽后有 23 处 TS2304/TS2552 存量，",
+    "全部集中在 create-chat-ws-on-event.ts（3880 行 P83 机械抽取留下的、调用点没接上的一批标识符）。",
+    "现网跑了很久没崩，说明它们位于走不到的分支或死代码里 —— 但这是存量技术债，不在本轮的修复范围。",
+    "不做基线的话护栏常红，常红等于没有护栏。基线只放存量，新增一律拦。",
+    "判据：只有「确认为存量、且现网未因此崩溃」才可加入此表；修掉一条就删一条。",
+    "更新：node scripts/check-nocheck-shadow.mjs --update-baseline（会打印 diff 供人工确认）"
+  ],
+  "entries": [
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'AGUIEvent'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'CollabSubtaskSnapshot'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'CollabTaskSnapshot'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'DisplayRow'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'StreamTurnEvent'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'SupervisorStepSnapshot'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'TerminalStreamTask'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'ThreadPanelState'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'TokenTotals'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'loadModelCatalog'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'markRunCompleted'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'promoteConsumedSteersToRows'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'scheduleClarificationPanelResolveRef'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'sessionsRef'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'setContextUsageBySession'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'setSidebarTaskViews'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'setStreamingWritePreview'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'setTokenTotals'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'streamingWritePreviewRef'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'syncSessionRowRef'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'syncWorkspacePreviewFromTools'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'upsertSidebarTaskView'." },
+    { "file": "src/react/chat-app/stream/create-chat-ws-on-event.ts", "code": "TS2304", "msg": "Cannot find name 'writeStreamModeRef'." }
+  ]
+}

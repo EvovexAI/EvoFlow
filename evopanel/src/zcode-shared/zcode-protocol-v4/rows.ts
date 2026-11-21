@@ -17,6 +17,15 @@ const rowBaseFields = {
   visibility: z.literal("visible").optional(),
   createdAt: timestampSchema,
   createdAtSeq: z.number(),
+  // 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补两个可选时间戳字段（行开始/结束时刻）。
+  // 为什么：conversationTurnRenderUnits.ts:318 的 sealZombieInflightRowForSettledTurn
+  //   要读 row.startedAt / row.endedAt 来算「僵尸 streaming 行」的时长并封口，
+  //   但 base 与 reasoning/assistantText schema 都没声明这两个字段，tsc 直接 6 处
+  //   TS2339/TS2353 报错 → 前端整体编译失败（HEAD 6b2a1fbe 就已如此，不是本轮引入）。
+  // 边界：optional，旧 snapshot 不带也能过；schema 非 strict，旧客户端会剥掉未知键。
+  startedAt: z.number().optional(),
+  endedAt: z.number().optional(),
   // 缺省全 false；只下发为 true 的键。canRewind 不在载荷内（rewind = editUserQuery 的 UI 入口）。
   actions: z
     .object({

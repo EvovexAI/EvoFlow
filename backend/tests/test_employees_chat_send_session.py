@@ -81,3 +81,188 @@ def test_chat_send_keeps_owned_proactive_session():
         )
     assert out["session_key"] == owned
     assert "ignored_caller_session_key" not in out
+
+
+# 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：补 deliver="panel" 的两条判据——服务端必须**经 CDP 真把面板驱起来**，
+#   而不是回个标记等前端猜。
+# 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发页面上
+#   啥也看不到。」第108轮只回 panel_delivery 标记、指望前端补发；只要这次调用不经过
+#   agui 工具结果同步（Xiaomi 主聊 / 手机 / 别的 agent），标记就没人消费，面板照样没流。
+# 判据（可反证）：panel_dispatch 非空时前端不得再 pendingSend（否则同一句话发两遍）；
+#   为空（CDP 不可用）时前端必须 pendingSend（否则用户什么都看不到）。两条都要能反证。
+def _panel_env(mode: str, session_key: str = "proactive:douyin-analyst:chat:fixed"):
+    return {
+        "ok": True,
+        "result": {
+            "action": "employeeChatSend",
+            "detail": {
+                "mode": mode,
+                "agentCode": "douyin-analyst",
+                "sessionKey": session_key,
+                "length": 3,
+            },
+        },
+    }
+
+
+def test_chat_send_deliver_panel_drives_pane_and_skips_wake(monkeypatch):
+    calls: list[tuple[str, str, dict]] = []
+
+    def fake_panel_request(method, route, *, body=None, timeout=None):
+        calls.append((method, route, body or {}))
+        return _panel_env("pane-live")
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        fake_panel_request,
+    )
+    woke: list[str] = []
+    monkeypatch.setattr(emp, "wake", lambda *a, **kw: woke.append("x") or {})
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.proactive.chat_session.proactive_chat_session_key",
+            return_value="proactive:douyin-analyst:chat:fixed",
+        ),
+    ):
+        out = emp.chat_send(
+            "douyin-analyst",
+            "请拆这条视频",
+            deliver="panel",
+        )
+
+    assert out["ok"] is True
+    assert out["panel_delivery"] is True
+    # 面板已在自己 chatSend → 这是 live SSE，标志必须点名
+    assert out["panel_dispatch"] == "pane-live"
+    assert out["streaming"] is True
+    # 只有面板一条腿：服务端不许再 wake，否则同一句话两个桶
+    assert woke == []
+    assert calls and calls[0][1] == "action"
+    assert calls[0][2]["action"] == "employeeChatSend"
+
+
+def test_chat_send_deliver_panel_cdp_down_reports_empty_dispatch(monkeypatch):
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        lambda *a, **kw: {"ok": False, "error": "bridge down", "code": "backend_unavailable"},
+    )
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.proactive.chat_session.proactive_chat_session_key",
+            return_value="proactive:douyin-analyst:chat:fixed",
+        ),
+    ):
+        out = emp.chat_send("douyin-analyst", "在吗", deliver="panel")
+
+    # 面板没驱到 → 空字符串，前端必须自己发；不许静默报成「已走流式」
+    assert out["panel_dispatch"] == ""
+    assert out["panel_delivery"] is True
+    assert "streaming" not in out
+
+
+def test_chat_send_default_auto_prefers_panel(monkeypatch):
+    """默认 deliver=auto：面板在 → 走面板真流式，且**不许**再 wake。"""
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        lambda *a, **kw: _panel_env("pane-live"),
+    )
+    woke: list[str] = []
+    monkeypatch.setattr(emp, "wake", lambda *a, **kw: woke.append("x") or {})
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.proactive.chat_session.proactive_chat_session_key",
+            return_value="proactive:douyin-analyst:chat:fixed",
+        ),
+    ):
+        out = emp.chat_send("douyin-analyst", "你好")
+
+    assert out["panel_dispatch"] == "pane-live"
+    assert out["streaming"] is True
+    assert out["queued"] is False
+    assert woke == []
+
+
+def test_chat_send_default_auto_falls_back_to_wake_when_panel_down(monkeypatch):
+    """面板没开（CDP 不在）→ 回落 wake，保证有来有回；且 panel_delivery 必须为 False，
+    否则前端会照 pendingSend 再发一遍 = 同一句话两遍。"""
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        lambda *a, **kw: {"ok": False, "error": "bridge down"},
+    )
+    woke: list[str] = []
+    monkeypatch.setattr(
+        emp,
+        "wake",
+        lambda *a, **kw: woke.append("x") or {"skipped": False, "task_id": None},
+    )
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.proactive.chat_session.proactive_chat_session_key",
+            return_value="proactive:douyin-analyst:chat:fixed",
+        ),
+    ):
+        out = emp.chat_send("douyin-analyst", "在吗")
+
+    assert out["panel_dispatch"] == ""
+    assert out["panel_delivery"] is False
+    assert out["queued"] is True
+    assert woke == ["x"]
+
+
+def test_chat_send_auto_pane_busy_falls_back_to_wake(monkeypatch):
+    """面板在但正忙（pane-busy）→ handleSend 会静默丢消息，绝不能当送达：
+    必须回落 wake，且 panel_delivery=False 防前端重复补发。"""
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        lambda *a, **kw: _panel_env("pane-busy"),
+    )
+    woke: list[str] = []
+    monkeypatch.setattr(
+        emp,
+        "wake",
+        lambda *a, **kw: woke.append("x") or {"skipped": False, "task_id": None},
+    )
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[],
+        ),
+        patch(
+            "evoflow.proactive.chat_session.proactive_chat_session_key",
+            return_value="proactive:douyin-analyst:chat:fixed",
+        ),
+    ):
+        out = emp.chat_send("douyin-analyst", "再说一句")
+
+    # pane-busy 不在白名单里 → panel_dispatch 为空 → 必须回落
+    assert out["panel_dispatch"] == ""
+    assert out["panel_delivery"] is False
+    assert out["queued"] is True
+    assert woke == ["x"]

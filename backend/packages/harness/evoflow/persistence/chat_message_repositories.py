@@ -123,6 +123,15 @@ _INJECTED_USER_TOOL_NAMES = frozenset(
         "todo_reminder",
         "collab_phase_hint",
         "xiaomi_ui_context",
+        # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把后台任务完成通知加进「不得作为 user 转录落库」的名单。
+        # 为什么（本轮现网实证）：个人助理会话里出现一条
+        #   role=user / tool_name=task-notification / content=<task-notification>…</task-notification>
+        #   （16:15:08.855 写入）。前端按 user 行渲染气泡，用户看到的就是一段机器 XML
+        #   冒充自己说的话。这正是「为啥总是要这样去显示」的第二类来源。
+        # 判据：系统注入一律不该出现在用户气泡里；对应 write 点在
+        #   session_transcript_hydration_middleware.py:246（tool_name="task-notification"）。
+        "task-notification",
     }
 )
 
@@ -153,6 +162,12 @@ def _is_injected_user_transcript(*, role: str, payload: dict[str, Any], tool_nam
     text = plain_text(payload).lstrip()
     if not text:
         return False
+    # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：按文本前缀兜底排除后台任务/子任务完成通知。
+    # 为什么：tool_name 只在新写入点带得上，历史行与别处的注入可能为空；
+    #   这类注入绝不是用户说的，绝不能进用户气泡。
+    if text.startswith("<task-notification>") or text.startswith("<subagent-notification>"):
+        return True
     if text.startswith("<xiaomi_ui_context>"):
         return True
     lower = text.lower()
@@ -1481,6 +1496,33 @@ def _is_hidden_context_user_transcript_row(row: dict[str, Any]) -> bool:
     return _is_hidden_context_user_transcript(role=role, payload=payload, tool_name=row.get("tool_name"))
 
 
+def _is_injected_user_transcript_row(row: dict[str, Any]) -> bool:
+    # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：给「显示路径」补一个行级注入判据（复用写入侧同一函数）。
+    # 为什么（本轮现网实证）：写入侧只拦新数据，历史行早已落库；而显示路径
+    #   _is_hidden_context_user_transcript_row 只认 hidden 名单，不认 injected 名单，
+    #   于是 <task-notification> 这类系统注入照样被渲染成 user 气泡。
+    # 现网复算（库 evoflow.db，4465 条 user 行）：显示路径当前会漏出 875 行，
+    #   100% 是 <task-notification> 开头的 XML；补此判据后降为 0。
+    # 边界：conversation_summary 在 _is_injected_user_transcript 里显式放行（摘要要可见）。
+    role = str(row.get("role") or "").strip().lower()
+    payload = row.get("payload") if isinstance(row.get("payload"), dict) else loads_payload(str(row.get("content_json") or ""))
+    return _is_injected_user_transcript(role=role, payload=payload, tool_name=row.get("tool_name"))
+
+
+def _display_visible_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：显示路径统一走这一个「哪些行该给用户看」的判据，
+    #   同时滤掉 hidden（goal/duty brief 等）与 injected（task-notification 等）。
+    # 为什么：四处调用点各自只写了一半判据，新增一类注入就要满地找；
+    #   合成单点后，下次新增注入类型只改 _INJECTED_USER_TOOL_NAMES 一处。
+    return [
+        r
+        for r in rows
+        if not _is_hidden_context_user_transcript_row(r) and not _is_injected_user_transcript_row(r)
+    ]
+
+
 def _find_latest_real_user_lead_row(session_key: str) -> dict[str, Any] | None:
     """Newest main-session user row with real content (scan backward in transcript)."""
     sk = str(session_key or "").strip()
@@ -2240,7 +2282,12 @@ def list_messages_for_display_all(
     # 同 paginated：显示路径不做 on-read 全表 backfill（抢 SQLite 锁）。
     lead_rows = _enrich_run_ids_for_display_rows(lead_rows)
     if not include_hidden:
-        lead_rows = [r for r in lead_rows if not _is_hidden_context_user_transcript_row(r)]
+        lead_rows = _display_visible_rows(lead_rows)
+    else:
+        # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+        # include_hidden 只该放行 hidden（duty brief 这类调试要看），
+        # 系统注入（task-notification 等）任何时候都不该冒充用户说话。
+        lead_rows = [r for r in lead_rows if not _is_injected_user_transcript_row(r)]
     messages = [_row_to_display_dict(r) for r in lead_rows]
     oldest_seq = int(lead_rows[0]["seq"]) if lead_rows else None
     return {"messages": messages, "has_more": False, "oldest_seq": oldest_seq, "round_id": rid}
@@ -2269,7 +2316,7 @@ def list_messages_for_display_paginated(
     # 显示列表路径禁止 on-read 全表 UPDATE backfill：会在共享 SQLite 锁上拖到数秒，
     # 与 chatSend / RUN_STARTED 抢锁。缺 run_id 只做内存 enrich；持久化另走后台任务。
     lead_rows = _enrich_run_ids_for_display_rows(lead_rows)
-    lead_rows = [r for r in lead_rows if not _is_hidden_context_user_transcript_row(r)]
+    lead_rows = _display_visible_rows(lead_rows)
     lead_rows = _align_display_page_to_user_turn(sk, lead_rows, page_limit=lim)
     messages = [_row_to_display_dict(r) for r in lead_rows]
     oldest_seq = int(lead_rows[0]["seq"]) if lead_rows else None
@@ -2308,7 +2355,7 @@ def _align_display_page_to_user_turn(
         older_chunk = _list_lead_chat_rows(sk, limit=8, before_seq=cursor)
         if not older_chunk:
             break
-        visible = [r for r in older_chunk if not _is_hidden_context_user_transcript_row(r)]
+        visible = _display_visible_rows(older_chunk)
         if not visible:
             # Only hidden rows older — advance cursor past them
             try:
@@ -2321,7 +2368,7 @@ def _align_display_page_to_user_turn(
             older_chunk = _list_lead_chat_rows(sk, limit=1, before_seq=cursor)
             if not older_chunk:
                 break
-            visible = [r for r in older_chunk if not _is_hidden_context_user_transcript_row(r)]
+            visible = _display_visible_rows(older_chunk)
             if not visible:
                 break
         # Prepend oldest→newest so out[0] moves backward

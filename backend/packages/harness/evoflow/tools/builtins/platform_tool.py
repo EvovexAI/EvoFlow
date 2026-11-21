@@ -162,9 +162,14 @@ sessions.status = current conversation run/context usage; sessions.compact (conf
 If you have already read the transcript yourself, pass args_json {"summary":"<your structured summary>"} —
 that folds without a compress-model call (faster, and more accurate because that model lacks your details).
 Omit summary to use the compress model.
-Right panel: call action=ui.kinds FIRST to read supported kinds + required fields, then ui.show kind+data.\nMain window CDP (not embed browser): action=ui.panel op=snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws.\nProduct actions: ui.panel op=action name=openXiaomi|sendMessage|selectSession|navigate|…
+Right panel: call action=ui.kinds FIRST to read supported kinds + required fields, then ui.show kind+data.\n\
+Main window CDP (not embed browser): action=ui.panel op=snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws.\n\
+Product actions: ui.panel op=action name=openXiaomi|sendMessage|selectSession|navigate|…\n\
 Nothing auto-opens the panel except actions the user is actively waiting on
 (employees.wake/dispatch/resume/chat_send, workflow.run) — read-only ops (list/get/brief) never pop it.
+employees.chat_send: deliver=auto by default — an open desktop pane sends the turn itself
+(live token stream via ChatApp.chatSend, same path as typing there); a background wake is only
+the fallback when no pane/CDP is reachable. ui.panel op=action name=employeeChatSend drives it.
 Required fields: web-embed data.url; shell-page data.path (site-internal route);
 employeeProcess data.agentCode (taskId optional); collab-workflow data.mainTaskId;
 collabSubtaskTranscript data.mainTaskId+subtaskId; sessionRuntime data.sessionKey.

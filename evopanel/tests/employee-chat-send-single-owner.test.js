@@ -79,4 +79,45 @@ describe('employee-chat-send-sync: 一个 owner', () => {
     const payload = openEmployeeProcessInRightStage.mock.calls[0][0]
     expect(payload.pendingSendMessage).toBe('只回一句话')
   })
+
+  // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补两条「服务端已驱面板」的判据。
+  // 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发页面上啥也看不到。」
+  //   现在 deliver="panel" 由服务端经 CDP 直接把面板 handleSend 驱起来（live SSE），
+  //   前端必须**不再补发**；CDP 不可用时（panel_dispatch 空）前端必须补发，保住有来有回。
+  it('服务端已驱动面板（panel_dispatch=pane-live）→ 前端不再补发，避免两遍', async () => {
+    const { syncEmployeeChatSendFromToolResult } = await import(
+      '../src/lib/employee-chat-send-sync.js'
+    )
+    await syncEmployeeChatSendFromToolResult(
+      result({ queued: false, panel_delivery: true, panel_dispatch: 'pane-live' }),
+    )
+
+    const payload = openEmployeeProcessInRightStage.mock.calls[0][0]
+    expect(payload.pendingSendMessage).toBeUndefined()
+  })
+
+  it('面板刚拉开排队首发（panel_dispatch=pending-open）→ 同样不再补发', async () => {
+    const { syncEmployeeChatSendFromToolResult } = await import(
+      '../src/lib/employee-chat-send-sync.js'
+    )
+    await syncEmployeeChatSendFromToolResult(
+      result({ queued: false, panel_delivery: true, panel_dispatch: 'pending-open' }),
+    )
+
+    const payload = openEmployeeProcessInRightStage.mock.calls[0][0]
+    expect(payload.pendingSendMessage).toBeUndefined()
+  })
+
+  it('CDP 不可用（panel_dispatch 空）→ 前端必须补发，否则用户什么都看不到', async () => {
+    const { syncEmployeeChatSendFromToolResult } = await import(
+      '../src/lib/employee-chat-send-sync.js'
+    )
+    await syncEmployeeChatSendFromToolResult(
+      result({ queued: false, panel_delivery: true, panel_dispatch: '' }),
+    )
+
+    const payload = openEmployeeProcessInRightStage.mock.calls[0][0]
+    expect(payload.pendingSendMessage).toBe('只回一句话')
+  })
 })

@@ -99,6 +99,29 @@ def test_catchup_from_transcript_noops_on_same_fingerprint() -> None:
     assert out["changed"] is False
     assert out.get("reason") == "fingerprint-unchanged"
     assert out["rows"] == rows
+    assert out.get("tipRowId") is not None
+    assert int(out["tipRowId"]) > 0
+
+
+def test_catchup_client_stale_resync_when_client_tip_ahead_of_hub() -> None:
+    """FE tip 高于 hub tip（错过 recovery）→ fingerprint 未变也要再广播 recovery。"""
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(THREAD)
+    sess = hub.get_session(THREAD)
+    assert sess is not None and sess.rows
+    hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
+    with _msgs(MESSAGES_V1):
+        out = hub.catchup_from_transcript(
+            THREAD,
+            client_tip_row_id=hub_tip + 100,
+            client_log_epoch=str(sess.log_epoch),
+        )
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out.get("reason") == "client-stale-resync"
+    assert int(out.get("tipRowId") or 0) == hub_tip
+    assert int(out.get("clientTipRowId") or 0) == hub_tip + 100
 
 
 def test_catchup_prefer_settle_only_never_wipes_existing_rows() -> None:

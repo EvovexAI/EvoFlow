@@ -597,11 +597,33 @@ class V4ConversationHub:
             except ValueError:
                 sess.log_epoch = f"{sess.log_epoch}+r"
 
+    @staticmethod
+    def _hub_tip_row_id(sess: "_SessionState") -> int | None:
+        tip = 0
+        for key, row in (sess.rows or {}).items():
+            try:
+                rid = int(row.get("rowId") if isinstance(row, dict) else key)
+            except (TypeError, ValueError):
+                continue
+            if rid > tip:
+                tip = rid
+        return tip or None
+
+    def _catchup_meta(self, sess: "_SessionState", **extra: Any) -> dict[str, Any]:
+        """统一带 tipRowId / logEpoch，方便 FE 对账「本机 tip 是否落后/幽灵」。"""
+        out = dict(extra)
+        out.setdefault("rows", len(sess.rows) if sess.rows else 0)
+        out.setdefault("logEpoch", sess.log_epoch)
+        out.setdefault("tipRowId", self._hub_tip_row_id(sess))
+        return out
+
     def catchup_from_transcript(
         self,
         session_id: str,
         *,
         prefer_settle_only: bool = False,
+        client_tip_row_id: int | None = None,
+        client_log_epoch: str | None = None,
     ) -> dict[str, Any]:
         """飞书/IM 旁观：用 DB transcript 强制重建投影（hydrate 仅空 session 时会跳过）。
 
@@ -609,6 +631,9 @@ class V4ConversationHub:
         - 频道 live mirror 本轮仍在写 → 禁止 wipe（否则 240 行 live 被打回 ~130 行 DB）
         - ``prefer_settle_only``：客户端已有投影（切回校准）时只 settle phase / 更新指纹，
           禁止 ``clear_projection_for_rehydrate``（对齐 ZCode：有投影继续显示）。
+        - ``client_tip_row_id`` / ``client_log_epoch``：FE 本机 tip；若高于 hub tip 或
+          epoch 不一致，说明客户端错过了 recovery（现场 tip=2055 vs hub=2042），
+          再广播一次 recovery 让 FE 收敛，不必整页 wipe。
         """
         tid = str(session_id or "").strip()
         if not tid or tid.startswith("v4-"):
@@ -743,15 +768,59 @@ class V4ConversationHub:
             )
 
         if fp and sess.catchup_fp == fp and sess.rows and not tip_mismatch:
-            return {
-                "ok": True,
-                "changed": False,
-                "reason": "fingerprint-unchanged",
-                "rows": len(sess.rows),
-                "settledPhase": settled_phase or None,
-                "logEpoch": sess.log_epoch,
-                "fingerprint": fp,
-            }
+            hub_tip = self._hub_tip_row_id(sess)
+            client_tip = None
+            try:
+                if client_tip_row_id is not None:
+                    client_tip = int(client_tip_row_id)
+            except (TypeError, ValueError):
+                client_tip = None
+            client_epoch = str(client_log_epoch or "").strip() or None
+            hub_epoch = str(sess.log_epoch or "").strip() or None
+            client_stale = bool(
+                sess.rows
+                and (
+                    (client_tip is not None and hub_tip is not None and client_tip > hub_tip)
+                    or (
+                        client_epoch
+                        and hub_epoch
+                        and client_epoch != hub_epoch
+                        and client_tip is not None
+                        and hub_tip is not None
+                        and client_tip != hub_tip
+                    )
+                )
+            )
+            if client_stale:
+                notified = self.broadcast_recovery_snapshot(tid)
+                logger.warning(
+                    "[v4.catchup] client-stale resync session=%s client_tip=%s hub_tip=%s "
+                    "client_epoch=%s hub_epoch=%s notified=%s",
+                    tid,
+                    client_tip,
+                    hub_tip,
+                    client_epoch,
+                    hub_epoch,
+                    notified,
+                )
+                return self._catchup_meta(
+                    sess,
+                    ok=True,
+                    changed=True,
+                    reason="client-stale-resync",
+                    notified=notified,
+                    settledPhase=settled_phase or None,
+                    fingerprint=fp,
+                    clientTipRowId=client_tip,
+                )
+            return self._catchup_meta(
+                sess,
+                ok=True,
+                changed=False,
+                reason="fingerprint-unchanged",
+                settledPhase=settled_phase or None,
+                fingerprint=fp,
+            )
 
         # Same msg count + id, only tail content_len grew → DB streaming catch-up.
         # Full rehydrate every ~1.5s would flicker; advance fp and leave projection.
@@ -901,16 +970,16 @@ class V4ConversationHub:
             fp,
             reason,
         )
-        return {
-            "ok": True,
-            "changed": True,
-            "reason": reason,
-            "rows": loaded,
-            "notified": notified,
-            "settledPhase": settled_phase or None,
-            "logEpoch": sess.log_epoch,
-            "fingerprint": fp,
-        }
+        return self._catchup_meta(
+            sess,
+            ok=True,
+            changed=True,
+            reason=reason,
+            rows=loaded,
+            notified=notified,
+            settledPhase=settled_phase or None,
+            fingerprint=fp,
+        )
 
     def reconcile_stale_running(self) -> dict[str, int]:
         """周期收口：陈旧 running 投影 + DB 已终态 → settle + rehydrate + 广播。

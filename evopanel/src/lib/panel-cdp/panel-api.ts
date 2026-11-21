@@ -102,6 +102,27 @@ export function pageDump(
   }
 }
 
+/**
+ * V4 视口诊断（与浮层「复制诊断」同源）：结构化字段 + markdown。
+ * Prefer this over asking the user to paste copy-diag.
+ */
+export function viewportDiag(): PanelResult<unknown> {
+  try {
+    const w = window as Window & {
+      __evoflowV4ViewportDiag?: () => unknown
+    }
+    if (typeof w.__evoflowV4ViewportDiag === 'function') {
+      return ok(w.__evoflowV4ViewportDiag())
+    }
+    return err(
+      'execution_error',
+      'V4 viewport diag not mounted (open chat so overlay module loads; or hot-reload frontend)',
+    )
+  } catch (e) {
+    return err('execution_error', String((e as Error)?.message || e))
+  }
+}
+
 export function click(ref: string): PanelResult<{ clicked: string }> {
   const elOrErr = resolveRef(ref)
   if ('ok' in elOrErr && elOrErr.ok === false) return elOrErr
@@ -373,6 +394,83 @@ export async function dispatch(
         }
         return ok({ action: act, detail: { sessionKey } })
       }
+      case 'employeeChatSend': {
+        // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：新增 action `employeeChatSend` —— 平台工具直接驱动**面板自己** chatSend。
+        // 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发页面上啥也看不到。」
+        //   手打 = ChatApp.chatSend → live SSE 逐字流；后台 wake 那轮没有流，只能轮询快照。
+        //   要「和手打完全一样」，发送动作必须发生在面板这一侧，而不是后端。
+        // 判据（可反证）：面板已挂载时 mode='pane-live'（走 handleSend→chatSend）；
+        //   未挂载时 mode='pending-open'（打开面板排 pending），两者都回 ok，不许静默吞。
+        const paneCode = String(params.agentCode || params.agent_code || params.code || '').trim()
+        const paneText = String(params.text ?? params.message ?? '').trim()
+        const paneSk = String(params.sessionKey || params.session_key || '').trim()
+        if (!paneCode) return err('execution_error', 'employeeChatSend requires agentCode')
+        if (!paneText) return err('execution_error', 'employeeChatSend requires text')
+        const bridgeMod = await import('../right-stage/employee-pane-send-bridge.js')
+        const sender = bridgeMod.findEmployeePaneSender(paneCode, paneSk)
+        if (sender) {
+          // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+          // 改了什么：先拿 sender 的**同步返回值**判定接没接住；不 await 整轮流。
+          // 为什么：① 面板 handleSend 里的 api.chatSend 是流式 POST，要等整轮流完才 resolve
+          //   （几十秒到几分钟），await 会把 CDP 请求挂死到本轮结束，panel_engine 默认 60s
+          //   超时一到就报 ok=false，而消息其实已发出 —— 又一个「假失败」。
+          //   ② 但完全不判也不行：面板正忙时 handleSend 第一句就 return 静默丢消息，
+          //   这里若回 pane-live，工具以为送达、前端又不再补发，这句话就凭空消失了。
+          // 判据：send 返回 false → mode='pane-busy' → 调用方回落 pendingSend/wake。
+          let accepted: unknown = true
+          try {
+            accepted = sender(paneText)
+          } catch (e: unknown) {
+            console.warn('[employeeChatSend] pane send threw', e)
+            accepted = false
+          }
+          if (accepted === false) {
+            return ok({
+              action: act,
+              detail: {
+                mode: 'pane-busy',
+                agentCode: paneCode,
+                sessionKey: paneSk || null,
+                length: paneText.length,
+              },
+            })
+          }
+          return ok({
+            action: act,
+            detail: { mode: 'pane-live', agentCode: paneCode, sessionKey: paneSk || null, length: paneText.length },
+          })
+        }
+        // 回落：面板没开 → 打开右栏并排队，由面板挂载后走同一套 handleSend
+        const stageMod = await import('../right-stage/open-employee-process-stage.js')
+        const pickedSk = String(paneSk || params.employeeSessionKey || '').trim()
+        const tabId = stageMod.openEmployeeProcessInRightStage(
+          {
+            taskId: String(params.taskId || params.task_id || '').trim(),
+            agentCode: paneCode,
+            roleName: String(params.roleName || params.role_name || '').trim(),
+            busy: true,
+            employeeSessionKey: pickedSk || undefined,
+            pendingSendMessage: paneText,
+          },
+          { layout: 'wide', sessionKey: String(params.ownerSessionKey || '').trim() || undefined },
+        )
+        return ok({
+          action: act,
+          detail: {
+            mode: 'pending-open',
+            agentCode: paneCode,
+            sessionKey: pickedSk || null,
+            tabId: tabId || null,
+            length: paneText.length,
+          },
+        })
+      }
+      case 'viewportDiag': {
+        const dump = viewportDiag()
+        if (!dump.ok) return dump
+        return ok({ action: act, detail: dump.result })
+      }
       default:
         return err('capability_unsupported', `unknown action '${act}'`)
     }
@@ -384,6 +482,7 @@ export async function dispatch(
 export type EvoflowPanelApi = {
   snapshot: typeof snapshot
   pageDump: typeof pageDump
+  viewportDiag: typeof viewportDiag
   click: typeof click
   fill: typeof fill
   type: typeof type
@@ -394,12 +493,27 @@ export type EvoflowPanelApi = {
 }
 
 export function createPanelApi(): EvoflowPanelApi {
-  return { snapshot, pageDump, click, fill, type, scroll, getState, axTree, dispatch }
+  return {
+    snapshot,
+    pageDump,
+    viewportDiag,
+    click,
+    fill,
+    type,
+    scroll,
+    getState,
+    axTree,
+    dispatch,
+  }
 }
 
 export function mountPanelApi(target: Window = window): EvoflowPanelApi {
   const api = createPanelApi()
   const w = target as Window & { __evoflowPanel?: EvoflowPanelApi }
   w.__evoflowPanel = api
+  // 尽早挂上 V4 视口诊断钩子（不必等浮层 React 挂载），供 /main-cdp/viewport-diag
+  void import('../../react/v4/V4ViewportDebugOverlay.js').catch(() => {
+    /* chat chunk optional until UI loads */
+  })
   return api
 }

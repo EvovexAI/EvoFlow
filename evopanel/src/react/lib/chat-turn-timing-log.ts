@@ -312,6 +312,21 @@ export type ChatTurnTimingRow = {
   firstPreview: string
   streamEndAt: number | null
   outcome: string | null
+  /** 收口人话：谁停的 / 怎么结束的（来自 stream-stop whoZh） */
+  endWhoZh: string | null
+  /** 收口 trigger（composer_stop_button / sse_aborted / client_attach …） */
+  endTrigger: string | null
+}
+
+/** 水位线旁路：同会话近期停止归因（避免 timing ↔ stream-stop 循环 import） */
+export type ChatTurnWaterlineStopHint = {
+  atMs: number
+  whoZh: string
+  trigger: string
+  kind: string
+  sessionKey?: string
+  runId?: string
+  fromUiStopButton?: boolean
 }
 
 export type ChatTurnTimingVerdictLevel = 'ok' | 'pending' | 'warn' | 'error'
@@ -368,7 +383,12 @@ export function classifyChatTurnTimingVerdict(
       return { level: 'warn', zh: `偏慢首字 ${firstMs}ms` }
     }
     if (row.outcome === 'ui_stop') {
-      return { level: 'ok', zh: '用户停止' }
+      const who = String(row.endWhoZh || '').trim()
+      // 点停 / 打断重发都会走 ui_stop；有 whoZh 时别一律写「用户停止」
+      if (who && !/用户停止|用户点击|用户按 Esc/.test(who)) {
+        return { level: 'ok', zh: who.slice(0, 18) }
+      }
+      return { level: 'ok', zh: who.includes('用户') ? '用户停止' : '已停止' }
     }
     if (row.outcome === 'other') {
       return { level: 'warn', zh: '其它结束' }
@@ -443,6 +463,8 @@ export function formatChatTurnWaterlineForDiag(opts?: {
   limit?: number
   apiHints?: ChatTurnWaterlineApiHint[]
   anomalies?: ChatTurnAnomaly[]
+  /** 近期停止归因（点停/Esc/client_attach/断流…）；来自 getStreamStopRing */
+  stopHints?: ChatTurnWaterlineStopHint[]
 }): string[] {
   const rows = listChatTurnTimingRows({
     sessionKey: opts?.sessionKey,
@@ -450,6 +472,12 @@ export function formatChatTurnWaterlineForDiag(opts?: {
   })
   const lines: string[] = []
   const now = Date.now()
+  const skFilter = String(opts?.sessionKey || '').trim()
+  const stopHints = (opts?.stopHints || []).filter((s) => {
+    if (!skFilter) return true
+    if (!s.sessionKey) return true
+    return s.sessionKey === skFilter
+  })
   const verdicts = rows.map((r) => ({
     row: r,
     v: classifyChatTurnTimingVerdict(r, now),
@@ -462,13 +490,11 @@ export function formatChatTurnWaterlineForDiag(opts?: {
     `### 发送水位线（本会话 ${rows.length} 发 · 异常 ${abnormal.length} · 进行中 ${pending.length}）`,
   )
   lines.push(
-    '- 策略：正常收口只留摘要；异常保留阶段差 + 前后接口，方便下次诊断「发了几次 / 卡在哪」',
+    '- 策略：正常收口只留摘要；异常保留阶段差 + 前后接口 + 停止归因，方便下次诊断「发了几次 / 卡在哪 / 谁停的」',
   )
   if (rows.length === 0) {
     lines.push('- （尚无发送记录；点发送后会出现：发送时刻 → 出泡上屏 → 上线 → 首字 → 收口）')
-    return lines
-  }
-
+  } else {
   // 倒序：最近发送在上
   const ordered = [...verdicts].reverse()
   for (let i = 0; i < ordered.length; i++) {
@@ -483,13 +509,15 @@ export function formatChatTurnWaterlineForDiag(opts?: {
           : v.level === 'warn'
             ? `异常·${v.zh}`
             : `异常·${v.zh}`
+    const whoBit = row.endWhoZh ? ` 谁=${row.endWhoZh}` : ''
     const base =
       `${n}. [${tag}] ${fmtClock(row.sendAt)} 「${preview}」` +
       ` 出泡${fmtDelta(row.userBubbleAt, row.sendAt)}` +
       ` 上线${fmtDelta(row.wireAt, row.sendAt)}` +
       ` 开跑${fmtDelta(row.runStartedAt, row.sendAt)}` +
       ` 首字${fmtDelta(row.firstResponseAt, row.sendAt)}` +
-      ` 结束${fmtDelta(row.streamEndAt, row.sendAt)}`
+      ` 结束${fmtDelta(row.streamEndAt, row.sendAt)}` +
+      whoBit
     lines.push(`- ${base}`)
 
     if (v.level === 'ok') continue
@@ -502,6 +530,8 @@ export function formatChatTurnWaterlineForDiag(opts?: {
     else if (row.firstResponseAt == null) stageBits.push('已开跑、等首字')
     else if (row.streamEndAt == null) stageBits.push('已有首字、等收口')
     if (row.outcome) stageBits.push(`outcome=${row.outcome}`)
+    if (row.endTrigger) stageBits.push(`trigger=${row.endTrigger}`)
+    if (row.endWhoZh) stageBits.push(`谁=${row.endWhoZh}`)
     if (stageBits.length) {
       lines.push(`  卡点: ${stageBits.join(' · ')}`)
     }
@@ -550,6 +580,34 @@ export function formatChatTurnWaterlineForDiag(opts?: {
           .join('；')}`,
       )
     }
+
+    const nearStops = stopHints.filter((s) => s.atMs >= winStart && s.atMs <= winEnd)
+    if (nearStops.length > 0) {
+      lines.push(
+        `  停止归因: ${nearStops
+          .slice(-4)
+          .map((s) => `${s.whoZh}(${s.trigger}/${s.kind})`)
+          .join('；')}`,
+      )
+    }
+  }
+  } // end rows.length > 0
+
+  lines.push('')
+  lines.push('### 停止归因（谁停的 / 用户操作）')
+  lines.push(
+    '- 点停、Esc、打断重发、client_attach、断流都会落这里；「用户停止」只该出现在真点停/Esc',
+  )
+  if (stopHints.length === 0) {
+    lines.push('- （尚无停止记录；点停止或断流后会出现 whoZh）')
+  } else {
+    for (const s of stopHints.slice(-12).reverse()) {
+      const sk = s.sessionKey ? ` sk=${s.sessionKey.slice(0, 28)}` : ''
+      const ui = s.fromUiStopButton ? ' uiStop' : ''
+      lines.push(
+        `- ${fmtClock(s.atMs)} [${s.kind}] ${s.whoZh} · trigger=${s.trigger}${ui}${sk}`,
+      )
+    }
   }
   return lines
 }
@@ -581,6 +639,8 @@ function persistTimingRow(row: ChatTurnTimingRow): void {
     firstPreview: row.firstPreview || undefined,
     streamEndAt: row.streamEndAt,
     outcome: row.outcome || undefined,
+    endWhoZh: row.endWhoZh || undefined,
+    endTrigger: row.endTrigger || undefined,
     wireMs: row.wireAt != null ? row.wireAt - row.sendAt : null,
     bubbleMs: row.userBubbleAt != null ? row.userBubbleAt - row.sendAt : null,
     firstMs: row.firstResponseAt != null ? row.firstResponseAt - row.sendAt : null,
@@ -687,6 +747,8 @@ function beginTimingRow(opts: {
     firstPreview: '',
     streamEndAt: null,
     outcome: null,
+    endWhoZh: null,
+    endTrigger: null,
   }
   timingRing.push(row)
   while (timingRing.length > TIMING_RING_MAX) timingRing.shift()
@@ -1356,6 +1418,8 @@ export function logChatTurnStreamEnd(opts: {
   upsertTimingRow({
     streamEndAt: Date.now(),
     outcome,
+    endWhoZh: who,
+    endTrigger: trigger,
     rebind: true,
     ...(endRunId ? { runId: endRunId } : {}),
     ...(sessionKey ? { sessionKey } : {}),

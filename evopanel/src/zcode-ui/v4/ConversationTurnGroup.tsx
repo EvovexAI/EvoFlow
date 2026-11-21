@@ -920,6 +920,7 @@ function AssistantHistoryStatus({
     locale,
   );
   const running = segment.workStatus?.state === "running";
+  // interrupted 不等于「用户点停」——client_attach/断流也曾误标「用户停止」；默认「已停止」
   const label =
     segment.workStatus?.state === "interrupted"
       ? intl.formatMessage({ id: "chat.history.stopped" })

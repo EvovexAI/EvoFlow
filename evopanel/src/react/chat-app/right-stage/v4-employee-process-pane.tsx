@@ -62,6 +62,19 @@ function plainTextFromV4Window(rows: readonly { kind?: string; text?: string }[]
 
 /** 执行中：跟进度 */
 const POLL_ACTIVE_MS = 3000
+/**
+ * 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
+ * 改了什么：给 refreshEvoflowV4Session 显式传 softIntervalMs，与 POLL_ACTIVE_MS 同频。
+ * 为什么（用户 2026-11-21 点破）：员工对话面板正文走 V4 catchup 快照，而本文件两处
+ *   `refreshEvoflowV4Session(tid)` 都没传 softIntervalMs → 吃默认 CATCHUP_READY_SOFT_MS
+ *   = 20_000ms，即「已有投影时 20 秒才 soft reconcile 一次」。所以员工在后台回话时，
+ *   面板正文最长要等 20 秒才刷出来，而人手打消息走的是 live SSE 逐字流，是实时的。
+ *   这就是用户说的「直接后台触发的没实时显示」。
+ * 判据：同仓兄弟面板 v4-collab-subtask-transcript-pane.tsx:126 早就是
+ *   `{ softIntervalMs: V4_SOFT_MS }`（=2000ms）；本面板漏了同一个参数。
+ * 注意：只影响「已有投影时的软对账」频率，首屏 catchup 与 live 帧不受影响。
+ */
+const V4_CATCHUP_SOFT_MS = POLL_ACTIVE_MS
 /** 刚结束：收尾再确认一次的延迟 */
 const SETTLE_DELAY_MS = 2500
 /**
@@ -403,7 +416,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
           }),
         )
       }
-      if (tid) refreshEvoflowV4Session(tid)
+      if (tid) refreshEvoflowV4Session(tid, { softIntervalMs: V4_CATCHUP_SOFT_MS })
       logRightStagePane('employeeProcess.fetchMeta', {
         agentCode: code,
         taskId: taskId || null,
@@ -726,7 +739,7 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         })
         draftRef.current = ''
         setDraftVersion((v) => v + 1)
-        if (tid) refreshEvoflowV4Session(tid)
+        if (tid) refreshEvoflowV4Session(tid, { softIntervalMs: V4_CATCHUP_SOFT_MS })
         // 乐观：进入执行中，等 meta 回写
         setRunStatus('running')
         void fetchMeta()
@@ -738,6 +751,51 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
     },
     [sending, resolveSendSessionKey, fetchMeta],
   )
+
+  // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把本面板的 handleSend 注册进 employee-pane-send-bridge，平台工具可经
+  //   `/main-cdp/action employeeChatSend` 直接驱动面板自己发送。
+  // 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发页面上啥也看不到。」
+  //   手打走的是 ChatApp.chatSend → live SSE 逐字流；后台 wake 是另一轮没有流，
+  //   只能等整轮跑完再轮询快照。要「和手打一样」，就必须由面板这一侧调 chatSend。
+  // 判据（可反证）：清空注册表后同一调用必须回落 pendingSend 分支；
+  //   注册后应直接拿到 handleSend，parseToolResult 里的 pendingSendMessage 为空。
+  useEffect(() => {
+    if (!code) return
+    let dispose: (() => void) | null = null
+    let cancelled = false
+    void (async () => {
+      try {
+        const mod = await import('../../../lib/right-stage/employee-pane-send-bridge.js')
+        if (cancelled) return
+        dispose = mod.registerEmployeePaneSender({
+          agentCode: code,
+          sessionKey: String(employeeSessionKeyHint || employeeSessionKey || '').trim(),
+          // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+          // 改了什么：send 返回 boolean —— 只有「真接住了」才 true。
+          // 为什么：handleSend 在 `sending` 为真时第一句就 `return`（静默丢消息）。
+          //   若这里不加判据，面板正忙时 CDP 仍会回 pane-live，工具层以为已送达、
+          //   前端又因 panel_dispatch 非空不再补发 —— 这句话就凭空消失了，是典型假成功。
+          // 判据：sending 为真 → false → CDP 回 mode='pane-busy' → 前端回落 pendingSend。
+          send: (text: string) => {
+            if (sending) return false
+            void handleSend(String(text || ''))
+            return true
+          },
+        })
+      } catch {
+        /* 桥可选：失败则平台侧回落 pendingSend */
+      }
+    })()
+    return () => {
+      cancelled = true
+      try {
+        dispose?.()
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [code, employeeSessionKeyHint, employeeSessionKey, handleSend])
 
   // 平台 chat_send：只开右栏 + pending，由本面板走与输入框同一套发送（ensureThread→chatSend）
   const pendingSentRef = useRef('')

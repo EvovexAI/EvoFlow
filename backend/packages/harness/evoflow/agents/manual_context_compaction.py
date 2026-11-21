@@ -195,6 +195,15 @@ async def run_manual_context_compaction(
     after = compaction_token_snapshot(after_msgs, context_length=context_length)
     changed = folded is not None and (after["gate_tokens"] < before["gate_tokens"] or after["message_count"] < before["message_count"])
 
+    # 【self-evolution-bot · 2026-11-21 · 第110轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：手工压缩成功后**不再**二次调用 `set_previous_summary`。
+    # 为什么（现网实证）：`build_ephemeral_model_messages` → compress_messages(_fast)
+    # 里已经 `persist_compaction_summary_from_messages(..., force_write=True)` 插过一行；
+    # 这里再 `set_previous_summary` 又 force INSERT 一条相同正文（实测 seq 10370/10371
+    # 相隔 ~79ms、content 字节全等、message_id 各一个 uuid）。`persist_conversation_summary`
+    # 是尾部 INSERT 不是 UPDATE，hydration 虽只取最新一行，磁盘会成对堆垃圾
+    # （本会话已有 35 条 conversation_summary）。
+    # 新口径：引擎落盘即权威；本处只探测 folded 里是否已有 summary 行来填回执字段。
     persisted_summary = False
     reason = "manual_compact"
     if changed and folded is not None:
@@ -203,13 +212,7 @@ async def run_manual_context_compaction(
                 continue
             content = getattr(msg, "content", None)
             if isinstance(content, str) and content.strip():
-                result = get_context_compaction_engine().set_previous_summary(
-                    thread_id,
-                    content.strip(),
-                    session_key=sk,
-                    context_length=context_length,
-                )
-                persisted_summary = bool(result)
+                persisted_summary = True
                 break
     elif folded is None:
         reason = "no_op"

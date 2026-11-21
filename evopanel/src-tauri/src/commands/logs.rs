@@ -433,7 +433,7 @@ fn stream_compare_run_budget() -> u64 {
 }
 
 /// run 目录 → 本进程已写入字节（预算记账）。进程重启清零是可接受的：
-/// 持久体积由 2 天窗口 prune + 全局磁盘配额兜底。
+/// 持久体积由短窗 prune（默认 3 小时）+ 全局磁盘配额兜底。
 fn sc_run_bytes_map() -> &'static Mutex<HashMap<String, u64>> {
     static MAP: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
     MAP.get_or_init(|| Mutex::new(HashMap::new()))

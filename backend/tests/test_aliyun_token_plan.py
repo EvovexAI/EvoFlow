@@ -42,11 +42,32 @@ def test_chat_models_and_media_defaults():
     ids = {m["id"] for m in models}
     assert "auto" in ids
     assert "qwen3.8-max" in ids
+    assert "qwen4-max" in ids
+    assert "qwen4-max-preview" in ids
+    assert "decision-model-preview" in ids
     assert "deepseek-v4.1-flash" in ids
     assert "wan2.7-image" not in ids
     media = default_media_models_for_tier("essential")
     assert media["image"]
     assert media["video"]
+
+
+def test_token_plan_context_windows_match_official_bailian():
+    """目录不得再一刀切 256K——DeepSeek/Qwen 旗舰官方是 1M。
+
+    【self-evolution-bot · 2026-11-21 · 第110轮 · 模型:deepseek-v4.1-flash-1017】
+    """
+    by_id = {m["id"]: m for m in chat_models_for_tier("pro")}
+    assert by_id["deepseek-v4.1-flash"]["context_window"] == 1_000_000
+    assert by_id["deepseek-v4.1-flash"]["max_output"] == 393_216
+    assert by_id["deepseek-v4-pro"]["context_window"] == 1_000_000
+    assert by_id["deepseek-v4-pro"]["max_output"] == 393_216
+    assert by_id["qwen3.8-max"]["context_window"] == 1_000_000
+    assert by_id["qwen3.8-max"]["max_output"] == 131_072
+    assert by_id["qwen3.6-flash"]["max_output"] == 65_536
+    assert by_id["qwen4-max"]["context_window"] == 1_000_000
+    # 没有任何对话模型仍卡在旧占位 256000
+    assert all(int(m["context_window"]) >= 1_000_000 for m in by_id.values())
 
 
 def test_openai_compat_fallback():

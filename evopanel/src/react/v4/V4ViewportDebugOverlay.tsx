@@ -16,6 +16,10 @@
  * 开启条件：调试模式（运维观测）开着，且 localStorage
  * `EVOFLOW_V4_VIEWPORT_OVERLAY` 不为 `'0'`（默认开）。
  * 顶栏问号菜单可切换；也可 `window.__evoflowViewportOverlay(true/false)`。
+ *
+ * Agent 拉取（不必点「复制诊断」）：
+ * - `window.__evoflowV4ViewportDiag()` / `__evoflowPanel.viewportDiag()`
+ * - `GET|POST /main-cdp/viewport-diag`（结构化 JSON + markdown）
  */
 import {
   useCallback,
@@ -99,6 +103,7 @@ import {
   subscribeChatTurnTiming,
   type ChatTurnTimingRow,
 } from "../lib/chat-turn-timing-log.js";
+import { getStreamStopRing } from "../lib/stream-stop-log.js";
 import {
   clearViewportPageSnap,
   listViewportPageSnapEntries,
@@ -1058,11 +1063,13 @@ function buildOverlayDiagnosticText(opts: {
   lines.push("");
   lines.push("### 怎么用");
   lines.push(
-    "- 复现「叠字/错位」后立刻点「复制诊断」贴给 Agent——下面「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想。",
+    "- Agent 优先拉：`GET /main-cdp/viewport-diag` 或 `__evoflowPanel.viewportDiag()` / `__evoflowV4ViewportDiag()`（结构化 JSON + 同款 markdown）；人可点「复制诊断」贴聊。",
   );
-  lines.push("- 不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。");
   lines.push(
-    "- 「发送水位线」：发了几次、何时出泡上屏、上线/首字/收口是否正常；正常只留摘要，异常带前后接口。",
+    "- 「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想；不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。",
+  );
+  lines.push(
+    "- 「发送水位线 / 停止归因」：发了几次、何时出泡上屏、上线/首字/收口；异常带前后接口；点停/Esc/client_attach/断流的 whoZh 在「停止归因」。",
   );
   lines.push(
     "- 「虚拟化」表：软顶/窗首尾/流式 tip/直播轮——转圈但 SSE 在动、上滚没历史，先对这一节。",
@@ -1082,6 +1089,15 @@ function buildOverlayDiagnosticText(opts: {
           error: e.errorText || null,
         })),
         anomalies: listChatTurnAnomalies(),
+        stopHints: getStreamStopRing().map((s) => ({
+          atMs: s.atMs,
+          whoZh: s.whoZh,
+          trigger: s.trigger,
+          kind: s.kind,
+          sessionKey: s.sessionKey,
+          runId: s.runId,
+          fromUiStopButton: s.fromUiStopButton,
+        })),
       }),
     );
     return lines.join("\n");
@@ -1168,6 +1184,22 @@ function buildOverlayDiagnosticText(opts: {
           !a.sessionKey ||
           a.sessionKey === snapshot.sessionKey,
       ),
+      stopHints: getStreamStopRing()
+        .filter(
+          (s) =>
+            !snapshot.sessionKey ||
+            !s.sessionKey ||
+            s.sessionKey === snapshot.sessionKey,
+        )
+        .map((s) => ({
+          atMs: s.atMs,
+          whoZh: s.whoZh,
+          trigger: s.trigger,
+          kind: s.kind,
+          sessionKey: s.sessionKey,
+          runId: s.runId,
+          fromUiStopButton: s.fromUiStopButton,
+        })),
     }),
   );
 
@@ -1487,6 +1519,304 @@ function problemBadge(anomalies: readonly ViewportAnomaly[]): string {
   return formatAnomalyBadge(anomalies);
 }
 
+export type V4ViewportDiagnosticDump = {
+  kind: "v4_viewport_diag";
+  at: string;
+  sessionKey: string | null;
+  threadId: string | null;
+  title: string | null;
+  problems: string;
+  anomalies: Array<{
+    code: string;
+    severity: string;
+    title: string;
+    detail?: string;
+    live?: boolean;
+  }>;
+  virt: {
+    softCap: number;
+    windowCount: number;
+    totalCount: number | null;
+    balloon: boolean;
+    streamAhead: boolean;
+    winFirst: number | null;
+    winLast: number | null;
+    streamMaxRowId: number | null;
+    liveTipRowId: number | null;
+    liveInFlight: number;
+    windowInFlight: number;
+    hasOlder: boolean;
+    following: boolean;
+    flags: string[];
+  } | null;
+  eye: {
+    verdict: string;
+    turnCount: number;
+    overlapCount: number;
+    scrollTop: number;
+    scrollHeight: number;
+    clientHeight: number;
+  } | null;
+  run: {
+    label: string;
+    phase: string;
+    wire: string | null;
+    framesUp: boolean;
+    settled: boolean;
+    executing: boolean;
+    why: string | null;
+  } | null;
+  history: {
+    windowCount: number;
+    totalCount: number | null;
+    winFirst: number | null;
+    winLast: number | null;
+    hasOlder: boolean;
+    loadingOlder: boolean;
+    wouldTrigger: boolean;
+  } | null;
+  waterline: {
+    sendCount: number;
+    anomalyCount: number;
+    inFlightCount: number;
+    rows: Array<{
+      preview: string;
+      verdict: string;
+      level: string;
+      bubbleMs: number | null;
+      wireMs: number | null;
+      runMs: number | null;
+      firstMs: number | null;
+      endMs: number | null;
+      outcome: string | null;
+    }>;
+  };
+  /** 与「复制诊断」同款 markdown，Agent 可读 */
+  markdown: string;
+};
+
+export type CollectV4ViewportDiagnosticOpts = {
+  tab?: OverlayTab | string;
+  apiFamily?: ApiFamilyFilter;
+  /** 浮层内复制时传入 sticky；CDP 拉取默认只用 live */
+  stickyAnomalies?: StickyViewportAnomaly[];
+  stickyTid?: string | null;
+};
+
+/**
+ * 与浮层「复制诊断」同源：刷新快照 + 异常 + 虚拟化 + 水位线。
+ * 挂在 `window.__evoflowV4ViewportDiag` / `__evoflowPanel.viewportDiag` /
+ * `GET /main-cdp/viewport-diag`，供 Agent 直接拉，不必用户复制。
+ */
+export function collectV4ViewportDiagnostic(
+  opts: CollectV4ViewportDiagnosticOpts = {},
+): V4ViewportDiagnosticDump {
+  const tab = (opts.tab as OverlayTab | undefined) || "scroll";
+  const apiFamily = opts.apiFamily ?? "all";
+  const fresh = collectOverlaySnapshot();
+  const snap = fresh;
+  const streamEntries = listViewportStreamTapEntries({
+    sessionKey: snap?.sessionKey ?? null,
+    sessionId: snap?.tid ?? null,
+    limit: 16,
+  });
+  const scrollEntries = listViewportScrollTapEntries({ limit: 32 });
+  const apiEntries = listViewportApiTapEntries({
+    family: apiFamily,
+    sessionId: snap?.tid ?? null,
+    limit: 24,
+  });
+  const apiForWaterline = listViewportApiTapEntries({
+    family: "all",
+    sessionId: snap?.tid ?? null,
+    includeForeign: true,
+    limit: 48,
+  });
+  const liveAnomalies = buildViewportAnomalies({
+    snapshot: snap,
+    streamEntries,
+    apiEntries,
+    scrollEntries,
+  });
+  const anomalies =
+    opts.stickyAnomalies && opts.stickyAnomalies.length > 0
+      ? mergeStickyViewportAnomalies({
+          tid: snap?.tid ?? "",
+          prevTid: opts.stickyTid ?? "",
+          prev: opts.stickyAnomalies,
+          live: liveAnomalies,
+          windowFirstRowId: snap?.history?.windowFirstRowId ?? null,
+        }).items
+      : liveAnomalies;
+
+  let following = true;
+  try {
+    following =
+      document
+        .querySelector('[data-v4-chat-host-visible="1"] [data-following]')
+        ?.getAttribute("data-following") !== "false";
+  } catch {
+    following = true;
+  }
+
+  const virt = snap
+    ? collectVirtualizationProbe({
+        tid: snap.tid,
+        windowRows: snap.windowRows || [],
+        windowCount: snap.history.windowCount,
+        totalCount: snap.history.totalCount,
+        winFirst: snap.history.windowFirstRowId,
+        winLast: snap.history.windowLastRowId,
+        hasOlder: snap.history.hasOlder,
+        loadingOlder: snap.history.loadingOlder,
+        wouldTrigger: snap.history.wouldTrigger,
+        following,
+        streamEntries,
+      })
+    : null;
+
+  const markdown = buildOverlayDiagnosticText({
+    tab,
+    snapshot: snap,
+    streamEntries,
+    scrollEntries,
+    apiEntries,
+    waterlineApiEntries: apiForWaterline,
+    anomalies,
+    problems: problemBadge(anomalies),
+    virt,
+  });
+
+  const host = snap?.layout?.hosts.find((h) => h.visibleAttr === "1");
+  const eyeTurns = snap?.turns ?? [];
+  const overlapCount = eyeTurns.filter((t) => t.overlapsNext).length;
+  const tight72 =
+    host?.estimateStuck === true ||
+    eyeTurns.filter(
+      (t) => t.gapToNext != null && t.gapToNext >= 60 && t.gapToNext <= 84,
+    ).length >= 2;
+  const eyeVerdict = [
+    overlapCount > 0 ? `!叠层×${overlapCount}` : "",
+    host?.stacked ? "!STACK(多卡同Y)" : "",
+    tight72 ? "!EST72(间距≈72估高)" : "",
+    overlapCount === 0 && !host?.stacked && !tight72 ? "排列正常" : "",
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const nowMs = Date.now();
+  const timingRows = listChatTurnTimingRows({
+    sessionKey: snap?.sessionKey ?? null,
+    limit: 12,
+  });
+  const waterlineAnomalies = listChatTurnAnomalies().filter(
+    (a) =>
+      !snap?.sessionKey || !a.sessionKey || a.sessionKey === snap.sessionKey,
+  );
+  const waterlineRows = timingRows.map((r) => {
+    const v = classifyChatTurnTimingVerdict(r, nowMs);
+    const d = (at: number | null) =>
+      at != null && r.sendAt > 0 ? Math.max(0, at - r.sendAt) : null;
+    return {
+      preview: clip(r.textPreview, 80),
+      verdict: v.zh,
+      level: v.level,
+      bubbleMs: d(r.userBubbleAt),
+      wireMs: d(r.wireAt),
+      runMs: d(r.runStartedAt),
+      firstMs: d(r.firstResponseAt),
+      endMs: d(r.streamEndAt),
+      outcome: r.outcome,
+    };
+  });
+
+  return {
+    kind: "v4_viewport_diag",
+    at: new Date().toISOString(),
+    sessionKey: snap?.sessionKey ?? null,
+    threadId: snap?.tid ?? null,
+    title: snap?.title ?? null,
+    problems: problemBadge(anomalies),
+    anomalies: anomalies.map((a) => ({
+      code: a.code,
+      severity: a.severity,
+      title: a.title,
+      detail: a.detail,
+      live:
+        "live" in a && typeof (a as StickyViewportAnomaly).live === "boolean"
+          ? (a as StickyViewportAnomaly).live
+          : true,
+    })),
+    virt: virt
+      ? {
+          softCap: virt.softCap,
+          windowCount: virt.windowCount,
+          totalCount: virt.totalCount,
+          balloon: virt.balloon,
+          streamAhead: virt.streamAhead,
+          winFirst: virt.winFirst,
+          winLast: virt.winLast,
+          streamMaxRowId: virt.streamMaxRowId,
+          liveTipRowId: virt.liveTipRowId,
+          liveInFlight: virt.liveInFlight,
+          windowInFlight: virt.windowInFlight,
+          hasOlder: virt.hasOlder,
+          following: virt.following,
+          flags: virt.flags,
+        }
+      : null,
+    eye: snap
+      ? {
+          verdict: eyeVerdict || "∅",
+          turnCount: eyeTurns.length,
+          overlapCount,
+          scrollTop: snap.scrollTop,
+          scrollHeight: snap.scrollHeight,
+          clientHeight: snap.clientHeight,
+        }
+      : null,
+    run: snap
+      ? {
+          label: snap.runStatus.label,
+          phase: snap.runStatus.turnPhase,
+          wire: snap.runStatus.streamWireSource,
+          framesUp: !!snap.runStatus.v4FramesSseOpen,
+          settled: !!snap.runStatus.uiTurnSettled,
+          executing: !!snap.runStatus.executing,
+          why: snap.runStatus.execWhy,
+        }
+      : null,
+    history: snap
+      ? {
+          windowCount: snap.history.windowCount,
+          totalCount: snap.history.totalCount,
+          winFirst: snap.history.windowFirstRowId,
+          winLast: snap.history.windowLastRowId,
+          hasOlder: snap.history.hasOlder,
+          loadingOlder: snap.history.loadingOlder,
+          wouldTrigger: snap.history.wouldTrigger,
+        }
+      : null,
+    waterline: {
+      sendCount: timingRows.length,
+      anomalyCount: waterlineAnomalies.length,
+      inFlightCount: waterlineRows.filter((r) => r.level === "pending").length,
+      rows: waterlineRows,
+    },
+    markdown,
+  };
+}
+
+function mountV4ViewportDiagHook(): void {
+  if (typeof window === "undefined") return;
+  const w = window as Window & {
+    __evoflowV4ViewportDiag?: typeof collectV4ViewportDiagnostic;
+  };
+  w.__evoflowV4ViewportDiag = collectV4ViewportDiagnostic;
+}
+
+mountV4ViewportDiagHook();
+
 export function V4ViewportDebugOverlay() {
   const { enabled: obsEnabled } = useObsEnabled();
   const [prefOn, setPrefOn] = useState(readOverlayPref);
@@ -1577,6 +1907,7 @@ export function V4ViewportDebugOverlay() {
     const w = window as Window & {
       __evoflowViewportOverlay?: (enabled?: boolean) => boolean;
       __evoflowViewportDebugSnapshot?: () => OverlaySnapshot | null;
+      __evoflowV4ViewportDiag?: typeof collectV4ViewportDiagnostic;
     };
     w.__evoflowViewportOverlay = (enabled?: boolean) => {
       if (typeof enabled === "boolean") {
@@ -1586,9 +1917,11 @@ export function V4ViewportDebugOverlay() {
       return readOverlayPref();
     };
     w.__evoflowViewportDebugSnapshot = () => collectOverlaySnapshot();
+    w.__evoflowV4ViewportDiag = collectV4ViewportDiagnostic;
     return () => {
       delete w.__evoflowViewportOverlay;
       delete w.__evoflowViewportDebugSnapshot;
+      // 诊断钩子模块级常驻，卸载浮层不删，CDP 仍可拉
     };
   }, []);
 
@@ -2031,76 +2364,15 @@ export function V4ViewportDebugOverlay() {
     // 复制前先刷一帧，避免贴出去的是过期快照。
     const fresh = collectOverlaySnapshot();
     if (fresh) setSnapshot(fresh);
-    const streamForCopy = listViewportStreamTapEntries({
-      sessionKey: (fresh ?? snapshot)?.sessionKey ?? null,
-      sessionId: (fresh ?? snapshot)?.tid ?? null,
-      limit: 16,
-    });
-    const scrollForCopy = listViewportScrollTapEntries({ limit: 32 });
-    const apiForCopy = listViewportApiTapEntries({
-      family: apiFamily,
-      sessionId: (fresh ?? snapshot)?.tid ?? null,
-      limit: 24,
-    });
-    // 水位线要对账 subscribe/chatSend：不受当前接口 tab 过滤，多拿一批
-    const apiForWaterline = listViewportApiTapEntries({
-      family: "all",
-      sessionId: (fresh ?? snapshot)?.tid ?? null,
-      includeForeign: true,
-      limit: 48,
-    });
-    const liveForCopy = buildViewportAnomalies({
-      snapshot: fresh ?? snapshot,
-      streamEntries: streamForCopy,
-      apiEntries: apiForCopy,
-      scrollEntries: scrollForCopy,
-    });
-    const snapForCopy = fresh ?? snapshot;
-    const stickyForCopy = mergeStickyViewportAnomalies({
-      tid: snapForCopy?.tid ?? "",
-      prevTid: stickyTidRef.current,
-      prev: stickyAnomalies,
-      live: liveForCopy,
-      windowFirstRowId: snapForCopy?.history?.windowFirstRowId ?? null,
-    }).items;
-    let following = true;
-    try {
-      following =
-        document
-          .querySelector('[data-v4-chat-host-visible="1"] [data-following]')
-          ?.getAttribute("data-following") !== "false";
-    } catch {
-      following = true;
-    }
-    const virtForCopy = snapForCopy
-      ? collectVirtualizationProbe({
-          tid: snapForCopy.tid,
-          windowRows: snapForCopy.windowRows || [],
-          windowCount: snapForCopy.history.windowCount,
-          totalCount: snapForCopy.history.totalCount,
-          winFirst: snapForCopy.history.windowFirstRowId,
-          winLast: snapForCopy.history.windowLastRowId,
-          hasOlder: snapForCopy.history.hasOlder,
-          loadingOlder: snapForCopy.history.loadingOlder,
-          wouldTrigger: snapForCopy.history.wouldTrigger,
-          following,
-          streamEntries: streamForCopy,
-        })
-      : null;
-    const text = buildOverlayDiagnosticText({
+    const dump = collectV4ViewportDiagnostic({
       tab,
-      snapshot: snapForCopy,
-      streamEntries: streamForCopy,
-      scrollEntries: scrollForCopy,
-      apiEntries: apiForCopy,
-      waterlineApiEntries: apiForWaterline,
-      anomalies: stickyForCopy,
-      problems: problemBadge(stickyForCopy),
-      virt: virtForCopy,
+      apiFamily,
+      stickyAnomalies,
+      stickyTid: stickyTidRef.current,
     });
-    const ok = await copyTextToClipboard(text);
+    const ok = await copyTextToClipboard(dump.markdown);
     flashCopyHint(ok, "已复制诊断");
-  }, [snapshot, tab, apiFamily, flashCopyHint, stickyAnomalies]);
+  }, [tab, apiFamily, flashCopyHint, stickyAnomalies]);
 
   const copySessionId = useCallback(
     async (kind: "tid" | "sk") => {

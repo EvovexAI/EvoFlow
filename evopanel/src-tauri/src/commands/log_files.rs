@@ -187,17 +187,34 @@ pub fn debug_logs_dir(logs_root: &Path) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// stream-compare retention (opt-in feature; short window)
+// stream-compare retention (opt-in feature; short window — hours, not days)
 // ---------------------------------------------------------------------------
 
-pub const DEFAULT_STREAM_COMPARE_RETENTION_DAYS: i64 = 2;
+/// 视口 overlay / stream-compare 默认只留 **3 小时**（防灌盘；曾 2 天窗口撑到 GB 级）。
+pub const DEFAULT_STREAM_COMPARE_RETENTION_HOURS: i64 = 3;
 
-pub fn stream_compare_retention_days() -> i64 {
-    std::env::var("EVOFLOW_STREAM_COMPARE_RETENTION_DAYS")
+/// 兼容旧常量名；语义已是小时。
+#[deprecated(note = "use DEFAULT_STREAM_COMPARE_RETENTION_HOURS")]
+pub const DEFAULT_STREAM_COMPARE_RETENTION_DAYS: i64 = DEFAULT_STREAM_COMPARE_RETENTION_HOURS;
+
+fn stream_compare_retention_hours() -> i64 {
+    // 优先 HOURS；旧名 DAYS 现按「小时」读（=2 → 2h，不再是 2 天）
+    std::env::var("EVOFLOW_STREAM_COMPARE_RETENTION_HOURS")
         .ok()
+        .or_else(|| std::env::var("EVOFLOW_STREAM_COMPARE_RETENTION_DAYS").ok())
         .and_then(|s| s.trim().parse().ok())
         .filter(|&n| n >= 1)
-        .unwrap_or(DEFAULT_STREAM_COMPARE_RETENTION_DAYS)
+        .unwrap_or(DEFAULT_STREAM_COMPARE_RETENTION_HOURS)
+}
+
+/// 保留窗口秒数（默认 3h）。
+pub fn stream_compare_retention_secs() -> i64 {
+    stream_compare_retention_hours().saturating_mul(3_600)
+}
+
+#[deprecated(note = "use stream_compare_retention_secs / hours")]
+pub fn stream_compare_retention_days() -> i64 {
+    stream_compare_retention_hours()
 }
 
 fn newest_mtime_secs_in_dir(dir: &Path) -> Option<i64> {
@@ -224,12 +241,20 @@ fn newest_mtime_secs_in_dir(dir: &Path) -> Option<i64> {
 
 /// 删除超过保留窗口的 ``stream-compare/{runId}`` 目录，返回被删的 run 目录数。
 pub fn prune_stream_compare_logs(root: &Path) -> Result<usize, String> {
+    prune_stream_compare_logs_with_keep_secs(root, stream_compare_retention_secs())
+}
+
+/// 同 ``prune_stream_compare_logs``，``keep_secs`` 显式传入（单测 / 运维）。
+pub fn prune_stream_compare_logs_with_keep_secs(
+    root: &Path,
+    keep_secs: i64,
+) -> Result<usize, String> {
     if !root.is_dir() {
         return Ok(0);
     }
-    let keep_days = stream_compare_retention_days();
+    let keep_secs = keep_secs.max(60);
     let now_secs = chrono::Local::now().timestamp().max(0);
-    let cutoff_secs = now_secs - keep_days * 86_400;
+    let cutoff_secs = now_secs - keep_secs;
     let mut removed = 0usize;
 
     let top = match fs::read_dir(root) {
@@ -528,6 +553,35 @@ mod quota_tests {
         write_file(&root, "a.log", 10_000_000);
         let (removed, _, _) = enforce_logs_disk_quota_with_max(&root, 0).unwrap();
         assert_eq!(removed, 0);
+        fs::remove_dir_all(&root).ok();
+    }
+
+    #[test]
+    fn stream_compare_prunes_idle_dirs_by_mtime_hours() {
+        use std::time::Duration;
+        let root = temp_dir_unique("sc-prune");
+        let now = std::time::SystemTime::now();
+        // session/run 布局：有 .log 的目录才按 run 删
+        let old_run = root.join("sid-old").join("run-old");
+        let fresh_run = root.join("sid-new").join("run-new");
+        fs::create_dir_all(&old_run).unwrap();
+        fs::create_dir_all(&fresh_run).unwrap();
+        let old_log = write_file_with_mtime(
+            &old_run,
+            "viewport-stream.log",
+            64,
+            now - Duration::from_secs(4 * 3600),
+        );
+        let fresh_log =
+            write_file_with_mtime(&fresh_run, "viewport-stream.log", 64, now);
+        assert!(old_log.exists());
+        assert!(fresh_log.exists());
+
+        let removed = prune_stream_compare_logs_with_keep_secs(&root, 3600).unwrap();
+
+        assert!(removed >= 1, "4h 前的 run 应被 1h 窗口清掉");
+        assert!(!old_run.exists(), "过期 run 目录应删除");
+        assert!(fresh_run.exists(), "新鲜 run 应保留");
         fs::remove_dir_all(&root).ok();
     }
 }

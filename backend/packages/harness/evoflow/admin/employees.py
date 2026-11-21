@@ -2625,6 +2625,7 @@ def chat_send(
     session_key: str = "",
     task_id: str = "",
     source: str = "xiaomi",
+    deliver: str = "auto",
 ) -> dict[str, Any]:
     """Send a free-chat turn and **server-side wake** the employee.
 
@@ -2637,6 +2638,19 @@ def chat_send(
     message as goal so a real duty round starts. ``queued`` is true only when
     wake accepted (not skipped). Prefer ``dispatch`` / ``wake`` for explicit
     work items; use chat_send for short follow-ups.
+
+    【self-evolution-bot · 2026-11-21 · 第108/109轮 · 模型:deepseek-v4.1-flash-1017】
+    ``deliver`` 决定这一句话由谁真正发出去：
+    - ``"auto"``（默认）：**面板在就跑面板，面板不在才后台 wake**。
+      桌面开着 → 经 CDP 直接驱动右栏面板 ``handleSend`` → ``ChatApp.chatSend``
+      → live SSE 逐字流，和用户手打完全同一条通路；面板没开 / 手机 / 主聊 →
+      回落后台 ``wake``，保证仍有来有回（那段没有流式，是物理事实）。
+    - ``"panel"``：强制面板通路，面板驱不到也不 wake（要严格保证单一 owner 时用）。
+    - ``"wake"``：强制后台轮次，永不动面板（批量派活 / 不需要人看屏幕时用）。
+    为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发
+    页面上啥也看不到。」第100轮为修「同一句话发两遍」把前端改成「服务端 wake 成功
+    就不本地发」，结果面板里永远没有流式；第108轮只回标记指望前端补发，只要调用
+    不经过 agui 工具结果同步就没人消费。第109轮改为**服务端亲自驱面板**，一次做完。
     """
     from evoflow.proactive.chat_session import (
         list_employee_conversation_sessions,
@@ -2723,31 +2737,117 @@ def chat_send(
 
     wake_result: dict[str, Any] | None = None
     wake_error = ""
-    try:
-        wake_result = wake(
-            code,
-            goal=text[:800],
-            from_agent=from_agent,
-            task_id=tid,
-            description=text[:2000],
-            source="xiaomi" if from_agent == "xiaomi" else src,
-            resume_round=bool(tid),
-            # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
-            # 改了什么：把上面辛苦算出来的 sk 交给 wake（旧代码算完就丢了，wake 恒空钉）。
-            # 为什么：面板按 sk 打开（proactive:reviewer:chat:dept-…），服务端却因空钉落
-            #   proactive:reviewer:task:2611…，同一句话两个桶、两张脸。20:07 实证：面板桶
-            #   20:07:32/34 有来有回，服务端桶 20:07:31→47 另跑一轮还白建一张任务单。
-            # pin_is_fresh：这个键是**当下刚算出来的**，不是注册时的旧快照，不许再被
-            #   prefer_newest_human_session 协商换掉（否则新 mint 的屏必然被换成旧屏）。
-            session_key=sk,
-            pin_is_fresh=True,
+    raw_deliver = str(deliver or "auto").strip().lower()
+    if raw_deliver not in {"auto", "wake", "panel"}:
+        # 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：deliver 只接受 wake / panel，其它值直接报错。
+        # 为什么：本轮实测踩到——运行中的旧包不认识 deliver 参数，静默丢弃后照样 wake，
+        #   调用方以为「已切到面板流式」，实际还是后台跑、页面啥也看不到。
+        #   拼错一个字母就静默退化，比报错难查十倍。
+        # 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        # 取值扩到 auto / wake / panel：auto = 面板在就驱面板、面板不在回落 wake。
+        raise ValidationError(
+            f"deliver must be 'auto' | 'wake' | 'panel', got {deliver!r}"
         )
-    except Exception as exc:
-        wake_error = str(exc).strip() or type(exc).__name__
-        logger.warning("chat_send: wake failed agent=%s err=%s", code, wake_error)
+    want_panel = raw_deliver in {"auto", "panel"}
+    panel_dispatch = ""
+    panel_dispatch_detail: dict[str, Any] = {}
+    if want_panel:
+        # 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：deliver="panel" 时，**服务端自己不 wake，改由 CDP 直接驱动桌面面板
+        #   的 handleSend**（`/main-cdp/action employeeChatSend`）——即面板里手打消息
+        #   那条通路 → ChatApp.chatSend → live SSE 逐字流。
+        # 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发
+        #   页面上啥也看不到。」第108轮只回了个 panel_delivery 标记等前端补发，
+        #   一旦这次调用没走 agui 工具结果同步（Xiaomi 主聊 / 手机 / 别的 agent 调），
+        #   标记就没人消费 —— 面板照样没流。发送动作必须由发起方一次做完。
+        # 判据（可反证）：把 CDP 调用拆掉，panel_dispatch 恒为空 → 前端回落 pendingSend，
+        #   表现退回第108轮「只开面板不发」。
+        logger.info("chat_send: deliver=%s, try drive panel via CDP (agent=%s)", raw_deliver, code)
+        try:
+            from evoflow.tools.builtins.panel_engine import panel_request
+
+            env = panel_request(
+                "POST",
+                "action",
+                body={
+                    "action": "employeeChatSend",
+                    "params": {
+                        "agentCode": code,
+                        "sessionKey": sk,
+                        "text": text,
+                        "taskId": tid,
+                        "roleName": str(role.role_name or "").strip(),
+                    },
+                },
+            )
+            if isinstance(env, dict) and env.get("ok"):
+                result = env.get("result") if isinstance(env.get("result"), dict) else {}
+                detail = (
+                    result.get("detail")
+                    if isinstance(result.get("detail"), dict)
+                    else result
+                )
+                mode = str((detail or {}).get("mode") or "").strip()
+                # live = 面板已在自己 chatSend（真流式）；pending-open = 面板刚被拉开排队首发。
+                # 两种都代表「面板侧会发」，前端不得再发一遍。
+                panel_dispatch = mode if mode in {"pane-live", "pending-open"} else ""
+                panel_dispatch_detail = dict(detail or {})
+                logger.info(
+                    "chat_send: panel dispatch mode=%s agent=%s sk=%s",
+                    panel_dispatch or "-",
+                    code,
+                    (detail or {}).get("sessionKey") or sk,
+                )
+            else:
+                panel_dispatch_detail = {
+                    "ok": False,
+                    "error": (env or {}).get("error") if isinstance(env, dict) else "panel_request_failed",
+                }
+                logger.info(
+                    "chat_send: panel CDP unavailable (%s); frontend will pendingSend",
+                    panel_dispatch_detail.get("error"),
+                )
+        except Exception as exc:  # noqa: BLE001
+            panel_dispatch_detail = {"ok": False, "error": str(exc)}
+            logger.warning("chat_send: panel dispatch failed agent=%s err=%s", code, exc)
+
+    # auto：面板驱到了就到此为止（真流式）；驱不到（面板没开 / CDP 不在 / 手机端）
+    # 才回落后台 wake —— 那段没有流是物理事实，但用户至少有来有回，不是静默无反应。
+    # pane-busy = 面板在但正在跑别的一轮，handleSend 会静默丢消息 → 不许当送达。
+    need_wake = raw_deliver == "wake" or (raw_deliver == "auto" and not panel_dispatch)
+    if not need_wake:
+        wake_result = {
+            "skipped": True,
+            "reason": "panel_dispatched" if panel_dispatch else "panel_delivery_requested",
+        }
+    if need_wake:
+        try:
+            wake_result = wake(
+                code,
+                goal=text[:800],
+                from_agent=from_agent,
+                task_id=tid,
+                description=text[:2000],
+                source="xiaomi" if from_agent == "xiaomi" else src,
+                resume_round=bool(tid),
+                # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+                # 改了什么：把上面辛苦算出来的 sk 交给 wake（旧代码算完就丢了，wake 恒空钉）。
+                # 为什么：面板按 sk 打开（proactive:reviewer:chat:dept-…），服务端却因空钉落
+                #   proactive:reviewer:task:2611…，同一句话两个桶、两张脸。20:07 实证：面板桶
+                #   20:07:32/34 有来有回，服务端桶 20:07:31→47 另跑一轮还白建一张任务单。
+                # pin_is_fresh：这个键是**当下刚算出来的**，不是注册时的旧快照，不许再被
+                #   prefer_newest_human_session 协商换掉（否则新 mint 的屏必然被换成旧屏）。
+                session_key=sk,
+                pin_is_fresh=True,
+            )
+        except Exception as exc:
+            wake_error = str(exc).strip() or type(exc).__name__
+            logger.warning("chat_send: wake failed agent=%s err=%s", code, wake_error)
 
     skipped = bool(isinstance(wake_result, dict) and wake_result.get("skipped"))
     woke = bool(wake_result is not None and not skipped and not wake_error)
+    panel_handled = bool(panel_dispatch)
     out: dict[str, Any] = {
         "ok": woke or skipped,
         "agent_code": code,
@@ -2761,7 +2861,33 @@ def chat_send(
         "queued": woke,
         "busy": woke,
         "wake": wake_result,
+        # 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：明确告诉前端「这一句话该由面板本地发」。
+        # 为什么：前端 employee-chat-send-sync.js 现在只看 queued 决定要不要 pendingSend；
+        #   加了这条标记后，「谁真正发送」由调用方一次性说清，不靠前端反推。
+        # 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：panel_delivery 从「调用方想要面板」改成「面板这一腿真的接住了 /
+        #   或强制 panel 模式下必须由前端补发」。
+        # 为什么：auto 模式下若面板驱不到、已回落 wake（queued=true），此时再说
+        #   panel_delivery=true，前端会照 pendingSend 再发一遍 —— 同一句话两遍，
+        #   正是第100轮踩过的坑。判据必须是实况，不是意图。
+        "panel_delivery": bool(panel_dispatch) or raw_deliver == "panel",
+        # 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：回 `panel_dispatch` —— 本轮是否**已由服务端经 CDP 驱动面板发送**。
+        #   取值 `pane-live`（面板已在自己 chatSend → live SSE）
+        #     / `pending-open`（面板刚被拉开，首发排队中）/ 空（CDP 不可用，前端须自己发）。
+        # 为什么：第108轮只回标记不驱动，调用方若不是走 agui 工具结果同步的前端，
+        #   标记永远没人消费 → 面板里还是啥也看不到。谁发必须一次说清，不能靠消费方猜。
+        # 判据：panel_dispatch 非空 → 前端不得再 pendingSend（否则同一句话发两遍）；
+        #   为空 → 前端必须 pendingSend（保住有来有回）。
+        "panel_dispatch": panel_dispatch,
     }
+    if panel_dispatch_detail:
+        out["panel_dispatch_detail"] = panel_dispatch_detail
+    if panel_handled:
+        out["ok"] = True
+        out["busy"] = True
+        out["streaming"] = panel_dispatch == "pane-live"
     if skipped:
         out["skipped"] = True
         out["skip_reason"] = str((wake_result or {}).get("reason") or (wake_result or {}).get("message") or "")

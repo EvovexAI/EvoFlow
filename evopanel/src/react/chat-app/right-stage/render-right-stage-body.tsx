@@ -1,4 +1,12 @@
-// @ts-nocheck — mechanical P83 extract.
+// @ts-nocheck
+// 【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】
+// 为什么保留 @ts-nocheck：本文件去掉它还剩 10 条存量类型错误（TS2322/TS2740/TS2339，
+//   全是 props 声明为 unknown 造成的收窄问题），属 P83 机械抽取遗留，不在本轮范围。
+// 但保留它有一个致命副作用，本轮已自撞：**tsc 对该文件完全免疫**，我改动时误删了
+//   `const data = surface.data || {}`，第 84 行引用未定义变量，tsc exit=0 一路绿灯，
+//   直到装进包、运行时才报「工作流加载失败 data is not defined」。
+// 因此新增护栏：evopanel/scripts/check-nocheck-shadow.mjs 检出本文件内 TS2304/TS2552
+//   （Cannot find name）这类**运行时必崩**的错误，类型收窄类不拦。
 /**
  * Right-stage surface body renderer. Extracted from ChatApp.tsx (P83).
  */
@@ -23,6 +31,8 @@ import { V4CollabSubtaskTranscriptPane } from './v4-collab-subtask-transcript-pa
 import { V4EmployeeProcessPane } from './v4-employee-process-pane.js'
 import { V4SessionRuntimePane } from './v4-session-runtime-pane.js'
 import { resolveEmployeeProcessTabTitle } from '../../../lib/right-stage/open-employee-process-stage.js'
+// 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】工作流签任务绑定判据
+import { resolveCollabWorkflowStageBinding } from '../../../lib/right-stage/collab-workflow-stage-binding.js'
 import type { SessionChildWorkItem } from '../../lib/session-reattach.js'
 import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import {
@@ -70,10 +80,21 @@ function CollabWorkflowStageBody({
   onClose: () => void
 }) {
   const data = surface.data || {}
-  const mainTaskId = String(data.mainTaskId || fallbackMainTaskId || '').trim()
-  const leadThreadId = String(data.leadThreadId || fallbackLeadThreadId || '').trim()
-  const useShared =
-    !!mainTaskId && mainTaskId === String(fallbackMainTaskId || '').trim() && sharedMainTask != null
+  // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把「工作流签绑到哪个任务」这段判据抽到 collab-workflow-stage-binding.ts，并改判据。
+  // 为什么：原来 leadThreadId = data.leadThreadId || fallbackLeadThreadId，而 fallbackLeadThreadId
+  //   恒为「当前聊天 thread」。fetchCollabTaskRow 的解析顺序是 sessionKey → threadId → preferTaskId，
+  //   前两条先命中，于是按当前会话反查到了**另一个任务**的行：标题串成别的任务名、子任务变 0。
+  //   现网实证：ui.show mainTaskId=2611211657_7112（GET /api/tasks/{id} 有 6 个 subtasks、名字
+  //   「验证W5·串并混合六节点文档流」），面板却显示「构建+重启后复验：fire_and_forget 投递重定向是否生效」
+  //   ＋「暂无子任务节点」。显式指定了任务就必须以它为准，不能被当前会话覆盖。
+  //   判据：显式 id 时 body 里的任务名与任务 ID 必须同源，节点数等于该任务 subtasks 长度。
+  const { mainTaskId, leadThreadId, useShared } = resolveCollabWorkflowStageBinding({
+    surfaceData: data,
+    fallbackMainTaskId,
+    fallbackLeadThreadId,
+    sharedMainTask,
+  })
   const { subtasks: fetchedSubs, mainTask: fetchedMain } = useCollabSubtasksFromApi({
     taskId: mainTaskId || null,
     threadId: leadThreadId || null,

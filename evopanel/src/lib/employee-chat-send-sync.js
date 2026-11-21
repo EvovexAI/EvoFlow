@@ -130,10 +130,24 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
   // 判据：服务端已真跑（queued）→ 前端只负责把那一屏拉开；服务端没跑（queued=false/失败）→
   //   前端本地发，保证用户仍有来有回（手机/主聊场景没有面板，走的是服务端那条腿）。
   const serverHandled = obj.queued === true
-  const pendingSendMessage = serverHandled ? undefined : message
+  // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：判据从「panel_delivery 标记」升级成「panel_dispatch 实况」。
+  //   panel_dispatch 取值：pane-live（面板已在自己 chatSend → live SSE）/
+  //   pending-open（面板刚拉开、首发排队）/ 空（服务端 CDP 没驱到，前端得自己发）。
+  // 为什么（用户 2026-11-21 点破）：「我在右侧面板手打能看到实时结果，你后台触发页面上啥也
+  //   看不到。」第108轮只回 panel_delivery 标记、指望前端补发 —— 但只要这次调用不经过
+  //   agui 工具结果同步（Xiaomi 主聊 / 手机 / 别的 agent），标记就没人消费，面板照样没流。
+  //   现在服务端经 CDP 直接把面板驱起来，前端只需按实况决定补不补，不再靠猜。
+  // 判据（可反证）：panel_dispatch='pane-live' 时若还 pendingSend，同一句话必发两遍；
+  //   panel_dispatch 为空（CDP 不可用）时若不 pendingSend，用户就真的看不到任何回话。
+  const panelDelivery = obj.panel_delivery === true
+  const panelDispatch = String(obj.panel_dispatch || '').trim()
+  const panelDroveIt = panelDispatch === 'pane-live' || panelDispatch === 'pending-open'
+  const pendingSendMessage = panelDroveIt ? undefined : panelDelivery || !serverHandled ? message : undefined
   logRightStagePlatform('employee_chat_send.send-owner', {
     serverHandled,
-    willPendingSend: !serverHandled,
+    panelDelivery,
+    willPendingSend: !serverHandled || panelDelivery,
     agentCode,
     sessionKey,
   })

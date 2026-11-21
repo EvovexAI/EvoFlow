@@ -222,8 +222,8 @@ pub fn run() {
                 })
                 .map_err(|e| format!("启动内置后端线程失败: {e}"))?;
 
-            // 日志保留：日切 14 天 + stream-compare 短窗 + debug/ 3 天 + 全局磁盘配额兜底。
-            // 启动先跑一次，之后每 1 小时；失败仅日志，不影响启动。
+            // 日志保留：日切 14 天 + stream-compare 默认 3h + debug/ 3 天 + 全局磁盘配额兜底。
+            // 启动先跑一次，之后每 30 分钟（匹配小时级 stream-compare 窗口）；失败仅日志。
             std::thread::Builder::new()
                 .name("log-pruner".into())
                 .spawn(|| {
@@ -271,7 +271,7 @@ pub fn run() {
                     };
                     tick();
                     loop {
-                        std::thread::sleep(Duration::from_secs(60 * 60));
+                        std::thread::sleep(Duration::from_secs(30 * 60));
                         tick();
                     }
                 })

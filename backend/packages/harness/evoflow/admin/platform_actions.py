@@ -821,9 +821,12 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.chat_send",
             "employees",
-            "打开/续聊员工对话：发一条消息并拉开右栏对话页（可多次调用续聊）",
+            "打开/续聊员工对话：发一条消息并拉开右栏对话页（可多次调用续聊）。"
+            "默认 deliver=auto：面板在就由面板自己 chatSend（live SSE 逐字流），"
+            "面板不在才回落后台 wake",
             "write",
-            "agent_code/role_name, message, session_key?, task_id?, source?",
+            "agent_code/role_name, message, session_key?, task_id?, source?, "
+            "deliver?=auto|panel|wake",
             H.employees_chat_send,
             "跟拆解岗说：先列三步计划",
             "继续问文案助手刚才那个标题再短一点",
