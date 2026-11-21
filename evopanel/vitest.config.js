@@ -338,6 +338,7 @@ export default defineConfig({
       'tests/langgraph-thread-stale-epoch.test.ts',
       // 超大会话渲染层尾窗软顶（防 loadAllOlder / 长流式撑爆 window）
       'tests/projection-window-cap.test.ts',
+      'tests/tip-soft-cap-latch.test.ts',
       // overflow/recovery 尾窗快照不得冲掉已 loadOlder 的更早行
       'tests/v4-preserve-older-on-tail-snapshot.test.ts',
       'tests/v4-userinput-visible-in-tail.test.ts',

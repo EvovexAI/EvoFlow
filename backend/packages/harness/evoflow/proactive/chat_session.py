@@ -576,12 +576,24 @@ def build_duty_beat_text(
     prompt: str,
     kind: str = "think",
     from_agent: str = "",
+    plain_user_chat: bool = False,
 ) -> str:
     """Short human-facing duty open line for the work-process timeline.
 
     ``think`` / patrol: one line (no「本轮值班开始」prefix). Dispatch names who
     sent the work (user display name / employee / 小V). ``execute`` keeps
     「开始执行」— same task's second phase, not a new duty shift.
+
+    【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 ``plain_user_chat``，为真时派发行只保留目标原文，不加
+      「推进{谁}派发：」前缀。
+    为什么（用户原话「为啥总是要这样去显示呀？就相当于是正常说话就行了，
+      不要说什么'谁推进小微派发'，这干嘛呀这是！」）：员工对话（``wk == "chat"``）
+      里那条 beat 会被当成 **user 角色的消息**落进 transcript，前端再按
+      ``isDutyBeatUserText`` 渲染成灰色节拍条 —— 等于用户正常说一句话，
+      系统却替他造了一句「推进小V派发：…」放在对话里。派发语义属于
+      值班/派单回合，不属于人跟员工聊天。
+    判据：chat 回合的 beat 必须逐字等于用户自己那句话；仍带前缀 = 没修好。
     """
     name = str(role_name or "").strip() or "智能体员工"
     body = str(prompt or "")
@@ -592,8 +604,13 @@ def build_duty_beat_text(
         return f"开始执行 · {name}\n按已批计划执行并结案。"
 
     if "### 用户派发任务" in body or "用户派发目标" in body:
-        who = _dispatcher_label_from_prompt(body, from_agent=from_agent)
         goal = _dispatch_goal_from_prompt(body)
+        # 人跟员工聊天：不加「推进X派发：」前缀，原话怎么写就怎么显示。
+        if plain_user_chat:
+            if goal:
+                return goal[:72] if len(goal) <= 72 else goal[:71] + "…"
+            return str(body or "").strip()[:72]
+        who = _dispatcher_label_from_prompt(body, from_agent=from_agent)
         if goal:
             if len(goal) > 72:
                 goal = goal[:71] + "…"
@@ -843,7 +860,16 @@ def prepare_proactive_chat_session(
             principal_id=identity_pid,
         )
 
-        beat = build_duty_beat_text(role_name=role_name, prompt=body, kind=kind)
+        # 【self-evolution-bot · 2026-11-21 · 第107轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：chat 会话（人跟员工正常说话）的 beat 不再带「推进X派发：」前缀。
+        # 为什么：这条 beat 是以 role="user" 落进 transcript 的，带前缀等于系统
+        #   替用户造了一句机器话（用户原话：「就相当于是正常说话就行了」）。
+        beat = build_duty_beat_text(
+            role_name=role_name,
+            prompt=body,
+            kind=kind,
+            plain_user_chat=(wk == "chat"),
+        )
         try:
             from evoflow.persistence.chat_message_repositories import transcript_duplicate_exists
 

@@ -1387,3 +1387,111 @@ def test_transcript_backfill_ignores_cross_thread_row(mirror_session: str) -> No
     finally:
         db.execute("DELETE FROM evoflow_chat_messages WHERE tool_call_id = ?", (tcid,))
         db.commit()
+
+
+def test_heal_stale_inflight_seals_streaming_on_failed_turn(
+    mirror_session: str,
+) -> None:
+    """终态轮上残留 streaming 思考 / running 工具：heal 必须收口（f2fdc69c）。
+
+    phase=idle + turnHeader=failed 仍「正在思考」——map 已清时 RUN_* seal 扫不到。
+    """
+    from app.gateway.v4.agui_mirror import mirror_heal_stale_inflight_rows, mirror_reset_thread
+
+    tid = mirror_session + "-stale-inflight"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "写童话")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-stale"},
+            {"type": "REASONING_MESSAGE_START", "messageId": "think-1"},
+            {
+                "type": "REASONING_MESSAGE_CONTENT",
+                "messageId": "think-1",
+                "delta": "先查磁盘内容",
+            },
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-zombie",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-zombie"},
+            # 无 RESULT / 无 RUN_FINISHED：模拟断流后头被标 failed、map 被清
+        ],
+    )
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    # 人工把轮头标 failed（catchup settle），并清 mirror 活写态
+    header = next(r for r in _rows(tid) if r.get("kind") == "turnHeader")
+    HUB.author_upsert_row(
+        tid,
+        {
+            **header,
+            "state": "failed",
+            "endedAt": header.get("startedAt") or 1,
+        },
+    )
+    mirror_reset_thread(tid)
+
+    thinking = next(r for r in _rows(tid) if r.get("kind") == "reasoning")
+    assert thinking["state"] == "streaming", thinking
+    tool = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool["status"] in ("running", "inputStreaming"), tool
+
+    healed = mirror_heal_stale_inflight_rows(tid)
+    assert healed >= 2, healed
+    thinking2 = next(r for r in _rows(tid) if r.get("kind") == "reasoning")
+    assert thinking2["state"] == "complete", thinking2
+    tool2 = next(r for r in _rows(tid) if r.get("kind") == "toolCall")
+    assert tool2["status"] == "cancelled", tool2
+
+
+def test_heal_stale_inflight_seals_running_header_when_db_done(
+    mirror_session: str,
+) -> None:
+    """DB done + tip turnHeader 仍 running + 空 streaming 思考：必须收口。
+
+    压缩/remint 后常见：无终态头 → 旧 heal 直接 return 0，面板「正在思考」
+    与「已工作」计时钉死数小时（94b4bc83）。
+    """
+    from unittest.mock import patch
+
+    from app.gateway.v4.agui_mirror import mirror_heal_stale_inflight_rows, mirror_reset_thread
+
+    tid = mirror_session + "-stale-running-hdr"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+    mirror.note_user_input(tid, "修知识库")
+    mirror.feed_events(
+        tid,
+        [
+            {"type": "RUN_STARTED", "threadId": tid, "runId": "run-hdr"},
+            {"type": "REASONING_MESSAGE_START", "messageId": "think-hdr"},
+            {
+                "type": "REASONING_MESSAGE_CONTENT",
+                "messageId": "think-hdr",
+                "delta": "先核对 bindings",
+            },
+        ],
+    )
+    mirror_reset_thread(tid)
+
+    header = next(r for r in _rows(tid) if r.get("kind") == "turnHeader")
+    assert header["state"] == "running", header
+    thinking = next(r for r in _rows(tid) if r.get("kind") == "reasoning")
+    assert thinking["state"] == "streaming", thinking
+
+    with patch(
+        "app.gateway.v4.hydration.read_run_status_row",
+        return_value={"status": "done", "updated_at_ms": 1, "run_id": "run-hdr"},
+    ):
+        healed = mirror_heal_stale_inflight_rows(tid)
+    assert healed >= 2, healed
+    header2 = next(r for r in _rows(tid) if r.get("kind") == "turnHeader")
+    assert header2["state"] == "completedSuccess", header2
+    thinking2 = next(r for r in _rows(tid) if r.get("kind") == "reasoning")
+    assert thinking2["state"] == "complete", thinking2

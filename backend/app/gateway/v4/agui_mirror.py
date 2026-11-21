@@ -1278,9 +1278,8 @@ class V4Mirror:
         self, tid: str, st: _MirrorState, *, now_ms: int, state: str = "interrupted"
     ) -> None:
         """停/顶轮时封掉仍 streaming 的思考行，否则 timelineBusy 钉死、画面像卡住。"""
-        if not st.reasoning_row_ids:
-            return
         seal = str(state or "interrupted").strip() or "interrupted"
+        sealed_ids: set[int] = set()
         for mid, rid in list(st.reasoning_row_ids.items()):
             sess = self._hub.get_session(tid)
             existing = sess.rows.get(int(rid)) if sess is not None else None
@@ -1297,12 +1296,16 @@ class V4Mirror:
             duration_ms = self._reasoning_duration_ms(
                 existing if isinstance(existing, dict) else None, now_ms=now_ms
             )
+            text = str(st.reasoning_acc.get(mid) or "")
+            if not text and isinstance(existing, dict):
+                text = str(existing.get("text") or "")
             seal_row: dict[str, Any] = {
                 "rowId": rid,
-                "turnId": st.turn_id,
+                "turnId": self._preserve_tool_turn_id(existing if isinstance(existing, dict) else None, st)
+                or st.turn_id,
                 "kind": "reasoning",
                 "state": seal,
-                "text": str(st.reasoning_acc.get(mid) or ""),
+                "text": text,
                 "createdAt": created_at,
                 "createdAtSeq": self._seq_now(tid),
                 "assistantResponseId": mid,
@@ -1312,6 +1315,91 @@ class V4Mirror:
             if duration_ms is not None:
                 seal_row["durationMs"] = duration_ms
             self._hub.author_upsert_row(tid, seal_row)
+            try:
+                sealed_ids.add(int(rid))
+            except (TypeError, ValueError):
+                pass
+        # map 已清 / remint 后仍可能留下 streaming 孤儿（现场：phase=idle 但
+        # 「正在思考」钉死；诊断 inFlight=3）。扫本轮 hub 行补封。
+        self._seal_orphan_streaming_reasoning(
+            tid, st, now_ms=now_ms, state=seal, skip_row_ids=sealed_ids
+        )
+
+    def _seal_orphan_streaming_reasoning(
+        self,
+        tid: str,
+        st: _MirrorState,
+        *,
+        now_ms: int,
+        state: str,
+        skip_row_ids: set[int] | None = None,
+        any_terminal_turn: bool = False,
+    ) -> int:
+        """封掉 map 外仍 streaming 的思考行。
+
+        ``any_terminal_turn``：扫描所有已终态轮头下的 streaming（snapshot heal），
+        不只看当前 ``st.turn_id``。
+        """
+        seal = str(state or "interrupted").strip() or "interrupted"
+        sess = self._hub.get_session(tid)
+        if sess is None or not sess.rows:
+            return 0
+        skip = skip_row_ids or set()
+        turn_id = str(st.turn_id or "").strip()
+        terminal_turns: set[str] = set()
+        if any_terminal_turn:
+            for row in sess.rows.values():
+                if not isinstance(row, dict) or str(row.get("kind") or "") != "turnHeader":
+                    continue
+                hdr_state = str(row.get("state") or "").strip()
+                if hdr_state in {
+                    "completedSuccess",
+                    "failed",
+                    "completedInterrupted",
+                    "error",
+                }:
+                    tid_s = str(row.get("turnId") or "").strip()
+                    if tid_s:
+                        terminal_turns.add(tid_s)
+        sealed = 0
+        for row in list(sess.rows.values()):
+            if not isinstance(row, dict):
+                continue
+            if str(row.get("kind") or "") != "reasoning":
+                continue
+            if str(row.get("state") or "").strip() != "streaming":
+                continue
+            try:
+                row_id = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if row_id <= 0 or row_id in skip:
+                continue
+            row_turn = str(row.get("turnId") or "").strip()
+            if any_terminal_turn:
+                if row_turn and row_turn not in terminal_turns:
+                    continue
+            elif turn_id and row_turn and row_turn != turn_id:
+                continue
+            created_at, started_at = self._preserve_tool_timestamps(row, now_ms=now_ms)
+            duration_ms = self._reasoning_duration_ms(row, now_ms=now_ms)
+            seal_row: dict[str, Any] = {
+                "rowId": row_id,
+                "turnId": row_turn or turn_id,
+                "kind": "reasoning",
+                "state": seal if seal != "complete" else "complete",
+                "text": str(row.get("text") or ""),
+                "createdAt": created_at,
+                "createdAtSeq": self._seq_now(tid),
+                "assistantResponseId": str(row.get("assistantResponseId") or ""),
+                "startedAt": started_at,
+                "endedAt": now_ms,
+            }
+            if duration_ms is not None:
+                seal_row["durationMs"] = duration_ms
+            self._hub.author_upsert_row(tid, seal_row)
+            sealed += 1
+        return sealed
 
     _OPEN_TOOL_STATUSES = frozenset(
         {"", "inputStreaming", "pendingApproval", "running", "in_progress"}
@@ -3841,6 +3929,211 @@ def mirror_heal_orphan_user_input_headers(thread_id: str) -> int:
         return 0
 
 
+_TERMINAL_HEADER_STATES_HEAL = frozenset(
+    {"completedSuccess", "failed", "completedInterrupted", "error"}
+)
+_OPEN_TOOL_STATUSES_HEAL = frozenset(
+    {"", "inputStreaming", "pendingApproval", "running", "in_progress"}
+)
+
+
+def mirror_heal_stale_inflight_rows(thread_id: str) -> int:
+    """phase 已 idle 但仍「正在思考/正在执行」：封掉终态轮上的 streaming/running 孤儿。
+
+    现场（f2fdc69c）：control settled + turnHeader=failed，窗内仍 inFlight=3，
+    思考卡永远 ``正在思考``。map 已清时 RUN_* seal 扫不到 → 出快照时补封。
+    镜像仍活写时不动（避免与 live END/RESULT 打架）。
+
+    DB run_status 已终态时：连仍标 ``running`` 的 tip turnHeader 一并收口
+    （压缩后 draft+streaming：无终态头 → 旧逻辑直接 return 0，计时钉死数小时）。
+    """
+    if _MIRROR_DISABLED:
+        return 0
+    tid = str(thread_id or "").strip()
+    if not tid:
+        return 0
+    try:
+        if mirror_thread_is_live(tid):
+            return 0
+    except Exception:
+        pass
+    try:
+        mirror = _get_mirror()
+        sess = mirror._hub.get_session(tid)  # noqa: SLF001
+        if sess is None or not sess.rows:
+            return 0
+
+        db_phase = ""
+        try:
+            from app.gateway.v4.conversation import _phase_for_run_status
+            from app.gateway.v4.hydration import read_run_status_row
+
+            db_status = str(
+                (read_run_status_row(tid) or {}).get("status") or ""
+            ).strip().lower()
+            db_phase = _phase_for_run_status(db_status)
+        except Exception:
+            logger.debug(
+                "[v4-mirror] heal db status read failed thread=%s", tid, exc_info=True
+            )
+
+        header_seal_state = "completedSuccess"
+        if db_phase == "error":
+            header_seal_state = "failed"
+        elif db_phase == "completedInterrupted":
+            header_seal_state = "completedInterrupted"
+
+        terminal_turns: set[str] = set()
+        for row in sess.rows.values():
+            if not isinstance(row, dict) or str(row.get("kind") or "") != "turnHeader":
+                continue
+            if str(row.get("state") or "").strip() not in _TERMINAL_HEADER_STATES_HEAL:
+                continue
+            turn_id = str(row.get("turnId") or "").strip()
+            if turn_id:
+                terminal_turns.add(turn_id)
+
+        now_ms = _now_ms()
+        healed = 0
+
+        # DB 已终态：把仍 running 的轮头先封成终态，再扫其下孤儿行。
+        if db_phase:
+            for row in list(sess.rows.values()):
+                if not isinstance(row, dict) or str(row.get("kind") or "") != "turnHeader":
+                    continue
+                hdr_state = str(row.get("state") or "").strip()
+                if hdr_state != "running" and not hdr_state.startswith("running"):
+                    continue
+                turn_id = str(row.get("turnId") or "").strip()
+                try:
+                    row_id = int(row.get("rowId") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if row_id <= 0:
+                    continue
+                started_at = int(row.get("startedAt") or row.get("createdAt") or now_ms)
+                active_ms = max(0, now_ms - started_at)
+                mirror._hub.author_upsert_row(  # noqa: SLF001
+                    tid,
+                    {
+                        **row,
+                        "rowId": row_id,
+                        "state": header_seal_state,
+                        "endedAt": now_ms,
+                        "activeMs": int(row.get("activeMs") or active_ms),
+                        "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+                    },
+                )
+                healed += 1
+                if turn_id:
+                    terminal_turns.add(turn_id)
+
+        # DB 终态：全量扫 inflight（含无 turnHeader 的孤儿 tip）。
+        # 仅有终态头、无 DB 证据：仍按 turn 收口（旧路径）。
+        seal_all = bool(db_phase)
+        if not seal_all and not terminal_turns:
+            return healed
+
+        st = mirror._state(tid)  # noqa: SLF001 — get-or-create
+        if seal_all:
+            # 无头孤儿也要封：any_terminal_turn 会跳过 turnId 不在集合里的行。
+            for row in list(sess.rows.values()):
+                if not isinstance(row, dict):
+                    continue
+                if str(row.get("kind") or "") != "reasoning":
+                    continue
+                if str(row.get("state") or "").strip() != "streaming":
+                    continue
+                try:
+                    row_id = int(row.get("rowId") or 0)
+                except (TypeError, ValueError):
+                    continue
+                if row_id <= 0:
+                    continue
+                created_at, started_at = V4Mirror._preserve_tool_timestamps(row, now_ms=now_ms)
+                duration_ms = mirror._reasoning_duration_ms(row, now_ms=now_ms)  # noqa: SLF001
+                seal_row: dict[str, Any] = {
+                    **row,
+                    "rowId": row_id,
+                    "state": "complete",
+                    "createdAt": created_at,
+                    "startedAt": started_at,
+                    "endedAt": now_ms,
+                    "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+                }
+                if duration_ms is not None:
+                    seal_row["durationMs"] = duration_ms
+                mirror._hub.author_upsert_row(tid, seal_row)  # noqa: SLF001
+                healed += 1
+        else:
+            healed += mirror._seal_orphan_streaming_reasoning(  # noqa: SLF001
+                tid,
+                st,
+                now_ms=now_ms,
+                state="complete",
+                any_terminal_turn=True,
+            )
+        for row in list(sess.rows.values()):
+            if not isinstance(row, dict):
+                continue
+            kind = str(row.get("kind") or "")
+            row_turn = str(row.get("turnId") or "").strip()
+            if not seal_all and row_turn and row_turn not in terminal_turns:
+                continue
+            try:
+                row_id = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if row_id <= 0:
+                continue
+            if kind == "assistantText" and str(row.get("state") or "").strip() == "streaming":
+                mirror._hub.author_upsert_row(  # noqa: SLF001
+                    tid,
+                    {
+                        **row,
+                        "rowId": row_id,
+                        "state": "complete",
+                        "endedAt": now_ms,
+                        "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+                    },
+                )
+                healed += 1
+                continue
+            if kind != "toolCall":
+                continue
+            status = str(row.get("status") or "").strip()
+            if status not in _OPEN_TOOL_STATUSES_HEAL:
+                continue
+            if status == "pendingApproval":
+                continue
+            created_at, started_at = V4Mirror._preserve_tool_timestamps(row, now_ms=now_ms)
+            mirror._hub.author_upsert_row(  # noqa: SLF001
+                tid,
+                {
+                    **row,
+                    "rowId": row_id,
+                    "status": "cancelled",
+                    "createdAt": created_at,
+                    "startedAt": started_at,
+                    "endedAt": now_ms,
+                    "createdAtSeq": mirror._seq_now(tid),  # noqa: SLF001
+                },
+            )
+            healed += 1
+        if healed:
+            logger.info(
+                "[v4-mirror] heal_stale_inflight rows=%s session=%s terminal_turns=%s db_phase=%s",
+                healed,
+                tid,
+                len(terminal_turns),
+                db_phase or "-",
+            )
+        return healed
+    except Exception:
+        logger.exception("[v4-mirror] heal_stale_inflight_rows failed thread=%s", tid)
+        return 0
+
+
 __all__ = [
     "V4Mirror",
     "mirror_note_user_input",
@@ -3850,6 +4143,7 @@ __all__ = [
     "mirror_reset_thread",
     "mirror_thread_is_live",
     "mirror_heal_orphan_user_input_headers",
+    "mirror_heal_stale_inflight_rows",
     "mirror_seal_user_stop",
     "mirror_channel_run_started",
     "mirror_channel_assistant_text",

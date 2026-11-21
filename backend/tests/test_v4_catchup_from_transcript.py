@@ -311,6 +311,151 @@ def test_catchup_settles_stale_running_when_db_terminal() -> None:
     assert any("第二版更新" in t for t in texts), "终态回复必须进投影"
 
 
+def test_catchup_settles_draft_inflight_when_db_terminal() -> None:
+    """DB done + phase=draft 但仍有 streaming tip → settle（压缩后僵尸思考）。"""
+    thread = "settle-thread-draft-inflight"
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(thread)
+    sess = hub.get_session(thread)
+    assert sess is not None and sess.rows
+    sess.phase = "draft"
+    sess.control_override = None
+    sess.catchup_fp = "pinned-fp-keep"
+    sess.last_author_at_ms = 0.0
+    # 人工钉一条 streaming 思考，模拟 tip「正在思考」孤儿。
+    rid = int(sess.next_row_id)
+    sess.next_row_id = rid + 1
+    sess.rows[rid] = {
+        "rowId": rid,
+        "kind": "reasoning",
+        "state": "streaming",
+        "text": "",
+        "turnId": "zombie-tip",
+        "createdAt": 1,
+        "startedAt": 1,
+    }
+    with patch(
+        "app.gateway.v4.hydration.read_run_status_row",
+        return_value={"status": "done", "updated_at_ms": 1, "run_id": "run-x"},
+    ), patch(
+        "app.gateway.v4.hydration.transcript_fingerprint_for_thread",
+        return_value="pinned-fp-keep",
+    ):
+        out = hub.catchup_from_transcript(thread)
+    assert out["ok"] is True
+    assert out.get("settledPhase") == "completedSuccess"
+    assert out.get("reason") == "fingerprint-unchanged"
+    sess2 = hub.get_session(thread)
+    assert sess2.phase == "completedSuccess"
+
+
+def test_trim_projection_after_fingerprint_tip_drops_ghost_tail() -> None:
+    """库尾 message 之后的幽灵轮必须裁掉（durable-replay 追加旧 live tip）。"""
+    from app.gateway.v4.conversation import V4ConversationHub
+
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V2):
+        hub.catchup_from_transcript(THREAD)
+    sess = hub.get_session(THREAD)
+    assert sess is not None
+    fp = transcript_fingerprint(MESSAGES_V2)
+    base = int(sess.next_row_id)
+    sess.next_row_id = base + 2
+    sess.rows[base] = {
+        "rowId": base,
+        "kind": "toolCall",
+        "status": "cancelled",
+        "toolName": "bash",
+        "turnId": "run-07cc-ghost",
+        "inputText": "",
+    }
+    sess.rows[base + 1] = {
+        "rowId": base + 1,
+        "kind": "reasoning",
+        "state": "complete",
+        "text": "ghost tip",
+        "turnId": "run-07cc-ghost",
+    }
+    assert V4ConversationHub._projection_tip_matches_fingerprint(sess, fp) is False
+    removed = V4ConversationHub._trim_projection_after_fingerprint_tip(sess, fp)
+    assert removed == 2
+    assert V4ConversationHub._projection_tip_matches_fingerprint(sess, fp) is True
+    assert not any(str(r.get("turnId") or "") == "run-07cc-ghost" for r in sess.rows.values())
+
+
+def test_catchup_force_rehydrates_when_tip_mismatches_fingerprint() -> None:
+    """指纹已是库尾，但 tip 仍挂着更早一轮的 tool/思考 → 强制重灌（允许 shrink）。
+
+    394bc37f：SQL tip=「两条都通了」，面板 tip=旧 run cancelled bash；
+    fingerprint-unchanged + refuse-shrink 会把错误 tip 钉死。
+    """
+    thread = "tip-mismatch-thread-001"
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V2):
+        hub.catchup_from_transcript(thread)
+    sess = hub.get_session(thread)
+    assert sess is not None and sess.rows
+    fp = transcript_fingerprint(MESSAGES_V2)
+    assert sess.catchup_fp == fp
+    # 库尾 m3 已在投影里；再在更高 rowId 挂另一轮幽灵 tip。
+    assert any(
+        str(r.get("entityId") or "") == "m3" for r in sess.rows.values()
+    ), "hydrate 必须带上库尾 message_id"
+    base_rid = int(sess.next_row_id)
+    sess.next_row_id = base_rid + 3
+    sess.rows[base_rid] = {
+        "rowId": base_rid,
+        "kind": "turnHeader",
+        "state": "completedSuccess",
+        "turnId": "run-ghost-old",
+        "createdAt": 9_000,
+        "startedAt": 9_000,
+        "endedAt": 9_100,
+    }
+    sess.rows[base_rid + 1] = {
+        "rowId": base_rid + 1,
+        "kind": "toolCall",
+        "status": "cancelled",
+        "toolName": "bash",
+        "inputText": "",
+        "turnId": "run-ghost-old",
+        "createdAt": 9_001,
+    }
+    sess.rows[base_rid + 2] = {
+        "rowId": base_rid + 2,
+        "kind": "reasoning",
+        "state": "complete",
+        "text": "Let me reconsider. 有问题的修复掉",
+        "turnId": "run-ghost-old",
+        "createdAt": 9_002,
+    }
+    prev = len(sess.rows)
+    sess.last_author_at_ms = 0.0
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={"status": "done", "updated_at_ms": 1, "run_id": "run-2"},
+        ),
+    ):
+        out = hub.catchup_from_transcript(thread)
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out.get("reason") == "tip-mismatch-rehydrated"
+    assert int(out.get("rows") or 0) < prev
+    sess2 = hub.get_session(thread)
+    assert not any(
+        str(r.get("turnId") or "") == "run-ghost-old" for r in sess2.rows.values()
+    )
+    texts = [
+        str(r.get("text") or "")
+        for r in sess2.rows.values()
+        if r.get("kind") == "assistantText"
+    ]
+    assert any("第二版更新" in t for t in texts)
+
+
 def test_catchup_keeps_running_control_while_run_active() -> None:
     """DB run_status 仍 running（后台 run 真在跑、无 mirror 喂流）→ 不收口，
     且 DB transcript 是唯一真源，行照常 rehydrate（修「盯着看也冻结」）。"""

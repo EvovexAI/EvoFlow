@@ -761,6 +761,16 @@ def apply_right_panel(
 
     payload_data = dict(data or {})
     if k == "artifacts":
+        # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把 ``expand`` 透传进 artifacts 分支（此前这里只有 6 个参数，独缺它）。
+        # 为什么（同型缺陷的第三处，本轮扫全仓 expand 落点时发现）：artifacts 在
+        #   ``_SESSION_SCOPED_KINDS`` 里＝会话级 kind，跨会话会被前端冻进归属会话记忆；
+        #   而它的 surface 从来不携带 ``expand``，于是：
+        #     · 右栏收起时 ``ui.show(kind="artifacts", expand=True)`` 不会撑开；
+        #     · 本条回执也不会走 ``not expand`` 豁免，会报「切过去才看得到」。
+        #   即 44 秒那件事在 artifacts 上原样可复现，只是我这几轮都在测 web-embed。
+        # 判据：凡是 ``_SESSION_SCOPED_KINDS`` 里能被 ui.show 打开的 kind，
+        #   其 surface 都必须能带 ``expand``，回执都必须带 ``userScreen``。
         return _apply_artifacts_panel(
             act=act,
             payload_data=payload_data,
@@ -768,6 +778,7 @@ def apply_right_panel(
             layout=layout,
             thread_id=tid,
             session_key=sk,
+            expand=expand,
         )
 
     panel_title = title
@@ -1160,6 +1171,7 @@ def _apply_artifacts_panel(
     layout: str | None,
     thread_id: str,
     session_key: str,
+    expand: bool = False,
 ) -> dict[str, Any]:
     from evoflow.artifacts.chat_artifact import artifact_state_key, normalize_chat_artifacts
 
@@ -1214,6 +1226,13 @@ def _apply_artifacts_panel(
         "data": data_out,
         "layout": layout or "workspace-write",
     }
+    # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：artifacts 的 surface 也带 ``expand``（与主分支 / 进度分支同口径）。
+    # 为什么：本函数是 apply_right_panel 的三个独立 return 分支之一；前两处都已在
+    #   ``if expand: surface["expand"] = True``，唯独这里没接 —— 右栏收起时
+    #   ``ui.show(kind="artifacts", expand=True)`` 收不到「用户要看」的信号。
+    if expand:
+        surface["expand"] = True
     if act == "update":
         _emit_surface("update", surface)
     else:
@@ -1238,6 +1257,13 @@ def _apply_artifacts_panel(
         "count": len(panel_items),
         "items": panel_items,
         "surface": surface,
+        # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：artifacts 回执也带 ``userScreen``（此前三个分支里只有它没有）。
+        # 为什么：模型开产物面板时同样需要知道「用户原本在看哪一页 / 会不会抢视线 /
+        #   此刻看不看得见」；缺这一块时它只能凭 ok:true 猜，正是本轮 44 秒那件事的成因。
+        "userScreen": _describe_user_screen_before_after(
+            act=act, kind="artifacts", surface=surface, expand=expand, owner_session_key=sk
+        ),
     }
     if state_keys:
         out["artifact_state_keys"] = state_keys

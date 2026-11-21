@@ -10,6 +10,7 @@ import pytest
 from evoflow.assets.ad_hoc_note import (
     build_ad_hoc_filename,
     ensure_body_recorded_at,
+    title_from_body,
     validate_ad_hoc_filename,
     write_ad_hoc_note,
 )
@@ -182,3 +183,37 @@ def test_preference_mode_replace_overwrites_standing(asset_home: Path) -> None:
     standing = (entity_root(entity) / "memory" / "standing.md").read_text(encoding="utf-8")
     assert "只要这一条新偏好" in standing
     assert "旧偏好一条" not in standing
+
+
+def test_title_from_body_keeps_date_prefixed_heading() -> None:
+    """``# 2026-11-21 第106轮 —— …`` 是可读标题，不能被当成时间戳整行丢掉。
+
+    【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：钉住 ``title_from_body`` 对「带日期前缀的 Markdown 标题」的处理。
+
+    为什么（本轮自撞，工具与文件都不报错的那种缺陷）：我写了一条标题为
+    ``# 2026-11-21 第106轮 —— 同一个「expand 跨会话」缺陷…`` 的复盘，
+    本函数先 ``lstrip("# ")`` 得到 ``2026-11-21 第106轮 …``，随后被
+    ``_BODY_HAS_TIME_RE.match``（含 ``\\b\\d{4}-\\d{2}-\\d{2}``）判成
+    「这一行就是时间戳」整条跳过 —— 标题被丢，文件名退化成正文第一个通用小标题
+    「根因（一句话）」，正是本函数文档里禁止的「看不出里面是什么」的命名。
+    而 ``assets note`` 的返回只说 ``ok:true``，不会提示名字取错了。
+
+    判据（四档，缺一档就会修出新问题）：
+    1. 带日期的标题 → 剥掉日期前缀，保留剩余可读部分；
+    2. 标题里只有日期（``# 2026-11-21``）→ 剩下为空，跳过它继续往下找；
+    3. ``记录时间：…`` 打点行 + 真标题 → 取真标题（不能退化成时间戳名）；
+    4. 正文里孤零零一行时间戳（无 ``#``）→ 仍然跳过（原行为必须守住）。
+    """
+    assert (
+        title_from_body("# 2026-11-21 第106轮 —— 同一个 expand 跨会话 缺陷")
+        == "第106轮 —— 同一个 expand 跨会话 缺陷"
+    )
+    # 只剩日期 → 该行无可用标题信息，回落到后面的行
+    assert title_from_body("# 2026-11-21\n\n正文第一行") == "正文第一行"
+    # 打点行在前、真标题在后
+    assert title_from_body("记录时间：2026-11-21 14:06\n\n# 真标题") == "真标题"
+    # 普通标题不受影响
+    assert title_from_body("# 白写了第八轮") == "白写了第八轮"
+    # 原行为：正文里单独一行时间戳要被跳过
+    assert title_from_body("2026-11-21 14:06:41\n\n正文") == "正文"

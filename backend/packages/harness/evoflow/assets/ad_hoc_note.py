@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import re
 import secrets
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
 
 from evoflow.assets.paths import EntityRef
@@ -28,6 +28,14 @@ _BODY_HAS_TIME_RE = re.compile(
     r"(记录时间|记下时间|发生时间|日期\s*[:：]|created(?:_at)?\s*[:：]|"
     r"recorded(?:_at)?\s*[:：]|\b\d{4}-\d{2}-\d{2}(?:[ T]\d{2}:\d{2})?)",
     re.IGNORECASE,
+)
+# 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增「行首日期前缀」正则，只用于标题行的剥前缀，不复用到别处。
+# 为什么（本轮真缺陷）：``title_from_body`` 原先对标题行套 ``_BODY_HAS_TIME_RE.match``，
+#   把 ``# 2026-11-21 第106轮 —— …`` 这种**带日期的正常标题**整行判成时间戳丢弃，
+#   文件名退化成正文里的通用小标题。日期是标题的一部分，不是标题本身为空。
+_LEADING_DATE_RE = re.compile(
+    r"^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}(?:[ T]\d{1,2}[:：]\d{2}(?::\d{2})?)?\s*",
 )
 
 
@@ -84,8 +92,30 @@ def title_from_body(body: str, *, max_len: int = 60) -> str:
         if not line or line == "---":
             continue
         line = _TAG_LINE_RE.sub("", line, count=1).strip()
+        # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：显式 Markdown 标题（``#`` 开头）先剥掉行首日期前缀再采信，
+        #   不再整行丢弃；只有「正文里孤零零的一行时间戳」才继续跳过。
+        # 为什么（本轮自撞的实证）：我写了一条标题为
+        #   ``# 2026-11-21 第106轮 —— 同一个「expand 跨会话」缺陷…`` 的复盘，
+        #   本函数先 ``lstrip("# ")`` 得到 ``2026-11-21 第106轮 …``，
+        #   再被 ``_BODY_HAS_TIME_RE.match``（正则含 ``\b\d{4}-\d{2}-\d{2}``）
+        #   判定成「就是时间戳那行」整条跳过 —— 于是一个完全可读的标题被丢掉，
+        #   文件名退化成正文里第一个通用小标题「根因（一句话）」。
+        #   工具和文件都没报错，只是名字变成看不出内容的那一类，
+        #   正是本函数开头文档所禁止的命名。
+        # 判据：``#`` 开头的行**是作者写的标题**，优先采信；
+        #   若它只以日期开头，剥掉日期后剩下的部分必须非空才用，
+        #   剩下为空（如 ``# 2026-11-21``）才回落到后续行。
+        had_heading = line.lstrip().startswith("#")
         line = line.lstrip("# ").strip()
-        if not line or _BODY_HAS_TIME_RE.match(line):
+        if not line:
+            continue
+        if had_heading:
+            stripped = _LEADING_DATE_RE.sub("", line).strip(" -—:：·")
+            if stripped:
+                return stripped[:max_len]
+            continue
+        if _BODY_HAS_TIME_RE.match(line):
             continue
         return line[:max_len]
     return ""

@@ -631,7 +631,7 @@ class V4ConversationHub:
             logger.exception("[v4.catchup] fingerprint failed session=%s", tid)
             return {"ok": False, "changed": False, "reason": "fingerprint-failed"}
 
-        # ── 活写手判定 + 陈旧 running 收口 ────────────────────────────────
+        # ── 活写手判定 + 陈旧 running / draft+inflight 收口 ──────────────
         # mirror 标志是「有活写手」的权威信号，必须先判：mirror 活着 = 本轮
         # 真有流在喂投影，phase/收口都归它管，下面一切修复都不许碰。
         mirror_live = mirror_thread_is_live(tid)
@@ -640,11 +640,26 @@ class V4ConversationHub:
         # 投影被死钉在 running（2026-11-15 实锤：任务 12:26 已 finalize，用户
         # 13:28 还在对它点停止）。唯一可靠证据是 DB run_status；「running 且
         # 超窗疑似 zombie」在这条路径上不收口，交 zombie sweeper。
+        #
+        # 另：压缩/remint 后常见 phase=draft + canStop=false，但 tip 仍留
+        # streaming「正在思考」/ running turnHeader（94b4bc83：DB done、面板
+        # 已工作 2h+）。前端 draft 分支走行扫描 heuristic → sessionBusy 钉死，
+        # 展示层 seal 永不触发。DB 终态 + 有 inflight 时也必须 settle。
         settled_phase = ""
-        if not mirror_live and _PHASE_RUNNING in (
-            str(sess.phase or ""),
-            str((sess.control_override or {}).get("phase") or ""),
-        ):
+        phase_now = str(sess.phase or "").strip()
+        override_phase = str((sess.control_override or {}).get("phase") or "").strip()
+        inflight_rows = bool(sess.rows) and self._rows_have_inflight(list(sess.rows.values()))
+        phase_is_running = _PHASE_RUNNING in (phase_now, override_phase)
+        phase_already_terminal = phase_now in (
+            _PHASE_COMPLETED,
+            _PHASE_ERROR,
+            _PHASE_INTERRUPTED,
+        ) or override_phase in (
+            _PHASE_COMPLETED,
+            _PHASE_ERROR,
+            _PHASE_INTERRUPTED,
+        )
+        if not mirror_live:
             run_status = str((read_run_status_row(tid) or {}).get("status") or "").strip().lower()
             mapped = _phase_for_run_status(run_status)
             # 工具授权闸仍 pending 时 DB 常被标 done/idle；不得把投影收成 completedSuccess，
@@ -666,20 +681,68 @@ class V4ConversationHub:
                         tid,
                         exc_info=True,
                     )
-            if mapped:
-                self.patch_phase(tid, mapped)
-                settled_phase = mapped
-                logger.info(
-                    "[v4.catchup] stale running settled session=%s db_status=%s phase=%s",
-                    tid,
-                    run_status,
-                    mapped,
-                )
+            if mapped and (
+                phase_is_running
+                or inflight_rows
+                or not phase_already_terminal
+            ):
+                if not phase_already_terminal:
+                    self.patch_phase(tid, mapped)
+                    settled_phase = mapped
+                    logger.info(
+                        "[v4.catchup] stale running settled session=%s db_status=%s phase=%s "
+                        "was_running=%s inflight=%s",
+                        tid,
+                        run_status,
+                        mapped,
+                        phase_is_running,
+                        inflight_rows,
+                    )
+                # 终态 phase 仍可能残留 streaming tip（heal 旧逻辑只扫终态头下的行）。
+                # DB 终态时无条件补封，避免「phase 已 completed 但面板仍正在思考」。
+                try:
+                    from app.gateway.v4.agui_mirror import mirror_heal_stale_inflight_rows
+
+                    healed_n = mirror_heal_stale_inflight_rows(tid)
+                    if healed_n and not settled_phase:
+                        logger.info(
+                            "[v4.catchup] healed stale inflight session=%s rows=%s "
+                            "phase=%s inflight=%s",
+                            tid,
+                            healed_n,
+                            phase_now or override_phase or "-",
+                            inflight_rows,
+                        )
+                except Exception:
+                    logger.debug(
+                        "[v4.catchup] heal after settle failed session=%s",
+                        tid,
+                        exc_info=True,
+                    )
             # run_status 仍 running/pending：后台 run 真在跑且无 mirror——DB
             # transcript 是唯一真源，继续放行下面的 rehydrate（否则「盯着看」
             # 也冻结）。status 空/未知：不动 control，由 shrink 守卫兜底。
 
-        if fp and sess.catchup_fp == fp and sess.rows:
+        # 仅当指纹未变（本应 no-op）但 tip 已与库尾脱节时强制重灌。
+        # 394bc37f：DB tip=「两条都通了」，面板 tip=旧 run cancelled bash；
+        # fingerprint-unchanged + refuse-shrink 会把错误的「更胖」live tip 钉死。
+        # 指纹本身在变时走原有 rehydrate / settle-only / refuse-shrink 语义，不抢道。
+        tip_mismatch = bool(
+            sess.rows
+            and fp
+            and sess.catchup_fp == fp
+            and not self._projection_tip_matches_fingerprint(sess, fp)
+        )
+        if tip_mismatch:
+            logger.warning(
+                "[v4.catchup] tip mismatch vs transcript fingerprint session=%s "
+                "rows=%s fp=%s — force rehydrate",
+                tid,
+                len(sess.rows),
+                fp,
+            )
+
+        if fp and sess.catchup_fp == fp and sess.rows and not tip_mismatch:
             return {
                 "ok": True,
                 "changed": False,
@@ -692,7 +755,7 @@ class V4ConversationHub:
 
         # Same msg count + id, only tail content_len grew → DB streaming catch-up.
         # Full rehydrate every ~1.5s would flicker; advance fp and leave projection.
-        if fp and sess.catchup_fp and sess.rows:
+        if fp and sess.catchup_fp and sess.rows and not tip_mismatch:
             old_p = str(sess.catchup_fp).split(":")
             new_p = str(fp).split(":")
             if (
@@ -736,7 +799,13 @@ class V4ConversationHub:
         hub_live_writing = sess.turn_running() or (
             time.time() * 1000 - sess.last_author_at_ms < 3000
         )
-        if prev_rows > 0 and sub_n > 0 and hub_live_writing and not settled_phase:
+        if (
+            prev_rows > 0
+            and sub_n > 0
+            and hub_live_writing
+            and not settled_phase
+            and not tip_mismatch
+        ):
             sess.catchup_fp = fp
             return {
                 "ok": True,
@@ -751,7 +820,8 @@ class V4ConversationHub:
         # Probe hydrate on a throwaway hub first: never shrink a richer live/hybrid
         # projection (common: live ~300 rows → DB hydrate ~160). Advance fp so we
         # don't thrash every observer tick.
-        if prev_rows > 0:
+        # tip 与库尾脱节时「更胖」是假象——必须允许 shrink 回到 transcript。
+        if prev_rows > 0 and not tip_mismatch:
             try:
                 from app.gateway.v4.hydration import hydrate_session_from_transcript
 
@@ -782,7 +852,8 @@ class V4ConversationHub:
                 }
 
         # 切回校准：客户端已有投影行 → 只 settle，绝不 wipe（避免 recovery 整窗替换闪烁）。
-        if prefer_settle_only and prev_rows > 0:
+        # tip 脱节例外：只 settle 治不好「面板 tip ≠ SQL tip」。
+        if prefer_settle_only and prev_rows > 0 and not tip_mismatch:
             sess.catchup_fp = fp
             logger.info(
                 "[v4.catchup] settle-only session=%s rows=%s settled=%s fp=%s",
@@ -806,18 +877,34 @@ class V4ConversationHub:
         loaded = force_rehydrate_session_from_transcript(
             self, tid, fingerprint=fp, reset_mirror=False
         )
+        # 重灌后再兜一次：热路径若刚 durable-replay 过，仍可能 tip 脱节。
+        sess = self._get_or_create_session(tid)
+        if fp and sess.rows and not self._projection_tip_matches_fingerprint(sess, fp):
+            trimmed = self._trim_projection_after_fingerprint_tip(sess, fp)
+            if trimmed:
+                loaded = len(sess.rows)
+                sess.catchup_fp = fp
+                logger.warning(
+                    "[v4.catchup] trimmed tip-after-transcript session=%s removed=%s "
+                    "rows_now=%s",
+                    tid,
+                    trimmed,
+                    loaded,
+                )
         notified = self.broadcast_recovery_snapshot(tid)
+        reason = "tip-mismatch-rehydrated" if tip_mismatch else "rehydrated"
         logger.info(
-            "[v4.catchup] session=%s rows=%s notified=%s fp=%s",
+            "[v4.catchup] session=%s rows=%s notified=%s fp=%s reason=%s",
             tid,
             loaded,
             notified,
             fp,
+            reason,
         )
         return {
             "ok": True,
             "changed": True,
-            "reason": "rehydrated",
+            "reason": reason,
             "rows": loaded,
             "notified": notified,
             "settledPhase": settled_phase or None,
@@ -848,12 +935,15 @@ class V4ConversationHub:
             for sess in self._sessions.values():
                 if sess.turn_running():
                     continue
-                if _PHASE_RUNNING not in (
+                if not sess.rows:
+                    continue
+                phase_running = _PHASE_RUNNING in (
                     str(sess.phase or ""),
                     str((sess.control_override or {}).get("phase") or ""),
-                ):
-                    continue
-                if not sess.rows:
+                )
+                # draft + 僵尸 streaming/running 行也要扫（压缩后 tip「正在思考」）。
+                inflight = self._rows_have_inflight(list(sess.rows.values()))
+                if not phase_running and not inflight:
                     continue
                 # 有活写手（最近 5s 有行/增量写入）→ 不是孤儿 run，跳过。
                 if now_ms - sess.last_author_at_ms < 5000:
@@ -991,6 +1081,38 @@ class V4ConversationHub:
                         except Exception:
                             logger.exception(
                                 "[v4.durable-replay] subscribe replay failed session=%s",
+                                sess.session_id,
+                            )
+                        # durable 尾差若把更早 live 轮追加到库尾之后（394bc37f：
+                        # hydrate=630 → replay+2528 → tip=run-07cc…），按 fingerprint 裁掉。
+                        try:
+                            from app.gateway.v4.hydration import (
+                                transcript_fingerprint_for_thread,
+                            )
+
+                            fp_now = await asyncio.to_thread(
+                                transcript_fingerprint_for_thread, sess.session_id
+                            )
+                            if fp_now and sess.rows and not self._projection_tip_matches_fingerprint(
+                                sess, fp_now
+                            ):
+                                trimmed = self._trim_projection_after_fingerprint_tip(
+                                    sess, fp_now
+                                )
+                                if trimmed:
+                                    hydrate_rows = len(sess.rows)
+                                    sess.catchup_fp = fp_now
+                                    logger.warning(
+                                        "[v4.durable-replay] trimmed tip-after-transcript "
+                                        "session=%s removed=%s rows_now=%s fp=%s",
+                                        sess.session_id,
+                                        trimmed,
+                                        hydrate_rows,
+                                        fp_now,
+                                    )
+                        except Exception:
+                            logger.exception(
+                                "[v4.durable-replay] tip trim failed session=%s",
                                 sess.session_id,
                             )
                     except Exception:
@@ -1802,6 +1924,15 @@ class V4ConversationHub:
                 "[v4.snapshot] heal orphan userInput headers failed session=%s",
                 sess.session_id,
             )
+        try:
+            from app.gateway.v4.agui_mirror import mirror_heal_stale_inflight_rows
+
+            mirror_heal_stale_inflight_rows(str(sess.session_id or ""))
+        except Exception:
+            logger.exception(
+                "[v4.snapshot] heal stale inflight rows failed session=%s",
+                sess.session_id,
+            )
         rows = sorted(sess.rows.values(), key=lambda r: r["rowId"])
         # 流式进行中：尾窗截断会把本轮 userInput 挤出；多会话切回时只剩工具/助手尾巴，
         # 用户气泡「没了」但 AI 还在回（2026-11-15 实锤）。live 时把本轮锚点钉进窗口。
@@ -1900,6 +2031,121 @@ class V4ConversationHub:
                 return V4ConversationHub._include_leading_same_turn_user_input(rows, i)
             i += 1
         return start
+
+    @staticmethod
+    def _trim_projection_after_fingerprint_tip(
+        sess: _SessionState, fingerprint: str
+    ) -> int:
+        """删掉库尾 message 之后的幽灵 tip 行（durable-replay 把旧 live 轮追加到末尾）。
+
+        返回删除行数。库尾 id 不在投影里时不裁（避免误删整窗）。
+        """
+        parts = str(fingerprint or "").split(":")
+        if len(parts) < 2 or not sess.rows:
+            return 0
+        last_mid = str(parts[1] or "").strip()
+        if not last_mid:
+            return 0
+        tip_rid = 0
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            ids = (
+                str(row.get("entityId") or "").strip(),
+                str(row.get("messageId") or "").strip(),
+                str(row.get("assistantResponseId") or "").strip(),
+            )
+            if last_mid not in ids:
+                continue
+            try:
+                rid = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid > tip_rid:
+                tip_rid = rid
+        if tip_rid <= 0:
+            return 0
+        removed = 0
+        for rid in list(sess.rows.keys()):
+            try:
+                irid = int(rid)
+            except (TypeError, ValueError):
+                continue
+            if irid <= tip_rid:
+                continue
+            sess.rows.pop(rid, None)
+            removed += 1
+        if removed and sess.rows:
+            sess.next_row_id = max(
+                int(sess.next_row_id or 1),
+                max(int(r.get("rowId") or 0) for r in sess.rows.values()) + 1,
+            )
+        return removed
+
+    @staticmethod
+    def _projection_tip_matches_fingerprint(sess: _SessionState, fingerprint: str) -> bool:
+        """库尾 message_id 是否仍是投影 tip（其后没有别的对话轮）。
+
+        fingerprint 形如 ``count:message_id:content_len``。hydrate 行用
+        ``entityId=message_id``。若库尾 id 不在投影里，或其后又挂了另一轮的
+        turnHeader/user/assistant/reasoning/tool，则视为 tip 脱节。
+        """
+        parts = str(fingerprint or "").split(":")
+        if len(parts) < 2:
+            return True
+        last_mid = str(parts[1] or "").strip()
+        if not last_mid or not sess.rows:
+            return True
+        matched_rids: list[int] = []
+        matched_turns: set[str] = set()
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            ids = (
+                str(row.get("entityId") or "").strip(),
+                str(row.get("messageId") or "").strip(),
+                str(row.get("assistantResponseId") or "").strip(),
+            )
+            if last_mid not in ids:
+                continue
+            try:
+                rid = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid <= 0:
+                continue
+            matched_rids.append(rid)
+            turn = str(row.get("turnId") or "").strip()
+            if turn:
+                matched_turns.add(turn)
+        if not matched_rids:
+            return False
+        tip_mid_rid = max(matched_rids)
+        tip_kinds = {
+            "turnHeader",
+            "userInput",
+            "assistantText",
+            "reasoning",
+            "toolCall",
+            "subagent",
+        }
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            try:
+                rid = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid <= tip_mid_rid:
+                continue
+            if str(row.get("kind") or "") not in tip_kinds:
+                continue
+            row_turn = str(row.get("turnId") or "").strip()
+            if matched_turns and row_turn and row_turn not in matched_turns:
+                return False
+            if not row_turn:
+                return False
+        return True
 
     @staticmethod
     def _row_is_inflight(row: dict[str, Any] | None) -> bool:

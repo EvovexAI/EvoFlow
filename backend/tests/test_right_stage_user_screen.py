@@ -1017,3 +1017,97 @@ def test_clean_payload_keeps_top_level_session_key():
         }
     )
     assert fallback.get("sessionKey") == sk, fallback
+
+
+def test_artifacts_branch_carries_expand_and_user_screen():
+    """artifacts 分支必须同时带 ``expand`` 与 ``userScreen``。
+
+    【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：钉住 ``apply_right_panel`` 三个独立 return 分支里最容易被漏掉的第三个
+    ——``_apply_artifacts_panel``。
+
+    为什么（本轮扫全仓 expand 落点时发现）：artifacts 在 ``_SESSION_SCOPED_KINDS`` 里，
+    属会话级 kind，跨会话会被前端冻进归属会话记忆；而它的 surface 此前**从来不携带
+    ``expand``**，回执也**不带 ``userScreen``**。于是 44 秒那件事在 artifacts 上原样可
+    复现（右栏收起时 expand 不撑开、跨会话时回执也无从判断），只是我这几轮都在测
+    web-embed，没扫到它。这正是「改一处漏另一处」的跨分支同型复发。
+
+    判据：expand=True → surface["expand"] is True 且回执带 userScreen；
+    不带 expand → surface 里不得出现 expand 键（不许把默认值也写进去污染语义）。
+    """
+    from evoflow.tools.builtins import stage_tool as st
+
+    emitted: list[tuple[str, dict]] = []
+    orig = st._emit_surface
+    st._emit_surface = lambda action, surface: emitted.append((action, surface))
+    try:
+        out = st.apply_right_panel(
+            action="show",
+            kind="artifacts",
+            data={"items": [{"type": "file", "path": "outputs/a.png", "name": "a.png"}]},
+            session_key="proactive:self-evolution-bot:chat:x",
+            expand=True,
+        )
+        assert out["ok"] is True, out
+        assert out["surface"].get("expand") is True, out["surface"]
+        assert "userScreen" in out, out
+        assert out["userScreen"].get("known") in (True, False), out
+
+        emitted.clear()
+        out2 = st.apply_right_panel(
+            action="show",
+            kind="artifacts",
+            data={"items": [{"type": "file", "path": "outputs/b.png", "name": "b.png"}]},
+            session_key="proactive:self-evolution-bot:chat:x",
+            expand=False,
+        )
+        assert "expand" not in out2["surface"], out2["surface"]
+        assert "userScreen" in out2, out2
+    finally:
+        st._emit_surface = orig
+
+
+def test_session_scoped_kinds_match_frontend_whitelist():
+    """后端 ``_SESSION_SCOPED_KINDS`` 必须与前端 ``SESSION_SCOPED_KINDS`` 逐条相等。
+
+    【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增跨语言对账，直接解析前端 TS 源文件里的 Set 字面量。
+
+    为什么：同一份「哪些 kind 属于某条会话」的事实现在有两份手写副本——
+    前端的 ``evopanel/src/lib/right-stage/right-stage-scope.ts``（真正决定写 live
+    还是冻结记忆，是唯一事实）与后端 ``_SESSION_SCOPED_KINDS``（只用于回执措辞）。
+    我这轮就是靠肉眼逐条背下来才敢说"两边一致"，而肉眼对账下次一定会漂：
+    前端加一个新 kind，后端回执就开始对那个 kind 说错话，且没有任何测试会红。
+
+    判据：两个集合必须完全相等（不是包含关系）——
+      · 后端多一个 → 会对一个其实是 workspace 级的 kind 报「切过去才看得到」；
+      · 后端少一个 → 会话级 kind 被冻结时回执照旧报 visible:true，正是 44 秒那件事。
+    """
+    import re
+    from pathlib import Path
+
+    from evoflow.tools.builtins.stage_tool import _SESSION_SCOPED_KINDS
+
+    ts_path = (
+        Path(__file__).resolve().parents[2]
+        / "evopanel"
+        / "src"
+        / "lib"
+        / "right-stage"
+        / "right-stage-scope.ts"
+    )
+    assert ts_path.exists(), f"前端唯一事实文件不存在：{ts_path}"
+    src = ts_path.read_text(encoding="utf-8")
+    block = re.search(
+        r"const SESSION_SCOPED_KINDS = new Set<string>\(\[(.*?)\]\)",
+        src,
+        re.S,
+    )
+    assert block, "解析不到前端 SESSION_SCOPED_KINDS 字面量（结构变了，请同步更新本测试）"
+    frontend_kinds = set(re.findall(r"'([^']+)'", block.group(1)))
+
+    assert frontend_kinds, "解析出的前端清单为空——正则失效，不能当成『两边都空』通过"
+    missing = frontend_kinds - _SESSION_SCOPED_KINDS
+    extra = _SESSION_SCOPED_KINDS - frontend_kinds
+    assert not missing, f"后端漏登记（会导致回执对会话级 kind 报错可见性）：{sorted(missing)}"
+    assert not extra, f"后端多登记（会对 workspace 级 kind 误判被冻结）：{sorted(extra)}"

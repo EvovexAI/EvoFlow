@@ -669,6 +669,12 @@ export class ConversationProjectionStore {
       > & { directoryRevision: number })
     | null = null;
   private closed = false;
+  /**
+   * 跟底刚收回 balloon：禁止 autoBackfill / loadAllOlder 再把尾窗撑回全量历史。
+   * 现场（f2fdc69c 14:16）：release 3185→90 后 loading 连拉到 3185，与 scrollToBottom
+   * 互殴出 ±4 万像素 !JUMP。用户上滚 loadOlder 时清闩。
+   */
+  private tipSoftCapLatch = false;
   /** Mutable so stream-404 remint can rebind without dropping the snapshot. */
   private _topic: string;
 
@@ -1706,6 +1712,8 @@ export class ConversationProjectionStore {
     if (!sessionId) return;
     const beforeRowId = snapshot.rows.window[0]?.rowId;
     if (beforeRowId === undefined) return;
+    // 用户主动上滚阅读 → 允许再扩窗；清掉跟底 soft-cap 闩。
+    this.tipSoftCapLatch = false;
     this.setState({ loadingOlder: true });
     try {
       // 到顶卡住时默认 60 太容易只抽到上一轮 mid-tool 残片，合并后被
@@ -1802,6 +1810,8 @@ export class ConversationProjectionStore {
    */
   async autoBackfillForRestore(maxPages: number = 8): Promise<void> {
     if (this.closed || this.state.loadingOlder) return;
+    // 跟底 soft-cap 后禁止补拉：否则 leadingIncomplete/userMissing 会把窗一路灌回全量。
+    if (this.tipSoftCapLatch) return;
     const startSnapshot = this.state.snapshot;
     if (!startSnapshot || !hasOlderRows(startSnapshot)) return;
     const startWindow = startSnapshot.rows.window;
@@ -1820,6 +1830,7 @@ export class ConversationProjectionStore {
       !startWindow.some((r) => r.kind === "userInput" && r.origin === "realUser");
     if (!leadingIncomplete && !userMissing) return;
 
+    const softCap = resolveProjectionWindowSoftCap();
     this.setState({ loadingOlder: true });
     try {
       let beforeRowId = startFirstRowId;
@@ -1850,6 +1861,8 @@ export class ConversationProjectionStore {
         if (older.length === 0) break; // 没有更早行 → 到顶
         combined.unshift(...older); // rows/range 升序返回，头插保持整体升序
         beforeRowId = older[0]?.rowId;
+        // 硬顶：补拉不得把投影窗撑过 softCap（跟底/冷开都适用）。
+        if (combined.length + startWindow.length >= softCap) break;
         // 停止条件按「已拉到的行 + 原窗口」预判，满足即不再翻页：
         const projectedLeading = combined[0]?.turnId;
         const leadingSettled =
@@ -1857,7 +1870,8 @@ export class ConversationProjectionStore {
           combined.some((r) => r.turnId === projectedLeading && r.kind === "turnHeader");
         const userSettled =
           !turnLive ||
-          combined.some((r) => r.kind === "userInput" && r.origin === "realUser");
+          combined.some((r) => r.kind === "userInput" && r.origin === "realUser") ||
+          startWindow.some((r) => r.kind === "userInput" && r.origin === "realUser");
         if ((leadingIncomplete && leadingSettled) || (userMissing && userSettled)) break;
         if (result.rows.length < PROTOCOL_V4_LIMITS.snapshotTailWindowRows) break; // 到顶
       }
@@ -1911,6 +1925,16 @@ export class ConversationProjectionStore {
       this.turnNavigatorHydrationTerminal.directoryRevision === directoryRevision
     ) {
       return this.turnNavigatorHydrationTerminal;
+    }
+    // 跟底 soft-cap：目录补拉会再把窗撑开，与 scrollToBottom 互殴；分享导出不受闩。
+    if (this.tipSoftCapLatch && !opts?.forShare) {
+      const softHeld = {
+        status: "hydrated" as const,
+        logEpoch: snapshot.logEpoch,
+        directoryRevision,
+      };
+      this.turnNavigatorHydrationTerminal = softHeld;
+      return softHeld;
     }
     if (!hasOlderRows(snapshot)) return stale(snapshot.logEpoch);
     const sessionId = parseConversationTopic(this.topic);
@@ -2286,13 +2310,14 @@ export class ConversationProjectionStore {
       totalCount: snap.rows.totalCount,
       topic: this.topic,
     });
+    // 闩住：阻止紧随其后的 autoBackfill / 目录 loadAllOlder 把尾窗再灌回全量。
+    // 不 bump directoryRevision——否则 hydrate effect 立刻再拉历史，等于白裁。
+    this.tipSoftCapLatch = true;
     this.setState({
       snapshot: {
         ...snap,
         rows: { ...snap.rows, window: [...next] },
       },
-      // 窗首前进 → 目录终态可能失效，允许再探测。
-      turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
     });
     return true;
   }

@@ -304,6 +304,48 @@ function isCompletionBlockingWorkRowRunning(row: AssistantWorkRow): boolean {
   }
 }
 
+/**
+ * 轮次已终态（!isRunning）时，把仍 streaming/running 的孤儿行改成完成态展示。
+ * 后端 seal 漏扫 / remint 清 map 后，phase=idle 仍会「正在思考/正在执行」（f2fdc69c）。
+ * 只影响渲染副本，不写回 store。
+ */
+export function sealZombieInflightRowForSettledTurn(
+  row: ConversationRow,
+  settled: boolean,
+): ConversationRow {
+  if (!settled) return row;
+  if (row.kind === "reasoning" && row.state === "streaming") {
+    const startedAt = Number(row.startedAt || row.createdAt || 0);
+    const endedAt = Number(row.endedAt || 0) || Date.now();
+    const durationMs =
+      row.durationMs ??
+      (startedAt > 0 ? Math.max(0, endedAt - startedAt) : undefined);
+    return {
+      ...row,
+      state: "complete",
+      endedAt: row.endedAt ?? endedAt,
+      ...(durationMs !== undefined ? { durationMs } : {}),
+    };
+  }
+  if (row.kind === "assistantText" && row.state === "streaming") {
+    return { ...row, state: "complete", endedAt: row.endedAt ?? Date.now() };
+  }
+  if (row.kind === "toolCall") {
+    const status = String(row.status || "");
+    if (
+      status === "inputStreaming" ||
+      status === "running" ||
+      status === "in_progress"
+    ) {
+      return { ...row, status: "cancelled", endedAt: row.endedAt ?? Date.now() };
+    }
+  }
+  if (row.kind === "subagent" && row.status === "running" && row.backgrounded !== true) {
+    return { ...row, status: "cancelled" };
+  }
+  return row;
+}
+
 function resolveTurnRunning(
   draft: DraftTurnRenderUnit,
   options: BuildConversationTurnRenderUnitsOptions,
@@ -493,9 +535,28 @@ function materializeDraftUnit(
   // 尾窗缺 header 时才回退 session phase，desktop continuous 与 mobile replayable 共用此边界。
   const forceOpenHistory = shouldForceOpenAbnormalHistory(draft.header, options.sessionPhase);
 
+  // 终态轮：展示层收口僵尸 streaming/running，避免「正在思考」钉死。
+  const settledDisplay = !isRunning;
+  const bodyRowsSealed = settledDisplay
+    ? bodyRows.map((row) => sealZombieInflightRowForSettledTurn(row, true) as AssistantWorkRow)
+    : bodyRows;
+  const flowRowsSealed = settledDisplay
+    ? flowRows.map((row) => sealZombieInflightRowForSettledTurn(row, true) as AssistantWorkRow)
+    : flowRows;
+  const browserTurnEndRowsSealed = settledDisplay
+    ? browserTurnEndRows.map(
+        (row) => sealZombieInflightRowForSettledTurn(row, true) as AssistantWorkRow,
+      )
+    : browserTurnEndRows;
+  const assistantTailRowsSealed = settledDisplay
+    ? assistantTailRows.map(
+        (row) => sealZombieInflightRowForSettledTurn(row, true) as AssistantWorkRow,
+      )
+    : assistantTailRows;
+
   // 折叠边界以「段/轮末正文」为准；fork/retry 只挂在真正带 actions 的那条上，
   // 但绝不能让中间带 canFork 的答复冒充 latest，否则后续工具会掉到折叠外。
-  const assistantTextRows = flowRows.filter(isAssistantTextRow);
+  const assistantTextRows = flowRowsSealed.filter(isAssistantTextRow);
   const actionAssistantTextRow = assistantTextRows.find(
     (row) => row.actions?.canFork === true || row.actions?.canRetry === true,
   );
@@ -512,14 +573,17 @@ function materializeDraftUnit(
   );
   const workStatus = resolveConversationTurnWorkStatus(
     draft.header,
-    bodyRows,
+    bodyRowsSealed,
     isRunning,
     workDurationMs,
     isInterrupted,
   );
-  const browserTurnEndRowIds = new Set(browserTurnEndRows.map((row) => row.rowId));
+  const browserTurnEndRowIds = new Set(browserTurnEndRowsSealed.map((row) => row.rowId));
+  const visibleOrderedSealed = settledDisplay
+    ? visibleOrderedRows.map((row) => sealZombieInflightRowForSettledTurn(row, true))
+    : visibleOrderedRows;
   const orderedBodyRows = normalizeOrderedRowsUserFirst(
-    visibleOrderedRows.filter(
+    visibleOrderedSealed.filter(
       // main 的 workSegments 会从 orderedRows 重建 flow；如果这里只从
       // bodyRows 抽取截图，它仍会被塞回正文流并在轮尾再次渲染，造成重复和顺序错乱。
       (row) => !leadingBoundaryRowIds.has(row.rowId) && !browserTurnEndRowIds.has(row.rowId),
@@ -529,7 +593,7 @@ function materializeDraftUnit(
     key: draft.key,
     header: draft.header,
     orderedRows: orderedBodyRows,
-    assistantTailRows,
+    assistantTailRows: assistantTailRowsSealed,
     latestAssistantTextRow,
     isRunning,
     isLastTurn,
@@ -551,11 +615,11 @@ function materializeDraftUnit(
     ...(draft.header ? { header: draft.header } : {}),
     visibleUserInputs,
     // 轻边界已经由 leadingBoundaryRows 独立承载，不能再算作 assistant work。
-    assistantWorkRows: bodyRows,
+    assistantWorkRows: bodyRowsSealed,
     assistantHistoryRows: orderedAssistantHistoryRows,
     assistantFollowingRows,
-    assistantTailRows,
-    browserTurnEndRows,
+    assistantTailRows: assistantTailRowsSealed,
+    browserTurnEndRows: browserTurnEndRowsSealed,
     hookInvocations: draft.hookInvocations,
     assistantTextRows,
     leadingBoundaryRows,
@@ -563,7 +627,7 @@ function materializeDraftUnit(
     flowItems,
     workSegments,
     // renderRows 是查找/诊断用的平面视图，也必须服从 CLI row 全序。
-    renderRows: visibleOrderedRows,
+    renderRows: visibleOrderedSealed,
     isLastTurn,
     isRunning,
     assistantHistoryDefaultOpen: mustOpenHistory,
