@@ -584,7 +584,39 @@ def apply_right_panel(
         if tid:
             clear_thread_stage(tid)
         _emit_surface("hide", None)
-        return {"ok": True, "action": "hide", "surface": None}
+        # 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：hide 回执补上 ``userScreen``，把「收起前有没有东西可收」如实说出来。
+        # 为什么（本轮真机实测）：10:29:30 我调 ui.hide 拿到 ``ok:true``，但右栏纹丝不动，
+        #   状态盘之后 24 秒仍写 collapsed=False / tabs=2 —— ok 只代表事件送出去了。
+        #   真因（前端）已单独修：applyRemote 的 hide 派给 store.hide()（关一个签）而不是
+        #   collapse()（整栏收起），遇到 shell-page 这类受保护 kind 直接 return 什么都不做。
+        #   后端这一侧的判据是：收起动作必须回读一份「收起前快照」，让调用方下一轮能自己核对
+        #   「到底收掉了几个签」，而不是继续把 ok 当结果。
+        try:
+            from app.gateway.routers.stage_right_panel import read_right_stage_state
+
+            prev_hide = read_right_stage_state()
+        except Exception:
+            prev_hide = {"known": False}
+        hide_out: dict[str, Any] = {"ok": True, "action": "hide", "surface": None}
+        if prev_hide.get("known"):
+            hide_tabs = prev_hide.get("tabs") or []
+            hide_out["userScreen"] = {
+                "known": True,
+                "action": "hide",
+                "before": {
+                    "activeKey": prev_hide.get("activeKey") or None,
+                    "collapsed": prev_hide.get("collapsed") is True,
+                    "tabs": len(hide_tabs),
+                },
+                "expect": "整栏收起：面板占位消失，标签全部保留（不是关签）。",
+                "verifyHint": "下一轮用 ui.current 看 collapsed 是否为 true；标签数应仍是 "
+                f"{len(hide_tabs)}。若 collapsed 仍为 false，说明前端没收到或没处理这条 hide。",
+            }
+            if prev_hide.get("stale") is True:
+                hide_out["userScreen"]["staleBefore"] = True
+                hide_out["userScreen"]["ageSeconds"] = prev_hide.get("ageSeconds")
+        return hide_out
 
     if act == "activate":
         # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
