@@ -555,6 +555,63 @@ def apply_llm_wrap_up_result(
     }
 
 
+# 【self-evolution-bot · 2026-11-21 · 第105轮 · 模型:deepseek-v4.1-flash-1017】新增：
+# 班次复盘自动产出的 craft 必须有「可执行要素」，否则不落盘。
+# 为什么：现网 30 个员工共 134 条 `[howto] duty wrap-up` 自动产物 / 85KB，
+#   内容两两 4-gram Jaccard 中位数 0.000（不是同题重复，是每班次新编一条套话），
+#   本岗 27 条里 24 条 30 天零读。这些条目只占 catalog 行数、不产生任何复用价值。
+# 判据来源：本岗 162 条人工配方正文 P10=895 字 / 最短 490 字；自动产物正文 P50=152 字。
+#   两个特征分得很开——但这个判据**单独用会误伤**「短而准」的配方，
+#   所以改成：带强判据词 或 带反引号命令 ⇒ 直接放行（那才是配方），
+#   只有「纯散文 且 <400 字」才判为套话。全平台复算：挡 93/134=69%，
+#   人工配方误挡 7/304=2.3%（且那 7 条全是探针残留/README/已作废文件，不是有效配方）。
+# 边界：本闸门**只作用于 wrap-up 镜像**（两个调用点都走本函数），
+#   人工 `assets note path=craft/...`、workspace_memory 各走 save_craft_note，不受影响。
+_WRAP_UP_CRAFT_MIN_PROSE_CHARS = 400
+_WRAP_UP_CRAFT_STRONG = re.compile(
+    r"判据|门禁|断言|exit\s*code|exit=|期望|必须|否则|不许|禁止|反证"
+)
+
+
+def _wrap_up_craft_body_text(content: str) -> str:
+    """正文去骨架：剥 frontmatter/标题行/自动打点/有序列表号，只留真内容。"""
+    text = str(content or "")
+    if text.startswith("---"):
+        parts = text.split("---", 2)
+        if len(parts) >= 3:
+            text = parts[2]
+    kept: list[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if re.match(r"^记录时间\s*[:：]", s):
+            continue  # ad_hoc_note 自动打点，不算内容
+        s = re.sub(r"^\d+[.、]\s*", "", s)
+        kept.append(s)
+    return "\n".join(kept)
+
+
+def wrap_up_craft_is_substantive(content: str) -> tuple[bool, str]:
+    """班次复盘 craft 是否值得落盘。返回 ``(是否保留, 不保留的原因)``。
+
+    保留条件（任一）：
+    1. 正文含强判据词（判据/门禁/断言/否则…）—— 那是可校验的做法；
+    2. 正文含反引号命令 —— 那是可执行的步骤；
+    3. 纯散文但 ≥400 字 —— 够长的叙述通常带具体情境。
+
+    不保留：纯散文且 <400 字。实测人工配方最短 490 字，自动套话中位 152 字。
+    """
+    body = _wrap_up_craft_body_text(content)
+    if _WRAP_UP_CRAFT_STRONG.search(body):
+        return True, ""
+    if "`" in body:
+        return True, ""
+    if len(body) >= _WRAP_UP_CRAFT_MIN_PROSE_CHARS:
+        return True, ""
+    return False, f"thin_craft:{len(body)}<{_WRAP_UP_CRAFT_MIN_PROSE_CHARS}chars_no_gate_no_command"
+
+
 def mirror_wrap_up_to_asset_hub(
     agent_code: str,
     parsed: dict[str, Any],
@@ -608,14 +665,25 @@ def mirror_wrap_up_to_asset_hub(
         content = str(craft.get("content") or "").strip()
         if title and content:
             kind = str(craft.get("kind") or "howto").strip() or "howto"
-            desc = f"[{kind}] duty wrap-up"[:30]
-            cres = save_craft_note(
-                entity,
-                title=title[:80],
-                content=content[:2000],
-                description=desc,
-            )
-            out["craft"] = cres
+            # 【self-evolution-bot · 2026-11-21 · 第105轮 · 模型:deepseek-v4.1-flash-1017】改两处：
+            # ① 落盘前过可执行性闸门 —— 纯散文且<400字的班次套话不写（见 wrap_up_craft_is_substantive）。
+            # ② description 不再硬编 `[howto] duty wrap-up`：那个模板让 N 条不同主题的配方在
+            #    列表/检索里长得一模一样，无法分辨（现网 134 条全是这两个字符串）。
+            #    改为取正文首个实质行，`problem_summary` 本来就是这个口径。
+            keep, why = wrap_up_craft_is_substantive(content)
+            if not keep:
+                out["craft"] = {"ok": True, "skipped": True, "reason": why}
+            else:
+                from evoflow.assets.craft import problem_summary
+
+                desc = problem_summary({"title": title, "body_md": content, "kind": kind})
+                cres = save_craft_note(
+                    entity,
+                    title=title[:80],
+                    content=content[:2000],
+                    description=desc,
+                )
+                out["craft"] = cres
 
     if "journal" not in out and "craft" not in out:
         return {"ok": True, "skipped": True, "reason": "nothing_to_mirror"}

@@ -830,6 +830,10 @@ def test_late_tool_end_result_does_not_steal_into_new_turn(mirror_session: str) 
         [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-4a35a33d4ff8"}],
     )
     # 新轮进行中：重放/迟到的旧 tool END+RESULT（map 已清，按 toolCallId 找回旧行）
+    # 已 success → 必须吞掉（禁止再 upsert）；内容保持原样，turnId 不得被偷。
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    seq_before = int(sess.seq)
     mirror.feed_events(
         tid,
         [
@@ -842,11 +846,14 @@ def test_late_tool_end_result_does_not_steal_into_new_turn(mirror_session: str) 
             },
         ],
     )
+    assert int(sess.seq) == seq_before, "replayed success tool must not emit deltas"
     tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
     assert len(tools) == 1, tools
     tool = tools[0]
     assert int(tool["rowId"]) == old_rid
     assert tool["turnId"] == "run-old", tool
+    out = ((tool.get("output") or {}).get("text") or "")
+    assert out == "ring show ok", out
     users = [r for r in _rows(tid) if r.get("kind") == "userInput"]
     new_user = next(r for r in users if "重启好了" in str(r.get("text") or ""))
     assert new_user["turnId"] == "run-4a35a33d4ff8"
@@ -1170,6 +1177,118 @@ def test_reasoning_restart_same_message_id_opens_new_row(mirror_session: str) ->
     assert reasonings[0]["rowId"] != reasonings[1]["rowId"]
 
 
+def test_historical_success_tool_replay_does_not_flood_deltas(
+    mirror_session: str,
+) -> None:
+    """新 run 开头重放 N 条历史 success 工具：不得刷 online upsert 堵 tip。
+
+    复刻 8e4715ba：发问后流式日志墙钟最新，但先蹦出 rowId 远小于用户气泡的
+    bash/platform 卡，约 25s 后才出现本轮 reasoning。
+    """
+    tid = mirror_session + "-no-flood"
+    if tid in getattr(HUB, "_sessions", {}):
+        del HUB._sessions[tid]  # noqa: SLF001
+    mirror = V4Mirror(HUB)
+
+    mirror.note_user_input(tid, "上一问")
+    first_batch: list[dict[str, Any]] = [
+        {"type": "RUN_STARTED", "threadId": tid, "runId": "run-hist"},
+    ]
+    for i in range(8):
+        tcid = f"tc-hist-{i}"
+        first_batch.extend(
+            [
+                {
+                    "type": "TOOL_CALL_START",
+                    "toolCallId": tcid,
+                    "toolCallName": "bash",
+                },
+                {
+                    "type": "TOOL_CALL_ARGS",
+                    "toolCallId": tcid,
+                    "delta": f'{{"command":"echo {i}"}}',
+                },
+                {"type": "TOOL_CALL_END", "toolCallId": tcid},
+                {
+                    "type": "TOOL_CALL_RESULT",
+                    "toolCallId": tcid,
+                    "content": f"ok-{i}",
+                    "status": "success",
+                },
+            ]
+        )
+    first_batch.append({"type": "RUN_FINISHED", "threadId": tid, "runId": "run-hist"})
+    mirror.feed_events(tid, first_batch)
+
+    mirror.note_user_input(tid, "好了好了，你再看一下")
+    mirror.feed_events(
+        tid,
+        [{"type": "RUN_STARTED", "threadId": tid, "runId": "run-tip"}],
+    )
+    sess = HUB.get_session(tid)
+    assert sess is not None
+    seq_before = int(sess.seq)
+
+    replay: list[dict[str, Any]] = []
+    for i in range(8):
+        tcid = f"tc-hist-{i}"
+        replay.extend(
+            [
+                {
+                    "type": "TOOL_CALL_START",
+                    "toolCallId": tcid,
+                    "toolCallName": "bash",
+                },
+                {
+                    "type": "TOOL_CALL_ARGS",
+                    "toolCallId": tcid,
+                    "delta": f'{{"command":"echo {i} replay"}}',
+                },
+                {"type": "TOOL_CALL_END", "toolCallId": tcid},
+                {
+                    "type": "TOOL_CALL_RESULT",
+                    "toolCallId": tcid,
+                    "content": f"ok-{i}-replay",
+                    "status": "success",
+                },
+            ]
+        )
+    mirror.feed_events(tid, replay)
+    assert int(sess.seq) == seq_before, (
+        f"historical success replay flooded deltas: {seq_before} -> {sess.seq}"
+    )
+    tools = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert len(tools) == 8
+    for i, tool in enumerate(sorted(tools, key=lambda r: int(r["rowId"]))):
+        assert tool["turnId"] == "run-hist"
+        assert tool["status"] == "success"
+        assert ((tool.get("output") or {}).get("text") or "") == f"ok-{i}"
+
+    # 本轮真正的新工具仍应落盘
+    mirror.feed_events(
+        tid,
+        [
+            {
+                "type": "TOOL_CALL_START",
+                "toolCallId": "tc-new",
+                "toolCallName": "bash",
+            },
+            {"type": "TOOL_CALL_END", "toolCallId": "tc-new"},
+            {
+                "type": "TOOL_CALL_RESULT",
+                "toolCallId": "tc-new",
+                "content": "fresh",
+                "status": "success",
+            },
+        ],
+    )
+    tools2 = [r for r in _rows(tid) if r.get("kind") == "toolCall"]
+    assert len(tools2) == 9
+    fresh = next(r for r in tools2 if r.get("toolCallId") == "tc-new")
+    assert fresh["turnId"] == "run-tip"
+    assert ((fresh.get("output") or {}).get("text") or "") == "fresh"
+
+
 def test_tool_call_start_does_not_duplicate_prior_turn_tcid(mirror_session: str) -> None:
     """失败轮重放上一轮 toolCallId 时，不得再开一张空 error 卡。"""
     tid = mirror_session + "-no-dup-tcid"
@@ -1218,3 +1337,53 @@ def test_tool_call_start_does_not_duplicate_prior_turn_tcid(mirror_session: str)
     assert len(tools) == 1, tools
     assert tools[0]["status"] == "success"
     assert tools[0]["turnId"] == "run-1"
+
+
+def test_transcript_backfill_ignores_cross_thread_row(mirror_session: str) -> None:
+    """跨 thread 同 tool_call_id 不得被当命中采用。
+
+    【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    反证已做：去掉 `_transcript_tool_result_text` 里 row=None 的守卫，
+    本用例立刻红在我打印的断言上（实得 ('assets', '别的会话的工具正文')）。
+
+    现网实测（第104轮）：库里残留 tool_call_id=tc1 / tool_name=assets /
+    thread_id=probe-thread-perf 的探针行；本轮 TOOL_CALL_END 做 transcript 回填时
+    按 id 直接命中它，把 write 工具卡改名成 assets，卡面展开成另一个工具。
+    判据：跨会话同 id 只是巧合，宁可留空等真 RESULT，不许串数据。
+    """
+    import json as _json
+
+    from app.gateway.v4.agui_mirror import _transcript_tool_result_text
+    from evoflow.persistence.db import get_db
+
+    tcid = "tc-cross-thread-104"
+    other_tid = "probe-thread-cross-104"
+    my_tid = "mirror-thread-cross-104"
+    db = get_db()
+    db.execute("DELETE FROM evoflow_chat_messages WHERE tool_call_id = ?", (tcid,))
+    db.execute(
+        """
+        INSERT INTO evoflow_chat_messages
+            (session_key, seq, role, message_id, content_json,
+             tool_call_id, tool_name, thread_id, created_at, updated_at)
+        VALUES (?, 1, 'tool', ?, ?, ?, 'assets', ?, datetime('now'), datetime('now'))
+        """,
+        (
+            "probe__cross_thread_session",
+            f"tool-{tcid}",
+            _json.dumps({"content": "别的会话的工具正文"}),
+            tcid,
+            other_tid,
+        ),
+    )
+    db.commit()
+    try:
+        # 本 thread 没有该 id → 必须返回 None（不许拿别的 thread 的行顶上）
+        assert _transcript_tool_result_text(my_tid, tcid) is None
+        # 同一 thread 仍能正常回填（证明修的是串数据，不是把功能关掉）
+        got = _transcript_tool_result_text(other_tid, tcid)
+        assert got is not None, "同 thread 命中必须保留"
+        assert got[0] == "assets", got
+    finally:
+        db.execute("DELETE FROM evoflow_chat_messages WHERE tool_call_id = ?", (tcid,))
+        db.commit()

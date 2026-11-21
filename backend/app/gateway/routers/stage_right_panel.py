@@ -132,11 +132,27 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         if hit is not None:
             active_title = str(hit.get("title") or "") or None
 
+    # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：补顶层 ``sessionKey`` 透传。
+    # 为什么（本轮现网实测）：前端 ``buildPayload`` 从第104轮起就在发这个字段
+    #   （「右栏此刻挂在哪条会话上」的唯一事实），但只要经过本函数就被**静默丢掉**——
+    #   ``_clean_payload`` 是白名单式重建返回体，没列进去的字段一律消失。
+    #   盘上 ``right-stage-state.json`` 实测确实没有它，于是
+    #   ``ui.show`` 回执里判「这次写进了别的会话，用户看不见」的判据
+    #   ``owner_session_key`` 只能走 tabs 兜底，而 activeKey 为空时兜底也拿不到。
+    # 判据：POST 带了顶层 sessionKey，GET 必须原样回得来。
+    top_session_key = str(payload.get("sessionKey") or "").strip() or None
+    if top_session_key is None and active_key:
+        # 老前端不发顶层字段时，用当前激活签的归属会话兜底（同一事实的另一种携带方式）。
+        hit = next((t for t in tabs if t.get("key") == active_key), None)
+        if hit is not None:
+            top_session_key = str(hit.get("sessionKey") or "").strip() or None
     return {
         "activeKey": active_key,
         "activeKind": active_kind,
         "activeTitle": active_title,
         "collapsed": payload.get("collapsed") is True,
+        "sessionKey": top_session_key,
         "tabs": tabs,
         # 【self-evolution-bot · 2026-11-20 · 第100轮续】补不了 key 时如实标记：
         # 模型据此知道「能读当前页、但还不能按 key 切签」，而不是拿到一堆空键瞎切。
@@ -277,13 +293,30 @@ def store_right_stage_state(payload: dict[str, Any]) -> dict[str, Any]:
 def read_right_stage_state() -> dict[str, Any]:
     """读回最新一次上报。**从没上报过**时返回 ``known=False``，不要假装「右栏是空的」。
 
-    顺序：本进程内存 → 落盘（跨进程）。两处都没有才算「真的没上报过」。
+    顺序：本进程内存 → 落盘（跨进程）。两处都有时**取较新的一份**。
+
+    【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：原来「内存有值就绝不看盘」，改为内存与落盘都读、按 ``rev``/``reportedAt``
+    取较新者。
+    为什么（本轮真机实测抓到的真缺陷，表现为「模型说看不到用户右栏 / 控制不了」）：
+      · 前端上报 POST 打进 **gateway** 进程，内存 ``_STATE`` 写的是 gateway 那份；
+      · 而 ``ui.current`` / ``ui.show`` 的 ``userScreen.before`` 跑在 **langgraph 工具进程**，
+        它的 ``_STATE`` 永远为空 → 走落盘分支 → 本该读到最新，但一旦同进程先被写过一次旧值，
+        旧值就会永久压住更新的一份。
+      · 实证：11:13:55 落盘 rev=28 / active=browser:primary（18,000 字节的时间戳可查），
+        而工具侧同一时刻回的是 rev=5 / reportedAt 03:10:21Z —— 整整差 3 分半，
+        期间我给它的 4 次 ui.show 全都显示过期 before，等于拿旧照片做判断。
+    判据：同一次调用，落盘 rev 大于内存 rev 时必须返回落盘那份；
+      两份都没有才算 ``known=False``。
     """
     with _STATE_LOCK:
         snap = dict(_STATE)
-    if not snap:
-        from_file = _read_state_file()
-        if from_file:
+    from_file = _read_state_file()
+    if from_file:
+        if not snap:
+            snap = from_file
+        elif int(from_file.get("rev") or 0) > int(snap.get("rev") or 0):
+            # 落盘更新（通常是 gateway 进程刚写的）→ 以盘为准，跨进程才看得到真实状态。
             snap = from_file
     if not snap:
         return {

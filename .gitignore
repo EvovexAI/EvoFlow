@@ -346,8 +346,10 @@ backend/packaging/official-plugins-bundle.zip
 # kb-mcp node_modules is ignored via backend/packaging/kb-mcp/.gitignore (removed)
 # Legacy Playwright bundle (no longer used by gateway builds)
 backend/packaging/windows/.playwright-browsers/
-# Staged offline BGE weights (~95MB); prepared at gateway build time
-backend/packaging/windows/local-embed-models/
+# Offline BGE weights: keep safetensors+tokenizer in git for CI (no HF download).
+# Ignore the duplicate pytorch bin (~95MB) — safetensors is enough for ST.
+backend/packaging/windows/local-embed-models/**/pytorch_model.bin
+backend/packaging/windows/local-embed-models/**/.gitattributes
 
 # Local stream/E2E acceptance machine output (JSON + generated reports)
 backend/scripts/_e2e_output/

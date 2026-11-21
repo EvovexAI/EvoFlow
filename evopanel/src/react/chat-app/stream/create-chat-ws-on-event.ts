@@ -35,6 +35,7 @@ import {
 import {
   readXiaomiAssistantSessionKey,
   resolveChatEventTarget,
+  shouldDispatchRightStageCustom,
 } from '../../lib/chat-ws-foreground.js'
 
 export type ChatWsOnEventCtx = Record<string, any>
@@ -2057,8 +2058,26 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             }
           }
         }
-        if (!isBackground && aguiEvent.type === EventType.CUSTOM) {
-          const customName = String((aguiEvent as { name?: string }).name || '')
+        // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：右栏类 custom 事件（right_stage / right_stage_stream）不再被
+        //   ``!isBackground`` 整条丢掉，改由 shouldDispatchRightStageCustom 统一判定；
+        //   其它 custom 事件仍按原样受后台门禁约束。
+        // 为什么（本轮真机实测，用户原话「你现在也控制不了」）：
+        //   · 我的 run 跑在 ``proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z``，
+        //     而用户此刻看的会话是 ``agent:main:new-a8d17462`` → 每个事件都判成 isBackground。
+        //   · 后端 writer 正常（``[py] emit sent`` 有 4 条），但前端 store 的 rev 整整
+        //     4 分钟一动不动（CDP 实测 rev=28，同期上报也是 rev=28）——说明事件在**入口**就被丢了，
+        //     根本没进 applyRightStageAgUiCustom。
+        //   · 同一时刻 screenshot/browser 两个签能正常出签并推进 rev，通道本身是通的。
+        // 判据：归属由 applyStageSetPayload 按 payload.sessionKey 判定（后台会话只写冻结记忆、
+        //   不抢前台），入口不提前整条丢弃；恢复验证看 store.rev 是否随 emit 前移。
+        const customName = String(
+          aguiEvent.type === EventType.CUSTOM ? (aguiEvent as { name?: string }).name || '' : '',
+        )
+        if (
+          aguiEvent.type === EventType.CUSTOM &&
+          shouldDispatchRightStageCustom({ isBackground: !!isBackground, customName })
+        ) {
           const customValue = (aguiEvent as { value?: unknown }).value
           if (customName === 'write_file_progress') {
             // content_len / body ticks must force a React bump even when tools[].length is unchanged.

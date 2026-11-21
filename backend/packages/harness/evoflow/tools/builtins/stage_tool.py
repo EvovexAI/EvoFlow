@@ -22,6 +22,34 @@ from evoflow.stage.stage_context import clear_thread_stage, set_thread_stage
 # 工具返回 ok 而屏幕上什么都没发生，排查时一点线索都没有（用户明确要求加日志）。
 _RIGHT_STAGE_LOGGER_NAME = "evoflow.right_stage"
 
+# 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增「会话级 kind」清单——这类面板属于某条会话，切到别的会话就看不见。
+# 为什么：回执原先只判「右栏是否收起」，报 visible:true 而用户屏幕上没有东西；
+#   真因是本轮实测的 44 秒里右栏挂的是另一条会话，事件按设计只写冻结记忆。
+# 口径来源与前端 right-stage-scope.ts 的 SESSION_SCOPED_KINDS 保持一致（唯一事实在前端）；
+#   这里只用于回执措辞判定，不参与任何写屏决策——漏一个 kind 只会少一句提示，不会写错屏。
+_SESSION_SCOPED_KINDS = frozenset(
+    {
+        "browser",
+        "web-embed",
+        "news-dashboard",
+        "platform-feedback",
+        "file",
+        "asset",
+        "codeViewer",
+        "terminal",
+        "summary",
+        "subagentTranscript",
+        "artifacts",
+        "screenshot",
+        "collab-workflow",
+        "collabSubtaskTranscript",
+        "employeeProcess",
+        "sessionRuntime",
+        "shell-page",
+    }
+)
+
 
 def get_right_stage_logger() -> logging.Logger:
     return logging.getLogger(_RIGHT_STAGE_LOGGER_NAME)
@@ -789,7 +817,7 @@ def apply_right_panel(
             "kind": k,
             "surface": surface,
             "userScreen": _describe_user_screen_before_after(
-                act=act, kind=k, surface=surface, expand=expand
+                act=act, kind=k, surface=surface, expand=expand, owner_session_key=sk
             ),
         }
 
@@ -833,7 +861,7 @@ def apply_right_panel(
         # 为什么（用户明确指出）：模型开面板时不知道用户右栏正在看什么，抢了视线自己还不知道。
         #   现在把 before/after 一起回给调用方，模型下一句就能说清楚「我把你原来的 X 换成 Y 了」。
         "userScreen": _describe_user_screen_before_after(
-            act=act, kind=k, surface=surface, expand=expand
+            act=act, kind=k, surface=surface, expand=expand, owner_session_key=sk
         ),
     }
 
@@ -875,6 +903,7 @@ def _describe_user_screen_before_after(
     kind: str,
     surface: dict[str, Any],
     expand: bool = False,
+    owner_session_key: str = "",
 ) -> dict[str, Any]:
     """把「用户原本停在哪一页」与「这次操作是复用还是新开」如实描述出来。"""
     try:
@@ -927,6 +956,65 @@ def _describe_user_screen_before_after(
     #   带 expand=True 或本来就没收起 → ``visible`` 为 True。不许再出现「ok 但看不见」无提示。
     prev_collapsed = prev.get("collapsed") is True
     visible = (not prev_collapsed) or bool(expand) or act == "update"
+    # 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：``visible`` 补第二种看不见的成因——「用户当前 UI 停在别的会话」。
+    # 为什么（本轮现网实测 13:26:37）：我在 proactive 会话发 ui.show(web-embed, expand=true)，
+    #   回执写 ``visible: true``；而用户屏幕上过了 44 秒什么都没出现。前端日志 13:27:20.825
+    #   「用户点击侧栏会话」切到我的会话之后，那签才显示出来。
+    #   根因：前端 right-stage-agui.ts 有一条设计正确的隔离分支——
+    #   ``isBackgroundOwner && scopeOfKind(kind) === 'session'`` 时只写该会话的冻结记忆、
+    #   绝不碰当前右栏。所以事件没丢、记忆也写了，只是**当时不可见**。
+    #   而回执只知道「右栏是否收起」，不知道「右栏挂在哪条会话上」，于是报了 visible:true。
+    # 判据：web-state 上报带 sessionKey；它若与本次事件归属会话不一致，且该 kind 是
+    #   会话级（会被冻结而不是写屏），visible 必须为 False 并说明「切到该会话才看得到」。
+    prev_session_key = str(prev.get("sessionKey") or "").strip()
+    if not prev_session_key:
+        # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：把第104轮的兜底保留下来（删过一次是手误，缩进当场就坏了），
+        #   但补上「顶层字段现在真的会有值」这一半 —— 见 stage_right_panel._clean_payload：
+        #   它此前把前端发的顶层 sessionKey 静默丢掉，导致本判据的 prev 侧长期为空。
+        # 为什么仍要兜底：老前端（未重建安装）只发 tabs[].sessionKey，
+        #   而这条判据不该等一次打包才生效。
+        active_key = str(prev.get("activeKey") or "").strip()
+        for _t in prev.get("tabs") or []:
+            if isinstance(_t, dict) and str(_t.get("key") or "") == active_key:
+                prev_session_key = str(_t.get("sessionKey") or "").strip()
+                break
+    # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：本次事件的归属会话改为由调用方显式传入，不再只从 ``surface`` 里取。
+    # 为什么（本轮现网实证，这是「报可见其实不可见」的真根因）：
+    #   13:26:37 那条 emit 的原文是
+    #   ``{"action":"show","surface":{"id":"primary","kind":"web-embed","data":{...},
+    #     "title":"第104轮验证A","expand":true}}`` —— **surface 里没有 sessionKey**。
+    #   于是这里 ``owner_session_key`` 恒为空串，下面 ``frozen_in_other_session``
+    #   整个布尔表达式恒为 False，第104轮写的「切过去才看得到」分支是**死代码**，
+    #   一次都没执行过；回执照旧报 ``visible: true``，而用户屏幕上 44 秒什么都没有。
+    #   这正是我资产里那条「判据吃的字段在真实路径恒为空」的同型复发（第三次）。
+    # 判据：归属会话由 ui.show 的 sk（_resolve_session_key_loose 解析）传入；
+    #   surface.sessionKey 作为次要来源保留，两者取先有值的那个。
+    owner_session_key = (
+        str(owner_session_key or "").strip()
+        or str(surface.get("sessionKey") or "").strip()
+    )
+    # 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：``frozen_in_other_session`` 补 ``expand`` 豁免，与前端放宽后的隔离分支同口径。
+    # 为什么（同一缺陷改了两处、漏了第三处的当场自撞）：本轮已把前端
+    #   ``right-stage-agui.ts`` 那条会话级隔离分支改成「expand=true 时按用户当前 UI 会话
+    #   盖章写 live」——也就是说带 expand 的事件**用户当场就能看见**。
+    #   而这条后端判据仍在算 ``prev_session_key != owner_session_key`` → visible=False，
+    #   回执会告诉模型「用户看不见，切过去才有」——与前端实际行为相反，
+    #   模型据此对用户说错话，比不报更糟。
+    # 判据：expand=True 是调用方明确要求「让用户看见」，前端已保证按 ui 会话落地 →
+    #   本回执也不得判 frozen。两处必须同一口径，改一处必须回来改另一处。
+    frozen_in_other_session = bool(
+        not expand
+        and prev_session_key
+        and owner_session_key
+        and prev_session_key != owner_session_key
+        and kind in _SESSION_SCOPED_KINDS
+    )
+    if frozen_in_other_session:
+        visible = False
     out: dict[str, Any] = {
         "known": True,
         "action": act,
@@ -950,12 +1038,21 @@ def _describe_user_screen_before_after(
         ),
     }
     if not visible:
-        out["hint"] = (
-            "右栏当前处于收起状态，本次只写入了标签、用户屏幕上没有任何变化。"
-            "若确实要让用户看到，请带 expand=True 重发一次；否则请如实告诉用户"
-            "「已准备好，但你的右栏是收起的」。"
-        )
-        out["note"] = "用户右栏是收起的；本次写入不可见。"
+        if frozen_in_other_session:
+            out["hint"] = (
+                "右栏此刻挂在你正在看的另一条会话上（不是本条事件归属的会话），"
+                "本次只写进了归属会话的冻结记忆，用户屏幕上没有任何变化。"
+                "请如实说明「已写入你那条会话的右栏，切过去才能看到」，"
+                "不要声称已经显示在屏幕上。"
+            )
+            out["note"] = "右栏挂在别的会话上；本次写入对当前屏幕不可见。"
+        else:
+            out["hint"] = (
+                "右栏当前处于收起状态，本次只写入了标签、用户屏幕上没有任何变化。"
+                "若确实要让用户看到，请带 expand=True 重发一次；否则请如实告诉用户"
+                "「已准备好，但你的右栏是收起的」。"
+            )
+            out["note"] = "用户右栏是收起的；本次写入不可见。"
     return out
 
 

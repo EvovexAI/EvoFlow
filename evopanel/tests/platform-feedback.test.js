@@ -942,3 +942,89 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
     expect(publish).not.toHaveBeenCalled()
   })
 })
+
+// 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+// 钉住用户当场指出的缺陷：「新打开的也没有显示最新的，也没有进行切换」。
+// 真机证据：10:45:50 chat_send → 10:45:59 上报 tabs=4 且新签已在列，
+// 但 activeKey 三次上报都还是 shell-page:shell:/tasks，直到 10:46:23 才变过去。
+// 判据：用户主动喊员工干活（chat_send / dispatch / wake …）必须切到那场对话；
+// 只有纯后台推送才允许「只写签不抢视线」。
+describe('用户主动派单 = 必须切到新对话（不抢视线只适用于后台推送）', () => {
+  const chatSendUi = (code) => ({
+    ok: true,
+    action: 'employees.chat_send',
+    ui: {
+      kind: 'success',
+      title: `已向「${code}」发送消息`,
+      domain: 'employees',
+      action: 'employees.chat_send',
+      client_effect: 'employee_chat_send',
+      actions: [
+        {
+          label: '打开对话',
+          autoOpen: true,
+          openStage: {
+            kind: 'employeeProcess',
+            data: { taskId: `live:${code}`, agentCode: code, busy: true },
+          },
+        },
+      ],
+    },
+  })
+
+  it('用户先钉在别的签上，chat_send 仍必须切过去', async () => {
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    // 模拟用户亲手点了 /tasks，形成 userPinnedActiveKey
+    rightStageStore.show({ kind: 'shell-page', id: 'shell:/tasks', title: '任务' }, { forceExpand: true })
+    rightStageStore.activateTab('shell-page:shell:/tasks')
+    expect(rightStageStore.getSnapshot().activeKey).toBe('shell-page:shell:/tasks')
+
+    syncPlatformFeedbackFromTools(
+      [{ id: 'tc-chat-send', name: 'platform', output: JSON.stringify(chatSendUi('atmosphere-emotion-bot')) }],
+      new Set(),
+    )
+
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    // 关键断言：新对话必须是当前查看的那一个
+    expect(snap.activeKey).toBe('employeeProcess:process:live:atmosphere-emotion-bot')
+  })
+
+  it('纯后台推送（非用户发起动作）仍不抢视线', async () => {
+    const { rightStageStore } = await import('../src/lib/right-stage/right-stage-store.ts')
+    rightStageStore.hideAll()
+    rightStageStore.show({ kind: 'shell-page', id: 'shell:/tasks', title: '任务' }, { forceExpand: true })
+    rightStageStore.activateTab('shell-page:shell:/tasks')
+
+    syncPlatformFeedbackFromTools(
+      [
+        {
+          id: 'tc-bg',
+          name: 'platform',
+          output: JSON.stringify({
+            ok: true,
+            action: 'media.generate_image',
+            ui: {
+              kind: 'success',
+              title: '图片已生成',
+              domain: 'media',
+              action: 'media.generate_image',
+              actions: [
+                {
+                  label: '查看',
+                  autoOpen: true,
+                  openStage: { kind: 'shell-page', data: { path: '/tasks/items' } },
+                },
+              ],
+            },
+          }),
+        },
+      ],
+      new Set(),
+    )
+
+    // 后台动作：签可写，但不许把用户正在看的签顶掉
+    expect(rightStageStore.getSnapshot().activeKey).toBe('shell-page:shell:/tasks')
+  })
+})

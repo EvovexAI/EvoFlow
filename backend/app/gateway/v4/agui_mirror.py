@@ -297,7 +297,22 @@ def _transcript_tool_result_text(
                     )
                     if row2 is not None:
                         row = row2
-            body = tool_body_text(loads_payload(str(row[1] or "")))
+                    else:
+                        # 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+                        # 跨 thread 的 tool_call_id 相同只是巧合，绝不能当命中原样采用。
+                        # 原逻辑在「同 thread 无行」时保留了跨 thread 行 → 别的会话的
+                        # 工具名/正文被写进本轮工具卡。现网实测：库里 13 条 tc* 探针残留，
+                        # 其中 tc1 属 thread=probe-thread-perf / tool_name=assets；
+                        # 本轮 END 回填把 write 卡改名成 assets（展开面板因此错成另一个
+                        # 工具），test_tool_name_preserved_on_result_without_name 直接红。
+                        # 判据：工具名决定卡面展开成哪个面板，错名 = 用户点开是错的工具。
+                        # 宁可留空等 RESULT 真事件，不许跨会话串数据。
+                        row = None
+            body = (
+                tool_body_text(loads_payload(str(row[1] or "")))
+                if row is not None
+                else ""
+            )
             if str(body or "").strip():
                 name = str(row[0] or "").strip() or "tool"
                 return name, str(body)
@@ -1950,6 +1965,27 @@ class V4Mirror:
         return str(st.turn_id or "").strip()
 
     @staticmethod
+    def _should_skip_replayed_success_tool(
+        existing: dict[str, Any] | None, _st: _MirrorState
+    ) -> bool:
+        """已 success 的工具卡：丢弃 ARGS/END/RESULT 重放，避免堵直播增量。
+
+        冷水合后新 run 常把历史 TOOL_CALL_* 再喂一遍（messages-tuple / values）。
+        START 已按 toolCallId 回填 map 并 return；若 END/RESULT 仍 ``author_upsert_row``，
+        会把上百条旧工具以「最新墙钟」刷进 online delta（现场 8e4715ba：
+        11:10:05 发问 → 192 条 rowId<2500 的 upsert 堵到 11:10:30 才出本轮 reasoning）。
+
+        cancelled/error 仍放行：迟到 RESULT / seal 后回填要写正文。
+        """
+        if not isinstance(existing, dict):
+            return False
+        if str(existing.get("status") or "").strip() != "success":
+            return False
+        # 已有 success：无论同轮重放还是跨轮历史 dump，再 upsert 都是噪声。
+        # （跨轮时 _preserve_tool_turn_id 虽保住 turnId，增量洪水照样拖死 tip。）
+        return True
+
+    @staticmethod
     def _reasoning_duration_ms(
         existing: dict[str, Any] | None, *, now_ms: int
     ) -> int | None:
@@ -2671,8 +2707,10 @@ class V4Mirror:
         if et == "TOOL_CALL_ARGS":
             tcid = str(ev.get("toolCallId") or "").strip()
             delta = str(ev.get("delta") or "")
-            rid, _existing = self._resolve_tool_row_id(tid, st, tcid)
+            rid, existing = self._resolve_tool_row_id(tid, st, tcid)
             if rid is None or not delta:
+                return
+            if self._should_skip_replayed_success_tool(existing, st):
                 return
             st.tool_acc[tcid] = st.tool_acc.get(tcid, "") + delta
             self._hub.author_row_delta(tid, rid, "inputText", delta)
@@ -2682,6 +2720,8 @@ class V4Mirror:
             tcid = str(ev.get("toolCallId") or "").strip()
             rid, existing = self._resolve_tool_row_id(tid, st, tcid)
             if rid is None:
+                return
+            if self._should_skip_replayed_success_tool(existing, st):
                 return
             created_at, started_at = self._preserve_tool_timestamps(existing, now_ms=now_ms)
             input_text = st.tool_acc.get(tcid, "") or (
@@ -2714,6 +2754,8 @@ class V4Mirror:
             rid, existing = self._resolve_tool_row_id(tid, st, tcid)
             if rid is None:
                 # map 已清且会话里也没有该 toolCallId：无法挂载，丢弃。
+                return
+            if self._should_skip_replayed_success_tool(existing, st):
                 return
             # 轮已 seal 时把 product turn 拉回，避免 RESULT 写到空 turnId。
             if not str(st.turn_id or "").strip():

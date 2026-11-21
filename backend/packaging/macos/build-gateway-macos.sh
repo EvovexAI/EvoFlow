@@ -77,10 +77,15 @@ fi
 if [[ "${bundle_local_embed}" == "1" ]]; then
   export EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1
   echo "[gateway-build-macos] local embedding ON (torch/ST + bundled bge-small-zh)"
-  HF_ENDPOINT="${HF_ENDPOINT:-https://hf-mirror.com}" \
-    uv run python "${BACKEND_DIR}/packaging/windows/prepare_local_embed_model.py" \
-      --model-id "BAAI/bge-small-zh-v1.5" \
-      --out-dir "${BACKEND_DIR}/packaging/windows/local-embed-models/BAAI/bge-small-zh-v1.5"
+  # Prefer already-committed weights; only download when missing.
+  # On GitHub Actions do not force hf-mirror (official hub works on US runners).
+  if [[ -z "${GITHUB_ACTIONS:-}" && -z "${HF_ENDPOINT:-}" ]]; then
+    export HF_ENDPOINT="https://hf-mirror.com"
+  fi
+  uv run python -c "import huggingface_hub" 2>/dev/null || uv pip install -q "huggingface_hub>=0.23"
+  uv run python "${BACKEND_DIR}/packaging/windows/prepare_local_embed_model.py" \
+    --model-id "BAAI/bge-small-zh-v1.5" \
+    --out-dir "${BACKEND_DIR}/packaging/windows/local-embed-models/BAAI/bge-small-zh-v1.5"
 else
   export EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=0
   echo "[gateway-build-macos] local embedding OFF (lean sidecar)"

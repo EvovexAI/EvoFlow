@@ -4,6 +4,7 @@ import { resolve } from 'node:path'
 import {
   isChatWsEventBackground,
   resolveChatEventTarget,
+  shouldDispatchRightStageCustom,
 } from '../src/react/lib/chat-ws-foreground.ts'
 
 describe('isChatWsEventBackground', () => {
@@ -128,5 +129,30 @@ describe('会话切换 layout effect 顺序（根因 #1 的不变量）', () => 
     expect(syncIdx).toBeGreaterThan(-1)
     expect(switchIdx).toBeGreaterThan(-1)
     expect(syncIdx).toBeLessThan(switchIdx)
+  })
+})
+
+// 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：为 shouldDispatchRightStageCustom 补正向/反向各两条。
+// 为什么：本轮真机实测抓到的真缺陷 —— 后台会话发的 right_stage 被
+//   ``!isBackground`` 整条丢弃，后端 ``[py] emit sent`` 4 条、前端 store rev 4 分钟不动，
+//   用户侧表现就是「你现在也控制不了」。判据必须同时锁住两件事：
+//   ① 右栏事件在后台会话也要分发（否则 ui.show/activate 永远到不了 store）；
+//   ② 其它 custom 事件不能跟着放开（否则后台会话的 write_file_progress 会抢前台重绘）。
+describe('shouldDispatchRightStageCustom', () => {
+  it('前台：任何 custom 都要分发', () => {
+    expect(shouldDispatchRightStageCustom({ isBackground: false, customName: 'write_file_progress' })).toBe(true)
+    expect(shouldDispatchRightStageCustom({ isBackground: false, customName: 'right_stage' })).toBe(true)
+  })
+
+  it('后台：right_stage / right_stage_stream 必须分发', () => {
+    expect(shouldDispatchRightStageCustom({ isBackground: true, customName: 'right_stage' })).toBe(true)
+    expect(shouldDispatchRightStageCustom({ isBackground: true, customName: 'right_stage_stream' })).toBe(true)
+  })
+
+  it('后台：其它 custom 事件仍被门禁挡住', () => {
+    expect(shouldDispatchRightStageCustom({ isBackground: true, customName: 'write_file_progress' })).toBe(false)
+    expect(shouldDispatchRightStageCustom({ isBackground: true, customName: '' })).toBe(false)
+    expect(shouldDispatchRightStageCustom({ isBackground: true, customName: 'right_stage_x' })).toBe(false)
   })
 })

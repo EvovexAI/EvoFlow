@@ -378,6 +378,15 @@ class V4ConversationHub:
         self._lock = asyncio.Lock()
         self._write_lock = threading.RLock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        # 同会话双订阅冷开曾并行 hydrate+durable（8e4715ba：3764+3745 双份尾差）。
+        self._cold_hydrate_locks: dict[str, asyncio.Lock] = {}
+
+    def _cold_hydrate_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._cold_hydrate_locks.get(session_id)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._cold_hydrate_locks[session_id] = lock
+        return lock
 
     # -- 查询 ---------------------------------------------------------------
 
@@ -913,72 +922,82 @@ class V4ConversationHub:
         hydrate_rows = 0
         prebuilt_snapshot: dict[str, Any] | None = None
         if not resume_ok and not sess.rows:
-            try:
-                from app.gateway.v4.hydration import hydrate_session_from_transcript
-
-                # durable 纪元接续（对齐 ZCode durable 语义）：档案里已有该会话的
-                # (epoch, seq) 血统——冷启动续接而不是归位 "1"/0，否则新事件与旧档案
-                # (sid, epoch, seq) 撞键被 INSERT OR IGNORE 静默丢弃，档案跨重启断代。
-                try:
-                    from app.gateway.v4.durable_replay import read_durable_head
-
-                    head = await asyncio.to_thread(read_durable_head, self, sess.session_id)
-                    if head:
-                        if int(head.get("seq") or 0) > sess.seq:
-                            sess.seq = int(head.get("seq") or 0)
-                        if str(head.get("epoch") or "") > str(sess.log_epoch or ""):
-                            sess.log_epoch = str(head.get("epoch"))
-                except Exception:
-                    logger.debug(
-                        "[v4.durable-replay] head seed skipped session=%s",
-                        sess.session_id,
-                        exc_info=True,
-                    )
-
-                hydrate_started = time.perf_counter()
-                async with _hydrate_slot(high_priority=high_priority):
-                    loaded = await asyncio.to_thread(
-                        hydrate_session_from_transcript, self, sess.session_id
-                    )
-                hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
-                hydrate_rows = int(loaded or 0)
-                if loaded:
-                    logger.info(
-                        "[v4.hydration] resubscribe recovered history session=%s rows=%s",
-                        sess.session_id,
-                        loaded,
-                    )
+            # 同会话双订阅串行冷开；进锁后再看 rows，避免并行 durable 双份尾差。
+            async with self._cold_hydrate_lock(sess.session_id):
+                if sess.rows:
+                    hydrate_ms = 0.0
+                    hydrate_rows = len(sess.rows)
                 else:
-                    logger.info(
-                        "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
-                        sess.session_id,
-                        hydrate_ms,
-                    )
-                # durable 尾差补齐（对齐 ZCode durable 语义的读回侧）：水合只覆盖
-                # transcript 落库过的消息；镜像 authored 的行（空流占位修正、迟到正文、
-                # 断流瞬态、下一轮开头）从 evoflow_v4_event_log 按 seq 补放，
-                # 网关重启/清投影后显示无损。镜像活写/已有内存投影（resume/热会话）不进这里。
-                try:
-                    from app.gateway.v4.durable_replay import replay_durable_tail
+                    try:
+                        from app.gateway.v4.hydration import hydrate_session_from_transcript
 
-                    replayed = await asyncio.to_thread(replay_durable_tail, self, sess.session_id)
-                    if replayed:
-                        hydrate_rows += replayed
-                        logger.info(
-                            "[v4.durable-replay] subscribe tail replayed session=%s rows=%s",
+                        # durable 纪元接续（对齐 ZCode durable 语义）：档案里已有该会话的
+                        # (epoch, seq) 血统——冷启动续接而不是归位 "1"/0，否则新事件与旧档案
+                        # (sid, epoch, seq) 撞键被 INSERT OR IGNORE 静默丢弃，档案跨重启断代。
+                        try:
+                            from app.gateway.v4.durable_replay import read_durable_head
+
+                            head = await asyncio.to_thread(
+                                read_durable_head, self, sess.session_id
+                            )
+                            if head:
+                                if int(head.get("seq") or 0) > sess.seq:
+                                    sess.seq = int(head.get("seq") or 0)
+                                if str(head.get("epoch") or "") > str(sess.log_epoch or ""):
+                                    sess.log_epoch = str(head.get("epoch"))
+                        except Exception:
+                            logger.debug(
+                                "[v4.durable-replay] head seed skipped session=%s",
+                                sess.session_id,
+                                exc_info=True,
+                            )
+
+                        hydrate_started = time.perf_counter()
+                        async with _hydrate_slot(high_priority=high_priority):
+                            loaded = await asyncio.to_thread(
+                                hydrate_session_from_transcript, self, sess.session_id
+                            )
+                        hydrate_ms = round((time.perf_counter() - hydrate_started) * 1000, 1)
+                        hydrate_rows = int(loaded or 0)
+                        if loaded:
+                            logger.info(
+                                "[v4.hydration] resubscribe recovered history session=%s rows=%s",
+                                sess.session_id,
+                                loaded,
+                            )
+                        else:
+                            logger.info(
+                                "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
+                                sess.session_id,
+                                hydrate_ms,
+                            )
+                        # durable 尾差补齐（对齐 ZCode durable 语义的读回侧）：水合只覆盖
+                        # transcript 落库过的消息；镜像 authored 的行（空流占位修正、迟到正文、
+                        # 断流瞬态、下一轮开头）从 evoflow_v4_event_log 按 seq 补放，
+                        # 网关重启/清投影后显示无损。镜像活写/已有内存投影（resume/热会话）不进这里。
+                        try:
+                            from app.gateway.v4.durable_replay import replay_durable_tail
+
+                            replayed = await asyncio.to_thread(
+                                replay_durable_tail, self, sess.session_id
+                            )
+                            if replayed:
+                                hydrate_rows += replayed
+                                logger.info(
+                                    "[v4.durable-replay] subscribe tail replayed session=%s rows=%s",
+                                    sess.session_id,
+                                    replayed,
+                                )
+                        except Exception:
+                            logger.exception(
+                                "[v4.durable-replay] subscribe replay failed session=%s",
+                                sess.session_id,
+                            )
+                    except Exception:
+                        logger.exception(
+                            "[v4.hydration] subscribe hydration failed session=%s",
                             sess.session_id,
-                            replayed,
                         )
-                except Exception:
-                    logger.exception(
-                        "[v4.durable-replay] subscribe replay failed session=%s",
-                        sess.session_id,
-                    )
-            except Exception:
-                logger.exception(
-                    "[v4.hydration] subscribe hydration failed session=%s",
-                    sess.session_id,
-                )
         elif not resume_ok:
             hydrate_ms = 0.0
             hydrate_rows = len(sess.rows)

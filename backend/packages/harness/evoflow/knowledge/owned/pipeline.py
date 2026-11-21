@@ -103,7 +103,22 @@ def embedding_error_is_soft_unavailable(exc: BaseException) -> tuple[bool, float
 
 
 def note_embedding_unavailable(exc: BaseException) -> bool:
-    """Arm embedding cool-down for any EmbeddingError; return True if soft."""
+    """Arm embedding cool-down for an EmbeddingError; return True if soft.
+
+    Only genuine embedding failures may open the process-wide skip window. Any
+    unrelated exception that happens to fly through a ``except Exception`` next
+    to an embedding call (observed 2026-11-21: a sqlite3 ProgrammingError from a
+    malformed ``?`` binding in hybrid search) must NOT do it — the window is
+    global, so one unrelated bug silently downgraded every later document to
+    keyword-only and stamped that bug's text into each doc's ``error_message``.
+    """
+    if not isinstance(exc, EmbeddingError):
+        logger.warning(
+            "not an embedding failure — embedding skip window left untouched: %s: %s",
+            type(exc).__name__,
+            str(exc)[:300],
+        )
+        return False
     soft, cool_s = embedding_error_is_soft_unavailable(exc)
     arm_embedding_quota_skip(str(exc), seconds=cool_s if soft else _EMBED_SKIP_HARD_S)
     return soft

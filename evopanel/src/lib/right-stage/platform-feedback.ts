@@ -446,9 +446,35 @@ export function tryAutoOpenPlatformProgress(
       base.action === 'workflow.resume' ||
       base.action === 'workflow.recover' ||
       base.action === 'workflow.run_status')
+  // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：把「用户主动喊某个员工干活」这一类动作也纳入 forceExpand，
+  //   视同用户亲手操作——立刻切到那场对话，不再只建签。
+  // 为什么（本轮真机实测，用户原话「新打开的也没有显示最新的，也没有进行切换」）：
+  //   10:45:50 我 chat_send 给情绪陪伴Bot，10:45:59 上报 tabs=4 且新签已在列，
+  //   但 activeKey 三次上报都还是 shell-page:shell:/tasks；直到 10:46:23 才变过去。
+  //   根因就是这里：只有 workflow.* 放行 forceExpand，其余 autoOpen 走
+  //   expandUnlessUserCollapsed() —— 只展开不切签；而 store.show 的
+  //   shouldActivate = forceExpand || !pinAlive，用户钉过任何签就永远不切。
+  //   用户刚说完话，最想看的就是对方回应；这不是「系统后台弹窗抢视线」，
+  //   是用户自己发起的动作，必须切过去。
+  // 判据：调用方由用户发起（chat_send / dispatch / hire / resume / wake / create）
+  //   一律 forceExpand；纯后台推送（生图完成、检查点落盘）保持不抢。
+  const USER_INITIATED_CHAT_ACTIONS = new Set([
+    'employees.chat_send',
+    'employees.dispatch',
+    'employees.hire',
+    'employees.resume',
+    'employees.wake',
+    'employees.create',
+    'items.dispatch',
+    'tasks.create',
+    'tasks.set_state',
+  ])
+  const userInitiatedOpen = USER_INITIATED_CHAT_ACTIONS.has(String(base.action || '').trim())
+  const forceExpandOpen = forceWorkflowLive || userInitiatedOpen
   const tabId = openProgressFromPanelSet(hit.openStage, {
     sessionKey: ownerSk || undefined,
-    forceExpand: forceWorkflowLive,
+    forceExpand: forceExpandOpen,
   })
   if (!tabId) {
     logRightStageTrigger('maybeAutoOpenPlatformProgress failed', {
@@ -458,7 +484,7 @@ export function tryAutoOpenPlatformProgress(
     })
     return { opened: false, reason: 'openProgress-failed', tabId: '', ...base }
   }
-  if (forceWorkflowLive) {
+  if (forceExpandOpen) {
     rightStageStore.expand()
   } else {
     // 用户刚点收起时不要强行撑开（否则收起钮像失灵）。
@@ -468,7 +494,7 @@ export function tryAutoOpenPlatformProgress(
     .then((m) => {
       if (!m.isXwVoiceMode?.()) return
       m.allowXwVoiceSummary?.()
-      if (forceWorkflowLive) rightStageStore.expand()
+      if (forceExpandOpen) rightStageStore.expand()
       else rightStageStore.expandUnlessUserCollapsed()
     })
     .catch(() => {})

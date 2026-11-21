@@ -18,6 +18,20 @@
  * - 只发身份字段，不发 data 载荷（预览正文/消息数组不出去）。
  */
 
+import { getCurrentRightStageSessionKey } from './right-stage-scope.js'
+
+/**
+ * 右栏当前 UI 会话键。runtime 侧在切换会话时由 setCurrentRightStageSessionKey 写入。
+ * 这里用惰性 import 避免 report ←→ scope 的静态环。
+ */
+function readCurrentStageSessionKey(): string {
+  try {
+    return String(getCurrentRightStageSessionKey() || '').trim()
+  } catch {
+    return ''
+  }
+}
+
 const REPORT_THROTTLE_MS = 400
 const REPORT_ENDPOINT = '/api/stage/right-stage/state'
 
@@ -107,6 +121,15 @@ function buildPayload(snapshot: {
     activeKind: activeTab ? activeTab.kind : null,
     activeTitle: activeTab ? activeTab.title : null,
     collapsed: snapshot?.collapsed === true,
+    // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：上报里补顶层 ``sessionKey``＝右栏此刻挂在哪条会话上。
+    // 为什么（本轮现网实测 13:26:37）：我在 proactive 会话发 ui.show(expand=true)，
+    //   工具回执写 ``visible: true``，用户屏幕上 44 秒什么都没有；13:27:20.825
+    //   用户点侧栏切到我的会话之后那签才出现。前端隔离分支是对的（后台归属只写该会话
+    //   冻结记忆），错的是**回执无从判断**——它只拿到 collapsed，拿不到「右栏挂在哪条会话」。
+    // 判据：顶层 sessionKey 是「用户此刻看的会话」的唯一事实，工具侧据此才能说清
+    //   「这次写了但你看不见，切过去才有」。只发身份，不涉载荷正文。
+    sessionKey: readCurrentStageSessionKey() || null,
     tabs,
     rev: Number(snapshot?.rev || 0),
     reportedAt: new Date().toISOString(),

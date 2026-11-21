@@ -243,6 +243,9 @@ export default defineConfig({
       'tests/right-stage-force-expand.test.js',
       'tests/right-stage-scope.test.ts',
       'tests/right-stage-artifacts-session-stamp.test.ts',
+      // 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+      // 为什么：expand=true 的 show 跨会话时必须写进用户眼前，此前被隔离分支吃掉了。
+      'tests/right-stage-expand-cross-session.test.ts',
       'tests/bridge-theme-dark.test.ts',
       'tests/right-stage-force-mount.test.ts',
       'tests/right-stage-no-permanent-loading.test.ts',
@@ -267,6 +270,10 @@ export default defineConfig({
       'tests/right-stage-unavailable-shell.test.tsx',
       'tests/right-stage-overlay-commit.test.ts',
       'tests/right-stage-session-persistence.test.ts',
+      // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+      // 串台回归：CUA 截图自动开右栏的判据（尾轮 + 正在跑），
+      // 以及截图标签必须只在自己会话可见。不登记进 include 等于没写。
+      'tests/cua-screenshot-auto-open-gate.test.ts',
       'tests/browser-panel-node-repl-intent.test.js',
       // 主窗口 __evoflowPanel snapshot/click/fill（platform ui.panel /main-cdp）
       'tests/panel-api-snapshot.test.js',

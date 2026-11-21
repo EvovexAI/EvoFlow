@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.42] - 2026-11-21
+
+相对 **1.3.41**：离线向量权重随仓库提供，正式构建更稳；电脑控制截图不再串到其它会话；右栏跨会话与交班沉淀更准。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.42.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **正式包本地向量下载失败**：权重随仓提供，不必再临时拉网
+- **历史会话自动弹出电脑截图**：仅当前尾轮且正在跑时自动开右栏
+- **右栏跨会话展开**：切换会话时侧栏记忆更一致
+- **交班沉淀空壳**：无实质内容不再写入空 craft
+
+### Changed
+
+- **平台 / 右栏反馈**：截图与面板提示更清楚
+- **前台会话推流**：回前台时续流更稳
+
+
 ## [1.3.41] - 2026-11-21
 
 相对 **1.3.40**：安装包自带本地向量模型，知识库与代码索引可离线使用；长对话时间线更省内存、裁窗更稳；右栏关签/挪签与会话记忆更顺。

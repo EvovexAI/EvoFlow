@@ -70,11 +70,61 @@ _EMBED_FAIL_HINTS = (
 )
 
 
+# Parse failures that are *not* embedding problems (corrupt/unsupported file).
+# Re-queueing these can never succeed — they must be skipped by the heal loop,
+# otherwise every reconcile tick re-enqueues them and they fail again forever.
+_PARSE_FAIL_HINTS = (
+    "无法解析",
+    "not a zip file",
+    "unable to parse",
+    "parse error",
+    "unsupported file",
+    "bad zipfile",
+    "no such file",
+)
+
+# Cap on how many times the auto-heal may re-queue one document. A genuinely
+# unparseable file ignores the cap-free loop and floods the ledger + UI banner
+# (observed 2026-11-21: two 13-byte fake .docx/.xlsx retried 92x each).
+_MAX_HEAL_ATTEMPTS = 3
+_HEAL_WINDOW_MINUTES = 60
+
+
 def _error_looks_like_embedding_failure(*parts: str) -> bool:
     blob = " ".join(str(p or "") for p in parts).lower()
     if not blob.strip():
         return False
     return any(h in blob for h in _EMBED_FAIL_HINTS)
+
+
+def _error_looks_like_parse_failure(*parts: str) -> bool:
+    blob = " ".join(str(p or "") for p in parts).lower()
+    if not blob.strip():
+        return False
+    return any(h in blob for h in _PARSE_FAIL_HINTS)
+
+
+def _recent_heal_error_count(kb_id: str, doc_id: str, *, minutes: int = _HEAL_WINDOW_MINUTES) -> int:
+    """How many times this doc's reindex already failed inside the window."""
+    from datetime import datetime, timedelta, timezone
+
+    cutoff = (datetime.now(timezone.utc) - timedelta(minutes=int(minutes))).strftime(
+        "%Y-%m-%dT%H:%M:%SZ"
+    )
+    try:
+        with db() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS n FROM kb_jobs
+                WHERE kb_id=? AND doc_id=? AND type='reindex' AND state='error'
+                  AND created_at >= ?
+                """,
+                (kb_id, doc_id, cutoff),
+            ).fetchone()
+        return int(row["n"] if row else 0)
+    except Exception:
+        logger.debug("heal retry count lookup failed doc=%s", doc_id, exc_info=True)
+        return 0
 
 
 async def _cached_query_embedding(cache_key: tuple[str, ...], loader: Any) -> list[float]:
@@ -1121,6 +1171,8 @@ def requeue_embedding_failed_as_keyword(
 
     queued = 0
     scanned = 0
+    skipped_unparseable = 0
+    skipped_exhausted = 0
     now = utc_now()
     heal_payload = {
         "skip_embedding": True,
@@ -1150,10 +1202,24 @@ def requeue_embedding_failed_as_keyword(
                 continue
             scanned += 1
             vec = str(row["vector_status"] or "").lower()
-            looks_embed = _error_looks_like_embedding_failure(
-                row["error_message"], row["index_error"]
-            ) or vec in ("failed", "degraded", "building", "pending")
+            err_parts = (row["error_message"], row["index_error"])
+            embed_by_text = _error_looks_like_embedding_failure(*err_parts)
+            parse_by_text = _error_looks_like_parse_failure(*err_parts)
+            if parse_by_text and not embed_by_text:
+                # Corrupt / unsupported source file (e.g. a 13-byte fake .docx).
+                # The pipeline rolls back ALL statuses to failed, so vector_status
+                # also reads 'failed' — healing it as keyword-only can never
+                # succeed and would re-queue on every reconcile tick forever.
+                skipped_unparseable += 1
+                continue
+            looks_embed = embed_by_text or (vec in ("failed", "degraded", "building", "pending") and not parse_by_text)
             if not looks_embed:
+                continue
+            if _recent_heal_error_count(kid, doc_id) >= _MAX_HEAL_ATTEMPTS:
+                # Genuinely stuck (e.g. monthly quota exhausted): stop hammering.
+                # The doc stays failed until quota reset, then a manual reindex
+                # or the next successful heal pass clears it.
+                skipped_exhausted += 1
                 continue
             with db_for_kb(kid) as conn:
                 conn.execute(
@@ -1180,15 +1246,27 @@ def requeue_embedding_failed_as_keyword(
                 logger.debug("embed-fail heal enqueue failed for %s", doc_id, exc_info=True)
     if queued:
         logger.info(
-            "healed embedding-failed docs to keyword scanned=%s queued=%s kb=%s",
+            "healed embedding-failed docs to keyword scanned=%s queued=%s skipped_unparseable=%s "
+            "skipped_exhausted=%s kb=%s",
             scanned,
             queued,
+            skipped_unparseable,
+            skipped_exhausted,
+            kb_id or "*",
+        )
+    if skipped_unparseable or skipped_exhausted:
+        logger.info(
+            "embed-heal skipped unparseable=%s exhausted=%s kb=%s (no re-queue)",
+            skipped_unparseable,
+            skipped_exhausted,
             kb_id or "*",
         )
     return {
         "ok": True,
         "scanned": scanned,
         "requeued": queued,
+        "skippedUnparseable": skipped_unparseable,
+        "skippedExhausted": skipped_exhausted,
         "kbId": kb_id,
     }
 
@@ -3103,7 +3181,13 @@ async def search(
             try:
                 # ``base`` already carries the registry row (central DB) — no re-read.
                 with db() as conn:
-                    row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id)).fetchone()
+                    # NOTE: ``(kb_id)`` is NOT a tuple — it is the bare string, which
+                    # sqlite3 expands character-by-character and rejects with
+                    # "Incorrect number of bindings supplied ... uses 1, and there
+                    # are 35 supplied" (kb_ + 32 hex = 35 chars). Hybrid search then
+                    # silently lost its vector half and every query marked the KB
+                    # degraded. Keep the trailing comma.
+                    row = conn.execute("SELECT * FROM kb_bases WHERE id=?", (kb_id,)).fetchone()
                 mc = _model_config_for_base(dict(row or {}))
                 cache_key = (
                     kb_id,

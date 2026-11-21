@@ -24,6 +24,29 @@ export function isChatWsEventBackground(opts: {
   return false
 }
 
+/**
+ * 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+ * 改了什么：新增 ``shouldDispatchRightStageCustom`` —— 右栏类 custom 事件是否要
+ *   分发给 ``applyRightStageAgUiCustom``，**不再由 isBackground 一刀切**。
+ * 为什么（本轮真机实测，用户原话「你现在也控制不了」）：
+ *   · 我的 run 跑在 ``proactive:self-evolution-bot:chat:...``，用户此刻看的是
+ *     ``agent:main:new-a8d17462``（CDP 实测 selectedSessionKey），于是每个事件都判成后台。
+ *   · 后端 writer 正常（``[py] emit sent`` 连续 4 条），但前端 store 的 rev 整整
+ *     4 分钟不动（CDP 实测 rev=28 与上报 rev=28 一致）——事件在**入口**就被丢了，
+ *     连后台冻结记忆都没写。同一刻 screenshot/browser 两签能正常出签，通道本身是通的。
+ * 判据：右栏事件最终写哪里由 ``applyStageSetPayload`` 按 payload.sessionKey 判定
+ *   （后台会话只写冻结记忆，不抢前台），所以入口不该提前整条丢弃；
+ *   但**其它** custom 事件（write_file_progress 等）仍必须受后台门禁约束，不能一并放开。
+ */
+export function shouldDispatchRightStageCustom(opts: {
+  isBackground: boolean
+  customName: string
+}): boolean {
+  if (!opts.isBackground) return true
+  const name = String(opts.customName || '').trim()
+  return name === 'right_stage' || name === 'right_stage_stream'
+}
+
 /** 读小V 当前 sessionKey（store 优先，localStorage 兜底）。 */
 export function readXiaomiAssistantSessionKey(): string {
   try {

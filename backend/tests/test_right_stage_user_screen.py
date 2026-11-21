@@ -260,6 +260,60 @@ def test_read_falls_back_to_disk_when_memory_is_empty(tmp_path, monkeypatch):
     assert out["rev"] == 21
 
 
+def test_read_prefers_newer_disk_snapshot_over_stale_memory(tmp_path, monkeypatch):
+    """【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：新增「内存有值但更旧」的回归用例。
+    为什么（本轮真机实测，用户侧表现「你现在也控制不了」）：
+      前端上报打进 **gateway** 进程，而 ``ui.current`` 跑在 **langgraph 工具进程**。
+      工具进程一旦先读到过一份旧快照并留在 ``_STATE``，旧写法「内存非空就绝不看盘」
+      就会永久压住后来更新的那份 —— 实证 11:13:55 盘上 rev=28（active=browser:primary），
+      工具侧同一时刻回 rev=5（reportedAt 03:10:21Z），整整差 3 分半。
+    判据：内存 rev 较旧时，读必须返回落盘那份（rev、activeKey 都以盘为准）；
+      内存较新时仍用内存，不能反向压住。
+    """
+    state_file = tmp_path / "newer" / "right-stage-state.json"
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    monkeypatch.setattr(srp, "right_stage_state_path", lambda: state_file)
+
+    # 模拟工具进程里残留的旧快照
+    srp._STATE.clear()  # noqa: SLF001
+    srp._STATE.update(  # noqa: SLF001
+        {
+            "activeKey": "employeeProcess:process:live:atmosphere-emotion-bot",
+            "activeKind": "employeeProcess",
+            "activeTitle": "情绪陪伴Bot",
+            "collapsed": True,
+            "tabs": [],
+            "rev": 5,
+            "reportedAt": "2026-11-21T03:10:21.009Z",
+        }
+    )
+    # 另一个进程（gateway）刚写下的更新快照
+    srp._write_state_file(
+        {
+            "activeKey": "browser:primary",
+            "activeKind": "browser",
+            "activeTitle": "浏览器",
+            "collapsed": False,
+            "tabs": [{"key": "browser:primary", "kind": "browser", "title": "浏览器"}],
+            "rev": 28,
+            "reportedAt": "2026-11-21T03:13:54.661Z",
+        }
+    )
+
+    out = srp.read_right_stage_state()
+    assert out["rev"] == 28, "内存 rev=5 更旧，必须让位给盘上 rev=28"
+    assert out["activeKey"] == "browser:primary"
+    assert out["collapsed"] is False
+
+    # 反向：内存更新时不能被盘压回去
+    srp._STATE.update({"activeKey": "web-embed:primary", "activeKind": "web-embed", "rev": 30})  # noqa: SLF001
+    out2 = srp.read_right_stage_state()
+    assert out2["rev"] == 30
+    assert out2["activeKey"] == "web-embed:primary"
+
+
 def test_old_frontend_payload_with_empty_tab_keys_is_repaired(tmp_path, monkeypatch):
     """【self-evolution-bot · 2026-11-20 · 第100轮续 · 模型:deepseek-v4.1-flash-1017】
 
@@ -744,3 +798,222 @@ def test_hide_reports_what_was_there_before_collapsing():
     assert screen["before"]["collapsed"] is False
     assert "整栏收起" in screen["expect"]
     assert "2" in screen["verifyHint"]
+
+
+def test_show_invisible_when_right_stage_is_on_another_session():
+    """右栏挂在别的会话上、且**未带 expand** 时，visible 必须为 False。
+
+    【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】改了什么：
+    本条原先传 ``expand=True`` 断言 visible=False —— 那是第104轮「前端隔离分支无条件
+    冻结会话级 kind」时期的正确判据。本轮前端已把该分支放宽为「expand=true 时按用户
+    当前 UI 会话盖章写 live」（right-stage-agui.ts:372/403），回执若仍报不可见，
+    就是告诉模型一句与屏幕相反的话。于是本条改为钉**不带 expand** 的原始语义，
+    带 expand 的那一半另立 test_show_visible_when_expand_crosses_session。
+    为什么（现网实证 13:26:37）：当时 emit 的 surface 里没有 sessionKey、
+    前端也没有 expand 豁免，那签被写进归属会话的冻结记忆，用户 44 秒看不到。
+    """
+    from evoflow.tools.builtins import stage_tool as st
+
+    _seed(
+        {
+            "activeKey": "shell-page:shell:/proactive/personal-assistant",
+            "activeKind": "shell-page",
+            "activeTitle": "个人助理",
+            "collapsed": False,
+            # 老前端没有顶层 sessionKey：靠激活签自己的 sessionKey 兜底
+            "tabs": [
+                {
+                    "key": "shell-page:shell:/proactive/personal-assistant",
+                    "kind": "shell-page",
+                    "sessionKey": "agent:main:new-d005f287",
+                }
+            ],
+            "keysRepairable": True,
+            "rev": 9,
+            "reportedAt": "2026-11-21T05:26:37.000Z",
+        }
+    )
+    out = st._describe_user_screen_before_after(
+        act="show",
+        kind="web-embed",
+        surface={
+            "id": "primary",
+            "url": "https://example.com",
+            "sessionKey": "proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z",
+        },
+        # 第106轮：不带 expand ＝ 调用方没要求「让用户看见」，前端隔离分支不放行 →
+        # 会话级 kind 被冻进归属会话记忆，回执必须如实报不可见。
+        expand=False,
+    )
+    assert out["visible"] is False, out
+    assert "另一条会话" in out["hint"], out
+    assert "切过去" in out["hint"], out
+
+
+def test_show_visible_when_same_session():
+    """同一条会话内 show：可见，不许因为「有 sessionKey 字段」就一律判不可见。"""
+    from evoflow.tools.builtins import stage_tool as st
+
+    sk = "proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z"
+    _seed(
+        {
+            "activeKey": "web-embed:primary",
+            "activeKind": "web-embed",
+            "collapsed": False,
+            "sessionKey": sk,
+            "tabs": [{"key": "web-embed:primary", "kind": "web-embed"}],
+            "keysRepairable": True,
+            "rev": 21,
+            "reportedAt": "2026-11-21T05:27:56.987Z",
+        }
+    )
+    out = st._describe_user_screen_before_after(
+        act="show",
+        kind="shell-page",
+        surface={"id": "shell:/tasks", "path": "/tasks", "sessionKey": sk},
+        expand=False,
+    )
+    assert out["visible"] is True, out
+    assert "hint" not in out, out
+
+
+def test_show_detects_frozen_when_owner_passed_explicitly():
+    """【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：钉住「归属会话由调用方传入」这条接线，而不是只认 surface.sessionKey。
+
+    为什么（本轮现网实证，这是「回执报可见其实不可见」的真根因）：
+    13:26:37.506 那条 emit 的原文是
+        {"action":"show","surface":{"id":"primary","kind":"web-embed",
+         "data":{"url":"https://example.com","editable":true},
+         "title":"第104轮验证A","expand":true}}
+    —— **surface 里根本没有 sessionKey**。于是判据里 ``owner_session_key`` 恒为空串，
+    ``frozen_in_other_session`` 整个表达式恒为 False，第104轮写的「切过去才看得到」
+    分支是死代码；回执照旧报 visible=true，而用户屏幕上 44 秒什么都没有
+    （13:27:13 用户点发送切到该会话后，13:27:21 那签才被换出来）。
+
+    判据：surface 无 sessionKey，但 owner_session_key 传入时，仍然必须判不可见。
+    """
+    from evoflow.tools.builtins import stage_tool as st
+
+    other = "agent:main:new-a8d17462"  # 用户当时在看的那条会话（1688卫衣）
+    mine = "proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z"
+    _seed(
+        {
+            "activeKey": "screenshot:call_70c744c34141491a9ec70f90",
+            "activeKind": "screenshot",
+            "collapsed": False,
+            "sessionKey": other,
+            "tabs": [
+                {
+                    "key": "screenshot:call_70c744c34141491a9ec70f90",
+                    "kind": "screenshot",
+                    "sessionKey": other,
+                }
+            ],
+            "keysRepairable": True,
+            "rev": 18,
+            "reportedAt": "2026-11-21T05:26:59.857Z",
+        }
+    )
+    out = st._describe_user_screen_before_after(
+        act="show",
+        kind="web-embed",
+        # 这正是现网事件原文的形状：surface 里没有 sessionKey。
+        surface={"id": "primary", "kind": "web-embed", "title": "第104轮验证A"},
+        # 第106轮：不带 expand（现网原文也没有 expand —— 是前一条第104轮测试自己加的），
+        # 才是「冻结在别的会话、用户看不见」的真实形状。
+        expand=False,
+        owner_session_key=mine,
+    )
+    assert out["visible"] is False, out
+    assert "另一条会话" in out["hint"], out
+
+
+def test_show_visible_when_expand_crosses_session():
+    """带 ``expand=True`` 跨会话：回执必须报可见（与前端放宽后的落地口径一致）。
+
+    【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本对照条，钉住「expand 豁免」在**前后端两侧同口径**。
+    为什么（同一缺陷改两处漏第三处的当场自撞）：本轮已把前端
+    ``right-stage-agui.ts`` 会话级隔离分支改成「expand=true → 按用户当前 UI 会话
+    盖章写 live」，用户当场就能看见；后端回执若还按旧判据报 ``visible: False`` +
+    「切过去才看得到」，模型会对用户说一句与屏幕相反的话，比不报更糟。
+    判据：上报会话 ≠ 归属会话 **且** expand=True → visible True 且不带 hint；
+    同一 fixture 下 expand=False 必须 False（对照条见上一条）。两条同时绿才算接线。
+    """
+    from evoflow.tools.builtins import stage_tool as st
+
+    other = "agent:main:new-a8d17462"
+    mine = "proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z"
+    _seed(
+        {
+            "activeKey": "screenshot:call_70c744c34141491a9ec70f90",
+            "activeKind": "screenshot",
+            "collapsed": False,
+            "sessionKey": other,
+            "tabs": [
+                {
+                    "key": "screenshot:call_70c744c34141491a9ec70f90",
+                    "kind": "screenshot",
+                    "sessionKey": other,
+                }
+            ],
+            "keysRepairable": True,
+            "rev": 19,
+            "reportedAt": "2026-11-21T05:27:10.000Z",
+        }
+    )
+    out = st._describe_user_screen_before_after(
+        act="show",
+        kind="web-embed",
+        surface={"id": "primary", "kind": "web-embed", "title": "第106轮验证B"},
+        expand=True,
+        owner_session_key=mine,
+    )
+    assert out["visible"] is True, out
+    assert "hint" not in out, out
+
+
+def test_clean_payload_keeps_top_level_session_key():
+    """【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
+
+    改了什么：``_clean_payload`` 必须保留前端上报的顶层 ``sessionKey``。
+
+    为什么（本轮现网实证）：前端 ``right-stage-state-report.buildPayload`` 从第104轮起
+    就在发这个字段（注释写得很清楚：「顶层 sessionKey 是『用户此刻看的会话』的唯一事实」），
+    但 ``_clean_payload`` 是白名单式重建返回体 —— 没列进去的字段一律消失。
+    盘上 ``right-stage-state.json`` 实测确实没有它（只有 tabs[].sessionKey），
+    于是 read 侧、``ui.show`` 回执的文件兜底都拿不到这条事实。
+
+    判据：POST 带顶层 sessionKey → clean 后必须原样还在；不带时按激活签兜底。
+    """
+    from app.gateway.routers.stage_right_panel import _clean_payload
+
+    sk = "proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z"
+    clean = _clean_payload(
+        {
+            "activeKey": "web-embed:primary",
+            "activeKind": "web-embed",
+            "collapsed": False,
+            "sessionKey": sk,
+            "tabs": [{"key": "web-embed:primary", "kind": "web-embed", "sessionKey": sk}],
+            "rev": 29,
+            "reportedAt": "2026-11-21T05:49:37.087Z",
+        }
+    )
+    assert clean.get("sessionKey") == sk, clean
+
+    # 老前端不报顶层字段时，用激活签的归属会话兜底（同一事实的另一种携带方式）。
+    fallback = _clean_payload(
+        {
+            "activeKey": "web-embed:primary",
+            "activeKind": "web-embed",
+            "collapsed": False,
+            "tabs": [{"key": "web-embed:primary", "kind": "web-embed", "sessionKey": sk}],
+            "rev": 30,
+            "reportedAt": "2026-11-21T05:50:37.087Z",
+        }
+    )
+    assert fallback.get("sessionKey") == sk, fallback

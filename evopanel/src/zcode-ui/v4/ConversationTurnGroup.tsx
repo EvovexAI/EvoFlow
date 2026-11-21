@@ -52,6 +52,7 @@ import {
   type PlatformUiFeedback,
 } from "../../lib/right-stage/platform-feedback.js";
 import { showRightStageScreenshot } from "../../lib/right-stage/open-right-stage-screenshot.js";
+import { shouldAutoOpenCuaScreenshot } from "../../lib/right-stage/cua-screenshot-auto-open-gate.js";
 import { getCurrentRightStageSessionKey } from "../../lib/right-stage/right-stage-scope.js";
 import { isRightStageTabVisibleForSession } from "../../lib/right-stage/right-stage-session-visibility.js";
 import { rightStageStore } from "../../lib/right-stage/right-stage-store.js";
@@ -793,7 +794,7 @@ function applyV4CuaScreenshotAutoOpen(rows: readonly AssistantWorkRow[]): void {
       toolCallId,
       opened: Boolean(key),
       uri: shot.uri.slice(0, 120),
-      sessionKey: sessionKey || "(空→stamp current)",
+      sessionKey: sessionKey || "(空→跳过，无归属截图会串台)",
     });
     if (!key) continue;
     v4CuaScreenshotAutoOpenedIds.add(toolCallId);
@@ -1713,10 +1714,15 @@ function ConversationTurnGroupImpl({
     applyV4McpWorkbenchAutoOpen(unit.assistantWorkRows);
   }, [unit.isLastTurn, unit.isRunning, unit.assistantWorkRows]);
   // 【V4 权威】轮尾截图同步开右栏大图；仅当前尾轮，避免冷加载历史连开多标签。
+  // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：判据收敛到 shouldAutoOpenCuaScreenshot（尾轮 + 正在跑），与 MCP 工作台同标准。
+  // 为什么：原先只判 isLastTurn，打开**任何**历史会话时它的最后一轮也算尾轮，
+  //   那轮的 CUA 截图会被重新开进右栏并按当前会话打戳，同一 toolCallId 被复制进
+  //   多份会话记忆 —— 表现为「A 会话画的图，切到 B/C 会话右栏还在显示」。
   useEffect(() => {
-    if (!unit.isLastTurn) return;
+    if (!shouldAutoOpenCuaScreenshot(unit.isLastTurn, unit.isRunning)) return;
     applyV4CuaScreenshotAutoOpen(unit.browserTurnEndRows);
-  }, [unit.isLastTurn, unit.browserTurnEndRows]);
+  }, [unit.isLastTurn, unit.isRunning, unit.browserTurnEndRows]);
   // 小V语音特例：语音全屏中 Read 文件 → 过策略闸门后右栏预览（file-auto-open-policy）。
   // 只把本轮真实用户输入（origin=realUser）作为「点名」依据，后台唤醒/合成消息不算。
   useEffect(() => {
