@@ -85,6 +85,11 @@ type Entry = {
 function normalizePath(raw: string): string {
   let p = String(raw || '').trim()
   if (!p) return ''
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：与 open-shell-page-stage.ts 同一道判断 —— 带 scheme / 协议相对一律返回 ''。
+  // 为什么：`shellPageTabId("https://example.com")` 会造出 id `shell:/https://example.com`，
+  //   进而建出一个永远挂不出来的死签。两处必须同判据，否则一处拒一处收又是新的漂移。
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(p) || p.startsWith('//')) return ''
   if (p.startsWith('#')) p = p.slice(1)
   if (!p.startsWith('/')) p = `/${p}`
   // 挂载匹配忽略 query；query 仍可从完整 path 传给页面（若需要）

@@ -10,16 +10,16 @@ import { cn } from "@/components/lib/utils.js";
 import { HoverCard, HoverCardContent, HoverCardTrigger } from "@/components/ui/hover-card.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import {
-  buildConversationTurnNavigatorItems,
+  createConversationTurnNavigatorItemsSelector,
   resolveConversationTurnNavigatorActiveUnitIndex,
   resolveConversationTurnNavigatorBarVisualState,
   resolveConversationTurnNavigatorVisualFocusItemIndex,
   type ConversationTurnNavigatorVirtualItem,
 } from "@/v4/conversationTurnNavigatorHelpers.js";
-import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
+import type { ConversationTurnRenderUnitsPartition } from "@/v4/conversationTurnRenderUnits.js";
 
 interface ConversationTurnNavigatorProps {
-  renderUnits: readonly ConversationTurnRenderUnit[];
+  renderUnits: ConversationTurnRenderUnitsPartition;
   scrollOffsetPx: number;
   viewportHeightPx: number;
   virtualItems: readonly ConversationTurnNavigatorVirtualItem[];
@@ -57,9 +57,12 @@ function ConversationTurnNavigatorImpl({
   const { intl } = useZCodeIntl();
   const prefersReducedMotion = usePrefersReducedMotion();
   const [interactionItemIndex, setInteractionItemIndex] = useState<number | undefined>(undefined);
+  // 目录项按分区缓存：流式帧只重算尾轮，item 数值未变时保持引用，
+  // rail virtualizer 与 hover 卡不随正文 token 重建。
+  const selectItems = useMemo(() => createConversationTurnNavigatorItemsSelector(), []);
   const items = useMemo(
     () =>
-      buildConversationTurnNavigatorItems(renderUnits, {
+      selectItems(renderUnits, {
         assistantEmptyPreview: intl.formatMessage({
           id: "chat.turnNavigator.emptyAssistant",
         }),
@@ -70,7 +73,7 @@ function ConversationTurnNavigatorImpl({
           id: "chat.turnNavigator.userFallback",
         }),
       }),
-    [intl, renderUnits],
+    [intl, renderUnits, selectItems],
   );
 
   const activeUnitIndex = useMemo(

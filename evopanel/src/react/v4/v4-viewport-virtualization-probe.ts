@@ -131,6 +131,7 @@ export function collectVirtualizationProbe(
 
   const softCapRatio =
     softCap > 0 ? Math.round((windowCount / softCap) * 100) / 100 : 0;
+  // 与 projectionWindowCap.isProjectionWindowBallooned 同阈值（softCap×1.5）。
   const balloon = windowCount > Math.floor(softCap * 1.5);
 
   const flags: string[] = [];

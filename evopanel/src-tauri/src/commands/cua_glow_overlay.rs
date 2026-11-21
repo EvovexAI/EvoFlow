@@ -105,7 +105,18 @@ fn next_overlay_label() -> String {
 }
 
 fn glow_log(msg: impl AsRef<str>) {
-    browser_cdp_server::log_line(&format!("[cua-glow] {}", msg.as_ref()));
+    let m = msg.as_ref();
+    // 常规成功线（hide ok / after-show visible=true …）默认不记——曾实测 2646 行/天
+    // 全是同样两行；异常线（visible=false / fail / missing / error，历史排障的关键信号）
+    // 保持可见。全量回开：EVOFLOW_CUA_GLOW_LOGS=1。
+    let anomalous = m.contains("visible=false")
+        || m.contains("fail")
+        || m.contains("missing")
+        || m.contains("error");
+    if !anomalous && !super::log_files::env_flag_enabled("EVOFLOW_CUA_GLOW_LOGS") {
+        return;
+    }
+    browser_cdp_server::log_line(&format!("[cua-glow] {m}"));
 }
 
 fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f64>, String> {

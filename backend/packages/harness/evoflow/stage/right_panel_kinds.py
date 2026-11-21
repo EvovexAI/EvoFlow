@@ -275,6 +275,71 @@ def missing_fields(kind: str, data: dict[str, Any] | None) -> list[str]:
     return missing
 
 
+# ── 合法 kind 集合：契约 ∪ 前端渲染层实际支持 ────────────────────────────────
+#
+# 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增 FRONTEND_ONLY_KINDS / KNOWN_KINDS / is_known_kind / unknown_kind_message，
+#   并让 platform ui.show / ui.update 在建签前做白名单校验。
+# 为什么（本轮真机实测）：`ui.show(kind="not-a-kind")` 返回 **ok:true**，
+#   surface.id="primary"，审计日志还记了一条 emit sent。而前端
+#   render-right-stage-body.tsx 对未知 kind 走到末尾 `return null` ——
+#   用户看到的是一个**空白页签**，还把原来那一页顶掉了。工具说成功、屏幕是空的，
+#   正是本仓库反复出现的那类「契约写了、代码没执行」。
+# 设计边界（别照抄契约去做白名单）：
+#   契约 RIGHT_PANEL_KINDS 只列「模型可申请」的 8 种，而 apply_right_panel 还被
+#   内部调用方（写文件流、终端、子代理输出、旧 CTA）使用，它们传的 write / file /
+#   terminal … 均不在契约里。若直接拿契约当门禁，会把这些合法调用一起打死。
+#   所以合法集合 = 契约 ∪ 前端真能渲染的内部 kind；校验只挂在**模型入口**，
+#   不进 apply_right_panel，内部链路不受影响。
+FRONTEND_ONLY_KINDS: Final[frozenset[str]] = frozenset(
+    {
+        # render-right-stage-body.tsx 有真实分支的内部签
+        "write",
+        "file",
+        "asset",
+        "codeViewer",
+        "terminal",
+        "interactive-terminal",
+        "workspace-browse",
+        "summary",
+        "subagentTranscript",
+        "v4Session",
+        "mind-map",
+        # 前端另有专门通道渲染、但模型也可能直接 show 的
+        "web-embed",
+        "shell-page",
+        "news-dashboard",
+        "browser",
+        "screenshot",
+        "xiaomi",
+        "platform-feedback",
+        "artifacts",
+    }
+)
+
+
+def KNOWN_KINDS() -> frozenset[str]:  # noqa: N802 - 与既有 kind_specs() 命名保持一致的只读集合
+    """全部合法 kind（契约 ∪ 前端内部签）。用函数而非常量，避免 import 期耦合。"""
+    return frozenset(kind_map().keys()) | FRONTEND_ONLY_KINDS
+
+
+def is_known_kind(kind: str) -> bool:
+    """这个 kind 是否被支持（调用方应先过 _normalize_panel_kind 归一别名）。"""
+    return str(kind or "").strip() in KNOWN_KINDS()
+
+
+def unknown_kind_message(kind: str) -> str:
+    """未知 kind 的报错文案：点名可用清单 + 指路 ui.kinds，别让模型下一轮再猜。"""
+    supported = sorted(kind_map().keys())
+    return (
+        f"unknown right-panel kind: {str(kind or '').strip()!r}. "
+        f"Supported kinds: {', '.join(supported)}. "
+        "Call platform action=ui.kinds to read each kind's required fields; "
+        "for an external page use kind=web-embed with data.url, "
+        "for an in-app page use kind=shell-page with data.path."
+    )
+
+
 # ── 只读动作 → 通知卡（永不自动展开）─────────────────────────────────────────
 
 

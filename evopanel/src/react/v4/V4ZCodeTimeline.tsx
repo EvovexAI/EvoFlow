@@ -1158,6 +1158,8 @@ export function V4ZCodeTimeline(props: {
    * 保持挂在 ConversationTimeline，避免切老面板闪历史。
    */
   optimisticUserText?: string | null;
+  /** 在途发送的稳定消息 id（entityId 精确认领，对齐 ZCode sourceCommandId 语义）。 */
+  optimisticUserMessageId?: string | null;
   /**
    * EvoFlow 底部输入区：作为 ConversationTimeline sticky bottomDock 挂进同一滚动视口
    * （对齐 ZCode SessionPane），避免 messages 区单独滚动、下方空出「留给输入框」的空白。
@@ -1251,6 +1253,7 @@ export function V4ZCodeTimeline(props: {
     embedded = false,
     draftEmpty = false,
     optimisticUserText = null,
+    optimisticUserMessageId = null,
     onOpenCodeViewer,
     onOpenFileLink: onOpenFileLinkProp,
     onOpenBrowserUrl,
@@ -1467,8 +1470,8 @@ export function V4ZCodeTimeline(props: {
   // ConversationTimeline 依赖 rows 的 layout effect 空转（叠侧栏开合易触发 #185）。
   const authoritativeRows = snapshot?.rows.window ?? EMPTY_V4_ROWS;
   const rows = useMemo(
-    () => mergeOptimisticUserInputRow(authoritativeRows, optimisticUserText),
-    [authoritativeRows, optimisticUserText],
+    () => mergeOptimisticUserInputRow(authoritativeRows, optimisticUserText, optimisticUserMessageId),
+    [authoritativeRows, optimisticUserText, optimisticUserMessageId],
   );
   // 历史/直播统一：rowId/时间回退时按协议重排再渲染，避免「新消息上面却是旧结语」。
   const displayRows = useMemo(() => repairConversationRowsOrder(rows).rows, [rows]);
@@ -2447,6 +2450,7 @@ export function V4ZCodeTimeline(props: {
               canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
               loadingOlder={payload?.loadingOlder ?? false}
               onLoadOlder={payload?.onLoadOlder}
+              onFollowingTip={payload?.onFollowingTip}
               onEdit={onEdit}
               bottomDock={dockWithQueue}
               sessionBusy={sessionBusy}

@@ -45,16 +45,18 @@ import {
   getConversationStatusPanelOffsetClassName,
 } from "@/v4/conversationLayout.js";
 import {
-  buildConversationTurnRenderUnits,
-  tryAppendTrailingUserInputUnit,
+  createConversationTurnRenderUnitsSelector,
   type ConversationTurnRenderUnit,
+  type ConversationTurnRenderUnitsPartition,
 } from "@/v4/conversationTurnRenderUnits.js";
+import { getConversationRowsPartition } from "@/v4/conversationProjectionStore.js";
 import {
   inspectConversationTurnFoldHealth,
   summarizeFoldHealthFindings,
 } from "@/v4/conversationTurnFoldHealth.js";
 import { logV4Life } from "../../react/lib/v4-lifecycle-log.js";
 import {
+  createConversationTurnNavigatorQueryRowIdsSelector,
   resolveConversationTurnNavigatorActiveQueryRowId,
   resolveConversationTurnNavigatorHydrationRetryDelayMs,
   shouldHydrateConversationTurnNavigatorDirectory,
@@ -102,7 +104,9 @@ import type { ConversationSelectionReference } from "@/lib/conversationSelection
 // 让未传该属性的渲染绕过稳定引用边界；共享只读空数组可保持默认值恒定。
 const EMPTY_PENDING_GUIDES: readonly QueueItem[] = [];
 
-const ROW_OVERSCAN = 8;
+// 对齐 ZCode（:121）：overscan 8 会把搜索跳转/长会话锚定变成数十屏的布局工作。
+// 每屏上下各多挂 2 行即可覆盖快速滚动的预渲染需求，其余交给虚拟化按需挂载。
+const ROW_OVERSCAN = 2;
 const RUNNING_WORK_DURATION_TICK_MS = 1000;
 const COMPOSER_MESSAGE_MASK_FADE_PX = 24;
 /** sticky bottomDock 叠在滚动视口内时，为 composer 预留的透明高度。 */
@@ -303,6 +307,11 @@ interface ConversationTimelineProps {
   loadingOlder?: boolean;
   /** 拉取更早一窗历史（接近顶部时自动预取）。 */
   onLoadOlder?: () => Promise<void> | void;
+  /**
+   * 跟底 / 回底部：宿主可收回 loadOlder 撑破的 balloon 投影窗（softCap）。
+   * 仅在 following 从 false→true 时调用；上滚阅读时不要调。
+   */
+  onFollowingTip?: () => void;
   /** 宽屏问题目录挂载后一次补齐当前有效分支的全部历史。 */
   onLoadAllOlder?: () => Promise<ConversationTurnNavigatorHydrationResult>;
   /**
@@ -399,6 +408,7 @@ function ConversationTimelineImpl({
   canLoadOlder = false,
   loadingOlder = false,
   onLoadOlder,
+  onFollowingTip,
   onLoadAllOlder,
   turnNavigatorDirectoryRevision = 0,
   bottomDock,
@@ -451,43 +461,28 @@ function ConversationTimelineImpl({
     return () => observer.disconnect();
   }, [hasHeaderSlot]);
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now());
-  /** 乐观追加：复用上帧 units，避免整窗 rebuild（send 路径 ~300ms longtask）。 */
-  const renderUnitsCacheRef = useRef<{
-    rows: readonly ConversationRow[];
-    liveNowMs: number;
-    sessionPhase: SessionPhase | undefined;
-    sessionBusy: boolean;
-    units: ConversationTurnRenderUnit[];
-  } | null>(null);
-  const renderUnits = useMemo(() => {
-    const options = { nowMs: liveNowMs, sessionPhase, sessionBusy };
-    const cached = renderUnitsCacheRef.current;
-    if (
-      cached &&
-      cached.liveNowMs === liveNowMs &&
-      cached.sessionPhase === sessionPhase &&
-      cached.sessionBusy === sessionBusy &&
-      cached.rows !== rows
-    ) {
-      const appended = tryAppendTrailingUserInputUnit(cached.units, cached.rows, rows, options);
-      if (appended) {
-        renderUnitsCacheRef.current = {
-          rows,
-          liveNowMs,
-          sessionPhase,
-          sessionBusy,
-          units: appended,
-        };
-        return appended;
-      }
-    }
-    const built = buildConversationTurnRenderUnits(rows, options);
-    renderUnitsCacheRef.current = { rows, liveNowMs, sessionPhase, sessionBusy, units: built };
-    return built;
-  }, [liveNowMs, rows, sessionBusy, sessionPhase]);
+  // 派生走缓存选择器：rows 按「历史 + 尾轮」分区，流式帧/时钟 tick 只 materialize 尾轮，
+  // 历史 unit 身份不变（下游 memo、virtualizer、目录都不随 token 重建）。分区由 store 的
+  // delta 增量推进，仅新轮/历史变化时整窗重切。
+  const selectRenderUnits = useMemo(() => createConversationTurnRenderUnitsSelector(), []);
+  const rowsPartition = getConversationRowsPartition(rows);
+  const renderUnitsPartition = useMemo(
+    () =>
+      selectRenderUnits(rowsPartition, {
+        nowMs: liveNowMs,
+        sessionPhase,
+        sessionBusy,
+      }),
+    [selectRenderUnits, rowsPartition, liveNowMs, sessionPhase, sessionBusy],
+  );
+  // 查找/诊断/目录 hydrate 等平面消费者仍拿扁平数组（引用逐项复用，重建成本只是数组拷贝）。
+  const renderUnits = useMemo(
+    () => [...renderUnitsPartition.history, ...renderUnitsPartition.tail],
+    [renderUnitsPartition],
+  );
   const { virtualizedUnits, liveUnit, liveUnitIndex } = useMemo(
-    () => splitConversationTimelineLiveTail(renderUnits),
-    [renderUnits],
+    () => splitConversationTimelineLiveTail(renderUnitsPartition),
+    [renderUnitsPartition],
   );
   // 「已工作」折叠乱套时打 fold_anomaly，避免再靠截图肉眼猜。
   const foldHealthSigRef = useRef("");
@@ -513,14 +508,14 @@ function ConversationTimelineImpl({
     });
   }, [renderUnits, rowContext.sessionId]);
   const hasRunningUnit = useMemo(() => renderUnits.some((unit) => unit.isRunning), [renderUnits]);
+  // 按分区收集目录成员：流式帧只看尾轮，成员不变时保持同一个 Set（锚点登记按它的身份失效）。
+  const selectTurnNavigatorQueryRowIds = useMemo(
+    () => createConversationTurnNavigatorQueryRowIdsSelector(),
+    [],
+  );
   const turnNavigatorQueryRowIds = useMemo(
-    () =>
-      new Set(
-        renderUnits.flatMap((unit) =>
-          unit.visibleUserInputs.filter((row) => row.origin === "realUser").map((row) => row.rowId),
-        ),
-      ),
-    [renderUnits],
+    () => selectTurnNavigatorQueryRowIds(renderUnitsPartition),
+    [selectTurnNavigatorQueryRowIds, renderUnitsPartition],
   );
   const turnNavigatorQueryRowIdsRef = useRef(turnNavigatorQueryRowIds);
   turnNavigatorQueryRowIdsRef.current = turnNavigatorQueryRowIds;
@@ -1106,10 +1101,21 @@ function ConversationTimelineImpl({
     [],
   );
 
+  const onFollowingTipRef = useRef(onFollowingTip);
+  onFollowingTipRef.current = onFollowingTip;
+
   const commitFollowing = useCallback((following: boolean) => {
     if (followingRef.current === following) return;
     followingRef.current = following;
     setBackToBottomVisible(shouldShowBackToBottom(following, unitsRef.current.length));
+    // 跟底恢复：收回上滚 balloon，避免 800+ 行全进窗拖死 virtualizer。
+    if (following) {
+      try {
+        onFollowingTipRef.current?.();
+      } catch {
+        /* best-effort */
+      }
+    }
   }, []);
 
   const clearUserScrollIntent = useCallback(() => {
@@ -2297,7 +2303,7 @@ function ConversationTimelineImpl({
           必须隐藏对话轮导航，避免两个绝对定位控件互相覆盖。退出分享选择后自动恢复。 */}
       {hideTurnNavigator ? null : (
         <ConversationTurnNavigator
-          renderUnits={renderUnits}
+          renderUnits={renderUnitsPartition}
           isHydratingDirectory={loadingOlder}
           scrollOffsetPx={virtualizer.scrollOffset ?? turnNavigatorViewport.scrollOffsetPx}
           viewportHeightPx={

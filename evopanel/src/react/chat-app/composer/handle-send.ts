@@ -9,6 +9,7 @@ import type { ContextFileEntry } from '../../components/WorkspaceFileTree.js'
 import type { SkillSelection } from '../../components/SkillPickerModal.js'
 import type { PluginSelection } from '../../components/PluginPickerModal.js'
 import type { PriorTurnStripBundle } from '../../lib/turn-text-isolation.js'
+import { setPendingOptimisticMessageId } from '../../v4/optimisticUserInput.js'
 import {
   bindChatTurnSendSession,
   describeStalledPriorSend,
@@ -424,6 +425,9 @@ export async function handleSend(
     const noActiveSession = !activeSk
     if (isCurrentSession || noActiveSession) {
       if (noActiveSession) sessionRef.current = sessionKey
+      // id 先于文本落账：echo/认领走 entityId 精确匹配（对齐 ZCode sourceCommandId 语义），
+      // 文本 endsWith 匹配降级为无 id 兜底（长回合把 userInput 挤出尾窗时文本匹配永不命中）。
+      setPendingOptimisticMessageId(sessionKey, optimisticMessageId)
       setPendingOptimisticUserText?.(userMessage)
       setSessionHadContent(true)
       if (opts?.leaveHomeOnPaint) setPreferHomeDashboard?.(false)

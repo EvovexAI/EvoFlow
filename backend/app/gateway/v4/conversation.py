@@ -58,11 +58,14 @@ _hydrate_gate: _HydratePriorityGate | None = None
 
 
 def _hydrate_concurrency_limit() -> int:
-    raw = (os.environ.get("EVOFLOW_V4_HYDRATE_CONCURRENCY") or "1").strip()
+    # 默认 2：两路点击 hydrate 可并行（快速连点两个会话不再排队等前一路完成）。
+    # 预热侧由 _pump 限制为最多 1 路并发——「parallel hover-warm contended SQLite」
+    # 的教训针对的是无上限的 hover warm，不是有界的点击并发。
+    raw = (os.environ.get("EVOFLOW_V4_HYDRATE_CONCURRENCY") or "2").strip()
     try:
         n = int(raw)
     except ValueError:
-        n = 1
+        n = 2
     return max(1, min(n, 4))
 
 
@@ -82,12 +85,21 @@ class _HydratePriorityGate:
                 candidate = self._hi.pop(0)
                 if not candidate.done():
                     fut = candidate
-            while fut is None and self._lo:
-                candidate = self._lo.pop(0)
-                if not candidate.done():
-                    fut = candidate
             if fut is None:
-                return
+                # 预热只在「无点击等待」时启动，且 limit>1 时最多占 limit-1 个槽，
+                # 永远给点击留一个空槽：旧行为会把所有槽填满 hover warm，点击 hydrate
+                # 仍要等一轮预热做完，表现为「点了没反应」。预热慢一点无妨（后台）。
+                # limit=1 退化为旧语义：有点击等待就不启动预热（排队次序仍点击优先）。
+                if self._hi:
+                    return
+                if self._limit > 1 and self._active >= self._limit - 1:
+                    return
+                while self._lo and fut is None:
+                    candidate = self._lo.pop(0)
+                    if not candidate.done():
+                        fut = candidate
+                if fut is None:
+                    return
             self._active += 1
             fut.set_result(None)
 
@@ -893,14 +905,35 @@ class V4ConversationHub:
         # Sync hydrate under the asyncio lock froze Gateway for multi‑second windows
         # on large transcripts (2026-11-08 formal package lockup: health/Feishu/UI
         # all stuck while one subscribe hydrated 700+ rows).
-        # Also serialize hydrates: parallel hover-warm of 1k+ row sessions
-        # contended SQLite + CPU and made every click feel dead.
+        # Hydrates run through the priority gate: clicks (intent=open) get a free
+        # slot immediately and may run 2-wide; hover prefetch is capped at 1 so it
+        # can never occupy both slots and make a click wait for a warm to finish
+        # (the old "parallel hover-warm contended SQLite + CPU, every click dead").
         hydrate_ms: float | None = None
         hydrate_rows = 0
         prebuilt_snapshot: dict[str, Any] | None = None
         if not resume_ok and not sess.rows:
             try:
                 from app.gateway.v4.hydration import hydrate_session_from_transcript
+
+                # durable 纪元接续（对齐 ZCode durable 语义）：档案里已有该会话的
+                # (epoch, seq) 血统——冷启动续接而不是归位 "1"/0，否则新事件与旧档案
+                # (sid, epoch, seq) 撞键被 INSERT OR IGNORE 静默丢弃，档案跨重启断代。
+                try:
+                    from app.gateway.v4.durable_replay import read_durable_head
+
+                    head = await asyncio.to_thread(read_durable_head, self, sess.session_id)
+                    if head:
+                        if int(head.get("seq") or 0) > sess.seq:
+                            sess.seq = int(head.get("seq") or 0)
+                        if str(head.get("epoch") or "") > str(sess.log_epoch or ""):
+                            sess.log_epoch = str(head.get("epoch"))
+                except Exception:
+                    logger.debug(
+                        "[v4.durable-replay] head seed skipped session=%s",
+                        sess.session_id,
+                        exc_info=True,
+                    )
 
                 hydrate_started = time.perf_counter()
                 async with _hydrate_slot(high_priority=high_priority):
@@ -920,6 +953,26 @@ class V4ConversationHub:
                         "[v4.hydration] subscribe hydrate produced no rows session=%s in %.1fms",
                         sess.session_id,
                         hydrate_ms,
+                    )
+                # durable 尾差补齐（对齐 ZCode durable 语义的读回侧）：水合只覆盖
+                # transcript 落库过的消息；镜像 authored 的行（空流占位修正、迟到正文、
+                # 断流瞬态、下一轮开头）从 evoflow_v4_event_log 按 seq 补放，
+                # 网关重启/清投影后显示无损。镜像活写/已有内存投影（resume/热会话）不进这里。
+                try:
+                    from app.gateway.v4.durable_replay import replay_durable_tail
+
+                    replayed = await asyncio.to_thread(replay_durable_tail, self, sess.session_id)
+                    if replayed:
+                        hydrate_rows += replayed
+                        logger.info(
+                            "[v4.durable-replay] subscribe tail replayed session=%s rows=%s",
+                            sess.session_id,
+                            replayed,
+                        )
+                except Exception:
+                    logger.exception(
+                        "[v4.durable-replay] subscribe replay failed session=%s",
+                        sess.session_id,
                     )
             except Exception:
                 logger.exception(
@@ -1052,15 +1105,20 @@ class V4ConversationHub:
             return
         # JSON 尺寸编码在锁外完成：持锁逐条 json.dumps 是流式 worker 长时间
         # 占住 _write_lock 的主要来源，会让 loop 线程上的 rows_range /
-        # poll_frames 无界等待。
-        sizes = [len(json.dumps(d, ensure_ascii=False)) for d in deltas]
+        # poll_frames 无界等待。编码结果同时喂 durable 事件日志（一次序列化两用）。
+        encoded_deltas = [json.dumps(d, ensure_ascii=False) for d in deltas]
+        sizes = [len(e) for e in encoded_deltas]
+        durable_items: list[tuple[int, str, str]] = []
         with self._write_lock:
             sess = self._get_or_create_session(session_id)
             sess.last_author_at_ms = time.time() * 1000
             subs = [s for s in self._subscriptions.values() if s.session_id == sess.session_id]
-            for delta, encoded in zip(deltas, sizes):
+            for delta, encoded, size in zip(deltas, encoded_deltas, sizes):
                 sess.seq += 1
                 sess.delta_log.append((sess.seq, delta))
+                durable_items.append(
+                    (sess.seq, str(delta.get("op") or ""), encoded)
+                )
                 if len(sess.delta_log) > _DELTA_RETENTION_MAX:
                     evicted_seq = sess.delta_log.pop(0)[0]
                     floor = sess.delta_log[0][0] - 1 if sess.delta_log else evicted_seq
@@ -1071,7 +1129,12 @@ class V4ConversationHub:
                     if sub.overflowed:
                         continue
                     sub.pending_ops.append((sess.seq, delta))
-                    sub.pending_bytes += encoded
+                    # BUG（并行改动回归）：曾写成 `+= encoded`（JSON 字符串）——
+                    # pending_bytes 是 int 字节计数，int += str 在「有订阅者」时
+                    # 第一条 delta 就 TypeError，author_deltas 整批丢失 →
+                    # 客户端实时流全断（行已进 sess.rows，刷新才见）→
+                    # 表现为「发送后没反应」。恢复用字节数 size。
+                    sub.pending_bytes += size
                     if (
                         len(sub.pending_ops) > _SUBSCRIBER_BUFFER_MAX_OPS
                         or sub.pending_bytes > _SUBSCRIBER_BUFFER_MAX_BYTES
@@ -1091,6 +1154,14 @@ class V4ConversationHub:
                 sess.seq,
                 len(subs),
             )
+        # durable 事件档案（ZCode durable event 语义）：逐条权威 delta 落库（非阻塞），
+        # (session_id, log_epoch, seq) 唯一——事后审计「这条流/轮发生了什么、断在哪」。
+        # author_seed_rows 不入档：seed 是从 transcript 重建的历史（可再 derivation），
+        # 档案的独有价值 = 实时权威 delta 流。清空投影（log_epoch bump）后旧代际档案保留。
+        if durable_items:
+            from app.gateway.v4.event_log_writer import enqueue_v4_event_log
+
+            enqueue_v4_event_log(sess.session_id, sess.log_epoch, durable_items)
 
     def author_seed_rows(self, session_id: str, rows: list[dict[str, Any]]) -> int:
         """Cold-load history without per-row delta_log / ``_write_lock`` thrash.
@@ -1578,7 +1649,10 @@ class V4ConversationHub:
             }
             sub.queue.append(self._wrap_wire(sub, frame, "online"))
             sub.delivered_seq = to_seq
-        logger.info(
+        # 每 flush 一行曾是 INFO：流式会话 30ms 窗连发，实测 26.5 万行/天（75MB/天），
+        # 是 gateway 日志最大洪水源。降 DEBUG——排帧序对账时把 log_level 调到 debug 即可。
+        # snapshot / resume replay / overflow 仍为 INFO+（低频且是异常/首帧关键证据）。
+        logger.debug(
             "[v4.flush] session=%s sub=%s %d->%d ops=%d (raw=%d, %.1fKB) profile=%s",
             sess.session_id,
             sub.subscription_id,
@@ -1855,59 +1929,147 @@ class V4ConversationHub:
         return idx
 
     @staticmethod
+    def _real_user_recency_key(row: dict[str, Any] | None) -> int:
+        """对齐前端 realUserRecencyKey：createdAt 优先，其次 rowId。"""
+        if not row:
+            return -1
+        try:
+            created = int(row.get("createdAt") or 0)
+        except (TypeError, ValueError):
+            created = 0
+        try:
+            rid = int(row.get("rowId") or 0)
+        except (TypeError, ValueError):
+            rid = 0
+        return created * 1_000_000 + (rid % 1_000_000) if created > 0 else rid
+
+    @staticmethod
+    def _rows_for_turn_id(rows: list[dict[str, Any]], turn_id: str) -> list[dict[str, Any]]:
+        tid = str(turn_id or "").strip()
+        if not tid:
+            return []
+        return [r for r in rows if str(r.get("turnId") or "").strip() == tid]
+
+    @staticmethod
+    def _resolve_live_turn_user_idx(
+        rows: list[dict[str, Any]], turn_id: str, turn_start: int
+    ) -> int:
+        user_idx = -1
+        best_user_key = -1
+        for i, row in enumerate(rows):
+            if str(row.get("turnId") or "").strip() != turn_id:
+                continue
+            if str(row.get("kind") or "") != "userInput":
+                continue
+            if str(row.get("origin") or "") != "realUser":
+                continue
+            if not str(row.get("text") or "").strip():
+                continue
+            key = V4ConversationHub._real_user_recency_key(row)
+            if key >= best_user_key:
+                best_user_key = key
+                user_idx = i
+        if user_idx >= 0:
+            return user_idx
+        user_idx = turn_start
+        for i, row in enumerate(rows):
+            if str(row.get("turnId") or "").strip() != turn_id:
+                continue
+            if str(row.get("kind") or "") == "userInput":
+                return i
+        return user_idx
+
+    @staticmethod
     def _live_turn_span(rows: list[dict[str, Any]]) -> tuple[int, int] | None:
         """直播锚点 (turnStartIdx, userIdx)。
 
-        优先仍有 in-flight / running 头的最早一轮，避免工具洪峰时改钉到后发的
-        已完成问、把正在跑的用户气泡挤出 snapshot。
-        否则退回最新非空 realUser。
+        对齐前端 ``liveTurnSpan``：
+        1) 多 inflight 按 tip（最大 rowId）打分；
+        2) 若最新 realUser 属于另一轮且比 inflight 轮用户更新 → demote 僵尸旧 inflight
+           （现场 bash@80 永久 running 钉旧轮 → !STREAM_AHEAD_OF_WINDOW）。
         """
-        earliest_inflight: int | None = None
+        inflight_by_turn: dict[str, tuple[int, int]] = {}
+        latest_ui_idx: int | None = None
+        latest_ui_key = -1
         for i, row in enumerate(rows):
             if V4ConversationHub._row_is_inflight(row):
-                earliest_inflight = i
-                break
-        if earliest_inflight is not None:
-            turn_start = V4ConversationHub._turn_start_index(rows, earliest_inflight)
-            turn_id = str(rows[turn_start].get("turnId") or "").strip()
-            turn_end = len(rows)
-            if turn_id:
-                for i in range(turn_start + 1, len(rows)):
-                    if str(rows[i].get("turnId") or "").strip() != turn_id:
-                        turn_end = i
-                        break
-            user_idx = turn_start
-            found_user = False
-            for i in range(turn_start, turn_end):
-                row = rows[i]
+                tid = str(row.get("turnId") or "").strip()
+                if tid:
+                    try:
+                        rid = int(row.get("rowId") or 0)
+                    except (TypeError, ValueError):
+                        rid = 0
+                    prev = inflight_by_turn.get(tid)
+                    if prev is None or rid > prev[0]:
+                        inflight_by_turn[tid] = (rid, i)
+            if str(row.get("kind") or "") != "userInput":
+                continue
+            if str(row.get("origin") or "") != "realUser":
+                continue
+            if not str(row.get("text") or "").strip():
+                continue
+            key = V4ConversationHub._real_user_recency_key(row)
+            if key >= latest_ui_key:
+                latest_ui_key = key
+                latest_ui_idx = i
+
+        best_inflight_tid = ""
+        best_inflight_score = -1.0
+        best_inflight_idx = -1
+        best_inflight_user_key = -1
+        for tid, (max_rid, any_idx) in inflight_by_turn.items():
+            user_score = -1
+            for row in V4ConversationHub._rows_for_turn_id(rows, tid):
                 if str(row.get("kind") or "") != "userInput":
                     continue
                 if str(row.get("origin") or "") != "realUser":
                     continue
                 if not str(row.get("text") or "").strip():
                     continue
-                user_idx = i
-                found_user = True
-            if not found_user:
-                for i in range(turn_start, turn_end):
-                    if str(rows[i].get("kind") or "") == "userInput":
-                        user_idx = i
-                        break
-            return turn_start, user_idx
+                user_score = max(
+                    user_score, V4ConversationHub._real_user_recency_key(row)
+                )
+            score = float(max_rid) * 1e15 + max(0, user_score)
+            if score > best_inflight_score:
+                best_inflight_score = score
+                best_inflight_tid = tid
+                best_inflight_idx = any_idx
+                best_inflight_user_key = user_score
 
-        last_ui_idx: int | None = None
-        for i in range(len(rows) - 1, -1, -1):
-            if str(rows[i].get("kind") or "") != "userInput":
-                continue
-            if str(rows[i].get("origin") or "") != "realUser":
-                continue
-            if not str(rows[i].get("text") or "").strip():
-                continue
-            last_ui_idx = i
-            break
-        if last_ui_idx is None:
+        if (
+            best_inflight_tid
+            and latest_ui_idx is not None
+            and str(rows[latest_ui_idx].get("turnId") or "").strip() != best_inflight_tid
+            and latest_ui_key > best_inflight_user_key
+        ):
+            latest_tid = str(rows[latest_ui_idx].get("turnId") or "").strip()
+            latest_turn_max = 0
+            for row in V4ConversationHub._rows_for_turn_id(rows, latest_tid):
+                try:
+                    latest_turn_max = max(latest_turn_max, int(row.get("rowId") or 0))
+                except (TypeError, ValueError):
+                    pass
+            inflight_tip = inflight_by_turn.get(best_inflight_tid, (0, -1))[0]
+            try:
+                latest_created = int(rows[latest_ui_idx].get("createdAt") or 0)
+            except (TypeError, ValueError):
+                latest_created = 0
+            # 必须有 createdAt：否则高 rowId 的「上一问晚到 append」会误 demote 直播轮。
+            if latest_created > 0 and latest_turn_max > inflight_tip:
+                turn_start = V4ConversationHub._turn_start_index(rows, latest_ui_idx)
+                return turn_start, V4ConversationHub._resolve_live_turn_user_idx(
+                    rows, latest_tid, turn_start
+                )
+
+        if best_inflight_tid and best_inflight_idx >= 0:
+            turn_start = V4ConversationHub._turn_start_index(rows, best_inflight_idx)
+            return turn_start, V4ConversationHub._resolve_live_turn_user_idx(
+                rows, best_inflight_tid, turn_start
+            )
+
+        if latest_ui_idx is None:
             return None
-        return V4ConversationHub._turn_start_index(rows, last_ui_idx), last_ui_idx
+        return V4ConversationHub._turn_start_index(rows, latest_ui_idx), latest_ui_idx
 
     @staticmethod
     def _pin_live_turn_into_window(
@@ -1916,16 +2078,43 @@ class V4ConversationHub:
         *,
         soft_cap: int,
     ) -> list[dict[str, Any]]:
-        """软顶裁掉直播轮时：保住 turnHeader+user+in-flight+轮尾，避免已流出正文蒸发。"""
+        """软顶裁掉直播轮时：保住 turnHeader+user+in-flight+轮尾，避免已流出正文蒸发。
+
+        只取本 turn 行（对齐前端 ``rowsForTurnId``），绝不用 ``rows[turn_start:]``——
+        否则会把后写旧轮工具误收进直播段，或在旧轮仍 running 时把新 tip 挤出预算。
+        in-flight 顶满时硬保最大 rowId tip（对齐 ``selectLiveTurnWithinBudget``）。
+        """
         span = V4ConversationHub._live_turn_span(rows)
         if span is None:
             return window
         turn_start, user_idx = span
+        live_turn_id = str(rows[turn_start].get("turnId") or "").strip()
+        live_turn = (
+            V4ConversationHub._rows_for_turn_id(rows, live_turn_id)
+            if live_turn_id
+            else rows[turn_start:]
+        )
+        if not live_turn:
+            return window
         present = {int(r.get("rowId") or 0) for r in window}
-        live_turn = rows[turn_start:]
         if all(int(r.get("rowId") or 0) in present for r in live_turn):
             return window
         cap = max(_SNAPSHOT_MIN_TAIL_ROWS, int(soft_cap))
+        live_ids = {int(r.get("rowId") or 0) for r in live_turn}
+        # user_idx 可能因交错行落在 turn 外；钳到本 turn 行序。
+        live_user_pos = 0
+        user_rid = int(rows[user_idx].get("rowId") or 0) if 0 <= user_idx < len(rows) else 0
+        matched_user = False
+        for i, row in enumerate(live_turn):
+            if int(row.get("rowId") or 0) == user_rid:
+                live_user_pos = i
+                matched_user = True
+                break
+        if not matched_user:
+            for i, row in enumerate(live_turn):
+                if str(row.get("kind") or "") == "userInput":
+                    live_user_pos = i
+                    break
         if len(live_turn) <= cap:
             older_budget = max(0, cap - len(live_turn))
             older_start = max(0, turn_start - older_budget)
@@ -1933,22 +2122,47 @@ class V4ConversationHub:
             older_start = V4ConversationHub._align_snapshot_window_start(rows, older_start)
             if older_start > turn_start:
                 older_start = turn_start
-            return rows[older_start:]
-        head = rows[turn_start : user_idx + 1]
-        after_user = rows[user_idx + 1 :]
+            older = [r for r in rows[older_start:] if int(r.get("rowId") or 0) not in live_ids]
+            return [*older, *live_turn]
+        head = live_turn[: live_user_pos + 1]
+        after_user = live_turn[live_user_pos + 1 :]
+        if not after_user:
+            older_budget = max(0, cap - len(head))
+            older_start = max(0, turn_start - older_budget)
+            older_start = V4ConversationHub._align_snapshot_window_start(rows, older_start)
+            if older_start > turn_start:
+                older_start = turn_start
+            older = [r for r in rows[older_start:] if int(r.get("rowId") or 0) not in live_ids]
+            return [*older, *head]
+        tip = after_user[0]
+        tip_id = int(tip.get("rowId") or 0)
+        for row in after_user[1:]:
+            rid = int(row.get("rowId") or 0)
+            if rid >= tip_id:
+                tip = row
+                tip_id = rid
         inflight = [r for r in after_user if V4ConversationHub._row_is_inflight(r)]
         inflight_ids = {int(r.get("rowId") or 0) for r in inflight}
         settled = [r for r in after_user if int(r.get("rowId") or 0) not in inflight_ids]
-        reserved = len(head) + len(inflight)
-        if reserved >= cap:
-            # in-flight 本身顶满：保头 + in-flight（可略超 cap，优先可见性）
-            return [*head, *inflight]
-        tail_budget = max(0, cap - reserved)
-        tail = settled[-tail_budget:] if tail_budget else []
+        tip_is_inflight = tip_id in inflight_ids
+        after_budget = max(0, cap - len(head))
+        reserved = len(inflight) + (0 if tip_is_inflight else 1)
+        if reserved >= after_budget:
+            # in-flight 顶满：硬保 tip + 最近一段 in-flight（可略超，优先 tip 可见）
+            room = max(0, after_budget - 1)
+            rest_inflight = [r for r in inflight if int(r.get("rowId") or 0) != tip_id]
+            keep_ids = {int(r.get("rowId") or 0) for r in rest_inflight[-room:]}
+            keep_ids.add(tip_id)
+            return [*head, *[r for r in after_user if int(r.get("rowId") or 0) in keep_ids]]
+        tip_slot = 0 if tip_is_inflight else 1
+        tail_budget = max(0, after_budget - len(inflight) - tip_slot)
+        settled_no_tip = [r for r in settled if int(r.get("rowId") or 0) != tip_id]
+        tail = settled_no_tip[-tail_budget:] if tail_budget else []
         keep_ids = {
-            int(r.get("rowId") or 0) for r in (*head, *inflight, *tail)
+            int(r.get("rowId") or 0) for r in (*inflight, *tail)
         }
-        return [r for r in live_turn if int(r.get("rowId") or 0) in keep_ids]
+        keep_ids.add(tip_id)
+        return [*head, *[r for r in after_user if int(r.get("rowId") or 0) in keep_ids]]
 
     @staticmethod
     def _snapshot_tail_window(

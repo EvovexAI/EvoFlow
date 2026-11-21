@@ -1,8 +1,10 @@
 /// 日志读取与前端控制台落盘（按日轮转，默认保留 14 天）
 use chrono::Local;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 
 use super::log_files::{daily_log_path, latest_daily_log_path};
 use super::evoflow_dir;
@@ -273,8 +275,38 @@ pub async fn append_frontend_log(level: String, message: String) -> Result<(), S
         .map_err(|e| format!("append_frontend_log join failed: {e}"))?
 }
 
+/// frontend 日（webview console 镜像）单日字节预算：``EVOFLOW_FRONTEND_LOG_MAX_MB``
+/// （默认 32MB，0 = 不限）。曾实测 96-132MB/天：[v4-layout] 4KB+ DOM 快照、
+/// 重复 ERROR 刷屏。只挡 console 镜像，gateway/系统日志不受影响。
+fn frontend_log_budget() -> u64 {
+    static CACHE: OnceLock<u64> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::env::var("EVOFLOW_FRONTEND_LOG_MAX_MB")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(32)
+            .saturating_mul(1024 * 1024)
+    })
+}
+
+/// 折叠/预算记账（frontend 单 sink，进程级状态）：连续相同 console 消息只写
+/// 首条 + 每满 100 条的 ×N 标注；按日重置体积记账。重复行不占预算（没写盘）。
+#[derive(Default)]
+struct FrontendLogState {
+    last_msg: String,
+    repeat: u64,
+    day: String,
+    bytes: u64,
+    budget_dropped: u64,
+    marker_written: bool,
+}
+
+fn frontend_log_state() -> &'static Mutex<FrontendLogState> {
+    static STATE: OnceLock<Mutex<FrontendLogState>> = OnceLock::new();
+    STATE.get_or_init(|| Mutex::new(FrontendLogState::default()))
+}
+
 fn append_frontend_log_impl(level: String, message: String) -> Result<(), String> {
-    
     let dir = log_dir();
     let ts = Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let lvl = level.trim().to_uppercase();
@@ -284,7 +316,50 @@ fn append_frontend_log_impl(level: String, message: String) -> Result<(), String
         .chars()
         .take(12_000)
         .collect::<String>();
+    let today = Local::now().format("%Y-%m-%d").to_string();
+    let budget = frontend_log_budget();
+
+    let mut st = frontend_log_state()
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
+    if st.day != today {
+        st.day = today;
+        st.bytes = 0;
+        st.budget_dropped = 0;
+        st.marker_written = false;
+    }
+
+    // 当日预算：超限丢弃，首次写一条 marker 说明去向。
+    let line_len = msg.len() as u64 + 1;
+    if budget > 0 && st.bytes + line_len > budget {
+        st.budget_dropped += 1;
+        if !st.marker_written {
+            st.marker_written = true;
+            let marker = format!(
+                "[{ts}] [WARN] [frontend-log] 当日预算 {}MB 已满，此后 console 镜像丢弃（已丢 {} 行）；调大 EVOFLOW_FRONTEND_LOG_MAX_MB\n",
+                budget / (1024 * 1024),
+                st.budget_dropped
+            );
+            return super::log_files::append_daily_log_line(&dir, "frontend", &marker);
+        }
+        return Ok(());
+    }
+
+    // 连续重复折叠：同 msg 连续出现 → 只写首条 + 每 100 条一条 ×N 标注。
+    if st.last_msg == msg {
+        st.repeat += 1;
+        if st.repeat % 100 == 0 {
+            let line = format!("[{ts}] [{lvl}] {msg} (repeated ×{})\n", st.repeat + 1);
+            st.bytes += line.len() as u64;
+            return super::log_files::append_daily_log_line(&dir, "frontend", &line);
+        }
+        return Ok(());
+    }
+    st.last_msg = msg.clone();
+    st.repeat = 0;
+
     let line = format!("[{ts}] [{lvl}] {msg}\n");
+    st.bytes += line.len() as u64;
     super::log_files::append_daily_log_line(&dir, "frontend", &line)
 }
 
@@ -343,6 +418,33 @@ pub async fn append_stream_compare_log(channel: String, session_key: Option<Stri
         .map_err(|e| format!("append_stream_compare_log join failed: {e}"))?
 }
 
+/// 单个 run 目录（= 一轮对话）的落盘预算：``EVOFLOW_STREAM_COMPARE_RUN_MAX_MB``
+/// （默认 256MB，0 = 不限）。逐帧流曾有单轮 308MB、单会话 3.4GB 的实测洪水；
+/// 超预算进入丢弃模式，只定期写一行 marker——磁盘不该被调试日志悄悄灌满。
+fn stream_compare_run_budget() -> u64 {
+    static CACHE: OnceLock<u64> = OnceLock::new();
+    *CACHE.get_or_init(|| {
+        std::env::var("EVOFLOW_STREAM_COMPARE_RUN_MAX_MB")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(256)
+            .saturating_mul(1024 * 1024)
+    })
+}
+
+/// run 目录 → 本进程已写入字节（预算记账）。进程重启清零是可接受的：
+/// 持久体积由 2 天窗口 prune + 全局磁盘配额兜底。
+fn sc_run_bytes_map() -> &'static Mutex<HashMap<String, u64>> {
+    static MAP: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+/// run 目录 → 已丢弃行数（丢到 1 行 / 每 2000 行时写 marker 说明）。
+fn sc_run_dropped_map() -> &'static Mutex<HashMap<String, u64>> {
+    static MAP: OnceLock<Mutex<HashMap<String, u64>>> = OnceLock::new();
+    MAP.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
 #[tauri::command]
 fn append_stream_compare_log_impl(
     channel: String,
@@ -364,11 +466,20 @@ fn append_stream_compare_log_impl(
         "viewport-page" => "viewport-page.log",
         other => return Err(format!("unknown stream compare channel: {other}")),
     };
+    /// 与前端 `sanitizeSessionLogId` 完全一致（':' 与其余非法字符一律归 '_'，截 80），
+    /// 保证对已净化输入幂等——之前 filter 直删导致同一会话在 stream-compare
+    /// 下出现两套目录名（`proactive_self-…` 与 `proactiveself-…`）双份落盘。
     fn sanitize_id(s: &str) -> String {
         s.trim()
             .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
-            .take(96)
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .take(80)
             .collect()
     }
     let run = sanitize_id(&run_id);
@@ -382,6 +493,42 @@ fn append_stream_compare_log_impl(
         log_dir().join("stream-compare").join(&session).join(&run)
     };
     let path = dir.join(suffix);
+
+    // 预算闸：先记账再落盘。超限丢弃并计数，第 1 行 / 每 2000 行写一次 marker。
+    let budget = stream_compare_run_budget();
+    if budget > 0 {
+        let key = dir.to_string_lossy().into_owned();
+        let msg_len = message.len() as u64 + 1;
+        let mut over = false;
+        {
+            let mut m = sc_run_bytes_map().lock().unwrap_or_else(|p| p.into_inner());
+            let used = m.entry(key.clone()).or_insert(0);
+            if *used + msg_len > budget {
+                over = true;
+            } else {
+                *used += msg_len;
+            }
+        }
+        if over {
+            let dropped = {
+                let mut m = sc_run_dropped_map()
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                *m.entry(key.clone()).or_insert(0) += 1;
+                *m.get(&key).unwrap_or(&0)
+            };
+            if dropped == 1 || dropped % 2000 == 0 {
+                let marker = format!(
+                    "[stream-compare] 该轮落盘预算 {}MB 已满，此后丢弃（已丢 {dropped} 行）；\
+                     调大 EVOFLOW_STREAM_COMPARE_RUN_MAX_MB 或关闭调试模式\n",
+                    budget / (1024 * 1024)
+                );
+                return super::log_files::append_log_file_line(&path, &marker);
+            }
+            return Ok(());
+        }
+    }
+
     let msg = String::from_utf8_lossy(message.as_bytes()).into_owned();
     // wire 通道（AG-UI / V4）保持原文一行一条；UI 通道加时间戳便于扫帧。
     let line = if matches!(channel.trim(), "sse-recv" | "v4-recv") {

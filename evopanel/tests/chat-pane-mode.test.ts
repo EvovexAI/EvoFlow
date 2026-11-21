@@ -8,10 +8,7 @@ import {
   isV4DisplayAuthoritative,
   publishV4DisplayAuthority,
 } from '../src/react/v4/v4Gate.ts'
-import {
-  buildConversationTurnRenderUnits,
-  tryAppendTrailingUserInputUnit,
-} from '../src/zcode-ui/v4/conversationTurnRenderUnits.ts'
+import { createConversationTurnRenderUnitsSelector } from '../src/zcode-ui/v4/conversationTurnRenderUnits.ts'
 import type { ConversationRow, UserInputRow } from '@zcode/shared/zcode-protocol-v4'
 
 const base = {
@@ -208,7 +205,7 @@ describe('optimistic userInput（发送瞬间不切老面板）', () => {
     expect(mergeOptimisticUserInputRow(rows, 'old')).toBe(rows)
   })
 
-  it('tryAppendTrailingUserInputUnit 复用前缀 units（send 乐观快路径）', () => {
+  it('选择器：send 乐观追加新轮时历史 units 逐项复用（原 tryAppend 快路径）', () => {
     const asUser = (text: string, rowId: number, turnId?: string): UserInputRow => ({
       rowId,
       turnId: turnId || `t-${rowId}`,
@@ -219,15 +216,25 @@ describe('optimistic userInput（发送瞬间不切老面板）', () => {
       createdAtSeq: 0,
     })
     const base: ConversationRow[] = [asUser('hello', 1), asUser('world', 2)]
-    const prevUnits = buildConversationTurnRenderUnits(base)
+    const select = createConversationTurnRenderUnitsSelector()
+    const before = select({ history: base, tail: [] }, { sessionBusy: false })
+    expect(before.history).toHaveLength(2)
+    expect(before.tail).toHaveLength(0)
+
     const next = [...base, asUser('搞定了吗', 3, 'optimistic-1')]
-    const appended = tryAppendTrailingUserInputUnit(prevUnits, base, next)
-    expect(appended).not.toBeNull()
-    expect(appended!).toHaveLength(prevUnits.length + 1)
-    for (let i = 0; i < prevUnits.length - 1; i++) {
-      expect(appended![i]).toBe(prevUnits[i])
+    const after = select(
+      { history: base, tail: [next[2]!] },
+      { sessionBusy: true },
+    )
+    expect(after.history).toHaveLength(2)
+    expect(after.tail).toHaveLength(1)
+    // 尾轮出现后历史末项不再是最后一轮（isLastTurn 正确翻转、产生新对象），
+    // 其余历史 unit 逐项复用；与原 tryAppend 快路径的复用范围一致。
+    for (let i = 0; i < before.history.length - 1; i++) {
+      expect(after.history[i]).toBe(before.history[i])
     }
-    expect(appended!.at(-1)?.visibleUserInputs[0]?.text).toBe('搞定了吗')
+    expect(after.history[1]?.isLastTurn).toBe(false)
+    expect(after.tail[0]?.visibleUserInputs[0]?.text).toBe('搞定了吗')
   })
 })
 

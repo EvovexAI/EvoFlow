@@ -80,11 +80,13 @@
   --ui-font-size: 14px;
 }
 
-/* EvoFlow V4 面板字号：小于 ZCode 默认（14px），对齐侧栏文字密度。
+/* EvoFlow V4 面板字号：对齐 ZCode 默认（14px）。曾压到 12px 追侧栏密度，
+ * 2026-11-21 用户实测「正文视觉差点意思」——助手正文是主阅读内容，
+ * 12px 是辅助 UI 规格；恢复 14px 后 text-ui-* 刻度整体上移、层级不变。
  * 调整大小只改 --ui-font-size；下方 --text-ui-* 必须在本作用域重声明，
  * 否则会继承 :root 里已解析的 14px（@theme 的 var() 在 :root 算完再继承）。 */
 .zcode-bridge-root {
-  --ui-font-size: 12px;
+  --ui-font-size: 14px;
   --text-ui-xl: calc(var(--ui-font-size) + 4px);
   --text-ui-lg: calc(var(--ui-font-size) + 2px);
   --text-ui-base: var(--ui-font-size);

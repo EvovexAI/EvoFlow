@@ -652,6 +652,23 @@ def assets_tool(
         # 并在回执里明写 resolved_path，不静默改址。
         kind_dir = _KIND_DIRS.get(str(kind or "").strip().lower(), "")
         resolved_from_kind = False
+        # 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：裸文件名 + 没传 kind 时，默认落 craft/ 并**在回执里明写** resolved_path
+        #   与 kind_defaulted，不再直接拒写。
+        # 为什么（本轮现网 obs 取证，近 7 天 ``assets·write_path_not_allowed`` 后半 16 次 /
+        #   前半 5 次，在涨）：把 18 条真实失败行的 input_json 摊开看，形状只有一种 ——
+        #     {"action":"write","path":"gateway与langgraph是两个进程-….md","content":…}
+        #   即「裸文件名 + 没给 kind」。而 standing 里我自己早就写了禁令「必须带 kind」，
+        #   写了照样涨 —— 说明这条靠记性治不住，得让**默认路径**不再需要记性。
+        #   判据不变的部分：只要调用方给了 kind 或带目录前缀，一律走原逻辑，不猜；
+        #   只有「无目录 + 无 kind + 盘上不存在同名文件」这一种才落到默认 craft/。
+        #   风险与兜底：万一它本来是 journal 条目，回执里有 kind_defaulted 标记，
+        #   一次 rename 就能改回，比每次多跑一轮「被拒→补 kind→重发」便宜。
+        if not kind_dir and rel and "/" not in rel:
+            kind_dir = _KIND_DIRS["craft"]
+            kind_defaulted = True
+        else:
+            kind_defaulted = False
         if kind_dir and not rel.startswith(("craft/", "memory/episodic/", "memory/journal/", "memory/standing")):
             if "/" not in rel:
                 rel = f"{kind_dir}{rel}"
@@ -801,6 +818,10 @@ def assets_tool(
                     # 【self-evolution-bot · 2026-11-16 · 第20轮】按 kind 补目录时必须回显，
                     # 否则调用方以为自己写的是 path=裸名，下次 update_path 又得猜一遍。
                     **({"resolved_path": rel, "resolved_from_kind": True} if resolved_from_kind else {}),
+                    # 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+                    # 默认落点必须显式标注：调用方没给 kind 时我替它选了 craft/，
+                    # 不标出来就是"静默改址"，它下次 read 还是拿裸名，又要落空一次。
+                    **({"resolved_path": rel, "kind_defaulted": "craft"} if kind_defaulted else {}),
                     # 【self-evolution-bot · 2026-11-18 · 第55轮 · 模型:deepseek-v4.1-flash-1017】
                     # 补后缀必须回显：否则调用方以为落的是 `memory/journal/x`（无后缀），
                     # 下次 update_path / read 又拿原串来查，落空一次再猜一次。
@@ -809,11 +830,14 @@ def assets_tool(
                     "mode": write_mode,
                     "hint": (
                         (
-                            f"已按 kind 补全目录后覆盖写入 {rel}。"
+                            "未指定 kind，已按默认落 craft/ 写入 "
+                            f"{rel}；若应属 journal/episodic，传 kind 重写或 rename 移过去。"
+                            if kind_defaulted
+                            else f"已按 kind 补全目录后覆盖写入 {rel}。"
                             if write_mode == "replace"
                             else f"已按 kind 补全目录后追加到 {rel}（追加模式）。要整份覆盖请显式传 mode=replace。"
                         )
-                        if resolved_from_kind
+                        if (kind_defaulted or resolved_from_kind)
                         else (
                             f"已覆盖写入 {rel}。"
                             if write_mode == "replace"

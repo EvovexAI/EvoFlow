@@ -16,7 +16,30 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+
+@pytest.fixture(autouse=True)
+def _isolated_side_effects(tmp_path, monkeypatch):
+    """把状态盘 + 审计日志都指到 tmp_path。
+
+    【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：给本文件加 autouse 隔离夹具。
+    为什么（本轮自撞）：这个文件此前直接调 ``apply_right_panel``，既读用户现网状态、
+      又往 ``right-stage-2026-11-20.log`` 写 ``[py] emit no-writer`` 行 —— 23:26:11
+      跑一次就污染了 4 行，而那正是我要拿去当证据的文件。
+      判据：跑本文件前后 ``right-stage-*.log`` 行数必须完全不变。
+    """
+    from app.gateway.routers import stage_right_panel as srp
+    from evoflow.stage import right_stage_audit_log as audit
+
+    monkeypatch.setattr(srp, "right_stage_state_path", lambda: tmp_path / "state.json")
+    monkeypatch.setattr(audit, "_logs_dir", lambda: tmp_path)
+    srp._STATE.clear()  # noqa: SLF001
+    yield
+    srp._STATE.clear()  # noqa: SLF001
 
 _REPO = Path(__file__).resolve().parents[2]
 _EVOPANEL = _REPO / "evopanel" / "src" / "lib" / "right-stage"

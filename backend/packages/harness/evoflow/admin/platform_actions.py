@@ -585,11 +585,39 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "ui.hide",
             "ui",
-            "关闭右侧面板",
+            "关闭右侧面板（整栏收起）",
             "read",
             "无",
             H.ui_hide,
             "把右侧面板收起来",
+        ),
+        # 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：新增 ui.close（关单个标签）与 ui.move（调换标签位置）。
+        # 为什么（用户当场要求，原话）：「你可以切换到哪个进行一个显示，或者是给它关掉，
+        #   或者是打开，或者给它调换位置。就这种像人一样的操作。」
+        #   此前 ui 域只有 show/update/hide/activate：hide 是整栏收起，
+        #   用户「只想关掉那一个」做不到；「调换位置」更是完全没入口，
+        #   而前端 store 里 closeTab / reorderTab 早就写好了，只是没暴露给模型。
+        # 判据：close 后 tabCount 减 1 且其它签 key 不变；move 后 tabCount 不变、两签顺序互换。
+        _A(
+            "ui.close",
+            "ui",
+            "关闭右栏里指定的那一个标签（其它标签与整栏展开状态不受影响；要整栏收起用 ui.hide）",
+            "read",
+            "key（先 ui.current 取 tabs[].key）",
+            H.ui_close,
+            "把那个任务页标签关掉",
+            "关掉截图标签，其它留着",
+        ),
+        _A(
+            "ui.move",
+            "ui",
+            "调整右栏标签的先后顺序（把 key 这个签移到 target 那个签的位置；不新建/不关闭/不改内容）",
+            "read",
+            "key, target（两者都从 ui.current → tabs[].key 取）",
+            H.ui_move,
+            "把员工过程标签挪到最前面",
+            "把任务页调到网页前面",
         ),
         # media（生图 / 生视频；默认火山 Agent Plan / jimeng）
         _A(
@@ -654,9 +682,9 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "ui.panel",
             "ui",
-            "控制主窗口（非侧栏浏览器）：snapshot/click/fill/type/scroll/state/action/ax/screenshot/cdp/ws；产品动作走 op=action + name",
+            "控制主窗口（非侧栏浏览器）：snapshot/page_dump/click/fill/type/scroll/state/action/ax/screenshot/cdp/ws；排查看页面正文用 page_dump（或 snapshot mode=debug）；产品动作走 op=action + name",
             "read",
-            "op, ref?, text?, direction?, amount?, clear?, name?, params?, method?, max_elements?, include_hidden?",
+            "op, ref?, text?, direction?, amount?, clear?, name?, params?, method?, mode?, max_elements?, max_turns?, include_hidden?",
             H.ui_panel,
             "先 snapshot 再按 eN ref 点击主界面按钮",
             "op=action name=openXiaomi 打开小V",

@@ -15,9 +15,11 @@ from pathlib import Path
 from evoflow.runtime.log_policy import (
     DEFAULT_RETENTION_DAYS,
     prune_all_daily_logs,
-    prune_old_daily_logs as _policy_prune_old_daily_logs,
     resolve_product_logs_dir,
     retention_days,
+)
+from evoflow.runtime.log_policy import (
+    prune_old_daily_logs as _policy_prune_old_daily_logs,
 )
 
 _CONFIGURED: dict[str, bool] = {}
@@ -245,20 +247,39 @@ class AsyncioShutdownNoiseFilter(Filter):
         return True
 
 
-# Panel / ChatApp high-frequency polls — hide successful GETs (set EVOFLOW_SHOW_PANEL_POLL_LOGS=1 to keep).
+# Panel / ChatApp high-frequency polls — hide successful access lines
+# (set EVOFLOW_SHOW_PANEL_POLL_LOGS=1 to keep). 2026-11-21 实测补全（原正则只盖 4 条路径，
+# 每天仍漏 7 万+ 行）：glow-status 2.7万 / live-run probe 1.6万 / health/ready 1.5万 /
+# speech/log 8千 / approvals 5千；OPTIONS 预检 200 另计 ~2.4万行，恒为噪声单独丢。
+# 只丢 2xx 成功行 —— 4xx/5xx（轮询失败才是信号）保持可见。
+#
+# 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：方法组从 `(?:GET|POST)` 扩到 `(?:GET|POST|PUT|PATCH|DELETE)`。
+# 为什么：`live-run` 快照心跳实际走 **PUT**（debounce upsert，前端
+# live-run-snapshot-persist.ts），清理走 DELETE —— 我上一版只认 GET|POST，重启后实测
+# 仍漏 44 行/10min（单日 2964 PUT + 92 DELETE 全部落盘）。首轮修复只核了「路径在不在表里」，
+# 没核「这个路径真实的 HTTP 方法是什么」，这是同一个缺陷的第二处落点。
+# 安全性：方法放宽不会误伤 —— 真正的危险操作（如 `DELETE /api/chat/sessions/{key}` 删会话）
+# 路径段里没有 execution/state / live-run 这些子路径，仍被白名单挡在外面。
 _PANEL_POLL_ACCESS_RE = re.compile(
-    r'"GET\s+(?:/api)?/(?:'
+    r'"(?:GET|POST|PUT|PATCH|DELETE)\s+(?:/api)?/(?:'
     r"health/liveness|"
+    r"health/ready|"
     r"(?:api/)?session-notifications|"
+    r"(?:api/)?cua/glow-status|"
+    r'(?:api/)?chat/sessions/[^/\s"]+/(?:execution/state|live-run)|'
     r'(?:api/)?proactive/roles/[^/\s"]+/(?:busy|work-board)|'
-    r'(?:api/)?chat/sessions/[^/\s"]+/execution/state'
-    r')(?:\?[^"]*)?\s+HTTP/[^"]+"\s+200\b',
+    r"(?:api/)?proactive/approvals|"
+    r"(?:api/)?speech/log"
+    r')(?:\?[^"]*)?\s+HTTP/[^"]+"\s+2\d\d\b',
     re.IGNORECASE,
 )
 
+_PANEL_POLL_OPTIONS_RE = re.compile(r'"OPTIONS\s+\S+\s+HTTP/[^"]+"\s+2\d\d\b')
+
 
 class PanelPollAccessNoiseFilter(Filter):
-    """Drop 200 OK access lines for frontend status polls (busy / work-board / execution/state / …)."""
+    """Drop 2xx OK access lines for frontend status polls (busy / work-board / execution/state / …)."""
 
     def filter(self, record: LogRecord) -> bool:
         if os.getenv("EVOFLOW_SHOW_PANEL_POLL_LOGS", "").strip().lower() in {"1", "true", "yes", "on"}:
@@ -269,9 +290,90 @@ class PanelPollAccessNoiseFilter(Filter):
             message = record.getMessage()
         except Exception:
             return True
-        if " 200" not in message or "GET " not in message:
-            return True
+        # CORS 预检成功行不含任何诊断信息（真实方法跟在预检之后），单独丢。
+        if _PANEL_POLL_OPTIONS_RE.search(message):
+            return False
         return _PANEL_POLL_ACCESS_RE.search(message) is None
+
+
+class LogRateLimitFilter(Filter):
+    """Per-logger 令牌桶限流（仅 INFO/DEBUG）+ 连续重复消息折叠（×N 标注）。
+
+    日志洪水的第三道闸：PanelPollAccessNoiseFilter 按**内容**丢已知噪声，
+    这里按**速率**兜住未知的逐帧/逐 tick 洪水（曾实测 [v4.flush] 26.5 万行/天灌 75MB）。
+
+    - WARNING 及以上永不丢（错误与告警不受限流影响）。
+    - 同一 logger 连续完全相同的消息折叠：每满 100 条放行一条并标注
+      ``(repeated ×N)``，避免"还在发生"这件事本身静默。
+    - 每 logger 默认 20 行/秒、2 倍突发容量；``EVOFLOW_LOG_RATE_LIMIT_PER_SEC``
+      设 0 可关闭（排查期需要全量 DEBUG 时）。
+    - 同一条 record 会流经多个 root handler：裁决结果记在 record 上，只计一次账。
+    """
+
+    _PER_SEC_DEFAULT = 20.0
+    _BURST_MULT = 2.0
+    _MEMO_ATTR = "_evoflow_rate_limit_verdict"
+
+    def __init__(self, per_sec: float | None = None) -> None:
+        super().__init__()
+        if per_sec is None:
+            raw = os.getenv("EVOFLOW_LOG_RATE_LIMIT_PER_SEC", "").strip()
+            try:
+                per_sec = float(raw) if raw else self._PER_SEC_DEFAULT
+            except ValueError:
+                per_sec = self._PER_SEC_DEFAULT
+        self._per_sec = max(0.0, per_sec)
+        self._capacity = self._per_sec * self._BURST_MULT
+        self._buckets: dict[str, list[float]] = {}  # logger name → [tokens, last monotonic]
+        self._last: dict[str, tuple[str, int]] = {}  # logger name → (last message, repeat count)
+        self._lock = threading.Lock()
+
+    def filter(self, record: LogRecord) -> bool:
+        if self._per_sec <= 0:
+            return True
+        cached = getattr(record, self._MEMO_ATTR, None)
+        if cached is not None:
+            return cached
+        verdict = self._decide(record)
+        try:
+            setattr(record, self._MEMO_ATTR, verdict)
+        except Exception:
+            pass
+        return verdict
+
+    def _decide(self, record: LogRecord) -> bool:
+        if record.levelno > logging.INFO:
+            # WARNING+ 永不限流；重复折叠流从下一条 INFO 重新计。
+            with self._lock:
+                self._last.pop(record.name, None)
+            return True
+        try:
+            message = record.getMessage()
+        except Exception:
+            return True
+        now = time.monotonic()
+        with self._lock:
+            last = self._last.get(record.name)
+            if last is not None and last[0] == message:
+                count = last[1] + 1
+                self._last[record.name] = (message, count)
+                if count % 100 == 0:
+                    record.msg = f"{message} (repeated ×{count})"
+                    record.args = None
+                    return True
+                return False
+            bucket = self._buckets.get(record.name)
+            if bucket is None:
+                bucket = [self._capacity, now]
+                self._buckets[record.name] = bucket
+            tokens = min(self._capacity, bucket[0] + (now - bucket[1]) * self._per_sec)
+            bucket[1] = now
+            if tokens >= 1.0:
+                bucket[0] = tokens - 1.0
+                self._last[record.name] = (message, 0)
+                return True
+            bucket[0] = tokens
+            return False
 
 
 def _has_filter(handler: Handler, filter_type: type[Filter]) -> bool:
@@ -294,6 +396,9 @@ def _attach_noise_filters(root: logging.Logger) -> None:
             handler.addFilter(PanelPollAccessNoiseFilter())
         if not _has_filter(handler, AsyncioShutdownNoiseFilter):
             handler.addFilter(AsyncioShutdownNoiseFilter())
+        # 只挂 root handlers：限流按记录次数记账，record 结果缓存保证多 handler 不重复计数
+        if not _has_filter(handler, LogRateLimitFilter):
+            handler.addFilter(LogRateLimitFilter())
     # Logger-level filters survive uvicorn re-attaching StreamHandlers.
     for name in ("uvicorn.access", "langgraph_api.server"):
         lg = logging.getLogger(name)

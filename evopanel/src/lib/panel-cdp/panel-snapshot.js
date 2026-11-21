@@ -8,6 +8,7 @@
  * @returns {{ url: string, title: string, elements: object[], truncated: boolean, dom: object[], domTruncated: boolean, _nodes: Element[] }}
  */
 export function collectPanelSnapshot(opts = {}) {
+  opts = opts && typeof opts === 'object' ? opts : {}
   const MAX_ELEMENTS = opts.maxElements ?? 150
   const MAX_DOM = opts.maxDom ?? 400
   const includeHidden = opts.includeHidden ?? false

@@ -25,6 +25,13 @@ export type StageSetPayload = {
    * 而切签必须做到「不新建、不关闭、不改内容」，只能有一个纯 key 通道。
    */
   key?: string
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+   * 新增：`action='move'` 时「移到哪个签的位置」（另一个标签的 key）。
+   * 为什么：move 靠两个 key 定位（源 + 目标位置），只有 key 一个字段的话，
+   * 前端 reorderTab(activeId, overId) 拿不到 overId，顺序切不动。
+   */
+  target?: string
 }
 
 export const STAGE_SET_APPLIED_EVENT = 'evopanel:stage-set-applied'
@@ -95,6 +102,23 @@ export function buildStageSetPayload(argsText?: string, result?: string | null):
     const targetKey = String(resultObj?.key || '').trim()
     if (!targetKey) return null
     return { action: 'activate', surface: null, key: targetKey }
+  }
+  // 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：工具 result 回放通道同样识别 close / move。
+  // 为什么：这条通道（拿工具返回值解析）与 SSE 实时通道是**两条独立路径**，
+  //   只在 SSE 里接、不在这里接，就等于「实时切得动、回放切不动」——
+  //   而 ui.close / ui.move 是普通工具调用，走的就是这条 result 回放。
+  //   第100轮我已在 activate 上撞过同型问题（一条通道绿不能推另一条绿）。
+  if (action === 'close') {
+    const targetKey = String(resultObj?.key || '').trim()
+    if (!targetKey) return null
+    return { action: 'close', surface: null, key: targetKey }
+  }
+  if (action === 'move') {
+    const srcKey = String(resultObj?.key || '').trim()
+    const dstKey = String(resultObj?.target || '').trim()
+    if (!srcKey || !dstKey) return null
+    return { action: 'move', surface: null, key: srcKey, target: dstKey }
   }
 
   const resultSurface = resultObj?.surface
@@ -174,6 +198,49 @@ export function applyStageSetPayload(
       after: { activeKey: snap1.activeKey || null, tabCount: (snap1.tabs || []).length },
     })
     dispatchStageSetApplied({ action: 'activate', key: targetKey })
+    return ok
+  }
+  // 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补 close（关单个签）与 move（调签顺序）两条分发——store 里 closeTab /
+  //   reorderTab 早就存在，但 SSE 这条通道从来没接，后端加了动作前端也不会动。
+  // 为什么（用户当场要求）：「或者是给它关掉……或者给它调换位置。就这种像人一样的操作。」
+  // 与 hide 的区别必须写清：hide 收起整栏（签还在）；close 真的删掉那一个签。
+  // 判据：close 后 tabCount 减 1 且其它签 key 不变；move 后 tabCount 不变、两签顺序互换。
+  if (action === 'close') {
+    const targetKey = String(payload.key || '').trim()
+    if (!targetKey) {
+      logPanelSet('① 动作=close 失败：缺 key')
+      return false
+    }
+    const snap0 = rightStageStore.getSnapshot()
+    const beforeKeys = (snap0.tabs || []).map((t) => rightStageStore.keyOf(t))
+    if (!beforeKeys.includes(targetKey)) {
+      logPanelSet('① 动作=close 失败：目标签不存在', { targetKey, beforeKeys })
+      return false
+    }
+    rightStageStore.closeTab(targetKey)
+    const snap1 = rightStageStore.getSnapshot()
+    const afterKeys = (snap1.tabs || []).map((t) => rightStageStore.keyOf(t))
+    const ok = afterKeys.length === beforeKeys.length - 1 && !afterKeys.includes(targetKey)
+    logPanelSet('① 动作=close 已关签', { targetKey, ok, beforeKeys, afterKeys })
+    dispatchStageSetApplied({ action: 'close', key: targetKey })
+    return ok
+  }
+  if (action === 'move') {
+    const srcKey = String(payload.key || '').trim()
+    const dstKey = String(payload.target || '').trim()
+    if (!srcKey || !dstKey) {
+      logPanelSet('① 动作=move 失败：缺 key/target', { srcKey, dstKey })
+      return false
+    }
+    const snap0 = rightStageStore.getSnapshot()
+    const beforeKeys = (snap0.tabs || []).map((t) => rightStageStore.keyOf(t))
+    rightStageStore.reorderTab(srcKey, dstKey)
+    const snap1 = rightStageStore.getSnapshot()
+    const afterKeys = (snap1.tabs || []).map((t) => rightStageStore.keyOf(t))
+    const ok = afterKeys.length === beforeKeys.length && afterKeys.join('|') !== beforeKeys.join('|')
+    logPanelSet('① 动作=move 已调顺序', { srcKey, dstKey, ok, beforeKeys, afterKeys })
+    dispatchStageSetApplied({ action: 'move', key: srcKey, target: dstKey })
     return ok
   }
   if (action === 'hide' || payload.surface === null) {
@@ -367,6 +434,13 @@ export function applyRightStageAgUiCustom(
     //   这里不取 key，实时通道就切不动签（只有工具 result 回放那条路能切），
     //   表现为「工具说切了、屏幕没动」。两条通道都得通。
     ...(String(payload.key || '').trim() ? { key: String(payload.key).trim() } : {}),
+    // 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：``target`` 也必须透传。
+    // 为什么（本轮前端测试当场抓到）：我只把 key 搬进来、漏了 target，
+    //   结果 ui.move 分发时读到 ``dstKey: ''``，走「缺 key/target」直接 return false。
+    //   这正是「加参数只改声明处、漏掉使用处」的老毛病 —— 第100轮 activate 也是在这里
+    //   只搬了 key；这次别再漏第二个字段。
+    ...(String(payload.target || '').trim() ? { target: String(payload.target).trim() } : {}),
   }
   // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
   // 改了什么：把 applyStageSetPayload 的返回值如实返回，不再无条件 `return true`。

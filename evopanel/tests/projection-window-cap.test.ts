@@ -6,10 +6,12 @@ import {
   capProjectionWindow,
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
+  isProjectionWindowBallooned,
   lightenProjectionRowsForMemory,
   liveTurnSpan,
   pinLiveTurnAfterDeltas,
   pinTurnRowsAtTail,
+  releaseBalloonProjectionWindow,
   repairPartialTurnsInProjectionWindow,
   selectLiveTurnWithinBudget,
   selectOlderCompleteTurnsWithinBudget,
@@ -553,6 +555,62 @@ describe('selectLiveTurnWithinBudget', () => {
 })
 
 describe('liveTurnSpan stream tip', () => {
+  it('demotes zombie low-rowId running tool when a newer tip turn already exists', () => {
+    // 现场：旧轮 bash@80 永久 running；窗里已有 290+ 新 tip；只看 inflight 会钉旧轮
+    // → unsorted windowLast=80、!STREAM_AHEAD_OF_WINDOW、新回复空白。
+    const rows: ConversationRow[] = [
+      {
+        ...row(45, 'turnHeader'),
+        turnId: 'zombie',
+        state: 'running',
+        createdAt: 1_000,
+      } as ConversationRow,
+      {
+        ...row(46, 'userInput', 'realUser'),
+        turnId: 'zombie',
+        text: '旧问',
+        createdAt: 1_000,
+      } as ConversationRow,
+      {
+        ...row(80, 'toolCall'),
+        turnId: 'zombie',
+        status: 'running',
+        toolName: 'bash',
+      } as ConversationRow,
+      {
+        ...row(290, 'turnHeader'),
+        turnId: 'tip',
+        state: 'completedSuccess',
+        createdAt: 9_000,
+      } as ConversationRow,
+      {
+        ...row(291, 'userInput', 'realUser'),
+        turnId: 'tip',
+        text: '新问',
+        createdAt: 9_000,
+      } as ConversationRow,
+      {
+        ...row(299, 'assistantText'),
+        turnId: 'tip',
+        state: 'complete',
+        text: '46',
+      } as ConversationRow,
+    ]
+
+    const span = liveTurnSpan(rows)
+    expect(span).toBeTruthy()
+    expect(rows[span!.turnStart]?.turnId).toBe('tip')
+    expect(rows[span!.userIdx]?.text).toBe('新问')
+
+    const softCap = 12
+    const sorted = [...rows].sort((a, b) => a.rowId - b.rowId)
+    const tailOnly = capProjectionWindow(sorted, softCap, 'tail')
+    const pinned = ensureLiveTurnInProjectionWindow(sorted, [...tailOnly], softCap)
+    expect(pinned.some((r) => r.rowId === 299)).toBe(true)
+    expect(Math.max(...pinned.map((r) => r.rowId))).toBe(299)
+    expect(pinned[pinned.length - 1]?.turnId).toBe('tip')
+  })
+
   it('prefers higher in-flight tip turn even when only the older turn has a realUser in window', () => {
     // 现场：新问还在 optimistic、投影里只有上一问「这」；SSE 已在新 turn tip=2154。
     // 旧算法按用户气泡钉旧轮 → soft-cap 裁掉 2154 → STREAM_AHEAD / 页面转圈。
@@ -842,5 +900,88 @@ describe('capAndLightenProjectionWindow', () => {
     )
     expect(oldHeavy).toBeTruthy()
     expect(PROJECTION_HEAVY_HORIZON).toBeGreaterThan(20)
+  })
+})
+
+describe('releaseBalloonProjectionWindow', () => {
+  it('returns null under balloon threshold', () => {
+    const rows = Array.from({ length: 100 }, (_, i) => row(i + 1))
+    expect(isProjectionWindowBallooned(100, 220)).toBe(false)
+    expect(releaseBalloonProjectionWindow(rows, 220)).toBeNull()
+  })
+
+  it('trims loadOlder balloon back to softCap tip (following tip)', () => {
+    // 模拟上滚把 15 轮完整历史前插进窗（现场 884 行 / softCap 220）。
+    const rows: ConversationRow[] = []
+    let id = 1
+    for (let t = 0; t < 40; t += 1) {
+      const turnId = `hist-${t}`
+      rows.push({ ...row(id++), turnId, kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
+      rows.push({
+        ...row(id++, 'userInput', 'realUser'),
+        turnId,
+        text: `q${t}`,
+      } as ConversationRow)
+      for (let k = 0; k < 8; k += 1) {
+        rows.push({
+          ...row(id++, 'toolCall'),
+          turnId,
+          status: 'success',
+        } as ConversationRow)
+      }
+      rows.push({
+        ...row(id++, 'assistantText'),
+        turnId,
+        text: `a${t}`,
+      } as ConversationRow)
+    }
+    expect(rows.length).toBeGreaterThan(330)
+    expect(isProjectionWindowBallooned(rows.length, 80)).toBe(true)
+    const tipId = rows[rows.length - 1]!.rowId
+    const released = releaseBalloonProjectionWindow(rows, 80)
+    expect(released).not.toBeNull()
+    expect(released!.length).toBeLessThanOrEqual(Math.floor(80 * 1.5) + 12)
+    expect(released!.length).toBeLessThan(rows.length)
+    expect(released![released!.length - 1]?.rowId).toBe(tipId)
+    expect(released!.some((r) => r.rowId === tipId)).toBe(true)
+    // 尾轮用户问仍在（跟底可读最新）
+    expect(
+      released!.some(
+        (r) => r.kind === 'userInput' && String((r as { text?: string }).text || '') === 'q39',
+      ),
+    ).toBe(true)
+  })
+
+  it('keeps max rowId tip even when a mid live turn would tempt ensureLiveTurn drop', () => {
+    // 交错：较早 realUser 轮 tip=200；其后另有完成轮到 400。ensureLiveTurn
+    // 若按 live 重建会丢 201…400；release 必须保 tip=400。
+    const rows: ConversationRow[] = []
+    for (let i = 1; i <= 200; i += 1) {
+      const turnId = i <= 2 ? 'live' : i <= 100 ? 'old' : 'live'
+      if (i === 1) {
+        rows.push({ ...row(i), turnId: 'live', kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
+      } else if (i === 2) {
+        rows.push({ ...row(i, 'userInput', 'realUser'), turnId: 'live', text: 'latest-q' } as ConversationRow)
+      } else if (i <= 100) {
+        rows.push({ ...row(i), turnId: 'old', kind: 'toolCall', status: 'success' } as ConversationRow)
+      } else {
+        rows.push({ ...row(i), turnId: 'live', kind: 'toolCall', status: 'success' } as ConversationRow)
+      }
+    }
+    for (let i = 201; i <= 400; i += 1) {
+      const turnId = 'later'
+      if (i === 201) {
+        rows.push({ ...row(i), turnId, kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
+      } else if (i === 202) {
+        rows.push({ ...row(i, 'userInput', 'realUser'), turnId, text: 'even-later' } as ConversationRow)
+      } else {
+        rows.push({ ...row(i), turnId, kind: 'assistantText', text: `t${i}` } as ConversationRow)
+      }
+    }
+    expect(isProjectionWindowBallooned(rows.length, 80)).toBe(true)
+    const released = releaseBalloonProjectionWindow(rows, 80)
+    expect(released).not.toBeNull()
+    expect(Math.max(...released!.map((r) => r.rowId))).toBe(400)
+    expect(released!.some((r) => r.rowId === 400)).toBe(true)
   })
 })

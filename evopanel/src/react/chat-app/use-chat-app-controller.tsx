@@ -6702,7 +6702,7 @@ export function useChatAppController() {
   const selectSessionFromShellRef = useRef<(sessionKey: string) => void>(() => {})
   const selectSessionFromShell = useCallback(
     (sessionKey: string) => {
-      // 点击先于 flushSync 强制预热：KeepAlive miss 时也尽量带着快照进 host。
+      // 点击先于状态更新强制预热：KeepAlive miss 时也尽量带着快照进 host。
       warmV4OnSessionSelect(sessionKey)
       selectSessionFromShellImpl(
         {

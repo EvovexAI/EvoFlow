@@ -1,4 +1,8 @@
-import type { ConversationTurnRenderUnit } from "@/v4/conversationTurnRenderUnits.js";
+import {
+  sameItems,
+  type ConversationTurnRenderUnit,
+  type ConversationTurnRenderUnitsPartition,
+} from "@/v4/conversationTurnRenderUnits.js";
 
 export type ConversationTurnNavigatorAssistantPreviewKind = "empty" | "running" | "text";
 
@@ -208,6 +212,144 @@ export function buildConversationTurnNavigatorItems(
       isRunning: unit.isRunning && queryIndex === realUserInputs.length - 1,
     }));
   });
+}
+
+function collectRealUserQueryRowIds(units: readonly ConversationTurnRenderUnit[]): number[] {
+  const rowIds: number[] = [];
+  for (const unit of units) {
+    for (const row of unit.visibleUserInputs) {
+      if (row.origin === "realUser") rowIds.push(row.rowId);
+    }
+  }
+  return rowIds;
+}
+
+/**
+ * 目录成员未变时保持身份；正文 token/时钟不能让 DOM 锚点登记跟着全量重建。
+ * 输入按「历史 + 尾轮」分区：历史段引用不变且尾轮成员不变时直接复用，流式帧只收集尾轮；
+ * 历史段变化时才整窗比较成员。
+ */
+export function createConversationTurnNavigatorQueryRowIdsSelector() {
+  let previous: ReadonlySet<number> = new Set<number>();
+  let previousHistory: readonly ConversationTurnRenderUnit[] | null = null;
+  let previousTailRowIds: number[] = [];
+  return (units: ConversationTurnRenderUnitsPartition): ReadonlySet<number> => {
+    const tailRowIds = collectRealUserQueryRowIds(units.tail);
+    if (previousHistory === units.history && sameItems(previousTailRowIds, tailRowIds)) {
+      return previous;
+    }
+    previousHistory = units.history;
+    previousTailRowIds = tailRowIds;
+    const next = new Set([...collectRealUserQueryRowIds(units.history), ...tailRowIds]);
+    if (next.size !== previous.size || [...next].some((rowId) => !previous.has(rowId))) {
+      previous = next;
+    }
+    return previous;
+  };
+}
+
+/**
+ * 目录项选择器：历史段按 units.history 引用缓存、流式帧只重算尾轮；item 级数值
+ * （preview/isRunning）未变时复用旧 item 对象，下游按 items 引用的 memo 不随 token 失效。
+ * 逐 unit 复用 buildConversationTurnNavigatorItems，EvoFlow 的目录语义改动保持在 builder 内。
+ */
+export function createConversationTurnNavigatorItemsSelector() {
+  type UnitCache = Map<
+    string,
+    { unit: ConversationTurnRenderUnit; index: number; items: ConversationTurnNavigatorItem[] }
+  >;
+  let historyCache: UnitCache = new Map();
+  let tailCache: UnitCache = new Map();
+  let previousOptions: BuildConversationTurnNavigatorItemsOptions | undefined;
+  let history: {
+    units: readonly ConversationTurnRenderUnit[];
+    items: ConversationTurnNavigatorItem[];
+  } | null = null;
+  let previousTailItems: ConversationTurnNavigatorItem[] = [];
+  let previousItems: ConversationTurnNavigatorItem[] = [];
+
+  const selectUnitItems = (
+    units: readonly ConversationTurnRenderUnit[],
+    indexOffset: number,
+    options: BuildConversationTurnNavigatorItemsOptions,
+    lookup: (key: string) => ReturnType<UnitCache["get"]>,
+    next: UnitCache,
+  ) =>
+    units.flatMap((unit, offset) => {
+      const index = indexOffset + offset;
+      const cached = lookup(unit.key);
+      if (cached?.unit === unit && cached.index === index) {
+        next.set(unit.key, cached);
+        return cached.items;
+      }
+      const built = buildConversationTurnNavigatorItems([unit], options).map((item) => ({
+        ...item,
+        unitIndex: index,
+      }));
+      // running 时钟或不可见正文尾部变化，未必改变目录实际展示值。
+      const stable = built.map((item, i) => {
+        const old = cached?.items[i];
+        return old &&
+          Object.keys(item).every(
+            (key) => item[key as keyof typeof item] === old[key as keyof typeof item],
+          )
+          ? old
+          : item;
+      });
+      next.set(unit.key, { unit, index, items: stable });
+      return stable;
+    });
+
+  return (
+    units: ConversationTurnRenderUnitsPartition,
+    options: BuildConversationTurnNavigatorItemsOptions,
+  ) => {
+    if (
+      !previousOptions ||
+      Object.keys({ ...previousOptions, ...options }).some(
+        (key) =>
+          options[key as keyof typeof options] !== previousOptions?.[key as keyof typeof options],
+      )
+    ) {
+      historyCache.clear();
+      tailCache.clear();
+      history = null;
+    }
+    previousOptions = options;
+    const previousHistoryCache = historyCache;
+    const previousTailCache = tailCache;
+    let historyChanged = false;
+    if (history?.units !== units.history) {
+      historyCache = new Map();
+      history = {
+        units: units.history,
+        items: selectUnitItems(
+          units.history,
+          0,
+          options,
+          (key) => previousHistoryCache.get(key) ?? previousTailCache.get(key),
+          historyCache,
+        ),
+      };
+      historyChanged = true;
+    }
+    tailCache = new Map();
+    const tailItems = selectUnitItems(
+      units.tail,
+      units.history.length,
+      options,
+      (key) => previousTailCache.get(key) ?? previousHistoryCache.get(key),
+      tailCache,
+    );
+    if (!historyChanged && sameItems(tailItems, previousTailItems)) {
+      return previousItems;
+    }
+    previousTailItems = tailItems;
+    const items = [...history.items, ...tailItems];
+    if (sameItems(items, previousItems)) return previousItems;
+    previousItems = items;
+    return items;
+  };
 }
 
 function resolveFiniteNonNegative(value: number): number {

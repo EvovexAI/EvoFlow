@@ -702,6 +702,8 @@ fn run_main_cdp_route(app: tauri::AppHandle, method: &str, path: &str, body: &st
         }
         ("GET" | "POST", "snapshot") => {
             let opts = json_body(body);
+            // Empty GET body yields JSON null — JS snapshot(null) crashes on opts.maxElements
+            let opts = if opts.is_null() { serde_json::json!({}) } else { opts };
             let opts_js = serde_json::to_string(&opts).unwrap_or_else(|_| "{}".into());
             log_line("[main-cdp] snapshot");
             match super::browser_cdp::panel_api_call(&app, &format!("P.snapshot({opts_js})")) {
@@ -714,6 +716,34 @@ fn run_main_cdp_route(app: tauri::AppHandle, method: &str, path: &str, body: &st
             match super::browser_cdp::panel_api_call(&app, "P.getState()") {
                 Ok(v) => main_cdp_ok_wrap(v),
                 Err(e) => main_cdp_err("execution_error", &e),
+            }
+        }
+        ("GET" | "POST", "page-dump") | ("GET" | "POST", "page_dump") => {
+            let opts = json_body(body);
+            let opts = if opts.is_null() {
+                serde_json::json!({})
+            } else {
+                opts
+            };
+            let opts_js = serde_json::to_string(&opts).unwrap_or_else(|_| "{}".into());
+            log_line("[main-cdp] page-dump");
+            // Prefer __evoflowPanel.pageDump when present (new builds).
+            match super::browser_cdp::panel_api_call(
+                &app,
+                &format!("(P.pageDump?P.pageDump({opts_js}):null)"),
+            ) {
+                Ok(v) if !v.is_null() => main_cdp_ok_wrap(v),
+                _ => {
+                    // Installed builds without pageDump: inline evaluate dump of visible turns.
+                    // Use \\n in the JS source (Rust "\\n" → JS '\n'); a raw newline breaks ExecuteScript.
+                    let expr = format!(
+                        "(function(){{var o={opts_js};var maxTurns=Math.max(1,Number(o.maxTurns)||30);var maxChars=Math.max(80,Number(o.maxCharsPerTurn)||1200);var turns=[];var nodes=[].slice.call(document.querySelectorAll('[data-turn-id]'));for(var i=0;i<nodes.length&&turns.length<maxTurns;i++){{var el=nodes[i];var r=el.getBoundingClientRect();if(r.width<=0||r.height<=0)continue;if(r.bottom<=0||r.top>(window.innerHeight||0))continue;var text=String(el.innerText||'').trim();if(!text)continue;if(text.length>maxChars)text=text.slice(0,maxChars-1)+'...';turns.push({{turnId:el.getAttribute('data-turn-id'),text:text,top:Math.round(r.top)}});}}var lines=[];for(var j=0;j<turns.length;j++){{lines.push('--- turn '+(turns[j].turnId||'?')+' ---');lines.push(turns[j].text);}}return {{kind:'page_dump',fallback:true,selectedSessionKey:String(window.__evoflowSelectedSessionKey||'')||null,title:(window.__evoflowChatLayout&&window.__evoflowChatLayout.activeTitle)||document.title||'',turnCount:turns.length,turns:turns,transcript:lines.join('\\n')}};}})()"
+                    );
+                    match super::browser_cdp::evaluate_on_main_webview(&app, &expr) {
+                        Ok(v) => main_cdp_ok_wrap(v),
+                        Err(e) => main_cdp_err("execution_error", &e),
+                    }
+                }
             }
         }
         ("POST", "click") => {

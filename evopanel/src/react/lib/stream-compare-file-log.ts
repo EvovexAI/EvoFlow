@@ -142,8 +142,16 @@ export function sanitizeSessionLogId(sessionKey: string): string {
     .slice(0, 80)
 }
 
+/** 探活/合成会话（probe-*，如 zcode 壳的 probe-session-x / probe-thread-x）：
+ * 不是真实对话，不落盘、不建目录（实测每天往 stream-compare 炸 pending 目录）。 */
+function isSyntheticProbeSession(sessionKey: string): boolean {
+  return /^probe-/.test(String(sessionKey || '').trim().toLowerCase())
+}
+
 function resolveLogSessionId(sessionKey?: string): string {
-  return sanitizeSessionLogId(String(sessionKey || activeSessionLogId || '').trim())
+  const raw = String(sessionKey || activeSessionLogId || '').trim()
+  if (isSyntheticProbeSession(raw)) return ''
+  return sanitizeSessionLogId(raw)
 }
 
 function ensureStore(): CompareStore {

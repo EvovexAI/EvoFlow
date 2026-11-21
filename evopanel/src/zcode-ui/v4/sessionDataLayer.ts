@@ -4,6 +4,7 @@
 // 一个实例对应一条 host 连接；跨 workspace 分屏在 shell 层做
 // Map<workspaceKey, SessionDataLayer>，本层不感知 workspace。
 import { ConversationProjectionStore } from "@/v4/conversationProjectionStore.js";
+import { ConversationRowPool } from "@/v4/conversationRowSharing.js";
 import { shouldExposeE2EStoreBridge } from "@/lib/e2eStoreBridge.js";
 import type { SessionOpenKind } from "@/lib/sessionOpenArmsTelemetry.js";
 import { conversationTopic, type ConversationTransport } from "@/v4/transport.js";
@@ -27,7 +28,10 @@ interface SessionDataLayerOptions {
   keepWarmMs?: number;
 }
 
-const SESSION_DATA_LAYER_KEEP_WARM_MS = 30_000;
+// 对齐 ZCode 客户端 keep-warm 的角色，但口径更大：ZCode 冷开便宜（服务端常驻+60 行快照），
+// 30s 足够；EvoFlow 冷开贵（服务端 hydrate 2000 条串行），来回扫会话 30s 一过就掉冷开，
+// 逐会话白屏「加载中」。120s 覆盖「扫一圈再扫回来」的节奏；内存压力巡检仍会按水位逐出。
+const SESSION_DATA_LAYER_KEEP_WARM_MS = 120_000;
 const E2E_SESSION_DATA_LAYER_KEEP_WARM_MS = 1_000;
 
 function resolveSessionDataLayerKeepWarmMs(
@@ -50,6 +54,12 @@ function monotonicNow(): number {
 
 export class SessionDataLayer {
   private readonly transport: ConversationTransport;
+  /**
+   * 跨 store 的行对象池（ZCode conversationRowSharing 语义）：keep-warm 过期冷打开
+   * 会新建 store，池的生命周期长于单个 store——旧 snapshot 仍被闭包链留住时，新行
+   * 复用旧引用，快照替换不再全列表换身份。只持 WeakRef，不延长行寿命。
+   */
+  private readonly rowPool = new ConversationRowPool();
   private readonly keepWarmMs: number;
   private readonly entries = new Map<string, SessionEntry>();
   private readonly offFrame: () => void;
@@ -94,7 +104,7 @@ export class SessionDataLayer {
       // 这里补一刀，避免干等 Timeline 遮罩 + 5s watchdog（正式包空白开现场）。
       entry.store.ensureConnected();
     } else {
-      const store = new ConversationProjectionStore(topic, this.transport);
+      const store = new ConversationProjectionStore(topic, this.transport, this.rowPool);
       entry = { store, refCount: 1, keepWarmTimer: null };
       this.entries.set(topic, entry);
       openKind = "cold";

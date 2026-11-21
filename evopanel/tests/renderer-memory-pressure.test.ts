@@ -32,7 +32,7 @@ describe('adaptive caps under memory pressure', () => {
   })
 
   it('shrinks pin max as pressure rises', () => {
-    expect(pinMaxForMemoryLevel('normal')).toBe(4)
+    expect(pinMaxForMemoryLevel('normal')).toBe(6)
     expect(pinMaxForMemoryLevel('high')).toBe(2)
     expect(pinMaxForMemoryLevel('critical')).toBe(1)
   })

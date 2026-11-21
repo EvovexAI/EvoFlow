@@ -70,6 +70,12 @@ param(
   #   光在文档里写禁令不够——本脚本的默认用法就是建锚点单再 wake，光是"存在这条路"，
   #   下一轮我又会照着 EXAMPLE 走回去。把默认改成拦、要接力得显式说明理由。
   [switch] $AllowWake,
+  # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：新增「允许装比源码旧的安装包」显式开关。
+  # 为什么：默认闸门是「安装包时间 ≥ 最新前端/壳源文件时间」，防止装旧包白跑一轮重启
+  # （本轮实测：1.3.40 已构建，却因排序属性名写错装了 1.3.39）。仅当确知无需重打包
+  # （比如只改后端、后端走 EVOFLOW_BACKEND_DIR 源码直载）时才传它。
+  [switch] $AllowStaleSetup,
   [switch] $DryRun
 )
 
@@ -171,12 +177,43 @@ if ($Build) {
 
 # ── 2. 定位安装包 ──────────────────────────────────────────────────────────
 if ([string]::IsNullOrWhiteSpace($SetupExe)) {
+  # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+  # 改了什么：`Sort-Object LastWriteTimeDescending` → `Sort-Object -Property LastWriteTime -Descending`。
+  # 为什么（本轮现网取证）：`LastWriteTimeDescending` 不是属性名，PowerShell 把它当**不存在的
+  # 属性**处理——所有项该属性为 $null，排序空转、按目录枚举原序返回，于是选中字典序在前的旧包。
+  # 实测代价：23:11:57 已构建出 1.3.40，23:23 的自验证却装了 **1.3.39**（看门狗日志第 537 行），
+  # 用户当场质问「你不重新构建有啥用」——这正是系统本可以不让我绕的那一步。
   $hit = Get-ChildItem -LiteralPath $NsisDir -Filter "*_x64-setup.exe" -File -ErrorAction SilentlyContinue |
-         Sort-Object LastWriteTimeDescending | Select-Object -First 1
+         Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
   if (-not $hit) { throw "未找到安装包（$NsisDir）。先加 -Build，或手动指定 -SetupExe。" }
   $SetupExe = $hit.FullName
+  Say "选定安装包（按修改时间倒序取最新）: $(Split-Path -Leaf $SetupExe)" "Gray"
 }
 if (-not (Test-Path -LiteralPath $SetupExe)) { throw "安装包不存在: $SetupExe" }
+
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：新增「安装包比前端源码旧就拒绝」闸门（-Build 时自动通过，-AllowStaleSetup 可绕过）。
+# 为什么：上面那个排序缺陷让我装过一次旧包，白跑一整轮重启；更早一轮也是「装的是 17:33 的包，
+# 而 5 个前端文件是 18:01~18:25 才改的」。判据必须是**安装包时间 vs 最新前端/壳源文件时间**，
+# 不是「安装器 exit=0」——exit=0 只证明装完了，不证明装的是新东西。
+if (-not $Build -and -not $AllowStaleSetup) {
+  $SetupTime = (Get-Item -LiteralPath $SetupExe).LastWriteTime
+  $srcRoots = @((Join-Path $RepoRoot "evopanel\src"), (Join-Path $RepoRoot "evopanel\src-tauri\src"))
+  $newestSrc = $null
+  foreach ($root in $srcRoots) {
+    if (-not (Test-Path -LiteralPath $root)) { continue }
+    $f = Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+         Where-Object { $_.FullName -notmatch '\\node_modules\\|\\target\\|\\dist\\' } |
+         Sort-Object -Property LastWriteTime -Descending | Select-Object -First 1
+    if ($f -and (-not $newestSrc -or $f.LastWriteTime -gt $newestSrc.LastWriteTime)) { $newestSrc = $f }
+  }
+  if ($newestSrc -and $newestSrc.LastWriteTime -gt $SetupTime) {
+    throw ("安装包比源码旧，拒绝安装：安装包 $($SetupTime.ToString('yyyy-MM-dd HH:mm:ss')) < 源文件 " +
+           "$($newestSrc.LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss'))（$($newestSrc.FullName)）。" +
+           "加 -Build 重新构建，或确认无需重打包时加 -AllowStaleSetup。")
+  }
+  Say "安装包新鲜度检查通过（包 $($SetupTime.ToString('HH:mm:ss')) ≥ 最新源文件 $($newestSrc.LastWriteTime.ToString('HH:mm:ss'))）" "Green"
+}
 Say "安装包: $SetupExe  修改时间 $((Get-Item -LiteralPath $SetupExe).LastWriteTime)"
 
 # ── 3. 解析 CLI（看门狗要用它 wake 岗位）───────────────────────────────────

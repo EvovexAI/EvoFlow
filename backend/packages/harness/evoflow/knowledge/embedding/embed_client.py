@@ -75,6 +75,20 @@ def shutdown_embed_worker() -> None:
             pass
 
 
+def _kill_worker_for_timeout(proc: subprocess.Popen[bytes] | None) -> None:
+    """超时看门狗回调：杀掉无响应的 worker，让阻塞的 readline 立即返回 EOF。"""
+    if proc is None:
+        return
+    logger.warning(
+        "[embed-client] worker timeout: killing pid=%s (readline 超时保护)",
+        proc.pid,
+    )
+    try:
+        proc.kill()
+    except Exception:
+        logger.debug("[embed-client] watchdog kill failed", exc_info=True)
+
+
 def embed_texts_via_worker(
     texts: list[str],
     *,
@@ -82,8 +96,14 @@ def embed_texts_via_worker(
     device: str = "cpu",
     timeout_s: float = 120.0,
 ) -> list[list[float]]:
-    """Embed ``texts`` in the sidecar worker. Thread-safe."""
-    del timeout_s  # reserved; readline blocks until worker responds
+    """Embed ``texts`` in the sidecar worker. Thread-safe.
+
+    【2026-11-21 修复】原实现 ``del timeout_s`` 后直接 ``readline()``——worker 卡住
+    （torch 冷 import / 模型缺失 / 崩溃前挂起）时**无限阻塞**调用线程，code_index
+    的批量预算 + 二分重试会把整测套件/网关线程拖死（全量 pytest 22% 实锤）。
+    现在用 kill 看门狗实现真正的超时：超时杀 worker → readline 返回 EOF → 抛
+    RuntimeError → 调用方既有恢复路径（kill + 重spawn / 降级词法）接手，**有界**。
+    """
     if not texts:
         return []
     req = {
@@ -113,9 +133,26 @@ def embed_texts_via_worker(
             proc.stdin.write(line)
             proc.stdin.flush()
 
-        raw = proc.stdout.readline()
-        if not raw:
-            raise RuntimeError("local embed worker closed stdout")
+        # kill 看门狗：超时杀 worker → readline 立即返回 EOF（有界），而不是永久阻塞。
+        effective_timeout = max(1.0, float(timeout_s or 0))
+        watchdog: threading.Timer | None = None
+        if timeout_s and timeout_s > 0:
+            watchdog = threading.Timer(
+                effective_timeout,
+                _kill_worker_for_timeout,
+                args=(proc,),
+            )
+            watchdog.daemon = True
+            watchdog.start()
+        try:
+            raw = proc.stdout.readline()
+            if not raw:
+                raise RuntimeError(
+                    f"local embed worker closed stdout (timeout_s={effective_timeout}s 或 worker 退出)"
+                )
+        finally:
+            if watchdog is not None:
+                watchdog.cancel()
     try:
         payload: dict[str, Any] = json.loads(raw.decode("utf-8"))
     except Exception as exc:

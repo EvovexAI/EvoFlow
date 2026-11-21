@@ -65,6 +65,11 @@ export interface V4TimelinePayload {
   onLoadOlder: () => Promise<void> | void;
   /** 快照自动补拉（恢复可视性）：fresh subscribe / resync 后尾窗截断历史时用。 */
   onAutoBackfill: () => Promise<void> | void;
+  /**
+   * 跟底 / 回底部：若 loadOlder 已把投影窗撑成 balloon，裁回 softCap。
+   * 上滚阅读历史时不要调。
+   */
+  onFollowingTip?: () => void;
 }
 
 export type V4BridgePhase =
@@ -93,9 +98,10 @@ export function getSharedV4SessionDataLayer(): SessionDataLayer {
 }
 
 /**
- * 悬停预热限流：每个未命中快照的预热 = 一条完整 V4 快照订阅（单帧 370–854KB，
- * 主线程 JSON.parse）。鼠标扫过会话列表会连续触发，实测一次滑过 8+ 会话可在
- * 1s 内产生 ~4MB 解析导致整窗卡死（2026-10-27 00:44 复现）。
+ * 悬停预热限流：每个未命中快照的预热 = 一条完整 V4 快照订阅 + 主线程 JSON.parse。
+ * 2026-10-27 实测单帧曾到 370–854KB 并把整窗卡死；同日服务端已加 256KB 字节预算
+ * （60 行尾窗超限对半收缩，conversation.py _SNAPSHOT_MAX_BYTES），帧体积已受控，
+ * 但 parse 仍在主线程，鼠标扫过列表仍会连续触发订阅——限流保留作为主线程防御。
  * 命中已有快照的预热零成本，不受限；冷启动只按滑动窗口限量。
  * 不对 layer.size 封顶——pin 会计入 size，封顶会让第 5 路悬停永远预热不到（偏离 ZCode）。
  */
@@ -1141,6 +1147,17 @@ export function V4StreamRowsBridge(props: {
     [store],
   );
 
+  const onFollowingTip = useMemo(
+    () => () => {
+      try {
+        store?.releaseBalloonForFollowingTip();
+      } catch {
+        /* best-effort */
+      }
+    },
+    [store],
+  );
+
   const liveSnapshot: ConversationSnapshot | null = state?.snapshot ?? null;
   // 磁盘缓存 → sticky：从未打开 / keep-warm 过期后仍能先画。
   const [diskSticky, setDiskSticky] = useState<ConversationSnapshot | null>(null);
@@ -1525,6 +1542,7 @@ export function V4StreamRowsBridge(props: {
       loadingOlder: usedStickyPaint ? false : loadingOlder,
       onLoadOlder,
       onAutoBackfill,
+      onFollowingTip,
     };
   }, [
     sessionId,
@@ -1533,6 +1551,7 @@ export function V4StreamRowsBridge(props: {
     loadingOlder,
     onLoadOlder,
     onAutoBackfill,
+    onFollowingTip,
     store,
     usedStickyPaint,
   ]);

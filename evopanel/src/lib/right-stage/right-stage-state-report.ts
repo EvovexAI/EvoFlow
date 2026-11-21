@@ -24,6 +24,8 @@ const REPORT_ENDPOINT = '/api/stage/right-stage/state'
 let timer: ReturnType<typeof setTimeout> | null = null
 let pending: Record<string, unknown> | null = null
 let inFlight = false
+/** 在飞期间到达的最新状态；当前请求结束后必须补发一次，不许丢。 */
+let queued: Record<string, unknown> | null = null
 
 /** 只保留能标识「这是哪一页」的字段；载荷一律不出去。 */
 const IDENTITY_KEYS = [
@@ -38,6 +40,18 @@ const IDENTITY_KEYS = [
   'extensionId',
   'childSessionId',
   'parentSessionId',
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补 mainTaskId / subtaskId / mountId / focusId / roundId / agent_code。
+  // 为什么（本轮真机实测）：ui.current 回读协作两类的签时 data 恒为 {}，
+  //   模型看得见 key 却不知道「这是哪一单的主任务/哪个节点」——想复用同一签
+  //   只能靠解析 key 里的字符串，等于逼调用方去猜。它们都是纯身份字段，
+  //   不带任何正文载荷，加进来不违反「只发身份」的边界。
+  'mainTaskId',
+  'subtaskId',
+  'mountId',
+  'focusId',
+  'roundId',
+  'agent_code',
 ] as const
 
 function slimData(data: unknown): Record<string, unknown> {
@@ -100,7 +114,18 @@ function buildPayload(snapshot: {
 }
 
 async function post(payload: Record<string, unknown>): Promise<void> {
-  if (inFlight) return
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：inFlight 时不再直接 return 丢掉，而是记进 queued，等当前请求结束后补发。
+  // 为什么（本轮实测抓到的真缺陷）：旧写法 `if (inFlight) return` 让**最后一次**状态
+  //   在「上一次上报还没回来」时被静默丢弃，没有重试、没有排队。右栏突发 bump
+  //   （连续 show/activate/close）时，最终状态可能永远上不了报 —— 于是 ui.current
+  //   回读到的是中间态：模型看到 3 个签，用户屏幕上只剩 1 个。这类"读侧永远差一拍"
+  //   比彻底坏掉更难发现，因为大多数时候看起来都对。
+  // 判据：同一时刻最多一个在飞；在飞期间的新状态只保留最新一份，结束后必发一次。
+  if (inFlight) {
+    queued = payload
+    return
+  }
   inFlight = true
   try {
     // 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
@@ -131,6 +156,10 @@ async function post(payload: Record<string, unknown>): Promise<void> {
     warnOnce('right-stage state report failed', err)
   } finally {
     inFlight = false
+    // 在飞期间被排队的最新状态：立刻补发，保证读侧最终能看到最后那个状态。
+    const next = queued
+    queued = null
+    if (next) void post(next)
   }
 }
 
@@ -173,4 +202,8 @@ export async function __flushRightStageStateForTest(): Promise<void> {
   const payload = pending
   pending = null
   if (payload) await post(payload)
+  // 在飞期间排到的那份也要排空，否则测试通道比真通道更容易丢状态（判据不一致）。
+  const next = queued
+  queued = null
+  if (next) await post(next)
 }

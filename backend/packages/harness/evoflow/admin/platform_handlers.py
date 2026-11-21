@@ -3463,6 +3463,20 @@ def ui_show(args: dict[str, Any]) -> dict[str, Any]:
             "(collab-workflow | collabSubtaskTranscript | employeeProcess | "
             "sessionRuntime | web-embed | shell-page)."
         )
+    # 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：建签前先校验 kind 是否被支持（别名先归一，再查白名单）。
+    # 为什么（本轮真机实测）：`ui.show(kind="not-a-kind")` 返回 ok:true 并真的 emit，
+    #   而前端渲染层对未知 kind 走到末尾 return null —— 用户得到**空白页签**，
+    #   原来那一页被顶掉。工具报成功、屏幕是空的，是这里最该拦的一类。
+    # 判据：未知 kind 必须 ok:false 且文案点名可用清单 + 指路 ui.kinds；
+    #   合法 kind（含内部 used 的 write/file/terminal）照旧放行 —— 见 KNOWN_KINDS 注释。
+    from evoflow.stage.right_panel_kinds import is_known_kind, unknown_kind_message
+    from evoflow.tools.builtins.stage_tool import _normalize_panel_kind
+
+    _kind = _normalize_panel_kind(str(panel.get("kind") or ""))
+    if not is_known_kind(_kind):
+        raise ValidationError(unknown_kind_message(_kind))
+    panel["kind"] = _kind
     return apply_right_panel(action="show", **panel)
 
 
@@ -3472,6 +3486,14 @@ def ui_update(args: dict[str, Any]) -> dict[str, Any]:
     panel = _ui_panel_args(args)
     if not panel.get("kind"):
         raise ValidationError("ui.update requires kind")
+    # 同 ui.show：未知 kind 不许写进右栏（update 同样会建出空白签）。
+    from evoflow.stage.right_panel_kinds import is_known_kind, unknown_kind_message
+    from evoflow.tools.builtins.stage_tool import _normalize_panel_kind
+
+    _kind = _normalize_panel_kind(str(panel.get("kind") or ""))
+    if not is_known_kind(_kind):
+        raise ValidationError(unknown_kind_message(_kind))
+    panel["kind"] = _kind
     return apply_right_panel(action="update", **panel)
 
 
@@ -3479,6 +3501,58 @@ def ui_hide(_args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.tools.builtins.stage_tool import apply_right_panel
 
     return apply_right_panel(action="hide")
+
+
+def ui_close(args: dict[str, Any]) -> dict[str, Any]:
+    """关闭右栏里指定的**那一个**标签。
+
+    【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 platform action=ui.close。
+    为什么（用户当场要求）：「或者是给它关掉」。此前只有 ui.hide 整栏收起，
+      用户「只想关掉那一个、其它留着」做不到 —— 而前端 store 的 closeTab(key) 早就有了。
+    与 hide 的区别：hide 收起整栏（签还在，展开又回来）；close 真的删掉那一个签。
+    判据：close 后 tabCount 减 1；其它签的 key 原样保留；缺 key 时不静默，直接报错并指路。
+    """
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    key = _arg_str(args, "key", "tab_key", "activeKey", "active_key")
+    if not key:
+        from app.gateway.routers.stage_right_panel import read_right_stage_state as _read
+
+        cur = _read()
+        keys = [str((t or {}).get("key") or "") for t in (cur.get("tabs") or [])]
+        raise ValidationError(
+            "ui.close requires key (the tab key to close, e.g. 'shell-page:shell:/tasks'). "
+            f"Read it from platform action=ui.current first. Current tabs: {keys or 'unknown'}. "
+            "若要整栏收起请用 ui.hide。"
+        )
+    return apply_right_panel(action="close", key=key)
+
+
+def ui_move(args: dict[str, Any]) -> dict[str, Any]:
+    """把右栏某个标签移到另一个标签的位置（调整顺序）。
+
+    【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增 platform action=ui.move。
+    为什么（用户当场要求）：「或者给它调换位置」。前端 store 有 reorderTab(activeId, overId)，
+      后端一个入口都没有 —— 用户只能自己拖。
+    判据：move 必须同时给 key 与 target；完成后 tabCount 不变、两签先后顺序互换；
+      两者相同时直接报错（别发一个必然无效果的指令）。
+    """
+    from evoflow.tools.builtins.stage_tool import apply_right_panel
+
+    key = _arg_str(args, "key", "tab_key", "activeKey", "active_key")
+    target = _arg_str(args, "target", "target_key", "over", "over_key")
+    if not key or not target:
+        from app.gateway.routers.stage_right_panel import read_right_stage_state as _read
+
+        cur = _read()
+        keys = [str((t or {}).get("key") or "") for t in (cur.get("tabs") or [])]
+        raise ValidationError(
+            "ui.move requires key (要移动的签) and target (移到哪个签的位置). "
+            f"Both from platform action=ui.current → tabs[].key. Current tabs: {keys or 'unknown'}"
+        )
+    return apply_right_panel(action="move", key=key, target_key=target)
 
 
 def ui_current(_args: dict[str, Any]) -> dict[str, Any]:
@@ -3551,7 +3625,7 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
     op = _arg_str(args, "op", "action", "cmd").lower()
     if not op:
         raise ValidationError(
-            "ui.panel requires op: snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
+            "ui.panel requires op: snapshot|page_dump|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
         )
 
     def _params_obj() -> dict[str, Any]:
@@ -3570,12 +3644,60 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
             return loaded
         return {}
 
+    if op in ("page_dump", "pagedump", "debug_snapshot", "debug"):
+        body: dict[str, Any] = {}
+        if args.get("max_turns") is not None or args.get("maxTurns") is not None:
+            body["maxTurns"] = int(args.get("max_turns") or args.get("maxTurns") or 30)
+        if args.get("max_chars_per_turn") is not None or args.get("maxCharsPerTurn") is not None:
+            body["maxCharsPerTurn"] = int(
+                args.get("max_chars_per_turn") or args.get("maxCharsPerTurn") or 1200
+            )
+        if _arg_bool(args, "include_offscreen", False) or _arg_bool(args, "includeOffscreen", False):
+            body["includeOffscreen"] = True
+        env = panel_request("POST", "page-dump", body=body or None)
+        # Installed builds may lack /main-cdp/page-dump — fall back to evaluate dump.
+        if (
+            isinstance(env, dict)
+            and not env.get("ok")
+            and str(env.get("code") or "") in {"capability_unsupported", "execution_error"}
+        ):
+            from evoflow.tools.builtins.panel_engine import build_page_dump_evaluate_expr
+
+            expr = build_page_dump_evaluate_expr(
+                max_turns=int(body.get("maxTurns") or 30),
+                max_chars_per_turn=int(body.get("maxCharsPerTurn") or 1200),
+            )
+            env = panel_request("POST", "evaluate", body={"expression": expr})
+        if isinstance(env, dict) and env.get("ok"):
+            result = env.get("result")
+            dump = result if isinstance(result, dict) else {}
+            if isinstance(result, dict) and "transcript" not in result and isinstance(result.get("result"), dict):
+                dump = result["result"]
+            text = str(dump.get("transcript") or "").strip()
+            if text:
+                env = {
+                    **env,
+                    "result": dump,
+                    "text": text,
+                    "action": "ui.panel",
+                    "op": "page_dump",
+                    "hint": "排查用页面快照：text 是当前可见对话区正文；完整 turns 见 result.turns。",
+                }
+            else:
+                env = {**env, "action": "ui.panel", "op": "page_dump"}
+        return env if isinstance(env, dict) else {"ok": False, "error": "bad response", "action": "ui.panel"}
+
     if op == "snapshot":
         body: dict[str, Any] = {}
         if args.get("max_elements") is not None or args.get("maxElements") is not None:
             body["maxElements"] = int(args.get("max_elements") or args.get("maxElements") or 150)
         if _arg_bool(args, "include_hidden", False) or _arg_bool(args, "includeHidden", False):
             body["includeHidden"] = True
+        mode = _arg_str(args, "mode").lower()
+        if mode in ("page", "debug", "dump"):
+            body["mode"] = mode
+        if args.get("max_turns") is not None or args.get("maxTurns") is not None:
+            body["maxTurns"] = int(args.get("max_turns") or args.get("maxTurns") or 30)
         env = panel_request("POST", "snapshot", body=body or None)
         # Compact text for the model when elements are present
         result = env.get("result") if isinstance(env, dict) else None
@@ -3713,7 +3835,7 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
 
     raise ValidationError(
         f"unsupported ui.panel op={op!r}; "
-        "use snapshot|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
+        "use snapshot|page_dump|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
     )
 
 

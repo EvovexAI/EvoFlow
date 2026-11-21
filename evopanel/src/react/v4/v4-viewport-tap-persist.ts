@@ -23,11 +23,16 @@ type PersistLine = {
   payload: unknown;
 };
 
+import { sanitizeSessionLogId } from "../lib/stream-compare-file-log.js";
+
+/** 与 stream-compare 主日志同一把 sanitize（非法字符归 '_' 而不是直接删）——
+ * 之前这套独立实现把 ':'/'.' 直接删掉，同一会话在 stream-compare 下炸出两个目录
+ * （`proactive_self-evolution-bot_chat_…` 与 `proactiveself-evolution-botchat…` 双份落盘）。
+ * probe-* 合成会话返回空串，调用方直接跳过。 */
 function sanitizeSessionId(raw: string): string {
-  return String(raw || "")
-    .trim()
-    .replace(/[^a-zA-Z0-9_-]/g, "")
-    .slice(0, 96);
+  const trimmed = String(raw || "").trim();
+  if (/^probe-/i.test(trimmed)) return "";
+  return sanitizeSessionLogId(trimmed);
 }
 
 function lsKey(sessionId: string, kind: ViewportTapPersistKind): string {

@@ -4,6 +4,7 @@
  * Mounted as window.__evoflowPanel — Rust evaluate routes call into this object.
  */
 import { collectPanelSnapshot } from './panel-snapshot.js'
+import { collectPanelPageDump } from './panel-page-dump.js'
 import { getPanelChatBridge } from './panel-bridge.ts'
 
 export type PanelOk<T> = { ok: true; result: T }
@@ -47,23 +48,55 @@ function setNativeValue(el: Element, text: string) {
   el.dispatchEvent(new Event('change', { bubbles: true }))
 }
 
-export function snapshot(opts: { maxElements?: number; maxDom?: number; includeHidden?: boolean } = {}): PanelResult<{
+export function snapshot(
+  opts: {
+    maxElements?: number
+    maxDom?: number
+    includeHidden?: boolean
+    /** controls = clickable refs (default); page|debug = also attach visible chat transcript */
+    mode?: 'controls' | 'page' | 'debug'
+    maxTurns?: number
+    maxCharsPerTurn?: number
+  } = {},
+): PanelResult<{
   url: string
   title: string
   elements: unknown[]
   truncated: boolean
   dom: unknown[]
   domTruncated: boolean
+  page?: unknown
 }> {
   try {
-    const raw = collectPanelSnapshot(opts)
+    const o = opts && typeof opts === 'object' ? opts : {}
+    const raw = collectPanelSnapshot(o)
     lastRefs = new Map()
     raw._nodes.forEach((node, i) => {
       lastRefs.set(`e${i + 1}`, node)
     })
     const { _nodes: _drop, ...publicSnap } = raw
     void _drop
+    const mode = String(o.mode || 'controls').toLowerCase()
+    if (mode === 'page' || mode === 'debug') {
+      const page = collectPanelPageDump({
+        maxTurns: o.maxTurns,
+        maxCharsPerTurn: o.maxCharsPerTurn,
+        includeOffscreen: Boolean(o.includeHidden),
+      })
+      return ok({ ...publicSnap, page })
+    }
     return ok(publicSnap)
+  } catch (e) {
+    return err('execution_error', String((e as Error)?.message || e))
+  }
+}
+
+/** Troubleshooting dump: visible turn texts + chrome state (not just eN controls). */
+export function pageDump(
+  opts: { maxTurns?: number; maxCharsPerTurn?: number; includeOffscreen?: boolean } = {},
+): PanelResult<ReturnType<typeof collectPanelPageDump>> {
+  try {
+    return ok(collectPanelPageDump(opts && typeof opts === 'object' ? opts : {}))
   } catch (e) {
     return err('execution_error', String((e as Error)?.message || e))
   }
@@ -350,6 +383,7 @@ export async function dispatch(
 
 export type EvoflowPanelApi = {
   snapshot: typeof snapshot
+  pageDump: typeof pageDump
   click: typeof click
   fill: typeof fill
   type: typeof type
@@ -360,7 +394,7 @@ export type EvoflowPanelApi = {
 }
 
 export function createPanelApi(): EvoflowPanelApi {
-  return { snapshot, click, fill, type, scroll, getState, axTree, dispatch }
+  return { snapshot, pageDump, click, fill, type, scroll, getState, axTree, dispatch }
 }
 
 export function mountPanelApi(target: Window = window): EvoflowPanelApi {

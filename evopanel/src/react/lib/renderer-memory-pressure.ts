@@ -57,7 +57,7 @@ export function projectionSoftCapForMemoryLevel(level: RendererMemoryLevel): num
 export function pinMaxForMemoryLevel(level: RendererMemoryLevel): number {
   if (level === 'critical') return 1
   if (level === 'high') return 2
-  return 4
+  return 6
 }
 
 /** 内存巡检间隔：危急时 2s 一轮，别等 15s 才挤一次。 */

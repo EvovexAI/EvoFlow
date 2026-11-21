@@ -38,6 +38,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+import time
+from datetime import UTC
 from pathlib import Path
 from typing import Any
 
@@ -49,6 +51,9 @@ router = APIRouter(prefix="/api/stage/right-stage", tags=["stage-right-panel"])
 _STATE_LOCK = threading.Lock()
 _STATE: dict[str, Any] = {}
 _STATE_FILE_REL = ("stage", "right-stage-state.json")
+# 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+# 模块导入时刻 = 进程启动的近似下界（psutil 拿不到时用它兜底判 stale）。
+_MODULE_IMPORT_EPOCH = time.time()
 
 
 def right_stage_state_path() -> Path | None:
@@ -155,6 +160,92 @@ def _write_state_file(clean: dict[str, Any]) -> None:
         return
 
 
+def _snapshot_age_seconds(snap: dict[str, Any]) -> float | None:
+    """``reportedAt`` 距今多少秒；解析不出来返回 None（不猜）。
+
+    【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+    为什么要有它：``known=True`` 只证明"有人上报过"，不证明"现在还是这样"。
+    本轮我就因为看不见年龄，把 7 小时前的落盘快照当成实时状态误报了一整轮。
+    """
+    stamp = _parse_reported_at(snap)
+    if stamp is None:
+        return None
+    from datetime import datetime
+
+    return max(0.0, (datetime.now(UTC) - stamp).total_seconds())
+
+
+# 超过这个年龄就标记 stale。取 10 分钟：前端状态变化节流 400ms，
+# 正常使用下快照一直在刷新；10 分钟没动过的快照几乎一定不是"此刻"。
+_STALE_AFTER_SECONDS = 600
+
+
+def _parse_reported_at(snap: dict[str, Any]):
+    """``reportedAt`` → aware datetime；解析不出来返回 None。"""
+    raw = str(snap.get("reportedAt") or "").strip()
+    if not raw:
+        return None
+    try:
+        from datetime import datetime
+
+        stamp = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        return stamp if stamp.tzinfo is not None else stamp.replace(tzinfo=UTC)
+    except (ValueError, TypeError):
+        return None
+
+
+def _older_than_process_start(snap: dict[str, Any]) -> bool:
+    """``reportedAt`` 是否早于**本进程**启动时刻（跨进程残留的硬判据）。
+
+    用进程启动时刻做边界，而不是猜阈值：重启后盘上那份必然是上一个进程写的。
+    """
+    stamp = _parse_reported_at(snap)
+    if stamp is None:
+        return False
+    started = _process_start_time()
+    return started is not None and stamp < started
+
+
+_PROCESS_START: Any = None
+_PROCESS_START_RESOLVED = False
+
+
+def _process_start_time():
+    """本进程启动时刻（UTC aware）；取不到返回 None。只算一次。"""
+    global _PROCESS_START, _PROCESS_START_RESOLVED
+    if _PROCESS_START_RESOLVED:
+        return _PROCESS_START
+    _PROCESS_START_RESOLVED = True
+    try:
+        from datetime import datetime
+
+        _PROCESS_START = datetime.fromtimestamp(_process_start_epoch(), tz=UTC)
+    except Exception:  # noqa: BLE001 - 拿不到就不做进程级判断
+        _PROCESS_START = None
+    return _PROCESS_START
+
+
+def _process_start_epoch() -> float:
+    """本进程启动的 epoch 秒。
+
+    Windows 用 ``psutil.Process().create_time()``；拿不到时回落到
+    模块导入时刻（进程级近似，仍能挡住"上一个进程的落盘"）。
+
+    【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：删掉本文件里**重复定义的第二份**（此前 228 行与 242 行各一份，
+    后者覆盖前者，纯死代码）。
+    为什么：两份内容相同所以行为没变，但它是我上一轮写 patch 时重复插入的结果 ——
+    同一文件里两份同名实现，下一个人改了一份会以为生效了，实际被后一份盖掉。
+    判据：`rg -c "^def _process_start_epoch" = 1`。
+    """
+    try:
+        import psutil  # type: ignore
+
+        return float(psutil.Process().create_time())
+    except Exception:  # noqa: BLE001
+        return _MODULE_IMPORT_EPOCH
+
+
 def _read_state_file() -> dict[str, Any] | None:
     path = right_stage_state_path()
     if path is None:
@@ -203,6 +294,27 @@ def read_right_stage_state() -> dict[str, Any]:
         }
     snap["ok"] = True
     snap["known"] = True
+    # 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：读回时算一个显式 ``stale`` 与 ``ageSeconds``，过期就在回执里喊出来。
+    # 为什么（本轮我自己就被它骗了一次）：08:11 新进程起来后我调 ui.current，
+    #   它返回 ``ok:true known:true tabs=7 rev=42``，而 ``reportedAt`` 是
+    #   ``2026-11-20T17:03:48Z`` —— 本地 **01:03:48**，上一个进程 7 小时前写下的盘。
+    #   我把这份陈旧快照当成了"用户此刻右栏有 7 个签"，随后 ui.show 看到只有 1 个签，
+    #   就误报了一整轮"标签莫名消失"。**known=true 只说明"有人上报过"，不说明"现在是这样"。**
+    # 判据：读自落盘快照且 reportedAt 早于本进程启动 → stale=True；
+    #   超过 STALE_AFTER_SECONDS（无论来源）也置 stale。不猜阈值定"真假"，
+    #   用「进程启动时刻」这条硬边界 —— 跨进程重启后盘上那份必然是上一个进程的。
+    age = _snapshot_age_seconds(snap)
+    if age is not None:
+        snap["ageSeconds"] = int(age)
+        if age > _STALE_AFTER_SECONDS or _older_than_process_start(snap):
+            snap["stale"] = True
+            snap["staleHint"] = (
+                f"这份快照是 {int(age)} 秒前上报的"
+                + ("，且早于本进程启动（多半来自上一个进程的落盘残留）。" if _older_than_process_start(snap) else "。")
+                + "它只代表当时的状态，不代表用户此刻的右栏；"
+                "需要实时值时让前端重新上报，或直接以 ui.show/activate 之后的回执为准。"
+            )
     return snap
 
 

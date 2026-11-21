@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.41] - 2026-11-21
+
+相对 **1.3.40**：安装包自带本地向量模型，知识库与代码索引可离线使用；长对话时间线更省内存、裁窗更稳；右栏关签/挪签与会话记忆更顺。
+GitHub Release 说明见 `scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.41.md`；升级横幅见 `scripts/maintainer/update/latest.json`。
+
+### Added
+
+- **离线知识库 / 代码索引**：内置本地中文向量模型，首次使用不必再下载
+- **主窗口对话摘要导出**：面板通道可导出当前可见轮次文本
+
+### Fixed
+
+- **长对话越聊越卡**：相同消息内容复用，工具长文本少占内存
+- **直播轮 / 裁窗抖动**：投影窗口与轮导航更稳
+- **右栏关签 / 挪签**：关闭与移动标签更一致
+- **本地打包 Unicode 编译失败**：page-dump 回退脚本已修正
+
+### Changed
+
+- **会话冷启动补齐**：网关重启后尽量补回未落库尾部状态
+- **右栏状态上报**：收起/展开与当前签语义更清晰
+
+
 ### Changed
 
 - **安装包默认捆绑本地向量模型**：`bge-small-zh` 权重 + torch/ST，知识库与代码索引可离线语义检索；精简构建用 `EVOFLOW_GATEWAY_LEAN=1` / `-LeanNoLocalEmbedding` 关闭

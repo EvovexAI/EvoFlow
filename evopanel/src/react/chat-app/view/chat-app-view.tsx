@@ -30,7 +30,7 @@ import {
 } from '../../../lib/right-stage/open-right-stage-file.js'
 import { showRightStageBrowserUrl } from '../../../lib/right-stage/open-right-stage-browser.js'
 import { isEvoflowChatV4Enabled } from '../../v4/v4Gate.js'
-import { v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
+import { getPendingOptimisticMessageId, v4WindowHasUserText } from '../../v4/optimisticUserInput.js'
 import { resolveChatPaneMode } from '../../lib/chat-pane-mode.js'
 import { logV4Life } from '../../lib/v4-lifecycle-log.js'
 import { noteStreamStopUiIdle } from '../../lib/stream-stop-log.js'
@@ -75,15 +75,17 @@ export type ChatAppViewCtx = Record<string, any>
 /** V4 权威窗口已出现同文案 userInput 时清掉 pending，避免乐观气泡叠第二次。 */
 function ClearPendingOptimisticOnV4Echo(props: {
   pendingText: string
-  windowRows: ReadonlyArray<{ kind?: string; text?: string }> | null | undefined
+  /** 在途发送的稳定消息 id：entityId 精确认领优先，文本匹配兜底。 */
+  pendingMessageId?: string | null
+  windowRows: ReadonlyArray<{ kind?: string; text?: string; entityId?: string }> | null | undefined
   onClear: (() => void) | undefined
 }) {
-  const { pendingText, windowRows, onClear } = props
+  const { pendingText, pendingMessageId, windowRows, onClear } = props
   useEffect(() => {
     const needle = String(pendingText || '').trim()
     if (!needle || typeof onClear !== 'function') return
-    if (v4WindowHasUserText(windowRows, needle)) onClear()
-  }, [pendingText, windowRows, onClear])
+    if (v4WindowHasUserText(windowRows, needle, pendingMessageId)) onClear()
+  }, [pendingText, pendingMessageId, windowRows, onClear])
   return null
 }
 
@@ -785,6 +787,10 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                   const pendingOpt = hostFocused
                     ? String(pendingOptimisticUserText || '').trim()
                     : ''
+                  // 在途发送的稳定消息 id（entityId 精确认领用；随 pendingOpt 生命周期）
+                  const pendingMessageId = hostFocused
+                    ? getPendingOptimisticMessageId(selectedSessionKey)
+                    : ''
                   const v4Window = v4Payload?.snapshot?.rows?.window
                   let optimisticUserText: string | null = null
                   let draftEmpty = false
@@ -832,7 +838,8 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                     const optimisticNeedle =
                       pendingOpt || (turnLive ? lastLocalUserText : '')
                     const hasV4UserEcho =
-                      !!optimisticNeedle && v4WindowHasUserText(v4Window, optimisticNeedle)
+                      !!optimisticNeedle &&
+                      v4WindowHasUserText(v4Window, optimisticNeedle, pendingMessageId)
                     const awaitingV4UserEcho = !!pendingOpt && !hasV4UserEcho
                     const localOptimisticHold =
                       awaitingV4UserEcho &&
@@ -951,6 +958,7 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       {hostFocused ? (
                         <ClearPendingOptimisticOnV4Echo
                           pendingText={pendingOpt}
+                          pendingMessageId={pendingMessageId || null}
                           windowRows={v4Window}
                           onClear={
                             typeof setPendingOptimisticUserText === 'function'
@@ -1030,6 +1038,9 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                       draftEmpty={hostFocused ? draftEmpty : false}
                       optimisticUserText={
                         hostFocused ? optimisticUserText : null
+                      }
+                      optimisticUserMessageId={
+                        hostFocused ? pendingMessageId || null : null
                       }
                       evoflowSessionKey={
                         hostSessionKey || hostTid || selectedSessionKey

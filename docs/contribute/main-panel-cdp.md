@@ -15,6 +15,16 @@
 
 ## `ui.panel` ops
 
+**排查页面看见了什么**（优先）：
+
+```text
+platform action=ui.panel args_json={"op":"page_dump"}
+platform action=ui.panel args_json={"op":"snapshot","mode":"debug"}
+```
+
+`page_dump` 返回当前视口内 `[data-turn-id]` 轮次正文（`result.transcript` / `text`），适合对「界面上到底有没有回」做肉眼级核对；`snapshot` 默认仍是可点控件 refs。
+
+
 `snapshot` → 用 refs `e1,e2,…` → `click` / `fill` / `type` / `scroll`。  
 `state` 读路由/会话/右栏；`action` 走产品动作：
 

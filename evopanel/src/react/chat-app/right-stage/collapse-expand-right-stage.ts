@@ -4,6 +4,11 @@
  */
 import type { RightStageKind } from '../../../lib/right-stage/right-stage-types.js'
 import {
+  flushRightStageSessionPersistence,
+  getCurrentRightStageSessionKey,
+  saveRightStageSessionMemory,
+} from '../../../lib/right-stage/right-stage-session-memory.js'
+import {
   clearAllRightStageOverlayDefer,
   resumeStreamBumpIfIdle,
 } from '../../../lib/right-stage/right-stage-overlay-commit.js'
@@ -32,6 +37,19 @@ export type ExpandRightStageCtx = {
 function finishCollapseRightStage(ctx: CollapseRightStageCtx): void {
   // store.collapse 会钉 userCollapsed，挡住随后的同签 show/autoOpen 强行撑开。
   ctx.collapseRightStage()
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：收起之后**立刻**把当前会话记忆冻结进 sessionStorage。
+  // 为什么（本轮真机实测抓到的真缺陷）：``saveRightStageSessionMemory`` 此前只在
+  //   「切会话」时被调用，收起这条路径完全不写。于是：
+  //     用户点收起 → 内存里 collapsed=true、但 sessionStorage 里还是收起前的旧快照
+  //     （标签 N 个、collapsed=false）→ 任何一次 webview reload(pagehide 只 flush
+  //     已排队的旧内容) 都会把旧快照恢复回来 → 标签复活、右栏自己弹开。
+  //   实测证据 2026-11-21 08:25:52 收起后 tabs=0/collapsed=true(rev35)，
+  //   08:26:29 前端 reload，08:26:34 上报变回 tabs=4/collapsed=false 且 **rev 重置为 1**
+  //   —— rev 归 1 是「store 被重建并从旧记忆恢复」的指纹，不是用户操作。
+  // 判据：收起/展开这两个手势都必须把最新意图落进会话记忆，不能只改 live store。
+  saveRightStageSessionMemory(getCurrentRightStageSessionKey())
+  flushRightStageSessionPersistence()
   clearAllRightStageOverlayDefer()
   ctx.syncShellAsideForWorkspacePanel(false)
   resumeStreamBumpIfIdle(() => ctx.scheduleBumpRef.current?.({ immediate: true }))

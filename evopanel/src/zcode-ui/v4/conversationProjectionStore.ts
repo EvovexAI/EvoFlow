@@ -12,7 +12,9 @@ import {
   parseConversationTopic,
   PROTOCOL_V4_LIMITS,
   SUBSCRIPTION_CONTENT_REJECTED,
+  type ConversationDelta,
   type ConversationRow,
+  type ConversationRowsPartition,
   type ConversationSnapshot,
   type ConversationOpenTiming,
   type ConversationTopicFrame,
@@ -20,6 +22,7 @@ import {
   type ToolCallRow,
   type TopicFrameDeliveryKind,
 } from "@zcode/shared/zcode-protocol-v4";
+import { ConversationRowPool } from "@/v4/conversationRowSharing.js";
 import { logger } from "@/logger.js";
 import type { ConversationTurnNavigatorHydrationResult } from "@/v4/conversationTurnNavigatorHelpers.js";
 import type { ConversationTransport } from "@/v4/transport.js";
@@ -37,6 +40,7 @@ import {
   ensureLiveTurnInProjectionWindow,
   lightenProjectionRowsForMemory,
   pinLiveTurnAfterDeltas,
+  releaseBalloonProjectionWindow,
   resolveProjectionWindowSoftCap,
 } from "@/v4/projectionWindowCap.js";
 
@@ -395,6 +399,106 @@ export function shouldAutoLoadIncompleteLeadingTurn(
  * `opts.softCap/prefer` 保留签名兼容调用方，不再参与裁窗。
  */
 /** @internal 导出供单测：loadOlder 合并不得吞掉刚拉到的更早页。 */
+/**
+ * rows.window 的「冻结历史 + 尾轮」分区缓存（移植 ZCode conversationProjectionStore；spec：
+ * docs/ui/chat-virtual-scroll.md「每帧派生成本」）。
+ *
+ * 为什么需要它：流式帧只改最后一轮，但 rows 每帧都是新数组，消费方只能逐行比较才知道历史没变，
+ * 每帧成本随历史长度线性增长。分区让历史段在只改尾轮的帧之间保持同一个数组引用，
+ * 消费方按引用缓存历史派生，每帧只算尾轮。分区是 rows 的纯派生缓存，以 window 数组身份为键。
+ */
+const EMPTY_ROWS_PARTITION: ConversationRowsPartition = { history: [], tail: [] };
+const rowsPartitions = new WeakMap<readonly ConversationRow[], ConversationRowsPartition>();
+
+export function getConversationRowsPartition(
+  rows: readonly ConversationRow[],
+): ConversationRowsPartition {
+  let partition = rowsPartitions.get(rows);
+  if (!partition) {
+    partition = splitConversationRows(rows);
+    rowsPartitions.set(rows, partition);
+  }
+  return partition;
+}
+
+/**
+ * 按行扫描的派生在分区上的通用缓存：把历史段结果按 history 数组引用缓存、每帧只算尾段，
+ * 再由消费方合并两段。WeakMap 不延长数组寿命。
+ */
+export function memoizeByRows<T>(
+  fn: (rows: readonly ConversationRow[]) => T,
+): (rows: readonly ConversationRow[]) => T {
+  const results = new WeakMap<readonly ConversationRow[], T>();
+  return (rows) => {
+    if (!results.has(rows)) results.set(rows, fn(rows));
+    return results.get(rows) as T;
+  };
+}
+
+/**
+ * 应用 delta 帧后调用。帧只改尾轮时沿用上一份 history 数组，成本 O(delta + 尾轮)；
+ * 其余情况（新轮开始、旧行更新、rewind 到历史）不登记，由首次读取时整窗重建。
+ * 判定依赖 window 按 rowId 升序：rowId ≥ 尾轮首行即在尾轮内。
+ */
+export function advanceConversationRowsPartition(
+  previousRows: readonly ConversationRow[],
+  nextRows: readonly ConversationRow[],
+  deltas: readonly ConversationDelta[],
+): void {
+  if (nextRows === previousRows) return;
+  const previous = rowsPartitions.get(previousRows);
+  const tailStartRowId = previous?.tail[0]?.rowId;
+  if (!previous || tailStartRowId === undefined) return;
+  const isTailTurn = (turnId: string) => previous.tail.some((row) => row.turnId === turnId);
+  for (const delta of deltas) {
+    switch (delta.op) {
+      case "row.appended":
+        if (!isTailTurn(delta.row.turnId)) return;
+        break;
+      case "row.upserted":
+        if (delta.row.rowId < tailStartRowId || !isTailTurn(delta.row.turnId)) return;
+        break;
+      case "row.delta":
+        if (delta.rowId < tailStartRowId) return;
+        break;
+      case "row.removed":
+        if (delta.fromRowId <= tailStartRowId) return;
+        break;
+      default:
+        // state / pluginUi / workflowRun delta 不改 rows。
+        break;
+    }
+  }
+  rowsPartitions.set(nextRows, {
+    history: previous.history,
+    tail: nextRows.slice(previous.history.length),
+  });
+}
+
+/**
+ * 尾轮起点 = 最后一行所在轮的首行。若尾段内某一轮在更早位置也出现过，起点前移到那里，
+ * 直到两段轮次不相交；按轮分组的派生因此可以分段计算再拼接。O(N)，只在历史变化时执行。
+ */
+function splitConversationRows(rows: readonly ConversationRow[]): ConversationRowsPartition {
+  const last = rows.at(-1);
+  if (!last) return EMPTY_ROWS_PARTITION;
+  const firstIndexByTurnId = new Map<string, number>();
+  rows.forEach((row, index) => {
+    if (!firstIndexByTurnId.has(row.turnId)) firstIndexByTurnId.set(row.turnId, index);
+  });
+  let start = firstIndexByTurnId.get(last.turnId)!;
+  let checkedFrom = rows.length;
+  while (start < checkedFrom) {
+    let nextStart = start;
+    for (let index = start; index < checkedFrom; index += 1) {
+      nextStart = Math.min(nextStart, firstIndexByTurnId.get(rows[index]!.turnId)!);
+    }
+    checkedFrom = start;
+    start = nextStart;
+  }
+  return { history: rows.slice(0, start), tail: rows.slice(start) };
+}
+
 export function mergeOlderRows(
   window: readonly ConversationRow[],
   fetched: readonly ConversationRow[],
@@ -575,6 +679,10 @@ export class ConversationProjectionStore {
   constructor(
     topic: string,
     private readonly transport: ConversationTransport,
+    // 跨 store 的行对象池：SessionDataLayer 持有并传入（keep-warm 过期冷打开会新建
+    // store，旧 snapshot 仍可能被闭包链留住——池让新行复用旧引用，快照不再全列表换
+    // 身份，行级 memo 才能跨快照命中）。缺省自建（测试/独立使用）。
+    private readonly rowPool: ConversationRowPool = new ConversationRowPool(),
   ) {
     this._topic = topic;
     liveProjectionStores.add(this);
@@ -1056,7 +1164,11 @@ export class ConversationProjectionStore {
       // 规则 1：权威 snapshot 换窗。Wire 尾窗通常 ≤60；soft-cap 防撑爆。
       // 已 loadOlder 的更早行在同 epoch 下前插保住，否则 overflow recovery 一来
       // 上拉历史就被冲掉（滚到顶只剩尾窗第一轮）。
-      const cappedIncoming = applySoftCapToSnapshot(frame.payload.snapshot, "tail");
+      // 先过行池（值相等的行换回旧引用 → 快照替换不再全列表换身份），再 soft-cap。
+      const cappedIncoming = applySoftCapToSnapshot(
+        this.shareSnapshotRows(frame.payload.snapshot),
+        "tail",
+      );
       const snapshot = mergePreservedOlderRowsIntoTailSnapshot(
         this.state.snapshot,
         cappedIncoming,
@@ -1183,7 +1295,12 @@ export class ConversationProjectionStore {
             seq: frame.toSeq,
             rows: { ...applied.rows, window: [...nextWindow] },
           };
-    logSubagentProjectionTransition(this.topic, current, next, "deltas");
+    // row.upserted/appended 的新行过池共享（值相等复用旧引用），row.delta 只登记——
+    // 让后续快照/恢复能复用流式行，且不逐帧深比较（ZCode 同款语义）。
+    const shared = this.shareDeltaRows(next, frame.payload.deltas);
+    // 先于 setState 登记分区：订阅方在同一次通知里读取新 rows 时，分区已就绪。
+    advanceConversationRowsPartition(current.rows.window, shared.rows.window, frame.payload.deltas);
+    logSubagentProjectionTransition(this.topic, current, shared, "deltas");
     const removedFromRowId = frame.payload.deltas.reduce<number | null>(
       (earliest, delta) =>
         delta.op === "row.removed"
@@ -1192,7 +1309,7 @@ export class ConversationProjectionStore {
       null,
     );
     this.setState({
-      snapshot: next,
+      snapshot: shared,
       // row.removed 已给出权威裁剪边界，可以同步删掉缓存目录中的旧分支计划；
       // 完整 query 继续负责补回 wire tail 之外、但仍属于当前分支的早期计划。
       ...(removedFromRowId === null
@@ -1212,10 +1329,68 @@ export class ConversationProjectionStore {
         : {}),
     });
     this.subscriptionHasAppliedBase = true;
-    this.reconcileOptimistic(next);
-    this.reconcileAcceptedInputProjection(next);
-    this.observeModelTransition(next, context.online);
+    this.reconcileOptimistic(shared);
+    this.reconcileAcceptedInputProjection(shared);
+    this.observeModelTransition(shared, context.online);
     if (context.recovery) this.markRecoveryFrameSeen();
+  }
+
+  /**
+   * 行对象结构共享（移植 ZCode conversationRowSharing）：
+   * 整份 snapshot / row.upserted 带来新反序列化的行对象，历史 snapshot 被闭包链留住时
+   * 同一段 inputText 在 heap 里存上百份，且行引用全换 → 行级 memo 全灭。把值深相等的
+   * 部分换回池中旧引用：只复用身份、不改语义。
+   */
+  /** rows/range 补拉的历史行与池中仍存活的旧行共享（冷打开后往上翻时常见）。 */
+  private shareRows(rows: readonly ConversationRow[]): ConversationRow[] {
+    return rows.map((row) => this.rowPool.shareRow(this.topic, row));
+  }
+
+  private shareSnapshotRows(snapshot: ConversationSnapshot): ConversationSnapshot {
+    const window = this.rowPool.shareWindow(
+      this.topic,
+      snapshot.rows.window,
+      this.state.snapshot?.rows.window,
+    );
+    return window === snapshot.rows.window
+      ? snapshot
+      : { ...snapshot, rows: { ...snapshot.rows, window } };
+  }
+
+  private shareDeltaRows(
+    snapshot: ConversationSnapshot,
+    deltas: readonly ConversationDelta[],
+  ): ConversationSnapshot {
+    const shareIds = new Set<number>();
+    const rememberIds = new Set<number>();
+    for (const delta of deltas) {
+      if (delta.op === "row.upserted" || delta.op === "row.appended") shareIds.add(delta.row.rowId);
+      else if (delta.op === "row.delta") rememberIds.add(delta.rowId);
+    }
+    if (shareIds.size === 0 && rememberIds.size === 0) return snapshot;
+    // 同一 rowId 同时被 upsert 和 delta 时以共享为准。
+    for (const rowId of shareIds) rememberIds.delete(rowId);
+    // 从尾部扫描一次、找齐全部目标即停（流式命中的行几乎都在尾部）；目标不在窗口时
+    // 退化为整窗扫描。行之间的共享互不影响（池按 topic + rowId 分键），窗口内 rowId 唯一。
+    const rows = snapshot.rows.window;
+    let window: ConversationRow[] | null = null;
+    let remaining = shareIds.size + rememberIds.size;
+    for (let index = rows.length - 1; index >= 0 && remaining > 0; index -= 1) {
+      const row = rows[index]!;
+      if (shareIds.has(row.rowId)) {
+        remaining -= 1;
+        const shared = this.rowPool.shareRow(this.topic, row);
+        if (shared !== row) {
+          window ??= [...rows];
+          window[index] = shared;
+        }
+      } else if (rememberIds.has(row.rowId)) {
+        remaining -= 1;
+        this.rowPool.remember(this.topic, row);
+      }
+    }
+    if (window === null) return snapshot;
+    return { ...snapshot, rows: { ...snapshot.rows, window } };
   }
 
   private observeModelTransition(snapshot: ConversationSnapshot, online: boolean): void {
@@ -1579,7 +1754,7 @@ export class ConversationProjectionStore {
         return;
       }
       // 上滚：对齐 ZCode 纯前插（mergeOlderRows 不裁行）。
-      const window = mergeOlderRows(current.rows.window, fetched);
+      const window = mergeOlderRows(current.rows.window, this.shareRows(fetched));
       if (window === null) {
         logger.warn(`[v4-store] ${this.topic} rows/range 无可并入更早行`, {
           beforeRowId,
@@ -1696,7 +1871,7 @@ export class ConversationProjectionStore {
         return;
       }
       // 一次性提交：纯前插（对齐 ZCode），单次锚定。
-      const merged = mergeOlderRows(current.rows.window, combined);
+      const merged = mergeOlderRows(current.rows.window, this.shareRows(combined));
       if (merged === null) return;
       this.setState({
         snapshot: { ...current, rows: { ...current.rows, window: merged } },
@@ -1848,7 +2023,7 @@ export class ConversationProjectionStore {
       const realUserQueryCount = countRealUserQueries([...olderRows, ...current.rows.window]);
       if (realUserQueryCount < 2) {
         if (preserveIncompleteLeadingTurn) {
-          const window = mergeOlderRows(current.rows.window, olderRows);
+          const window = mergeOlderRows(current.rows.window, this.shareRows(olderRows));
           if (window === null) return stale(initialLogEpoch);
           committed = true;
           this.setState({
@@ -1880,7 +2055,7 @@ export class ConversationProjectionStore {
         return result;
       }
       // 导航/日常/分享：纯前插；拉页循环已用 softCap 停手，此处不再裁行。
-      const window = mergeOlderRows(current.rows.window, olderRows);
+      const window = mergeOlderRows(current.rows.window, this.shareRows(olderRows));
       if (window === null) return stale(initialLogEpoch);
       committed = true;
       this.setState({
@@ -2089,6 +2264,35 @@ export class ConversationProjectionStore {
         ...snap,
         rows: { ...snap.rows, window: [...light] },
       },
+    });
+    return true;
+  }
+
+  /**
+   * 跟底 / 回底部：若上滚 loadOlder 已把窗撑成 balloon（≫ softCap），裁回尾窗 softCap。
+   * 上滚阅读历史期间禁止调用——会冲掉刚前插的更早页。
+   */
+  releaseBalloonForFollowingTip(): boolean {
+    if (this.closed || this.state.loadingOlder) return false;
+    const snap = this.state.snapshot;
+    if (!snap?.rows?.window?.length) return false;
+    const softCap = resolveProjectionWindowSoftCap();
+    const next = releaseBalloonProjectionWindow(snap.rows.window, softCap);
+    if (!next) return false;
+    logger.info("[v4-store] release balloon on following tip", {
+      from: snap.rows.window.length,
+      to: next.length,
+      softCap,
+      totalCount: snap.rows.totalCount,
+      topic: this.topic,
+    });
+    this.setState({
+      snapshot: {
+        ...snap,
+        rows: { ...snap.rows, window: [...next] },
+      },
+      // 窗首前进 → 目录终态可能失效，允许再探测。
+      turnNavigatorDirectoryRevision: this.state.turnNavigatorDirectoryRevision + 1,
     });
     return true;
   }

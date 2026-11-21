@@ -5250,7 +5250,21 @@ function dispatchLangGraphCustomStreamChunk(self, key, runId, chunk) {
       applyRightStageAgUiCustom(
         t,
         t === 'right_stage'
-          ? { action: chunk.action, surface: chunk.surface }
+          ? {
+              action: chunk.action,
+              surface: chunk.surface,
+              // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+              // 改了什么：实时 custom 流这一层补透传 key / target。
+              // 为什么（重启后真机实测）：后端 agui_stream_normalizer 已透传 key，
+              //   日志能看到 `[py] emit sent action=activate ... "key":"employeeProcess:..."`，
+              //   但前端 `[web-state]` 一行都不回，activeKey 仍停在 /tasks。
+              //   抓 bundle 发现 `applyRightStageAgUiCustom(t,{action,surface})` —— 这是同一类
+              //   「只搬 action+surface 就丢载荷」缺陷的**第三处**（后端 normalizer、
+              //   right-stage-agui.ts 各一处，此处是上游分发层）。activate/close/move
+              //   天然 surface=null，key 是唯一载荷，漏掉就等于静默丢弃。
+              ...(String(chunk.key || '').trim() ? { key: String(chunk.key).trim() } : {}),
+              ...(String(chunk.target || '').trim() ? { target: String(chunk.target).trim() } : {}),
+            }
           : {
               action: chunk.action,
               streamId: chunk.streamId || chunk.stream_id,

@@ -28,6 +28,11 @@ vi.mock('../src/lib/gateway-json.js', () => ({
 
 beforeEach(() => {
   gatewayFetchMock.mockClear()
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：加 resetModules —— 本模块的 timer/pending/inFlight/queued 是**模块级**状态。
+  // 为什么：不重置时，上一个用例留下的在飞请求会把下一个用例直接吞进 queued，
+  //   表现为「只发了 1 次」的假失败（判据没错，是被隔壁用例污染）。
+  vi.resetModules()
   vi.stubGlobal('window', { __EVOFLOW_GATEWAY_BASE__: 'http://127.0.0.1:8382' })
 })
 
@@ -140,5 +145,69 @@ describe('right-stage-state-report', () => {
     )
     reportRightStageState(snapshot())
     await expect(__flushRightStageStateForTest()).resolves.toBeUndefined()
+  })
+})
+describe('right-stage-state-report 修复项（第103轮）', () => {
+  it('协作两类签的 mainTaskId/subtaskId 必须上报（否则 ui.current 看不出是哪一单）', async () => {
+    const { reportRightStageState, __flushRightStageStateForTest } = await import(
+      '../src/lib/right-stage/right-stage-state-report.ts'
+    )
+    reportRightStageState({
+      activeKey: 'collabSubtaskTranscript:collabSubtaskTranscript:st-1',
+      collapsed: false,
+      rev: 5,
+      tabs: [
+        {
+          kind: 'collabSubtaskTranscript',
+          id: 'collabSubtaskTranscript:st-1',
+          title: '节点进度',
+          data: { mainTaskId: 'mt-1', subtaskId: 'st-1' },
+        },
+      ],
+    })
+    await __flushRightStageStateForTest()
+
+    const tabData = bodyOf(lastCall().init).tabs[0].data
+    expect(tabData.mainTaskId).toBe('mt-1')
+    expect(tabData.subtaskId).toBe('st-1')
+  })
+
+  it('在飞期间到达的新状态不许丢：结束后必须补发最后那份', async () => {
+    // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+    // 反证目标：旧实现 `if (inFlight) return` 会让**最后一次**状态被静默丢弃，
+    //   于是 ui.current 永远读到中间态（模型看到 3 个签，用户屏幕上只剩 1 个）。
+    // 判据走真通道（reportRightStageState → 节流定时器 → post），不借测试专用出口。
+    // 注意：post 第一件事是 `await import('../gateway-json.js')` —— inFlight 是在那个
+    //   microtask **之后**才置位的，所以「第二次 report 落在 queued 分支」必须等到
+    //   mock 真正被调用之后再发生；用 waitFor(calls===1) 卡这个点，而不是拍 microtask 数。
+    vi.useFakeTimers()
+    try {
+      let release: (v: unknown) => void = () => {}
+      gatewayFetchMock.mockImplementation(
+        () =>
+          new Promise((resolve) => {
+            release = resolve as (v: unknown) => void
+          }),
+      )
+      const { reportRightStageState } = await import(
+        '../src/lib/right-stage/right-stage-state-report.ts'
+      )
+
+      reportRightStageState(snapshot({ activeKey: 'a', rev: 1 }))
+      await vi.advanceTimersByTimeAsync(500) // 节流窗口到点，第一份发出并进入在飞
+      await vi.waitFor(() => expect(gatewayFetchMock).toHaveBeenCalledTimes(1))
+
+      reportRightStageState(snapshot({ activeKey: 'b', rev: 2 }))
+      await vi.advanceTimersByTimeAsync(500) // 第二份此时必须落到 queued
+      expect(gatewayFetchMock).toHaveBeenCalledTimes(1) // 还没补发
+
+      release({ ok: true })
+      await vi.waitFor(() => expect(gatewayFetchMock).toHaveBeenCalledTimes(2))
+      expect(bodyOf(lastCall().init).activeKey).toBe('b')
+    } finally {
+      vi.useRealTimers()
+      gatewayFetchMock.mockReset()
+      gatewayFetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ ok: true }) }))
+    }
   })
 })

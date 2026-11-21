@@ -176,7 +176,7 @@ _WV2_PORT_CACHE_TTL_SEC = 30.0  # re-probe at most every 30s
 # Edge fallback state (when system WebView2 is broken). One Edge process per
 # Python gateway, reused across calls. Lazily created on first dispatch.
 _EDGE_STATE_LOCK = threading.Lock()
-_EDGE_CONNECTIONS: dict[str, "_EdgeCdpConnection"] = {}
+_EDGE_CONNECTIONS: dict[str, _EdgeCdpConnection] = {}
 
 # One AsyncClient per process, created lazily on the engine loop. Every CDP
 # call used to build a fresh AsyncClient (new pool, new TLS contexts); with
@@ -1042,12 +1042,17 @@ class BrowserEngine:
                 from evoflow.tools.builtins.browser_debug_log import browser_debug_log
 
                 err = payload.get("error") or {}
-                browser_debug_log(
-                    "py",
-                    f"[browser-engine] execute DONE tid={thread_id} method={method} "
-                    f"ok={payload.get('ok')} elapsed_ms={payload.get('elapsedMs')} "
-                    f"code={err.get('code')} msg={str(err.get('message') or '')[:180]}",
-                )
+                # DONE 只在失败或慢调用（≥300ms）时记：常规快调用 START+DONE 成对
+                # 曾实测 6790 行/天灌 plugin-control。START 保留（挂死诊断要靠它）。
+                _ok = payload.get("ok")
+                _ms = float(payload.get("elapsedMs") or 0)
+                if not _ok or _ms >= 300:
+                    browser_debug_log(
+                        "py",
+                        f"[browser-engine] execute DONE tid={thread_id} method={method} "
+                        f"ok={_ok} elapsed_ms={payload.get('elapsedMs')} "
+                        f"code={err.get('code')} msg={str(err.get('message') or '')[:180]}",
+                    )
             except Exception:
                 pass
             return payload

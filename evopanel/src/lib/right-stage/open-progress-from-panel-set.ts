@@ -216,7 +216,12 @@ export function openProgressFromPanelSet(
   }
 
   if (kind === 'shell-page') {
-    const path = firstStr(data.path, data.route, data.href, data.url)
+    // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：去掉 data.url 这个候选字段，只认 path/route/href。
+    // 为什么：url 是 web-embed 的字段。把它当 path 用，等于把「外网地址」当成
+    //   「站内路由」——`ui.show(kind=shell-page, data.url="https://x.com")` 会被
+    //   拼成 `/https://x.com` 挂出一个空壳页。外网请走 kind=web-embed。
+    const path = firstStr(data.path, data.route, data.href)
     if (!path) {
       logRightStage('openProgress:shell-page missing path', { dataKeys: Object.keys(data) })
       notifyMissingFields(kind, data)

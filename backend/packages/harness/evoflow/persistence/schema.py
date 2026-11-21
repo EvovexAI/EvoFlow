@@ -513,6 +513,17 @@ CREATE TABLE IF NOT EXISTS "evoflow_chat_stream_mirror_meta" (
             byte_count       INTEGER NOT NULL DEFAULT 0
         , last_persisted_seq INTEGER NOT NULL DEFAULT 0);
 
+CREATE TABLE IF NOT EXISTS "evoflow_v4_event_log" (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id  TEXT NOT NULL,
+            log_epoch   TEXT NOT NULL DEFAULT '1',
+            seq         INTEGER NOT NULL,
+            op          TEXT NOT NULL,
+            payload     TEXT NOT NULL,
+            created_at  TEXT NOT NULL,
+            UNIQUE(session_id, log_epoch, seq)
+        );
+
 CREATE TABLE IF NOT EXISTS evoflow_collab_peer_messages (
             message_id TEXT NOT NULL PRIMARY KEY,
             main_task_id TEXT NOT NULL,
@@ -1867,6 +1878,12 @@ CREATE INDEX IF NOT EXISTS idx_evo_chat_shares_session
 CREATE INDEX IF NOT EXISTS idx_evo_chat_stream_mirror_run
             ON evoflow_chat_stream_mirror(session_key, run_id, seq);
 
+CREATE INDEX IF NOT EXISTS idx_v4_event_log_session
+            ON evoflow_v4_event_log(session_id, log_epoch, seq);
+
+CREATE INDEX IF NOT EXISTS idx_v4_event_log_created
+            ON evoflow_v4_event_log(created_at);
+
 CREATE INDEX IF NOT EXISTS idx_evo_collab_exec_hist_main
     ON evoflow_collab_task_execution_history(main_task_id, parent_task_id, subtask_id);
 
@@ -2320,6 +2337,9 @@ _POST_BASELINE_TABLES: tuple[str, ...] = (
     # 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
     # 群叫醒队列落库；已 stamped 的库靠这条 backfill 建表。
     "evoflow_dept_group_wake_jobs",
+    # 【lifecycle · 2026-11-21】v4 权威 delta 日志持久化（ZCode durable event 语义）：
+    # 发送/停止/流式每一帧 delta 落库，事后审计「这条流/轮发生了什么、断在哪」。
+    "evoflow_v4_event_log",
 )
 
 

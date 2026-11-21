@@ -865,14 +865,34 @@ def evf_payload_to_agui_events(
         return out
 
     if t == "right_stage":
+        # 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：``key`` 一并透传（此前只放 action + surface）。
+        # 为什么（本轮现网实测，23:28:39）：``ui.activate`` 发出的事件形状是
+        #   ``{type:"right_stage", action:"activate", surface:null, key:"shell-page:shell:/tasks"}``。
+        #   activate **天然没有 surface**，它唯一的载荷就是 key；这一层把 key 丢掉之后，
+        #   前端收到的就是「action=activate 但没有目标」，走的是 agui 里那条
+        #   ``if (!targetKey) return false`` —— 静默拒绝，既不切签也不上报，
+        #   于是 ``[py] emit sent`` 之后前端一条 web-state 都没有。
+        # 判据：activate 事件过网关后前端必须拿到 key；无 key 时不得静默吞掉。
+        _rs_value: dict[str, Any] = {
+            "action": payload.get("action"),
+            "surface": payload.get("surface"),
+        }
+        _rs_key = payload.get("key")
+        if _rs_key is not None and str(_rs_key).strip():
+            _rs_value["key"] = str(_rs_key).strip()
+        # 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：``target`` 同样透传（move 用来表示"移到哪个签的位置"）。
+        # 为什么：新增的 ui.move 靠 key + target 两个键定位；漏掉 target 就退化成
+        #   "只传了源签"，前端 reorderTab 拿不到目标位置，表现为切不动顺序。
+        _rs_target = payload.get("target")
+        if _rs_target is not None and str(_rs_target).strip():
+            _rs_value["target"] = str(_rs_target).strip()
         out.append(
             {
                 "type": CUSTOM,
                 "name": "right_stage",
-                "value": {
-                    "action": payload.get("action"),
-                    "surface": payload.get("surface"),
-                },
+                "value": _rs_value,
             }
         )
         return out
@@ -964,6 +984,26 @@ def evf_payload_to_agui_events(
     return out
 
 
+def evf_payloads_to_agui_events(
+    payloads: list[dict[str, Any]],
+    *,
+    state: AgUiEncoderState,
+    ledger: Any | None = None,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Map semantic EVF payloads → AG-UI event dicts（不编码 wire）。
+
+    v4 直连（对齐 ZCode）：镜像直接消费事件字典，省掉 ``encode → SSE → decode``
+    一整跳——老链路仍是 wire 消费者，镜像不再依赖 wire 文本形状。
+    """
+    events: list[dict[str, Any]] = []
+    run_end = False
+    for payload in payloads:
+        if str(payload.get("type") or "").strip() == "run_end":
+            run_end = True
+        events.extend(evf_payload_to_agui_events(payload, state=state, ledger=ledger))
+    return events, run_end
+
+
 def evf_payloads_to_agui_wire(
     payloads: list[dict[str, Any]],
     *,
@@ -971,14 +1011,8 @@ def evf_payloads_to_agui_wire(
     ledger: Any | None = None,
 ) -> tuple[list[bytes], bool]:
     """Map semantic EVF payloads → AG-UI SSE wire (no encode/decode round-trip)."""
-    out: list[bytes] = []
-    run_end = False
-    for payload in payloads:
-        if str(payload.get("type") or "").strip() == "run_end":
-            run_end = True
-        for ev in evf_payload_to_agui_events(payload, state=state, ledger=ledger):
-            out.append(encode_agui_event(ev))
-    return out, run_end
+    events, run_end = evf_payloads_to_agui_events(payloads, state=state, ledger=ledger)
+    return [encode_agui_event(ev) for ev in events], run_end
 
 
 def convert_evf_frames_to_agui(
@@ -997,6 +1031,25 @@ def convert_evf_frames_to_agui(
             payloads.append(payload)
     wire, _ = evf_payloads_to_agui_wire(payloads, state=state, ledger=ledger)
     return wire
+
+
+def convert_evf_frames_to_agui_events(
+    frames: list[bytes] | list[dict[str, Any]],
+    *,
+    state: AgUiEncoderState,
+    ledger: Any | None = None,
+) -> list[dict[str, Any]]:
+    """EVF 帧 → AG-UI 事件字典（不编码 wire）。v4 直连消费这份事实。"""
+    payloads: list[dict[str, Any]] = []
+    for frame in frames:
+        if isinstance(frame, dict):
+            payloads.append(frame)
+            continue
+        payload = decode_evf_payload(frame)
+        if payload:
+            payloads.append(payload)
+    events, _ = evf_payloads_to_agui_events(payloads, state=state, ledger=ledger)
+    return events
 
 
 class AgUiStreamNormalizer:
@@ -1027,36 +1080,40 @@ class AgUiStreamNormalizer:
 
     def feed_frame(self, event_name: str, data: Any) -> list[bytes]:
         payloads = self._inner.feed_evf_payloads(event_name, data)
-        out, run_end = evf_payloads_to_agui_wire(
+        events, run_end = evf_payloads_to_agui_events(
             payloads,
             state=self._state,
             ledger=self._inner.block_ledger,
         )
         if run_end:
             self._run_end_emitted = True
-        if out:
-            self._mirror_feed(out)
-        return out
+        if events:
+            self._mirror_feed(events)
+        return [encode_agui_event(ev) for ev in events]
 
     def finish(self) -> list[bytes]:
         payloads = self._inner.finish_evf_payloads()
-        out, run_end = evf_payloads_to_agui_wire(
+        events, run_end = evf_payloads_to_agui_events(
             payloads,
             state=self._state,
             ledger=self._inner.block_ledger,
         )
         if run_end:
             self._run_end_emitted = True
-        if out:
-            self._mirror_feed(out)
-        return out
+        if events:
+            self._mirror_feed(events)
+        return [encode_agui_event(ev) for ev in events]
 
-    def _mirror_feed(self, wire: list[bytes]) -> None:
-        """v4 镜像：AG-UI wire → ZCode v4 协议 delta（失败静默，不碰生产链路）。"""
+    def _mirror_feed(self, events: list[dict[str, Any]]) -> None:
+        """v4 镜像（直连）：AG-UI 事件字典 → ZCode v4 协议 delta（失败静默，不碰生产链路）。
+
+        对齐 ZCode：不再走 ``encode → SSE → decode`` 的 wire 往返——事件字典由
+        语义 payload 一次性产出，镜像与老链路 UI 消费同一份事实。
+        """
         try:
-            from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+            from app.gateway.v4.agui_mirror import mirror_feed_agui_events
 
-            mirror_feed_agui_wire(self._state.thread_id, wire)
+            mirror_feed_agui_events(self._state.thread_id, events)
         except Exception:
             pass
 
@@ -1064,18 +1121,14 @@ class AgUiStreamNormalizer:
         """Immediate RUN_STARTED + activity frame — sent on SSE headers before upstream tokens."""
         if self._state.run_started:
             return []
-        out: list[bytes] = []
-        for ev in _ensure_run_started(self._state):
-            out.append(encode_agui_event(ev))
-        out.append(
-            encode_agui_event(
-                {
-                    "type": ACTIVITY_SNAPSHOT,
-                    "messageId": self._state.activity_message_id,
-                    "activityType": "agent_status",
-                    "content": {"kind": "pre_model", "detail": "准备中…"},
-                }
-            )
-        )
-        self._mirror_feed(out)
-        return out
+        events: list[dict[str, Any]] = [
+            *_ensure_run_started(self._state),
+            {
+                "type": ACTIVITY_SNAPSHOT,
+                "messageId": self._state.activity_message_id,
+                "activityType": "agent_status",
+                "content": {"kind": "pre_model", "detail": "准备中…"},
+            },
+        ]
+        self._mirror_feed(events)
+        return [encode_agui_event(ev) for ev in events]

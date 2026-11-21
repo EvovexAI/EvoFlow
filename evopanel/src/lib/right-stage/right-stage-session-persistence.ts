@@ -104,6 +104,11 @@ export function serializeSessionEntries(entries: PersistedSessionEntry[]): strin
       }),
       activeKey: entry.memory.activeKey,
       collapsed: entry.memory.collapsed,
+      // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：用户主动收起锁随记忆一起持久化。
+      // 为什么：不存的话刷新一次就退化成"未锁定"，用户刚收起的右栏又自己弹回来 ——
+      //   与"切会话后永远打不开"是同一处语义缺陷的两个方向。
+      userCollapsed: entry.memory.userCollapsed === true,
       // 最近关闭列表对"刷新后还在"没有价值，且会重复携带 tab 全量，直接不持久化。
       recentClosed: [],
     },
@@ -167,6 +172,9 @@ export function deserializeSessionEntries(raw: string | null | undefined): Persi
           tabs,
           activeKey: activeKey ?? (tabs.length ? `${tabs[tabs.length - 1]!.kind}:${tabs[tabs.length - 1]!.id}` : null),
           collapsed: typeof record.memory?.collapsed === 'boolean' ? record.memory.collapsed : tabs.length === 0,
+          // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+          // 旧数据没这个字段 → false（不锁定）。只有显式 true 才认。
+          userCollapsed: (record.memory as { userCollapsed?: unknown })?.userCollapsed === true,
           recentClosed: [],
         },
       })

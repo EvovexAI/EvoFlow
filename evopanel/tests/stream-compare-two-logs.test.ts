@@ -722,3 +722,29 @@ describe('v5.9 DOM 视角 1:1 快照：buildAssistantDomView + logStreamCompareD
     expect(hist.uiDisplay.length).toBe(0)
   })
 })
+
+describe('2026-11-21 日志瘦身回归：probe 会话闸 + sanitize 幂等', () => {
+  it('probe-* 合成会话（zcode 壳探活）不落盘、不建目录', () => {
+    markStreamCompareSession('probe-session-x')
+    logStreamCompareSseRecv({
+      sessionKey: 'probe-session-x',
+      runId: 'run-x',
+      dataRaw: '{"type":"RUN_STARTED","runId":"run-x"}',
+    })
+    logStreamCompareV4Recv({
+      topic: 'conversation/probe-thread-x',
+      frame: { fromSeq: 0, toSeq: 1, payload: { kind: 'deltas', deltas: [] } },
+    })
+    const store = (window as any).__evoflowStreamCompare
+    expect(store?.sessions?.['probe-session-x'] ?? store?.sessions?.['probesessionx']).toBeUndefined()
+    expect(dumpStreamCompareBuffers('probe-session-x').sessionLogId).toBe('')
+  })
+
+  it('sanitize 幂等：二次净化不改变目录名（修复同会话双目录落盘）', () => {
+    const once = sanitizeSessionLogId('proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z')
+    expect(once).not.toBe('')
+    expect(sanitizeSessionLogId(once)).toBe(once)
+    // 旧 viewport 独立 sanitize 的产物（剥字符版）现在会归一到同一目录名空间
+    expect(sanitizeSessionLogId(once.replace(/_/g, ''))).not.toBe('')
+  })
+})

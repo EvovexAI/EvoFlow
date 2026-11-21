@@ -25,11 +25,45 @@ import os
 import threading
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _MIRROR_DISABLED = os.getenv("EVOFLOW_V4_MIRROR", "1").strip().lower() in {"0", "false", "off", "no"}
+
+# ── 镜像链路独立诊断日志 ────────────────────────────────────────────────
+# 根 logger 的文件 handler 会被 langgraph mount 时的 logging 重配置干掉
+# （2026-11-21 实测：gateway-*.log 在启动 20s 后停写，镜像里所有 logger.exception
+# 全部不可见）。这里给镜像链路挂一个自带 FileHandler 的专用 logger
+# （propagate=False），诊断信息落 ``{logs}/v4-mirror-diag-YYYYMMDD.log``，
+# 不受 root 重配置影响。排除故障后可整体摘除。
+_diag = logging.getLogger("evoflow.v4.mirror.diag")
+_diag.propagate = False
+_diag.setLevel(logging.INFO)
+_diag_file_ready = False
+
+
+def _diag_log(event: str, **fields: Any) -> None:
+    global _diag_file_ready
+    try:
+        if not _diag_file_ready:
+            from evoflow.runtime.log_policy import resolve_product_logs_dir
+
+            log_dir = Path(resolve_product_logs_dir())
+            log_dir.mkdir(parents=True, exist_ok=True)
+            handler = logging.FileHandler(
+                log_dir / f"v4-mirror-diag-{time.strftime('%Y%m%d')}.log",
+                encoding="utf-8",
+            )
+            handler.setFormatter(logging.Formatter("%(asctime)s %(message)s"))
+            _diag.addHandler(handler)
+            _diag_file_ready = True
+        _diag.info(
+            json.dumps({"event": event, **fields}, ensure_ascii=False, default=str)
+        )
+    except Exception:
+        pass
 
 # 空流 / 过早 RUN_FINISHED / 历史仅 user 轮：与 hydration 共用文案，避免 live 与 remint 口径分裂。
 EMPTY_RUN_NOTICE_TEXT = (
@@ -1730,6 +1764,14 @@ class V4Mirror:
         st.user_message_id = str(message_id or "").strip()
         st.user_origin = origin if origin in ("realUser", "goalContinuation") else "realUser"
         st.user_epilogue_start = max(0, int(epilogue_start or 0))
+        _diag_log(
+            "note_user_input",
+            tid=tid[:24],
+            text_len=len(raw),
+            atts=len(atts),
+            origin=st.user_origin,
+            message_id=str(message_id or "")[:24],
+        )
         # 用户新发一条 → 上一轮 sticky 报错退场（新横幅由本轮 RUN_ERROR 再写）。
         st.sticky_run_error = None
 
@@ -2138,6 +2180,14 @@ class V4Mirror:
         now_ms = _now_ms()
 
         if et == "RUN_STARTED":
+            _diag_log(
+                "run_started",
+                tid=tid[:24],
+                run_id=str(ev.get("runId") or "")[:40],
+                user_text_len=len(str(st.user_text or "")),
+                user_atts=len(st.user_attachments or []),
+                prev_run_started=st.run_started,
+            )
             new_turn_id = (
                 str(ev.get("runId") or ev.get("threadId") or "").strip() or f"run-{now_ms}"
             )
@@ -2410,6 +2460,14 @@ class V4Mirror:
             if not self._ensure_active_turn_for_stream(
                 tid, st, now_ms=now_ms, via="TEXT_MESSAGE_START"
             ):
+                _diag_log(
+                    "text_start_dropped",
+                    tid=tid[:24],
+                    mid=mid[:24],
+                    run_started=st.run_started,
+                    turn_id=str(st.turn_id or "")[:20],
+                    last_turn_id=str(st.last_turn_id or "")[:20],
+                )
                 return
             self._clear_empty_run_notices(tid, st)
             # Successful model output starting → clear retry banner + sticky error.
@@ -3213,6 +3271,13 @@ def mirror_note_user_input(
     """生产路径入口：记录本轮用户输入文本（及可选附件）。"""
     if _MIRROR_DISABLED:
         return
+    _diag_log(
+        "note_entry",
+        tid=str(thread_id or "")[:24],
+        text_len=len(str(text or "")),
+        origin=origin,
+        message_id=str(message_id or "")[:24],
+    )
     try:
         _get_mirror().note_user_input(
             thread_id,
@@ -3222,8 +3287,9 @@ def mirror_note_user_input(
             origin=origin,
             epilogue_start=epilogue_start,
         )
-    except Exception:
+    except Exception as exc:
         logger.exception("[v4-mirror] note_user_input failed thread=%s", thread_id)
+        _diag_log("note_error", tid=str(thread_id or "")[:24], error=f"{type(exc).__name__}: {exc}")
 
 
 def mirror_ensure_transcript_user_input(
@@ -3347,9 +3413,21 @@ def mirror_ensure_transcript_user_input(
         if mid:
             user_row["entityId"] = mid
         mirror._hub.author_append_row(tid, user_row)  # noqa: SLF001
+        _diag_log(
+            "ensure_transcript_appended",
+            tid=tid[:24],
+            header_rid=header_rid,
+            user_rid=int(user_row.get("rowId") or 0),
+            text_len=len(raw),
+        )
         return True
-    except Exception:
+    except Exception as exc:
         logger.exception("[v4-mirror] ensure_transcript_user_input failed thread=%s", tid)
+        _diag_log(
+            "ensure_transcript_failed",
+            tid=tid[:24],
+            error=f"{type(exc).__name__}: {exc}",
+        )
         return False
 
 
@@ -3358,9 +3436,37 @@ def mirror_feed_agui_wire(thread_id: str, frames: list[bytes] | list[str]) -> in
     if _MIRROR_DISABLED or not frames:
         return 0
     try:
-        return _get_mirror().feed_wire(thread_id, frames)
-    except Exception:
+        n = _get_mirror().feed_wire(thread_id, frames)
+        _diag_log("feed", tid=str(thread_id or "")[:24], frames=len(frames), events=n)
+        return n
+    except Exception as exc:
         logger.exception("[v4-mirror] feed_wire failed thread=%s", thread_id)
+        _diag_log("feed_error", tid=str(thread_id or "")[:24], error=f"{type(exc).__name__}: {exc}")
+        return 0
+
+
+def mirror_feed_agui_events(thread_id: str, events: list[dict[str, Any]]) -> int:
+    """v4 直连入口：AG-UI 事件字典直喂镜像（对齐 ZCode，不经 wire 编码/解码）。
+
+    失败只记诊断日志，绝不抛出——与 wire 入口同约定。
+    """
+    if _MIRROR_DISABLED or not events:
+        return 0
+    try:
+        tid = str(thread_id or "").strip()
+        if not tid:
+            return 0
+        _get_mirror().feed_events(thread_id, events)
+        _diag_log(
+            "feed_events",
+            tid=tid[:24],
+            events=len(events),
+            kinds=[str(e.get("type") or "") for e in events[:8]],
+        )
+        return len(events)
+    except Exception as exc:
+        logger.exception("[v4-mirror] feed_events failed thread=%s", thread_id)
+        _diag_log("feed_events_error", tid=str(thread_id or "")[:24], error=f"{type(exc).__name__}: {exc}")
         return 0
 
 
@@ -3698,6 +3804,7 @@ __all__ = [
     "mirror_note_user_input",
     "mirror_ensure_transcript_user_input",
     "mirror_feed_agui_wire",
+    "mirror_feed_agui_events",
     "mirror_reset_thread",
     "mirror_thread_is_live",
     "mirror_heal_orphan_user_input_headers",

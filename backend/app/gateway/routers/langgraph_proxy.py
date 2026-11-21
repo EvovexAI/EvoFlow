@@ -412,7 +412,24 @@ def _attachment_ref_from_image_block(block: dict) -> dict | None:
         mime = header[5:].split(";", 1)[0].strip().lower()
         if not mime.startswith("image/"):
             mime = "image/png"
-        return {"ref": url, "fileName": "image", "mime": mime, "bytes": 0}
+        # 对齐 ZCode：大图落盘 v4-image-cache、ref 换本地路径（前端走
+        # convertFileSrc/serve-file），直播行与首帧快照不再背大 base64 字节；
+        # 小图保持行内即时渲染。落盘失败回退 data: URL（行为同旧）。
+        ref = url
+        bytes_n = 0
+        try:
+            from app.gateway.v4.image_cache import materialize_image_data_url
+
+            materialized = materialize_image_data_url(url)
+            if materialized:
+                ref = materialized
+                try:
+                    bytes_n = Path(ref).stat().st_size
+                except OSError:
+                    bytes_n = 0
+        except Exception:
+            ref = url
+        return {"ref": ref, "fileName": "image", "mime": mime, "bytes": bytes_n}
     return {"ref": url, "fileName": "", "mime": "image/jpeg", "bytes": 0}
 
 
@@ -575,19 +592,22 @@ async def attach_run_stream(
         def _attach_ui_wire_frame(frame: str) -> list[str]:
             if attach_stream_fmt != "agui" or agui_attach_state is None:
                 return [frame]
-            from app.gateway.agui_stream_normalizer import convert_evf_frames_to_agui
+            from app.gateway.agui_stream_encode import encode_agui_event
+            from app.gateway.agui_stream_normalizer import convert_evf_frames_to_agui_events
 
-            out_bytes = convert_evf_frames_to_agui([frame.encode("utf-8")], state=agui_attach_state)
-            out = [b.decode("utf-8") for b in out_bytes] if out_bytes else []
-            if out:
-                # v4 镜像：attach 续流同样喂 v4 投影，刷新恢复后会话不缺行。
+            # v4 直连（对齐 ZCode）：事件字典一次产出，镜像与 UI wire 消费同一份事实，
+            # 避免 state 被两条转换路径各 mutate 一次。
+            events = convert_evf_frames_to_agui_events(
+                [frame.encode("utf-8")], state=agui_attach_state
+            )
+            if events:
                 try:
-                    from app.gateway.v4.agui_mirror import mirror_feed_agui_wire
+                    from app.gateway.v4.agui_mirror import mirror_feed_agui_events
 
-                    mirror_feed_agui_wire(thread_id, out)
+                    mirror_feed_agui_events(thread_id, events)
                 except Exception:
                     pass
-            return out
+            return [encode_agui_event(ev).decode("utf-8") for ev in events]
 
         from evoflow.observability.poll_loop_log import log_poll_loop_end, log_poll_loop_start, log_poll_tick
 

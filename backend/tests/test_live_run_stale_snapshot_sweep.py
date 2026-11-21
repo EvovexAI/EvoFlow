@@ -37,11 +37,43 @@ CREATE TABLE evoflow_chat_live_runs (
 )
 """
 
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：夹具补 `evoflow_chat_sessions` 表（原来只有 live_runs）。
+# 为什么：第99轮给 sweep 加了「会话已终态 ⇒ 孤儿」判据，夹具若无该表，
+# 新判据每次都走 except 降级分支——测试全绿却一行新逻辑都没执行（假绿）。
+_SESSIONS_DDL = """
+CREATE TABLE evoflow_chat_sessions (
+    session_key TEXT PRIMARY KEY,
+    run_status TEXT,
+    session_status TEXT,
+    current_run_id TEXT,
+    is_deleted INTEGER DEFAULT 0,
+    updated_at TEXT
+)
+"""
 
-def _seed(rows: list[dict]) -> sqlite3.Connection:
+
+def _seed(rows: list[dict], sessions: list[dict] | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute(_DDL)
+    conn.execute(_SESSIONS_DDL)
+    for s in sessions or []:
+        conn.execute(
+            """
+            INSERT INTO evoflow_chat_sessions
+                (session_key, run_status, session_status, current_run_id, is_deleted, updated_at)
+            VALUES (?,?,?,?,?,?)
+            """,
+            (
+                s["session_key"],
+                s.get("run_status", "running"),
+                s.get("session_status", "active"),
+                s.get("current_run_id"),
+                s.get("is_deleted", 0),
+                s.get("updated_at"),
+            ),
+        )
     for r in rows:
         conn.execute(
             """
@@ -144,3 +176,77 @@ def test_threshold_boundary(age_s: int, expect_swept: int):
 
     assert stats["swept"] == expect_swept
     assert _status(conn, "s-x") == ("running" if expect_swept == 0 else "completed_error")
+
+
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+# 这 4 条针对第99轮新增判据：会话已终态 ⇒ 快照按孤儿回收，**不看心跳**。
+# 现网取证：23:29 两条 running 快照心跳是当秒的（前端每 ~5s 刷），启动 sweep 只扫到 1 条，
+# 纯心跳判据永远抓不到它们。
+def test_terminal_session_sweeps_despite_fresh_heartbeat():
+    """会话 run_status=done 而快照还 running，心跳是当秒的 → 必须回收。"""
+    conn = _seed(
+        [{"session_key": "s-stuck", "last_event_at": now_iso_z()}],
+        sessions=[{"session_key": "s-stuck", "run_status": "done"}],
+    )
+    stats = sweep_stale_running_snapshots(max_age_s=180, conn=conn)
+
+    assert stats == {"scanned": 1, "swept": 1}
+    assert _status(conn, "s-stuck") == "completed_error"
+
+
+def test_active_session_keeps_fresh_snapshot():
+    """会话仍在 running + 心跳新鲜 → 一行都不许动（正在跑的真回合）。"""
+    conn = _seed(
+        [{"session_key": "s-real", "last_event_at": now_iso_z()}],
+        sessions=[{"session_key": "s-real", "run_status": "running"}],
+    )
+    stats = sweep_stale_running_snapshots(max_age_s=180, conn=conn)
+
+    assert stats == {"scanned": 1, "swept": 0}
+    assert _status(conn, "s-real") == "running"
+
+
+def test_missing_session_row_falls_back_to_heartbeat():
+    """没有会话行 → 不按孤儿处理（可能是快照先写、会话行后插的竞态窗口）。"""
+    conn = _seed([{"session_key": "s-orphan-no-row", "last_event_at": now_iso_z()}])
+    stats = sweep_stale_running_snapshots(max_age_s=180, conn=conn)
+
+    assert stats == {"scanned": 1, "swept": 0}, "无会话行时须退回心跳判据；心跳新鲜不得清扫"
+
+
+# 【self-evolution-bot · 2026-11-21 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
+# run_id 对齐保护：会话声称的 current_run_id 正是这条快照时必须放行。
+# 现网实证据（00:39 两条 running 快照）：…05-07-10.588Z 两边 run_id 完全一致且都 running
+# （真在跑）；…16-15-39.290Z 会话 current_run_id 为空、快照 run_id 是前端占位符
+# `run-964e7593228f`（真孤儿）。没有这条保护，前者会在「会话还写着上一轮 done、
+# 新回合快照已写入」的窗口里被误清。
+def test_aligned_run_id_is_protected_even_if_session_terminal():
+    """会话 done 但 current_run_id 与快照 run_id 对齐 + 心跳新鲜 → 不许清。"""
+    conn = _seed(
+        [
+            {
+                "session_key": "s-align",
+                "run_id": "run-abc",
+                "last_event_at": now_iso_z(),
+            }
+        ],
+        sessions=[
+            {"session_key": "s-align", "run_status": "done", "current_run_id": "run-abc"}
+        ],
+    )
+    stats = sweep_stale_running_snapshots(max_age_s=180, conn=conn)
+
+    assert stats == {"scanned": 1, "swept": 0}, "run_id 对齐即视为当前轮，不得误清"
+    assert _status(conn, "s-align") == "running"
+
+
+def test_unaligned_run_id_with_terminal_session_is_orphan():
+    """会话 done 且 current_run_id 与快照 run_id 不对齐 → 真孤儿，必须清（现网 16-15 形态）。"""
+    conn = _seed(
+        [{"session_key": "s-orphan", "run_id": "run-964e7593228f", "last_event_at": now_iso_z()}],
+        sessions=[{"session_key": "s-orphan", "run_status": "done", "current_run_id": None}],
+    )
+    stats = sweep_stale_running_snapshots(max_age_s=180, conn=conn)
+
+    assert stats == {"scanned": 1, "swept": 1}
+    assert _status(conn, "s-orphan") == "completed_error"

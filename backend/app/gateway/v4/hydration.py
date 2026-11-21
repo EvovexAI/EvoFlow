@@ -274,17 +274,23 @@ def _attachments_from_user_payload(payload: Any) -> list[dict[str, Any]]:
         elif isinstance(image, str):
             url = image.strip()
         # data: URL（桌面 chatSend 的图片编码）：前端 readAttachment 对 data: ref
-        # 直接当 URL 用，因此不再跳过；仅尺寸封顶，防止未压缩大图撑爆 V4 帧。
-        # 封顶值与 app/gateway/routers/langgraph_proxy.py 的提取器保持一致。
+        # 直接当 URL 用，因此不再跳过。对齐 ZCode：小图保持行内（即时渲染），
+        # 大图落盘 v4-image-cache、ref 换本地路径（前端走 convertFileSrc/serve-file），
+        # 行与快照帧不再背大媒体字节。2.8MB 封顶保留作落盘失败时的兜底。
         if url and url.lower().startswith("data:"):
             if len(url) <= 2_800_000:
                 header, _, _ = url.partition(",")
                 mime = header[5:].split(";", 1)[0].strip().lower()
-                _push(
-                    ref=url,
-                    file_name="image",
-                    mime=mime if mime.startswith("image/") else "image/png",
-                )
+                if not mime.startswith("image/"):
+                    mime = "image/png"
+                ref = url
+                try:
+                    from app.gateway.v4.image_cache import materialize_image_data_url
+
+                    ref = materialize_image_data_url(url) or url
+                except Exception:
+                    ref = url
+                _push(ref=ref, file_name="image", mime=mime)
             continue
         if url:
             _push(ref=url, mime="image/jpeg")

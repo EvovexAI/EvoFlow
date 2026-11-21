@@ -343,3 +343,36 @@ describe('open-right-stage-file (side pane, not fullscreen modal)', () => {
   })
 })
 
+
+// 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+// 钉住一条真机实测抓到的缺陷：ui.hide 的语义是「整栏收起、签还在」，
+// 不是「关掉激活的那一个签」。此前 applyRemote 把 hide 派给 store.hide()，
+// 遇到 shell-page 这类受保护 kind 直接 return —— 右栏纹丝不动而工具回 ok:true。
+describe('applyRemote hide = 整栏收起（不是关签）', () => {
+  it('shell-page 标签下 hide 必须收起面板且保留全部标签', () => {
+    const store = new RightStageStore()
+    store.show({ kind: 'shell-page', id: 'shell:/tasks', title: '任务' })
+    store.show({ kind: 'shell-page', id: 'shell:/knowledge', title: '知识库' })
+    expect(store.getSnapshot().tabs).toHaveLength(2)
+
+    store.applyRemote({ action: 'hide', surface: null })
+
+    const snap = store.getSnapshot()
+    // 收起：面板占位消失
+    expect(snap.collapsed).toBe(true)
+    // 签还在：两个都不能被拆掉
+    expect(snap.tabs.map((t) => `${t.kind}:${t.id}`)).toEqual([
+      'shell-page:shell:/tasks',
+      'shell-page:shell:/knowledge',
+    ])
+  })
+
+  it('hide 不可拆掉 collab-workflow 这类受保护签', () => {
+    const store = new RightStageStore()
+    store.show({ kind: 'collab-workflow', id: 'wf-1', title: '工作流' })
+    store.applyRemote({ action: 'hide', surface: null })
+    const snap = store.getSnapshot()
+    expect(snap.collapsed).toBe(true)
+    expect(snap.tabs.map((t) => t.kind)).toEqual(['collab-workflow'])
+  })
+})

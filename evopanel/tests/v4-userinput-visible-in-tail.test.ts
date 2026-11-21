@@ -8,6 +8,10 @@ import {
   normalizeOrderedRowsUserFirst,
 } from "../src/zcode-ui/v4/conversationTurnRenderUnits.ts";
 import { capProjectionWindow } from "../src/zcode-ui/v4/projectionWindowCap.ts";
+import {
+  mergeOptimisticUserInputRow,
+  v4WindowHasUserText,
+} from "../src/react/v4/optimisticUserInput.ts";
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 
 function turnHeader(rowId: number, turnId: string): ConversationRow {
@@ -81,5 +85,53 @@ describe("v4 userInput visibility in live tail", () => {
     );
     expect(visible).toContain("钉住我");
     expect(flowUsers).toContain("钉住我");
+  });
+});
+
+describe("乐观行 entityId(messageId) 精确认领（对齐 ZCode sourceCommandId 语义）", () => {
+  function userRow(rowId: number, text: string, entityId?: string): ConversationRow {
+    return {
+      rowId,
+      turnId: `t-${rowId}`,
+      kind: "userInput",
+      origin: "realUser",
+      text,
+      ...(entityId ? { entityId } : {}),
+      createdAt: rowId,
+    } as ConversationRow;
+  }
+
+  it("entityId 精确命中 → echo=true（文本被分页挤出尾窗也认领）", () => {
+    const rows: ConversationRow[] = [
+      userRow(1, "历史消息甲"),
+      userRow(2, "长回合挤占位的工具轮消息", "m-other"),
+    ];
+    // 2026-11-08 实锤场景：文本「再帮我调用…」被挤出尾窗后 endsWith 永不命中
+    expect(v4WindowHasUserText(rows, "再帮我调用，然后试一下我验证功能呢", "m-mine")).toBe(false);
+    expect(
+      v4WindowHasUserText(
+        [...rows, userRow(3, "再帮我调用，然后试一下我验证功能呢", "m-mine")],
+        "再帮我调用，然后试一下我验证功能呢",
+        "m-mine",
+      ),
+    ).toBe(true);
+  });
+
+  it("entityId 不匹配不得靠文本误判（同文案二次发送场景）", () => {
+    const rows: ConversationRow[] = [
+      userRow(1, "再帮我调用", "m-old"),
+    ];
+    // 同文案重发：新 send 的 id 是 m-new，旧行不认领 → 乐观行必须照常叠加
+    expect(v4WindowHasUserText(rows, "再帮我调用", "m-new")).toBe(false);
+    const merged = mergeOptimisticUserInputRow(rows, "再帮我调用", "m-new");
+    expect(merged.length).toBe(2);
+    expect((merged[1] as { entityId?: string }).entityId).toBe("m-new");
+  });
+
+  it("无 id（IM/旧路径）回退文本匹配；有 id 时乐观行带 entityId", () => {
+    const rows: ConversationRow[] = [userRow(1, "再帮我调用", "m-old")];
+    expect(v4WindowHasUserText(rows, "再帮我调用")).toBe(true);
+    const merged = mergeOptimisticUserInputRow([userRow(9, "上一轮")], "新消息", "m-mine");
+    expect((merged[1] as { entityId?: string }).entityId).toBe("m-mine");
   });
 });

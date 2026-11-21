@@ -312,9 +312,9 @@ def _parse_args() -> argparse.Namespace:
 
 def _run_langgraph(port: int) -> None:
     """Run standalone LangGraph server on the given port."""
-    from app.gateway.logging_setup import configure_gateway_file_logging
     from langgraph_api.cli import run_server
 
+    from app.gateway.logging_setup import configure_gateway_file_logging
     from evoflow.desktop_stdio import shield_stdio_from_handler_close
     from evoflow.langgraph_runtime_env import run_server_kwargs
 
@@ -505,6 +505,12 @@ def main() -> None:
         port=args.port,
         log_level=args.log_level,
         access_log=True,
+        # 不装 uvicorn 自带的 stderr StreamHandler：Tauri 把 sidecar stderr 重定向进
+        # gateway-stderr-*.log，而 app 日志同时经 root 落 gateway-*.log —— 同一条
+        # access 行双写（曾实测 stderr 文件 95% 与 gateway 日志重复，27MB/天）。
+        # log_config=None 后 uvicorn 日志全部走 root handler（含噪声过滤/限流），
+        # stderr 只剩真正的 traceback；日志级别由 root（EVOFLOW_LOG_LEVEL）统一管。
+        log_config=None,
     )
     # Windows SelectorEventLoop + select() FD_SETSIZE≈512: cap concurrency so a
     # loading_extended retry storm cannot crash the process.

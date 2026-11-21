@@ -17,7 +17,7 @@ Content-Type: application/json
 
 ### 全量 action（与代码 registry 对齐）
 
-> 计数：`len(get_registry())` = **184**（含 ui.panel 主窗口 CDP）（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
+> 计数：`len(get_registry())` = **186**（含 ui.panel 主窗口 CDP、ui.close 关单个签、ui.move 调签顺序）（24 域）。已退役不计：`experience.*`(4)、`memory.*`(4)、`verification.list`、`appearance.get`。
 
 **knowledge：** `list` `search` `create` `enable` `ingest` `notes` `note_get` `note_delete` `delete` `requeue` `reindex`  
 **workflow：** `list` `schema` `get` `create` `generate` `update` `duplicate` `publish` `unpublish` `delete` `revisions` `restore_revision` `run` `stop` `resume` `run_status` `list_runs`  
@@ -25,6 +25,7 @@ Content-Type: application/json
 **openai：** `models` `chat` `vision`（对齐 `evoflow openai …` / 单次文本·视觉分析）  
 **media：** `catalog` `status` `generate_image` `generate_video` `task_wait`（生图/生视频）  
 **assets：** `get_profile` `update_profile` `init` `migrate` `export` `import`（画像 + Asset Hub pack）  
+**ui：** `kinds` `current` `show` `update` `hide` `activate` `close` `move` `panel`（右栏：先 `kinds` 看支持类型、`current` 看用户停在哪个签；`close` 只关指定那一个签，`hide` 才是整栏收起；`move` 调签顺序；`panel` 是主窗口 CDP，非侧栏）  
 **appearance：** `patch`（读外观走面板 HTTP，非 platform）  
 **agents：** `list` `get` `bindings` `create` `update` `delete`（绑工具/技能/MCP/知识库前先 `bindings`；省略 `tools`/`knowledge_vault_ids`→空，勿默认全开）  
 **employees：** `list` `get` `hire` `create` `update` `pause` `resume` `stop` `delete` `worklog` `trail` `wake` `migrate`  

@@ -49,6 +49,14 @@ export type RightStageSessionMemory = {
   activeKey: string | null
   collapsed: boolean
   recentClosed: RecentClosedRightStageTab[]
+  /**
+   * 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+   * 用户是否**主动**收起（收起锁）。必须与 ``collapsed`` 分开存：
+   * ``collapsed`` 是"现在收没收"，可能只是因为当时没标签；
+   * ``userCollapsed`` 是"用户亲手收的，别再自动撑开"。
+   * 旧版本没存这个字段，读回按 false 处理（宁可多展开一次，也不永久锁死）。
+   */
+  userCollapsed?: boolean
 }
 
 type Listener = () => void
@@ -110,6 +118,18 @@ export class RightStageStore {
 
   private tabKeyOf(surface: RightStageSurface): string {
     return `${surface.kind}:${surface.id}`
+  }
+
+  /**
+   * 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+   * 改了什么：把 tab key 计算暴露成公开方法 `keyOf(surface)`。
+   * 为什么：`tabKeyOf` 是 private，而 SSE 分发侧（right-stage-agui）需要算出
+   *   「关签前后 tabCount 变没变、其它签 key 有没有被动」来做**真判据**。
+   *   为了拿这个判据去复制一份 `${kind}:${id}` 到别处，等于把规则写两遍，
+   *   下次改了这里、漏了那里就是新的「同一目标塌成两个 key」缺陷。
+   */
+  keyOf(surface: RightStageSurface): string {
+    return this.tabKeyOf(surface)
   }
 
   /** 记录最近关闭：同 key 再次关闭时去重并置顶，避免总览里出现重复行。 */
@@ -218,6 +238,13 @@ export class RightStageStore {
         .map((t) => ({ ...t, data: { ...t.data } })),
       activeKey: this.activeKey,
       collapsed: this.collapsed,
+      // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：把用户主动收起锁一并冻结到会话记忆里。
+      // 为什么：下面 importSessionMemory 原本用 ``userCollapsed = this.collapsed``
+      //   从"现在收没收"倒推"用户是否锁了"，于是任何一次被动收起（比如当时没标签）
+      //   都会被记成用户意图，切回来以后所有 autoOpen 被永久挡住 ——
+      //   这就是右栏"再也不自动展开"的语义根因。只有真的存下来才谈得上尊重用户。
+      userCollapsed: this.userCollapsed,
       recentClosed: this.recentClosed
         .filter((e) => !isTaskCenterStageSessionKey(e.tab?.sessionKey))
         .map((e) => ({
@@ -253,8 +280,12 @@ export class RightStageStore {
         typeof options?.collapsedWhenNoMemory === 'boolean'
           ? options.collapsedWhenNoMemory
           : carried.length === 0
-      // 切会话重置收起锁，避免上一会话的「收起」钉死新会话。
-      this.userCollapsed = this.collapsed
+      // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：无记忆分支不再把"现在收没收"当成"用户锁了"。
+      // 为什么：``collapsed`` 只是当前视觉状态（新会话没标签时它天然是 true），
+      //   拿它当收起锁会让下一次 ui.show 也被挡住。切过来的新会话从"未锁定"开始，
+      //   由 ``collapse()`` / ``setCollapsed(true)`` 这种**用户手势**去设锁。
+      this.userCollapsed = false
       this.recentClosed = []
       this.streams.clear()
       this.bump()
@@ -292,7 +323,13 @@ export class RightStageStore {
     this.activeKey = restoredActive ?? (merged.length ? this.tabKeyOf(merged[merged.length - 1]!) : null)
     this.collapsed =
       typeof memory.collapsed === 'boolean' ? memory.collapsed : this.tabs.length === 0
-    this.userCollapsed = this.collapsed
+    // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：有记忆分支改为读回**冻结时的用户意图**，读不到才回落 false。
+    // 为什么：这里原本也是 ``userCollapsed = this.collapsed`` —— 同一个错误：
+    //   把"这份记忆当时是收着的"当成"用户亲手锁了"。旧版本记忆没有该字段，
+    //   按 false 处理：宁可多自动展开一次，也不要让右栏永久打不开。
+    //   用户在会话里主动收起的意图，由 exportSessionMemory 显式存下来。
+    this.userCollapsed = memory.userCollapsed === true
     this.recentClosed = Array.isArray(memory.recentClosed) ? memory.recentClosed : []
     this.streams.clear()
     this.bump()
@@ -776,11 +813,23 @@ export class RightStageStore {
       return
     }
     if (action === 'hide' || payload.surface === null) {
-      logRightStage('store.applyRemote:hide', { action, surfaceNull: payload.surface === null }, {
+      // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：``ui.hide`` 落到 store 时改调 ``collapse()``（整栏收起、签全部保留），
+      //   不再调 ``hide()``（那是"关掉一个标签"）。
+      // 为什么（本轮真机实测抓到的真缺陷，10:29:30 起 24 秒无任何前端上报）：
+      //   工具文档写「ui.hide 整栏收起、签还在」，但 applyRemote 把 hide 派给 store.hide()，
+      //   而 store.hide() 的语义是"关激活那一个签"。更糟的是它先 filter(t => t.id === 'primary')，
+      //   shell-page 的 id 是 ``shell:/tasks`` 根本不含 'primary'，于是走 fallback 分支，
+      //   命中 ``isProtectedIdleHideKind``（shell-page 属 isProgressStageKind）→ 直接 return。
+      //   结果：右栏纹丝不动、标签一个不少、collapsed 仍为 false，而工具回 ``ok:true``。
+      //   证据：10:29:30.041 ``[py] emit sent action=hide`` 之后再无 ``[web-state] report``，
+      //   状态盘停在 collapsed=false / tabs=2；对比 ui.show 每次都能 400ms 内成对上报。
+      // 判据：收起是"面板占位消失"这件事，只有 collapse() 能表达；关单个签请走 ui.close。
+      logRightStage('store.applyRemote:hide → collapse', { action, surfaceNull: payload.surface === null }, {
         stack: true,
         store: this,
       })
-      this.hide()
+      this.collapse()
       return
     }
     if (payload.stream) {

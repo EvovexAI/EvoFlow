@@ -30,9 +30,9 @@ import {
 } from "./v4-chat-layout-dump.js";
 
 /** 与 SessionDataLayer keepWarmMs 同量级：pin 列表挤掉后仍短暂保 UI 挂载。 */
-const HOST_LINGER_MS = 30_000;
+const HOST_LINGER_MS = 120_000;
 /** 额外 linger 路上限；high=1、critical=0，避免隐藏 host 把 heap 顶穿。 */
-const HOST_LINGER_MAX = 2;
+const HOST_LINGER_MAX = 4;
 
 export type V4ChatHostRenderCtx = {
   threadId: string | null;

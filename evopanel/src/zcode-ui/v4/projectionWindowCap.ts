@@ -32,6 +32,12 @@ export const PROJECTION_WINDOW_SHARE_CAP = 8_000;
 /** 窗口内只对最近 N 行保留完整 tool output；更早的工具卡瘦身。 */
 export const PROJECTION_HEAVY_HORIZON = 60;
 
+/**
+ * 超过 softCap×此倍数视为 balloon（上滚 loadOlder 不裁行会撑到全量历史）。
+ * 跟底 / 回底部时应收回软顶，否则 virtualizer 按「轮」挂载会拖出数千 DOM。
+ */
+export const PROJECTION_WINDOW_BALLOON_RATIO = 1.5;
+
 const MIN_KEEP = 40;
 const LIGHT_TOOL_TEXT_CAP = 2_048;
 
@@ -56,6 +62,16 @@ function isTurnBoundary(row: ConversationRow | undefined): boolean {
 /** 按当前 renderer 内存水位取软顶（读不到 heap 时用默认 400）。 */
 export function resolveProjectionWindowSoftCap(): number {
   return projectionSoftCapForMemoryLevel(resolveRendererMemoryLevel());
+}
+
+/** 投影窗是否已 balloon（默认 > softCap×1.5）。 */
+export function isProjectionWindowBallooned(
+  windowCount: number,
+  softCap: number = PROJECTION_WINDOW_SOFT_CAP,
+): boolean {
+  const cap = Math.max(MIN_KEEP, Math.floor(softCap));
+  const n = Math.max(0, Math.floor(windowCount));
+  return n > Math.floor(cap * PROJECTION_WINDOW_BALLOON_RATIO);
 }
 
 function isRealUserRow(row: ConversationRow | undefined): boolean {
@@ -210,6 +226,33 @@ export function pinLiveTurnAfterDeltas(
  * 最大 rowId），不能只取行序最早——旧轮晚到的 running 工具会把新问 888 顶掉。
  * 否则：最新非空 realUser（createdAt 优先，避免低 rowId 的新问被当成更早）。
  */
+function resolveLiveTurnUserIdx(
+  rows: readonly ConversationRow[],
+  turnId: string,
+  turnStart: number,
+): number {
+  let userIdx = -1;
+  let bestUserKey = -1;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (turnIdAt(rows, i) !== turnId) continue;
+    const row = rows[i];
+    if (!isRealUserRow(row)) continue;
+    if (!String((row as { text?: string }).text || "").trim()) continue;
+    const key = realUserRecencyKey(row!);
+    if (key >= bestUserKey) {
+      bestUserKey = key;
+      userIdx = i;
+    }
+  }
+  if (userIdx >= 0) return userIdx;
+  userIdx = turnStart;
+  for (let i = 0; i < rows.length; i += 1) {
+    if (turnIdAt(rows, i) !== turnId) continue;
+    if (rows[i]?.kind === "userInput") return i;
+  }
+  return userIdx;
+}
+
 export function liveTurnSpan(
   rows: readonly ConversationRow[],
 ): { turnStart: number; userIdx: number } | null {
@@ -227,76 +270,83 @@ export function liveTurnSpan(
     }
   }
 
-  if (inflightByTurn.size > 0) {
-    let bestTurnId = "";
-    let bestScore = -1;
-    let bestIdx = -1;
-    for (const [tid, meta] of inflightByTurn) {
-      const turnStart = turnStartIndexForRow(rows, meta.anyIdx);
-      const turnRows = rowsForTurnId(rows, tid);
-      let userScore = -1;
-      for (const row of turnRows) {
-        if (!isRealUserRow(row)) continue;
-        if (!String((row as { text?: string }).text || "").trim()) continue;
-        userScore = Math.max(userScore, realUserRecencyKey(row));
-      }
-      // 流式 tip（本轮 in-flight 最大 rowId）优先：旧轮卡住的 running 工具若仍按
-      // 「用户气泡更新」赢，会把真正在涨的新轮钉到 rest，soft-cap prefer:tail
-      // 裁掉 tip → STREAM_AHEAD（现场 streamRow=2154 > winLast=2080）。
-      // 用户时间只作同 tip 水位下的并列破平。
-      const score = meta.maxRowId * 1e15 + Math.max(0, userScore);
-      if (score > bestScore) {
-        bestScore = score;
-        bestTurnId = tid;
-        bestIdx = turnStart;
-      }
-    }
-    if (bestTurnId && bestIdx >= 0) {
-      const turnStart = turnStartIndexForRow(rows, bestIdx);
-      const turnRows = rowsForTurnId(rows, bestTurnId);
-      const turnEnd = rows.length; // realUserIdxInTurn 只扫同 turnId 前缀；改用手找
-      let userIdx = -1;
-      let bestUserKey = -1;
-      for (let i = 0; i < rows.length; i += 1) {
-        if (turnIdAt(rows, i) !== bestTurnId) continue;
-        const row = rows[i];
-        if (!isRealUserRow(row)) continue;
-        if (!String((row as { text?: string }).text || "").trim()) continue;
-        const key = realUserRecencyKey(row!);
-        if (key >= bestUserKey) {
-          bestUserKey = key;
-          userIdx = i;
-        }
-      }
-      if (userIdx < 0) {
-        userIdx = turnStart;
-        for (let i = 0; i < rows.length; i += 1) {
-          if (turnIdAt(rows, i) !== bestTurnId) continue;
-          if (rows[i]?.kind === "userInput") {
-            userIdx = i;
-            break;
-          }
-        }
-      }
-      void turnEnd;
-      return { turnStart, userIdx };
-    }
-  }
-
-  let userIdx = -1;
-  let bestKey = -1;
+  let latestUserIdx = -1;
+  let latestUserKey = -1;
   for (let i = 0; i < rows.length; i += 1) {
     const row = rows[i];
     if (!isRealUserRow(row)) continue;
     if (!String((row as { text?: string }).text || "").trim()) continue;
     const key = realUserRecencyKey(row!);
-    if (key >= bestKey) {
-      bestKey = key;
-      userIdx = i;
+    if (key >= latestUserKey) {
+      latestUserKey = key;
+      latestUserIdx = i;
     }
   }
-  if (userIdx < 0) return null;
-  return { turnStart: turnStartIndexForRow(rows, userIdx), userIdx };
+
+  let bestInflightTid = "";
+  let bestInflightScore = -1;
+  let bestInflightIdx = -1;
+  let bestInflightUserKey = -1;
+  for (const [tid, meta] of inflightByTurn) {
+    const turnRows = rowsForTurnId(rows, tid);
+    let userScore = -1;
+    for (const row of turnRows) {
+      if (!isRealUserRow(row)) continue;
+      if (!String((row as { text?: string }).text || "").trim()) continue;
+      userScore = Math.max(userScore, realUserRecencyKey(row));
+    }
+    // 多 inflight：流式 tip（最大 rowId）优先；用户时间只作同 tip 破平。
+    const score = meta.maxRowId * 1e15 + Math.max(0, userScore);
+    if (score > bestInflightScore) {
+      bestInflightScore = score;
+      bestInflightTid = tid;
+      bestInflightIdx = meta.anyIdx;
+      bestInflightUserKey = userScore;
+    }
+  }
+
+  // 僵尸 demote：旧 inflight（更低 tip）不能压过「更新的 realUser」且 tip 更高的轮。
+  // 现场 bash@80 永久 running + 新问已在 290+ → soft-cap 钉旧轮 → !STREAM_AHEAD。
+  // 注意：新 tip 轮尚无 realUser（仅 optimistic）时，latestUser 仍是旧轮——不得 demote
+  // 掉更高 tip 的新 inflight（STREAM_AHEAD 回归：2154 > 2080）。
+  if (
+    bestInflightTid &&
+    latestUserIdx >= 0 &&
+    turnIdAt(rows, latestUserIdx) !== bestInflightTid &&
+    latestUserKey > bestInflightUserKey
+  ) {
+    // 必须有真实 createdAt：否则高 rowId 的「上一问晚到 append」会 demote 掉
+    // 正在跑的低 rowId 直播轮（anti #185 mega-live 回归）。
+    const latestCreated =
+      Number((rows[latestUserIdx] as { createdAt?: unknown })?.createdAt) || 0;
+    const latestTid = turnIdAt(rows, latestUserIdx);
+    let latestTurnMax = 0;
+    for (const row of rowsForTurnId(rows, latestTid)) {
+      latestTurnMax = Math.max(latestTurnMax, Number(row.rowId) || 0);
+    }
+    const inflightTip = inflightByTurn.get(bestInflightTid)?.maxRowId ?? 0;
+    if (latestCreated > 0 && latestTurnMax > inflightTip) {
+      const turnStart = turnStartIndexForRow(rows, latestUserIdx);
+      return {
+        turnStart,
+        userIdx: resolveLiveTurnUserIdx(rows, latestTid, turnStart),
+      };
+    }
+  }
+
+  if (bestInflightTid && bestInflightIdx >= 0) {
+    const turnStart = turnStartIndexForRow(rows, bestInflightIdx);
+    return {
+      turnStart,
+      userIdx: resolveLiveTurnUserIdx(rows, bestInflightTid, turnStart),
+    };
+  }
+
+  if (latestUserIdx < 0) return null;
+  return {
+    turnStart: turnStartIndexForRow(rows, latestUserIdx),
+    userIdx: latestUserIdx,
+  };
 }
 
 /**
@@ -770,4 +820,39 @@ export function capAndLightenProjectionWindow(
   return lightenProjectionRowsForMemory(capped, heavyHorizon, {
     stripDisplay: level !== "normal",
   });
+}
+
+/**
+ * 跟底收回 balloon：只做 prefer=tail 裁回 softCap（+ 旧卡瘦身）。
+ *
+ * 禁止再跑 ensureLiveTurnInProjectionWindow：那条路径按 liveTurnSpan 重建
+ * older+live，在 rowId 交错 / 多完成轮时会把窗尾 tip（更大 rowId 的后续轮）
+ * 整段丢掉（现场：884→窗尾 630，first>last）。跟底语义就是「看最新」，
+ * soft-cap 尾窗本身已含 tip；直播 in-flight 若被裁，后续 snapshot/delta pin 会补。
+ *
+ * 上滚阅读历史期间不要调——会把刚拉到的更早页冲掉。
+ * 返回 null = 无需改（未超 balloon、裁后不更短、或尾 tip 保不住）。
+ */
+export function releaseBalloonProjectionWindow(
+  rows: readonly ConversationRow[],
+  softCap: number = PROJECTION_WINDOW_SOFT_CAP,
+): readonly ConversationRow[] | null {
+  const cap = Math.max(MIN_KEEP, Math.floor(softCap));
+  if (!Array.isArray(rows) || !isProjectionWindowBallooned(rows.length, cap)) {
+    return null;
+  }
+  const tipRowId = rows.reduce<number | null>((max, row) => {
+    const id = Number(row.rowId);
+    if (!Number.isFinite(id)) return max;
+    return max == null || id > max ? id : max;
+  }, null);
+  const capped = capAndLightenProjectionWindow(rows, { softCap: cap, prefer: "tail" });
+  if (capped.length >= rows.length) return null;
+  if (
+    tipRowId != null &&
+    !capped.some((row) => Number(row.rowId) === tipRowId)
+  ) {
+    return null;
+  }
+  return capped;
 }

@@ -80,10 +80,19 @@ export function shellOutTab(tab: RightStageSurface): RightStageSurface {
 }
 
 function shellOutMemory(memory: RightStageSessionMemory): RightStageSessionMemory {
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：剥壳/裁剪时**原样带上** ``userCollapsed``。
+  // 为什么（本轮真机实测抓到的真缺陷）：本文件多处 ``touch(key, {tabs, activeKey,
+  //   collapsed, recentClosed})`` 重新构造记忆对象，字段表是手写的 —— 少写一个字段
+  //   就等于**静默抹掉**它。``userCollapsed`` 是本轮才加的字段，于是每过一轮 prune/
+  //   剥壳/清理，用户亲手收起的意图就被降级成 false。表现与第102轮修的那条一样：
+  //   用户收起的右栏过一会儿自己又弹开，而且越用越「记不住」。
+  // 判据：记忆对象的**每一个**构造点都必须显式决定 userCollapsed，不许靠"漏写"。
   return {
     tabs: memory.tabs.map(shellOutTab),
     activeKey: memory.activeKey,
     collapsed: memory.collapsed,
+    userCollapsed: memory.userCollapsed === true,
     recentClosed: [],
   }
 }
@@ -259,7 +268,12 @@ export function switchRightStageSession(
 }
 
 function emptyMemory(): RightStageSessionMemory {
-  return { tabs: [], activeKey: null, collapsed: true, recentClosed: [] }
+  // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：显式补 ``userCollapsed: false``。
+  // 为什么：空记忆 = 这个会话从没开过右栏，用户当然没"亲手收起"过。
+  //   漏写该字段会得到 undefined，读侧 ``=== true`` 恰好也判 false，所以**不是**
+  //   当前可见的 bug；但把"恰好对"留成隐含契约，下一个人改读侧判据就会翻脸。
+  return { tabs: [], activeKey: null, collapsed: true, userCollapsed: false, recentClosed: [] }
 }
 
 function tabKeyOf(tab: RightStageSurface): string {
@@ -340,6 +354,9 @@ export function upsertBrowserTabInSessionMemory(opts: {
     tabs,
     activeKey: activate ? tabKey : prev.activeKey || tabKey,
     collapsed: activate ? false : prev.collapsed,
+    // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+    // 带上用户收起意图：手写字段表漏一个就是静默抹掉（见 shellOutMemory 注释）。
+    userCollapsed: prev.userCollapsed === true,
     recentClosed: prev.recentClosed || [],
   })
   return true
@@ -384,6 +401,9 @@ export function upsertTabInSessionMemory(opts: {
     tabs,
     activeKey: activate ? tabKey : prev.activeKey || tabKey,
     collapsed: activate ? false : prev.collapsed,
+    // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+    // 带上用户收起意图：手写字段表漏一个就是静默抹掉（见 shellOutMemory 注释）。
+    userCollapsed: prev.userCollapsed === true,
     recentClosed: prev.recentClosed || [],
   })
   return true
@@ -459,6 +479,9 @@ export function purgeMatchingTabsFromSessionMemory(
       tabs: nextTabs,
       activeKey,
       collapsed: nextTabs.length === 0 ? true : memory.collapsed,
+      // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
+      // 清理标签不该顺带改掉"用户锁了收起"这件事。
+      userCollapsed: memory.userCollapsed === true,
       recentClosed: nextClosed,
     })
   }

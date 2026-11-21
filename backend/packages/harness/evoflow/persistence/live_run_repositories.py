@@ -3,10 +3,17 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
+# 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：补模块级 logger。为什么：第99轮 sweep 新增的降级分支调用了
+# `logger.warning`，而本模块此前**从未定义 logger**（全仓唯一引用就是新加那行），
+# 真触发降级时会变成 NameError，把「sweep 少清几条」升级成「sweep 整轮崩」。
 from evoflow.persistence.db import get_db, run_db_transaction
 from evoflow.persistence.timestamps import iso_z_to_ms, ms_to_iso_z, now_iso_z
+
+logger = logging.getLogger(__name__)
 
 
 def _dumps(obj: Any) -> str:
@@ -347,12 +354,66 @@ def sweep_stale_running_snapshots(*, max_age_s: float, conn: Any | None = None) 
         ).fetchall()
         current_time = now_iso_z()
         local: dict[str, int] = {"scanned": 0, "swept": 0}
+
+        # 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：除「心跳过期」外，再加一条判据——**会话本身已是终态**（done/fail/
+        # cancelled/idle/…）而快照还挂着 running，一律按孤儿回收，不看心跳。
+        # 为什么：前端重启后仍会每 ~5s PUT 一次心跳。只按心跳判，会把「已经死掉但没有
+        # 会话在跑」的快照喂成永远新鲜——现网实测 23:29 两条 running 快照心跳是**当秒**
+        # 的，而它们的 session.run_status 同为 running（旧 run 未收尾），启动 sweep 只扫到
+        # 1 条就再也抓不到。会话终态是比心跳更强的信号：run_status 已终就不可能有活着的
+        # 流，与前端心跳无关。
+        # 边界：会话行缺失时**不**按孤儿处理（可能是快照先写、会话行后插的竞态窗口），
+        # 这类仍走心跳过期那条路。
+        # 边界②：**run_id 对齐就不清**。会话声称「当前轮」正是这条快照
+        # （`current_run_id == live.run_id`）时，即使 run_status 已经是 done，也可能是
+        # 收尾瞬间或刚发新消息的中间态 —— 此时退回心跳判据，不按孤儿回收。
+        # 现网实证据（00:39）：`…05-07-10.588Z` 会话 current_run_id 与快照 run_id 完全一致
+        # 且两边都是 running（真在跑）；而 `…16-15-39.290Z` 会话 current_run_id 为空、
+        # 快照 run_id 是前端占位符 `run-964e7593228f`（真孤儿）。对齐判据正好把两者分开。
+        terminal_current_run: dict[str, str] = {}
+        keys = [str(dict(r).get("session_key") or "") for r in rows]
+        for i in range(0, len(keys), 500):
+            chunk = [k for k in keys[i : i + 500] if k]
+            if not chunk:
+                continue
+            q = ", ".join("?" * len(chunk))
+            try:
+                trows = db.execute(
+                    f"""
+                    SELECT session_key, current_run_id FROM evoflow_chat_sessions
+                    WHERE session_key IN ({q})
+                      AND COALESCE(is_deleted, 0) = 0
+                      AND lower(COALESCE(run_status, '')) IN (
+                          'done', 'success', 'fail', 'error',
+                          'cancelled', 'stopped', 'completed', 'idle'
+                      )
+                    """,
+                    tuple(chunk),
+                ).fetchall()
+                for t in trows:
+                    td = dict(t)
+                    terminal_current_run[str(td.get("session_key") or "")] = str(
+                        td.get("current_run_id") or ""
+                    )
+            except Exception:
+                # 会话表不可用时退化为纯心跳判据，不要让整轮 sweep 挂掉。
+                logger.warning("live-run sweep: session terminal lookup failed", exc_info=True)
+                terminal_current_run.clear()
+                break
+
         for row in rows:
             d = dict(row)
             local["scanned"] += 1
+            sk = str(d.get("session_key") or "")
+            snap_run = str(d.get("run_id") or "")
             beat = str(d.get("last_event_at") or d.get("updated_at") or "").strip()
             beat_ms = iso_z_to_ms(beat) if beat else 0
-            if beat_ms and beat_ms >= cutoff_ms:
+            if sk in terminal_current_run and not (
+                terminal_current_run[sk] and snap_run and terminal_current_run[sk] == snap_run
+            ):
+                pass  # 会话已终态且 run_id 不对齐：无论心跳多新，快照都是孤儿
+            elif beat_ms and beat_ms >= cutoff_ms:
                 continue
             cur = db.execute(
                 """

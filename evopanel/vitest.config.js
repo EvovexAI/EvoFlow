@@ -47,6 +47,7 @@ export default defineConfig({
       'tests/platform-scope-ui.test.js',
       'tests/codex-auth-panel.test.js',
       'tests/v4-wire-conformance.test.ts',
+      'tests/conversation-row-sharing.test.ts',
       'tests/control-busy.test.ts',
       'tests/v4-running-text-interleave.test.ts',
       'tests/v4-reasoning-visibility.test.ts',
@@ -199,6 +200,7 @@ export default defineConfig({
       'tests/chat-pane-mode.test.ts',
       'tests/chat-ws-foreground.test.js',
       'tests/conversation-turn-session-busy.test.ts',
+      'tests/v4-render-units-selector.test.ts',
       'tests/platform-media-turn-end.test.ts',
       'tests/home-live-activity.test.ts',
       'tests/task-runtime-health.test.js',
@@ -250,6 +252,16 @@ export default defineConfig({
       // 右栏「当前在看哪一页」上报 + 切到已有标签：用户明确要求可查、可切。
       'tests/right-stage-state-report.test.ts',
       'tests/right-stage-activate.test.ts',
+      // 【self-evolution-bot · 2026-11-20 · 第101轮 · 模型:deepseek-v4.1-flash-1017】
+      // 新增：ui.close / ui.move 的前端分发（关单签、调顺序）。
+      'tests/right-stage-close-move.test.ts',
+      // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+      // 接线层测试：custom 流 → applyRightStageAgUiCustom 的 key/target 透传。
+      // 不登记进 include 等于没写（本仓 vitest 只跑 include 里的白名单）。
+      'tests/right-stage-custom-stream-key-wiring.test.ts',
+      // 【self-evolution-bot · 2026-11-21 · 第102轮 · 模型:deepseek-v4.1-flash-1017】
+      // 标题被兜底名覆盖 + 收起锁语义两处回归。
+      'tests/right-stage-title-collapse-semantics.test.ts',
       // 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
       // 不可用终态提示的 DOM 渲染用例：断言实际渲染文本里没有「加载中」。
       'tests/right-stage-unavailable-shell.test.tsx',

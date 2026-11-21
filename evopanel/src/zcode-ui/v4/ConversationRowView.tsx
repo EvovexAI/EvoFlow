@@ -1716,9 +1716,7 @@ const ReasoningRowView = memo(function ReasoningRowView({
   const open = streaming ? false : userOpen;
   const durationSeconds =
     row.durationMs !== undefined ? Math.max(1, Math.ceil(row.durationMs / 1000)) : undefined;
-  if (streaming && row.text.length === 0) {
-    return null;
-  }
+  // 流式空正文也要画「正在思考」触发行：否则 SSE 已 START、页面空白，像积压延迟。
   // 完成态空壳（如正文只剩「.」）不画芯片——投影里仍有 row，但用户不应看到多出来的「思考」。
   if (!streaming && isTrivialReasoningText(row.text)) {
     return null;

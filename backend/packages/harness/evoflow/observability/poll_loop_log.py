@@ -33,10 +33,15 @@ def log_poll_tick(
     *,
     key: str = "",
     interval_s: float = 30.0,
-    level: int = logging.INFO,
+    level: int = logging.DEBUG,
     **ctx: Any,
 ) -> None:
-    """Log a poll iteration at most once per ``interval_s`` per ``name:key``."""
+    """Log a poll iteration at most once per ``interval_s`` per ``name:key``.
+
+    默认 DEBUG（root level=INFO 时不落盘）：每 loop 每 tick 一行曾是 INFO，
+    task_events_sse 按 thread_id 分 key，实测 1.4 万行/天灌 gateway 日志。
+    排查 CPU/调度问题把 EVOFLOW_LOG_LEVEL 调到 debug 即可全量看。
+    """
     cache_key = f"{name}:{key or '-'}"
     now = time.monotonic()
     if now - _last_tick.get(cache_key, 0.0) < max(1.0, float(interval_s)):

@@ -233,6 +233,12 @@ export function collectV4ChatLayoutDump(): V4ChatLayoutDump | null {
   };
 }
 
+/** 排版签名去抖：布局状态没变就不重复写日志（曾实测分钟级 4KB+ 快照灌 frontend 日）。
+ * 排查期仍可从 window.__evoflowChatLayout / 主窗 CDP /main-cdp/layout 拿实时值。 */
+let lastLayoutSig = "";
+let lastLayoutLogAt = 0;
+const LAYOUT_SIG_REPEAT_FORCE_MS = 10 * 60 * 1000;
+
 export function dumpV4ChatLayout(reason: string): V4ChatLayoutDump | null {
   const dump = collectV4ChatLayoutDump();
   if (!dump) return null;
@@ -261,6 +267,31 @@ export function dumpV4ChatLayout(reason: string): V4ChatLayoutDump | null {
           )
           .join("; ")}]`
       : "";
+  // 签名只取会话/宿主布局状态，不含 rect/gap 等逐帧抖动值
+  const sig = [
+    reason,
+    dump.selectedSessionKey || "",
+    dump.activeThreadId || "",
+    dump.hostCount,
+    dump.stackedHostCount,
+    estimateStuck ? 1 : 0,
+    drifted ? 1 : 0,
+    dump.problemHosts.map((p) => p.tid).join(","),
+    dump.hosts
+      .map(
+        (h) =>
+          `${h.tid}:${h.visibleAttr}/${h.focusedAttr}:${h.turnCount}:${
+            h.stacked ? 1 : 0
+          }${h.estimateStuck ? 1 : 0}`,
+      )
+      .join(","),
+  ].join("|");
+  const now = Date.now();
+  if (sig === lastLayoutSig && now - lastLayoutLogAt < LAYOUT_SIG_REPEAT_FORCE_MS) {
+    return dump;
+  }
+  lastLayoutSig = sig;
+  lastLayoutLogAt = now;
   const zh = `[v4-layout] ${reason} 当前=${activeLabel} sk=${dump.selectedSessionKey || "∅"} hosts=${dump.hostCount} split=${dump.split} visible=${visibleHosts.length} stacked=${dump.stackedHostCount}${estimateStuck ? " !EST72" : ""}${drifted ? " !COMPOSER_DRIFT" : ""}${problemZh} composer=${dump.composer ? `stable=${dump.composer.stable ? 1 : 0} top=${dump.composer.top} off=${dump.composer.offsetFromHostTop}` : "∅"} :: ${dump.hosts
     .map((h) => {
       const name = h.title ? `「${h.title}」` : h.tid.slice(0, 8);

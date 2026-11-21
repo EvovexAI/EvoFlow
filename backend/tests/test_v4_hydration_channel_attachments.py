@@ -121,6 +121,46 @@ def test_attachments_include_desktop_data_urls():
     assert all(a["bytes"] == 0 for a in atts)
 
 
+def test_big_data_url_materialized_to_cache_file(tmp_path: Path, monkeypatch):
+    """对齐 ZCode：超过内联阈值的大图落盘 v4-image-cache，ref 换本地路径；小图保持行内。"""
+    import base64
+
+    from app.gateway.v4 import image_cache
+
+    def _fake_cache_dir() -> Path:
+        d = tmp_path / "cache"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    monkeypatch.setattr(image_cache, "v4_image_cache_dir", _fake_cache_dir)
+    payload = b"\x89PNG\r\n\x1a\n" + b"\x00" * 80_000
+    big = "data:image/png;base64," + base64.b64encode(payload).decode()
+    small = "data:image/png;base64," + "A" * 64
+
+    atts = _attachments_from_user_payload(
+        {
+            "content": [
+                {"type": "image_url", "image_url": {"url": big}},
+                {"type": "image_url", "image_url": {"url": small}},
+            ]
+        }
+    )
+    assert len(atts) == 2
+    # 大图：ref 是缓存文件路径，bytes = 解码后字节数，文件内容与原字节一致
+    ref_path = Path(atts[0]["ref"])
+    assert ref_path.is_file() and ref_path.suffix == ".png"
+    assert ref_path.parent.name == "cache"
+    assert atts[0]["bytes"] == len(payload)
+    assert ref_path.read_bytes() == payload
+    # 幂等：再次提取同一 data URL 得到同一路径，不重复写盘
+    again = _attachments_from_user_payload(
+        {"content": [{"type": "image_url", "image_url": {"url": big}}]}
+    )
+    assert again[0]["ref"] == atts[0]["ref"]
+    # 小图：保持行内
+    assert atts[1]["ref"] == small
+
+
 def test_extractor_user_attachments_from_stream_body():
     """POST /runs/stream body 的 image_url 块 → live 镜像 AttachmentRef（只看最新 human）。"""
     import base64
