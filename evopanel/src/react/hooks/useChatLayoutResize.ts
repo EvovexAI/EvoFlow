@@ -60,6 +60,15 @@ export function useChatLayoutResize(opts: {
   const [bottomDockHeightPx, setBottomDockHeightPx] = useState<number | null>(
     () => loadChatLayoutPrefs().bottomDockHeightPx,
   )
+  /**
+   * 用户拖拽出的**原始宽度意图**（未按当前主列宽钳制）。
+   *
+   * 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+   * 为什么要有这个 ref：渲染宽度必须恒为 clamp(意图, 当前主列宽)。
+   *   若只留一个 state，缩窗时把它改小就等于**把用户的意图永久改写**，
+   *   窗口放大回来也回不到原来的宽度。分开存：state=显示值（可变），ref=意图（只被拖拽改）。
+   */
+  const rightPanelWidthPrefRef = useRef<number | null>(loadChatLayoutPrefs().rightPanelWidthPx)
 
   useLayoutEffect(() => {
     const stored = layoutSizesRef.current.bottomDockHeightPx
@@ -160,6 +169,9 @@ export function useChatLayoutResize(opts: {
           ? defaultNarrowRightPanelWidth(bodyW)
           : prev
         const clamped = clampRightPanelWidth(seed, bodyW)
+        // 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+        // 迁移种子也写回意图 ref，否则存储里仍是旧的 340，缩窗重算会按 340 走。
+        if (seed !== prev) rightPanelWidthPrefRef.current = seed
         if (clamped !== prev) {
           layoutSizesRef.current.rightPanelWidthPx = clamped
           shouldPersist = true
@@ -169,6 +181,7 @@ export function useChatLayoutResize(opts: {
       if (!opening && prev != null) return prev
       // 对话默认摘要：窄栏；不要一上来半屏
       const def = defaultNarrowRightPanelWidth(bodyW)
+      rightPanelWidthPrefRef.current = def
       layoutSizesRef.current.rightPanelWidthPx = def
       shouldPersist = true
       return def
@@ -217,6 +230,7 @@ export function useChatLayoutResize(opts: {
         return prev
       }
       layoutSizesRef.current.rightPanelWidthPx = wide
+      rightPanelWidthPrefRef.current = wide
       saveChatLayoutPrefs({
         ...layoutSizesRef.current,
         rightPanelWidthPx: wide,
@@ -226,8 +240,68 @@ export function useChatLayoutResize(opts: {
   }, [anyRightPanelOpen, layoutResizeEnabled, hasWideStageTab])
 
   useEffect(() => {
-    layoutSizesRef.current = { rightPanelWidthPx, bottomDockHeightPx }
+    // 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：持久化用**意图**（pref ref），不用显示值。
+    // 为什么：显示值在窄窗下已被钳制（如意图 896 → 显示 610），若把它当意图落盘，
+    //   窗口放大回来也回不到 896 —— 等于缩一次窗就永久改写用户拖出来的宽度。
+    layoutSizesRef.current = {
+      rightPanelWidthPx: rightPanelWidthPrefRef.current ?? rightPanelWidthPx,
+      bottomDockHeightPx,
+    }
   }, [rightPanelWidthPx, bottomDockHeightPx])
+
+  /**
+   * 窗口尺寸变化时重算右栏宽度。
+   *
+   * 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+   * 改了什么：新增这个 effect —— 主列宽度变化（拖窗口边框 / 最大化 / 还原）时，
+   *   把显示宽度重算为 clamp(用户意图, 新主列宽)。用户意图存 rightPanelWidthPrefRef，
+   *   不回写，所以窗口放大回来时宽度能回到用户拖出来的原值。
+   * 为什么（现网实测原文，2026-11-21 本轮 1440 窗口已装包）::
+   *
+   *   用户拖到 896px 后缩窗，右栏**停在 896px 不动**，直接伸出视口：
+   *     vw=1280 → asideR 1273，clipped 0
+   *     vw=1100 → asideR 1176，clipped 76px
+   *     vw=1000 → asideR 1176，clipped 176px
+   *     vw= 960（窗口 minWidth）→ asideR 1176，clipped 216px
+   *   同时对话列被压到 220px 底限不再收缩 —— 即溢出全部落在右栏右边缘被裁，
+   *   标签条（tabsR 恒 1176）与面板内容一起被切，用户看不到右侧内容。
+   * 判据：缩窗后 aside.getBoundingClientRect().right 必须 ≤ innerWidth（clippedPx 归 0），
+   *   放大回来 asideW 必须回到拖拽原值。
+   */
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const el = mainBodyRef.current
+    if (!el || !anyRightPanelOpen || !layoutResizeEnabled) return
+    let raf = 0
+    const recompute = () => {
+      const bodyW = mainBodyRef.current?.clientWidth || 0
+      if (!bodyW) return
+      const pref = rightPanelWidthPrefRef.current
+      if (pref == null || !Number.isFinite(pref) || pref <= 0) return
+      const next = clampRightPanelWidth(pref, bodyW)
+      setRightPanelWidthPx((prev) => (prev == null || Math.abs(prev - next) >= 1 ? next : prev))
+    }
+    const onResize = () => {
+      if (raf) window.cancelAnimationFrame(raf)
+      raf = window.requestAnimationFrame(() => {
+        raf = 0
+        recompute()
+      })
+    }
+    window.addEventListener('resize', onResize)
+    // 主列宽度不一定跟 window resize 同步（侧栏收起、输入区变化都会改它）。
+    let ro: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      ro = new ResizeObserver(onResize)
+      ro.observe(el)
+    }
+    return () => {
+      if (raf) window.cancelAnimationFrame(raf)
+      window.removeEventListener('resize', onResize)
+      ro?.disconnect()
+    }
+  }, [anyRightPanelOpen, layoutResizeEnabled])
 
   const persistLayoutSizes = useCallback(() => {
     saveChatLayoutPrefs(layoutSizesRef.current)
@@ -249,6 +323,9 @@ export function useChatLayoutResize(opts: {
     setRightPanelWidthPx((prev) => {
       const current = prev ?? defaultRightPanelWidth(el.clientWidth)
       const next = clampRightPanelWidth(current - delta, el.clientWidth)
+      // 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+      // 拖拽是唯一改写「用户意图」的入口：这里同步 pref ref，缩窗重算才不会按旧值走。
+      rightPanelWidthPrefRef.current = next
       layoutSizesRef.current.rightPanelWidthPx = next
       return next
     })
