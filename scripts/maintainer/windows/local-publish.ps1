@@ -22,6 +22,9 @@ param(
     [switch] $CreatePublicGhRelease,
     [switch] $All,
     [switch] $InstallNpmDeps,
+    # Local verify only: skip torch/ST + bge in gateway (much faster). Do NOT use for public release.
+    # Env alternative: EVOFLOW_GATEWAY_LEAN=1
+    [switch] $Lean,
     # UTF-8 Markdown for -CreatePublicGhRelease (overrides public-release-body.txt). Env EVOFLOW_PUBLIC_RELEASE_BODY (path) also supported.
     [string] $PublicReleaseBodyPath = ""
 )
@@ -79,6 +82,10 @@ if ($All) {
     $CreatePublicGhRelease = $true
 }
 
+if ($Lean -and ($CreatePublicGhRelease -or $All)) {
+    throw "-Lean is for local verify only. Do not combine with -CreatePublicGhRelease / -All (product release needs local embedding)."
+}
+
 if (-not ($BuildDesktopInstaller -or $CreatePublicGhRelease)) {
     $helpText = @"
 No action selected. Pick one or more:
@@ -88,9 +95,11 @@ No action selected. Pick one or more:
   -All                     BuildDesktopInstaller, then CreatePublicGhRelease (new Release tag only)
 
   -InstallNpmDeps         With -BuildDesktopInstaller: run npm ci in evopanel first (clean install; slow on Windows)
+  -Lean                   Local verify: skip local embedding (torch/ST + bge) so PyInstaller is much faster. Not for public release.
 
 Examples:
   .\scripts\maintainer\windows\local-publish.ps1 -BuildDesktopInstaller
+  .\scripts\maintainer\windows\local-publish.ps1 -BuildDesktopInstaller -Lean
   .\scripts\maintainer\windows\local-publish.ps1 -BuildDesktopInstaller -InstallNpmDeps
   .\scripts\maintainer\windows\local-publish.ps1 -BuildDesktopInstaller -CreatePublicGhRelease
   .\scripts\maintainer\windows\local-publish.ps1 -All
@@ -257,7 +266,14 @@ Install once (e.g. cd evopanel && npm ci), or re-run with -InstallNpmDeps / set 
             Write-Host "[local-publish] Skipping npm ci (found Tauri CLI). Use -InstallNpmDeps for a clean install." -ForegroundColor DarkGray
         }
 
-        & npm run build:desktop:win
+        if ($Lean) {
+            $env:EVOFLOW_GATEWAY_LEAN = "1"
+            $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING = "0"
+            Write-Host "[local-publish] LEAN verify build: skip local embedding (not for public release)" -ForegroundColor Yellow
+            & npm run build:desktop:win:lean
+        } else {
+            & npm run build:desktop:win
+        }
         if ($LASTEXITCODE -ne 0) { throw "npm run build:desktop:win failed" }
     } finally { Pop-Location }
 

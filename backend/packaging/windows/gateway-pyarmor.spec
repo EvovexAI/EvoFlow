@@ -23,6 +23,25 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
 )
 
+# Same harden as gateway.spec: recreate WORKPATH before base_library.zip.
+def _patch_base_library_zip_mkdir() -> None:
+    import PyInstaller.building.utils as _pi_utils
+    import PyInstaller.building.build_main as _pi_main
+
+    _orig = _pi_utils.create_base_library_zip
+
+    def _create_base_library_zip(filename, modules_toc, code_cache=None):
+        parent = os.path.dirname(os.path.abspath(filename))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        return _orig(filename, modules_toc, code_cache)
+
+    _pi_utils.create_base_library_zip = _create_base_library_zip
+    _pi_main.create_base_library_zip = _create_base_library_zip
+
+
+_patch_base_library_zip_mkdir()
+
 _INCLUDE_LOCAL_EMBEDDING = os.environ.get(
     "EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING", ""
 ).strip().lower() in {"1", "true", "yes", "on"}

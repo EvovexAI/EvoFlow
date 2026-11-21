@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import {
   clearEmployeePaneSenders,
   findEmployeePaneSender,
+  findEmployeePaneSenderEntry,
   registerEmployeePaneSender,
 } from '../src/lib/right-stage/employee-pane-send-bridge.ts'
 
@@ -89,5 +90,54 @@ describe('employee-pane-send-bridge', () => {
     disposeOld()
     findEmployeePaneSender('reviewer', SK_A)('after-dispose')
     expect(sentNew).toEqual(['after-dispose'])
+  })
+
+  // 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补 Entry 命中方式三例——精确 / code 兜底 / 双 sender 放弃。
+  // 为什么：回执必须带回**实际** sessionKey；兜底命中时 matched=code-fallback，
+  //   调用方不得再用传入的意图 sk 冒充事实。
+  it('Entry：精确命中带回实际 sk + matched=exact', () => {
+    registerEmployeePaneSender({
+      agentCode: 'reviewer',
+      sessionKey: SK_A,
+      send: () => true,
+    })
+    const hit = findEmployeePaneSenderEntry('reviewer', SK_A)
+    expect(hit).toEqual({
+      send: expect.any(Function),
+      sessionKey: SK_A,
+      matched: 'exact',
+    })
+  })
+
+  it('Entry：请求 sk 对不上、同 code 唯一 → code-fallback 回面板真实 sk', () => {
+    const paneSk = 'proactive:reviewer:chat:2026-11-21T13-20-20.208Z'
+    registerEmployeePaneSender({
+      agentCode: 'reviewer',
+      sessionKey: paneSk,
+      send: () => true,
+    })
+    const hit = findEmployeePaneSenderEntry(
+      'reviewer',
+      'proactive:reviewer:chat:dept-4de7e33a602b',
+    )
+    expect(hit?.matched).toBe('code-fallback')
+    expect(hit?.sessionKey).toBe(paneSk)
+  })
+
+  it('Entry：同 code 两个 sender 且 sk 都不对 → null，不猜屏', () => {
+    registerEmployeePaneSender({
+      agentCode: 'reviewer',
+      sessionKey: SK_A,
+      send: () => true,
+    })
+    registerEmployeePaneSender({
+      agentCode: 'reviewer',
+      sessionKey: SK_B,
+      send: () => true,
+    })
+    expect(
+      findEmployeePaneSenderEntry('reviewer', 'proactive:reviewer:chat:c'),
+    ).toBeNull()
   })
 })

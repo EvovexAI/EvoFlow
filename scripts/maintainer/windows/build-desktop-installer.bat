@@ -7,6 +7,8 @@ rem
 rem Double-click this file, or:
 rem   build-desktop-installer.bat
 rem   build-desktop-installer.bat -InstallNpmDeps
+rem   build-desktop-installer.bat -Lean
+rem     (-Lean = local verify only: skip torch/embedding, much faster; not for release)
 rem
 rem By default skips updater signing (no Password: prompt). That is enough for
 rem a local install/test exe. To sign updater artifacts like CI:

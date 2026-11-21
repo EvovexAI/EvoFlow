@@ -27,6 +27,26 @@ def _role():
     return SimpleNamespace(agent_code="reviewer", role_name="审核员", status="active")
 
 
+# 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：autouse 把 CDP 面板固定成「不可达」。
+# 为什么（真机复跑抓到）：文件里三条用例都在断言「算出来的 sk 必须落到 wake」，
+#   但 chat_send 的 deliver=auto 是「面板在就驱面板、面板不在才 wake」。本机桌面
+#   App 一开着，panel_request 就真成功 → need_wake=False → wake 一次都不调 →
+#   `assert seen` 直接红。用例本意是测「sk 有没有传给 wake」，与桌面开没开无关，
+#   不打桩等于让 CI/本地结果取决于「此刻有没有人开着 App」，不可复现。
+# 判据：无论桌面面板是否在线，本文件结果恒定；要测面板那一路的用例自己另打桩覆盖。
+@pytest.fixture(autouse=True)
+def _no_panel(monkeypatch: pytest.MonkeyPatch):
+    def _unreachable(*_a, **_kw):
+        return {"ok": False, "error": "panel_unreachable_in_test"}
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        _unreachable,
+        raising=False,
+    )
+
+
 def _patch_wake(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
     """打桩 wake，收集它真实收到的参数（被测语义就是「传了什么下去」）。"""
     seen: list[dict] = []

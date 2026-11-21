@@ -45,6 +45,30 @@ describe('collectViewportAnomalies', () => {
     expect(formatAnomalyBadge(anomalies)).toContain('STREAM_AHEAD_OF_WINDOW')
   })
 
+  it('flags AG-UI busy with optimistic bubble but no V4 tip', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      turns: [
+        {
+          turnId: 'optimistic-1',
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+        },
+      ],
+      windowRows: [
+        {
+          rowId: 2210,
+          kind: 'assistantText',
+          state: 'complete',
+          turnId: 'old-turn',
+        },
+      ],
+      streamEntries: [],
+    })
+    expect(anomalies.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP')).toBe(true)
+  })
+
   it('flags rows_range success that did not advance winFirst', () => {
     const anomalies = collectViewportAnomalies({
       ...base,

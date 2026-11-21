@@ -87,6 +87,7 @@ export default defineConfig({
       'tests/preview-view-mode.test.js',
       'tests/preview-doc-parsers.test.js',
       'tests/preview-pane-text-wrap-default.test.ts',
+      'tests/preview-pane-code-review.test.ts',
       'tests/workspace-recent-sections.test.js',
       'tests/zcode-theme-host-scope.test.ts',
       'tests/workspace-file-preview-view-toggle.test.tsx',
@@ -197,6 +198,9 @@ export default defineConfig({
       'tests/session-debug-turn-groups.test.js',
       'tests/pick-session-row-title.test.js',
       'tests/chat-layout-bottom-dock.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第114轮 · 模型:deepseek-v4.1-flash-1017】
+      // 右栏宽度随窗口重算：缩窗溢出实测 vw=960 被裁 216px（现网数字，见测试文件头）。
+      'tests/chat-layout-right-panel-reflow.test.js',
       'tests/chat-pane-mode.test.ts',
       'tests/chat-ws-foreground.test.js',
       'tests/conversation-turn-session-busy.test.ts',
@@ -243,7 +247,16 @@ export default defineConfig({
       // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
       // 工作流签绑错任务：显式 mainTaskId 被当前会话 thread 覆盖 → 标题串、节点 0。
       'tests/collab-workflow-stage-binding.test.ts',
+      // 【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】
+      // 员工面板发送落到 task 会话 → 消息进任务时间线，对话面板永远看不到（现网 19:40 实证）。
+      'tests/employee-pane-send-session-kind.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+      // 护栏：子任务会话历史不得用裸 fetch（Tauri 下相对路径拿到 SPA 首页）。
+      'tests/subtask-fetch-must-use-gateway.test.js',
       'tests/subtask-conversation-history.test.js',
+      // 【self-evolution-bot · 2026-11-21 · 第113轮 · 模型:deepseek-v4.1-flash-1017】
+      // codeViewer 是唯一没有错误边界的大面板：一个坏 source 打掉整个聊天区（本轮实测）。
+      'tests/right-stage-codeviewer-error-boundary.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
       'tests/right-stage-force-expand.test.js',
@@ -291,6 +304,7 @@ export default defineConfig({
       'tests/cua-control-revoke-semantics.test.js',
       'tests/platform-feedback.test.js',
       'tests/platform-workflow-progress.test.ts',
+      'tests/platform-tool-title.test.ts',
       'tests/dept-group-handoff.test.js',
       'tests/dept-group-steward.test.js',
       'tests/dept-group-wake-queue.test.js',
@@ -393,6 +407,8 @@ export default defineConfig({
       'tests/v4-viewport-scroll-tap.test.ts',
       // 视口异常表：流式落后窗 / loadOlder 不前进 / 用户气泡错位 / 绘画埋没
       'tests/v4-viewport-anomaly.test.ts',
+      // V4 投递路径根因对账（HUB_AHEAD_NOTIFIED0 / NO_STORE_SUB…）——面板能定位才算修好。
+      'tests/v4-path-probe.test.ts',
       'tests/v4-viewport-virtualization-probe.test.ts',
       // search_code_index 卡片：不得被 family=search 抢去渲染成不可展开的一行式块
       // 【self-evolution-bot · 2026-11-17 · 第33轮】新增用例必须登记，否则 vitest 根本不会跑它

@@ -44,6 +44,9 @@ import { V4SessionPaneBridge } from '../../v4/V4SessionPaneBridge.js'
 import { resolveSessionBusyFromControl } from '../../v4/control-busy.js'
 import { toast } from '../../../components/toast.js'
 import { EmployeeStageAvatar } from '../../components/EmployeeStageAvatar.js'
+// 【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】
+// 发送会话判据：对话不许用 task 会话（消息会进任务时间线，面板看不到）。
+import { resolveSendSessionKeyForChat } from '../../../lib/right-stage/employee-send-session-kind.js'
 
 /** 从 V4 窗口行拼纯文本，供右栏「复制对话」。 */
 function plainTextFromV4Window(rows: readonly { kind?: string; text?: string }[] | null | undefined): string {
@@ -698,6 +701,17 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
   }, [fetchMeta, loaded, running, sending, threadId])
 
   const resolveSendSessionKey = useCallback(async (): Promise<{ sk: string; tid: string }> => {
+    // 【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：发送前对 `sk` 加一道硬判据 —— **不允许往 task 会话里发**。
+    //   若解析结果落在 `proactive:<code>:task:<id>`，丢弃它、改建/复用该员工的 chat 会话。
+    // 为什么（现网实证，不是推测）：审核员面板通过 resolveProactiveProcessMeta 自动挑会话时
+    //   挑中了昨天那个任务会话 proactive:reviewer:task:2611202007_de39（thread 517144f5）。
+    //   我经平台发的那句话就写进了那里：库实证 19:40:28 user + 19:40:31 assistant「审核员」，
+    //   thread_id=517144f5；而面板显示的是 chat 会话 dept-e52862be9e71（thread ce27a8d1，
+    //   只有 3 条、停在昨天 20:07）。结果：员工**确实收到并回答了**，但用户面板永远看不到。
+    //   更坏的是后端回执的 session_key 是调用方传的 chat key，看起来"发对了"，纯属误导。
+    // 判据：写库的 session_key 必须是 chat 会话且等于面板正在显示的会话；
+    //   拿 task 会话发"对话"，用户在那个面板里一定看不到。
     let sk = String(employeeSessionKey || '').trim()
     if (!sk && code) {
       if (taskId) {
@@ -711,6 +725,21 @@ export function V4EmployeeProcessPane(props: V4EmployeeProcessPaneProps) {
         sk = String(meta.session_key || '').trim()
       }
       if (!sk) sk = mintEmployeeChatSessionKey(code)
+      setEmployeeSessionKey(sk)
+    }
+    // 【self-evolution-bot · 2026-11-21 · 第111轮 · 模型:deepseek-v4.1-flash-1017】
+    // task 会话不能用来发「对话」：那条消息进的是任务时间线，面板（绑 chat 会话）看不到。
+    // 现网实证：审核员被这条坑掉（详见 employee-send-session-kind.ts 顶部说明）。
+    const guarded = resolveSendSessionKeyForChat({
+      candidate: sk,
+      fallback: code ? mintEmployeeChatSessionKey(code) : '',
+    })
+    if (guarded.switchedFrom) {
+      console.warn('[employee-pane] send dropped task session key, switch to chat', {
+        from: guarded.switchedFrom,
+        to: guarded.sk,
+      })
+      sk = guarded.sk
       setEmployeeSessionKey(sk)
     }
     let tid = String(threadId || '').trim()

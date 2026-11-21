@@ -68,7 +68,42 @@ function parseArgsJson(input: Record<string, unknown>): Record<string, unknown> 
   }
 }
 
-/** 折叠条右侧摘要：query / name 等可读字段，不暴露 id。 */
+/** 卡头标题长度：正常中文句，不压成 chip。 */
+function clipBrief(s: string, max = 72): string {
+  return s.length > max ? `${s.slice(0, max)}…` : s;
+}
+
+/**
+ * 卡头主文案：对齐电脑控制 —— 只用模型写的中文 title（与 action 同级）。
+ * 不从 op/method 等技术字段拼串；结果 display.title 盖过入参。
+ */
+export function readPlatformToolTitle(
+  input: unknown,
+  opts?: { displayTitle?: string | null; toolTitle?: string | null },
+): string {
+  const fromDisplay = readTrimmedString(opts?.displayTitle);
+  if (fromDisplay) return clipBrief(fromDisplay, 96);
+  if (!isPlainRecord(input)) {
+    return readTrimmedString(opts?.toolTitle);
+  }
+  const payload = parseArgsJson(input) || {};
+  for (const c of [
+    input.title,
+    payload.title,
+    input.name,
+    payload.name,
+    payload.agent_name,
+    payload.role_name,
+    payload.skill_name,
+    payload.label,
+  ]) {
+    const s = readTrimmedString(c);
+    if (s) return clipBrief(s, 96);
+  }
+  return readTrimmedString(opts?.toolTitle);
+}
+
+/** 折叠条右侧摘要：query 等；title 走 {@link readPlatformToolTitle}，不再叠进主文案。 */
 export function readPlatformToolBrief(input: unknown): string {
   if (!isPlainRecord(input)) return "";
   const payload = parseArgsJson(input) || {};
@@ -76,10 +111,6 @@ export function readPlatformToolBrief(input: unknown): string {
     payload.prompt,
     payload.query,
     payload.search,
-    payload.name,
-    payload.title,
-    payload.agent_name,
-    payload.role_name,
     payload.status,
     payload.task_id,
     payload.taskId,
@@ -88,9 +119,42 @@ export function readPlatformToolBrief(input: unknown): string {
   ];
   for (const c of candidates) {
     const s = readTrimmedString(c);
-    if (s) return s.length > 40 ? `${s.slice(0, 40)}…` : s;
+    if (s) return clipBrief(s);
   }
   return "";
+}
+
+/**
+ * 平台卡主文案（对齐 CUA）：
+ * - 有中文 title → 只显示 title，且不挂「平台」kindLabel
+ * - 无 title → 中文动作短标签 + 「平台」
+ */
+export function buildPlatformToolPrimaryText(opts: {
+  action: string;
+  input?: unknown;
+  displayTitle?: string | null;
+  toolTitle?: string | null;
+}): {
+  primaryText: string;
+  actionLabel: string;
+  kindDetail?: string;
+  /** 有作者 title 时隐藏「平台」前缀 */
+  hideKindLabel?: boolean;
+} {
+  const action = String(opts.action || "").trim();
+  const domain = action.includes(".") ? action.slice(0, action.indexOf(".")) : "";
+  const actionLabel =
+    platformActionShortLabelZh(action, { max: 24 }) ||
+    platformDomainLabelZh(domain) ||
+    "平台管理";
+  const title = readPlatformToolTitle(opts.input, {
+    displayTitle: opts.displayTitle,
+    toolTitle: opts.toolTitle,
+  });
+  if (title) {
+    return { primaryText: title, actionLabel, hideKindLabel: true };
+  }
+  return { primaryText: actionLabel, actionLabel };
 }
 
 /** 从 platform 入参取生图宽高比（占位框比例）。 */
@@ -363,14 +427,31 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
   } = context;
   const { toolCall } = toolCallNode;
   const action = readPlatformToolAction(toolCall.input);
-  const domain = action.includes(".") ? action.slice(0, action.indexOf(".")) : "";
-  const actionLabel =
-    platformActionShortLabelZh(action, { max: 24 }) ||
-    platformDomainLabelZh(domain) ||
-    "平台管理";
-  const brief = readPlatformToolBrief(toolCall.input);
-  const kindLabel = context.kindLabelOverride ?? "平台";
-  const primaryText = brief ? `${actionLabel} · ${brief}` : actionLabel;
+  const displayTitle = useMemo(() => {
+    const display =
+      toolCall.raw &&
+      typeof toolCall.raw === "object" &&
+      "display" in toolCall.raw
+        ? (toolCall.raw as { display?: { title?: unknown; entityLabel?: unknown } }).display
+        : undefined;
+    return (
+      readTrimmedString(display?.title) ||
+      readTrimmedString(display?.entityLabel) ||
+      ""
+    );
+  }, [toolCall.raw]);
+  const { primaryText, actionLabel, kindDetail, hideKindLabel } = useMemo(
+    () =>
+      buildPlatformToolPrimaryText({
+        action,
+        input: toolCall.input,
+        displayTitle,
+        toolTitle: toolCall.title,
+      }),
+    [action, displayTitle, toolCall.input, toolCall.title],
+  );
+  // 有中文 title 时不要再挂「平台」——标题本身已说明在干什么
+  const kindLabel = hideKindLabel ? "" : (context.kindLabelOverride ?? "平台");
   const mediaPreview = useMemo(() => readPlatformMediaPreview(toolCall), [toolCall]);
   const aspectRatio = useMemo(() => readPlatformMediaAspectRatio(toolCall.input), [toolCall.input]);
   const showGeneratingPlaceholder =
@@ -580,6 +661,12 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
         canToggle={context.canToggle ?? true}
         forceOpen={context.forceOpen}
         kindLabel={kindLabel}
+        kindDetail={
+          kindDetail ? (
+            <span className="text-foreground-subtle">{kindDetail}</span>
+          ) : undefined
+        }
+        summaryContentSeparator="·"
         sourceLabel={context.sourceLabel}
         primaryText={primaryTextNode}
         secondaryText={toolCall.status === "failed" ? undefined : statusLabel}
@@ -587,7 +674,7 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
         statusTooltip={toolCall.status === "failed" ? errorText : undefined}
         showFailureStatus={toolCall.status === "failed"}
         isRunning={isRunning}
-        title={primaryText}
+        title={kindDetail ? `${kindDetail} · ${primaryText}` : primaryText}
         renderContent={renderContent}
       />
       {showGeneratingPlaceholder ? (

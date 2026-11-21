@@ -278,8 +278,80 @@ def _truthy_confirm(args: dict[str, Any], confirm: bool) -> bool:
     return False
 
 
+_CARD_TITLE_MAX = 96
+
+
+def _clip_card_title(text: str, max_len: int = _CARD_TITLE_MAX) -> str:
+    s = str(text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1].rstrip() + "…"
+
+
+def _authored_card_title(args: dict[str, Any], result: dict[str, Any] | None = None) -> str | None:
+    """仅认「给人看的标题」：与 action 同级 / args 内的 title、专名。
+
+    对齐电脑控制：模型写中文 title；不从 op/method 等技术字段拼无意义串。
+    """
+    for key in (
+        "title",
+        "name",
+        "display_name",
+        "agent_name",
+        "role_name",
+        "skill_name",
+        "label",
+    ):
+        v = args.get(key)
+        if isinstance(v, str) and v.strip():
+            return _clip_card_title(v.strip())
+    if isinstance(result, dict):
+        for key in ("name", "display_name", "role_name", "skill_name", "title"):
+            v = result.get(key)
+            if isinstance(v, str) and v.strip() and len(v.strip()) <= _CARD_TITLE_MAX:
+                return _clip_card_title(v.strip())
+    return None
+
+
+def resolve_platform_card_title(
+    entry: PlatformAction,
+    args: dict[str, Any],
+    *,
+    result: dict[str, Any] | None = None,
+) -> str | None:
+    """有作者标题才返回；没有则 None（前端用中文动作短标签兜底，不发明技术串）。"""
+    return _authored_card_title(args, result)
+
+
+def _attach_platform_card_labels(
+    result: dict[str, Any],
+    entry: PlatformAction,
+    args: dict[str, Any],
+) -> dict[str, Any]:
+    """与 ``action`` 同级 stamp：有作者 title 才写 ``title``；始终写 ``action_summary``。"""
+    if not isinstance(result, dict):
+        return result
+    action_summary = str(entry.summary or entry.name).strip() or entry.name
+    card_title = resolve_platform_card_title(entry, args, result=result)
+    result.setdefault("action", entry.name)
+    result.setdefault("domain", entry.domain)
+    result.setdefault("action_summary", action_summary)
+    existing = result.get("title")
+    if isinstance(existing, str) and existing.strip():
+        pass
+    elif card_title:
+        result["title"] = card_title
+    ui = result.get("ui")
+    if isinstance(ui, dict) and ui:
+        if not str(ui.get("title") or "").strip() and (card_title or result.get("title")):
+            ui["title"] = str(result.get("title") or card_title or "").strip()
+        ui.setdefault("action", entry.name)
+        ui.setdefault("domain", entry.domain)
+    return result
+
+
 def _preview(action: PlatformAction, args: dict[str, Any]) -> dict[str, Any]:
-    return {
+    out = {
         "ok": True,
         "pending_confirm": True,
         "action": action.name,
@@ -287,8 +359,12 @@ def _preview(action: PlatformAction, args: dict[str, Any]) -> dict[str, Any]:
         "risk": action.risk,
         "summary": action.summary,
         "args": args,
-        "hint": (f"这是{action.risk}操作，尚未执行。向用户复述将要做的事；用户确认后再次调用 platform(action={action.name!r}, args_json=..., confirm=true)。"),
+        "hint": (
+            f"这是{action.risk}操作，尚未执行。向用户复述将要做的事；"
+            f"用户确认后再次调用 platform(action={action.name!r}, args_json=..., confirm=true)。"
+        ),
     }
+    return _attach_platform_card_labels(out, action, args)
 
 
 def _A(
@@ -1891,37 +1967,49 @@ def dispatch_platform_action(
 
         scope_ok, scope_reason = action_allowed(employee_scope, entry.name, entry.risk)
         if not scope_ok:
-            return {
-                "ok": False,
-                "error": "capability_denied",
-                "action": entry.name,
-                "risk": entry.risk,
-                "reason": scope_reason,
-                "allowed_domains": (
-                    sorted({str(d).strip().lower() for d in employee_scope.domains})
-                    if employee_scope.mode == "custom"
-                    else []
-                ),
-                "max_risk": employee_scope.max_risk,
-                "hint": "该动作超出本岗位能力清单；可调用 action=catalog 查看已授权范围，或告知用户在岗位设置中调整平台能力。",
-            }
+            return _attach_platform_card_labels(
+                {
+                    "ok": False,
+                    "error": "capability_denied",
+                    "action": entry.name,
+                    "risk": entry.risk,
+                    "reason": scope_reason,
+                    "allowed_domains": (
+                        sorted({str(d).strip().lower() for d in employee_scope.domains})
+                        if employee_scope.mode == "custom"
+                        else []
+                    ),
+                    "max_risk": employee_scope.max_risk,
+                    "hint": "该动作超出本岗位能力清单；可调用 action=catalog 查看已授权范围，或告知用户在岗位设置中调整平台能力。",
+                },
+                entry,
+                args,
+            )
 
     risk = entry.risk
     if risk in {"write", "destructive"} and not _truthy_confirm(args, confirm):
         if risk == "destructive":
-            return {
-                "ok": False,
-                "error": "destructive_requires_confirm",
-                "action": entry.name,
-                "risk": risk,
-                "summary": entry.summary,
-                "args": args,
-                "hint": "破坏性操作必须用户明确确认后，带 confirm=true 再调用。",
-            }
+            return _attach_platform_card_labels(
+                {
+                    "ok": False,
+                    "error": "destructive_requires_confirm",
+                    "action": entry.name,
+                    "risk": risk,
+                    "summary": entry.summary,
+                    "args": args,
+                    "hint": "破坏性操作必须用户明确确认后，带 confirm=true 再调用。",
+                },
+                entry,
+                args,
+            )
         return _preview(entry, args)
 
     if entry.handler is None:
-        return {"ok": False, "error": "handler_missing", "action": entry.name}
+        return _attach_platform_card_labels(
+            {"ok": False, "error": "handler_missing", "action": entry.name},
+            entry,
+            args,
+        )
 
     # Thread principal / current conversation into handlers (extra keys are
     # inert when unused). Task「责任人」uses ambient ContextVar, not args.
@@ -1948,12 +2036,20 @@ def dispatch_platform_action(
             ui = build_platform_ui_feedback(entry, args, result)
             if ui:
                 result["ui"] = ui
-        return result
+        return _attach_platform_card_labels(result, entry, args)
     except (AdminError, ValidationError, NotFoundError, ValueError) as exc:
-        return {"ok": False, "error": str(exc), "action": entry.name}
+        return _attach_platform_card_labels(
+            {"ok": False, "error": str(exc), "action": entry.name},
+            entry,
+            args,
+        )
     except Exception as exc:
         logger.exception("platform action=%s failed", entry.name)
-        return {"ok": False, "error": str(exc), "action": entry.name}
+        return _attach_platform_card_labels(
+            {"ok": False, "error": str(exc), "action": entry.name},
+            entry,
+            args,
+        )
 
 
 def slugify_vault_name(name: str) -> str:

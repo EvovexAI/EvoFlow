@@ -26,21 +26,30 @@ function entryOf(key: string, overrides: Partial<PersistedSessionEntry['memory']
   } satisfies PersistedSessionEntry
 }
 
-describe('reload-only gating', () => {
+/**
+ * 【第115轮】恢复门控从 reload-only 放宽为「同一标签页内重载即恢复」。
+ * 原断言（冷启动清键 + 返回空）随语义一起作废：sessionStorage 本身已表达
+ * 标签页边界，再加 navigation type 判断会漏掉 dev HMR / webview reload
+ * （实测 rev=41 tabs=7 → rev=1 tabs=0 的根因）。
+ * 新增的唯一兜底是快照 TTL。
+ */
+describe('same-tab reload restore', () => {
   afterEach(() => {
     vi.restoreAllMocks()
   })
 
-  it('does not consume persisted state on cold start and clears the key', () => {
+  it('restores persisted state even when navigation type is not reload (HMR / webview)', () => {
     sessionStorage.setItem(STORAGE_KEY, serializeSessionEntries([entryOf('sess-a')]))
     vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
       { type: 'navigate' },
     ] as unknown as PerformanceEntryList)
-    expect(readPersistedSessionEntries()).toEqual([])
-    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull()
+    // 关键：不再因为「不是 reload」就丢东西。
+    const entries = readPersistedSessionEntries()
+    expect(entries.map((e) => e.key)).toEqual(['sess-a'])
+    expect(sessionStorage.getItem(STORAGE_KEY)).not.toBeNull()
   })
 
-  it('restores persisted state on reload', () => {
+  it('restores persisted state on a classic reload', () => {
     sessionStorage.setItem(STORAGE_KEY, serializeSessionEntries([entryOf('sess-a')]))
     vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
       { type: 'reload' },
@@ -49,6 +58,29 @@ describe('reload-only gating', () => {
     const entries = readPersistedSessionEntries()
     expect(entries.map((e) => e.key)).toEqual(['sess-a'])
     expect(entries[0]?.memory.tabs[0]?.kind).toBe('file')
+  })
+
+  it('returns empty for a fresh tab (nothing persisted)', () => {
+    sessionStorage.clear()
+    expect(readPersistedSessionEntries()).toEqual([])
+  })
+
+  it('drops and clears an expired snapshot', () => {
+    sessionStorage.setItem(STORAGE_KEY, serializeSessionEntries([entryOf('sess-old')]))
+    // 拨到保鲜期之后：跨天残留不能糊到用户脸上。
+    const later = Date.now() + RIGHT_STAGE_PERSIST_LIMITS.maxAgeMs + 1000
+    vi.spyOn(Date, 'now').mockReturnValue(later)
+    expect(readPersistedSessionEntries()).toEqual([])
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull()
+  })
+
+  it('skips rewriting when content is unchanged', () => {
+    const entry = entryOf('sess-same')
+    expect(writePersistedSessionEntries([entry])).toBe(true)
+    const first = sessionStorage.getItem(STORAGE_KEY)
+    expect(writePersistedSessionEntries([entry])).toBe(true)
+    // savedAt 没被刷新 = 根本没重写（判重生效）。
+    expect(sessionStorage.getItem(STORAGE_KEY)).toBe(first)
   })
 })
 
@@ -215,8 +247,9 @@ describe('collapse intent survives reload (第103轮真机缺陷)', () => {
   })
 
   it('会话记忆落盘时必须带上 userCollapsed（字段表漏写 = 静默抹掉）', async () => {
-    // 判据说明：``readPersistedSessionEntries`` 只在 reload 导航下返回内容，冷启动会清键。
-    // 落盘形状是 ``{version, entries:[...]}``，不是裸数组。
+    // 判据说明（第115轮更新）：恢复不再判 navigation type，同一标签页内重载即可恢复；
+    // 唯一会清空的是「过期快照」（savedAt 超过保鲜期）。
+    // 落盘形状是 ``{version, savedAt, entries:[...]}``，不是裸数组。
     // 边界：``persistNow`` 只落最近 12 个会话，所以剥壳（evicted）路径在落盘里看不到 ——
     //   本用例只钉「落盘字段完整」这一条，剥壳路径由 shellOutMemory 的单测覆盖。
     vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
@@ -316,6 +349,146 @@ describe('收起手势落盘（第103轮真机缺陷 · 接线层）', () => {
       expect(saved?.memory?.collapsed).toBe(true)
       expect(saved?.memory?.userCollapsed).toBe(true)
       expect(saved?.memory?.tabs?.length).toBe(2)
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+})
+
+/**
+ * 【第115轮】重载恢复的前置条件：签必须**在开的那一刻**就落盘。
+ *
+ * 本轮真机缺陷：开了 7 个签、没切过会话，整页重载后全丢
+ * （rev=41 tabs=7 → rev=1 tabs=0）。放宽恢复门控只是「允许读」，
+ * 若写入侧仍只在切会话/收起时落盘，读侧永远读不到东西。
+ * 这里直接钉「开签 → bump → sessionStorage 出现该签」这条链路。
+ */
+describe('autosave on tab open（第115轮真机缺陷）', () => {
+  it('开签后不切会话也能落盘，重载可恢复', async () => {
+    vi.spyOn(performance, 'getEntriesByType').mockReturnValue([
+      { type: 'navigate' },
+    ] as unknown as PerformanceEntryList)
+    vi.resetModules()
+    const mem = await import('../src/lib/right-stage/right-stage-session-memory.js')
+    const store = await import('../src/lib/right-stage/right-stage-store.js')
+    const scope = await import('../src/lib/right-stage/right-stage-scope.js')
+    sessionStorage.clear()
+    try {
+      mem.setRightStageSessionPersistenceSuspended(false)
+      scope.setCurrentRightStageSessionKey('autosave-sess')
+      // 订阅安装在微任务里，等它跑完再动 store。
+      await Promise.resolve()
+      await Promise.resolve()
+
+      store.rightStageStore.show({ kind: 'file', id: 'a', data: { path: 'src/auto.ts' } })
+      mem.flushRightStageSessionPersistence()
+
+      const raw = sessionStorage.getItem('evopanel_right_stage_sessions_v1') || ''
+      expect(raw, '开签后必须已落盘').toContain('autosave-sess')
+      expect(raw).toContain('src/auto.ts')
+
+      // 用落盘内容反推恢复结果：模拟重载后 hydrate。
+      const entries = await import(
+        '../src/lib/right-stage/right-stage-session-persistence.js'
+      )
+      const restored = entries.readPersistedSessionEntries()
+      const hit = restored.find((e) => e.key === 'autosave-sess')
+      expect(hit?.memory.tabs.map((t) => `${t.kind}:${t.id}`)).toContain('file:a')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('切会话时不许把目标会话的签写进源会话（autosave 抑制）', async () => {
+    vi.resetModules()
+    const mem = await import('../src/lib/right-stage/right-stage-session-memory.js')
+    const store = await import('../src/lib/right-stage/right-stage-store.js')
+    sessionStorage.clear()
+    try {
+      mem.setRightStageSessionPersistenceSuspended(false)
+      mem.switchRightStageSession('', 'sess-a')
+      await Promise.resolve()
+      await Promise.resolve()
+      store.rightStageStore.show({ kind: 'file', id: 'only-a', data: { path: 'a.ts' } })
+      mem.switchRightStageSession('sess-a', 'sess-b')
+      mem.flushRightStageSessionPersistence()
+
+      const entries = await import(
+        '../src/lib/right-stage/right-stage-session-persistence.js'
+      )
+      const restored = entries.readPersistedSessionEntries()
+      // 真正的串台方向：换入 B 时 bump 早于 sessionKey 切换，会把「B 的空状态」
+      // 写进 A —— A 的签被抹掉。B 本身从未开过签，天然就没有 file:only-a。
+      const a = restored.find((e) => e.key === 'sess-a')
+      expect(a?.memory.tabs.map((t) => `${t.kind}:${t.id}`)).toContain('file:only-a')
+      const b = restored.find((e) => e.key === 'sess-b')
+      expect((b?.memory.tabs ?? []).map((t) => `${t.kind}:${t.id}`)).not.toContain('file:only-a')
+    } finally {
+      vi.restoreAllMocks()
+    }
+  })
+})
+
+/**
+ * 【第115轮】workspace 级签（文件树 / 写入 / 思维导图 / 交互终端 / 小V）
+ * 必须能扛过整页重载。
+ *
+ * 为什么单列：``exportSessionMemory`` 有意把它们从会话记忆里过滤掉
+ * （否则 40 条 LRU 会被同一份 workspace 副本吃满），代价是它们**只活在内存**。
+ * 本轮之前重载后一条不剩 —— 而这恰恰是用户期望常驻的那类签。
+ */
+describe('workspace 级签跨重载（第115轮）', () => {
+  it('开 workspace 签后落盘，重载后回填仍在', async () => {
+    vi.resetModules()
+    sessionStorage.clear()
+    const mem = await import('../src/lib/right-stage/right-stage-session-memory.js')
+    const store = await import('../src/lib/right-stage/right-stage-store.js')
+    mem.setRightStageSessionPersistenceSuspended(false)
+    await Promise.resolve()
+    await Promise.resolve()
+    try {
+      store.rightStageStore.show({
+        kind: 'workspace-browse',
+        id: 'primary',
+        data: { path: 'D:/dev/github/EvoFlow' },
+      })
+      store.rightStageStore.show({ kind: 'mind-map', id: 'primary' })
+      mem.flushRightStageSessionPersistence()
+
+      const raw = sessionStorage.getItem('evopanel_right_stage_workspace_v1')
+      expect(raw, 'workspace 签必须有独立快照').toBeTruthy()
+      expect(raw).toContain('workspace-browse')
+      expect(raw).toContain('mind-map')
+    } finally {
+      vi.restoreAllMocks()
+    }
+
+    // 模拟整页重载：模块全量重建（store 归零），只留 sessionStorage。
+    vi.resetModules()
+    const mem2 = await import('../src/lib/right-stage/right-stage-session-memory.js')
+    const store2 = await import('../src/lib/right-stage/right-stage-store.js')
+    mem2.hydrateWorkspaceTabsFromPersistence()
+    const kinds = store2.rightStageStore.getSnapshot().tabs.map((t) => t.kind).sort()
+    expect(kinds).toEqual(['mind-map', 'workspace-browse'])
+  })
+
+  it('回填不会把用户收起的右栏撑开', async () => {
+    sessionStorage.clear()
+    const persistence = await import(
+      '../src/lib/right-stage/right-stage-session-persistence.js'
+    )
+    persistence.writePersistedWorkspaceTabs([
+      { id: 'primary', kind: 'workspace-browse', layout: 'wide', data: { path: 'D:/x' } },
+    ])
+    vi.resetModules()
+    const mem = await import('../src/lib/right-stage/right-stage-session-memory.js')
+    const store = await import('../src/lib/right-stage/right-stage-store.js')
+    try {
+      mem.hydrateWorkspaceTabsFromPersistence()
+      const snap = store.rightStageStore.getSnapshot()
+      expect(snap.tabs.map((t) => t.kind)).toContain('workspace-browse')
+      // 签回来，但面板保持收起——恢复 ≠ 抢用户视线。
+      expect(snap.collapsed).toBe(true)
     } finally {
       vi.restoreAllMocks()
     }

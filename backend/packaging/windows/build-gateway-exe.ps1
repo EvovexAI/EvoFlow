@@ -40,7 +40,15 @@ Write-Host "[gateway-build] build temp (TEMP/TMP/PyInstaller cache): $BuildTempR
 $tempDir = Join-Path $BuildTempRoot "temp"
 $localAppData = Join-Path $BuildTempRoot "localappdata"
 $pyiWork = Join-Path $BuildTempRoot "pyinstaller-work"
-foreach ($d in @($BuildTempRoot, $tempDir, $localAppData, $pyiWork)) {
+# PyInstaller appends the spec stem (gateway / gateway-pyarmor) under --workpath.
+# Pre-create both so --clean + long Analysis cannot race a missing parent when
+# writing base_library.zip.
+$pyiWorkGateway = Join-Path $pyiWork "gateway"
+$pyiWorkGatewayPyarmor = Join-Path $pyiWork "gateway-pyarmor"
+foreach ($d in @(
+    $BuildTempRoot, $tempDir, $localAppData, $pyiWork,
+    $pyiWorkGateway, $pyiWorkGatewayPyarmor
+  )) {
   New-Item -ItemType Directory -Path $d -Force | Out-Null
 }
 
@@ -199,6 +207,12 @@ try {
       Write-Host "[gateway-build] falling back to standard spec" -ForegroundColor Yellow
       $specFile = "packaging/windows/gateway.spec"
     }
+  }
+
+  # Re-assert work dirs immediately before spawn: a sibling installer step may
+  # have wiped shared temps while we prepared bundles above.
+  foreach ($d in @($pyiWork, $pyiWorkGateway, $pyiWorkGatewayPyarmor, $tempDir)) {
+    New-Item -ItemType Directory -Path $d -Force | Out-Null
   }
 
   $pyiArgs = @(

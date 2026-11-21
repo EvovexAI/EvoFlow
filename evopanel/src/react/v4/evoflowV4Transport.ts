@@ -172,6 +172,33 @@ export class EvoFlowV4Transport implements ConversationTransport {
     return this.sseLoopStarted && !!this.sseReader && !this.disposed;
   }
 
+  /**
+   * 根因对账用：本页 transport 订阅健康度。
+   * `subscriptionId` 有值时额外回报该 sub 是否已 activate / 暂存帧数。
+   */
+  getPathDiag(subscriptionId?: string | null): {
+    connectionId: string;
+    framesUp: boolean;
+    activeCount: number;
+    closedCount: number;
+    subActive: boolean | null;
+    stagedCount: number | null;
+    subClosed: boolean | null;
+  } {
+    const sid = String(subscriptionId || "").trim();
+    return {
+      connectionId: this.connectionId,
+      framesUp: this.isFramesSseConnected(),
+      activeCount: this.activeSubscriptions.size,
+      closedCount: this.closedSubscriptions.size,
+      subActive: sid ? this.activeSubscriptions.has(sid) : null,
+      stagedCount: sid
+        ? (this.stagedBySubscription.get(sid)?.length ?? 0)
+        : null,
+      subClosed: sid ? this.closedSubscriptions.has(sid) : null,
+    };
+  }
+
   private noteSseAssembleProgress(restBytes: number): void {
     // 只在跨 chunk 拼大包时打点：≥256KiB 起，每翻一倍或每 +512KiB 记一条。
     if (restBytes < 256 * 1024) return;

@@ -320,6 +320,16 @@ function createCodeViewerFile(params: {
   };
 }
 
+function isValidCodeCommentRange(
+  range: CodeCommentRange | null | undefined,
+): range is CodeCommentRange {
+  return (
+    !!range &&
+    Number.isFinite(range.startLine) &&
+    Number.isFinite(range.endLine)
+  );
+}
+
 function normalizeRange(range: CodeCommentRange): CodeCommentRange {
   return {
     startLine: Math.min(range.startLine, range.endLine),
@@ -545,6 +555,10 @@ export function CodeViewer({
     const annotations: LineAnnotation<CodeViewerAnnotationMetadata>[] = [];
 
     for (const comment of comments) {
+      // Store / restore can yield holes or partial payloads; skip instead of crashing.
+      if (!isValidCodeCommentRange(comment)) {
+        continue;
+      }
       const lineNumber = normalizeRange(comment).endLine - firstLineNumber + 1;
       if (lineNumber < 1) {
         continue;
@@ -572,10 +586,12 @@ export function CodeViewer({
     return annotations;
   }, [activeDraftRange, canCreateComment, comments, firstLineNumber]);
   const selectedLines = useMemo(() => {
-    if (canCreateComment && activeDraftRange) {
+    if (canCreateComment && isValidCodeCommentRange(activeDraftRange)) {
       return codeCommentRangeToSelectedRange(activeDraftRange, firstLineNumber);
     }
-    return focusedRange ? codeCommentRangeToSelectedRange(focusedRange, firstLineNumber) : null;
+    return isValidCodeCommentRange(focusedRange)
+      ? codeCommentRangeToSelectedRange(focusedRange, firstLineNumber)
+      : null;
   }, [activeDraftRange, canCreateComment, firstLineNumber, focusedRange]);
   const handleLineSelectionEnd = useCallback(
     (range: SelectedLineRange | null) => {

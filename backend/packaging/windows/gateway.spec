@@ -13,6 +13,27 @@ from PyInstaller.utils.hooks import (
     copy_metadata,
 )
 
+# Harden base_library.zip creation: if WORKPATH was deleted mid-Analysis
+# (Windows temp wipe / parallel installer cleaning .build-temp), recreate the
+# parent directory instead of FileNotFoundError on ZipFile open.
+def _patch_base_library_zip_mkdir() -> None:
+    import PyInstaller.building.utils as _pi_utils
+    import PyInstaller.building.build_main as _pi_main
+
+    _orig = _pi_utils.create_base_library_zip
+
+    def _create_base_library_zip(filename, modules_toc, code_cache=None):
+        parent = os.path.dirname(os.path.abspath(filename))
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        return _orig(filename, modules_toc, code_cache)
+
+    _pi_utils.create_base_library_zip = _create_base_library_zip
+    _pi_main.create_base_library_zip = _create_base_library_zip
+
+
+_patch_base_library_zip_mkdir()
+
 # Product desktop builds set EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING=1 (torch/ST
 # + bundled bge-small-zh). Lean CI / size-budget builds leave it unset/0.
 _INCLUDE_LOCAL_EMBEDDING = os.environ.get(

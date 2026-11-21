@@ -428,6 +428,8 @@ export function PreviewPaneContent({
     source.type === "code-review"
       ? resolveCodeReviewContentProjection(source, filePreview.content)
       : null;
+  const codeReviewRequestId =
+    source.type === "code-review" ? source.review?.requestId : undefined;
   const isMarkdownFile = fileLanguage === "markdown";
   const isHtmlFile = isHtmlPath(source.path);
   const isSvgFile = isSvgPath(source.path);
@@ -475,7 +477,7 @@ export function PreviewPaneContent({
           : undefined
       }
       focusedRange={codeReviewProjection?.focusedRange}
-      focusRequestId={source.type === "code-review" ? source.review.requestId : undefined}
+      focusRequestId={codeReviewRequestId}
       enableLineSelection={source.type === "code-review" ? false : enableCodeLineSelection}
       enableGutterUtility={source.type === "code-review" ? false : enableCodeGutterUtility}
       labels={codeCommentLabels}

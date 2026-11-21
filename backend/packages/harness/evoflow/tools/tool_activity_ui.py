@@ -34,6 +34,7 @@ _ICON: dict[str, str] = {
     "list_dir": "📂",
     "ls": "📂",
     "assets": "🗂️",
+    "platform": "🏗️",
 }
 
 _SHORT: dict[str, str] = {
@@ -64,6 +65,7 @@ _SHORT: dict[str, str] = {
     "ls": "目录",
     "read_lints": "诊断",
     "assets": "资产",
+    "platform": "平台",
 }
 
 
@@ -112,6 +114,43 @@ def _worker_task_labels(args: dict[str, Any]) -> list[str]:
     return out
 
 
+def _platform_activity_label(args: dict[str, Any]) -> str:
+    """平台活动条：优先与 action 同级 title，没有再摘要 / op。"""
+    base = _label("platform")
+    action = str(args.get("action") or "").strip()
+    nested: dict[str, Any] = {}
+    raw_args = args.get("args_json")
+    if isinstance(raw_args, dict):
+        nested = raw_args
+    elif isinstance(raw_args, str) and raw_args.strip():
+        try:
+            parsed = json.loads(raw_args)
+            if isinstance(parsed, dict):
+                nested = parsed
+        except Exception:
+            nested = {}
+    subject = ""
+    # 与 action 同级 title 优先
+    top_title = args.get("title")
+    if isinstance(top_title, str) and top_title.strip():
+        subject = top_title.strip()
+    if not subject:
+        for key in ("title", "name", "display_name", "agent_name", "role_name", "skill_name"):
+            v = nested.get(key) if nested else None
+            if isinstance(v, str) and v.strip():
+                subject = v.strip()
+                break
+    # 无作者 title：活动条用短动作名，不拼 op/method 技术串
+    if subject:
+        detail = subject
+    else:
+        detail = action or "平台"
+    # 活动条正常可读，不压成超短 chip
+    if len(detail) > 56:
+        detail = detail[:55].rstrip() + "…"
+    return f"{base} · {detail}"
+
+
 def labels_for_tool_call(tc: dict[str, Any]) -> list[str]:
     if not isinstance(tc, dict):
         return []
@@ -121,6 +160,8 @@ def labels_for_tool_call(tc: dict[str, Any]) -> list[str]:
         return []
     if key == "worker":
         return _worker_task_labels(_parse_tool_call_args(tc))
+    if key == "platform":
+        return [_platform_activity_label(_parse_tool_call_args(tc))]
     label = _label(key)
     if key in {"write", "write_file", "write_to_file", "replace", "str_replace", "replace_in_file"}:
         args = _parse_tool_call_args(tc)

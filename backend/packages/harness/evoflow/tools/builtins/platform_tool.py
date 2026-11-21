@@ -154,6 +154,7 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
 action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*).
+Always pass top-level ``title`` (sibling of action): short Chinese for the chat card, same idea as computer-use/browser tool titles — e.g. title=\"查看主界面字号\" / \"打开小V\" / \"写入英语大纲\". UI shows this title only; do not rely on args_json.op/method as the label.
 Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
@@ -233,6 +234,14 @@ class _PlatformArgsSchema(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     action: str = Field(..., description="平台动作，形如 items.create / settings.get_model")
+    # 与 action 同级：对话卡头主文案（对齐电脑控制 title）——模型用中文写「这次在干什么」。
+    title: str | None = Field(
+        None,
+        description=(
+            "与 action 同级的中文卡头标题（给用户看，像电脑控制/浏览器工具的 title）。"
+            "例如「查看主界面字号」「打开小V」「写入英语大纲」。有则界面只显示此标题。"
+        ),
+    )
     args_json: str | dict | list | None = Field("", description="该 action 的参数对象")
     domain: str = Field("", description="可选：仅传叶子动作名时用域限定")
     confirm: bool = Field(False, description="写操作确认闸门")
@@ -258,6 +267,7 @@ def platform_tool(
     args_json: str | dict | list | None = "",
     domain: str = "",
     confirm: bool = False,
+    title: str | None = None,
     **extra_args: Any,
 ) -> str:
     """Platform admin dispatch (policy in tool description)."""
@@ -274,10 +284,13 @@ def platform_tool(
     # 「你没传 title」——调用方看到的却是"我明明传了"。这不是报错文案问题，是**静默丢数据**，
     # 必须在这里接住。合并规则：args_json 已有的键不被顶层覆盖（显式容器优先），
     # 只补空位；runtime / tool_call_id / domain / confirm 属工具自身参数，不参与合并。
-    _TOOL_OWN_KEYS = {"action", "args_json", "domain", "confirm", "runtime", "tool_call_id"}
+    # title 已是正式 schema 字段（与 action 同级卡头），仍并进 args_json 供业务用。
+    _TOOL_OWN_KEYS = {"action", "args_json", "domain", "confirm", "runtime", "tool_call_id", "title"}
     _extra = {
         str(k): v for k, v in (extra_args or {}).items() if str(k) not in _TOOL_OWN_KEYS and v is not None
     }
+    if isinstance(title, str) and title.strip():
+        _extra.setdefault("title", title.strip())
     if _extra:
         _merged: dict[str, Any] = {}
         if isinstance(args_json, dict):

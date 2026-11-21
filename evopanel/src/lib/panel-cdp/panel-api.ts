@@ -408,7 +408,19 @@ export async function dispatch(
         if (!paneCode) return err('execution_error', 'employeeChatSend requires agentCode')
         if (!paneText) return err('execution_error', 'employeeChatSend requires text')
         const bridgeMod = await import('../right-stage/employee-pane-send-bridge.js')
-        const sender = bridgeMod.findEmployeePaneSender(paneCode, paneSk)
+        const hit = bridgeMod.findEmployeePaneSenderEntry(paneCode, paneSk)
+        // 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+        // 改了什么：detail.sessionKey 从「传进来的 paneSk」改成「实际发送者的 sk」，
+        //   并补 `requestedSessionKey` / `sessionKeyMatched` 两个字段暴露差异。
+        // 为什么（本轮真机实测）：给 dev-fullstack 发消息，服务端算出的 sk 是
+        //   `chat:dept-4de7e33a602b`，但那个签实际挂在 `chat:2026-11-21T13-20-20.208Z`
+        //   （桥按 code 唯一兜底命中），消息真落进了后者；而回执回显了传进来的 sk。
+        //   工具层再原样上抛 → 用户照回执去查会话，读到的是另一条。说 A 做 B。
+        // 判据：回执里的 sessionKey 必须等于消息**实际写入**的会话键。
+        const actualSk = hit ? hit.sessionKey : ''
+        const skMatches =
+          Boolean(paneSk) && Boolean(actualSk) && String(paneSk).trim() === String(actualSk).trim()
+        const sender = hit?.send ?? null
         if (sender) {
           // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
           // 改了什么：先拿 sender 的**同步返回值**判定接没接住；不 await 整轮流。
@@ -431,14 +443,25 @@ export async function dispatch(
               detail: {
                 mode: 'pane-busy',
                 agentCode: paneCode,
-                sessionKey: paneSk || null,
+                sessionKey: actualSk || null,
+                requestedSessionKey: paneSk || null,
+                sessionKeyMatched: skMatches,
+                sessionKeyMatchedBy: hit?.matched || null,
                 length: paneText.length,
               },
             })
           }
           return ok({
             action: act,
-            detail: { mode: 'pane-live', agentCode: paneCode, sessionKey: paneSk || null, length: paneText.length },
+            detail: {
+              mode: 'pane-live',
+              agentCode: paneCode,
+              sessionKey: actualSk || null,
+              requestedSessionKey: paneSk || null,
+              sessionKeyMatched: skMatches,
+              sessionKeyMatchedBy: hit?.matched || null,
+              length: paneText.length,
+            },
           })
         }
         // 回落：面板没开 → 打开右栏并排队，由面板挂载后走同一套 handleSend

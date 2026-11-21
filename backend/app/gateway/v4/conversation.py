@@ -609,12 +609,21 @@ class V4ConversationHub:
                 tip = rid
         return tip or None
 
+    def _subscriber_count(self, session_id: str) -> int:
+        tid = str(session_id or "").strip()
+        if not tid:
+            return 0
+        return sum(1 for s in self._subscriptions.values() if s.session_id == tid)
+
     def _catchup_meta(self, sess: "_SessionState", **extra: Any) -> dict[str, Any]:
-        """统一带 tipRowId / logEpoch，方便 FE 对账「本机 tip 是否落后/幽灵」。"""
+        """统一带 tipRowId / logEpoch / subscriberCount，方便 FE 根因对账。"""
         out = dict(extra)
         out.setdefault("rows", len(sess.rows) if sess.rows else 0)
         out.setdefault("logEpoch", sess.log_epoch)
         out.setdefault("tipRowId", self._hub_tip_row_id(sess))
+        # 无论是否 broadcast：面板要能看见「hub 上这会话有没有活订阅」。
+        # notified=0 + subscriberCount=0 → 根因是无订户，不是 catchup 逻辑本身。
+        out.setdefault("subscriberCount", self._subscriber_count(sess.session_id))
         return out
 
     def catchup_from_transcript(
@@ -777,25 +786,39 @@ class V4ConversationHub:
                 client_tip = None
             client_epoch = str(client_log_epoch or "").strip() or None
             hub_epoch = str(sess.log_epoch or "").strip() or None
-            client_stale = bool(
+            # 本机 tip 高于 hub：错过 recovery 的幽灵膨胀（2055 vs 2042）。
+            # 本机 tip 低于 hub：live mirror 已写行但 frames 没送到页面（19:11 现场：
+            # AG-UI 在跑、v4行钉死 2041、streamMax=∅）——fingerprint 未变也会
+            # 一直 no-op，必须再广播 recovery。
+            tip_diverged = bool(
                 sess.rows
-                and (
-                    (client_tip is not None and hub_tip is not None and client_tip > hub_tip)
-                    or (
-                        client_epoch
-                        and hub_epoch
-                        and client_epoch != hub_epoch
-                        and client_tip is not None
-                        and hub_tip is not None
-                        and client_tip != hub_tip
-                    )
-                )
+                and client_tip is not None
+                and hub_tip is not None
+                and client_tip != hub_tip
             )
-            if client_stale:
+            epoch_diverged = bool(
+                tip_diverged
+                and client_epoch
+                and hub_epoch
+                and client_epoch != hub_epoch
+            )
+            client_ahead = bool(
+                tip_diverged and client_tip is not None and hub_tip is not None and client_tip > hub_tip
+            )
+            client_behind = bool(
+                tip_diverged and client_tip is not None and hub_tip is not None and client_tip < hub_tip
+            )
+            if client_ahead or client_behind or epoch_diverged:
                 notified = self.broadcast_recovery_snapshot(tid)
+                reason = (
+                    "client-stale-resync"
+                    if client_ahead or (epoch_diverged and not client_behind)
+                    else "client-behind-resync"
+                )
                 logger.warning(
-                    "[v4.catchup] client-stale resync session=%s client_tip=%s hub_tip=%s "
+                    "[v4.catchup] %s session=%s client_tip=%s hub_tip=%s "
                     "client_epoch=%s hub_epoch=%s notified=%s",
+                    reason,
                     tid,
                     client_tip,
                     hub_tip,
@@ -807,7 +830,7 @@ class V4ConversationHub:
                     sess,
                     ok=True,
                     changed=True,
-                    reason="client-stale-resync",
+                    reason=reason,
                     notified=notified,
                     settledPhase=settled_phase or None,
                     fingerprint=fp,
@@ -834,29 +857,66 @@ class V4ConversationHub:
                 and old_p[1] == new_p[1]
             ):
                 sess.catchup_fp = fp
-                return {
-                    "ok": True,
-                    "changed": False,
-                    "reason": "tail-growing",
-                    "rows": len(sess.rows),
-                    "settledPhase": settled_phase or None,
-                    "logEpoch": sess.log_epoch,
-                    "fingerprint": fp,
-                }
+                return self._catchup_meta(
+                    sess,
+                    ok=True,
+                    changed=False,
+                    reason="tail-growing",
+                    settledPhase=settled_phase or None,
+                    fingerprint=fp,
+                )
 
         # Live channel/AG-UI mirror owns the projection for this turn — wiping
         # replaces a rich live snapshot with a lagging DB hydrate (UI jitter).
         # phase==running 不再单独拒绝：后台 run 的 phase 只能由本函数收口，
         # 拿它拒客会把自己锁死（死锁闭环的另一半）。
-        if mirror_live:
-            return {
-                "ok": True,
-                "changed": False,
-                "reason": "live-mirror",
-                "rows": len(sess.rows),
-                "logEpoch": sess.log_epoch,
-                "fingerprint": fp,
-            }
+        #
+        # 例外：FE tip/行数已落后 hub（frames 丢了、双订阅错位）时仍广播 recovery，
+        # 不 wipe、不碰 mirror——只把当前 hub 快照再投一次。现场 21:19：
+        # hub=772 / FE=715 + WIRE_WITHOUT_V4_TIP，旧逻辑 live-mirror 直接放行走死。
+        if mirror_live and sess.rows:
+            hub_tip = self._hub_tip_row_id(sess)
+            client_tip = None
+            try:
+                if client_tip_row_id is not None:
+                    client_tip = int(client_tip_row_id)
+            except (TypeError, ValueError):
+                client_tip = None
+            if (
+                client_tip is not None
+                and hub_tip is not None
+                and client_tip < hub_tip
+            ):
+                notified = self.broadcast_recovery_snapshot(tid)
+                logger.warning(
+                    "[v4.catchup] client-behind under live-mirror session=%s "
+                    "client_tip=%s hub_tip=%s rows=%s notified=%s",
+                    tid,
+                    client_tip,
+                    hub_tip,
+                    len(sess.rows),
+                    notified,
+                )
+                return self._catchup_meta(
+                    sess,
+                    ok=True,
+                    changed=True,
+                    reason="client-behind-resync",
+                    notified=notified,
+                    settledPhase=settled_phase or None,
+                    fingerprint=fp,
+                    clientTipRowId=client_tip,
+                )
+            return self._catchup_meta(
+                sess,
+                ok=True,
+                changed=False,
+                reason="live-mirror",
+                settledPhase=settled_phase or None,
+                fingerprint=fp,
+                clientTipRowId=client_tip,
+            )
+        # mirror 标 live 但本 hub 尚无行：放行后面 hydrate（空投影不能靠 live-mirror 挡死）。
 
         prev_rows = len(sess.rows)
         # Panel already subscribed **且有活写手**（hub 自跑 turn，或最近 3s 有
@@ -875,16 +935,48 @@ class V4ConversationHub:
             and not settled_phase
             and not tip_mismatch
         ):
+            hub_tip = self._hub_tip_row_id(sess)
+            client_tip = None
+            try:
+                if client_tip_row_id is not None:
+                    client_tip = int(client_tip_row_id)
+            except (TypeError, ValueError):
+                client_tip = None
+            if (
+                client_tip is not None
+                and hub_tip is not None
+                and client_tip < hub_tip
+            ):
+                notified = self.broadcast_recovery_snapshot(tid)
+                logger.warning(
+                    "[v4.catchup] client-behind under hub-subscribed session=%s "
+                    "client_tip=%s hub_tip=%s rows=%s notified=%s",
+                    tid,
+                    client_tip,
+                    hub_tip,
+                    prev_rows,
+                    notified,
+                )
+                return self._catchup_meta(
+                    sess,
+                    ok=True,
+                    changed=True,
+                    reason="client-behind-resync",
+                    notified=notified,
+                    settledPhase=settled_phase or None,
+                    fingerprint=fp,
+                    clientTipRowId=client_tip,
+                )
             sess.catchup_fp = fp
-            return {
-                "ok": True,
-                "changed": False,
-                "reason": "hub-subscribed",
-                "rows": prev_rows,
-                "subscribers": sub_n,
-                "logEpoch": sess.log_epoch,
-                "fingerprint": fp,
-            }
+            return self._catchup_meta(
+                sess,
+                ok=True,
+                changed=False,
+                reason="hub-subscribed",
+                settledPhase=settled_phase or None,
+                fingerprint=fp,
+                clientTipRowId=client_tip,
+            )
 
         # Probe hydrate on a throwaway hub first: never shrink a richer live/hybrid
         # projection (common: live ~300 rows → DB hydrate ~160). Advance fp so we
@@ -1337,6 +1429,10 @@ class V4ConversationHub:
                     continue
                 for sub in subs:
                     if sub.overflowed:
+                        # 已溢出：本批 delta 不再入队（recovery snapshot 会带上行），
+                        # 但仍要确保 flush 已排上——否则 overflowed 一直 true，
+                        # 后续直播增量全被 continue 掉，页面就「工作中但不涨字」。
+                        self._schedule_flush_threadsafe(sub)
                         continue
                     sub.pending_ops.append((sess.seq, delta))
                     # BUG（并行改动回归）：曾写成 `+= encoded`（JSON 字符串）——
@@ -1353,6 +1449,7 @@ class V4ConversationHub:
                         sub.pending_ops = []
                         sub.pending_bytes = 0
                         sub.overflowed = True
+                        self._schedule_flush_threadsafe(sub)
                         continue
                     # authoring 可能来自 feed-to-thread worker 线程——必须走线程安全调度，
                     # 裸 loop.call_later 跨线程 push TimerHandle 会与 loop._run_once 竞争。

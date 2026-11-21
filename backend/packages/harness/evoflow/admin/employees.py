@@ -2888,6 +2888,38 @@ def chat_send(
         out["ok"] = True
         out["busy"] = True
         out["streaming"] = panel_dispatch == "pane-live"
+    # 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：回执 session_key 优先取面板真实发送者的 sk（panel_dispatch_detail.sessionKey），
+    #   与预计算 sk 不一致时显式暴露 requested_session_key + hint，不许静默虚报。
+    # 为什么（真机 21:20）：服务端 list_employee_conversation_sessions 挑出
+    #   chat:dept-4de7e33a602b，面板签是 ui.show 开的、自己 mint 了
+    #   chat:2026-11-21T13-20-20.208Z；桥按 code 兜底命中 → 消息进后者，回执却回前者。
+    # 判据：employees.messages(回执.session_key) 必须能读到本次 user 消息；
+    #   sessionKeyMatched=false 时 hint 必有，不得静默。
+    if isinstance(panel_dispatch_detail, dict):
+        actual_sk = str(panel_dispatch_detail.get("sessionKey") or "").strip()
+        matched_raw = panel_dispatch_detail.get("sessionKeyMatched")
+        matched_by = panel_dispatch_detail.get("sessionKeyMatchedBy")
+        requested_sk = str(sk or "").strip()
+        if actual_sk and _employee_owns_session_key(actual_sk, code):
+            out["session_key"] = actual_sk
+            mismatched = matched_raw is False or (
+                bool(requested_sk) and requested_sk != actual_sk
+            )
+            if mismatched:
+                out["requested_session_key"] = requested_sk or None
+                out["session_key_matched"] = False
+                if matched_by is not None:
+                    out["session_key_matched_by"] = matched_by
+                out["hint"] = (
+                    f"消息已写入面板当前会话 {actual_sk}；"
+                    f"你请求的是 {requested_sk or '（空）'}，二者不同。"
+                    "请用回执里的 session_key 查 messages，不要用请求时预计算的键。"
+                )
+            elif matched_raw is True:
+                out["session_key_matched"] = True
+                if matched_by is not None:
+                    out["session_key_matched_by"] = matched_by
     if skipped:
         out["skipped"] = True
         out["skip_reason"] = str((wake_result or {}).get("reason") or (wake_result or {}).get("message") or "")

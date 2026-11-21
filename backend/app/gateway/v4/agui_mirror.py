@@ -547,11 +547,13 @@ def _platform_ui_display_block(
             parsed = json.loads(content)
         except (TypeError, ValueError):
             parsed = None
-        if isinstance(parsed, dict) and parsed.get("ok") is not False and not parsed.get("pending_confirm"):
+        if isinstance(parsed, dict) and parsed.get("ok") is not False:
             content_blob = parsed
-            nested = parsed.get("ui")
-            if isinstance(nested, dict) and nested:
-                content_ui = nested
+            # pending_confirm 仍抬顶层 title 作卡头；嵌套 ui（右栏 toast）仅成功态吃
+            if not parsed.get("pending_confirm"):
+                nested = parsed.get("ui")
+                if isinstance(nested, dict) and nested:
+                    content_ui = nested
 
     if isinstance(payload, dict) and payload:
         ui = dict(payload)
@@ -595,7 +597,8 @@ def _platform_ui_display_block(
                     kind = "video" if abs_path.lower().endswith((".mp4", ".webm", ".mov", ".mkv", ".m4v")) else "image"
                 ui = {
                     "action": action_name,
-                    "title": str(blob.get("message") or "媒体已生成").strip() or "媒体已生成",
+                    "title": str(blob.get("message") or blob.get("title") or "媒体已生成").strip()
+                    or "媒体已生成",
                     "media": [
                         {
                             "kind": kind,
@@ -606,6 +609,19 @@ def _platform_ui_display_block(
                         }
                     ],
                 }
+            else:
+                # 仅抬作者中文 title（与 action 同级）；不用 action_summary 冒充卡头
+                # （长摘要会盖掉前端中文短标签；无 title 时前端自己兜底）
+                card_title = str(blob.get("title") or "").strip()
+                if card_title and action_name:
+                    domain = str(blob.get("domain") or "").strip()
+                    if not domain and "." in action_name:
+                        domain = action_name.split(".", 1)[0]
+                    ui = {
+                        "action": action_name,
+                        "title": card_title,
+                        "domain": domain,
+                    }
     if not isinstance(ui, dict):
         return None
     qr = str(ui.get("qrUrl") or ui.get("qr_url") or "").strip()
@@ -686,16 +702,16 @@ def _platform_ui_display_block(
                 entry["absolutePath"] = abs_path[:1024]
             media_items.append(entry)
 
+    title = str(ui.get("title") or "").strip()
+    # 有 title 也出 display（卡头）；无绑码 / CTA / 媒体 / 标题则跳过
     if (
         not qr
         and not session_id
         and not progress_actions
         and not media_items
         and action != "employees.bind_channel_begin"
+        and not title
     ):
-        # 既无绑码也无进度 CTA / 媒体预览 → 不需要特殊 display
-        return None
-    if not qr and not session_id and not progress_actions and not media_items:
         return None
     bind_raw = str(ui.get("bindStatus") or ui.get("bind_status") or "").strip().lower()
     bind_status = (
@@ -709,7 +725,6 @@ def _platform_ui_display_block(
     }
     if action:
         block["action"] = action[:128]
-    title = str(ui.get("title") or "").strip()
     if title:
         block["title"] = title[:512]
     if qr:

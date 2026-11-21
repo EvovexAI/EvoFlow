@@ -6,6 +6,17 @@
  */
 
 import { messagesToSubtaskModalRows } from './subtask-modal-rows.js'
+// 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+// 改了什么：本文件所有裸 `fetch('/api/...')` 换成 `gatewayFetch`（Tauri 走 IPC 管道，Web 走同源）。
+// 为什么（现网实测，不是推测）：桌面端页面 origin 是 `http://tauri.localhost`，
+//   裸 fetch 一个站内相对路径 `/api/...` 打到的是前端静态服务，status=200 但 body 是
+//   `<!DOCTYPE html>`（SPA 首页），`.json()` 解析失败被 catch 吞掉 →
+//   `thread_id` 永远解析不出来 → 右栏「节点进度」面板恒显示
+//   「暂无节点会话（未写入 subtask_thread_id）」，而库里/接口里 thread_id 明明是有的。
+//   页面内实测：相对路径 → `status=200 body=<!DOCTYPE html>`；
+//   同一路径打 `http://127.0.0.1:8382` → `status=200 {"task_id":...,"thread_id":"SubThread_..."}`。
+// 判据：改用 gatewayFetch 后，节点进度面板能拿到 thread_id 并用 V4 渲染节点会话。
+import { gatewayFetch } from './gateway-json.js'
 
 export function outcomeFromSubtaskSnapshot(subtask) {
   if (!subtask || typeof subtask !== 'object') return undefined
@@ -91,7 +102,7 @@ export async function fetchTranscriptMessagesByThread(threadId, limit = 2000) {
   const qs = new URLSearchParams()
   qs.set('all', '1')
   const path = `/api/chat/sessions/by-thread/${encodeURIComponent(tid)}/messages?${qs}`
-  const res = await fetch(path, { credentials: 'same-origin' })
+  const res = await gatewayFetch(path, { credentials: 'same-origin' })
   if (!res.ok) {
     if (res.status === 404) return { messages: [], threadId: tid, sessionKey: '' }
     throw new Error(`GET by-thread messages failed: ${res.status}`)
@@ -119,7 +130,7 @@ async function fetchViaTaskConversationHistory(mainTaskId, subtaskId, limit, { m
     qs.set('limit', String(Math.max(1, Math.min(Number(limit) || 600, 5000))))
   }
   const path = `/api/tasks/${encodeURIComponent(mid)}/subtasks/${encodeURIComponent(sid)}/conversation-history?${qs}`
-  const res = await fetch(path, { credentials: 'same-origin' })
+  const res = await gatewayFetch(path, { credentials: 'same-origin' })
   if (!res.ok) {
     if (res.status === 404) return { messages: [], count: 0, outcome: {}, thread_id: null }
     throw new Error(`GET subtask conversation-history failed: ${res.status}`)

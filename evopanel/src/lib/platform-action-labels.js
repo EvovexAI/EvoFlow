@@ -179,6 +179,8 @@ export const PLATFORM_ACTION_ZH = {
   'tasks.reclaim_zombies': '回收僵尸任务（默认 dry_run；apply=true 才执行）',
   'tasks.set_state': '行政侧变更 Task 状态（合法流转：pending→executing→completed 等；非法时错误含 next_states）',
   'ui.hide': '关闭右侧面板',
+  'ui.kinds': '查询右栏面板类型',
+  'ui.panel': '控制主窗口',
   'ui.show': '打开右侧面板（进度/网页/产物等；读操作无需 confirm）',
   'ui.update': '更新已打开的右侧面板内容',
   'verification.catalog': '查询全平台可验证接口清单（按域/风险/关键词）',

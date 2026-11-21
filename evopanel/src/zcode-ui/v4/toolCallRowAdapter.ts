@@ -14,7 +14,10 @@ import {
   readNamedToolAction,
   tasksActionLabelZh,
 } from "../../lib/builtin-action-labels.js";
-import { readPlatformToolAction } from "@/ToolCallBlocks/renderers/platform.js";
+import {
+  buildPlatformToolPrimaryText,
+  readPlatformToolAction,
+} from "@/ToolCallBlocks/renderers/platform.js";
 
 // v4 status → 旧 ChatToolCall.status（mapToolStatus 的输入词表：
 // pending/in_progress/completed/failed/stopped）。
@@ -107,9 +110,20 @@ export function toolCallRowToLegacyNode(row: ToolCallRow): TaskChatToolCallTreeN
   const actionTitle = (() => {
     if (toolNameLower === "platform") {
       const action = readPlatformToolAction(inputPreview.input);
-      return action
-        ? platformActionShortLabelZh(action, { max: 24 }) || undefined
-        : undefined;
+      if (!action) return undefined;
+      // 结果 display.title（后台 stamp）优先；否则入参 title/name；再退 action 摘要。
+      const displayTitle =
+        display &&
+        typeof display === "object" &&
+        (display as { kind?: string; title?: unknown }).kind === "platform_ui"
+          ? String((display as { title?: unknown }).title || "").trim() || undefined
+          : undefined;
+      const { primaryText } = buildPlatformToolPrimaryText({
+        action,
+        input: inputPreview.input,
+        displayTitle,
+      });
+      return primaryText || platformActionShortLabelZh(action, { max: 24 }) || undefined;
     }
     if (toolNameLower === "tasks") {
       const action = readNamedToolAction(inputPreview.input);

@@ -11,7 +11,13 @@
  * 形成反馈环，导致临界区反复抖动。改为只用稳定的最小宽度预算推导。
  */
 
-/** 单个 tab 的收缩下限，与 CSS `[data-side-pane-tab-id] { min-width: 7.5rem }` 保持一致。 */
+/**
+ * 单个 tab 的收缩下限的**缺省**值，与 CSS `[data-side-pane-tab-id] { min-width: 7.5rem }` 对齐。
+ *
+ * 【2026-11-21 · 第104轮】这里原写死 120（= 7.5rem × 16px 根字号），但实际根字号被宿主
+ * 改成 13.6px → 真实下限 102px，判定比实际早触发 18px/签（本可放下的签提前进滚动）。
+ * 现在改由调用方实测 CSS 真实 min-width 传入（`tabMinWidthPx`），本常量只作无 DOM 时的兜底。
+ */
 export const STAGE_TAB_MIN_WIDTH_PX = 120;
 /** tab 之间与 tab→按钮的间距，与 CSS `gap` 保持一致。 */
 export const STAGE_TAB_GAP_PX = 4;
@@ -22,6 +28,7 @@ export function resolveStageTabsOverflow({
   addButtonWidth,
   tabCount,
   viewportWidth,
+  tabMinWidthPx,
 }: {
   /**
    * 「新建」按钮当前是否在滚动条内。
@@ -33,12 +40,21 @@ export function resolveStageTabsOverflow({
   addButtonWidth: number;
   tabCount: number;
   viewportWidth: number;
+  /**
+   * 单个 tab 的实测最小宽（px）。调用方从真实 DOM 的 `getComputedStyle(...).minWidth`
+   * 读到再传进来；缺省用 `STAGE_TAB_MIN_WIDTH_PX` 兜底（无 DOM 的单元测试场景）。
+   */
+  tabMinWidthPx?: number;
 }): boolean {
   // 0 tab 时只有按钮占位，不存在「tab 放不下」这回事，直接判定不溢出。
   if (tabCount <= 0) return false
 
+  const tabMinWidth =
+    typeof tabMinWidthPx === 'number' && tabMinWidthPx > 0
+      ? tabMinWidthPx
+      : STAGE_TAB_MIN_WIDTH_PX
   const tabsWidth =
-    tabCount * STAGE_TAB_MIN_WIDTH_PX + Math.max(0, tabCount - 1) * STAGE_TAB_GAP_PX;
+    tabCount * tabMinWidth + Math.max(0, tabCount - 1) * STAGE_TAB_GAP_PX;
   // 按钮与最后一个 tab 之间的 gap 恒存在（两种布局下都紧邻末尾）。
   const addButtonGap = STAGE_TAB_GAP_PX;
   // 关键：把「按钮在条内」与「按钮在条外」归一到同一假想布局（按钮位于 tabs 末尾），

@@ -231,7 +231,7 @@ describe('session memory normalize on restore', () => {
   })
 })
 
-describe('reload-only persistence wiring', () => {
+describe('same-tab persistence wiring', () => {
   beforeEach(() => {
     setCurrentRightStageSessionKey('')
     rightStageStore.hideAll()

@@ -26,13 +26,10 @@ import {
   SquareTerminalIcon,
   WrenchIcon,
 } from "lucide-react";
-import {
-  platformActionShortLabelZh,
-} from "../../lib/platform-action-labels.js";
 import { stripEvoAssetCitations } from "../../react/lib/evo-asset-citation.js";
 import {
+  buildPlatformToolPrimaryText,
   readPlatformToolAction,
-  readPlatformToolBrief,
 } from "@/ToolCallBlocks/renderers/platform.js";
 import { getCompactToolCallStatusMessageId, type Locale } from "@zcode/shared";
 import type {
@@ -397,13 +394,22 @@ const ToolCallPresentation = memo(function ToolCallPresentation({
                   .toLowerCase() === "platform"
               ? (() => {
                   const action = readPlatformToolAction(row.input);
-                  const label =
-                    platformActionShortLabelZh(action, { max: 24 }) || "平台管理";
-                  const brief = readPlatformToolBrief(row.input);
+                  const disp = row.output?.display;
+                  const displayTitle =
+                    disp &&
+                    typeof disp === "object" &&
+                    (disp as { kind?: string; title?: unknown }).kind === "platform_ui"
+                      ? String((disp as { title?: unknown }).title || "").trim() || undefined
+                      : undefined;
+                  const { primaryText, hideKindLabel } = buildPlatformToolPrimaryText({
+                    action,
+                    input: row.input,
+                    displayTitle,
+                  });
                   return {
                     icon: <Building2 className="size-4 shrink-0" aria-hidden="true" />,
-                    kindLabel: "平台",
-                    primaryText: brief ? `${label} · ${brief}` : label,
+                    kindLabel: hideKindLabel ? "" : "平台",
+                    primaryText: primaryText || "平台管理",
                   };
                 })()
               : {

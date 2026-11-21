@@ -1,6 +1,6 @@
 {
   "name": "evopanel",
-  "version": "1.3.42",
+  "version": "1.3.43",
   "private": true,
   "description": "EvoFlow — 进化的工作流：智能体员工与原生 Agent Runtime（桌面端）",
   "type": "module",
@@ -29,6 +29,7 @@
     "check:macos12:dist": "python scripts/check-macos12-compat.py --dist dist",
     "build:tauri": "node scripts/run-platform-script.js build",
     "build:desktop:win": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1",
+    "build:desktop:win:lean": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build.ps1 -Lean",
     "build:desktop:mac": "bash ./scripts/build-installer-mac.sh",
     "build:debug": "node scripts/run-platform-script.js build --debug",
     "build:clean": "node scripts/run-platform-script.js build --clean",

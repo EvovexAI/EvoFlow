@@ -498,24 +498,50 @@ export function renderRightStageBody(
     const data = surface.data || {}
     const source = data.source
     if (!source) return null
+    // 缺 review 的 code-review 源会在 PreviewPane 读 startLine 时炸；降级成普通 file。
+    const safeSource =
+      source.type === 'code-review' && !(source as { review?: unknown }).review
+        ? {
+            ...source,
+            type: 'file' as const,
+            title: String(source.title || source.path || '文件'),
+            path: String(source.path || ''),
+          }
+        : source
+    if (safeSource.type === 'file' && !String(safeSource.path || '').trim()) {
+      return (
+        <SidePanelBootShell title={surface.title || '代码对比'} />
+      )
+    }
     // ZCode 正式预览件（PreviewPane）：patch/code-review/text/image/media/
     // pdf/pptx/multi-file-diff；普通 file 已在打开时分流到 file 标签。
     const codeViewerRoot = String(
-      source.workspacePath || data.workspaceRoot || effectiveWorkspaceRoot || '',
+      safeSource.workspacePath || data.workspaceRoot || effectiveWorkspaceRoot || '',
     ).trim()
     return sidePanelHeavyMount ? (
-      <V4PreviewPane
-        source={source}
-        threadId={String(data.threadId || '')}
-        workspacePath={codeViewerRoot || undefined}
-        onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
-        onOpenCodeViewer={(nextSource) => {
-          openRightStageForCodeViewerSource(nextSource, {
-            sessionKey: surface.sessionKey,
-            threadId: String(data.threadId || ''),
-          })
-        }}
-      />
+      // 【self-evolution-bot · 2026-11-21 · 第113轮 · 模型:deepseek-v4.1-flash-1017】
+      // 改了什么：给 codeViewer 分支补上 RightStageTabErrorBoundary（此前它是唯一没有边界的大面板）。
+      // 为什么（本轮真机实测）：`ui.show kind=codeViewer data={source:{type:'code-review'}}`
+      //   —— 一个缺 review 字段的非法 source —— 之后整块聊天区消失：
+      //   `#chat-persistent-host` innerHTML 只剩 33 字节、body.innerText 62 字（只剩导航栏），
+      //   右栏 aside 整个不存在；window error 钩子 count=0（是 React 渲染期抛出，未冒到 window）。
+      //   terminal / asset / file / 媒体 四类分支都有边界，只有 codeViewer 裸挂 V4PreviewPane，
+      //   于是一个坏 source 打掉的是**整个应用**，而不是一个签。
+      // 判据：坏 source 必须被关在这一个签里，其它签与聊天区照常。
+      <RightStageTabErrorBoundary title={surface.title || '代码对比'}>
+        <V4PreviewPane
+          source={safeSource}
+          threadId={String(data.threadId || '')}
+          workspacePath={codeViewerRoot || undefined}
+          onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+          onOpenCodeViewer={(nextSource) => {
+            openRightStageForCodeViewerSource(nextSource, {
+              sessionKey: surface.sessionKey,
+              threadId: String(data.threadId || ''),
+            })
+          }}
+        />
+      </RightStageTabErrorBoundary>
     ) : (
       <SidePanelBootShell title={surface.title || '代码对比'} />
     )

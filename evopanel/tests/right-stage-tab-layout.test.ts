@@ -59,6 +59,38 @@ describe('resolveStageTabsOverflow', () => {
       }),
     ).toBe(false)
   })
+
+  it('tabMinWidthPx 按实测值判定，不吃 16px 根字号的假定', () => {
+    // 宿主根字号 13.6px → 7.5rem = 102px。7 签：7*102 + 6*4 + 4 + 28 = 770
+    const required = 7 * 102 + 6 * STAGE_TAB_GAP_PX + STAGE_TAB_GAP_PX + 28
+    expect(
+      resolveStageTabsOverflow({
+        addButtonInside: true,
+        addButtonWidth: 28,
+        tabCount: 7,
+        viewportWidth: required,
+        tabMinWidthPx: 102,
+      }),
+    ).toBe(false)
+    expect(
+      resolveStageTabsOverflow({
+        addButtonInside: true,
+        addButtonWidth: 28,
+        tabCount: 7,
+        viewportWidth: required - 2,
+        tabMinWidthPx: 102,
+      }),
+    ).toBe(true)
+    // 同一 viewport 用旧常量 120 会误判成溢出——这正是本轮修掉的偏差。
+    expect(
+      resolveStageTabsOverflow({
+        addButtonInside: true,
+        addButtonWidth: 28,
+        tabCount: 7,
+        viewportWidth: required,
+      }),
+    ).toBe(true)
+  })
 })
 
 describe('resolveStageTabsOverflowEdges', () => {

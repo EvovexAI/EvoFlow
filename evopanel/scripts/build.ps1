@@ -6,7 +6,10 @@
 
 param(
     [switch]$Debug,
-    [switch]$Clean
+    [switch]$Clean,
+    # Local verify only: skip torch/ST + bge in gateway sidecar (much faster).
+    # Env alternative: EVOFLOW_GATEWAY_LEAN=1
+    [switch]$Lean
 )
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
@@ -86,6 +89,9 @@ if ($Debug) {
 } else {
     Write-Step "Release build (backend sidecar + NSIS)"
     Write-Host "  Uses build-installer-win.ps1: backend -> binaries -> NSIS" -ForegroundColor DarkGray
+    if ($Lean -or ($env:EVOFLOW_GATEWAY_LEAN -and ($env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")))) {
+        Write-Host "  LEAN: skip local embedding (faster local verify; not for product release)" -ForegroundColor Yellow
+    }
     Write-Host ""
     $installerScript = Join-Path $PSScriptRoot "build-installer-win.ps1"
     $verifyAscii = Join-Path $PSScriptRoot "verify-ps1-ascii.ps1"
@@ -94,7 +100,11 @@ if ($Debug) {
             & powershell -NoProfile -ExecutionPolicy Bypass -File $verifyAscii $installerScript $verifyAscii
             if ($LASTEXITCODE -ne 0) { Write-Fail "PowerShell scripts must be ASCII-only (see verify-ps1-ascii.ps1)"; exit 1 }
         }
-        & powershell -NoProfile -ExecutionPolicy Bypass -File $installerScript
+        $installerArgs = @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $installerScript)
+        if ($Lean -or ($env:EVOFLOW_GATEWAY_LEAN -and ($env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")))) {
+            $installerArgs += "-LeanNoLocalEmbedding"
+        }
+        & powershell @installerArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Fail "build-installer-win.ps1 failed"
             exit 1

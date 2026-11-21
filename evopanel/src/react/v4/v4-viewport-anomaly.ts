@@ -11,6 +11,13 @@ export type ViewportAnomalySeverity = "error" | "warn" | "info";
 export type ViewportAnomalyCode =
   | "STREAM_AHEAD_OF_WINDOW"
   | "STREAM_LIVE_NO_DOM"
+  | "WIRE_WITHOUT_V4_TIP"
+  /** V4 投递路径根因（优先于 WIRE_WITHOUT_V4_TIP 症状） */
+  | "V4_PATH_FRAMES_DOWN"
+  | "V4_PATH_NO_SUB"
+  | "V4_PATH_SUB_STAGED"
+  | "V4_PATH_HUB_AHEAD_NOTIFIED0"
+  | "V4_PATH_HUB_AHEAD_NO_FRAMES"
   | "LATEST_USER_MISSING"
   | "LATEST_USER_BELOW_WORK"
   | "LOADOLDER_NO_ADVANCE"
@@ -54,6 +61,7 @@ export type ViewportAnomalyInput = {
   };
   /** 可见 turn DOM 探针 */
   turns: ReadonlyArray<{
+    turnId?: string;
     orphanHeaderNoUser: boolean;
     emptyAssistantCompleted: boolean;
     hasUserInput: boolean;
@@ -465,6 +473,39 @@ export function collectViewportAnomalies(
       title: "流式在推，视口无 turn DOM",
       detail: "frames/deltas 有，data-v4-turn-unit 挂载数为 0",
     });
+  }
+
+  // AG-UI 在跑（工作中）但 V4 投影 tip 不涨：乐观泡在、投影无此轮、streamMax 空。
+  // 现场 19:11：mirror 已 feed，FE v4行钉死 2041，用户只见「工作中」。
+  if (input.executing && !input.uiTurnSettled) {
+    const hasOptimistic = input.turns.some((t) =>
+      String(t.turnId || "").startsWith("optimistic"),
+    );
+    const windowHasLive =
+      !!rows &&
+      rows.some((r) => {
+        const state = String(r.state || "");
+        const status = String(r.status || "");
+        if (r.kind === "turnHeader" && (state === "running" || state.startsWith("running"))) {
+          return true;
+        }
+        if (
+          (r.kind === "assistantText" || r.kind === "reasoning") &&
+          state === "streaming"
+        ) {
+          return true;
+        }
+        return status === "running" || status === "executing";
+      });
+    if (hasOptimistic && streamMax == null && !windowHasLive) {
+      out.push({
+        code: "WIRE_WITHOUT_V4_TIP",
+        severity: "error",
+        title: "AG-UI 在跑，V4 投影未跟上",
+        detail:
+          "乐观泡/工作中有，但 streamMax=∅ 且窗内无 streaming——多半 frames 丢了；catchup 应 client-behind-resync",
+      });
+    }
   }
 
   // 流式还在推正文/工具，但投影窗里没有 running/streaming —— 直播轮被软顶挤出

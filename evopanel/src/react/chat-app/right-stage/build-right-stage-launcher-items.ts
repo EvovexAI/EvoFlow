@@ -2,6 +2,7 @@
 /**
  * Default right-stage launcher items for empty stage home. Extracted (P108).
  */
+import { rightStageStore } from '../../../lib/right-stage/right-stage-store.js'
 export type BuildRightStageLauncherItemsCtx = Record<string, any>
 
 export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherItemsCtx) {
@@ -52,8 +53,15 @@ export function buildChatRightStageLauncherItems(ctx: BuildRightStageLauncherIte
     onOpenWorkflow: () => {
       ctx.openCollabExecPanel()
     },
+    // 【2026-11-21 · 第104轮】摘要已迁到对话正文右上角（见
+    // set-chat-panel-display-mode.ts 与 RightStagePanel 的 FORCE_MOUNT_KINDS 注释：
+    // 「summary：chat 渲染面里恒返回 null（死载荷），2026-11-05 收敛移除」）。
+    // 这里原本调 ctx.setChatPanelDisplayMode('panel')：右栏开着时它什么都不做
+    // （showChatSummaryFloat 要求 !rightStageOpen），于是在「+ 打开新标签」里
+    // 表现为点了没反应的死入口。改为收起右栏并切到摘要卡，点了必然有可见反馈。
     onOpenSummary: () => {
       ctx.setChatPanelDisplayMode('panel')
+      rightStageStore.collapse()
     },
     mindMapEnabled: ctx.knowledgeMapEnabled,
     onOpenMindMap: () => {

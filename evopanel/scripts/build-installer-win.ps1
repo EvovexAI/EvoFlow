@@ -2,7 +2,10 @@
 param(
   [switch]$SkipBackendBuild,
   [switch]$SkipBundleBuild,
-  [switch]$NoParallel
+  [switch]$NoParallel,
+  # Local verify: skip torch/ST + bge-small-zh in the gateway sidecar (much faster PyInstaller).
+  # Equivalent env: EVOFLOW_GATEWAY_LEAN=1
+  [switch]$LeanNoLocalEmbedding
 )
 
 $ErrorActionPreference = "Stop"
@@ -87,13 +90,18 @@ function Set-UpdaterSigningEnv([string]$ProjectDir) {
 
 function Invoke-TauriBundleBuild([string]$ProjectDir, [string]$TauriConfig = "") {
   $signEnabled = Set-UpdaterSigningEnv -ProjectDir $ProjectDir
-  $localTemp = Join-Path $ProjectDir ".build-temp"
-  $localNpmCache = Join-Path $localTemp "npm-cache"
-  if (Test-Path $localTemp) {
-    Remove-Item -Path $localTemp -Recurse -Force -ErrorAction SilentlyContinue
+  # Never wipe the whole .build-temp tree: parallel/sequential gateway PyInstaller
+  # keeps work under .build-temp\gateway-build (and frontend under frontend-temp).
+  # A full Remove-Item races mid-Analysis -> FileNotFoundError on base_library.zip.
+  $buildTempRoot = Join-Path $ProjectDir ".build-temp"
+  $localTemp = Join-Path $buildTempRoot "tauri-process-temp"
+  $localNpmCache = Join-Path $buildTempRoot "npm-cache"
+  foreach ($d in @($buildTempRoot, $localTemp, $localNpmCache)) {
+    New-Item -ItemType Directory -Path $d -Force | Out-Null
   }
-  New-Item -ItemType Directory -Path $localTemp -Force | Out-Null
-  New-Item -ItemType Directory -Path $localNpmCache -Force | Out-Null
+  # Refresh only our private temp dir (safe to clear between Tauri attempts).
+  Get-ChildItem -LiteralPath $localTemp -Force -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
   # Some Windows environments may leave stale linker temp files locked.
   Get-ChildItem -Path $env:LOCALAPPDATA\Temp -Filter "lnk*.tmp" -ErrorAction SilentlyContinue |
@@ -156,7 +164,8 @@ function Invoke-ParallelBackendAndFrontend(
   [string]$BackendBuildScript,
   [string]$BackendOutputDir,
   [string]$ProjectDir,
-  [string]$BackendBuildTempRoot
+  [string]$BackendBuildTempRoot,
+  [switch]$LeanNoLocalEmbedding
 ) {
   Write-Step "building backend sidecar and frontend in parallel"
   $parallelStart = Get-Date
@@ -167,13 +176,18 @@ function Invoke-ParallelBackendAndFrontend(
   $frontendLog = Join-Path $logDir "frontend.log"
   $frontendErrLog = Join-Path $logDir "frontend.err.log"
 
+  $backendArgs = @(
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $BackendBuildScript,
+    "-OutputPath", $BackendOutputDir,
+    "-BuildTempRoot", $BackendBuildTempRoot
+  )
+  if ($LeanNoLocalEmbedding) {
+    $backendArgs += "-LeanNoLocalEmbedding"
+  }
+
   # Start-Process avoids Start-Job remoting, which treats Node stderr as terminating errors.
   $backendProc = Start-Process -FilePath "powershell.exe" -PassThru -NoNewWindow -Wait:$false `
-    -ArgumentList @(
-      "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", $BackendBuildScript,
-      "-OutputPath", $BackendOutputDir,
-      "-BuildTempRoot", $BackendBuildTempRoot
-    ) `
+    -ArgumentList $backendArgs `
     -RedirectStandardOutput $backendLog `
     -RedirectStandardError $backendErrLog
 
@@ -227,10 +241,23 @@ $OldRenamedV2Dir = Join-Path $DeerpanelDir "src-tauri\binaries\evoflow-gateway-v
 $BundleDir = Join-Path $DeerpanelDir "src-tauri\target\release\bundle\nsis"
 $FrontendDistDir = Join-Path $DeerpanelDir "dist"
 $PrebuiltFrontendConfig = "src-tauri/tauri.prebuilt-frontend.conf.json"
-$GatewayBuildTempRoot = Join-Path $DeerpanelDir ".build-temp\gateway-build"
+# Keep PyInstaller work under backend\.build-temp so evopanel\.build-temp
+# (npm/tauri temps) never shares a wipe boundary with Analysis workpath.
+$GatewayBuildTempRoot = Join-Path $RepoRoot "backend\.build-temp\gateway-build"
 $BuildStart = Get-Date
 
 $useParallel = (-not $NoParallel) -and (-not $SkipBackendBuild) -and (-not $SkipBundleBuild)
+
+# Resolve lean mode once so parallel child + assert share the same decision.
+$envLean = $env:EVOFLOW_GATEWAY_LEAN -and (
+  $env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")
+)
+$leanSidecar = [bool]($LeanNoLocalEmbedding -or $envLean)
+if ($leanSidecar) {
+  $env:EVOFLOW_GATEWAY_LEAN = "1"
+  $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING = "0"
+  Write-Step "LEAN sidecar: skip local embedding (torch/ST + bge). Set for local verify only."
+}
 
 function Get-DriveFreeGb([string]$Path) {
   $root = [System.IO.Path]::GetPathRoot($Path)
@@ -335,11 +362,15 @@ if (Test-Path $OldRenamedV2Dir) {
 }
 
 if ($useParallel) {
-  Invoke-ParallelBackendAndFrontend -BackendBuildScript $BackendBuildScript -BackendOutputDir $BackendOutputDir -ProjectDir $DeerpanelDir -BackendBuildTempRoot $GatewayBuildTempRoot
+  Invoke-ParallelBackendAndFrontend -BackendBuildScript $BackendBuildScript -BackendOutputDir $BackendOutputDir -ProjectDir $DeerpanelDir -BackendBuildTempRoot $GatewayBuildTempRoot -LeanNoLocalEmbedding:$leanSidecar
 } else {
   if (-not $SkipBackendBuild) {
     Write-Step "building backend sidecar"
-    & $BackendBuildScript -OutputPath $BackendOutputDir -BuildTempRoot $GatewayBuildTempRoot
+    if ($leanSidecar) {
+      & $BackendBuildScript -OutputPath $BackendOutputDir -BuildTempRoot $GatewayBuildTempRoot -LeanNoLocalEmbedding
+    } else {
+      & $BackendBuildScript -OutputPath $BackendOutputDir -BuildTempRoot $GatewayBuildTempRoot
+    }
   }
 }
 
@@ -348,17 +379,10 @@ if (!(Test-Path $BackendOutputDir)) {
 }
 
 # Even with -SkipBackendBuild, refuse to NSIS-pack a stale/wrong sidecar.
-# Product default ships local BGE (torch+ST); allow that when env/flag says so.
+# Product default ships local BGE (torch+ST); lean verify builds must not.
 $LeanAssert = Join-Path $RepoRoot "backend\packaging\windows\assert-lean-gateway-bundle.ps1"
-$allowLocalEmbedAssert = $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING -and (
-  $env:EVOFLOW_GATEWAY_INCLUDE_LOCAL_EMBEDDING.Trim().ToLower() -in @("1", "true", "yes", "on")
-)
-# Default product path includes local embed; lean-only when EVOFLOW_GATEWAY_LEAN=1.
-$leanOnly = $env:EVOFLOW_GATEWAY_LEAN -and (
-  $env:EVOFLOW_GATEWAY_LEAN.Trim().ToLower() -in @("1", "true", "yes", "on")
-)
-if (-not $leanOnly) { $allowLocalEmbedAssert = $true }
-Write-Step "assert gateway sidecar (Chromium still forbidden; local embed allowed unless EVOFLOW_GATEWAY_LEAN=1)"
+$allowLocalEmbedAssert = -not $leanSidecar
+Write-Step "assert gateway sidecar (Chromium forbidden; local embed=$allowLocalEmbedAssert)"
 if ($allowLocalEmbedAssert) {
   & $LeanAssert -GatewayDir $BackendOutputDir -AllowLocalEmbedding
 } else {

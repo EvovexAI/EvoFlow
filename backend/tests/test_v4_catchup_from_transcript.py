@@ -124,6 +124,32 @@ def test_catchup_client_stale_resync_when_client_tip_ahead_of_hub() -> None:
     assert int(out.get("clientTipRowId") or 0) == hub_tip + 100
 
 
+def test_catchup_client_behind_resync_when_client_tip_lags_hub() -> None:
+    """FE tip 低于 hub tip（frames 丢了）→ fingerprint 未变也要再广播 recovery。"""
+    from app.gateway.v4.agui_mirror import mirror_reset_thread
+
+    # 前序 live-mirror 用例可能把 THREAD 留在 mirror live；先清掉以免挡 hydrate。
+    mirror_reset_thread(THREAD)
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(THREAD)
+    sess = hub.get_session(THREAD)
+    assert sess is not None and sess.rows
+    hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
+    assert hub_tip > 1
+    with _msgs(MESSAGES_V1):
+        out = hub.catchup_from_transcript(
+            THREAD,
+            client_tip_row_id=hub_tip - 1,
+            client_log_epoch=str(sess.log_epoch),
+        )
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out.get("reason") == "client-behind-resync"
+    assert int(out.get("tipRowId") or 0) == hub_tip
+    assert int(out.get("clientTipRowId") or 0) == hub_tip - 1
+
+
 def test_catchup_prefer_settle_only_never_wipes_existing_rows() -> None:
     """切回校准：客户端已有投影时只 settle，禁止 clear_projection wipe。"""
     hub = V4ConversationHub()
@@ -225,6 +251,41 @@ def test_catchup_skips_wipe_while_channel_mirror_live() -> None:
     assert out["changed"] is False
     assert out.get("reason") == "live-mirror"
     assert len(hub.get_session(THREAD).rows) == rows_with_live
+
+
+def test_catchup_client_behind_under_live_mirror_broadcasts_recovery() -> None:
+    """live-mirror 不得挡住 FE tip 落后时的 recovery（WIRE_WITHOUT_V4_TIP）。"""
+    import app.gateway.v4.agui_mirror as mir
+    from app.gateway.v4.agui_mirror import mirror_channel_run_started, mirror_reset_thread
+    from app.gateway.v4.conversation import _Subscription
+
+    hub = V4ConversationHub()
+    mir._MIRROR = mir.V4Mirror(hub)
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(THREAD)
+    mirror_reset_thread(THREAD)
+    mirror_channel_run_started(THREAD, "run-live")
+    sess = hub.get_session(THREAD)
+    assert sess is not None and sess.rows
+    hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
+    assert hub_tip > 1
+    hub._subscriptions["sub-live"] = _Subscription(  # noqa: SLF001
+        subscription_id="sub-live",
+        session_id=THREAD,
+        connection_id="c-live",
+        topic=f"conversation/{THREAD}",
+    )
+    with _msgs(MESSAGES_V2):
+        out = hub.catchup_from_transcript(
+            THREAD,
+            client_tip_row_id=hub_tip - 1,
+            client_log_epoch=str(sess.log_epoch),
+        )
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out.get("reason") == "client-behind-resync"
+    assert int(out.get("tipRowId") or 0) == hub_tip
+    assert int(out.get("notified") or 0) >= 1
 
 
 def test_channel_assistant_mirror_appends_text() -> None:

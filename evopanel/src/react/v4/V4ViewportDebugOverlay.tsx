@@ -43,7 +43,16 @@ import { isSessionExecuting } from "../lib/session-execution/queries.js";
 import { isSessionHistoryWatchActive } from "../lib/session-reattach.js";
 import { getV4TimelineBusy } from "./v4-timeline-busy-store.js";
 import { getEvoflowV4Transport } from "./evoflowV4Transport.js";
-import { getSharedV4SessionDataLayer } from "./V4StreamRowsBridge.js";
+import {
+  getSharedV4SessionDataLayer,
+  peekLastV4Catchup,
+} from "./V4StreamRowsBridge.js";
+import {
+  anomalyFromV4PathProbe,
+  collectV4PathProbe,
+  formatV4PathProbeForDiag,
+  type V4PathProbe,
+} from "./v4-path-probe.js";
 import {
   collectV4ChatLayoutDump,
   type V4ChatLayoutDump,
@@ -1029,6 +1038,94 @@ function isSignalApiPath(path: string): boolean {
  * 一键复制给 Agent：异常优先、短证据。
  * 刻意不塞：流式整段 JSON、滚轮流水账、file_changes、百科提示——那些干扰排障。
  */
+/** 现场采集 V4 投递路径根因对账（frames / sub / hub tip / catchup notified）。 */
+function collectLiveV4PathProbe(opts: {
+  tid: string;
+  runStatus: RunStatusProbe;
+  history: HistoryLoadProbe;
+  streamEntries: ViewportStreamTapEntry[];
+  windowRows?: Array<Record<string, unknown>>;
+  turns?: VisibleTurnProbe[];
+  nowMs?: number;
+}): V4PathProbe {
+  const now = opts.nowMs ?? Date.now();
+  const tid = String(opts.tid || "").trim();
+  let storeStatus: string | null = null;
+  let subscriptionId: string | null = null;
+  let subActive: boolean | null = null;
+  let stagedCount: number | null = null;
+  let activeSubCount = 0;
+  let framesUp = !!opts.runStatus.v4FramesSseOpen;
+  try {
+    const transport = getEvoflowV4Transport();
+    framesUp = transport.isFramesSseConnected();
+    const store = tid
+      ? getSharedV4SessionDataLayer().peekStore(tid)
+      : null;
+    const st = store?.getState();
+    storeStatus = st?.status != null ? String(st.status) : null;
+    subscriptionId = st?.subscriptionId ? String(st.subscriptionId) : null;
+    const path = transport.getPathDiag(subscriptionId);
+    activeSubCount = path.activeCount;
+    subActive = path.subActive;
+    stagedCount = path.stagedCount;
+  } catch {
+    /* best effort */
+  }
+  const lastCatchup = tid ? peekLastV4Catchup(tid) : null;
+  let lastV4AtMs: number | null = null;
+  for (let i = opts.streamEntries.length - 1; i >= 0; i -= 1) {
+    const e = opts.streamEntries[i]!;
+    if (e.channel !== "v4") continue;
+    if (tid && e.sessionId && e.sessionId !== tid) continue;
+    lastV4AtMs = e.atMs;
+    break;
+  }
+  const rows = opts.windowRows ?? [];
+  const windowHasLive = rows.some((r) => {
+    const state = String(r.state || "");
+    const status = String(r.status || "");
+    if (
+      r.kind === "turnHeader" &&
+      (state === "running" || String(state).startsWith("running"))
+    ) {
+      return true;
+    }
+    if (
+      (r.kind === "assistantText" || r.kind === "reasoning") &&
+      state === "streaming"
+    ) {
+      return true;
+    }
+    return status === "running" || status === "executing";
+  });
+  const hasOptimistic = (opts.turns ?? []).some((t) =>
+    String(t.turnId || "").startsWith("optimistic"),
+  );
+  return collectV4PathProbe({
+    nowMs: now,
+    tid,
+    executing: !!opts.runStatus.executing,
+    settled: !!opts.runStatus.uiTurnSettled,
+    framesUp,
+    storeStatus,
+    subscriptionId,
+    subActive,
+    stagedCount,
+    activeSubCount,
+    feTip: opts.history.windowLastRowId,
+    hubTip: lastCatchup?.hubTip ?? null,
+    lastV4AtMs,
+    catchupReason: lastCatchup?.reason ?? null,
+    catchupNotified: lastCatchup?.notified ?? null,
+    catchupAtMs: lastCatchup?.at ?? null,
+    subscriberCount: lastCatchup?.subscriberCount ?? null,
+    hasOptimistic,
+    windowHasLive,
+    streamEntries: opts.streamEntries,
+  });
+}
+
 function buildOverlayDiagnosticText(opts: {
   tab: OverlayTab;
   snapshot: OverlaySnapshot | null;
@@ -1040,6 +1137,7 @@ function buildOverlayDiagnosticText(opts: {
   problems: string;
   anomalies: ViewportAnomaly[];
   virt?: VirtualizationProbe | null;
+  path?: V4PathProbe | null;
 }): string {
   const {
     tab,
@@ -1051,6 +1149,7 @@ function buildOverlayDiagnosticText(opts: {
     problems,
     anomalies,
     virt,
+    path,
   } = opts;
   const waterlineApis = waterlineApiEntries?.length
     ? waterlineApiEntries
@@ -1058,12 +1157,19 @@ function buildOverlayDiagnosticText(opts: {
   const lines: string[] = [];
   lines.push("## EvoFlow V4 视口诊断（精简）");
   lines.push(
-    `- ${new Date().toISOString()} · tab=${tab} · ${problems || "OK"} · 异常=${anomalies.length}`,
+    `- ${new Date().toISOString()} · tab=${tab} · ${problems || "OK"} · 异常=${anomalies.length}${path && path.verdict !== "OK" && path.verdict !== "IDLE" ? ` · 根因=${path.verdict}` : ""}`,
   );
   lines.push("");
+  if (path) {
+    lines.push(...formatV4PathProbeForDiag(path));
+    lines.push("");
+  }
   lines.push("### 怎么用");
   lines.push(
     "- Agent 优先拉：`GET /main-cdp/viewport-diag` 或 `__evoflowPanel.viewportDiag()` / `__evoflowV4ViewportDiag()`（结构化 JSON + 同款 markdown）；人可点「复制诊断」贴聊。",
+  );
+  lines.push(
+    "- 先看「根因对账」verdict（HUB_AHEAD_NOTIFIED0 / NO_STORE_SUB / SUB_NOT_ACTIVATED…），再看异常表；WIRE_WITHOUT_V4_TIP 只是症状。",
   );
   lines.push(
     "- 「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想；不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。",
@@ -1453,11 +1559,12 @@ function buildViewportAnomalies(input: {
   streamEntries: ViewportStreamTapEntry[];
   apiEntries: ViewportApiTapEntry[];
   scrollEntries: ViewportScrollTapEntry[];
+  path?: V4PathProbe | null;
 }): ViewportAnomaly[] {
   const snap = input.snapshot;
   if (!snap) return [];
   const host = snap.layout?.hosts.find((h) => h.visibleAttr === "1");
-  return collectViewportAnomalies({
+  const out = collectViewportAnomalies({
     tid: snap.tid,
     scrollTop: snap.scrollTop,
     scrollHeight: snap.scrollHeight,
@@ -1513,6 +1620,11 @@ function buildViewportAnomalies(input: {
       followingAttr: e.followingAttr,
     })),
   });
+  if (input.path) {
+    const pathAnomaly = anomalyFromV4PathProbe(input.path);
+    if (pathAnomaly) out.unshift(pathAnomaly);
+  }
+  return out;
 }
 
 function problemBadge(anomalies: readonly ViewportAnomaly[]): string {
@@ -1565,6 +1677,27 @@ export type V4ViewportDiagnosticDump = {
     settled: boolean;
     executing: boolean;
     why: string | null;
+  } | null;
+  /** V4 投递路径根因对账（优先看 verdict，再看 anomalies） */
+  path: {
+    verdict: string;
+    title: string;
+    detail: string;
+    framesUp: boolean;
+    storeStatus: string | null;
+    subscriptionId: string | null;
+    subActive: boolean | null;
+    stagedCount: number | null;
+    activeSubCount: number;
+    feTip: number | null;
+    hubTip: number | null;
+    tipDelta: number | null;
+    streamMax: number | null;
+    lastV4AgeMs: number | null;
+    catchupReason: string | null;
+    catchupNotified: number | null;
+    catchupAgeMs: number | null;
+    subscriberCount: number | null;
   } | null;
   history: {
     windowCount: number;
@@ -1632,23 +1765,6 @@ export function collectV4ViewportDiagnostic(
     includeForeign: true,
     limit: 48,
   });
-  const liveAnomalies = buildViewportAnomalies({
-    snapshot: snap,
-    streamEntries,
-    apiEntries,
-    scrollEntries,
-  });
-  const anomalies =
-    opts.stickyAnomalies && opts.stickyAnomalies.length > 0
-      ? mergeStickyViewportAnomalies({
-          tid: snap?.tid ?? "",
-          prevTid: opts.stickyTid ?? "",
-          prev: opts.stickyAnomalies,
-          live: liveAnomalies,
-          windowFirstRowId: snap?.history?.windowFirstRowId ?? null,
-        }).items
-      : liveAnomalies;
-
   let following = true;
   try {
     following =
@@ -1675,6 +1791,35 @@ export function collectV4ViewportDiagnostic(
       })
     : null;
 
+  const path = snap
+    ? collectLiveV4PathProbe({
+        tid: snap.tid,
+        runStatus: snap.runStatus,
+        history: snap.history,
+        streamEntries,
+        windowRows: snap.windowRows,
+        turns: snap.turns,
+      })
+    : null;
+
+  const liveAnomalies = buildViewportAnomalies({
+    snapshot: snap,
+    streamEntries,
+    apiEntries,
+    scrollEntries,
+    path,
+  });
+  const anomalies =
+    opts.stickyAnomalies && opts.stickyAnomalies.length > 0
+      ? mergeStickyViewportAnomalies({
+          tid: snap?.tid ?? "",
+          prevTid: opts.stickyTid ?? "",
+          prev: opts.stickyAnomalies,
+          live: liveAnomalies,
+          windowFirstRowId: snap?.history?.windowFirstRowId ?? null,
+        }).items
+      : liveAnomalies;
+
   const markdown = buildOverlayDiagnosticText({
     tab,
     snapshot: snap,
@@ -1685,6 +1830,7 @@ export function collectV4ViewportDiagnostic(
     anomalies,
     problems: problemBadge(anomalies),
     virt,
+    path,
   });
 
   const host = snap?.layout?.hosts.find((h) => h.visibleAttr === "1");
@@ -1730,13 +1876,21 @@ export function collectV4ViewportDiagnostic(
     };
   });
 
+  const problemsBadge = problemBadge(anomalies);
+  const problems =
+    path && path.verdict !== "OK" && path.verdict !== "IDLE"
+      ? problemsBadge
+        ? `${path.verdict} · ${problemsBadge}`
+        : path.verdict
+      : problemsBadge;
+
   return {
     kind: "v4_viewport_diag",
     at: new Date().toISOString(),
     sessionKey: snap?.sessionKey ?? null,
     threadId: snap?.tid ?? null,
     title: snap?.title ?? null,
-    problems: problemBadge(anomalies),
+    problems,
     anomalies: anomalies.map((a) => ({
       code: a.code,
       severity: a.severity,
@@ -1784,6 +1938,28 @@ export function collectV4ViewportDiagnostic(
           settled: !!snap.runStatus.uiTurnSettled,
           executing: !!snap.runStatus.executing,
           why: snap.runStatus.execWhy,
+        }
+      : null,
+    path: path
+      ? {
+          verdict: path.verdict,
+          title: path.title,
+          detail: path.detail,
+          framesUp: path.framesUp,
+          storeStatus: path.storeStatus,
+          subscriptionId: path.subscriptionId,
+          subActive: path.subActive,
+          stagedCount: path.stagedCount,
+          activeSubCount: path.activeSubCount,
+          feTip: path.feTip,
+          hubTip: path.hubTip,
+          tipDelta: path.tipDelta,
+          streamMax: path.streamMax,
+          lastV4AgeMs: path.lastV4AgeMs,
+          catchupReason: path.catchupReason,
+          catchupNotified: path.catchupNotified,
+          catchupAgeMs: path.catchupAgeMs,
+          subscriberCount: path.subscriberCount,
         }
       : null,
     history: snap
@@ -2267,17 +2443,6 @@ export function V4ViewportDebugOverlay() {
     setPos(defaultOverlayPos(next));
   };
 
-  const liveAnomalies = useMemo(
-    () =>
-      buildViewportAnomalies({
-        snapshot,
-        streamEntries,
-        apiEntries,
-        scrollEntries,
-      }),
-    [snapshot, streamEntries, apiEntries, scrollEntries],
-  );
-
   const virtProbe = useMemo((): VirtualizationProbe | null => {
     if (!snapshot) return null;
     let following = true;
@@ -2304,6 +2469,31 @@ export function V4ViewportDebugOverlay() {
       streamEntries,
     });
   }, [snapshot, streamEntries]);
+
+  const pathProbe = useMemo((): V4PathProbe | null => {
+    if (!snapshot) return null;
+    return collectLiveV4PathProbe({
+      tid: snapshot.tid,
+      runStatus: snapshot.runStatus,
+      history: snapshot.history,
+      streamEntries,
+      windowRows: snapshot.windowRows,
+      turns: snapshot.turns,
+    });
+  }, [snapshot, streamEntries]);
+
+  const liveAnomalies = useMemo(
+    () =>
+      buildViewportAnomalies({
+        snapshot,
+        streamEntries,
+        apiEntries,
+        scrollEntries,
+        path: pathProbe,
+      }),
+    [snapshot, streamEntries, apiEntries, scrollEntries, pathProbe],
+  );
+
   useEffect(() => {
     const tid = snapshot?.tid ?? "";
     if (!tid) {
@@ -2339,7 +2529,19 @@ export function V4ViewportDebugOverlay() {
   }, [liveAnomalies, snapshot?.tid, snapshot?.history?.windowFirstRowId]);
   // 展示 / 标题栏：优先锁定表（含「曾现」），不再跟 700ms 时间窗闪灭
   const anomalies = stickyAnomalies;
-  const problems = useMemo(() => problemBadge(anomalies), [anomalies]);
+  const problems = useMemo(() => {
+    const badge = problemBadge(anomalies);
+    if (
+      pathProbe &&
+      pathProbe.verdict !== "OK" &&
+      pathProbe.verdict !== "IDLE"
+    ) {
+      return badge
+        ? `${pathProbe.verdict} · ${badge}`
+        : pathProbe.verdict;
+    }
+    return badge;
+  }, [anomalies, pathProbe]);
   const visibleHost = snapshot?.layout?.hosts.find((h) => h.visibleAttr === "1");
   const clearStickyAnomalies = useCallback(() => {
     stickyTidRef.current = snapshot?.tid ?? null;
@@ -2546,6 +2748,42 @@ export function V4ViewportDebugOverlay() {
                     {snapshot.turns.length}
                   </span>
                 </div>
+                {pathProbe ? (
+                  <div
+                    style={{
+                      fontSize: 11,
+                      lineHeight: 1.35,
+                      color:
+                        pathProbe.verdict === "OK" ||
+                        pathProbe.verdict === "IDLE"
+                          ? "#86efac"
+                          : "#fbbf24",
+                      marginTop: 2,
+                    }}
+                    title={pathProbe.detail}
+                  >
+                    根因 {pathProbe.verdict} · {pathProbe.title}
+                    {" · "}fe={pathProbe.feTip ?? "∅"} hub=
+                    {pathProbe.hubTip ?? "∅"}
+                    {pathProbe.tipDelta != null
+                      ? ` Δ${pathProbe.tipDelta > 0 ? "+" : ""}${pathProbe.tipDelta}`
+                      : ""}
+                    {" · "}sub=
+                    {pathProbe.subscriptionId
+                      ? pathProbe.subscriptionId.slice(0, 10)
+                      : "∅"}
+                    {" active="}
+                    {pathProbe.subActive === true
+                      ? "1"
+                      : pathProbe.subActive === false
+                        ? "0"
+                        : "∅"}
+                    {" · "}notified=
+                    {pathProbe.catchupNotified ?? "∅"}
+                    {" hubSubs="}
+                    {pathProbe.subscriberCount ?? "∅"}
+                  </div>
+                ) : null}
                 <span
                   style={{
                     flexShrink: 0,

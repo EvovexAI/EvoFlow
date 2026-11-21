@@ -22,6 +22,19 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows
 （等价于下面的 `-BuildDesktopInstaller`；可选参数 `-InstallNpmDeps`。）  
 默认 `EVOFLOW_SKIP_UPDATER_SIGN=1`，避免本机 `updater-signing.key` 弹出 Password 卡住；正式发版仍走 CI 签名。
 
+**本地只验证功能（跳过向量/embedding，打包快很多）**：
+
+```powershell
+# 推荐：lean 安装包（不打 torch/ST + bge）
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\maintainer\windows\local-publish.ps1 -BuildDesktopInstaller -Lean
+
+# 或在 evopanel 目录
+cd evopanel
+npm run build:desktop:win:lean
+```
+
+正式发版 / 要验知识库本地向量时仍用默认（不带 `-Lean`）的全量包。
+
 ## 本地自验证闭环（Agent 自己改码 → 自己重装 → **在当前对话里**接着验收）
 
 【self-evolution-bot · 2026-11-20 · 第99轮 · 模型:deepseek-v4.1-flash-1017】**硬禁令**（用户当面定）：

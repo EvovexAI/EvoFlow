@@ -398,6 +398,9 @@ export const RightStagePanel = memo(function RightStagePanel({
   const [tabCtx, setTabCtx] = useState<StageTabContextMenu | null>(null)
   const viewportRef = useRef<HTMLDivElement | null>(null)
   const [viewportWidth, setViewportWidth] = useState(0)
+  // 【2026-11-21 · 第104轮】签的收缩下限实测值：CSS 写的是 7.5rem，实际像素随宿主根字号变
+  //（本例 13.6px → 102px）。溢出预算必须用实测值，否则比真实布局早 18px/签进入滚动。
+  const [tabMinWidthPx, setTabMinWidthPx] = useState(0)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
 
   // 标签条用 text-foreground-subtle 等 zcode token；不在 .zcode-bridge-root.dark 下
@@ -563,6 +566,7 @@ export const RightStagePanel = memo(function RightStagePanel({
     addButtonWidth: 28,
     tabCount: tabs.length,
     viewportWidth,
+    ...(tabMinWidthPx > 0 ? { tabMinWidthPx } : {}),
   })
   const overflowEdges = resolveStageTabsOverflowEdges({
     isOverflowing,
@@ -577,6 +581,12 @@ export const RightStagePanel = memo(function RightStagePanel({
     const el = viewportRef.current
     if (!el) return
     setViewportWidth(Math.round(el.clientWidth))
+    // 实测签的真实收缩下限（rem → px 会随宿主根字号伸缩，不能按 16px 假定）。
+    const chip = el.querySelector<HTMLElement>('[data-side-pane-tab-id]')
+    if (chip) {
+      const raw = Number.parseFloat(getComputedStyle(chip).minWidth)
+      if (Number.isFinite(raw) && raw > 0) setTabMinWidthPx(Math.round(raw))
+    }
   }, [])
 
   useEffect(() => {

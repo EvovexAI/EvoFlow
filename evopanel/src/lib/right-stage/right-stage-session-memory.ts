@@ -17,7 +17,9 @@ import { isTaskCenterStageSessionKey } from './task-center-stage-key.js'
 import {
   RIGHT_STAGE_PERSIST_LIMITS,
   readPersistedSessionEntries,
+  readPersistedWorkspaceTabs,
   writePersistedSessionEntries,
+  writePersistedWorkspaceTabs,
   type PersistedSessionEntry,
 } from './right-stage-session-persistence.js'
 
@@ -134,13 +136,17 @@ function touch(key: string, memory: RightStageSessionMemory) {
   schedulePersist()
 }
 
-/* ---------- reload-only 持久化 ---------- */
+/* ---------- 同标签页重载持久化 ---------- */
 
 const PERSIST_DEBOUNCE_MS = 300
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 let persistSuspended = false
 
-/** 只在「同一标签页刷新」时预置缓存；冷启动返回空并把残留键清掉。 */
+/**
+ * 预置缓存：同一标签页内重载（刷新 / dev HMR / webview reload）都会走到这里。
+ * 不再判 navigation type——介质是 sessionStorage，标签页边界已由它表达，
+ * 过期判据交给快照自带的 ``savedAt``（见 right-stage-session-persistence）。
+ */
 function hydrateFromPersistence() {
   const entries = readPersistedSessionEntries()
   if (!entries.length) return
@@ -153,8 +159,103 @@ function hydrateFromPersistence() {
 
 hydrateFromPersistence()
 
+/**
+ * 【第115轮】补一条「状态变化即落盘」的订阅。
+ *
+ * 为什么需要：原先落盘只有两条入口 —— ``switchRightStageSession``（切会话）和
+ * 收起手势。可「开签 / 关签 / 换激活签」这三件事都不经过切会话，于是
+ * "开了 7 个签但没切过会话"的场景在整页重载后一个签都留不下（实测
+ * rev=41 tabs=7 → rev=1 tabs=0）。``bump()`` 是 store 状态变化的唯一收敛点，
+ * 订阅它按**当前会话键**覆写记忆，重载恢复才有东西可读。
+ *
+ * 递归安全：这里只写内存 Map + 触发 debounce 落盘，不会回头 bump store；
+ * 写盘判重由 ``writePersistedSessionEntries`` 的内容签名负责。
+ *
+ * 安装时机：不能在本模块体里直接 subscribe —— 依赖链 store → agui →
+ * session-memory 是环，本模块被求值时 ``rightStageStore`` 还是 undefined
+ * （实测 ``Cannot read properties of undefined (reading 'subscribe')``）。
+ * 因此推迟到微任务，此时模块图已求值完毕。
+ */
+let autosaveInstalled = false
+/**
+ * 换入目标会话期间暂挂 autosave。
+ * 原因：``importSessionMemory`` 末尾会 bump，而 ``setCurrentRightStageSessionKey``
+ * 在其之后才执行 —— 此刻订阅回调读到的还是**上一个**会话键，会把 B 的签写进
+ * A 的记忆，等于平白制造串台。
+ */
+let autosaveSuppressDepth = 0
+/** workspace 快照是否已回填；回填前 autosave 不许覆写空状态。 */
+let workspaceHydrated = false
+
+export function ensureRightStageAutosaveInstalled() {
+  if (autosaveInstalled) return
+  if (typeof rightStageStore?.subscribe !== 'function') return
+  autosaveInstalled = true
+  rightStageStore.subscribe(() => {
+    if (persistSuspended || autosaveSuppressDepth > 0) return
+    // workspace 级签：不分会话，整份覆写。
+    // 必须先于会话分支处理——它不依赖当前会话键，没有会话时也要存。
+    //
+    // 但**回填完成前不许写**：冷启动时 live store 还是空的，若此时先 bump，
+    // 一写就把磁盘上的 workspace 快照抹成空，重载恢复直接失效。
+    if (workspaceHydrated) {
+      writePersistedWorkspaceTabs(
+        rightStageStore.getSnapshot().tabs.filter((t) => scopeOfKind(t.kind) === 'workspace'),
+      )
+    }
+    const key = getCurrentRightStageSessionKey()
+    if (!key) return
+    touch(key, rightStageStore.exportSessionMemory())
+  })
+}
+
+/**
+ * 回填 workspace 级签（重载后）。
+ *
+ * 用 ``importSessionMemory`` 而不是 ``show``：后者是"用户显式打开"的语义，
+ * 会清掉收起锁并把面板撑开；这里只需要签回到 live 表里，
+ * 让人接着切会话时被 carry 带走、面板不必自己弹出来。
+ */
+export function hydrateWorkspaceTabsFromPersistence() {
+  if (workspaceHydrated) return
+  workspaceHydrated = true
+  if (typeof rightStageStore?.importSessionMemory !== 'function') return
+  const persisted = readPersistedWorkspaceTabs()
+  if (!persisted.length) return
+  const current = rightStageStore.getSnapshot()
+  // 已经有签（比如热更新时 store 没被重建）就不覆盖，避免把活状态冲掉。
+  if (current.tabs.length > 0) return
+  rightStageStore.importSessionMemory(
+    {
+      tabs: persisted,
+      activeKey: `${persisted[persisted.length - 1]!.kind}:${persisted[persisted.length - 1]!.id}`,
+      // 保持收起：签要回来，但面板不该自己弹开。
+      collapsed: true,
+      userCollapsed: false,
+      recentClosed: [],
+    },
+    { carryTabs: [] },
+  )
+}
+
+queueMicrotask(() => {
+  try {
+    // 先回填再装 autosave：顺序反了会先写一次空快照，把磁盘上的签抹掉。
+    hydrateWorkspaceTabsFromPersistence()
+    ensureRightStageAutosaveInstalled()
+  } catch {
+    /* 安装失败只影响"重载后恢复"，不能拖垮右栏本身 */
+  }
+})
+
 function persistNow() {
   if (persistSuspended) return
+  // workspace 级签：独立快照，不与会话记忆混存（见 writePersistedWorkspaceTabs 注释）。
+  if (workspaceHydrated) {
+    writePersistedWorkspaceTabs(
+      rightStageStore.getSnapshot().tabs.filter((t) => scopeOfKind(t.kind) === 'workspace'),
+    )
+  }
   // 只持久化最近使用的若干会话（Map 的插入序即最近使用顺序）。
   const keys = [...sessionMemory.keys()].slice(-RIGHT_STAGE_PERSIST_LIMITS.maxSessions)
   const entries: PersistedSessionEntry[] = keys.flatMap((key) => {
@@ -227,16 +328,24 @@ export function restoreRightStageSessionMemory(
     (t) => !isTaskCenterStageSessionKey(t.sessionKey),
   )
   const collapsedWhenNoMemory = chatVisibleCarry.length === 0
-  if (!key) {
-    rightStageStore.importSessionMemory(null, { carryTabs, collapsedWhenNoMemory })
-    setCurrentRightStageSessionKey('')
-    return
+  // 换入期间暂挂 autosave：``importSessionMemory`` 末尾会 bump，而会话键要在这之后
+  // 才切换 —— 不挡住就会用「目标会话的签」覆写源会话记忆（串台），
+  // 且 carryWorkspace=false 时（小V adopt）还会拿空 workspace 表把磁盘快照抹掉。
+  autosaveSuppressDepth += 1
+  try {
+    if (!key) {
+      rightStageStore.importSessionMemory(null, { carryTabs, collapsedWhenNoMemory })
+      setCurrentRightStageSessionKey('')
+      return
+    }
+    rightStageStore.importSessionMemory(sessionMemory.get(key) ?? null, {
+      carryTabs,
+      collapsedWhenNoMemory,
+    })
+    setCurrentRightStageSessionKey(key)
+  } finally {
+    autosaveSuppressDepth -= 1
   }
-  rightStageStore.importSessionMemory(sessionMemory.get(key) ?? null, {
-    carryTabs,
-    collapsedWhenNoMemory,
-  })
-  setCurrentRightStageSessionKey(key)
 }
 
 /**
@@ -259,7 +368,8 @@ export function switchRightStageSession(
   if (from) saveRightStageSessionMemory(from)
   // 切会话是"紧接着可能刷新页面"的时刻，这里把待写内容刷盘，不等 debounce。
   flushRightStageSessionPersistence()
-  // 换入目标会话的标签缓存后，browser-embed-surface 根据激活页决定显示或隐藏。
+  // 换入目标会话期间暂挂 autosave（抑制在 restoreRightStageSessionMemory 内部
+  // 统一处理，那里也是 bump 真正发生的地方）。
   restoreRightStageSessionMemory(to || null, options)
   // Re-evaluate native HWND: foreign bridge owner must stay parked on the new UI.
   void import('../browser-embed-surface.js')

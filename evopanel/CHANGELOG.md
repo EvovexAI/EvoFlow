@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.43] - 2026-11-21
+
+相对 **1.3.42**：员工面板发消息不再串到任务时间线并实时出字；右栏布局与平台卡标题更清楚；长对话 catchup / soft-cap 更稳。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.43.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **员工面板发消息落错会话**：对话发送不用任务时间线；面板直发走 live 流
+- **客户端重连误停面板轮次**：attach/重启默认不停面板任务
+- **长对话 tip 脱节**：投影与库尾不一致时强制重灌；跟底 soft-cap 闩住防回灌
+- **平台工具卡假标题**：不用技术串冒充卡头
+- **右栏代码预览崩溃**：单卡失败不拖垮整栏
+
+### Changed
+
+- **右栏布局与会话记忆**：标签回流与跨会话记忆更稳
+- **员工面板发送桥**：后台触发也能走面板发送链路
+
+
 ## [1.3.42] - 2026-11-21
 
 相对 **1.3.41**：离线向量权重随仓库提供，正式构建更稳；电脑控制截图不再串到其它会话；右栏跨会话与交班沉淀更准。

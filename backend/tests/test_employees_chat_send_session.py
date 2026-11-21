@@ -72,7 +72,20 @@ def test_chat_send_ignores_injected_main_session_key():
 
 def test_chat_send_keeps_owned_proactive_session():
     owned = "proactive:douyin-analyst:chat:keep-me"
-    with patch.object(emp.ProactiveRepository, "get_role", return_value=_role()):
+    # 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：补 CDP 面板打桩（pane-busy = 面板没接住）。
+    # 为什么（真机复跑抓到）：本机桌面面板在线时，chat_send 会真去驱动面板并发消息，
+    #   面板回报自己的 sk ``chat:fixed`` → 回执按「实际发送者」回填 → 这里断言 owned 就红。
+    #   这条用例测的是「调用方传的、且属于该员工的 sk 不许被丢弃」，与面板在不在线无关；
+    #   不打桩等于让用例结果取决于「此刻桌面 App 开没开」，典型不可复现。
+    # 判据：无论本机面板是否在线，本用例结果恒定。
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.tools.builtins.panel_engine.panel_request",
+            lambda *a, **kw: _panel_env("pane-busy", session_key=owned),
+        ),
+    ):
         out = emp.chat_send(
             "douyin-analyst",
             "继续",
@@ -91,17 +104,31 @@ def test_chat_send_keeps_owned_proactive_session():
 #   agui 工具结果同步（Xiaomi 主聊 / 手机 / 别的 agent），标记就没人消费，面板照样没流。
 # 判据（可反证）：panel_dispatch 非空时前端不得再 pendingSend（否则同一句话发两遍）；
 #   为空（CDP 不可用）时前端必须 pendingSend（否则用户什么都看不到）。两条都要能反证。
-def _panel_env(mode: str, session_key: str = "proactive:douyin-analyst:chat:fixed"):
+def _panel_env(
+    mode: str,
+    session_key: str = "proactive:douyin-analyst:chat:fixed",
+    *,
+    requested_session_key: str | None = None,
+    session_key_matched: bool | None = None,
+    session_key_matched_by: str | None = None,
+):
+    detail: dict = {
+        "mode": mode,
+        "agentCode": "douyin-analyst",
+        "sessionKey": session_key,
+        "length": 3,
+    }
+    if requested_session_key is not None:
+        detail["requestedSessionKey"] = requested_session_key
+    if session_key_matched is not None:
+        detail["sessionKeyMatched"] = session_key_matched
+    if session_key_matched_by is not None:
+        detail["sessionKeyMatchedBy"] = session_key_matched_by
     return {
         "ok": True,
         "result": {
             "action": "employeeChatSend",
-            "detail": {
-                "mode": mode,
-                "agentCode": "douyin-analyst",
-                "sessionKey": session_key,
-                "length": 3,
-            },
+            "detail": detail,
         },
     }
 
@@ -266,3 +293,99 @@ def test_chat_send_auto_pane_busy_falls_back_to_wake(monkeypatch):
     assert out["panel_delivery"] is False
     assert out["queued"] is True
     assert woke == ["x"]
+
+
+# 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：面板回报的 sk 与服务端预计算不一致时，回执 session_key 以面板为准。
+# 为什么（真机 21:20）：预计算 chat:dept-…，面板 mint chat:2026-…，旧回执虚报前者。
+# 判据：out["session_key"] == 面板实际 sk；session_key_matched=false + hint 必有。
+def test_chat_send_receipt_prefers_panel_actual_session_key(monkeypatch):
+    requested = "proactive:douyin-analyst:chat:dept-4de7e33a602b"
+    actual = "proactive:douyin-analyst:chat:2026-11-21T13-20-20.208Z"
+
+    def fake_panel_request(method, route, *, body=None, timeout=None):
+        return {
+            "ok": True,
+            "result": {
+                "action": "employeeChatSend",
+                "detail": {
+                    "mode": "pane-live",
+                    "agentCode": "douyin-analyst",
+                    "sessionKey": actual,
+                    "requestedSessionKey": requested,
+                    "sessionKeyMatched": False,
+                    "sessionKeyMatchedBy": "code-fallback",
+                    "length": 4,
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        fake_panel_request,
+    )
+    monkeypatch.setattr(emp, "wake", lambda *a, **kw: {"skipped": True})
+
+    with (
+        patch.object(emp.ProactiveRepository, "get_role", return_value=_role()),
+        patch(
+            "evoflow.proactive.chat_session.list_employee_conversation_sessions",
+            return_value=[
+                {
+                    "session_key": requested,
+                    "kind": "chat",
+                    "run_status": "idle",
+                }
+            ],
+        ),
+    ):
+        out = emp.chat_send("douyin-analyst", "在吗", deliver="panel")
+
+    assert out["ok"] is True
+    assert out["panel_dispatch"] == "pane-live"
+    assert out["session_key"] == actual
+    assert out["requested_session_key"] == requested
+    assert out["session_key_matched"] is False
+    assert out["session_key_matched_by"] == "code-fallback"
+    assert "二者不同" in str(out.get("hint") or "")
+
+
+def test_chat_send_receipt_matched_true_when_panel_agrees(monkeypatch):
+    sk = "proactive:douyin-analyst:chat:keep-me"
+
+    def fake_panel_request(method, route, *, body=None, timeout=None):
+        return {
+            "ok": True,
+            "result": {
+                "action": "employeeChatSend",
+                "detail": {
+                    "mode": "pane-live",
+                    "agentCode": "douyin-analyst",
+                    "sessionKey": sk,
+                    "requestedSessionKey": sk,
+                    "sessionKeyMatched": True,
+                    "sessionKeyMatchedBy": "exact",
+                    "length": 2,
+                },
+            },
+        }
+
+    monkeypatch.setattr(
+        "evoflow.tools.builtins.panel_engine.panel_request",
+        fake_panel_request,
+    )
+    monkeypatch.setattr(emp, "wake", lambda *a, **kw: {"skipped": True})
+
+    with patch.object(emp.ProactiveRepository, "get_role", return_value=_role()):
+        out = emp.chat_send(
+            "douyin-analyst",
+            "继续",
+            session_key=sk,
+            deliver="panel",
+        )
+
+    assert out["session_key"] == sk
+    assert out["session_key_matched"] is True
+    assert out["session_key_matched_by"] == "exact"
+    assert "requested_session_key" not in out
+    assert "二者不同" not in str(out.get("hint") or "")
