@@ -12,7 +12,9 @@
 import { EventType } from '@ag-ui/core'
 import {
   applyPlatformFeedbackFromToolResult,
+  hasPlatformFeedbackSeen,
   latestPlatformRunEntryId,
+  markPlatformFeedbackSeen,
   maybeAutoOpenPlatformProgress,
   parsePlatformUiFeedback,
   type PlatformRunEntry,
@@ -137,8 +139,8 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     if (!parsePlatformUiFeedback(resultContent, ctx.argsText)) return false
   }
 
-  // 已见过（常见：tools-scan 先标 seen）：仍尝试 autoOpen，避免侧栏永远不开
-  if (ctx.platformFeedbackSeenRef.current.has(toolCallId)) {
+  // 已见过（常见：tools-scan / chat_artifacts 先标 seen）：仍尝试 autoOpen，避免侧栏永远不开
+  if (hasPlatformFeedbackSeen(ctx.platformFeedbackSeenRef.current, toolCallId)) {
     const ui =
       parsePlatformUiFeedback(resultContent, ctx.argsText) ||
       (ctx.platformUiFromTurn && typeof ctx.platformUiFromTurn === 'object'
@@ -163,13 +165,17 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     // chat_send 可能只有 client_effect、无 parseable ui：sync 已在上面跑过
     const effect = peekClientEffect(resultContent)
     if (effect === 'employee_chat_send') {
-      ctx.platformFeedbackSeenRef.current.add(toolCallId)
+      markPlatformFeedbackSeen(ctx.platformFeedbackSeenRef.current, toolCallId)
       return true
     }
     return false
   }
 
-  ctx.platformFeedbackSeenRef.current.add(toolCallId)
+  markPlatformFeedbackSeen(
+    ctx.platformFeedbackSeenRef.current,
+    toolCallId,
+    latestPlatformRunEntryId(feedback.entries),
+  )
   ctx.publishPlatformEntries(feedback.entries, latestPlatformRunEntryId(feedback.entries))
   ctx.toast(
     feedback.ui.title,

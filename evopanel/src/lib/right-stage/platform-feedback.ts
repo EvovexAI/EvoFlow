@@ -1522,6 +1522,46 @@ export function platformUiToRunEntry(ui: PlatformUiFeedback, toolCallId?: string
   }
 }
 
+/**
+ * Live RESULT / tools-scan store bare toolCallId; chat_artifacts may only have
+ * ``platform:<toolCallId>``. Check / mark both so a later scan cannot treat the
+ * same op as fresh and re-toast / re-open the summary bubble.
+ */
+export function platformFeedbackSeenKeys(...ids: Array<string | null | undefined>): string[] {
+  const out: string[] = []
+  const push = (raw: string) => {
+    const s = String(raw || '').trim()
+    if (!s || out.includes(s)) return
+    out.push(s)
+    if (s.startsWith('platform:')) {
+      const bare = s.slice('platform:'.length).trim()
+      if (bare && !out.includes(bare)) out.push(bare)
+    } else {
+      const prefixed = `platform:${s}`
+      if (!out.includes(prefixed)) out.push(prefixed)
+    }
+  }
+  for (const id of ids) push(String(id || ''))
+  return out
+}
+
+export function hasPlatformFeedbackSeen(
+  seen: Set<string>,
+  ...ids: Array<string | null | undefined>
+): boolean {
+  for (const key of platformFeedbackSeenKeys(...ids)) {
+    if (seen.has(key)) return true
+  }
+  return false
+}
+
+export function markPlatformFeedbackSeen(
+  seen: Set<string>,
+  ...ids: Array<string | null | undefined>
+): void {
+  for (const key of platformFeedbackSeenKeys(...ids)) seen.add(key)
+}
+
 export function mergePlatformRunEntries(
   existing: PlatformRunEntry[],
   entry: PlatformRunEntry,
@@ -1841,7 +1881,7 @@ export function syncPlatformFeedbackFromTools(
     if (toolIsRunning(tool)) continue
 
     const toolCallId = asString(tool.id || tool.tool_call_id || tool.toolCallId)
-    if (!toolCallId || seen.has(toolCallId)) continue
+    if (!toolCallId || hasPlatformFeedbackSeen(seen, toolCallId)) continue
 
     const output = toolPlatformOutput(tool)
     if (!output.trim()) continue
@@ -1870,11 +1910,11 @@ export function syncPlatformFeedbackFromTools(
               }
             })()
           : ''
-      if (effect === 'employee_chat_send') seen.add(toolCallId)
+      if (effect === 'employee_chat_send') markPlatformFeedbackSeen(seen, toolCallId)
       continue
     }
 
-    seen.add(toolCallId)
+    markPlatformFeedbackSeen(seen, toolCallId, result.entries?.[0]?.id)
     shown.push(result.ui)
     entries = result.entries
     // tools 列表扫描也可能是首个见到结果的路径（早于 AG-UI RESULT 发布）；

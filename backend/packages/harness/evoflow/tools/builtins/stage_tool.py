@@ -117,6 +117,45 @@ taskId 或以为必须带 task，等于同一件事又写了两份且互相矛�
 """
 
 
+def _hash_viewer_content(content: str) -> str:
+    """对齐前端 ``hashCodeViewerContent``：31 进制内容指纹（36 进制字符串）。
+
+    【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本函数，逐字复刻前端 open-right-stage-file.ts:190 的算法。
+    为什么：codeViewer 的 tab id 在 patch / multi-file-diff 时会追加这个指纹，
+      让「同一路径的不同 diff」各自占一个签。后端算不出同样的值，模型对同一文件
+      的新一轮 diff 发 ui.update 就会指向**上一轮那个签**（屏幕上是旧对比、工具回 ok）。
+    逐字一致性要点（少一个都会算出不同值）：
+      · 每步 ``hash = (hash * 31 + ord(ch))``，并按 32 位有符号截断（等价 JS 的 ``| 0``）；
+      · 取绝对值后转 36 进制；
+      · 必须按 **UTF-16 code unit** 迭代（JS 的 charCodeAt），所以非 BMP 字符
+        要按代理对逐个算，不能用 Python 的 ord(ch) 一次算完。
+    """
+    h = 0
+    for ch in content:
+        code = ord(ch)
+        if code > 0xFFFF:
+            # JS charCodeAt 逐 UTF-16 code unit：先高位代理再低位代理
+            code -= 0x10000
+            units = (0xD800 + (code >> 10), 0xDC00 + (code & 0x3FF))
+        else:
+            units = (code,)
+        for u in units:
+            h = (h * 31 + u) & 0xFFFFFFFF
+            if h >= 0x80000000:  # 等价 JS ``| 0`` 的有符号截断
+                h -= 0x100000000
+    v = abs(h)
+
+    if v == 0:
+        return "0"
+    digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+    out = ""
+    while v:
+        out = digits[v % 36] + out
+        v //= 36
+    return out
+
+
 def _first_str(*values: Any) -> str:
     for value in values:
         text = str(value or "").strip()
@@ -206,6 +245,163 @@ def _normalize_panel_kind(kind: str) -> str:
         "employee-progress": "employeeProcess",
     }
     return aliases.get(k, k)
+
+
+def _content_tab_id(kind: str, data: dict[str, Any]) -> str:
+    """按前端同一规则派生签 id。
+
+    【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本函数，把四种内容预览 kind 的 id 规则逐字对齐前端 opener。
+    为什么：前端 tabKey 恒为 ``${kind}:${id}``（见 right-stage-store.tabKeyOf）；
+      id 若在模型入口恒为 ``primary``，不同文件就塌成同一个签 —— 打开第二个文件会把
+      第一个顶掉，用户观感是「右栏一次只能开一个文件」。这正是第103轮修 shell-page id
+      的同一条规则：**surface.id 必须与前端 opener 算出来的完全一致**，
+      否则 keyHint / ui.activate 指向不存在的签。
+    对齐来源（逐个手抄，勿凭记忆）：
+      file      → ``normalizePathId(path)``，\\ 全部转 /
+      asset     → ``{entityType}:{entityId}:{path}``（path 去掉前导 /）
+      codeViewer→ ``normalizePathId(source.path || source.title || 'diff')``
+                  + patch / multi-file-diff 追加 ``@<31进制内容指纹>``
+      screenshot→ ``uri`` 去空白、转 /、截 240 字符（可被 dedupeKey 覆盖）
+    """
+    k = str(kind or "").strip()
+
+    def _norm_path(value: Any) -> str:
+        return str(value or "").replace("\\", "/")
+
+    def _content_sig(src: dict[str, Any]) -> str:
+        """对齐前端 patchContentSignature：patch / multi-file-diff 才追加指纹。
+
+        【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+        为什么必须补：前端 showRightStageCodeViewer 对同一路径的**不同 patch**
+          会算出不同 id（追加 31 进制内容指纹），而普通 file 类型不追加。
+          后端若只抄 path 不抄指纹，模型对「同一文件的新一轮 diff」发 ui.update 时，
+          算出的 key 会指向**上一轮 diff 那个签** —— 屏幕上看到的是旧对比，
+          工具却回 ok。这正是前端注释里写过的同款 bug（「diff 面板只能打开一个 tab」）。
+        """
+        if str(src.get("type") or "").strip() == "patch":
+            return _hash_viewer_content(str(src.get("patch") or ""))
+        if str(src.get("type") or "").strip() == "multi-file-diff":
+            before = str(src.get("beforeContent") or "")
+            after = str(src.get("afterContent") or "")
+            return _hash_viewer_content(f"{before}\u0000{after}")
+        return ""
+
+    if k == "file":
+        return _norm_path(_first_str(data.get("path"), data.get("filepath"), data.get("id"))) or "primary"
+    if k == "asset":
+        path = _norm_path(data.get("assetPath") or data.get("path")).lstrip("/").strip()
+        et = str(data.get("entityType") or "user").strip() or "user"
+        eid = str(data.get("entityId") or "user").strip() or "user"
+        return f"{et}:{eid}:{path}"
+    if k == "codeViewer":
+        src = data.get("source") if isinstance(data.get("source"), dict) else {}
+        path_or_title = _first_str(src.get("path"), src.get("title")) or "diff"
+        base = _norm_path(path_or_title)
+        sig = _content_sig(src)
+        return f"{base}@{sig}" if sig else base
+    if k == "screenshot":
+        raw = str(data.get("dedupeKey") or data.get("uri") or "").strip()
+        return _norm_path(raw).replace("\\", "/")[:240]
+    return "primary"
+
+
+def _build_content_surface(
+    *,
+    kind: str,
+    payload_data: dict[str, Any],
+    title: str | None,
+    layout: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """校验并构造「内容预览」类 surface（file / asset / codeViewer / screenshot）。
+
+    【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本函数，替代这四种 kind 原先走的通用分支（id 恒 primary、零校验）。
+    为什么（用户当场质问）：「为什么要说不能支持打开文件呀？打开文件、图片、视频
+      都可以的呀」——它们本来就渲染得出来，却既不在契约表（模型查不到）、
+      又缺必填校验（缺 path 也 emit 一个空白签）。工具说成功、屏幕是空的，
+      是本仓库反复出现的「契约写了、代码没执行」的反面：**代码能执行、契约没写**。
+    判据：缺必填字段时 ok:false 并点名字段 + 指向 ui.kinds，绝不 emit 空白签。
+    """
+    data = dict(payload_data)
+    k = str(kind or "").strip()
+
+    if k == "file":
+        path = _first_str(data.get("path"), data.get("filepath"), data.get("file"))
+        if not path:
+            return (
+                None,
+                "file requires data.path (absolute path or path relative to the workspace root); "
+                "call platform action=ui.kinds for the full contract",
+            )
+        data["path"] = path
+        name = _first_str(data.get("name"), data.get("title"))
+        if name:
+            data["name"] = name
+        if not title:
+            title = name or path.replace("\\", "/").rsplit("/", 1)[-1] or None
+
+    elif k == "asset":
+        path = _first_str(data.get("path"), data.get("assetPath"))
+        if not path:
+            return (
+                None,
+                "asset requires data.path (asset-relative path such as memory/standing.md); "
+                "call platform action=ui.kinds for the full contract",
+            )
+        path = path.replace("\\", "/").lstrip("/").strip()
+        data["path"] = path
+        data["assetPath"] = path
+        et = _first_str(data.get("entityType"), data.get("entity_type")) or "user"
+        eid = _first_str(data.get("entityId"), data.get("entity_id")) or "user"
+        data["entityType"] = et
+        data["entityId"] = eid
+        name = _first_str(data.get("name"), data.get("title"))
+        if name:
+            data["name"] = name
+        if not title:
+            title = name or path.rsplit("/", 1)[-1] or None
+
+    elif k == "codeViewer":
+        src = data.get("source")
+        if not isinstance(src, dict) or not src:
+            return (
+                None,
+                "codeViewer requires data.source (object with at least a 'type', e.g. "
+                "{'type':'file','path':'README.md'}); call platform action=ui.kinds "
+                "for the full contract",
+            )
+        stype = str(src.get("type") or "").strip()
+        if stype == "file" and not _first_str(src.get("path")):
+            return (
+                None,
+                "codeViewer source.type=file requires source.path; "
+                "for plain file preview use kind=file instead",
+            )
+        title = title or _first_str(src.get("title"), src.get("path")) or None
+
+    elif k == "screenshot":
+        uri = _first_str(data.get("uri"), data.get("url"), data.get("src"))
+        if not uri:
+            return (
+                None,
+                "screenshot requires data.uri (browser-snapshots / serve-file / http(s) / data URL); "
+                "call platform action=ui.kinds for the full contract",
+            )
+        data["uri"] = uri
+        if not title:
+            title = _first_str(data.get("title")) or "截图"
+
+    surface: dict[str, Any] = {
+        "id": _content_tab_id(k, data),
+        "kind": k,
+        "data": data,
+    }
+    if layout:
+        surface["layout"] = layout
+    if title:
+        surface["title"] = str(title)
+    return surface, None
 
 
 def _build_progress_surface(
@@ -793,6 +989,71 @@ def apply_right_panel(
             payload_data["editable"] = True
             if not panel_title:
                 panel_title = "浏览器"
+
+    # ── 小V：拒绝走通用分支，指路它自己的开场通道 ──────────────────────────
+    # 【self-evolution-bot · 2026-11-22 · 第121轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：拦掉 ``ui.show kind="xiaomi"``，不再落到下面的通用分支。
+    # 为什么（现网实测坐实，不是推断）：xiaomi 只在 ``FRONTEND_ONLY_KINDS`` 里、
+    #   不在契约表，所以它走通用分支时 ``surface.id`` 恒为 ``primary`` → keyHint
+    #   变成 ``xiaomi:primary``；而前端真正的小V 签 id 是常量 ``global``
+    #   （``open-right-stage-xiaomi.ts`` 的 ``XIAOMI_STAGE_ID = 'global'``）。
+    #   我真跑了一次：右栏当场多出第 12 个标签「打开小V」，而
+    #   ``documentElement.dataset.xmStage`` 仍是 ``unset`` —— 前端没把它当小V 面板，
+    #   等于留了一个既打不开也收不掉的幽灵签。与第103轮 shell-page 的 id 漂移同型。
+    # 判据：小V 需要 ``ensureXiaomiSession`` + 语音绑定 + 会话列表整套状态，
+    #   不是「开一个签名」就够，所以这里**不派生 id、不放行**，只拒绝并指路。
+    #   本分支只覆盖 show / update 两种（hide / close / activate / move 走更上面的
+    #   独立分支，压根到不了这里），所以「认得这个 kind」不受影响。
+    if k == "xiaomi":
+        return {
+            "ok": False,
+            "error": (
+                "kind='xiaomi' must not be opened via ui.show: the 小V panel has its own entry "
+                "(session bootstrap + voice binding + history), and its real tab id is the constant "
+                "'global', not 'primary' —— a generic show would leave a ghost tab that never becomes "
+                "the real panel. Use platform action=ui.panel op=action name=openXiaomi instead "
+                "(same path as the sidebar 小V button)."
+            ),
+        }
+
+    # ── 内容预览类：file / asset / codeViewer / screenshot ──────────────────
+    # 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：新增本分支。这四种此前落到下面「通用分支」，surface.id 恒为 primary。
+    # 为什么：① 它们虽在 KNOWN_KINDS 里（内部调用方在用），但**不在契约表**，
+    #   所以 ui.kinds 查不到 —— 用户问「为什么不能支持打开文件」时我照着子集清答
+    #   「不能」，功能其实第113轮就真机验过（PNG/MP4/PDF 全正常）。
+    #   ② id 恒为 primary 意味着 tabKey 恒为 `file:primary`：打开第二个文件时
+    #   前一个签被顶掉，用户看到的是「右栏只能开一个文件」——同一目标塌成同一指纹。
+    # 判据：id 必须逐字等于前端 `showRightStageFilePreview` / `showRightStageAssetPreview`
+    #   / `showRightStageCodeViewer` / `showRightStageScreenshot` 里那四个 id，
+    #   否则 keyHint 指向不存在的签（ui.activate 必失败）。
+    if k in ("file", "asset", "codeViewer", "screenshot"):
+        content_surface, err = _build_content_surface(
+            kind=k,
+            payload_data=payload_data,
+            title=panel_title,
+            layout=layout,
+        )
+        if err or not content_surface:
+            return {"ok": False, "error": err or "invalid content panel"}
+        surface = content_surface
+        if expand:
+            surface["expand"] = True
+        if act == "update":
+            _emit_surface("update", surface)
+        else:
+            _emit_surface("show", surface)
+        if tid:
+            set_thread_stage(tid, kind=k, data=surface.get("data"))
+        return {
+            "ok": True,
+            "action": act,
+            "kind": k,
+            "surface": surface,
+            "userScreen": _describe_user_screen_before_after(
+                act=act, kind=k, surface=surface, expand=expand, owner_session_key=sk
+            ),
+        }
 
     if k in ("collab-workflow", "collabSubtaskTranscript", "employeeProcess", "sessionRuntime", "shell-page"):
         # 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】

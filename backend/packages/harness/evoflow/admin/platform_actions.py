@@ -760,10 +760,16 @@ def _build_registry() -> dict[str, PlatformAction]:
             "ui",
             "控制主窗口（非侧栏浏览器）：snapshot/page_dump/click/fill/type/scroll/state/action/ax/screenshot/cdp/ws；排查看页面正文用 page_dump（或 snapshot mode=debug）；产品动作走 op=action + name",
             "read",
-            "op, ref?, text?, direction?, amount?, clear?, name?, params?, method?, mode?, max_elements?, max_turns?, include_hidden?",
+            "op, ref?, text?, direction?, amount?, clear?, name?, params?, method?, mode?, max_elements?, max_turns?, include_hidden?, voiceMode?, showRightStage?, navigateToChat?",
             H.ui_panel,
             "先 snapshot 再按 eN ref 点击主界面按钮",
-            "op=action name=openXiaomi 打开小V",
+            "op=action name=openXiaomi 打开小V（文字侧栏）",
+            # 【self-evolution-bot · 2026-11-22 · 第122轮 · 模型:deepseek-v4.1-flash】
+            # 改了什么：补 voiceMode 示例，并把三个开关写进 params 清单。
+            # 为什么：只写「打开小V」会被据实理解成文字侧栏——模型想让小V 进语音态
+            #   时没有任何可读的依据；同时这三个键此前在 op=action 里会被静默丢弃，
+            #   两个缺陷叠在一起，表现为「同一个入口驱动不出语音态，回执还 ok」。
+            "op=action name=openXiaomi voiceMode=true showRightStage=false 进语音全屏",
             "op=action name=sendMessage text=你好",
             "op=state 看当前路由/会话/右栏",
         ),

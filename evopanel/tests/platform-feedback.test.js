@@ -7,6 +7,8 @@ import {
   mergePlatformRunEntries,
   platformRunEntriesFromChatArtifacts,
   platformUiToRunEntry,
+  hasPlatformFeedbackSeen,
+  markPlatformFeedbackSeen,
 } from '../src/lib/right-stage/platform-feedback.ts'
 import { publishPlatformFromAgUiResult } from '../src/react/chat-app/stream/publish-platform-from-agui-result.ts'
 // 重导入（zcode-ui 渲染树）提到文件级：文件加载不受单测 5s 超时约束，
@@ -904,6 +906,36 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
     ).toBe(true)
     expect(toast).not.toHaveBeenCalled()
     expect(publish).not.toHaveBeenCalled()
+  })
+
+  it('seen 认 platform: 前缀与 bare toolCallId 互通，tools-scan 不再重弹', () => {
+    // 落库 chat_artifacts 常只种 platform:<tcid>；下一轮 MESSAGES_SNAPSHOT 回灌
+    // 历史工具后 tools-scan 用 bare tcid —— 必须互认，否则中间 toast 整页重放。
+    const seen = new Set()
+    markPlatformFeedbackSeen(seen, 'platform:tc-hist-1')
+    expect(hasPlatformFeedbackSeen(seen, 'tc-hist-1')).toBe(true)
+    expect(hasPlatformFeedbackSeen(seen, 'platform:tc-hist-1')).toBe(true)
+
+    const content = JSON.stringify({
+      ok: true,
+      action: 'items.create',
+      ui: { kind: 'success', title: '已创建待办', domain: 'items', action: 'items.create' },
+    })
+    const { shown } = syncPlatformFeedbackFromTools(
+      [
+        {
+          id: 'tc-hist-1',
+          name: 'platform',
+          status: 'ok',
+          _aguiPhase: 'done',
+          content,
+          output: content,
+        },
+      ],
+      seen,
+      { existingEntries: [] },
+    )
+    expect(shown).toEqual([])
   })
 
   it('后台会话不发布；同 id 不重复', () => {

@@ -313,10 +313,11 @@ def test_catchup_client_behind_under_live_mirror_broadcasts_recovery() -> None:
         connection_id="c-live",
         topic=f"conversation/{THREAD}",
     )
+    # live-mirror 例外门槛：hub_tip - client_tip >= 5（防噪声），差 1 仍走 live-mirror。
     with _msgs(MESSAGES_V2):
         out = hub.catchup_from_transcript(
             THREAD,
-            client_tip_row_id=hub_tip - 1,
+            client_tip_row_id=hub_tip - 5,
             client_log_epoch=str(sess.log_epoch),
         )
     assert out["ok"] is True

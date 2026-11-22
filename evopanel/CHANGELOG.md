@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.45] - 2026-11-22
+
+相对 **1.3.44**：历史平台成功提示不再反复弹出；后台任务轮询更稳；Agent 应用冷启动先开签再挂页面。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.45.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **历史平台 toast 重放**：加载旧会话不再重复弹已完成成功提示
+- **后台任务输出空转**：轮询增加冷却
+- **Agent 应用冷启动**：服务未就绪时 url 先空，避免挂死端口
+
+### Changed
+
+- **斜杠命令**：选择器提供 /goal 与 /workflow
+- **平台权限上限**：默认与破坏性选项一致
+
+
 ## [1.3.44] - 2026-11-22
 
 相对 **1.3.43**：发消息先落用户气泡再开流，问答顺序不再颠倒；已完成回合的迟到「还在跑」心跳会被丢弃。

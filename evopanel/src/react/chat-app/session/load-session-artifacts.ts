@@ -2,6 +2,8 @@
 /**
  * Load session artifacts / platform entries when selected session changes. Extracted (P113).
  */
+import { markPlatformFeedbackSeen } from '../../../lib/right-stage/platform-feedback.js'
+
 export type LoadSessionArtifactsCtx = Record<string, any>
 
 export function runLoadSessionArtifactsEffect(
@@ -42,8 +44,11 @@ export function runLoadSessionArtifactsEffect(
       ctx.setSessionPlatformEntries(platformEntries)
       if (ctx.platformFeedbackSeenRef) {
         for (const row of platformEntries) {
-          const id = String(row?.toolCallId || row?.id || '').trim()
-          if (id) ctx.platformFeedbackSeenRef.current.add(id)
+          markPlatformFeedbackSeen(
+            ctx.platformFeedbackSeenRef.current,
+            row?.toolCallId,
+            row?.id,
+          )
         }
       }
       const files = all.filter((it: { type?: string }) => it.type !== 'platform')

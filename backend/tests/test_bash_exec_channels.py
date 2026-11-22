@@ -49,25 +49,96 @@ def test_guard_allows_sleep_with_real_work():
 
 def test_guard_rejects_progress_poll_sleep_tail_cat():
     # 2026-11-10 正式包：`sleep 50; tail …evoflow-bash-tasks…output` 假等待
+    # 【self-evolution-bot · 2026-11-22 · 第123轮】判据收窄到「瞥一眼 *.output」：
+    # 读任意普通文件（如等构建写完再 tail 日志）属真实等待，15s 后本就自动转后台，
+    # 不再当填充拦掉。本用例相应只钉 .output 这一种。
     msg = _pure_wait_guard(
         'sleep 50; tail -20 "C:/Users/admin/AppData/Local/Temp/evoflow-bash-tasks/043c435f81bd.output"'
     )
     assert msg is not None and "rejected" in msg
-    assert _pure_wait_guard("sleep 30; cat a.txt") is not None
+    assert _pure_wait_guard("sleep 30; cat a.output") is not None
     assert _pure_wait_guard("sleep 12 && tail -10 /tmp/x.output") is not None
+    # 反证：普通文件不再是「填充」。这条改动是有意的——不要顺手改回去。
+    assert _pure_wait_guard("sleep 30; cat a.txt") is None
 
 
 def test_guard_rejects_long_sleep_even_with_trailing_work():
-    # 2026-11-06 发版工程师：`sleep 480 && gh run view` 空等 CI；单次 >20s 一律拒
+    # 2026-11-06 发版工程师：`sleep 480 && gh run view` 空等 CI
+    # 第123轮起 CI 轮询走独立判据，回执不再吐秒数，只钉「拒 + 指路 gh run watch」
     msg = _pure_wait_guard(
         "sleep 480 && echo done && timeout 45 gh run view 42161650097 | head -10"
     )
     assert msg is not None and "rejected" in msg
-    assert "480" in msg
-    assert _pure_wait_guard("sleep 90 && gh run view 1") is not None
-    assert _pure_wait_guard("sleep 45 && gh run view 1") is not None
-    assert _pure_wait_guard("sleep 21 && gh run view 1") is not None
-    assert _pure_wait_guard("sleep 20 && gh run view 1") is None
+    assert "gh run watch" in msg
+    # 超过前台封顶且不含 CI/自有输出特征的，仍按超长 sleep 拒并报秒数
+    msg = _pure_wait_guard("sleep 480; python build.py")
+    assert msg is not None and "480" in msg
+
+
+# ── 第123轮：判据按「有没有替代手段」分层 ────────────────────────────────
+# 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+# 为什么改：20s 单次上限是 1.4.0 引入的，当时前台还没有「超 15s 自动转后台」。
+# 现在两者并存，守卫要防的「占住执行通道一分钟」已由转后台兜住。现网复算
+# （近 7 天真实拒绝 51 次）里 15 次是「单次 25~60s + 真实工作」——等索引构建
+# 写日志、等 pytest 落结果文件、等 curl 探到就绪，这些**没有完成通知可等**，
+# 被拒后我平均要用 7.2 次调用 / 33.7s 去补偿。所以上限放宽到与前台封顶同口径，
+# 但**替代手段存在的那两类照旧拒**（下面两条就是它们的反证）。
+
+
+def test_guard_still_rejects_polling_own_background_output():
+    """轮询自有后台任务输出必须照旧拒——完成通知本来就存在，睡多久都是白等。
+
+    现网 19 次真实拒绝属这一类，是全量复算里唯一「拦得完全正确」的中长 sleep。
+    """
+    msg = _pure_wait_guard(
+        'sleep 45; tail -20 "C:/Users/admin/AppData/Local/Temp/evoflow-bash-tasks/043c435f81bd.output"'
+    )
+    assert msg is not None and "rejected" in msg
+    assert "task-notification" in msg, "要把替代手段（完成通知）说出来"
+    # 短 sleep 也不行：判据是「在轮询自有输出」，与时长无关
+    assert _pure_wait_guard(
+        'sleep 3; cat "C:/Users/admin/AppData/Local/Temp/evoflow-bash-tasks/x.output"'
+    ) is not None
+
+
+def test_guard_still_rejects_ci_poll_with_sleep():
+    """CI 轮询必须改用 `gh run watch`，与 sleep 长短无关。"""
+    for cmd in (
+        "sleep 45 && gh run view 1",
+        "sleep 90 && gh run view 1",
+        "sleep 21 && gh run view 1",
+    ):
+        msg = _pure_wait_guard(cmd)
+        assert msg is not None, f"{cmd} 应被拒（该用 gh run watch）"
+        assert "gh run watch" in msg
+
+
+def test_guard_allows_mid_length_sleep_with_real_work():
+    """单次 21~60s 且带真实工作 → 放行（这类没有完成通知可等）。
+
+    判据钉的是「有没有替代手段」，不是「秒数是否超过 20」。
+    """
+    assert _pure_wait_guard("sleep 25 && python build.py") is None
+    assert _pure_wait_guard("sleep 45 && tail -8 outputs/build.log") is None
+    assert _pure_wait_guard("sleep 60 && python build.py") is None
+    assert _pure_wait_guard(
+        'cd /d/dev/github/EvoFlow && sleep 25; tail -3 outputs/pytest_full.txt'
+    ) is None
+
+
+def test_guard_rejects_sleep_above_foreground_ceiling():
+    """超过前台封顶（60s）仍然拒：传更大也只是白等，且迟早被转后台。"""
+    msg = _pure_wait_guard("sleep 61 && python build.py")
+    assert msg is not None and "rejected" in msg
+    msg = _pure_wait_guard("sleep 300 && python build.py")
+    assert msg is not None
+
+
+def test_guard_still_rejects_pure_wait_regardless_of_length():
+    """反证：放宽的是「带真实工作」的中长 sleep，纯等待一律照旧拒。"""
+    assert _pure_wait_guard("sleep 32; echo waited") is not None
+    assert _pure_wait_guard("sleep 45; echo done") is not None
+    assert _pure_wait_guard("sleep 12 && echo ok") is not None
 
 
 def test_guard_ignores_commands_without_sleep():

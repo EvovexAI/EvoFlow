@@ -31,6 +31,12 @@ class BackgroundBashTask:
     session_key: str = ""
     cancellable: bool = True
     notification_sent: bool = False
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+    # 上一次阻塞查询的结束时刻（monotonic）与该查询的静默宽限触发时刻。
+    # 用来挡住「刚等满 30s 没结束，立刻再等 30s」——现网封顶后重复查询占比
+    # 从 6%（20/362）涨到 34%（26/76），重复部分 646s / 1501s = 43.1%。
+    last_wait_ended_mono: float = 0.0
+    last_wait_quiet_mono: float = 0.0
 
 
 _LOCK = threading.Lock()
@@ -134,8 +140,12 @@ def wait_task(
                 last_growth_at = now
             elif size > 0 and (now - last_growth_at) >= grace_s:
                 # 有过输出但已经静默足够久 → 这一轮内容稳定，提前返回
+                # 【第123轮】记下静默时刻，供 taskoutput 的冷却判据使用。
+                task.last_wait_quiet_mono = time.monotonic()
+                task.last_wait_ended_mono = task.last_wait_quiet_mono
                 return task
         time.sleep(0.1)
+    task.last_wait_ended_mono = time.monotonic()
     return task
 
 

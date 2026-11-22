@@ -108,7 +108,25 @@ def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str 
     # 边界：**只改 timeout 这一支**。not_ready（模型主动 block=false 瞄一眼，秒回）
     #   与 success 逐字不动；信封 8 行保持字节一致，只在尾部追加。
     _wait_started = time.monotonic()
-    if should_block and task.status == "running":
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：同一任务刚被阻塞查询过，就不再阻塞第二次——直接秒回当前状态。
+    # 为什么：现网封顶前后对比，重复查询**占比反而涨了**：
+    #   封顶前(≤11-20 12:00) 398 次 / 362 个 task，被查≥2 次 20 个（6%），
+    #     重复部分平均 264s；
+    #   封顶后 139 次 / 76 个 task，被查≥2 次 26 个（34%），重复部分
+    #     646s / 1501s = **43.1%** 是重复等待。
+    #   因为单次被压到 30s 之后，「再查一次」变得便宜了，于是查得更勤
+    #   （a5d15e50480c 8 次、c71bb3713b79 6 次、ffab83f5b803 4×30s）。
+    #   真正该做的是**停手等完成通知**，不是换个更小的 timeout 继续轮。
+    # 判据：距上一次阻塞查询结束 < 该次已经等过的时长（且任务仍未结束）→ 不阻塞。
+    #   等得越久，冷却越长，但上限 30s（= 单次封顶），不会无限拖。
+    _cooldown_skip = False
+    if should_block and task.status == "running" and task.last_wait_ended_mono > 0:
+        _since = _wait_started - task.last_wait_ended_mono
+        _cooldown_s = min(_TIMEOUT_CAP_MS / 1000.0, max(3.0, timeout_ms / 1000.0))
+        if _since < _cooldown_s:
+            _cooldown_skip = True
+    if should_block and task.status == "running" and not _cooldown_skip:
         # 静默 1.5s 且已有输出 → 提前返回，不必等满 timeout
         task = wait_task(task_id, timeout_ms, idle_grace_ms=1_500) or task
     spent_ms = int((time.monotonic() - _wait_started) * 1000)
@@ -127,6 +145,18 @@ def task_output_tool(task_id: str, block: bool | str = True, timeout: int | str 
         f"<outputFile>{task.output_path}</outputFile>\n"
         f"<output>\n{output[-32000:]}\n</output>"
     )
+    # 【第123轮】冷却跳过优先判：此时 retrieval 仍是 timeout（任务确实还在跑），
+    # 但这一轮**没有**阻塞等待，两个分支的语义完全不同，必须分开说。
+    if _cooldown_skip:
+        _ago_ms = int((_wait_started - task.last_wait_ended_mono) * 1000)
+        return (
+            f"{envelope}\n<next_action>\n"
+            f"这次没有阻塞等待：该任务 {_ago_ms}ms 前刚被阻塞查询过且仍未结束。"
+            "**连续轮询不会让它跑得更快**——任务结束时 harness 会主动发 "
+            "<task-notification>，届时直接 Read <outputFile> 即可。"
+            "现在请继续做别的事，或者直接结束本轮等待通知。\n"
+            "</next_action>"
+        )
     if retrieval != "timeout":
         return envelope
     # 【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】

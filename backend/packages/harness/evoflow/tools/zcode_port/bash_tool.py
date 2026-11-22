@@ -197,22 +197,50 @@ _PURE_WAIT_SLEEP_RE = re.compile(r"(?i)\bsleep\s+([0-9]+(?:\.[0-9]+)?)")
 _PURE_WAIT_FILLER_RE = re.compile(r"(?i)\b(?:echo\s+(?:\"[^\"]*\"|'[^']*'|[^;&|]+)|true)\b")
 # ``sleep N; tail/cat …output`` looks like "real work" but is still progress polling
 # (2026-11-10 prod: sleep 45/50 + tail evoflow-bash-tasks pulled bash p90 to ~12s).
+# 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：只把「瞥一眼 *.output」算填充，不再把 tail/cat 任意文件都算填充。
+# 为什么：旧写法会把 `sleep 45; tail -8 outputs/build.log`（等构建写完看日志）
+#   判成纯等待——而那正是**没有完成通知可等**的真实等待，本轮实测的误拦里
+#   就含这类。自有后台任务输出已由 _OWN_TASK_OUTPUT_RE 单独精确拦住，
+#   这里只需覆盖 `.output` 尾巴。
 _PROGRESS_POLL_READ_RE = re.compile(
-    r"(?i)\b(?:tail|head|cat|less|more|wc)\b(?:\s+(?:-[a-zA-Z0-9]+|--\S+))*\s+\S+"
+    r"(?i)\b(?:tail|head|cat|less|more|wc)\b(?:\s+(?:-[a-zA-Z0-9]+|--\S+))*\s+\S*\.output\b"
 )
 _PURE_WAIT_MAX_SECONDS = 10.0
-# Hard cap: even with trailing work, a single sleep above this is banned.
-# 20s (was 60s): long waits must use run_in_background + completion notify /
-# ``gh run watch`` / taskoutput — not park the foreground channel.
-_MAX_SINGLE_SLEEP_SECONDS = 20.0
+# 填充/标点剥离后的残留：只剩引号、反引号、空白等「不是工作」的字符时不算有工作。
+_RESIDUE_PUNCT_RE = re.compile(r"""["'`\\]+""")
+# 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：单次 sleep 上限 20s → 与前台阻塞封顶同口径（60s）。
+# 为什么：这条 20s 上限是 1.4.0 引入的，当时前台还没有「超预算自动转后台」；
+#   现在任何前台命令超过 ASSISTANT_BLOCKING_BUDGET_MS(15s) 就会被
+#   _promote_to_background 自动转后台并发完成通知——**它要防的「占住执行通道
+#   一分钟」已经由转后台机制兜住了**，再拦一遍就只剩副作用。
+#   现网复算（近 7 天，首行为 status: rejected 的真实拒绝 51 次）：
+#     · 19 次是 `sleep N; tail/cat …evoflow-bash-tasks/*.output`（轮询自有后台
+#       任务输出，通知已存在）→ 仍应拒，见下方 _OWN_TASK_OUTPUT_RE；
+#     · 15 次是「单次 25~60s + 真实工作」：等索引构建写日志、等 pytest 写结果
+#       文件、等 curl 探到就绪——这些**没有完成通知可等**，是真正需要等的。
+#       它们被拒后我平均要用 7.2 次调用 / 33.7s 去补偿（59 次拒绝的后续 8 次
+#       调用共 427 次 / 1987s）。
+#   实测确认转后台是真的：本轮 `sleep 18` 前台命令在 15s 处返回
+#     status: backgrounded + backgroundTaskId，并收到完成通知。
+# 边界：纯等待（无真实工作且合计>10s）仍拒；轮询自有后台任务输出仍拒；CI
+#   轮询仍要求 `gh run watch`。只有「带真实工作的中长 sleep」被放行。
+_MAX_SINGLE_SLEEP_SECONDS = FOREGROUND_BLOCKING_CEILING_MS / 1000.0
+# 轮询我们自己的后台任务输出文件：完成通知已经存在，睡多久都是白等。
+_OWN_TASK_OUTPUT_RE = re.compile(r"(?i)evoflow-bash-tasks")
+# 盯 CI / Actions 必须用 gh run watch（可后台、自己会退出），不许 sleep+view。
+_CI_POLL_RE = re.compile(r"(?i)\bgh\s+run\s+view\b")
 
 
 def _pure_wait_guard(command: str, *, run_in_background: bool = False) -> str | None:
     """Reject pure-wait / long-sleep disguised waits.
 
     Returns a rejection message, or ``None`` when the command should execute.
+    - Polling our own background task output (``evoflow-bash-tasks/*.output``) → reject
+    - ``sleep … ; gh run view`` CI polling → reject (use ``gh run watch``)
     - Total sleep >10s with no real work (echo/true/tail/cat filler) → reject
-    - Any single ``sleep N`` with N>20 → reject even if followed by real work
+    - Any single ``sleep N`` above the foreground ceiling (60s) → reject
 
     【self-evolution-bot · 2026-11-20 · 第89轮 · 模型:deepseek-v4.1-flash-1017】
     改了什么：新增 ``run_in_background`` 开关。**转后台时放行长 sleep**，前台限制不动。
@@ -225,6 +253,11 @@ def _pure_wait_guard(command: str, *, run_in_background: bool = False) -> str | 
     当初要保护的东西（注释：parking an execution channel for ~a minute each）。
     但「纯等待轮询」那条（total>10s 且无实际工作）在后台同样放行，因为后台
     轮询本来就是后台任务的正常形态。前台行为逐字不变。
+
+    【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：把「轮询自有后台任务输出」「CI 轮询」提成独立判据，并把单次上限
+    从 20s 放宽到与前台封顶同口径（60s）。目的不是放松，而是让拒绝**只落在
+    真有替代手段的场景**上；没有通知可等的等待应当被允许睡。
     """
     cmd = str(command or "").strip()
     if not cmd or "sleep" not in cmd.lower():
@@ -232,6 +265,22 @@ def _pure_wait_guard(command: str, *, run_in_background: bool = False) -> str | 
     # 转后台：不占前台通道，长 sleep 正是推荐用法，直接放行。
     if run_in_background:
         return None
+    # 这两条与时长无关：替代手段（完成通知 / gh run watch）本来就存在。
+    if _OWN_TASK_OUTPUT_RE.search(cmd):
+        return (
+            "status: rejected\ninterrupted: false\n"
+            "该命令在轮询我们自己的后台任务输出（evoflow-bash-tasks/*.output）。"
+            "任务结束时 harness 会主动发 <task-notification> 并把输出文件路径推给你，"
+            "届时直接 Read 该文件即可；`taskoutput(block=false)` 可秒回瞄一眼当前状态。"
+            "`sleep …; tail/cat …output` 只是在原地烧时间。"
+        )
+    if _CI_POLL_RE.search(cmd):
+        return (
+            "status: rejected\ninterrupted: false\n"
+            "盯 CI / Actions 不要用 `sleep … && gh run view`。"
+            "改用 `gh run watch <RUN_ID> --exit-status`（它会自己等到结束，可配 "
+            "`run_in_background=true`）。"
+        )
     total = 0.0
     max_one = 0.0
     for m in _PURE_WAIT_SLEEP_RE.finditer(cmd):
@@ -246,9 +295,8 @@ def _pure_wait_guard(command: str, *, run_in_background: bool = False) -> str | 
         return (
             "status: rejected\ninterrupted: false\n"
             f"该命令含过长 sleep（单次 {max_one:.0f}s > {_MAX_SINGLE_SLEEP_SECONDS:.0f}s），已拒绝执行。"
-            "长等待请用 `run_in_background=true`（完成会推送通知），"
-            "盯 CI / Actions 用 `gh run watch <RUN_ID> --exit-status`（可后台）；"
-            "禁止 `sleep 45/60/300 && …` 或 `sleep …; tail …output` 占住前台。"
+            "长等待请用 `run_in_background=true`（完成会推送通知）；"
+            "注意前台命令超过 15s 本来就会自动转后台，所以更长的 sleep 没有意义。"
         )
     if total <= _PURE_WAIT_MAX_SECONDS:
         return None
@@ -257,6 +305,14 @@ def _pure_wait_guard(command: str, *, run_in_background: bool = False) -> str | 
     residue = _PROGRESS_POLL_READ_RE.sub(" ", residue)
     for ch in ("&&", "||", ";", "|", "(", ")", "\n"):
         residue = residue.replace(ch, " ")
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：判「有没有真实工作」前先剥掉残留的引号/反引号等纯标点。
+    # 为什么：现网实证 `sleep 45; echo "waited"`（2026-11-20 09:53:15）被这版
+    #   判成 ALLOW——填充正则匹配 `echo "waited"` 时因尾引号回退，残留一个
+    #   孤立 `"`，`residue.strip()` 非空 → 当成"有真实工作"放行。
+    #   旧判据靠「单次 45s > 20s」先拒掉，把这个漏洞盖住了；上限一放宽就露出来。
+    #   这不是放松，是**补一条本该在的判据**：只剩标点的残留就是没有工作。
+    residue = _RESIDUE_PUNCT_RE.sub("", residue)
     if residue.strip():
         return None  # real work beyond waiting — let it run
     return (

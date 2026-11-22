@@ -106,9 +106,9 @@ describe('openUiExtensionInStage — 冷启动先开签', () => {
     expect(kind).toBe('web-embed')
     expect(opts.id).toBe(uiExtensionStageTabId('ops'))
     expect(opts.forceExpand).toBe(true)
-    // 冷启动中：签里带 serviceStarting，面板据此显示「服务启动中」
+    // 冷启动中：签里带 serviceStarting；url 先空，避免对死端口挂 iframe
     expect((opts.data as Record<string, unknown>).serviceStarting).toBe(true)
-    expect((opts.data as Record<string, unknown>).url).toBe('http://127.0.0.1:5173/')
+    expect((opts.data as Record<string, unknown>).url).toBe('')
   })
 
   it('reloads the tab with a cache-buster once the service comes up', async () => {
@@ -152,8 +152,8 @@ describe('openUiExtensionInStage — 冷启动先开签', () => {
 
     expect(showKind).toHaveBeenCalledTimes(1)
     const opts = showKind.mock.calls[0][1] as Record<string, unknown>
-    // 已在跑 → 不显示「启动中」
-    expect((opts.data as Record<string, unknown>).serviceStarting).toBeUndefined()
+    // 已在跑 → serviceStarting=false（显式终态，不是缺字段）
+    expect((opts.data as Record<string, unknown>).serviceStarting).toBe(false)
     expect(readyCalled).toBe(0)
   })
 })

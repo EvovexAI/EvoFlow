@@ -3467,11 +3467,18 @@ def ui_show(args: dict[str, Any]) -> dict[str, Any]:
         # 改了什么：报错里点名「先调 ui.kinds」，而不是只列几个 kind 名。
         # 为什么：用户要求「模型展开前应先读一下当前支持什么类型、怎么展开」。
         # 光报错不指路，模型下一轮还是会用同一个错 kind 再撞一次。
+        # 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+        # 改了什么：括号里的示例清单改为「含内容预览类」，并补一句能打开文件。
+        # 为什么：原来只列 6 个进度/页面类，读到这句的模型会以为右栏只能开网页——
+        #   `file` / `asset` 明明早就能渲染（第113轮真机验过 PNG/MP4/PDF 全正常）。
+        #   报错文案本身就是一次「上下文注入」，列子集等于教错方向。
         raise ValidationError(
             "ui.show requires kind. Call platform action=ui.kinds first to read "
             "supported kinds and their required fields "
-            "(collab-workflow | collabSubtaskTranscript | employeeProcess | "
-            "sessionRuntime | web-embed | shell-page)."
+            "(file | asset | codeViewer | screenshot | web-embed | shell-page | "
+            "collab-workflow | collabSubtaskTranscript | employeeProcess | "
+            "sessionRuntime). To open a local file (md / code / image / video / audio / pdf) "
+            "use kind=file with data.path."
         )
     # 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
     # 改了什么：建签前先校验 kind 是否被支持（别名先归一，再查白名单）。
@@ -3618,6 +3625,20 @@ def ui_kinds(_args: dict[str, Any]) -> dict[str, Any]:
             "agent": "ui.show 属于「申请展示」：会写入标签但不抢用户视线，用户点了才展开。",
             "user": "用户亲手点的才会强制撑开（forceExpand）。",
             "artifacts": "已退役，勿用；产物走侧栏 Info Rail。",
+            # 【self-evolution-bot · 2026-11-22 · 第122轮 · 模型:deepseek-v4.1-flash】
+            # 改了什么：在模型能看到的第一手规则里点明 xiaomi 不走 ui.show。
+            # 为什么：xiaomi 不在契约表（RIGHT_PANEL_KINDS），只在 FRONTEND_ONLY_KINDS，
+            #   所以 ui.kinds 的 kinds 数组里根本没有它；但模型在别处见过 'xiaomi' 这个字，
+            #   就会去猜 uuid/primary、去 ui.show 一个它。第121轮已在 apply_right_panel
+            #   拦成 ok:false，但那是「撞了才知道」；规则里先说清，模型第一轮就能走对。
+            #   这是「报错文案与工具描述也是上下文注入」的同一条判据：
+            #   悄悄省掉不如明写，省掉的那句会变成别人多绕的一轮。
+            "xiaomi": (
+                "小V 不是可申请的普通标签：它是 workspace 级常驻单例（id 固定 global），"
+                "必须走 platform action=ui.panel op=action name=openXiaomi"
+                "（voiceMode=true 进语音全屏，showRightStage=false 只进左侧语音域）。"
+                "ui.show kind=xiaomi 会被拒。"
+            ),
         },
     }
 
@@ -3801,6 +3822,22 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
         for key in ("path", "hash", "route", "sessionKey", "key", "surface", "kind"):
             if key in args and key not in params and args.get(key) not in (None, ""):
                 params[key] = args.get(key)
+        # 【self-evolution-bot · 2026-11-22 · 第122轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：op=action 的平铺别名表补 voiceMode / showRightStage / navigateToChat，
+        #   三个布尔统一经 _arg_bool 归一后再转发。
+        # 为什么（本轮为对齐「语音侧开栏 vs ui.show 开栏」逐层比对时挖到）：
+        #   面板 API 的 openXiaomi 分支读的是 params.voiceMode === true /
+        #   params.showRightStage !== false / params.navigateToChat !== false
+        #   （evopanel/src/lib/panel-cdp/panel-api.ts:332），
+        #   而这里只转发 path/hash/route/sessionKey/key/surface/kind 七个键 ——
+        #   模型平铺写 `name=openXiaomi voiceMode=true` 会被静默丢掉，
+        #   小V 只开文字侧栏、不进语音全屏，回执却是 ok:true。
+        #   这正是「两边不是同一套」最实际的缺口：不是渲染不同，是同一个入口
+        #   驱动不出语音态。
+        # 判据：三个参数任一平铺传入，都必须原样落到 body.params 且类型为 bool。
+        for key in ("voiceMode", "showRightStage", "navigateToChat"):
+            if key in args and key not in params and args.get(key) is not None:
+                params[key] = _arg_bool(args, key)
         env = panel_request("POST", "action", body={"action": name, "params": params})
         return {**env, "action": "ui.panel", "op": op}
 

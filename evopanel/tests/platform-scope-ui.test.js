@@ -109,7 +109,8 @@ describe('readPlatformScopeFromEditor', () => {
       mode: 'custom',
       domains: ['knowledge'],
       actions: ['-knowledge.delete'],
-      max_risk: 'write',
+      // 未改上限 radio 时默认 destructive（与编辑器初始 checked 一致）
+      max_risk: 'destructive',
     })
   })
 

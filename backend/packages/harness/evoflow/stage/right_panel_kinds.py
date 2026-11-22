@@ -205,6 +205,89 @@ RIGHT_PANEL_KINDS: Final[tuple[dict[str, Any], ...]] = (
         ),
         example={"kind": "shell-page", "data": {"path": "/tasks", "title": "任务"}},
     ),
+    # ── 内容预览类（模型可直接申请打开本地文件/图片/视频/资产/代码）────────────
+    # 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：把 file / asset / codeViewer / screenshot 四种「内容预览」kind
+    #   从 FRONTEND_ONLY_KINDS 提升进契约表（它们此前只在前端 if 链里，模型查不到）。
+    # 为什么（用户当场质问）：「为什么要说不能支持打开文件呀？可以支持的呀，
+    #   打开文件、图片、视频呀，这种都可以的呀。要不然的话，侧面这不很奇怪吗」
+    #   —— 功能早就在（第113轮真机实测：PNG naturalWidth 2459×1704 正常、
+    #   MP4 readyState=4 正常、PDF canvas 200×200 正常），但 ui.kinds 只返回 8 种
+    #   契约类型，模型看到的清单里没有 file，于是答出「右栏不能显示 md 文件」。
+    #   这是**能力存在但工具查不到**，比我上一句错答更该修：清单是子集，
+    #   我却拿它当全集。
+    # 判据：ui.kinds 必须能列出这 4 种并能按 example 直接调通 ui.show；
+    #   前后端兜底表由 test_right_panel_contract_parity.py 逐 kind 对账。
+    # 注意：它们仍是「内容预览」，不是进度面板——不走 _build_progress_surface，
+    #   但 surface.id 必须按前端同一规则派生，否则不同文件会塌成同一个签（
+    #   file:primary 覆盖 file:primary）。
+    _kind(
+        kind="file",
+        label="本地文件预览",
+        trigger="agent",
+        layout="wide",
+        required=("data.path",),
+        optional=(
+            "data.name",
+            "data.title",
+            "data.workspaceRoot",
+            "data.threadId",
+            "data.focusLine",
+            "data.focusEndLine",
+        ),
+        description=(
+            "在右栏预览一个本地文件：Markdown / 代码 / 文本 / 图片 / 视频 / 音频 / PDF 都走这一种。"
+            "path 传绝对路径或相对工作区根的路径；媒体类型按扩展名自动分流。"
+            "要看资产库里的资产请用 kind=asset；要指定语言着色/行级定位用 kind=codeViewer。"
+        ),
+        example={"kind": "file", "data": {"path": "D:/dev/github/EvoFlow/README.md"}},
+    ),
+    _kind(
+        kind="asset",
+        label="资产文件预览",
+        trigger="agent",
+        layout="wide",
+        required=("data.path",),
+        optional=("data.name", "data.entityType", "data.entityId", "title"),
+        description=(
+            "预览资产库（memory / craft / standing 等）里的一个文件，走资产 API，不拼工作区根。"
+            "path 是资产相对路径（如 memory/standing.md）；entityType/entityId 默认 user/user。"
+        ),
+        example={
+            "kind": "asset",
+            "data": {"path": "memory/standing.md", "entityType": "user", "entityId": "user"},
+        },
+    ),
+    _kind(
+        kind="codeViewer",
+        label="代码查看器",
+        trigger="agent",
+        layout="wide",
+        required=("data.source",),
+        optional=("data.threadId", "data.workspaceRoot", "title"),
+        description=(
+            "按 ZCode PreviewPane 打开代码类内容：source.type 可为 file / patch / "
+            "code-review / text / image / media / pdf / pptx / multi-file-diff。"
+            "只想到「打开某个文件」用 kind=file 更省事；要行级高亮、diff、多文件才用它。"
+        ),
+        example={
+            "kind": "codeViewer",
+            "data": {"source": {"type": "file", "path": "README.md", "title": "README"}},
+        },
+    ),
+    _kind(
+        kind="screenshot",
+        label="截图预览",
+        trigger="agent",
+        layout="wide",
+        required=("data.uri",),
+        optional=("data.mimeType", "data.title"),
+        description=(
+            "在大图预览一张截图（CUA / 电脑控制 / 浏览器产物）。uri 可为 "
+            "browser-snapshots API、serve-file、http(s) 或 data URL。"
+        ),
+        example={"kind": "screenshot", "data": {"uri": "data:image/png;base64,..."}},
+    ),
     _kind(
         kind="artifacts",
         label="本轮产物",

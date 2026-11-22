@@ -546,6 +546,28 @@ export async function handleSend(
     rtAddStaleToolCallIds(rtSend, priorStripBundle.toolIds)
     rtSend.stream = emptyStream()
     rtSend.stream.aguiTurn = emptyAgUiTurnState('', '')
+    // 封存上一轮工具 id：MESSAGES_SNAPSHOT 常带回历史 platform 工具；若不封存会灌进
+    // 新 turn.tools，随后 tools-scan 把已通知过的结果再 toast 一遍（中间气泡重放）。
+    {
+      const seal = rtSend.stream.aguiTurn.sealedToolIds
+      for (const id of priorStripBundle.toolIds || []) {
+        const s = String(id || '').trim()
+        if (s) seal.add(s)
+      }
+      for (const id of rtSend.staleToolCallIds || []) {
+        const s = String(id || '').trim()
+        if (s) seal.add(s)
+      }
+      for (const id of platformFeedbackSeenRef.current) {
+        const s = String(id || '').trim()
+        if (!s) continue
+        seal.add(s)
+        if (s.startsWith('platform:')) {
+          const bare = s.slice('platform:'.length).trim()
+          if (bare) seal.add(bare)
+        }
+      }
+    }
     rtSend.seenRunIds = []
     rightStageRunIdRef.current = `run-${Date.now()}`
     dismissedRightStageKindsRef.current = new Set()

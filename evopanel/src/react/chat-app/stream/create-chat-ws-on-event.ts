@@ -19,6 +19,8 @@ import { isV4GoalActive } from '../../v4/goalCommand.js'
 import {
   platformRunEntriesFromChatArtifacts,
   latestPlatformRunEntryId,
+  hasPlatformFeedbackSeen,
+  markPlatformFeedbackSeen,
   tryEagerAutoOpenPlatformFromArgs,
 } from '../../../lib/right-stage/platform-feedback.js'
 import { showRightStageFilePreview } from '../../../lib/right-stage/open-right-stage-file.js'
@@ -1204,13 +1206,21 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               merged.sort((a, b) => b.appliedAt - a.appliedAt)
               // 仅「未见过」的平台产物才 announce（撑开右上角 / 切 tab）。
               // 新回合 SSE 若回放历史 platform artifacts，已见过的静默合并，勿再当新通知。
-              const freshArtifactRows = fromArtifacts.filter((row) => {
-                const id = String(row.toolCallId || row.id || '').trim()
-                return id && !platformFeedbackSeenRef.current.has(id)
-              })
+              // seen 同时认 bare toolCallId 与 platform:<id>（热路径 / 落库 id 形态不同）。
+              const freshArtifactRows = fromArtifacts.filter(
+                (row) =>
+                  !hasPlatformFeedbackSeen(
+                    platformFeedbackSeenRef.current,
+                    row.toolCallId,
+                    row.id,
+                  ),
+              )
               for (const row of fromArtifacts) {
-                const id = String(row.toolCallId || row.id || '').trim()
-                if (id) platformFeedbackSeenRef.current.add(id)
+                markPlatformFeedbackSeen(
+                  platformFeedbackSeenRef.current,
+                  row.toolCallId,
+                  row.id,
+                )
               }
               publishPlatformEntriesRef.current(
                 merged,
@@ -2326,10 +2336,12 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             isBackground,
           }, { store: rightStageStore })
           if (platformEntries.length > 0 && !hasArtifacts) {
-            logRightStage('RUN_FINISHED → publishPlatformEntries')
+            // RESULT / tools-scan 已 toast+announce；终态只静默对齐条目，避免每轮结束再撑开中间通知气泡。
+            logRightStage('RUN_FINISHED → publishPlatformEntries (silent)')
             publishPlatformEntriesRef.current(
               platformEntries,
               latestPlatformRunEntryId(platformEntries),
+              { announce: false },
             )
           } else if (hasArtifacts) {
             logRightStage('RUN_FINISHED → publishArtifacts')

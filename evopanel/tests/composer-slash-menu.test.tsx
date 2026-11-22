@@ -4,7 +4,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 /**
  * 回归：输入框 `/` 面板（命令 / 技能 / 插件）的两处产品决策。
  *
- * 1) 命令清单只保留 `/goal`：`/claude`、`/lead` 不再出现在选择器里
+ * 1) 命令清单保留 `/goal` + `/workflow`：`/claude`、`/lead` 不再出现在选择器里
  *    （用户手动输入这两个命令仍走 handle-send 的切换逻辑，功能未删）。
  * 2) 技能 / 插件行用两行布局：名称完整显示（不省略），简介在第二行、
  *    过长才省略。
@@ -15,8 +15,8 @@ import { WorkspaceMentionMenu } from '../src/react/components/WorkspaceMentionMe
 afterEach(() => cleanup())
 
 describe('composer slash commands list', () => {
-  it('only exposes /goal in the picker', () => {
-    expect(COMPOSER_SLASH_COMMANDS.map((c) => c.name)).toEqual(['goal'])
+  it('exposes /goal and /workflow in the picker', () => {
+    expect(COMPOSER_SLASH_COMMANDS.map((c) => c.name)).toEqual(['goal', 'workflow'])
   })
 
   it('does not list /claude or /lead', () => {

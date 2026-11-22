@@ -102,6 +102,44 @@ const BUILTIN_SPECS: RightPanelKindSpec[] = [
     required: [],
     description: '热点资讯面板。',
   },
+  // 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+  // 改了什么：补 file / asset / codeViewer / screenshot 四种「内容预览」kind。
+  // 为什么：后端契约已把它们提升为可申请类型（用户当面问「为什么不能支持打开文件」，
+  //   而功能其实一直都在）。兜底表是后端不可达时前端唯一能读到的清单，
+  //   漏一个就会把能开的 kind 报成「未知」。由 parity 测试逐 kind 对账兜住。
+  // 判据：required 必须与后端逐字一致（data. 前缀保留，消费侧统一剥）。
+  {
+    kind: 'file',
+    label: '本地文件预览',
+    trigger: 'agent',
+    layout: 'wide',
+    required: ['data.path'],
+    description: '在右栏预览本地文件：md / 代码 / 文本 / 图片 / 视频 / 音频 / PDF。',
+  },
+  {
+    kind: 'asset',
+    label: '资产文件预览',
+    trigger: 'agent',
+    layout: 'wide',
+    required: ['data.path'],
+    description: '预览资产库（memory / craft / standing）里的文件。',
+  },
+  {
+    kind: 'codeViewer',
+    label: '代码查看器',
+    trigger: 'agent',
+    layout: 'wide',
+    required: ['data.source'],
+    description: '按 ZCode PreviewPane 打开代码/diff/多文件内容。',
+  },
+  {
+    kind: 'screenshot',
+    label: '截图预览',
+    trigger: 'agent',
+    layout: 'wide',
+    required: ['data.uri'],
+    description: '大图预览 CUA / 电脑控制 / 浏览器截图。',
+  },
 ]
 
 let cached: RightPanelContract | null = null

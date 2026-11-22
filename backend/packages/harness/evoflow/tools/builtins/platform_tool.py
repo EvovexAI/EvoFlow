@@ -151,10 +151,23 @@ def _bind_runtime_identity(runtime: ToolRuntime[ContextT, dict] | None) -> None:
 # 【self-evolution-bot · 2026-11-20 · 第87轮 · 模型:deepseek-v4.1-flash-1017】
 # 描述里 Right panel 段改写：先调 ui.kinds 查契约；只读动作永不自动弹栏；
 # 逐 kind 列出必需字段（web-embed/shell-page/employeeProcess/collab-workflow/…）。
+# 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：Required fields 那行补上 file / asset / codeViewer / screenshot 四种内容预览。
+# 为什么：这行字是模型每次读工具描述都会看到的「清单」，此前只列网页/进度六种，
+#   读到它的模型会以为右栏只能开网页 —— 而 file 早就能渲染 md/图片/视频
+#   （第113轮真机实测 PNG naturalWidth 2459×1704、MP4 readyState=4 全正常）。
+#   用户当场质问「为什么说不能支持打开文件」，根因就在这类子集清单被当全集。
+# 判据：这行必须与实际契约表一致；由 test_right_panel_content_kinds.py 兜住。
+# 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+# 改了什么：把描述串里 256 字符的那句 title 说明折成三行。
+# 为什么：ruff E501 阈值 240，HEAD 同一句就已超（157 行 len=256）；我本轮又改了
+#   同段的 Required fields 文案，一并折掉，语义逐字不变。
 _PLATFORM_TOOL_DESCRIPTION = """\
 Platform admin: catalog/help → pick action → confirm writes (confirm=true).
 action format: domain.op (knowledge.*, workflow.*, settings.*, openai.*, assets.*, agents.*, employees.*, tasks.*, items.*, skills.*, mcp, automation.*, approvals.*, sessions.*, diagnostics.*, appearance.*, ui.*, media.*, verification.*).
-Always pass top-level ``title`` (sibling of action): short Chinese for the chat card, same idea as computer-use/browser tool titles — e.g. title=\"查看主界面字号\" / \"打开小V\" / \"写入英语大纲\". UI shows this title only; do not rely on args_json.op/method as the label.
+Always pass top-level ``title`` (sibling of action): short Chinese for the chat card,
+same idea as computer-use/browser tool titles — e.g. title=\"查看主界面字号\" / \"打开小V\" / \"写入英语大纲\".
+UI shows this title only; do not rely on args_json.op/method as the label.
 Long-term memory → assets tool / evoflow-admin assets-contract (not platform memory.*).
 catalog: pass domain via tool arg ``domain`` or args_json {\"domain\":\"mcp\"}; summary mode args_json {\"summary\":true}.
 items.* = user notes; tasks.* = collab ledger (prefer tasks tool on duty); todo = chat checklist only.
@@ -171,7 +184,9 @@ Nothing auto-opens the panel except actions the user is actively waiting on
 employees.chat_send: deliver=auto by default — an open desktop pane sends the turn itself
 (live token stream via ChatApp.chatSend, same path as typing there); a background wake is only
 the fallback when no pane/CDP is reachable. ui.panel op=action name=employeeChatSend drives it.
-Required fields: web-embed data.url; shell-page data.path (site-internal route);
+Required fields: file data.path (local md/code/text/image/video/audio/pdf);
+asset data.path (asset-relative, e.g. memory/standing.md); codeViewer data.source;
+screenshot data.uri; web-embed data.url; shell-page data.path (site-internal route);
 employeeProcess data.agentCode (taskId optional); collab-workflow data.mainTaskId;
 collabSubtaskTranscript data.mainTaskId+subtaskId; sessionRuntime data.sessionKey.
 OpenAI-compat analysis (CLI evoflow openai / models invoke): openai.models → openai.chat (confirm=true) for text; openai.vision (confirm=true, image+message) for vision; settings.invoke_model also covers text invoke.
