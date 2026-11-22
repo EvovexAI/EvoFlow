@@ -587,6 +587,36 @@ def delete_messages_for_session(session_key: str, *, conn: Any | None = None) ->
     return run_db_transaction(_delete)
 
 
+def delete_message_by_message_id(
+    session_key: str, message_id: str, *, conn: Any | None = None
+) -> int:
+    """Delete one transcript row by ``message_id`` (deterministic ids only). Returns deleted count.
+
+    【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增本函数。
+    为什么：``empty-run-<turn_id>`` 这类占位现在会真的落库（见 agui_mirror
+      ``_persist_notice_assistant_text``），但「迟到正文到达 → 撤占位」原实现只动 hub
+      内存行（``author_remove_rows``），DB 那条会留下来 —— 刷新后同一轮里既有真回复、
+      又有「本轮未产出可见回复」，比不落库更糟。本函数给撤占位提供 DB 侧出口。
+    边界：只按 ``message_id`` 精确删一行，不按前缀/时间删；空值直接返回 0。
+    """
+    sk = str(session_key or "").strip()
+    mid = str(message_id or "").strip()
+    if not sk or not mid:
+        return 0
+
+    def _delete(db: Any) -> int:
+        cur = db.execute(
+            "DELETE FROM evoflow_chat_messages WHERE session_key = ? AND message_id = ?",
+            (sk, mid),
+        )
+        return int(cur.rowcount or 0)
+
+    if conn is not None:
+        return _delete(conn)
+    return run_db_transaction(_delete)
+
+
 def delete_messages_from_seq(session_key: str, from_seq: int, *, conn: Any | None = None) -> int:
     """Delete transcript rows with ``seq >= from_seq`` (inclusive). Returns deleted count."""
     sk = str(session_key or "").strip()

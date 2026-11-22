@@ -816,6 +816,37 @@ def _is_user_interrupt_event(ev: dict[str, Any] | None) -> bool:
     return compact.startswith("userinterrupt") or "userinterrupted" in compact
 
 
+def _is_generic_upstream_error(low: str) -> bool:
+    """上游只回了一句通用英文错误 —— 没有可归因信息。
+
+    【self-evolution-bot · 2026-11-21 · 第115轮 · 模型:deepseek-v4.1-flash-1017】
+    改了什么：新增这个判据，把「供应商通用错误」从最后那条纯兜底分支里拉出来。
+    为什么（本轮现网实证）：23:26:49 文档撰写师第二轮，上游回
+      ``An internal error occurred``（全仓库搜不到这句，是供应商侧通用错误）。
+      它不含 timeout / 限流 / 断连等任何特征，于是掉到「本轮生成失败（可点详情/复制…）」，
+      用户既不知道是不是自己操作错了，也不知道能不能重发。实测同一句重发即成功。
+    边界：只认「短、纯英文、含 internal error 或 generic 语义」的整句，
+      不吞掉带具体原因的原文（如 ``internal error: tool schema invalid`` 仍需保留细节）。
+    """
+    if not low or len(low) > 120:
+        return False
+    if any("\u4e00" <= ch <= "\u9fff" for ch in low):
+        return False
+    # 带冒号/句号后还有细节的，说明上游给了可归因信息，不归入本档。
+    if ":" in low and len(low.split(":", 1)[1].strip()) > 8:
+        return False
+    return any(
+        marker in low
+        for marker in (
+            "an internal error occurred",
+            "internal error occurred",
+            "internal server error occurred",
+            "something went wrong",
+            "an unexpected error occurred",
+        )
+    )
+
+
 def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
     """Build V4 ``control.lastError`` from a RUN_ERROR event.
 
@@ -852,6 +883,18 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
         facing = "本轮生成失败：模型连接中断，请稍后重试；超长对话建议开新会话"
     elif "timeout" in low or "timed out" in low:
         facing = "本轮生成失败：请求超时，请稍后重试"
+    elif _is_generic_upstream_error(low):
+        # 【self-evolution-bot · 2026-11-21 · 第115轮 · 模型:deepseek-v4.1-flash-1017】
+        # 详情里补一句「本轮没生成内容」——这是用户唯一的硬事实，他据此判断要不要重发。
+        # 改了什么：新增「上游只给了一句通用英文错误」这一档，之前它掉到最后那条
+        #   既不说原因也不说下一步的兜底文案。
+        # 为什么（本轮现网实证）：23:26:49 三个员工面板并发两轮对话，文档撰写师第二轮
+        #   上游回 "An internal error occurred"（仓库里搜不到这句，属供应商通用错误）。
+        #   用户看到的是「本轮生成失败（可点「详情/复制」把原文发给协助排查的人）」
+        #   —— 既看不出是模型侧还是我的操作有问题，也不知道该不该重发。
+        #   实测同一句重发一次就成功（DA14C 正常回），所以这是**可直接重发**的偶发故障，
+        #   文案必须把「再发一次」写成默认动作。
+        facing = "本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过（刚才这一轮没生成内容）"
     elif bare:
         # Upstream often emits only ``run_error`` with no vendor text — say what to do.
         facing = "本轮生成失败：模型服务中断或本机负载过高，请稍后重试；超长对话建议开新会话"
@@ -1013,6 +1056,66 @@ class V4Mirror:
                 "entityId": mid,
             },
         )
+        self._persist_notice_assistant_text(tid, st, body, mid=mid, now_ms=now_ms)
+
+    def _persist_notice_assistant_text(
+        self, tid: str, st: _MirrorState, body: str, *, mid: str, now_ms: int
+    ) -> None:
+        """把「本轮为什么没有正文」的说明落进 DB transcript —— 否则刷新/重开会话后整轮凭空消失。
+
+        【self-evolution-bot · 2026-11-22 · 第116轮 · 模型:deepseek-v4.1-flash-1017】
+        改了什么：新增本方法，在 ``_upsert_error_assistant_text`` 末尾调用，把失败
+          文案以 assistant 行写进 ``evoflow_chat_messages``。
+        【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+          改名 ``_persist_error_assistant_text`` → ``_persist_notice_assistant_text``，
+          并把 ``_upsert_empty_run_notice_now``（空跑占位）也接上；两个调用点同形，
+          区别只在 ``mid`` 前缀（``model-error-`` / ``empty-run-``）。
+          为什么扩到空跑：本轮全量复算 ``message_id LIKE 'empty-run-%'`` = **0 条**，
+          ``content_json`` 里含空跑文案的 assistant 行（严格匹配 `"content":"本轮没有…`）
+          也 **0 条** —— 空跑说明一直只活在 hub 内存（``author_append_row``）与前端
+          ``EMPTY_TURN_NOTICE`` 里。``hydration.py`` 从 DB 重建时能补一条合成行兜住
+          显示，但**库里没有任何实体**记录「这一轮为什么没回复」。
+        为什么（第116轮原按）：``_upsert_error_assistant_text`` 只写 hub 内存行
+          （``author_append_row``），而 DB 落库归 ``TranscriptMiddleware.after_model``，
+          它**只在模型成功返回后**才跑；模型抛 RUN_ERROR 时 after_model 根本不执行。
+          后果实测：2026-11-21 23:26:49 文档撰写师 DA14B 那一轮，DB 里只有 user 行、
+          **一条 assistant 行都没有**，连错误文案也没落盘 —— 用户刷新页面或重开会话，
+          这一整轮凭空消失，只剩一句没人回的提问，无从判断当时发生了什么。
+          全量复算（排除本岗位自身会话）：包含「本轮生成失败／详情（可复制反馈）」
+          的 assistant 行 **0 条** —— 说明这条路径从未真正落过库，不是偶发。
+        边界：message_id 用确定性 ``{mid}``（``model-error-{turn_id}`` /
+          ``empty-run-{turn_id}``），配合 ``append_messages_batch_and_touch_session`` 的
+          ``skip_if_seq_exists``，同一轮重试 N 次也只落 1 条；任何异常都只记 warning，
+          绝不打断错误横幅/占位渲染。
+        """
+        try:
+            from evoflow.persistence.chat_message_repositories import resolve_parent_thread_id
+            from evoflow.persistence.chat_session_service import (
+                append_messages_batch_and_touch_session,
+            )
+            from evoflow.persistence.session_repositories import find_session_key_by_thread_id
+
+            sk = find_session_key_by_thread_id(tid)
+            if not sk:
+                logger.debug("[v4-mirror] notice persist skipped: no session for tid=%s", tid)
+                return
+            append_messages_batch_and_touch_session(
+                sk,
+                [
+                    {
+                        "role": "assistant",
+                        "message_id": mid,
+                        "content": {"content": body},
+                    }
+                ],
+                thread_id=tid,
+                parent_thread_id=resolve_parent_thread_id(tid),
+                skip_if_seq_exists=True,
+            )
+        except Exception:
+            logger.warning(
+                "[v4-mirror] notice persist failed tid=%s mid=%s", tid, mid, exc_info=True
+            )
 
     def _turn_has_assistant_work(self, tid: str, turn_id: str) -> bool:
         """Hub 上该轮是否已有可见助手产物（正文/思考/工具），不只看 text_acc。"""
@@ -1173,6 +1276,13 @@ class V4Mirror:
                 "entityId": mid,
             },
         )
+        # 【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+        # 空跑占位也落 DB：全量复算 `message_id LIKE 'empty-run-%'` = 0 条，
+        # 说明这条说明文字一直只活在 hub 内存与前端 EMPTY_TURN_NOTICE 里，
+        # 刷新后靠 hydration.py 合成才勉强可见，库里无从查证「这轮为何没回复」。
+        self._persist_notice_assistant_text(
+            tid, st, str(st.text_acc.get(mid) or EMPTY_RUN_NOTICE_TEXT), mid=mid, now_ms=now_ms
+        )
 
     def _upsert_empty_run_notice(self, tid: str, st: _MirrorState, *, now_ms: int) -> None:
         """空流 / 过早 RUN_FINISHED：延后写占位，避免「先闪未产出再出真回复」。"""
@@ -1208,6 +1318,29 @@ class V4Mirror:
         st.empty_run_timer = timer
         timer.start()
 
+    def _delete_notice_row_from_db(self, tid: str, mid: str) -> None:
+        """撤占位时同步删 DB 那一行（``empty-run-*``）。
+
+        【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+        改了什么：新增本方法，在 ``_clear_empty_run_notices`` 里按 entityId 调用。
+        为什么：第118轮把空跑占位接上了 DB 落库（``_persist_notice_assistant_text``），
+          而「迟到正文到达 → 撤占位」原来只删 hub 内存行。若不同步删库，刷新后同一轮
+          会同时出现真回复与「本轮未产出可见回复」—— 比不落库更误导。
+        边界：只按精确 message_id 删；任何异常只记 debug，绝不阻断正文渲染。
+        """
+        if not str(mid or "").startswith("empty-run-"):
+            return
+        try:
+            from evoflow.persistence.chat_message_repositories import delete_message_by_message_id
+            from evoflow.persistence.session_repositories import find_session_key_by_thread_id
+
+            sk = find_session_key_by_thread_id(tid)
+            if not sk:
+                return
+            delete_message_by_message_id(sk, mid)
+        except Exception:
+            logger.debug("[v4-mirror] delete notice row failed tid=%s mid=%s", tid, mid, exc_info=True)
+
     def _clear_empty_run_notices(self, tid: str, st: _MirrorState) -> None:
         """真实正文/工具开始后，撤掉空跑占位，避免和真回复叠两条。
 
@@ -1219,6 +1352,7 @@ class V4Mirror:
         if sess is None or not sess.rows:
             return
         drop: list[tuple[int, str]] = []
+        drop_mids: list[str] = []
         for rid, row in list(sess.rows.items()):
             if not isinstance(row, dict):
                 continue
@@ -1226,10 +1360,16 @@ class V4Mirror:
             if not eid.startswith("empty-run-") or eid.startswith("empty-run-cleared-"):
                 continue
             drop.append((int(rid), str(row.get("turnId") or "").strip()))
+            # 【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+            # 占位现在会真的落库，撤占位必须同时删 DB 那条 —— 否则刷新后同一轮里
+            # 既有真回复、又有「本轮未产出可见回复」。
+            drop_mids.append(eid)
             st.text_row_ids.pop(eid, None)
             st.text_acc.pop(eid, None)
         if not drop:
             return
+        for mid in drop_mids:
+            self._delete_notice_row_from_db(tid, mid)
         remove = getattr(self._hub, "author_remove_rows", None) or getattr(
             self._hub, "remove_rows", None
         )

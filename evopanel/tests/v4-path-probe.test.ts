@@ -29,13 +29,30 @@ describe('collectV4PathProbe', () => {
     }>,
   }
 
+  it('ignores micro tip ghost (live sampling noise Δ<5)', () => {
+    const probe = collectV4PathProbe({
+      ...base,
+      hubTip: 2445,
+      feTip: 2447,
+      streamMax: 2447,
+      lastV4AtMs: 999_500,
+      catchupReason: 'live-mirror',
+      catchupAtMs: 999_000,
+      subscriberCount: 1,
+      hasOptimistic: false,
+      windowHasLive: true,
+    })
+    expect(probe.verdict).toBe('OK')
+  })
+
   it('names hub-ahead + notified=0 as the root cause', () => {
     const probe = collectV4PathProbe({
       ...base,
       catchupReason: 'client-behind-resync+notified0',
       catchupNotified: 0,
       catchupAtMs: 999_000,
-      subscriberCount: 0,
+      // hub 仍有订户但本路 recovery 没人收（对端 sub 错位）；订户=0 走 HUB_SUB_DESYNC
+      subscriberCount: 1,
       lastV4AtMs: 990_000,
     })
     expect(probe.verdict).toBe('HUB_AHEAD_NOTIFIED0')
@@ -81,7 +98,48 @@ describe('collectV4PathProbe', () => {
       feTip: 715,
       streamMax: null,
       lastV4AtMs: 999_500,
+      catchupReason: 'ready-soft',
+      catchupAtMs: 999_000,
+      subscriberCount: 1,
     })
     expect(probe.verdict).toBe('WIRE_WITHOUT_V4_TIP')
+  })
+
+  it('names CATCHUP_NEVER when executing with no hub tip and no V4 frames', () => {
+    const probe = collectV4PathProbe({
+      ...base,
+      hubTip: null,
+      feTip: 2155,
+      streamMax: null,
+      hasOptimistic: true,
+      windowHasLive: false,
+    })
+    expect(probe.verdict).toBe('CATCHUP_NEVER')
+  })
+
+  it('names HUB_SUB_DESYNC when hub subscriberCount=0 while FE sub active', () => {
+    const probe = collectV4PathProbe({
+      ...base,
+      hubTip: 1,
+      feTip: 2155,
+      catchupNotified: 0,
+      catchupReason: 'client-stale-resync+notified0',
+      catchupAtMs: 999_000,
+      subscriberCount: 0,
+    })
+    expect(probe.verdict).toBe('HUB_SUB_DESYNC')
+  })
+
+  it('names FE_TIP_GHOST_NOTIFIED0 when fe tip >> hub, notified=0, hub still has subs', () => {
+    const probe = collectV4PathProbe({
+      ...base,
+      hubTip: 1,
+      feTip: 2155,
+      catchupNotified: 0,
+      catchupReason: 'client-stale-resync+notified0',
+      catchupAtMs: 999_000,
+      subscriberCount: 1,
+    })
+    expect(probe.verdict).toBe('FE_TIP_GHOST_NOTIFIED0')
   })
 })

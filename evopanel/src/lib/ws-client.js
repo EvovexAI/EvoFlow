@@ -7093,36 +7093,51 @@ export class WsClient {
     const sessionModelName =
       (sessionContext.model_name || sessionContext.primary_model_name || '').toString().trim() || null
     // Mid-turn ↑ inject already wrote the user row; skip to avoid duplicate transcript.
-    // Non-blocking: do not await before POST runs/stream (TTFT). Hydration may merge the
-    // single in-flight HumanMessage if the row is not in DB yet — history always comes
-    // from evoflow_chat_messages, never from replaying the LangGraph checkpoint.
+    // 【self-evolution-bot · 2026-11-22 · 第118轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：user 行落库由 `void append(...)`（不等）改为 `await withTimeout(..., 2500, null)`，
+    //   即**先落 user 行、再发 POST runs/stream**；超时/失败仍照旧吞掉继续发送。
+    // 为什么（本轮现网实证，13 对 seq 倒挂）：`_next_seq` 是 `SELECT MAX(seq)+1`
+    //   （chat_message_repositories.py:84，docstring 自认跨事务不安全），user 行由本函数
+    //   fire-and-forget 写入、assistant 行由后端轮末写入，两个独立事务。只要 user 行写入
+    //   晚于 assistant 行，它就拿更大的 seq —— 读取端 `ORDER BY seq`，刷新后**答案渲染在
+    //   提问之上**。实测样本（thread_id + seq）：image-designer seq23 assistant
+    //   07:56:37.770 / seq24 user 07:56:38.139（turn_started_at=07:56:34.287，即用户 07:56:34
+    //   就发了，行却晚 4 秒才落）；document-author seq22 assistant 07:54:42.075 / seq23 user
+    //   07:54:43.039（turn_started_at=07:54:40.158）；同一晚共 13 对命中该模式。
+    // 边界：正常本地写入 ~10–50ms，2500ms 上限只兜住网关抖动；超时即退回原「不等」语义，
+    //   顺序可能仍旧错乱但**不影响发送**——可用性优先。history 仍以 evoflow_chat_messages 为准。
     // Stable id shared by transcript append + LangGraph input (avoids LG-auto id mismatch).
     const userMsgId =
       String(opts?.messageId || '').trim() ||
       `user-${typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`}`
     if (!opts?.skipTranscriptAppend) {
-      void appendSessionTranscriptMessage(
-        key,
-        userBlocksToFlatTranscriptRow(blocks, userMsgId, {
-          runId,
-          modelName: sessionModelName,
-          contextFiles: Array.isArray(contextFiles)
-            ? contextFiles
-                .map((f) => ({
-                  path: String(f.path || '').trim(),
-                  name: String(f.name || '').trim() || String(f.path || '').trim(),
-                }))
-                .filter((f) => f.path)
-            : undefined,
+      // 见上：先落 user 行（有界等待 2.5s）再发流，压掉 seq 倒挂；失败/超时照旧继续发送。
+      await withTimeout(
+        appendSessionTranscriptMessage(
+          key,
+          userBlocksToFlatTranscriptRow(blocks, userMsgId, {
+            runId,
+            modelName: sessionModelName,
+            contextFiles: Array.isArray(contextFiles)
+              ? contextFiles
+                  .map((f) => ({
+                    path: String(f.path || '').trim(),
+                    name: String(f.name || '').trim() || String(f.path || '').trim(),
+                  }))
+                  .filter((f) => f.path)
+              : undefined,
+          }),
+          {
+            runId,
+            threadId,
+          },
+        ).catch((e) => {
+          // Gateway 冷启动 / DB 短暂锁：已重试；流式仍会继续，hydration merge / TranscriptMiddleware 会兜底
+          console.debug('[evoflow] append user transcript deferred', e)
         }),
-        {
-          runId,
-          threadId,
-        },
-      ).catch((e) => {
-        // Gateway 冷启动 / DB 短暂锁：已重试；流式仍会继续，hydration merge / TranscriptMiddleware 会兜底
-        console.debug('[evoflow] append user transcript deferred', e)
-      })
+        2500,
+        null,
+      )
     }
     const userMessage = {
       role: 'user',

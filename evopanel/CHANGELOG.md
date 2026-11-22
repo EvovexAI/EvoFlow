@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.44] - 2026-11-22
+
+相对 **1.3.43**：发消息先落用户气泡再开流，问答顺序不再颠倒；已完成回合的迟到「还在跑」心跳会被丢弃。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.44.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **答案渲染在提问之上**：先落用户行再开流
+- **已答完仍显示还在跑**：拒绝回合收尾后的迟到 running 心跳
+- **成功轮被记成错误**：避免迟到心跳污染已完成快照
+- **V4 catchup / 错误信息**：终态与错误展示更一致
+
+### Changed
+
+- **用户可见错误文案**：部分失败提示更直白
+
+
 ## [1.3.43] - 2026-11-21
 
 相对 **1.3.42**：员工面板发消息不再串到任务时间线并实时出字；右栏布局与平台卡标题更清楚；长对话 catchup / soft-cap 更稳。

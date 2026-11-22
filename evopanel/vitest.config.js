@@ -366,6 +366,8 @@ export default defineConfig({
       'tests/v4-userinput-visible-in-tail.test.ts',
       // 同 turn 工具 rowId 落在用户气泡前 → 不得先画「已工作」造成上下割裂
       'tests/v4-turn-user-first-order.test.ts',
+      // user 行「先落库再发流」是 seq 不倒挂的唯一保证（第118轮现网 13 对倒挂）
+      'tests/chat-send-user-row-order.test.js',
       'tests/v4-fold-health.test.ts',
       'tests/v4-display-order-health.test.ts',
       'tests/v4-running-text-interleave.test.ts',

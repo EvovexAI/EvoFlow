@@ -38,7 +38,11 @@ def get_gateway_config() -> GatewayConfig:
                 "tauri://localhost",
             ]
         _gateway_config = GatewayConfig(
-            host=os.getenv("GATEWAY_HOST", "0.0.0.0"),
+            # Default must stay loopback: this value is echoed in startup logs and
+            # advertised as the ``GATEWAY_HOST`` operator contract (gateway_entry reads
+            # the same env for its real uvicorn bind). A 0.0.0.0 default made docs and
+            # logs claim a wide-open bind even though the process never binds from here.
+            host=os.getenv("GATEWAY_HOST", "127.0.0.1"),
             port=int(os.getenv("GATEWAY_PORT", "8001")),
             cors_origins=cors_origins,
         )

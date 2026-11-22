@@ -13,9 +13,13 @@ export type V4PathVerdictCode =
   | "FRAMES_SSE_DOWN"
   | "NO_STORE_SUB"
   | "SUB_NOT_ACTIVATED"
+  | "HUB_SUB_DESYNC"
+  | "FE_TIP_GHOST_NOTIFIED0"
+  | "FE_TIP_GHOST"
   | "HUB_AHEAD_NOTIFIED0"
   | "HUB_AHEAD_NO_FRAMES"
   | "HUB_AHEAD"
+  | "CATCHUP_NEVER"
   | "WIRE_WITHOUT_V4_TIP"
   | "STREAM_AHEAD";
 
@@ -134,11 +138,16 @@ export function collectV4PathProbe(input: V4PathProbeInput): V4PathProbe {
       : null;
   const executing = !!input.executing;
   const settled = !!input.settled;
-  const hubAhead = tipDelta != null && tipDelta > 0;
+  /** 与 V4StreamRowsBridge.TIP_DIVERGE_MIN 对齐：微差是 live 采样噪声。 */
+  const TIP_DIVERGE_MIN = 5;
+  const hubAhead = tipDelta != null && tipDelta >= TIP_DIVERGE_MIN;
+  const feGhost = tipDelta != null && tipDelta <= -TIP_DIVERGE_MIN;
   const notified0 =
     catchupNotified != null
       ? catchupNotified <= 0
       : typeof catchupReason === "string" && catchupReason.includes("notified0");
+  const hubSubsZero = subscriberCount != null && subscriberCount <= 0;
+  const catchupNever = catchupReason == null && catchupAgeMs == null;
   const v4Stale =
     lastV4AgeMs == null || lastV4AgeMs >= STALE_V4_MS || streamMax == null;
 
@@ -147,7 +156,19 @@ export function collectV4PathProbe(input: V4PathProbeInput): V4PathProbe {
   let detail = "exec=0";
 
   if (!executing || settled) {
-    if (hubAhead && notified0) {
+    if (hubSubsZero && subscriptionId && subActive) {
+      verdict = "HUB_SUB_DESYNC";
+      title = "本机 sub 活着，hub 订户=0";
+      detail = `fe sub=${subscriptionId.slice(0, 12)} hubSubs=0 —— unsubscribe 风暴后常见`;
+    } else if (feGhost && notified0) {
+      verdict = "FE_TIP_GHOST_NOTIFIED0";
+      title = "本机 tip 幽灵膨胀且 recovery 无人收";
+      detail = `hub=${hubTip} fe=${feTip} Δ${tipDelta} notified=0`;
+    } else if (feGhost) {
+      verdict = "FE_TIP_GHOST";
+      title = "本机 tip 高于 hub（幽灵膨胀）";
+      detail = `hub=${hubTip} fe=${feTip} Δ${tipDelta} catchup=${catchupReason || "∅"}`;
+    } else if (hubAhead && notified0) {
       verdict = "HUB_AHEAD_NOTIFIED0";
       title = "hub 超前且 recovery 无人收";
       detail = `hub=${hubTip} fe=${feTip} Δ+${tipDelta} notified=${catchupNotified ?? 0} reason=${catchupReason || "∅"}`;
@@ -172,6 +193,18 @@ export function collectV4PathProbe(input: V4PathProbeInput): V4PathProbe {
     verdict = "SUB_NOT_ACTIVATED";
     title = "有 sub 但未 activate（帧在 staging）";
     detail = `sub=${subscriptionId.slice(0, 12)} staged=${stagedCount ?? "∅"} activeSubs=${activeSubCount}`;
+  } else if (hubSubsZero) {
+    verdict = "HUB_SUB_DESYNC";
+    title = "AG-UI 在跑，hub 订户=0（本机以为 live）";
+    detail = `sub=${subscriptionId.slice(0, 12)} hubSubs=0 notified=${catchupNotified ?? "∅"} —— 必须重订`;
+  } else if (feGhost && notified0) {
+    verdict = "FE_TIP_GHOST_NOTIFIED0";
+    title = "本机 tip 幽灵 + recovery notified=0";
+    detail = `hub=${hubTip} fe=${feTip} Δ${tipDelta} —— 现场典型：FE=2155 hub=1`;
+  } else if (feGhost) {
+    verdict = "FE_TIP_GHOST";
+    title = "本机 tip 高于 hub（幽灵膨胀）";
+    detail = `hub=${hubTip} fe=${feTip} Δ${tipDelta} catchup=${catchupReason || "∅"}`;
   } else if (hubAhead && notified0) {
     verdict = "HUB_AHEAD_NOTIFIED0";
     title = "hub 已超前，catchup recovery notified=0";
@@ -184,6 +217,10 @@ export function collectV4PathProbe(input: V4PathProbeInput): V4PathProbe {
     verdict = "HUB_AHEAD";
     title = "hub tip 超前，帧在途或尚未 apply";
     detail = `hub=${hubTip} fe=${feTip} Δ+${tipDelta} streamMax=${streamMax ?? "∅"} catchup=${catchupReason || "∅"}`;
+  } else if (catchupNever && v4Stale) {
+    verdict = "CATCHUP_NEVER";
+    title = "AG-UI 在跑，从未 catchup 对账且无 V4 帧";
+    detail = `feTip=${feTip ?? "∅"} hub=∅ streamMax=∅ —— live+sub 把 soft catchup 跳死了`;
   } else if (
     input.hasOptimistic &&
     streamMax == null &&
@@ -269,8 +306,11 @@ export function anomalyFromV4PathProbe(probe: V4PathProbe): {
     FRAMES_SSE_DOWN: "V4_PATH_FRAMES_DOWN",
     NO_STORE_SUB: "V4_PATH_NO_SUB",
     SUB_NOT_ACTIVATED: "V4_PATH_SUB_STAGED",
+    HUB_SUB_DESYNC: "V4_PATH_HUB_AHEAD_NOTIFIED0",
+    FE_TIP_GHOST_NOTIFIED0: "V4_PATH_HUB_AHEAD_NOTIFIED0",
     HUB_AHEAD_NOTIFIED0: "V4_PATH_HUB_AHEAD_NOTIFIED0",
     HUB_AHEAD_NO_FRAMES: "V4_PATH_HUB_AHEAD_NO_FRAMES",
+    CATCHUP_NEVER: "V4_PATH_HUB_AHEAD_NO_FRAMES",
   };
   const code = map[probe.verdict] ?? null;
   if (!code) return null;

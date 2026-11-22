@@ -296,15 +296,51 @@ async def enable_webui(request: Request, body: EnableRequest | None = None) -> E
 
 
 @router.post("/disable", summary="Disable WebUI remote access")
-async def disable_webui(request: Request) -> dict[str, bool]:
+async def disable_webui(request: Request) -> dict[str, Any]:
     """Disable WebUI remote access.
 
     Local-only endpoint. The admin user is retained so re-enabling does not
     require re-provisioning.
+
+    Note: disabling only flips the flag — it cannot shrink the OS-level socket.
+    If the Gateway previously auto-bound to 0.0.0.0 (WebUI enabled at process
+    start), every NIC stays reachable until the process restarts with the flag
+    off. Tell the caller so the UI can surface that residual exposure instead
+    of a toast that implies the LAN door already closed.
     """
     _require_local(request)
     set_webui_enabled(False)
-    return {"disabled": True}
+    bind_wide = False
+    try:
+        import socket as _socket
+
+        # Windows exclusive-bind probe (behaviour verified on this host):
+        #   * nothing listening            → wildcard bind OK, loopback bind OK
+        #   * listener bound 0.0.0.0:port  → wildcard bind FAILS(10048), loopback OK
+        #   * listener bound 127.0.0.1:p   → wildcard FAILS, loopback FAILS too
+        # So "wildcard bind fails while loopback bind succeeds" is the unique
+        # signature of a wide-open listener still holding the port — i.e. after
+        # disable the LAN surface stays reachable until the Gateway restarts with
+        # webui.enabled=0 and re-runs its bind decision. A plain SO_REUSEADDR test
+        # must NOT be used here: on Windows it turns bind() into a shared open.
+        port = _get_port(request)
+
+        def _try_bind(addr: str) -> bool:
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            try:
+                s.setsockopt(_socket.SOL_SOCKET, getattr(_socket, "SO_EXCLUSIVEADDRUSE", -5), 1)
+                s.bind((addr, port))
+                return True
+            except OSError:
+                return False
+            finally:
+                s.close()
+
+        if not _try_bind("0.0.0.0") and _try_bind("127.0.0.1"):
+            bind_wide = True
+    except Exception:
+        logging.debug("bind-surface probe failed", exc_info=True)
+    return {"disabled": True, "restart_required": bind_wide}
 
 
 def _login_params_are_malformed(username: str, password: str) -> str | None:

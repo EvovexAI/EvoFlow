@@ -112,6 +112,14 @@ def test_catchup_client_stale_resync_when_client_tip_ahead_of_hub() -> None:
     assert sess is not None and sess.rows
     hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
     with _msgs(MESSAGES_V1):
+        # 微差（+2）不得触发 client-stale（live 采样噪声）
+        micro = hub.catchup_from_transcript(
+            THREAD,
+            client_tip_row_id=hub_tip + 2,
+            client_log_epoch=str(sess.log_epoch),
+        )
+        assert micro.get("reason") == "fingerprint-unchanged"
+        assert micro.get("changed") is False
         out = hub.catchup_from_transcript(
             THREAD,
             client_tip_row_id=hub_tip + 100,
@@ -135,19 +143,21 @@ def test_catchup_client_behind_resync_when_client_tip_lags_hub() -> None:
         hub.catchup_from_transcript(THREAD)
     sess = hub.get_session(THREAD)
     assert sess is not None and sess.rows
-    hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
-    assert hub_tip > 1
-    with _msgs(MESSAGES_V1):
+    real_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
+    # V1 tip 往往 <5；用 stub 抬高 hub tip，专测 Δ≥5 的 behind 阈值（不污染 fingerprint）。
+    with (
+        _msgs(MESSAGES_V1),
+        patch.object(V4ConversationHub, "_hub_tip_row_id", return_value=real_tip + 10),
+    ):
         out = hub.catchup_from_transcript(
             THREAD,
-            client_tip_row_id=hub_tip - 1,
+            client_tip_row_id=real_tip + 5,
             client_log_epoch=str(sess.log_epoch),
         )
     assert out["ok"] is True
     assert out["changed"] is True
     assert out.get("reason") == "client-behind-resync"
-    assert int(out.get("tipRowId") or 0) == hub_tip
-    assert int(out.get("clientTipRowId") or 0) == hub_tip - 1
+    assert int(out.get("clientTipRowId") or 0) == real_tip + 5
 
 
 def test_catchup_prefer_settle_only_never_wipes_existing_rows() -> None:
@@ -165,6 +175,34 @@ def test_catchup_prefer_settle_only_never_wipes_existing_rows() -> None:
     assert out["rows"] == rows
     assert len(hub.get_session(THREAD).rows) == rows
     assert hub.get_session(THREAD).log_epoch == epoch
+
+
+def test_catchup_prefer_settle_only_still_resyncs_when_client_tip_diverges() -> None:
+    """preferSettleOnly 不得吞掉 tip 分叉（现场 FE=2155 hub=1 被 settle-only 跳死）。
+
+    用 V2 指纹（与 hub catchup_fp 不同）走到 settle-only 分支，而不是
+    fingerprint-unchanged 早退——专门钉住 settle-only 里的 tip 对账。
+    """
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V1):
+        hub.catchup_from_transcript(THREAD)
+    sess = hub.get_session(THREAD)
+    assert sess is not None and sess.rows
+    hub_tip = max(int(r.get("rowId") or 0) for r in sess.rows.values())
+    rows = len(sess.rows)
+    with _msgs(MESSAGES_V2):
+        out = hub.catchup_from_transcript(
+            THREAD,
+            prefer_settle_only=True,
+            client_tip_row_id=hub_tip + 200,
+        )
+    assert out["ok"] is True
+    assert out["changed"] is True
+    assert out.get("reason") == "client-stale-resync"
+    assert int(out.get("tipRowId") or 0) == hub_tip
+    assert out["rows"] == rows
+    assert "notified" in out
+    assert "subscriberCount" in out
 
 
 def test_catchup_skips_wipe_when_only_tail_content_grows() -> None:

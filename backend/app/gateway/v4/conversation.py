@@ -790,11 +790,14 @@ class V4ConversationHub:
             # 本机 tip 低于 hub：live mirror 已写行但 frames 没送到页面（19:11 现场：
             # AG-UI 在跑、v4行钉死 2041、streamMax=∅）——fingerprint 未变也会
             # 一直 no-op，必须再广播 recovery。
+            # 直播中 catchup 采样常比 FE delta 慢 1～几行；微差不当 client-stale/behind
+            #（否则 recovery 打飞进行中订阅 → 开跑却等不到首字）。
+            _tip_diverge_min = 5
             tip_diverged = bool(
                 sess.rows
                 and client_tip is not None
                 and hub_tip is not None
-                and client_tip != hub_tip
+                and abs(int(client_tip) - int(hub_tip)) >= _tip_diverge_min
             )
             epoch_diverged = bool(
                 tip_diverged
@@ -803,10 +806,16 @@ class V4ConversationHub:
                 and client_epoch != hub_epoch
             )
             client_ahead = bool(
-                tip_diverged and client_tip is not None and hub_tip is not None and client_tip > hub_tip
+                tip_diverged
+                and client_tip is not None
+                and hub_tip is not None
+                and client_tip > hub_tip
             )
             client_behind = bool(
-                tip_diverged and client_tip is not None and hub_tip is not None and client_tip < hub_tip
+                tip_diverged
+                and client_tip is not None
+                and hub_tip is not None
+                and client_tip < hub_tip
             )
             if client_ahead or client_behind or epoch_diverged:
                 notified = self.broadcast_recovery_snapshot(tid)
@@ -885,7 +894,7 @@ class V4ConversationHub:
             if (
                 client_tip is not None
                 and hub_tip is not None
-                and client_tip < hub_tip
+                and hub_tip - client_tip >= 5
             ):
                 notified = self.broadcast_recovery_snapshot(tid)
                 logger.warning(
@@ -945,7 +954,7 @@ class V4ConversationHub:
             if (
                 client_tip is not None
                 and hub_tip is not None
-                and client_tip < hub_tip
+                and hub_tip - client_tip >= 5
             ):
                 notified = self.broadcast_recovery_snapshot(tid)
                 logger.warning(
@@ -1014,7 +1023,48 @@ class V4ConversationHub:
 
         # 切回校准：客户端已有投影行 → 只 settle，绝不 wipe（避免 recovery 整窗替换闪烁）。
         # tip 脱节例外：只 settle 治不好「面板 tip ≠ SQL tip」。
+        # 【self-evolution-bot · 2026-11-22】现场：FE tip=2155 / hub tip=1 + preferSettleOnly
+        # → 旧逻辑直接 settle-only，跳过 client-stale；subscriberCount=0 时更无人收。
+        # 本机 tip 与 hub tip 分叉时仍必须 broadcast recovery（不 wipe）。
         if prefer_settle_only and prev_rows > 0 and not tip_mismatch:
+            hub_tip = self._hub_tip_row_id(sess)
+            client_tip = None
+            try:
+                if client_tip_row_id is not None:
+                    client_tip = int(client_tip_row_id)
+            except (TypeError, ValueError):
+                client_tip = None
+            if (
+                client_tip is not None
+                and hub_tip is not None
+                and abs(int(client_tip) - int(hub_tip)) >= 5
+            ):
+                notified = self.broadcast_recovery_snapshot(tid)
+                reason = (
+                    "client-stale-resync"
+                    if client_tip > hub_tip
+                    else "client-behind-resync"
+                )
+                logger.warning(
+                    "[v4.catchup] %s under settle-only session=%s "
+                    "client_tip=%s hub_tip=%s rows=%s notified=%s",
+                    reason,
+                    tid,
+                    client_tip,
+                    hub_tip,
+                    prev_rows,
+                    notified,
+                )
+                return self._catchup_meta(
+                    sess,
+                    ok=True,
+                    changed=True,
+                    reason=reason,
+                    notified=notified,
+                    settledPhase=settled_phase or None,
+                    fingerprint=fp,
+                    clientTipRowId=client_tip,
+                )
             sess.catchup_fp = fp
             logger.info(
                 "[v4.catchup] settle-only session=%s rows=%s settled=%s fp=%s",
@@ -1023,15 +1073,14 @@ class V4ConversationHub:
                 settled_phase or "-",
                 fp,
             )
-            return {
-                "ok": True,
-                "changed": False,
-                "reason": "settle-only",
-                "rows": prev_rows,
-                "settledPhase": settled_phase or None,
-                "logEpoch": sess.log_epoch,
-                "fingerprint": fp,
-            }
+            return self._catchup_meta(
+                sess,
+                ok=True,
+                changed=False,
+                reason="settle-only",
+                settledPhase=settled_phase or None,
+                fingerprint=fp,
+            )
 
         # Catchup must not mirror_reset — that clears run_started mid-IM stream and
         # lets the next tick wipe again.

@@ -37,7 +37,8 @@ import {
 import { markStreamCompareSession } from "../lib/stream-compare-file-log.js";
 import { bindOpenTraceThread, endOpenTrace, markOpenStage } from "@zcode/ui/lib/openTrace.js";
 import { publishV4DisplayAuthority } from "./v4Gate.js";
-import { setV4TimelineBusy } from "./v4-timeline-busy-store.js";
+import { getV4TimelineBusy, setV4TimelineBusy } from "./v4-timeline-busy-store.js";
+import { isSessionExecuting } from "../lib/session-execution/queries.js";
 import { resolveSessionBusyFromControl } from "./control-busy.js";
 import {
   getSessionRuntime,
@@ -658,6 +659,24 @@ const _catchupStableAt = new Map<string, LastV4CatchupSnap>();
 const CATCHUP_READY_SOFT_MS = 20_000;
 const CATCHUP_AFTER_REHYDRATE_MS = 12_000;
 const CATCHUP_STABLE_MS = 2_800;
+/**
+ * 直播中 catchup 采样常比本机 delta 慢 1～几行（现场 FE=2447 hub=2445）。
+ * 小于此阈值的 tip 差不当幽灵/落后，禁止 recoverFromStaleAuthority（会打飞进行中订阅 → 等不到首字）。
+ */
+const TIP_DIVERGE_MIN = 5;
+
+function tipAheadBy(
+  a: number | null | undefined,
+  b: number | null | undefined,
+): boolean {
+  return (
+    typeof a === "number" &&
+    typeof b === "number" &&
+    Number.isFinite(a) &&
+    Number.isFinite(b) &&
+    a - b >= TIP_DIVERGE_MIN
+  );
+}
 
 /** 视口根因对账：读最近一次 catchup 对账快照（无则 null）。 */
 export function peekLastV4Catchup(
@@ -799,14 +818,8 @@ export function refreshEvoflowV4Session(
     if (localRowCount > 0) {
       const last = _catchupStableAt.get(id);
       const softDue = !last || Date.now() - last.at >= softIntervalMs;
-      const tipGhostVsLastHub =
-        last?.hubTip != null &&
-        clientTipRowId != null &&
-        clientTipRowId > last.hubTip;
-      const tipLagVsLastHub =
-        last?.hubTip != null &&
-        clientTipRowId != null &&
-        clientTipRowId < last.hubTip;
+      const tipGhostVsLastHub = tipAheadBy(clientTipRowId, last?.hubTip);
+      const tipLagVsLastHub = tipAheadBy(last?.hubTip, clientTipRowId);
       if (!softDue && !tipGhostVsLastHub && !tipLagVsLastHub) {
         console.info("[observer-hw] v4 catchup skipped (ready)", {
           threadId: id,
@@ -829,6 +842,7 @@ export function refreshEvoflowV4Session(
     let serverTip: number | null = null;
     let serverRows: number | null = null;
     let serverEpoch: string | null = null;
+    let subscriberCount: number | null = null;
     try {
       const resp = await evoflowFetch("/api/v4/conversation/catchup", {
         method: "POST",
@@ -866,7 +880,7 @@ export function refreshEvoflowV4Session(
           const subCountN = Number(body?.subscriberCount);
           const notified =
             Number.isFinite(notifiedN) ? notifiedN : null;
-          const subscriberCount =
+          subscriberCount =
             Number.isFinite(subCountN) ? subCountN : null;
           // recovery 广播无人收（双订阅后退订光了）→ 必须当 tip 落后处理，强制重连。
           if (
@@ -933,40 +947,52 @@ export function refreshEvoflowV4Session(
       // - changed=false 且 tip 对齐：禁止再 resync（防抖动）
       // 仅 catchup 失败时才无条件 recoverFromStaleAuthority。
       const hubTip = serverTip ?? serverRows;
-      const tipGhost =
+      // 微差（< TIP_DIVERGE_MIN）= live 采样噪声，不当 clientStale。
+      const tipGhost = tipAheadBy(clientTipRowId, hubTip);
+      const tipLag = tipAheadBy(hubTip, clientTipRowId);
+      const microTipNoise =
         clientTipRowId != null &&
         hubTip != null &&
-        clientTipRowId > hubTip;
-      const tipLag =
-        clientTipRowId != null &&
-        hubTip != null &&
-        clientTipRowId < hubTip;
+        clientTipRowId !== hubTip &&
+        !tipGhost &&
+        !tipLag;
       const totalGhost =
         clientTotalCount != null &&
         serverRows != null &&
-        clientTotalCount > serverRows;
+        clientTotalCount - serverRows >= TIP_DIVERGE_MIN;
       const epochMismatch =
         !!clientLogEpoch &&
         !!serverEpoch &&
         clientLogEpoch !== serverEpoch &&
         (tipGhost || tipLag);
+      // hub 回报 subscriberCount=0：本机 store 以为 live，hub 侧已无订户
+      // （unsubscribe 风暴后常见）→ recovery 帧没人收，必须重订。
+      const hubNoSubs =
+        subscriberCount != null && subscriberCount <= 0;
       const clientStale =
         tipGhost ||
         tipLag ||
         totalGhost ||
         epochMismatch ||
+        hubNoSubs ||
         catchupReason === "client-stale-resync" ||
         catchupReason === "client-behind-resync" ||
         catchupReason.includes("notified0");
 
-      // live-mirror / hub-subscribed 且 tip 已对齐：别再 resync。
-      // tip 仍落后（或服务端刚报 client-behind）：recovery 帧可能没落到本订阅，
-      // 必须 recoverFromStaleAuthority 重拉。
+      // live-mirror / hub-subscribed：tip 对齐或仅微差噪声 → 别 resync（防打飞直播订阅）。
+      // tip 真落后/幽灵（≥TIP_DIVERGE_MIN）或 notified0：才 recoverFromStaleAuthority。
       if (catchupOk && !clientStale) {
         if (catchupChanged) {
           console.info("[observer-hw] v4 skip resync (catchup already recovered)", {
             threadId: id,
             reason: catchupReason || "rehydrated",
+          });
+        } else if (microTipNoise) {
+          console.info("[observer-hw] v4 skip resync (micro tip noise)", {
+            threadId: id,
+            clientTipRowId,
+            hubTip,
+            reason: catchupReason || "ready-soft",
           });
         }
         return;
@@ -975,7 +1001,8 @@ export function refreshEvoflowV4Session(
         catchupOk &&
         (catchupReason === "live-mirror" || catchupReason === "hub-subscribed") &&
         !tipLag &&
-        !tipGhost
+        !tipGhost &&
+        !hubNoSubs
       ) {
         return;
       }
@@ -1234,15 +1261,25 @@ export function V4StreamRowsBridge(props: {
     const liveSubscribed =
       st.status === "live" && Boolean(st.subscriptionId);
     // live+订阅仍可能 frames 丢了（WIRE_WITHOUT_V4_TIP：AG-UI 在跑、v4 行不涨）。
-    // 仍跑 soft catchup；服务端 live-mirror 下若 tip 落后会 client-behind-resync。
+    // 现场 09:37：sub active、frames up，但 hub tip=1 / FE=2155 / subscriberCount=0；
+    // 旧逻辑「无 tipLag 就 skip」在 catchup 从未跑过（hub=∅）时永久跳过对账。
     if (liveSubscribed) {
       const win = st.snapshot?.rows?.window ?? [];
       const tipN = Number(win.length ? win[win.length - 1]?.rowId : 0);
       const localTip = Number.isFinite(tipN) && tipN > 0 ? tipN : null;
-      const lastHub = _catchupStableAt.get(String(sessionId))?.hubTip ?? null;
-      const tipLag =
-        localTip != null && lastHub != null && localTip < lastHub;
-      if (!tipLag) {
+      const lastCatchup = _catchupStableAt.get(String(sessionId));
+      const lastHub = lastCatchup?.hubTip ?? null;
+      const tipLag = tipAheadBy(lastHub, localTip);
+      const tipGhost = tipAheadBy(localTip, lastHub);
+      const neverCaughtUp = !lastCatchup;
+      const hubSubsZero =
+        lastCatchup?.subscriberCount != null &&
+        lastCatchup.subscriberCount <= 0;
+      const notified0 =
+        lastCatchup?.notified != null && lastCatchup.notified <= 0;
+      const mustReconcile =
+        tipLag || tipGhost || neverCaughtUp || hubSubsZero || notified0;
+      if (!mustReconcile) {
         logV4Life({
           event: "switch_back_catchup_skip",
           threadId: sessionId,
@@ -1257,10 +1294,24 @@ export function V4StreamRowsBridge(props: {
         return;
       }
       logV4Life({
-        event: "switch_back_catchup_tip_lag",
+        event: "switch_back_catchup_force",
         threadId: sessionId,
-        zh: "切回会话：live 订阅但本机 tip 落后上次 hub tip，强制 soft catchup。",
-        detail: { localTip, lastHub, rowCount, subscriptionId: st.subscriptionId },
+        zh: tipGhost
+          ? "切回会话：本机 tip 高于 hub（幽灵膨胀），强制 soft catchup。"
+          : neverCaughtUp
+            ? "切回会话：从未 catchup 对账过，强制 soft catchup。"
+            : hubSubsZero || notified0
+              ? "切回会话：hub 订户为 0 / notified=0，强制 soft catchup 重订。"
+              : "切回会话：live 订阅但本机 tip 落后上次 hub tip，强制 soft catchup。",
+        detail: {
+          localTip,
+          lastHub,
+          rowCount,
+          subscriptionId: st.subscriptionId,
+          neverCaughtUp,
+          hubSubsZero,
+          notified0,
+        },
         skipDedupe: true,
       });
     }
@@ -1275,20 +1326,108 @@ export function V4StreamRowsBridge(props: {
         if (at < cutoff) switchBackCatchupAtRef.current.delete(k);
       }
     }
+    const lastCatchupForSettle = _catchupStableAt.get(key);
+    // tip 已分叉 / hub 无订户：不许 preferSettleOnly（否则服务端 settle-only 跳过 resync）。
+    let tipMayDiverge = !lastCatchupForSettle;
+    if (lastCatchupForSettle) {
+      const winNow = st.snapshot?.rows?.window ?? [];
+      const tipNow = Number(winNow.length ? winNow[winNow.length - 1]?.rowId : 0);
+      const localNow = Number.isFinite(tipNow) && tipNow > 0 ? tipNow : null;
+      if (
+        tipAheadBy(localNow, lastCatchupForSettle.hubTip) ||
+        tipAheadBy(lastCatchupForSettle.hubTip, localNow)
+      ) {
+        tipMayDiverge = true;
+      }
+      if (
+        lastCatchupForSettle.subscriberCount != null &&
+        lastCatchupForSettle.subscriberCount <= 0
+      ) {
+        tipMayDiverge = true;
+      }
+    }
     queueMicrotask(() =>
       refreshEvoflowV4Session(key, {
         softIntervalMs: 2_800,
-        // 客户端已有行：只 settle，禁止服务端 wipe→recovery 整窗闪。
-        preferSettleOnly: true,
+        preferSettleOnly: !tipMayDiverge,
       }),
     );
     logV4Life({
       event: "switch_back_catchup",
       threadId: sessionId,
-      zh: "切回会话：缓存快照可能已冻结（非 live），settle-only catchup 校准（不 wipe）。",
-      detail: { rowCount, storeStatus: st.status, preferSettleOnly: true },
+      zh: tipMayDiverge
+        ? "切回会话：tip/订户可能分叉，catchup 对账（允许 client-stale/behind recovery）。"
+        : "切回会话：缓存快照可能已冻结（非 live），settle-only catchup 校准（不 wipe）。",
+      detail: {
+        rowCount,
+        storeStatus: st.status,
+        preferSettleOnly: !tipMayDiverge,
+      },
       skipDedupe: true,
     });
+  }, [foreground, enabled, sessionId, lease, layer]);
+
+  // AG-UI 在跑但 V4 帧/对账静默：每 ~4s 强制 soft catchup（不 preferSettleOnly）。
+  // 现场：乐观泡「工作中」+ streamMax=∅ + hub 订户 0，切回 skip 把恢复堵死。
+  useEffect(() => {
+    if (!foreground || !enabled || !sessionId) return;
+    const tid = String(sessionId);
+    let cancelled = false;
+    const tick = () => {
+      if (cancelled) return;
+      try {
+        const storeForWatch =
+          (lease && lease.sessionId === sessionId ? lease.store : null) ||
+          layer.peekStore(sessionId);
+        if (!storeForWatch) return;
+        const st = storeForWatch.getState();
+        if (st.status !== "live" || !st.subscriptionId) return;
+        const sessionKey = _pinSessionKeyByThread.get(tid) || tid;
+        const rt = getSessionRuntime(sessionKey);
+        const executing =
+          getV4TimelineBusy(sessionKey) ||
+          isSessionExecuting(sessionKey) ||
+          isTurnBusy(rt) ||
+          isLivePostStreamOpen(rt);
+        const win = st.snapshot?.rows?.window ?? [];
+        const hasLiveRow = win.some((r) => {
+          const state = String((r as { state?: string }).state || "");
+          const status = String((r as { status?: string }).status || "");
+          return (
+            state === "streaming" ||
+            state.startsWith("running") ||
+            status === "running" ||
+            status === "executing"
+          );
+        });
+        const last = _catchupStableAt.get(tid);
+        const hubSubsZero =
+          last?.subscriberCount != null && last.subscriberCount <= 0;
+        const neverCaughtUp = !last;
+        const tipN = Number(win.length ? win[win.length - 1]?.rowId : 0);
+        const localTip = Number.isFinite(tipN) && tipN > 0 ? tipN : null;
+        const tipGhost = tipAheadBy(localTip, last?.hubTip);
+        const tipLag = tipAheadBy(last?.hubTip, localTip);
+        // 健康：有直播行且 hub 有订户、无明显 tip 分叉 → 不打扰。
+        if (hasLiveRow && !hubSubsZero && !tipGhost && !tipLag) return;
+        // 冷闲且已对账过 → 不打扰。
+        if (!executing && !hubSubsZero && !neverCaughtUp && !tipGhost && !tipLag) {
+          return;
+        }
+        refreshEvoflowV4Session(tid, {
+          softIntervalMs: 3_500,
+          preferSettleOnly: false,
+        });
+      } catch {
+        /* best effort */
+      }
+    };
+    const id = window.setInterval(tick, 4_000);
+    queueMicrotask(tick);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+    };
   }, [foreground, enabled, sessionId, lease, layer]);
 
   // sessionId 已变但 effect 尚未提交时，绝不能读上一会话的 store（会 ready 错配 → 误 hold 老面板）。

@@ -1194,23 +1194,25 @@ async def check_live_run_completed(request: Request, session_key: str) -> dict[s
     attempting to resume a dead stream.
     """
     key = _require_session_access(request, session_key)
-    from evoflow.persistence.live_run_repositories import get_live_run_snapshot
 
     key = session_key.strip()
     if not key:
         raise HTTPException(status_code=422, detail="session_key required")
 
-    snapshot = await asyncio.to_thread(get_live_run_snapshot, key)
-    if not snapshot:
-        return {"completed": False, "status": None, "runId": None}
+    # 【self-evolution-bot · 2026-11-22 · 第120轮 · 模型:deepseek-v4.1-flash-1017】
+    # 改了什么：改用 `snapshot_completed_state()`，判据从「只看 status 前缀」扩到
+    # 「前缀 OR 会话终态且 run_id 不对齐」，与 sweep 第二路逐字一致。
+    # 为什么：原判据对「进程被杀/窗口关闭留下的 running 行」永远回 completed=false，
+    # 前端 `install-visibility-reattach.ts:53-87` 于是走 stale-run-refresh 干等着，
+    # 本机 sweep interval=600s → 一个早已死掉的回合最长被认成还在跑 10 分钟。
+    from evoflow.persistence.live_run_repositories import snapshot_completed_state
 
-    status = str(snapshot.get("status") or "").strip().lower()
-    completed = status.startswith("completed_")
-
+    result = await asyncio.to_thread(snapshot_completed_state, key)
     return {
-        "completed": completed,
-        "status": status,
-        "runId": snapshot.get("runId"),
+        "completed": bool(result.get("completed")),
+        "status": result.get("status"),
+        "runId": result.get("runId"),
+        "reason": result.get("reason"),
     }
 
 
