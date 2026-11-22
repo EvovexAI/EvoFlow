@@ -42,6 +42,27 @@ describe('parsePlatformUiFeedback', () => {
     expect(ui?.title).toContain('待办事项')
   })
 
+  it('does not invent「ui操作成功」for ui.panel / ui.show', () => {
+    expect(
+      parsePlatformUiFeedback(
+        JSON.stringify({
+          ok: true,
+          action: 'ui.panel',
+          title: '查看主界面字号',
+        }),
+      ),
+    ).toBeNull()
+    expect(
+      parsePlatformUiFeedback(
+        JSON.stringify({
+          ok: true,
+          action: 'ui.show',
+          kind: 'employeeProcess',
+        }),
+      ),
+    ).toBeNull()
+  })
+
   it('skips preview / confirm; list reads give clickable card without auto-open', () => {
     const preview = JSON.stringify({
       ok: true,

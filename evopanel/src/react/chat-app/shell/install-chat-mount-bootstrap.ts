@@ -154,7 +154,13 @@ export function runChatMountBootstrapEffect(ctx: RunChatMountBootstrapEffectCtx)
             } catch (err) {
               console.warn(`[cua-glow] user-stop failed: ${String(err?.message || err)}`)
             } finally {
-              // 无论停止是否成功，指示器必须立刻消失（用户点了就得有反馈）。
+              // 无论停止是否成功，指示器必须立刻消失（用户点了 / 按了 ESC 就得有反馈）。
+              try {
+                const overlay = await import('../../../lib/cua-glow-overlay.js')
+                await overlay.hideCuaGlowOverlayForced?.()
+              } catch {
+                /* ignore */
+              }
               const mod = await import('../../../lib/cua-glow-poll.js').catch(() => null)
               await mod?.clearCuaGlowStatusRemote?.()
             }

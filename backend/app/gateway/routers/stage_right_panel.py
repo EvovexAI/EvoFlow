@@ -159,6 +159,13 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "keysRepairable": keys_repairable,
         "rev": int(payload.get("rev") or 0),
         "reportedAt": str(payload.get("reportedAt") or "") or None,
+        # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：透传 writerPid（写这份文件的进程号）。
+        # 为什么：``_clean_payload`` 是**白名单式重建**，不在这里列出的字段一律消失；
+        #   我上一版只在 ``_write_state_file`` 里塞 writerPid，读侧却被这里洗掉 →
+        #   ``_writer_process_gone`` 恒拿到 0，改动等于死代码（第95轮同型坑）。
+        # 判据：落盘后 ``_read_state_file()`` 必须能拿到 writerPid。
+        "writerPid": int(payload.get("writerPid") or 0) or None,
     }
 
 
@@ -210,10 +217,77 @@ def _parse_reported_at(snap: dict[str, Any]):
         return None
 
 
-def _older_than_process_start(snap: dict[str, Any]) -> bool:
-    """``reportedAt`` 是否早于**本进程**启动时刻（跨进程残留的硬判据）。
+def _pid_alive(pid: int) -> bool:
+    """该进程还在不在（跨进程残留判据用；不引第三方依赖）。
 
-    用进程启动时刻做边界，而不是猜阈值：重启后盘上那份必然是上一个进程写的。
+    【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    """
+    if pid <= 0:
+        return False
+    if pid == os.getpid():
+        return True
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            k32 = ctypes.windll.kernel32
+            k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+            k32.OpenProcess.restype = wintypes.HANDLE
+            k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+            k32.GetExitCodeProcess.restype = wintypes.BOOL
+            k32.CloseHandle.argtypes = [wintypes.HANDLE]
+            # PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            handle = k32.OpenProcess(0x1000, False, int(pid))
+            if not handle:
+                return False
+            try:
+                code = wintypes.DWORD(0)
+                if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                    return False
+                return code.value == 259  # STILL_ACTIVE
+            finally:
+                k32.CloseHandle(handle)
+        except Exception:  # noqa: BLE001 - 判不了就当作不知道
+            return True
+    try:
+        os.kill(pid, 0)
+        return True
+    except OSError:
+        return False
+
+
+def _writer_process_gone(snap: dict[str, Any]) -> bool:
+    """这份快照是否由**一个已经不在的进程**写下的（跨进程残留的精确判据）。
+
+    【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    改了什么：取代原来「``reportedAt`` 早于本进程启动」这条判据。
+    为什么（现网实证）：那条判据在两个进程的架构下**语义就是错的** ——
+      落盘文件由 **gateway** 进程写，读的人却是 **langgraph 工具进程**；
+      只要读侧进程比写侧晚起一分钟，前者的新鲜上报就会被判成「上一个进程的残留」。
+      实测：``reportedAt=08:52:43Z``、网关 08:28 启动、前端一直在 400ms 节流上报，
+      回执却写「早于本进程启动」—— 真正原因是 ``psutil`` 没装、兜底取了本模块
+      **懒加载**时刻（09:01），比上报晚 9 分钟。
+      正确判据只能是「写这份文件的进程还在不在」，与谁在读无关。
+    判据：文件里带 ``writerPid`` 且该 pid 已消失 → 残留；pid 还在 → 不是残留。
+      老格式文件没有 ``writerPid`` 时退回进程启动比较（只影响重启后首次上报前的瞬间）。
+    """
+    pid = snap.get("writerPid")
+    try:
+        writer_pid = int(pid) if pid is not None else 0
+    except (TypeError, ValueError):
+        writer_pid = 0
+    if writer_pid > 0:
+        return not _pid_alive(writer_pid)
+    return _older_than_process_start(snap)
+
+
+def _older_than_process_start(snap: dict[str, Any]) -> bool:
+    """``reportedAt`` 是否早于**本进程**启动时刻（老格式文件的兜底判据）。
+
+    【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    注意：读侧与写侧是两个进程时这条**不可靠**（见 ``_writer_process_gone``），
+    只保留给没有 ``writerPid`` 的老格式落盘文件兜底。
     """
     stamp = _parse_reported_at(snap)
     if stamp is None:
@@ -241,11 +315,67 @@ def _process_start_time():
     return _PROCESS_START
 
 
+def _win_process_create_epoch() -> float | None:
+    """Windows：用 ctypes 直接问内核要**本进程创建时刻**（epoch 秒）。
+
+    【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    为什么不用 psutil：``psutil`` 不是本仓依赖（``backend/pyproject.toml`` 与打包
+    产物里都没有），打包形态下必然 ImportError；此前只能回落到模块导入时刻，
+    而本模块在 langgraph 工具进程里是**懒加载**的 —— 兜底值就成了「首次 import
+    时刻」，晚于真正的进程启动，于是把「本进程启动后刚上报的新鲜快照」误判成
+    「上一个进程的落盘残留」（现网症状：``ageSeconds=21`` 却写「早于本进程启动」）。
+    判据：返回值必须与 PowerShell ``(Get-Process -Id $pid).StartTime`` 对齐（误差 <2s）。
+
+    注意 ``argtypes`` 必须声明：不声明时 64 位 HANDLE 会被 ctypes 截成 32 位，
+    ``GetProcessTimes`` 直接返回 0（我第一版就栽在这，拿到 epoch=-11644473600）。
+    """
+    if os.name != "nt":
+        return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        class _FileTime(ctypes.Structure):
+            _fields_ = [("lo", wintypes.DWORD), ("hi", wintypes.DWORD)]
+
+        class _ProcessTimes(ctypes.Structure):
+            _fields_ = [
+                ("create", _FileTime),
+                ("exit", _FileTime),
+                ("kernel", _FileTime),
+                ("user", _FileTime),
+            ]
+
+        k32 = ctypes.windll.kernel32
+        k32.GetProcessTimes.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
+            ctypes.POINTER(_FileTime),
+        ]
+        k32.GetProcessTimes.restype = wintypes.BOOL
+        times = _ProcessTimes()
+        if not k32.GetProcessTimes(
+            wintypes.HANDLE(k32.GetCurrentProcess()),
+            ctypes.byref(times.create),
+            ctypes.byref(times.exit),
+            ctypes.byref(times.kernel),
+            ctypes.byref(times.user),
+        ):
+            return None
+        # FILETIME = 100ns 单位，起点 1601-01-01；换算到 Unix epoch。
+        ticks = (times.create.hi << 32) | times.create.lo
+        return ticks / 10_000_000 - 11_644_473_600
+    except Exception:  # noqa: BLE001 - 拿不到就走下一档兜底
+        return None
+
+
 def _process_start_epoch() -> float:
     """本进程启动的 epoch 秒。
 
-    Windows 用 ``psutil.Process().create_time()``；拿不到时回落到
-    模块导入时刻（进程级近似，仍能挡住"上一个进程的落盘"）。
+    三档：``psutil``（若装了）→ Windows ctypes 内核取真值 →
+    模块导入时刻（最后兜底，进程级近似，仍能挡住"上一个进程的落盘"）。
 
     【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
     改了什么：删掉本文件里**重复定义的第二份**（此前 228 行与 242 行各一份，
@@ -254,12 +384,20 @@ def _process_start_epoch() -> float:
     同一文件里两份同名实现，下一个人改了一份会以为生效了，实际被后一份盖掉。
     判据：`rg -c "^def _process_start_epoch" = 1`。
     """
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    # 改了什么：psutil 之后补一档 Windows ctypes 内核取真启动时刻，再才轮到导入时刻。
+    # 为什么：psutil 不是本仓依赖（现网实测 ModuleNotFoundError），于是恒走导入时刻兜底，
+    #   而本模块在工具进程里懒加载 → 误判「新鲜快照来自上一个进程」（ageSeconds 与文案打架）。
     try:
         import psutil  # type: ignore
 
         return float(psutil.Process().create_time())
     except Exception:  # noqa: BLE001
-        return _MODULE_IMPORT_EPOCH
+        pass
+    real = _win_process_create_epoch()
+    if real is not None:
+        return real
+    return _MODULE_IMPORT_EPOCH
 
 
 def _read_state_file() -> dict[str, Any] | None:
@@ -283,6 +421,13 @@ def store_right_stage_state(payload: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("right stage state must be an object")
     clean = _clean_payload(payload)
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    # 改了什么：每次保存都盖章 ``writerPid`` = 写这份快照的进程号。
+    # 为什么：判「这份快照是不是上个进程的残留」只能看**写的人还在不在**；
+    #   网关写、工具进程读，用「读侧启动时刻」当边界会冤枉新鲜上报（现网实测）。
+    # 判据：落盘后 ``_read_state_file()`` 拿到的 writerPid == 当前进程 pid；
+    #   把它换成已死 pid 时 ``_writer_process_gone()`` 必须变 True。
+    clean = {**clean, "writerPid": os.getpid()}
     with _STATE_LOCK:
         _STATE.clear()
         _STATE.update(clean)
@@ -334,17 +479,21 @@ def read_right_stage_state() -> dict[str, Any]:
     #   ``2026-11-20T17:03:48Z`` —— 本地 **01:03:48**，上一个进程 7 小时前写下的盘。
     #   我把这份陈旧快照当成了"用户此刻右栏有 7 个签"，随后 ui.show 看到只有 1 个签，
     #   就误报了一整轮"标签莫名消失"。**known=true 只说明"有人上报过"，不说明"现在是这样"。**
-    # 判据：读自落盘快照且 reportedAt 早于本进程启动 → stale=True；
-    #   超过 STALE_AFTER_SECONDS（无论来源）也置 stale。不猜阈值定"真假"，
-    #   用「进程启动时刻」这条硬边界 —— 跨进程重启后盘上那份必然是上一个进程的。
+    # 判据：写这份快照的那个进程已经不在了 → stale=True（精确、与谁在读无关）；
+    #   超过 STALE_AFTER_SECONDS（无论来源）也置 stale。
+    # 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+    #   更正上一轮的判据：原来用「reportedAt 早于本进程启动」判残留，是错的 ——
+    #   网关写、工具进程读，读侧晚起一分钟就冤枉一次新鲜上报（现网实测 08:52:43Z 被
+    #   写成「早于本进程启动」）。改为「写者 pid 是否还在」（见 ``_writer_process_gone``）。
     age = _snapshot_age_seconds(snap)
+    writer_gone = _writer_process_gone(snap)
     if age is not None:
         snap["ageSeconds"] = int(age)
-        if age > _STALE_AFTER_SECONDS or _older_than_process_start(snap):
+        if age > _STALE_AFTER_SECONDS or writer_gone:
             snap["stale"] = True
             snap["staleHint"] = (
                 f"这份快照是 {int(age)} 秒前上报的"
-                + ("，且早于本进程启动（多半来自上一个进程的落盘残留）。" if _older_than_process_start(snap) else "。")
+                + ("，且写它的进程已经不在了（多半来自上一个进程的落盘残留）。" if writer_gone else "。")
                 + "它只代表当时的状态，不代表用户此刻的右栏；"
                 "需要实时值时让前端重新上报，或直接以 ui.show/activate 之后的回执为准。"
             )

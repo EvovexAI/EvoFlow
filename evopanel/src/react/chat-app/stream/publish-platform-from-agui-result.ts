@@ -177,10 +177,14 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     latestPlatformRunEntryId(feedback.entries),
   )
   ctx.publishPlatformEntries(feedback.entries, latestPlatformRunEntryId(feedback.entries))
-  ctx.toast(
-    feedback.ui.title,
-    feedback.ui.kind === 'warning' ? 'warning' : feedback.ui.kind === 'error' ? 'error' : 'success',
-  )
+  // ui.* 界面操控：不弹「操作成功」类 toast（烦且无信息量）
+  const feedbackAction = String(feedback.ui.action || '').trim().toLowerCase()
+  if (!feedbackAction.startsWith('ui.')) {
+    ctx.toast(
+      feedback.ui.title,
+      feedback.ui.kind === 'warning' ? 'warning' : feedback.ui.kind === 'error' ? 'error' : 'success',
+    )
+  }
   // workflow.run / resume / recover：结果一到就拉开右栏工作流，不必再调 ui.show
   maybeAutoOpenPlatformProgress(feedback.ui)
   return true

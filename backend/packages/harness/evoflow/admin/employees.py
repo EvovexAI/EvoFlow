@@ -2676,6 +2676,9 @@ def chat_send(
     tid = str(task_id or "").strip()
     raw_sk = str(session_key or "").strip()
     ignored_caller_session = False
+    # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    # 本次自动选会话时，被「目标正在跑」规则避开的那个 busy 会话键（没避开就是空）。
+    busy_avoided_sk = ""
     sk = raw_sk
     if sk and not _employee_owns_session_key(sk, code):
         # Do not raise: platform always setdefaults the ambient chat key.
@@ -2689,34 +2692,54 @@ def chat_send(
     elif tid:
         sk = proactive_task_session_key(code, tid)
     else:
-        # Prefer a recent chat / running session; else mint a fresh chat episode.
+        # 自动选会话：挑一条**空闲**的 chat 继聊；目标正在跑就另开一条，绝不插进去。
+        # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：旧逻辑 `hit = running or chat_hit` **优先挑 run_status=running 的会话**，
+        #   于是「派活给正在干活的员工」必然把新消息插进对方那个正在跑的回合。
+        # 为什么（用户 2026-11-22 当场点破，数据同日取证）：
+        #   · 我派自己一句「调一次 search_code_index」，回执 session_key 是
+        #     `proactive:self-evolution-bot:chat:2026-11-19T16-15-39.290Z` —— 正是我
+        #     自己当前这条对话（sessions.status 同 key、thread 8e4715ba、run_status=running）；
+        #   · `evoflow_chat_messages` 序号自证：seq14790 我调 chat_send → seq14792 那句被派
+        #     的话作为 **user** 落进同一 thread → seq14793 同一串里我的 search_code_index；
+        #   · `evoflow_chat_live_runs` 该会话只有 **一行 running / 一个 partial_text 字段**
+        #     → 两个回合共用一条流，后来的覆盖先来的，用户看到就是「话被截断」。
+        #   「同一员工同一时刻只有一个回合」是设计，所以正确做法不是共享流，而是**另开一条**。
+        # 判据：目标是 idle → 继聊它；目标 running/busy → 必须 mint 新 chat 会话，
+        #   并把被避开的那个键回给调用方（busy_avoided_session_key），不许静默。
+        # 边界：调用方**显式**传了 session_key（且属于该员工）时照旧尊重 —— 那是人的明示意图
+        #   （例如继续某条指定对话），不在这里替人做主。
         convs = list_employee_conversation_sessions(code, limit=40)
-        running = next(
-            (
-                c
-                for c in convs
-                if str(c.get("run_status") or "").lower()
-                in {"running", "busy", "active", "in_progress"}
-                and _employee_owns_session_key(str(c.get("session_key") or ""), code)
-            ),
-            None,
-        )
-        chat_hit = next(
+        busy_keys = {
+            str(c.get("session_key") or "").strip()
+            for c in convs
+            if str(c.get("run_status") or "").lower()
+            in {"running", "busy", "active", "in_progress"}
+            and _employee_owns_session_key(str(c.get("session_key") or ""), code)
+        }
+        idle_chat = next(
             (
                 c
                 for c in convs
                 if str(c.get("kind") or "") == "chat"
                 and _employee_owns_session_key(str(c.get("session_key") or ""), code)
+                and str(c.get("session_key") or "").strip() not in busy_keys
             ),
             None,
         )
-        hit = running or chat_hit
-        if hit and hit.get("session_key"):
-            sk = str(hit["session_key"]).strip()
-            if not tid and str(hit.get("kind") or "") == "task":
-                tid = str(hit.get("task_id") or "").strip()
+        if idle_chat and idle_chat.get("session_key"):
+            sk = str(idle_chat["session_key"]).strip()
         else:
+            # 没有空闲 chat 可继聊（对方正在跑 / 一条都没有）→ 新开一条独立会话。
             sk = proactive_chat_session_key(code, utc_now_iso_z())
+        # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+        # 两种情况都要回执「避开了哪条 busy 会话」：
+        #   ① 改投另一条空闲 chat；② 新开一条。只要最终没落进 running 那条，都必须说清 ——
+        #   否则调用方会以为话进了对方正在跑的对话（第112轮「回执虚报 sk」同型）。
+        # 判据（本轮自撞）：初版只在「新开」分支写这个字段，于是「改投 idle」时回执沉默，
+        #   新补的 busy+idle 并存用例当场 KeyError —— 沉默本身就是缺陷，不是测试写错。
+        if busy_keys and sk not in busy_keys:
+            busy_avoided_sk = next(iter(sorted(busy_keys)), "")
 
     # 【self-evolution-bot · 2026-11-20 · 第100轮 · 模型:deepseek-v4.1-flash-1017】
     # 改了什么：source 不再直接当员工身份用——先试解析成 active role，解析不出来一律按平台身份 xiaomi。
@@ -2882,6 +2905,14 @@ def chat_send(
         #   为空 → 前端必须 pendingSend（保住有来有回）。
         "panel_dispatch": panel_dispatch,
     }
+    # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    # 改了什么：自动选会话时若因「目标正在跑」而另开了新会话，把被避开的键显式回给调用方。
+    # 为什么：静默换桶会让调用方以为「消息进了那条正在跑的对话」，实际进了新的一条 ——
+    #   与第112轮「回执虚报 sk」同一类缺陷（判据：回执里的 sk 必须能读到本次 user 消息）。
+    # 判据：busy_avoided_session_key 非空 → 本次是新开的会话，调用方要按新 key 去读。
+    if busy_avoided_sk:
+        out["busy_avoided_session_key"] = busy_avoided_sk
+        out["busy_avoided_reason"] = "target_session_running_new_conversation_minted"
     if panel_dispatch_detail:
         out["panel_dispatch_detail"] = panel_dispatch_detail
     if panel_handled:

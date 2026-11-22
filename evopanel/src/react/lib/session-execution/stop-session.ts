@@ -87,6 +87,33 @@ export async function stopSessionExecution(
     .then(({ stopAssistantSpeech }) => stopAssistantSpeech())
     .catch(() => {})
 
+  // 停对话必须立刻收电脑控制 UI：后端 revoke 可能稍晚；蓝光/光标不能继续骗「还在控」。
+  void (async () => {
+    try {
+      const { gatewayProxy } = await import('../../../lib/tauri-api.js')
+      await gatewayProxy('POST', '/cua/control/revoke', { session_key: sk, reason: 'user_stop' }, null, {
+        silent: true,
+        skipRetry: true,
+        skipDedup: true,
+        __probe__: true,
+      })
+    } catch {
+      /* ignore */
+    }
+    try {
+      const overlay = await import('../../../lib/cua-glow-overlay.js')
+      await overlay.hideCuaGlowOverlayForced?.()
+    } catch {
+      /* ignore */
+    }
+    try {
+      const poll = await import('../../../lib/cua-glow-poll.js')
+      await poll.clearCuaGlowStatusRemote?.()
+    } catch {
+      /* ignore */
+    }
+  })()
+
   const { api } = await import('../../../lib/tauri-api.js')
   try {
     // 本地 SSE wire abort（skipRunIdle：后端 execution/stop 统一写终态 run_status）

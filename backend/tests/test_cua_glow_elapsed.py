@@ -97,6 +97,44 @@ def test_clear_and_new_round_reset_steps_done():
     assert gs.get_cua_glow_status()["steps_done"] == 1
 
 
+def test_new_round_after_grace_expires_resets_elapsed():
+    """上一轮 grace 过期后再开电脑控制，秒表必须从 0 起，不能接着旧数。"""
+    _reset_all()
+    gs.pulse_cua_glow_start(key="c1")
+    time.sleep(0.12)
+    gs.pulse_cua_glow_end(key="c1")
+    mid = gs.get_cua_glow_status()["elapsed_ms"]
+    assert mid >= 100
+
+    # 假装 grace 已过（把截止点拨到过去），再读一次快照触发熄灭清零。
+    gs._GRACE_UNTIL_MS = gs._now_ms() - 1  # noqa: SLF001 — 测试专用拨钟
+    idle = gs.get_cua_glow_status()
+    assert idle["active"] is False
+    assert idle["elapsed_ms"] == 0, f"熄灭后时长必须归零，实测 {idle['elapsed_ms']}ms"
+
+    gs.pulse_cua_glow_start(key="c2")
+    fresh = gs.get_cua_glow_status()["elapsed_ms"]
+    assert fresh < 80, f"新一轮应接近 0，不能接着上一轮 {mid}ms，实测 {fresh}ms"
+
+
+def test_stale_active_since_after_expired_grace_does_not_continue_timer():
+    """无人轮询导致 grace 过期但锚点未清时，下一轮 start 仍须归零。"""
+    _reset_all()
+    gs.pulse_cua_glow_start(key="old")
+    time.sleep(0.10)
+    gs.pulse_cua_glow_end(key="old")
+    old = gs.get_cua_glow_status()["elapsed_ms"]
+    assert old >= 80
+
+    # 不走 get_status：直接把 grace 拨过期，模拟「没人轮询、锚点还在」。
+    gs._GRACE_UNTIL_MS = gs._now_ms() - 5_000  # noqa: SLF001
+    assert gs._ACTIVE_SINCE_MS > 0  # noqa: SLF001 — 锚点故意还挂着
+
+    gs.pulse_cua_glow_start(key="new")
+    fresh = gs.get_cua_glow_status()["elapsed_ms"]
+    assert fresh < 80, f"过期 grace 后新一轮必须归零，实测 {fresh}ms（旧轮 {old}ms）"
+
+
 def test_elapsed_is_exposed_on_the_status_payload():
     """HTTP 出口（/cua/glow-status）逐字透传快照 —— 字段必须在快照里存在。"""
     _reset_all()

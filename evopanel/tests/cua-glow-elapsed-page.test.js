@@ -95,6 +95,35 @@ describe('圆形胶囊 HUD 时长与步骤标题（页面侧）', () => {
     expect(elapsedEl.textContent).toBe('10s')
   })
 
+  it('熄灭后再起必须从 0 起，不能接着上一轮大秒数', () => {
+    window.__cuaGlowOverlay.setStep('上一轮', 5, 0, true)
+    vi.advanceTimersByTime(65000)
+    expect(elapsedEl.textContent).toBe('1:05')
+
+    // hide → setLeaving：页面秒表清掉
+    window.__cuaGlowOverlay.setLeaving()
+    expect(elapsedEl.textContent).toBe('')
+
+    // 新一轮服务端从 0 起
+    window.__cuaGlowOverlay.setStep('新一轮点击', 1, 0, true)
+    expect(elapsedEl.textContent).toBe('0s')
+    vi.advanceTimersByTime(3000)
+    expect(elapsedEl.textContent).toBe('3s')
+  })
+
+  it('同轮防回跳；停表后再起则信服务端归零', () => {
+    window.__cuaGlowOverlay.setStep('同轮', 2, 0, true)
+    vi.advanceTimersByTime(10000)
+    // 同轮 stale：base=0 应被丢掉
+    window.__cuaGlowOverlay.setStep('同轮下一步', 3, 0, true)
+    expect(elapsedEl.textContent).toBe('10s')
+
+    // 跨轮：先停再起 → 接受服务端小基数
+    window.__cuaGlowOverlay.setStep('', 0, 0, false)
+    window.__cuaGlowOverlay.setStep('下一轮', 1, 200, true)
+    expect(elapsedEl.textContent).toBe('0s')
+  })
+
   it('HUD 是圆形胶囊，透明底，保留步骤标题节点', () => {
     const html = fs.readFileSync(HTML_PATH, 'utf8')
     expect(html).toMatch(/border-radius:\s*999px/)

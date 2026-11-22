@@ -164,7 +164,51 @@ fn overlay_logical_position(app: &tauri::AppHandle) -> Result<LogicalPosition<f6
     Ok(LogicalPosition::new(x, y))
 }
 
+/// 让提示条窗口**永不成为前台窗口**。
+///
+/// 【self-evolution-bot · 2026-11-22 · 第N轮 · 模型:deepseek-v4.1-flash-1017】
+/// 病灶：CUA 的鼠标手势（`left_click_drag` 等「原始前台事件」）必须发给**当前前台
+/// 应用**，否则 node-repl-host 直接拒绝并回那句
+/// `raw foreground event for app_ref pid X was refused because the live frontmost
+/// application is pid Y. action_sent=false`。
+///
+/// 实测拿到的那句里的 pid Y 就是**面板自己**：`evoflow` 进程，窗口标题
+/// "EvoFlow Computer Use" —— 也就是本文件这个提示条。每次 `cua_glow_overlay_show`
+/// 里的 `window.show()` 都会把它推成前台（`ShowWindow(SW_SHOW)` 带激活语义），
+/// 于是紧随其后的拖拽/点击全部被判定「目标不在前台」，动作根本没发出去。
+/// 表现就是用户看到的「工具坏了、画图没反应、一直重试」。
+///
+/// 修法：抄同仓 `cua_glow_ring.rs`（原生分层环）已验证的做法 ——
+/// `WS_EX_NOACTIVATE`（点了也不激活、show 也不抢前台）+ `WS_EX_TOOLWINDOW`
+/// （不进任务栏、不参与 Alt-Tab）。设置后 `ShowWindow(SW_SHOW)` 不再激活窗口，
+/// 提示条照常可见、置顶、能收鼠标（「解除控制」按钮靠 WM_LBUTTONDOWN 即可，
+/// 不需要焦点；ESC 解除是物理键轮询，也不依赖焦点）。
+#[cfg(target_os = "windows")]
+fn apply_noactivate(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetWindowLongPtrW, SetWindowLongPtrW, GWL_EXSTYLE, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        // 建窗初期 HWND 还没推出来是正常现象；show() 之后 chrome 会再调一次。
+        return;
+    };
+    let h = HWND(hwnd.0 as *mut _);
+    unsafe {
+        let cur = GetWindowLongPtrW(h, GWL_EXSTYLE);
+        let want = cur | (WS_EX_NOACTIVATE.0 as isize) | (WS_EX_TOOLWINDOW.0 as isize);
+        if want != cur {
+            SetWindowLongPtrW(h, GWL_EXSTYLE, want);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn apply_noactivate(_window: &WebviewWindow) {}
+
 fn apply_overlay_chrome(window: &WebviewWindow) {
+    // 第一件事就是摘掉「会抢前台」的属性：它必须在任何 show/set_always_on_top 之前生效。
+    apply_noactivate(window);
     // 【self-evolution-bot · 2026-11-19 · 第68轮 · 模型:deepseek-v4.1-flash-1017】
     // 原来无条件 `set_ignore_cursor_events(true)`（整窗穿透）——「解除控制」按钮
     // 永远点不到，这是用户「不知道怎么解除控制」的直接原因之一。
@@ -251,14 +295,13 @@ fn push_overlay_step(
 /// 为什么要热区而不是整窗收事件：这块条悬在屏幕顶部居中，正压在窗口标题栏上，
 /// 而 CUA 就要往那里点；整窗收事件会把自动化自己的点击吃掉。
 ///
-/// 数值必须和 `cua-glow-overlay.html` 圆形胶囊排版对上：
-///   body 右 padding 8 + 胶囊右 padding 6 = 14（按钮右缘到窗口右缘）
-///   按钮 ≈ 4 汉字 11px + 左右 padding 20 + 边框 2 ≈ 66
-///   按钮高 ≈ 行高 11 + 上下 padding 10 + 边框 2 ≈ 24
-/// 热区只放少量余量，避免抢走 CUA 本该落到胶囊上的点击。
-const STOP_BTN_RIGHT_INSET: f64 = 14.0;
-const STOP_BTN_WIDTH: f64 = 70.0;
-const STOP_BTN_HEIGHT: f64 = 30.0;
+/// 数值对齐圆形胶囊「解除控制」按钮，并刻意放大热区：
+/// AI 光标热点与可视箭头有偏移，过紧的热区会表现为「看着点上了却没反应」。
+///   body 右 padding 8 + 胶囊右 padding 6 = 14
+///   热区宽/高比可视按钮多一圈余量。
+const STOP_BTN_RIGHT_INSET: f64 = 8.0;
+const STOP_BTN_WIDTH: f64 = 96.0;
+const STOP_BTN_HEIGHT: f64 = 40.0;
 const HIT_TEST_INTERVAL_MS: u64 = 80;
 /// 窗口不可见时的空转间隔（只读一次 is_visible，几乎无成本）。
 const HIT_TEST_IDLE_MS: u64 = 400;
@@ -319,6 +362,7 @@ static HIT_TEST_STARTED: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 /// 常驻一条线程最简单也最稳：隐藏时只是每 80ms 读一次 is_visible，开销可忽略。
 fn spawn_stop_button_hit_test_thread(app: tauri::AppHandle) {
     let mut last: Option<bool> = None;
+    let mut esc_was_down = false;
     loop {
         // 【self-evolution-bot · 2026-11-19 · 第68轮】每次现查窗口：
         // destroy_zombie_overlay 会 close()+重建，抓着旧 handle 会一直对着死窗口，
@@ -326,6 +370,7 @@ fn spawn_stop_button_hit_test_thread(app: tauri::AppHandle) {
         let window = active_overlay(&app);
         let Some(window) = window else {
             last = None;
+            esc_was_down = false;
             std::thread::sleep(Duration::from_millis(HIT_TEST_IDLE_MS));
             continue;
         };
@@ -340,12 +385,42 @@ fn spawn_stop_button_hit_test_thread(app: tauri::AppHandle) {
             let _ = window.set_ignore_cursor_events(!want_events);
             last = Some(want_events);
         }
+        // ESC 解除：提示条未聚焦，DOM keydown 收不到；在热区线程里读物理键。
+        // 边沿触发（按下瞬间一次），避免按住连发多次 revoke。
+        if visible {
+            let esc_down = esc_key_down();
+            if esc_down && !esc_was_down {
+                glow_log("user pressed Escape → stop CUA control");
+                let _ = app.emit(
+                    "cua-glow-user-stop",
+                    serde_json::json!({ "reason": "escape" }),
+                );
+                let _ = window.eval(
+                    "document.documentElement.dataset.state='leaving';window.__cuaGlowOverlay&&window.__cuaGlowOverlay.setLeaving&&window.__cuaGlowOverlay.setLeaving()",
+                );
+            }
+            esc_was_down = esc_down;
+        } else {
+            esc_was_down = false;
+        }
         std::thread::sleep(Duration::from_millis(if visible {
             HIT_TEST_INTERVAL_MS
         } else {
             HIT_TEST_IDLE_MS
         }));
     }
+}
+
+#[cfg(target_os = "windows")]
+fn esc_key_down() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_ESCAPE};
+    // 高位为 1 = 当前按下。
+    unsafe { GetAsyncKeyState(VK_ESCAPE.0 as i32) as u16 & 0x8000 != 0 }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn esc_key_down() -> bool {
+    false
 }
 
 // 【self-evolution-bot · 2026-11-19 · 第73轮 · 模型:deepseek-v4.1-flash-1017】
@@ -394,6 +469,104 @@ fn drop_overlay_window(app: &tauri::AppHandle) {
         state.active_label.clear();
     }
 }
+
+/// 用 `SW_SHOWNOACTIVATE` 显窗：可见、置顶，但**不**取得前台/焦点。
+///
+/// Tauri 的 `window.show()` 最终走 `ShowWindow(SW_SHOW)`，该标志会激活窗口；
+/// 对 CUA 提示条来说这是致命的 —— 它一被激活就成了 frontmost app，随后脚本发出的
+/// 「原始前台事件」（拖拽/点击）会被 node-repl-host 判定为「目标不在前台」而丢弃。
+/// 这里改用非激活版本，配合 `WS_EX_NOACTIVATE` 形成双保险。
+#[cfg(target_os = "windows")]
+fn show_noactivate(window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{ShowWindow, SW_SHOWNOACTIVATE};
+    if let Ok(hwnd) = window.hwnd() {
+        unsafe {
+            let _ = ShowWindow(HWND(hwnd.0 as *mut _), SW_SHOWNOACTIVATE);
+        }
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn show_noactivate(window: &WebviewWindow) {
+    let _ = window.show();
+}
+
+/// 记下「谁本来是前台」，用于提示条万一还是抢了前台时把它还回去。
+#[cfg(target_os = "windows")]
+fn foreground_window() -> windows::Win32::Foundation::HWND {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    unsafe { GetForegroundWindow() }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn foreground_window() -> isize {
+    0
+}
+
+/// 记一行「当前前台是谁」——给「动作被拒」这类问题留证据。
+///
+/// 【self-evolution-bot · 2026-11-22】
+/// node-repl-host 拒绝坐标动作时只回一句 `frontmost application is pid N`，
+/// 光凭 pid 分不清到底是**面板主窗**还是**本提示条**抢的前台，于是前面几轮
+/// 一直在猜。这里把 前台 hwnd / pid / 窗口标题 打进日志，下一次看日志就能定位：
+/// 如果 pid 是本进程且标题是 "EvoFlow Computer Use"，就是本文件这条提示条。
+#[cfg(target_os = "windows")]
+fn log_foreground(phase: &str) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetWindowThreadProcessId, GetWindowTextW,
+    };
+    unsafe {
+        let fg: HWND = GetForegroundWindow();
+        if fg.0.is_null() {
+            glow_log(&format!("{phase} foreground=<none>"));
+            return;
+        }
+        let mut pid = 0u32;
+        GetWindowThreadProcessId(fg, Some(&mut pid as *mut u32));
+        let mut buf = [0u16; 256];
+        let n = GetWindowTextW(fg, &mut buf);
+        let title = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+        glow_log(&format!(
+            "{phase} foreground hwnd={:?} pid={pid} title={title:?}",
+            fg
+        ));
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn log_foreground(_phase: &str) {}
+
+/// 若提示条把前台抢走了，**当场还给原应用**。
+///
+/// 【self-evolution-bot · 2026-11-22】
+/// `WS_EX_NOACTIVATE` 已经从根上防止了「show 即抢前台」，但 WebView2 首帧附着、
+/// tao 恢复窗口等边角路径仍可能激活一次。CUA 的坐标手势对前台极其敏感
+/// （只要 frontmost 不是目标应用，node-repl-host 就整条拒收），所以这里做最后一道兜底：
+/// 抢了就还，绝不把「用户/自动化正在操作的窗口」留在身后。
+/// 我们此刻正是前台进程，`SetForegroundWindow` 的前台锁不会挡住这次调用。
+#[cfg(target_os = "windows")]
+fn restore_foreground(prev: windows::Win32::Foundation::HWND, window: &WebviewWindow) {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, SetForegroundWindow};
+    let Ok(hwnd) = window.hwnd() else {
+        return;
+    };
+    let ours = HWND(hwnd.0 as *mut _);
+    unsafe {
+        if GetForegroundWindow() != ours {
+            return; // 没抢，什么都不用做
+        }
+        if prev.0.is_null() || prev == ours {
+            return; // 原本就没人持有前台，还给它反而会把桌面弄成无焦点
+        }
+        let _ = SetForegroundWindow(prev);
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn restore_foreground(_prev: isize, _window: &WebviewWindow) {}
 
 /// ZCode showWindowOnTop: Windows 隐藏透明窗后可能丢掉 TOPMOST；每次 show 后强制拉回。
 #[cfg(target_os = "windows")]
@@ -466,6 +639,11 @@ fn wait_overlay_hwnd(window: &WebviewWindow, timeout: Duration) -> bool {
         while std::time::Instant::now() < deadline {
             match window.hwnd() {
                 Ok(h) if unsafe { IsWindow(Some(h)).as_bool() } => {
+                    // 【self-evolution-bot · 2026-11-22】句柄一出现就**立刻**摘掉激活属性，
+                    // 不等函数返回：builder 的 `.visible(true)` 会在建窗时就 show 一次，
+                    // 这一瞬间足以把提示条推成前台，而前台一旦被抢，紧随其后的
+                    // 拖拽/点击就会被 node-repl-host 判成「目标不在前台」整批丢弃。
+                    apply_noactivate(window);
                     glow_log(&format!("hwnd ready {h:?}"));
                     return true;
                 }
@@ -640,6 +818,10 @@ fn build_glow_window(
     //     而同进程另一类窗口 0 次 —— 说明句柄确实需要时间来，只是「等到」和
     //     「等不到」要分开处理：等到了就正常 show，等不到照样试 show（不销毁）。
     let ready = wait_overlay_hwnd(&window, Duration::from_secs(5));
+    // 【self-evolution-bot · 2026-11-22】句柄一就绪就立刻摘掉激活属性：
+    // builder 里的 `.visible(true)` 自己就会走一次 ShowWindow，抢在第一次 show 之前
+    // 把 `WS_EX_NOACTIVATE` 钉上，才能保证提示条从出生起就不是前台窗口。
+    apply_noactivate(&window);
     glow_log(&format!(
         "build done label={} hwnd_ready={}",
         window.label(),
@@ -758,13 +940,49 @@ pub async fn cua_glow_overlay_show(
     // 为什么：它内部用 `window.hwnd()` 调 `SetWindowDisplayAffinity`，而在
     // `show()` 之前 WebView2 尚未附着、HWND 还不存在（实测 `hwnd=<the underlying
     // handle is not available>`）。先 show 再 chrome，HWND 必已就绪。
-    window
-        .show()
-        .map_err(|e| format!("show CUA operation indicator failed: {e}"))?;
+    //
+    // 【self-evolution-bot · 2026-11-22】补一条**前置**：`WS_EX_NOACTIVATE` 必须
+    // 在任何一次 show 之前钉上，否则 `show()` 已经把前台抢走了，事后再摘属性也
+    // 追不回来（前台不会自己还给 Paint）。这就是「拖拽被拒、提示条顶在最前」的病根。
+    apply_noactivate(&window);
+    // 【self-evolution-bot · 2026-11-22】记下此刻真正的使用者（比如正在被自动化的
+    // 画图），show 完如果提示条把它顶掉了就还回去。见 `restore_foreground`。
+    let prev_fg = foreground_window();
+    // 【self-evolution-bot · 2026-11-22 · 第N轮】改了什么：**只在新建窗时调 `show()`**。
+    //
+    // 为什么 —— 这里才是「前台被反复抢走」的真正放大器：
+    //   前端 `cua-glow-poll.js` 在 CUA 活跃期间每 500ms 轮询一次
+    //   `/cua/glow-status`，每次都走到本命令。原来无论窗是不是刚建好都调
+    //   `window.show()`，而 Tauri 的 `show()` 最终是 `ShowWindow(SW_SHOW)` ——
+    //   **带激活语义**，对已存在的窗口同样会把它推到前台。
+    //   于是形成 500ms 一次的心跳式抢前台：自动化刚把画图拉到前台、还没发完
+    //   一次 `left_click_drag`，提示条又顶上来 ⇒
+    //   `raw foreground event for app_ref pid X was refused because the live
+    //    frontmost application is pid <面板>. action_sent=false.`
+    //   表现就是用户说的「工具坏了、点了没反应」。
+    //
+    // 只有**新建**窗口这一次需要 `show()` 把 HWND 推出来（第78轮已证真：
+    // 建窗不 visible 时 tao 不产出句柄）。复用路径改用 `SW_SHOWNOACTIVATE`
+    // 复显即可 —— 可见、置顶、不抢焦点。
+    if created {
+        window
+            .show()
+            .map_err(|e| format!("show CUA operation indicator failed: {e}"))?;
+    }
     apply_overlay_chrome(&window);
-    let _ = window.eval(
-        "document.documentElement.dataset.state='active';window.__cuaGlowOverlay&&window.__cuaGlowOverlay.setActive&&window.__cuaGlowOverlay.setActive()",
-    );
+    // show 之后 tao/WebView2 可能重置 exstyle；再钉一次并用 SW_SHOWNOACTIVATE 复显。
+    apply_noactivate(&window);
+    show_noactivate(&window);
+    restore_foreground(prev_fg, &window);
+    log_foreground("overlay-show");
+    // 入场动画只在新建窗时播一次。复用已亮窗口再 setActive = 整条每秒闪一下。
+    if created {
+        let _ = window.eval(
+            "document.documentElement.dataset.state='active';window.__cuaGlowOverlay&&window.__cuaGlowOverlay.setActive&&window.__cuaGlowOverlay.setActive()",
+        );
+    } else {
+        let _ = window.eval("document.documentElement.dataset.state='active'");
+    }
     push_overlay_step(&window, &step_text, done, elapsed, is_running);
     push_overlay_stop_handler(&window);
     // 【self-evolution-bot · 2026-11-19 · 第68轮】只拉起一条常驻热区轮询；
@@ -803,7 +1021,8 @@ pub async fn cua_glow_overlay_show(
             log_overlay_state(&w, "after-show");
             if !visible {
                 glow_log("after-show NOT visible — retry show+topmost");
-                let _ = w.show();
+                apply_noactivate(&w);
+                show_noactivate(&w);
                 let _ = w.set_always_on_top(true);
                 force_topmost(&w);
                 log_overlay_state(&w, "after-show-retry");

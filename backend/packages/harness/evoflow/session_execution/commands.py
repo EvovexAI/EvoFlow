@@ -39,6 +39,30 @@ def _unregister_stream_proxy(thread_id: str | None) -> None:
         logger.debug("unregister stream proxy on stop failed thread=%s", tid, exc_info=True)
 
 
+def _release_cua_control_on_user_stop(session_key: str) -> None:
+    """用户停对话时立刻收回电脑控制权并熄灭提示条。
+
+    否则：对话已停，顶栏蓝光 / 自定义光标 / 30s grace 还在，用户会感觉「AI 还在控电脑」。
+    只动本会话（或状态里还没记上 session_key 的亮灯）；别的会话正在控桌面时不误伤。
+    """
+    sk = str(session_key or "").strip()
+    if not sk:
+        return
+    try:
+        from evoflow.collab.cua_glow_state import get_cua_glow_status, revoke_cua_control
+
+        st = get_cua_glow_status()
+        if not st.get("active"):
+            return
+        glow_sk = str(st.get("session_key") or "").strip()
+        if glow_sk and glow_sk != sk:
+            return
+        revoke_cua_control(session_key=sk, reason="user_stop")
+        logger.info("[STOP-TRACE] cua-control released session=%s glow_sk=%s", sk, glow_sk or "-")
+    except Exception:
+        logger.debug("release cua on user stop failed session=%s", sk, exc_info=True)
+
+
 def _seal_v4_projection_on_user_stop(thread_id: str | None) -> None:
     """用户点停：先封 V4 投影，再掐 stream proxy（见 mirror_seal_user_stop）。"""
     tid = str(thread_id or "").strip()
@@ -311,6 +335,9 @@ async def stop_session_execution(
             cancelled_run_ids=cancelled,
             session=row,
         )
+
+    # 对话停了 ≠ 电脑控制自动停：必须显式收回，否则 grace/光标还挂着。
+    _release_cua_control_on_user_stop(key)
 
     result = await mark_session_idle(key, reason=stop_reason)
     result.cancelled_run_ids = cancelled

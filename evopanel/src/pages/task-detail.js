@@ -85,15 +85,14 @@ function debugTaskDetailEnabled() {
   }
 }
 
-/** 员工任务会话 key：``proactive:{code}:task:{taskId}`` */
-function proactiveTaskSessionKey(agentCode, taskId) {
-  const code = String(agentCode || '').trim()
-  const tid = String(taskId || '')
-    .trim()
-    .replace(/[:/\\]/g, '-')
-  if (!code || !tid) return ''
-  return `proactive:${code}:task:${tid}`
-}
+// 员工任务会话 key：「对话」面板与「续聊」按钮必须读同一条会话
+// 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+// 改了什么：key 拼装与选源判断统一挪到 src/lib/task-conversation-source.js，页面 import 使用。
+// 为什么：原来页面内联实现，单测只能测副本 → 接线没通也全绿。
+import {
+  proactiveTaskSessionKey,
+  pickTaskConversationSource,
+} from '../lib/task-conversation-source.js'
 
 /** 跳转主聊天并打开指定员工任务会话 */
 function openProactiveTaskChat(agentCode, taskId) {
@@ -262,6 +261,11 @@ export function createTaskDetailView(taskId, opts = {}) {
     facts: [],
     agents: [],
     conversationMessages: [],
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 「对话」面板选源结果：错配时换空态说法、同员工普通会话时标来源。
+    // 为什么：状态字段漏声明 → 换任务时残留上一次的值（首次读取时是 undefined），界面会说错话。
+    conversationMismatchSessionKey: '',
+    conversationSourceHint: '',
     eventSubscription: null,
     outputRefreshInterval: null,
     executionHistory: [],
@@ -1734,18 +1738,86 @@ async function loadTaskConversation(page, state) {
   try {
     // 从 Gateway 应用层 transcript 获取对话记录
     const task = state.task || await api.getTask(state.taskId)
-    const threadId = task?.thread_id || state.currentThreadId
-    
-    if (!threadId) {
+    const assignedTo = String(task?.assigned_to || '').trim()
+    const threadId = String(task?.thread_id || state.currentThreadId || '').trim()
+
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：先读「该任务的执行会话」`proactive:{执行人}:task:{taskId}`，拿到非空记录就用它；
+    //   只有执行会话没有任何消息（或拿不到）才回退到 task.thread_id。
+    // 为什么（用户 2026-11-22「task 那个老是误导别人」+ 现网数据复算）：
+    //   `chat_sessions.py::_bind_task_thread` 只在 task.thread_id 为空时才写，
+    //   而「派生任务时先落到发起人 chat 会话」会把**发起对话**的 thread 写进去 → 之后
+    //   真正的执行会话（task 桶）反而写不进去。于是任务详情按 thread 读，读到的是
+    //   另一条对话。实测 40 条带 thread 的任务里 16 条如此（task 2611221757_60a8：
+    //   thread=8bcaa342 里是 case-fullstack-dev 的 30 条 chat 记录，
+    //   真执行记录在 task 桶 3807f23a 的 5 条里）。
+    // 判据：执行会话有消息 → 用它；否则回退，且回退结果必须属于**同一执行人**，
+    //   别人的对话一律不展示（那正是「误导」——把别的员工的对话挂在这个任务名下）。
+    // 边界：`agent:main` 主会话属合理展示（主智能体代跑的任务原本就落在主对话）。
+    const taskSessionKey =
+      assignedTo && state.taskId ? proactiveTaskSessionKey(assignedTo, state.taskId) : ''
+    let taskSessionMessages = []
+    if (taskSessionKey) {
+      try {
+        const execPayload = await api.chatHistory(taskSessionKey, 200, {
+          all: true,
+          bypassCache: true,
+        })
+        taskSessionMessages = Array.isArray(execPayload?.messages) ? execPayload.messages : []
+      } catch (e) {
+        logTaskDetail('loadTaskConversation:taskSession', {
+          taskId: state.taskId,
+          sessionKey: taskSessionKey,
+          error: String(e),
+        })
+      }
+    }
+
+    let threadMessages = []
+    let sourceSessionKey = ''
+    let rawMessages = []
+    let conversationSource = ''
+    if (!taskSessionMessages.length && threadId) {
+      // 应用层 transcript（evoflow_chat_messages），与 LangGraph checkpoint 解耦
+      const payload = await api.chatMessagesByThread(threadId, 150)
+      threadMessages = Array.isArray(payload?.messages) ? payload.messages : []
+      sourceSessionKey = String(payload?.sessionKey || '')
+    }
+
+    if (!taskSessionMessages.length && !threadId) {
       state.conversationMessages = []
+      state.conversationMismatchSessionKey = ''
       renderTaskConversation(page, state)
       return
     }
-    
-    // 应用层 transcript（evoflow_chat_messages），与 LangGraph checkpoint 解耦
-    const payload = await api.chatMessagesByThread(threadId, 150)
-    const rawMessages = Array.isArray(payload?.messages) ? payload.messages : []
-    
+
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：选源判断改由 src/lib/task-conversation-source.js 的纯函数决定（页面只负责取数据）。
+    // 为什么：内联实现无法被单测覆盖，等于「接线没通也全绿」；抽出去才能测到真正跑的那条路径。
+    const picked = pickTaskConversationSource({
+      taskSessionMessages,
+      threadMessages,
+      sourceSessionKey,
+      assignedTo,
+      taskSessionKey,
+    })
+    rawMessages = picked.messages
+    conversationSource = picked.source
+    state.conversationMismatchSessionKey = picked.mismatchSessionKey
+    // 同员工但非本任务专用会话 → 展示可以，但必须标明来源，避免被当成「本任务的全部执行记录」
+    state.conversationSourceHint =
+      picked.source === 'thread-same-agent'
+        ? `以下对话来自该员工的普通会话（${sourceSessionKey}），不是本任务的专用执行记录`
+        : ''
+    if (picked.source === 'thread-mismatch') {
+      logTaskDetail('loadTaskConversation:threadMismatch', {
+        taskId: state.taskId,
+        threadId,
+        expectedAgent: assignedTo,
+        actualSessionKey: picked.mismatchSessionKey,
+      })
+    }
+
     // 转换为统一的消息格式
     state.conversationMessages = rawMessages.map(msg => {
       // 处理 content 可能是数组的情况
@@ -1773,12 +1845,18 @@ async function loadTaskConversation(page, state) {
     logTaskDetail('loadTaskConversation', {
       taskId: state.taskId,
       threadId,
+      conversationSource,
+      taskSessionKey,
       rawCount: Array.isArray(rawMessages) ? rawMessages.length : 0,
       displayCount: Array.isArray(state.conversationMessages) ? state.conversationMessages.length : 0,
     })
   } catch (e) {
     console.error('[loadTaskConversation] Error:', e)
     state.conversationMessages = []
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 异常分支也要清掉选源残留，否则换任务时会把上一次的「来源不是本任务」提示挂到新任务上。
+    state.conversationMismatchSessionKey = ''
+    state.conversationSourceHint = ''
     renderTaskConversation(page, state)
     logTaskDetail('loadTaskConversation:error', { taskId: state.taskId, error: String(e) })
   }
@@ -1791,7 +1869,15 @@ function renderTaskConversation(page, state) {
   const messages = state.conversationMessages || []
   
   if (!messages.length) {
-    container.innerHTML = '<div class="output-empty">暂无对话记录<br><span style="font-size:11px;color:var(--text-tertiary)">主控 Agent 执行后将显示对话</span></div>'
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：区分「真没跑」与「别处的对话不属于这个任务」两种空态。
+    // 为什么：原来恒显示「主控 Agent 执行后将显示对话」，而本任务真正跑在员工会话里时，
+    //   用户看到的是别处对话或空屏 + 一句像是「还没开始」的话 —— 这就是他说的「误导别人」。
+    if (state.conversationMismatchSessionKey) {
+      container.innerHTML = `<div class="output-empty">本任务的执行记录不在当前绑定的对话里<br><span style="font-size:11px;color:var(--text-tertiary)">任务绑定的是别的会话（${escapeHtml(state.conversationMismatchSessionKey)}），未在此处展示以免张冠李戴</span></div>`
+      return
+    }
+    container.innerHTML = '<div class="output-empty">暂无对话记录<br><span style="font-size:11px;color:var(--text-tertiary)">员工执行后将显示对话</span></div>'
     return
   }
 
@@ -1853,12 +1939,20 @@ function renderTaskConversation(page, state) {
   })
 
   if (!displayMessages.length) {
-    container.innerHTML = '<div class="output-empty">暂无对话记录<br><span style="font-size:11px;color:var(--text-tertiary)">主控 Agent 执行后将显示对话</span></div>'
+    // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：走到这里说明读到了消息但全被过滤掉——不能再写「主控 Agent 执行后」那句，
+    //   那会把「已经跑完了」说成「还没开始」。改为说明「有记录但无可展示内容」。
+    container.innerHTML = `<div class="output-empty">有 ${messages.length} 条执行记录，但均为工具/系统消息<br><span style="font-size:11px;color:var(--text-tertiary)">展开右侧过程面板可查看原始工具调用${state.conversationSourceHint ? `<br>${escapeHtml(state.conversationSourceHint)}` : ''}</span></div>`
     return
   }
 
+  // 来源提示：读的不是本任务专用会话时，必须在最上方说明，否则用户会把别处的对话当成本任务记录
+  const sourceHintHtml = state.conversationSourceHint
+    ? `<div class="conversation-source-hint" style="margin:0 0 8px;padding:6px 10px;border-radius:6px;background:var(--bg-secondary);color:var(--text-secondary);font-size:11px;line-height:1.5">${escapeHtml(state.conversationSourceHint)}</div>`
+    : ''
+
   // 丰富好看的卡片式消息样式，支持 Markdown
-  container.innerHTML = displayMessages.map(msg => {
+  container.innerHTML = sourceHintHtml + displayMessages.map(msg => {
     const role = msg.role || ''
     const type = msg.type || ''
     let content = msg.content || ''

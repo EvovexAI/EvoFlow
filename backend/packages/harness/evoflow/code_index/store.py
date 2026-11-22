@@ -973,7 +973,23 @@ def _connect(root: str) -> sqlite3.Connection:
     dbp.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(dbp), timeout=60.0)
     conn.row_factory = sqlite3.Row
-    _configure_sqlite_connection(conn)
+    try:
+        _configure_sqlite_connection(conn)
+    except BaseException:
+        # 【self-evolution-bot · 2026-11-22 · 第124轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：配置失败时先 close 再抛，不再把句柄留在进程里。
+        # 为什么（本轮新回归测试第一次就跑红，真实失败不是 mock）：
+        #   坏库时 `PRAGMA journal_mode=WAL` 抛 "file is not a database"，
+        #   这里直接抛走 → 连接对象没人 close → Windows 句柄仍占着 index.db →
+        #   `_quarantine_corrupt_index` 的 os.replace 撞
+        #   `[WinError 32] 另一个程序正在使用此文件`，quarantined=[]。
+        #   也就是「检测到坏库」这一步做完了，**隔离这一步永远失败**，
+        #   下次检索继续读同一个坏库 —— 自愈形同虚设。
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
+        raise
     return conn
 
 
@@ -4462,6 +4478,70 @@ def _fts_needs_rebuild(conn: sqlite3.Connection) -> bool:
     return bool(row and str(row[0]).strip() in {"1", "true", "yes"})
 
 
+# 【self-evolution-bot · 2026-11-22 · 第124轮 · 模型:deepseek-v4.1-flash】
+# 只认「库本身坏了」这三类 marker。刻意**不**匹配 "database is locked" / "busy"：
+# 那是并发争锁，`run_index_db` 已经在重试，把它当坏库隔离会误删好库。
+_CORRUPT_INDEX_MARKERS: tuple[str, ...] = (
+    "database disk image is malformed",
+    "file is not a database",
+    "database corruption",
+    "malformed database schema",
+)
+
+
+def _is_corrupt_index_error(exc: BaseException) -> bool:
+    """这份错误是不是「索引库文件本身坏了」（而非争锁/IO 超时）。"""
+    msg = str(exc).lower()
+    return any(marker in msg for marker in _CORRUPT_INDEX_MARKERS)
+
+
+def _drop_search_conn_pool(root: str) -> int:
+    """丢掉这个 root 的连接池，返回关掉的连接数。
+
+    隔离坏库前必须做：池里还攥着指向 index.db 的旧句柄，不关掉的话
+    重建（写新库）与查询（读旧句柄）会互相打架，而且 Windows 上改名会 EBUSY。
+    """
+    key = str(root or "")
+    dropped = 0
+    try:
+        with _SEARCH_CONN_POOL_LOCK:
+            bucket = _SEARCH_CONN_POOL.pop(key, [])
+    except Exception:  # noqa: BLE001
+        return 0
+    for conn in bucket:
+        try:
+            conn.close()
+            dropped += 1
+        except Exception:  # noqa: BLE001
+            pass
+    return dropped
+
+
+def _quarantine_corrupt_index(root: str) -> list[str]:
+    """把坏掉的索引库改名隔离（**不删**），返回改名后的路径列表。
+
+    为什么保留而不删：坏库是证据。下次有人问「为什么这个员工的检索挂了」，
+    盘上还有一份能跑 quick_check 的原件，而不是只能靠日志回忆。
+    """
+    dbp = _db_path(root)
+    if not dbp.exists():
+        return []
+    _drop_search_conn_pool(root)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    moved: list[str] = []
+    for suffix in ("", "-wal", "-shm"):
+        src = Path(str(dbp) + suffix)
+        if not src.exists():
+            continue
+        dst = Path(f"{dbp}.corrupt-{stamp}{suffix}")
+        try:
+            src.replace(dst)
+            moved.append(str(dst))
+        except Exception:  # noqa: BLE001 - 改名失败就继续，别把主流程卡死
+            logger.warning("code_index: 坏库隔离改名失败 %s", src, exc_info=True)
+    return moved
+
+
 def _wait_index_ready(
     workspace_root: str | None,
     *,
@@ -4499,6 +4579,86 @@ def _wait_index_ready(
 
 
 def search_index(
+    workspace_root: str | None = None,
+    query: str = "",
+    *,
+    queries: list[str] | None = None,
+    thread_id: str | None = None,
+    limit: int | None = None,
+) -> dict:
+    """检索入口：坏库**当场隔离并重建**，不让调用方读到裸 sqlite 报错。
+
+    # 【self-evolution-bot · 2026-11-22 · 第124轮 · 模型:deepseek-v4.1-flash】
+    # 改了什么：新增本包装函数；把原实现整段改名为 `_search_index_impl`（一字未动），
+    #   外面只加「捕获坏库 → 隔离 → 触发重建 → 返回可行动结果」这一层。
+    # 为什么（现网实证，2026-11-22 17:58~18:01，agent=case-fullstack-dev）：
+    #   · 他的会话工作区 `D:/dev/github/knowledge-library/ai-showcase`
+    #     的 `.evoflow/code_index/index.db` 已损坏：
+    #       `PRAGMA quick_check` → "Freelist: freelist leaf count too big on page 204 /
+    #        Freelist: invalid page number 10420224"，随后 `select` 直接抛
+    #       `DatabaseError: database disk image is malformed`。
+    #   · 这个员工连调 6 次 search_code_index（obs 6 条 status=error，17:58:09→18:01:27），
+    #     每次都是同一句 "Error: search_code_index failed: database disk image is malformed"。
+    #     同一时间窗我在本仓（另一个 root、另一个库）检索全部成功 → **不是瞬时抖动、不是查询问题，
+    #     是那个 root 的库坏了，而检索路径里没有任何自愈**：`_ensure_schema` 只会
+    #     `CREATE ... IF NOT EXISTS`，坏页它修不了，坏库就会永久卡死在这个 root 上。
+    #   · 后果是「静默功能死亡」：员工不知道要删库，用户看到的是「索引坏了」，
+    #     而唯一恢复手段是手工去删一个仓库外的隐藏目录 —— 这条路径不该由人来记。
+    # 修法边界：
+    #   · 只认「库本身坏了」这三类 marker（malformed / not a database / corruption），
+    #     其它 DatabaseError（如 database is locked）**原样抛出**，不吃掉真实异常；
+    #   · 隔离 = 把 index.db / -wal / -shm 按时间戳改名保留（不删，留证可查）；
+    #   · 隔离后立刻 schedule 一次 force 重建，并清掉该 root 的连接池（否则池里
+    #     还攥着指向已改名文件的旧句柄，重建与查询会互相打架）；
+    #   · 返回结构带 `index_quarantined` / `index_corrupt_recovered`，让工具出口能说清
+    #     「库坏了、已隔离、正在重建」，而不是一句没有下一步动作的 sqlite 原文。
+    """
+    try:
+        return _search_index_impl(
+            workspace_root,
+            query,
+            queries=queries,
+            thread_id=thread_id,
+            limit=limit,
+        )
+    except sqlite3.DatabaseError as exc:
+        if not _is_corrupt_index_error(exc):
+            raise
+        root = resolve_index_root(workspace_root=workspace_root, thread_id=thread_id)
+        quarantined = _quarantine_corrupt_index(root)
+        logger.error(
+            "code_index: 检测到索引库损坏，已隔离并触发重建 root=%s quarantined=%s err=%s",
+            root,
+            quarantined,
+            exc,
+        )
+        try:
+            schedule_build_index(
+                workspace_root=workspace_root, thread_id=thread_id, force=True
+            )
+        except Exception:  # noqa: BLE001 - 重建调度失败也不能吞掉「库坏了」这个事实
+            logger.warning("code_index: 坏库隔离后重建调度失败 root=%s", root, exc_info=True)
+        return {
+            "hits": [],
+            "symbols": [],
+            "related_files": [],
+            "imported_by": [],
+            "imports": [],
+            "internal_ref_users": [],
+            "type_supertypes": [],
+            "type_subtypes": [],
+            "semantic_hits": [],
+            "query": query,
+            "search_terms": [],
+            "root": root,
+            "db_path": str(_db_path(root)),
+            "rebuild_in_progress": True,
+            "index_quarantined": bool(quarantined),
+            "index_corrupt_recovered": True,
+        }
+
+
+def _search_index_impl(
     workspace_root: str | None = None,
     query: str = "",
     *,

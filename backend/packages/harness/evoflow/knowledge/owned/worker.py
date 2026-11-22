@@ -139,9 +139,19 @@ async def _dispatch(job: dict[str, Any]) -> None:
         combined = f"{str(exc)[:1500]}\n[traceback] {last_line}"[:2000]
         msg = str(exc)
         # Quota / rate-limit is expected ops noise — don't dump full stack as ERROR.
+        from evoflow.knowledge.owned.service import _error_looks_like_parse_failure
+
         if "429" in msg or "rate limit" in msg.lower() or "usage quota" in msg.lower():
             logger.warning(
                 "owned kb job deferred (embedding quota/rate-limit): %s — %s",
+                job.get("id"),
+                msg[:300],
+            )
+        elif _error_looks_like_parse_failure(msg):
+            # Corrupt / unsupported source — permanent until re-upload. WARNING only
+            # so reconcile ticks don't flood gateway ERROR (observed 2026-11-21/22).
+            logger.warning(
+                "owned kb job permanent parse failure: %s — %s",
                 job.get("id"),
                 msg[:300],
             )

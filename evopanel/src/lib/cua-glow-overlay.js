@@ -59,6 +59,12 @@ async function showNative() {
     void glowLog('show skipped: not Tauri')
     return
   }
+  // 已亮着就别再走 overlay_show：那条路径会 setActive 入场动画 + 重置穿透，
+  // 表现就是「每秒闪一下、解除按钮点不着」。进度只走 updateCuaGlowStep。
+  if (visible) {
+    await showRing()
+    return
+  }
   if (SHOW_LOCK.inFlight) {
     await SHOW_LOCK.inFlight
     return
@@ -146,6 +152,12 @@ async function hideNative() {
     void glowLog(`rust hide failed: ${String(err?.message || err)}`)
   }
   visible = false
+  // 下一轮必须从 0 起：模块级缓存若不清，首包 elapsed=0 会被当「没变化」早退，
+  // 或页面防回跳把新一轮顶回上一轮的大秒数。
+  lastStep = ''
+  lastStepsDone = -1
+  lastRunning = false
+  lastElapsedMs = 0
 }
 
 /** Force-hide regardless of refcount (session abort / idle). */

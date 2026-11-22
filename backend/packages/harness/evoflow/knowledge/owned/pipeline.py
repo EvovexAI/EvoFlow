@@ -239,7 +239,14 @@ async def run_parse_index(
                 """,
                 (combined, combined, utc_now(), doc_id),
             )
-        logger.error("parse_file failed doc=%s kb=%s: %s", doc_id, kb_id, full_tb)
+        # Permanent corrupt/unsupported sources: warn (not error) — worker +
+        # orphan reconcile already skip requeue via _PARSE_FAIL_HINTS.
+        from evoflow.knowledge.owned.service import _error_looks_like_parse_failure
+
+        if _error_looks_like_parse_failure(user_msg, last_line):
+            logger.warning("parse_file permanent failure doc=%s kb=%s: %s", doc_id, kb_id, last_line)
+        else:
+            logger.error("parse_file failed doc=%s kb=%s: %s", doc_id, kb_id, full_tb)
         raise
 
     jobs.update_progress(job_id, {"phase": "assets", "percent": 25, "message": "抽取图片"})

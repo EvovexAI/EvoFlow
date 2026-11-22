@@ -151,7 +151,11 @@ async function tick(epoch) {
       }
       // timerOn=active：grace 间隙秒数也要走，不能一停 cell 就冻在表面上。
       updateCuaGlowStep(status.step, status.steps_done, elapsedNow, true)
-      beginCuaGlowOverlay('glow-status-poll')
+      // 只在「刚亮 / 需要重亮」时 begin→show。elapsed 每秒一推若也 begin，
+      // 会反复 setActive 入场动画 + 重置穿透，表现为「整条每秒闪一下、按钮点不着」。
+      if (flipped || needsReshow) {
+        beginCuaGlowOverlay('glow-status-poll')
+      }
     } else {
       await pluginLog('poll active=false → hide')
       await hideCuaGlowOverlayForced()
@@ -172,6 +176,9 @@ export async function clearCuaGlowStatusRemote() {
       __probe__: true,
     })
     ROOT.lastActive = false
+    ROOT.lastElapsedMs = -1
+    ROOT.lastStepSeq = 0
+    ROOT.lastRunning = false
     await pluginLog('remote clear posted')
     // 清完立刻按 idle 节奏重排，别继续 500ms 狂刷
     if (ROOT.timer != null || ROOT.epoch > 0) {

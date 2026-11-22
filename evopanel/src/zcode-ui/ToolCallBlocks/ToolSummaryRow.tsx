@@ -161,12 +161,25 @@ function SummaryContent({
   );
 }
 
+function hasVisibleSummaryLabel(node: ReactNode): boolean {
+  return node != null && node !== false && node !== "";
+}
+
 export function ToolSummaryRow(props: ToolSummaryRowProps) {
   const { action, canToggle, forceOpen, isExpanded, title, toggleAriaLabel, toolId } = props;
+  // 左侧无 kindLabel/kindDetail/source 时不画「·」，避免「图标 · 标题」孤立点
+  const leadingHasLabel =
+    hasVisibleSummaryLabel(props.kindLabel) ||
+    hasVisibleSummaryLabel(props.kindDetail) ||
+    hasVisibleSummaryLabel(props.sourceLabel);
+  const contentProps = {
+    ...props,
+    separator: leadingHasLabel ? props.separator : undefined,
+  };
   const sharedContent = (
     <>
       <SummaryLeadingContent {...props} />
-      <SummaryContent {...props} />
+      <SummaryContent {...contentProps} />
     </>
   );
 

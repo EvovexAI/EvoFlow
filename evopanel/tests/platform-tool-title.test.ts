@@ -23,7 +23,7 @@ describe("platform tool title preference", () => {
     ).toBe("单词库");
   });
 
-  it("有中文 title 时 primary 只显示标题，并隐藏「平台」前缀", () => {
+  it("有中文 title 时 primary 只显示标题，并隐藏「平台」前缀（分隔点一并去掉）", () => {
     const built = buildPlatformToolPrimaryText({
       action: "knowledge.ingest",
       input: {
@@ -35,6 +35,7 @@ describe("platform tool title preference", () => {
     expect(built.primaryText).toBe("写入英语大纲");
     expect(built.kindDetail).toBeUndefined();
     expect(built.hideKindLabel).toBe(true);
+    // ToolSummaryRow：无 kindLabel 时不渲染 summaryContentSeparator「·」
   });
 
   it("无 title 时回退中文动作短标签，不拼 op/method", () => {

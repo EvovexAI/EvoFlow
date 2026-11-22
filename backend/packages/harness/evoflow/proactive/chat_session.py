@@ -797,8 +797,56 @@ def prepare_proactive_chat_session(
             try:
                 from evoflow.persistence.db import get_db, run_db_with_retry
 
+                # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+                # 改了什么：除了「thread_id 为空才写」，再加一条「本会话是 task 桶、
+                #   而现有绑定指向的不是本任务的 task 桶」时也改写。
+                # 为什么（用户「task 那个老是误导别人」+ 现网数据复算 2026-11-22）：
+                #   派单先落到发起人 chat 会话时，这条语句就把**发起对话**的 thread 写进
+                #   task.thread_id；等真正的执行会话（proactive:{code}:task:{id}）建好，
+                #   条件已不成立 → 执行记录永远挂不上。实测 40 条带 thread_id 的任务里
+                #   16 条如此（例：task 2611221757_60a8 的 thread 指向该员工的 chat 会话
+                #   28 条普通聊天，真执行记录在 task 桶 5 条里）。
+                # 判据：只有 task 桶会话有权覆盖既有绑定 —— chat/duty 桶绝不许抢执行会话的位子，
+                #   否则「人工在普通对话里顺嘴派一句」会把任务过程又搬回普通对话。
+                # 边界：collab/工作流的 thread（不是 proactive 桶）一律不动。
+                _parsed_sk = parse_proactive_session_key(sk)
+                is_task_bucket = (
+                    _parsed_sk.get("kind") == "task"
+                    and str(_parsed_sk.get("task_id") or "").strip()
+                    == str(related_task).strip()
+                )
+
                 def _bind_task_thread() -> None:
                     conn = get_db()
+                    if is_task_bucket:
+                        row = conn.execute(
+                            "SELECT thread_id FROM evoflow_collab_tasks WHERE task_id = ?",
+                            (related_task,),
+                        ).fetchone()
+                        cur_tid = str((row["thread_id"] if row is not None else "") or "").strip()
+                        if cur_tid == str(tid).strip():
+                            return
+                        if cur_tid:
+                            cur_sk = str(
+                                sess_repo.find_session_key_by_thread_id(cur_tid) or ""
+                            ).strip()
+                            cur_parsed = parse_proactive_session_key(cur_sk)
+                            # 已绑到本任务的 task 桶 → 尊重既有绑定，不来回改；
+                            # 绑到 proactive 的别的桶（chat/duty）或无会话键 → 由本任务专用会话接管。
+                            if (
+                                cur_parsed.get("kind") == "task"
+                                and str(cur_parsed.get("task_id") or "").strip()
+                                == str(related_task).strip()
+                            ):
+                                return
+                            if cur_sk and not cur_sk.startswith("proactive:"):
+                                return
+                        conn.execute(
+                            "UPDATE evoflow_collab_tasks SET thread_id = ? WHERE task_id = ?",
+                            (tid, related_task),
+                        )
+                        conn.commit()
+                        return
                     conn.execute(
                         """
                         UPDATE evoflow_collab_tasks

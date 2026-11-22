@@ -147,6 +147,40 @@ def test_db_failure_never_blocks_revocation(monkeypatch):
     assert snap["control_revoked"] is True
     assert gs.is_cua_control_revoked(session_key="agent:main:abc") is True
 
+
+def test_revoke_with_unknown_seq_does_not_instant_auto_restore(fake_db):
+    """收回时读不到水位（max_seq=0/-1），下次读到真实 seq 不得立刻解封。
+
+    现网：user_stop 后 6 秒又继续 left_click_drag 画爱心 —— 根因就是
+    revoke 写成 max_seq=0，随后 cur≥1 触发 auto_restored_new_user_message。
+    """
+    _reset()
+    fake_db.max_user_seq = 0
+    gs.revoke_cua_control(session_key="agent:main:abc", reason="user_stop")
+
+    # 稍后库恢复，读到早已存在的 user seq=8 —— 必须仍收回，不能当「新消息」
+    fake_db.max_user_seq = 8
+    assert gs.is_cua_control_revoked(session_key="agent:main:abc") is True, (
+        "未知水位时第一次读到正 seq 只能锁水位，不能解封"
+    )
+    # 真正的新用户消息（seq 再涨）才解封
+    fake_db.max_user_seq = 9
+    assert gs.is_cua_control_revoked(session_key="agent:main:abc") is False
+
+
+def test_pulse_end_after_revoke_does_not_reopen_grace(fake_db):
+    """收回后 in-flight cell 收尾不许再开 30s grace。"""
+    _reset()
+    fake_db.max_user_seq = 3
+    gs.pulse_cua_glow_start(key="in_flight")
+    gs.revoke_cua_control(session_key="agent:main:abc", reason="user_stop")
+    assert gs.get_cua_glow_status()["active"] is False
+
+    # cell 晚到的 end：必须保持熄灭
+    ended = gs.pulse_cua_glow_end(key="in_flight")
+    assert ended["active"] is False, f"收回后不应再亮 grace，实测 grace={ended.get('grace_ms_left')}"
+    assert ended["grace_ms_left"] in (0, None) or not ended["active"]
+
 def test_revoke_is_scoped_to_one_session(fake_db):
     """A 会话解除控制，不能把 B 会话的电脑操作一起拦掉。
 

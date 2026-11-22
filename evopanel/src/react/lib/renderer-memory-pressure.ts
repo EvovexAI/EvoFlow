@@ -115,8 +115,9 @@ export function noteRendererMemoryPressure(detail?: Record<string, unknown>): Re
     ...(detail || {}),
   }
   const line = `[mem-pressure] level=${level} heapMb=${payload.heapMb ?? '?'}`
-  if (level === 'critical') console.error(line, payload)
-  else if (level === 'high') console.warn(line, payload)
+  // critical is expected under long chats (we shrink keep-warm); don't flood
+  // frontend-*.log as ERROR — reserve error for real JS / stream failures.
+  if (level === 'critical' || level === 'high') console.warn(line, payload)
   else console.info(line, payload)
   try {
     if (typeof window === 'undefined') return level
@@ -128,7 +129,7 @@ export function noteRendererMemoryPressure(detail?: Record<string, unknown>): Re
     void import('@tauri-apps/api/core')
       .then((m) =>
         m.invoke('append_frontend_log', {
-          level: level === 'critical' ? 'error' : level === 'high' ? 'warn' : 'info',
+          level: level === 'normal' ? 'info' : 'warn',
           message: `${line} ${JSON.stringify(payload)}`.slice(0, 11_500),
         }),
       )

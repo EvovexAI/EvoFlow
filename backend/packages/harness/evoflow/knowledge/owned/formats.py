@@ -128,11 +128,35 @@ _TEMP_SUFFIXES = (
 
 MAX_FILE_BYTES = 50 * 1024 * 1024
 
+# OOXML containers must be real zip archives. Reject 13-byte stubs at upload so
+# the owned-KB worker never enters a parse/retry ERROR storm.
+_OOXML_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
+_OOXML_MIN_BYTES = 64
+_ZIP_LOCAL_FILE_MAGIC = b"PK\x03\x04"
+
 
 def is_supported_file(name: str) -> bool:
     from pathlib import Path
 
     return Path(name).suffix.lower() in SUPPORTED_EXTENSIONS
+
+
+def validate_upload_bytes(file_name: str, data: bytes) -> None:
+    """Raise ValueError when *data* can never parse for this file name."""
+    from pathlib import Path
+
+    ext = Path(file_name or "").suffix.lower()
+    if ext not in _OOXML_EXTENSIONS:
+        return
+    raw = data if isinstance(data, (bytes, bytearray)) else b""
+    if len(raw) < _OOXML_MIN_BYTES:
+        raise ValueError(
+            f"文件过小或已损坏（{len(raw)} 字节），无法作为 {ext} 解析；请重新导出后再上传"
+        )
+    if not bytes(raw[:4]).startswith(_ZIP_LOCAL_FILE_MAGIC):
+        raise ValueError(
+            f"不是有效的 Office 文件（缺少 ZIP 头），无法作为 {ext} 解析；请重新导出后再上传"
+        )
 
 
 def should_skip_dir(name: str) -> bool:

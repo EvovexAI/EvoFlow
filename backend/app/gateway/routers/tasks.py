@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import os
+import sqlite3
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from app.gateway.deps.license import require_premium
 from app.gateway.events import event_queue
 from app.gateway.routers.errors import (
     ErrorCode,
+    create_error_response,
     raise_task_error,
 )
 from app.gateway.routers.events import emit_task_completed, emit_task_progress
@@ -751,12 +753,26 @@ async def list_tasks(
 
         sk_filter = str(session_key or "").strip()
         if sk_filter:
-            row = _find_task_row_by_session(
+            # 【self-evolution-bot · 2026-11-22 · 第121轮 · 模型:deepseek-v4.1-flash-1017】
+            # 改了什么：这两条「按 session_key / thread_id 取单行任务」的分支，从在
+            # **事件循环线程**上同步查 SQLite，改为走 db_async.run_db（evoflow-db 专池）。
+            # 为什么（现网取证）：观测库 11-21~11-22 共 7 次 GET /api/tasks → 500，
+            # 全部落在 db.py:771 `_acquire_process_db_lock()` 抛
+            # `db_process_lock_timeout ... 等 0.50s 未拿到`，耗时清一色 ~1022ms
+            # （= 0.5s 锁 + 重试）。db.py 的设计意图是「loop 线程 fail-fast、
+            # worker 线程正常阻塞」——但这两个分支在 loop 线程上跑，等于把
+            # 「别的线程正在 VACUUM/写库」变成对用户的 500。前端每次下拉任务都带上
+            # thread_id，所以这条路径是热路径。
+            # 同类修法见第70轮：catalog 分支早已改 run_db，只有这两条漏了。
+            from app.gateway.db_async import run_db
+
+            row = await run_db(
+                _find_task_row_by_session,
                 storage,
                 sk_filter,
                 prefer_task_id=prefer_task_id,
             )
-            if row and not _row_ok(row):
+            if row and not await run_db(_row_ok, row):
                 row = None
             if row:
                 main_id = str(row.get("id") or "").strip()
@@ -779,12 +795,17 @@ async def list_tasks(
             }
         tid_filter = str(thread_id or "").strip()
         if tid_filter:
-            row = _find_task_row_by_thread(
+            # 【self-evolution-bot · 2026-11-22 · 第121轮 · 模型:deepseek-v4.1-flash-1017】
+            # 同上：thread_id 单行查询是前端轮询热路径，必须离开事件循环线程。
+            from app.gateway.db_async import run_db
+
+            row = await run_db(
+                _find_task_row_by_thread,
                 storage,
                 tid_filter,
                 prefer_task_id=prefer_task_id,
             )
-            if row and not _row_ok(row):
+            if row and not await run_db(_row_ok, row):
                 row = None
             if row:
                 main_id = str(row.get("id") or "").strip()
@@ -943,6 +964,22 @@ async def list_tasks(
         return {"success": True, "data": payload}
     except HTTPException:
         raise
+    except sqlite3.OperationalError as e:
+        # Process-lock / sqlite busy is transient — return 503 so proactive
+        # pollers retry instead of treating a 500 as a hard failure.
+        msg = str(e)
+        if "db_process_lock_timeout" in msg or "database is locked" in msg.lower():
+            logger.warning("list_tasks deferred (db busy): %s", msg[:240])
+            raise HTTPException(
+                status_code=503,
+                detail=create_error_response(
+                    ErrorCode.DATABASE_ERROR,
+                    "数据库繁忙，请稍后重试",
+                ),
+                headers={"Retry-After": "1"},
+            ) from e
+        logger.exception("list_tasks failed")
+        raise_task_error(ErrorCode.INTERNAL_ERROR, f"获取任务列表失败: {msg}")
     except Exception as e:
         logger.exception("list_tasks failed")
         raise_task_error(ErrorCode.INTERNAL_ERROR, f"获取任务列表失败: {str(e)}")

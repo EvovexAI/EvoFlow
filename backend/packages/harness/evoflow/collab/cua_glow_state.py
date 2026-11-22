@@ -256,15 +256,14 @@ def _snapshot_locked(now: float) -> dict[str, Any]:
     global _GRACE_UNTIL_MS, _ACTIVE_SINCE_MS, _ELAPSED_FROZEN_MS
     active = bool(_RUNNING) or now < _GRACE_UNTIL_MS
     if not active:
-        # 提示条真正熄灭才冻表：grace 间隙里秒数必须继续走，
-        # 否则用户看到的就是「秒数一直不动」（cell 之间大部分时间都在 grace）。
-        if _ACTIVE_SINCE_MS:
-            _ELAPSED_FROZEN_MS = max(0.0, now - _ACTIVE_SINCE_MS)
-            _ACTIVE_SINCE_MS = 0.0
+        # 提示条真正熄灭：秒表归零。grace 间隙里仍继续走；熄灭后再亮必须从 0 起，
+        # 否则下一轮会接着上一轮的「2:13」往上加（用户报的计时串台）。
+        _ACTIVE_SINCE_MS = 0.0
+        _ELAPSED_FROZEN_MS = 0.0
         if _GRACE_UNTIL_MS:
             _GRACE_UNTIL_MS = 0.0
     step_label = str(_STEP["label"] or "")
-    # 本轮累计：提示条还亮着（running 或 grace）就现算；熄灭后用冻结值。
+    # 本轮累计：提示条还亮着（running 或 grace）就现算；熄灭后为 0。
     elapsed_ms = (
         max(0, int(now - _ACTIVE_SINCE_MS)) if _ACTIVE_SINCE_MS
         else int(_ELAPSED_FROZEN_MS)
@@ -371,8 +370,15 @@ def pulse_cua_glow_start(*, key: str = "") -> dict[str, Any]:
     with _LOCK:
         _sync_locked()
         was_idle = not _RUNNING
-        # 同一轮 vs 新一轮：grace 还在，或秒表锚点还在（grace 期间不再冻表）。
-        same_round = now < _GRACE_UNTIL_MS or bool(_ACTIVE_SINCE_MS)
+        # grace 已过期但无人轮询时，锚点可能还挂着 —— 先清掉，否则
+        # `bool(_ACTIVE_SINCE_MS)` 会把「隔了很久的下一轮」误判成同一轮。
+        if _GRACE_UNTIL_MS and now >= _GRACE_UNTIL_MS:
+            _GRACE_UNTIL_MS = 0.0
+            _ACTIVE_SINCE_MS = 0.0
+            _ELAPSED_FROZEN_MS = 0.0
+            _reset_steps_locked()
+        # 同一轮 = grace 窗口还在（cell 间隙 <30s）。只看 grace，不看锚点。
+        same_round = now < _GRACE_UNTIL_MS
         _RUNNING.add(kid)
         if was_idle:
             if same_round and _ACTIVE_SINCE_MS:
@@ -401,9 +407,16 @@ def pulse_cua_glow_end(*, key: str = "") -> dict[str, Any]:
         _sync_locked()
         _RUNNING.discard(kid)
         if not _RUNNING:
-            # grace 期间秒表继续走（_ACTIVE_SINCE_MS 不清）：胶囊面上的秒数才不会冻住。
-            # 真正熄灭时由 _snapshot_locked 冻结。
-            _GRACE_UNTIL_MS = now + AUTO_HIDE_MS
+            # 用户已收回控制权时禁止再开 30s grace —— 否则停对话后 cell 收尾
+            # 又把蓝光/光标点亮，看起来像「还在控电脑」。
+            if _CONTROL.get("revoked"):
+                _GRACE_UNTIL_MS = 0.0
+                _ACTIVE_SINCE_MS = 0.0
+                _ELAPSED_FROZEN_MS = 0.0
+            else:
+                # grace 期间秒表继续走（_ACTIVE_SINCE_MS 不清）：胶囊面上的秒数才不会冻住。
+                # 真正熄灭时由 _snapshot_locked 冻结。
+                _GRACE_UNTIL_MS = now + AUTO_HIDE_MS
         _UPDATED_AT = now
         _persist_locked()
         return _snapshot_locked(now)
@@ -455,7 +468,11 @@ def revoke_cua_control(*, session_key: str = "", reason: str = "user_revoked") -
         _CONTROL["reason"] = str(reason or "user_revoked")
         if sk:
             _CONTROL["session_key"] = sk
-        _CONTROL["max_seq"] = _current_max_seq(sk or _CONTROL["session_key"])
+        # 水位：记下「收回那一刻」的 user seq。读库失败得到 0 时绝不能写成 0 ——
+        # 否则下次 is_cua_control_revoked 读到真实 seq(≥1) 会立刻 auto_restore，
+        # 现网已出现：user_stop 后 6 秒又继续拖鼠标画爱心。
+        seq = _current_max_seq(sk or _CONTROL["session_key"])
+        _CONTROL["max_seq"] = seq if seq > 0 else -1
         # 提示条与蓝光环立刻收掉：用户点了就得有反馈。
         _RUNNING.clear()
         _GRACE_UNTIL_MS = 0.0
@@ -527,7 +544,15 @@ def is_cua_control_revoked(*, session_key: str = "") -> bool:
         if revoked_sk and sk != revoked_sk:
             return False
         cur = _current_max_seq(target)
-        if cur > int(_CONTROL["max_seq"] or 0):
+        watermark = int(_CONTROL["max_seq"] or 0)
+        # max_seq=-1：收回时没读到水位。先锁住当前 seq，仍保持收回；
+        # 必须再来一条**更新的**用户消息才解封（避免「读到任意 seq>0 就立刻恢复」）。
+        if watermark < 0:
+            if cur > 0:
+                _CONTROL["max_seq"] = cur
+                _persist_locked()
+            return True
+        if cur > watermark:
             _CONTROL["revoked"] = False
             _CONTROL["reason"] = "auto_restored_new_user_message"
             _CONTROL["max_seq"] = 0

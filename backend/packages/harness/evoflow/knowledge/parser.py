@@ -33,6 +33,12 @@ _DRAWINGML_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 # Extensions handled by markitdown (binary / rich formats)
 _MARKITDOWN_EXTENSIONS = {".pdf", ".doc", ".docx", ".ppt", ".pptx", ".xls", ".xlsx"}
 
+# OOXML is a zip container. Tiny / non-PK blobs (e.g. 13-byte upload stubs) can
+# never parse — reject before markitdown so workers don't retry-storm ERROR logs.
+_OOXML_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
+_OOXML_MIN_BYTES = 64
+_ZIP_LOCAL_FILE_MAGIC = b"PK\x03\x04"
+
 # Extensions read directly as UTF-8 text
 # Align with owned KB formats: documents / text only (no source code for now).
 _TEXT_EXTENSIONS = {
@@ -85,6 +91,7 @@ def parse_file(
         raise FileNotFoundError(f"File not found: {p} ({ctx})")
 
     ext = p.suffix.lower()
+    _reject_corrupt_office_blob(p, ext=ext, doc_id=doc_id, kb_id=kb_id)
 
     # Direct text read
     if ext in _TEXT_EXTENSIONS:
@@ -107,6 +114,35 @@ def _format_context(*, doc_id: str | None, kb_id: str | None, path: Path) -> str
         parts.append(f"doc_id={doc_id}")
     parts.append(f"path={path}")
     return ", ".join(parts) if parts else str(path)
+
+
+def _reject_corrupt_office_blob(
+    p: Path,
+    *,
+    ext: str,
+    doc_id: str | None,
+    kb_id: str | None,
+) -> None:
+    """Fail fast on OOXML blobs that are not a real zip (permanent parse errors)."""
+    if ext not in _OOXML_EXTENSIONS:
+        return
+    ctx = _format_context(doc_id=doc_id, kb_id=kb_id, path=p)
+    if p.is_dir():
+        raise RuntimeError(f"无法解析 {p.name}：blob 路径是目录而不是文件 ({ctx})")
+    try:
+        size = p.stat().st_size
+    except OSError as exc:
+        raise RuntimeError(f"无法解析 {p.name}：无法读取文件（{exc}）({ctx})") from exc
+    if size < _OOXML_MIN_BYTES:
+        raise RuntimeError(
+            f"无法解析 {p.name}：文件过小（{size} 字节，not a zip file）({ctx})"
+        )
+    try:
+        head = p.read_bytes()[:4]
+    except OSError as exc:
+        raise RuntimeError(f"无法解析 {p.name}：无法读取文件（{exc}）({ctx})") from exc
+    if head != _ZIP_LOCAL_FILE_MAGIC and not zipfile.is_zipfile(p):
+        raise RuntimeError(f"无法解析 {p.name}：File is not a zip file ({ctx})")
 
 
 def _convert_with_markitdown(

@@ -2228,12 +2228,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
             aguiEvent.type === EventType.REASONING_START,
         })
           if (aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR') {
-          // Computer Use 顶栏：只在 RUN_ERROR 强制收起（中间 RUN_FINISHED 会闪灭）。
-          // 正常 turn 收尾靠 gateway 30s grace + glow-status poll，对齐 ZCode AUTO_HIDE。
-          if (aguiEvent.type === 'RUN_ERROR') {
-            hideCuaGlowOverlayForced?.()
-            void import('../../../lib/cua-glow-poll.js').then((m) => m.clearCuaGlowStatusRemote?.())
-          }
+          // Computer Use 顶栏：回合真正结束就收起。
+          // 以前只在 RUN_ERROR 收、正常收尾靠 30s grace —— 对话停了蓝光/光标还挂着，
+          // 用户感觉「AI 还在控电脑」。cell 间隙不会发 RUN_FINISHED，无需担心中途闪灭。
+          hideCuaGlowOverlayForced?.()
+          void import('../../../lib/cua-glow-poll.js').then((m) => m.clearCuaGlowStatusRemote?.())
           // 兜底：drain 仅在 TOOL_CALL_START 触发（ChatApp.tsx#10127 shouldReleaseAgUiBufferBeforeToolStart），
           // 但每个 run 最后一轮完成后没有新 TOOL_CALL_START，那批 done 工具就永远滞留在 aguiTurn 里，
           // 落库时 row.tools 只看到中间 drain 出的 N-1 批，最后一批被吞。表现为「UI 只显示前 4 个工具」。

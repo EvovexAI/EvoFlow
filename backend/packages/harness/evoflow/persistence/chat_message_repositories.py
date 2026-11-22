@@ -1579,11 +1579,14 @@ def _find_latest_real_user_lead_row(session_key: str) -> dict[str, Any] | None:
 
 
 def _anchor_latest_real_user_into_lead_rows(rows: list[dict[str, Any]], session_key: str) -> list[dict[str, Any]]:
-    """Ensure a genuine user turn is present for model context when the tail omits one.
+    """Ensure a genuine user turn is present for model context when the stitch omits one.
 
-    After ``conversation_summary`` exists, post-compaction rows are stitched verbatim
-    from DB (summary row through latest). User context for that segment is injected
-    via system prompt — do not splice session-wide user rows into the transcript.
+    After ``conversation_summary`` exists the happy path is
+    ``[pre-bridge users] → [summary] → [post tail]``. When the pre-bridge is empty
+    (historical bug: newest-N window from ``anchor_seq`` slid past the live ask once
+    the post-summary tool tail grew), splice the newest *pre-summary* real user
+    immediately before the summary so the model does not continue from Goal alone.
+    Never splice a post-summary user in front of the marker — that belongs in the tail.
     """
     if not rows:
         return rows
@@ -1594,7 +1597,19 @@ def _anchor_latest_real_user_into_lead_rows(rows: list[dict[str, Any]], session_
             summary_idx = i
 
     if summary_idx >= 0:
-        return rows
+        if any(_is_real_user_transcript_row(r) for r in rows[:summary_idx]):
+            return rows
+        anchor = _find_latest_real_user_lead_row(session_key)
+        if anchor is None:
+            return rows
+        anchor_seq = int(anchor.get("seq") or 0)
+        summary_seq = int(rows[summary_idx].get("seq") or 0)
+        # Only recover users that belong *before* the marker.
+        if anchor_seq <= 0 or (summary_seq > 0 and anchor_seq >= summary_seq):
+            return rows
+        if any(int(r.get("seq") or 0) == anchor_seq for r in rows):
+            return rows
+        return [*rows[:summary_idx], anchor, *rows[summary_idx:]]
 
     if any(_is_real_user_transcript_row(r) for r in rows):
         return rows
@@ -1946,9 +1961,19 @@ def list_lead_chat_rows_for_model_hydration(
     row_cap = None if limit is None else max(1, int(limit))
     if compaction_seq is not None:
         anchor_seq = _find_pre_compaction_anchor_seq(session_key, compaction_seq)
-        pre_cap = max(_PRE_COMPACTION_KEEP_USER_TURNS * 4, 12)
+        # Load the half-open interval [anchor_seq, compaction_seq) only.
+        # Do NOT use ``_list_lead_chat_rows_from_min_seq(..., max_want=N)`` here:
+        # that keeps the *newest* N rows with seq>=anchor, so once the post-summary
+        # CUA/tool tail grows past N, every pre-bridge user falls out of the window
+        # and the model only sees summary Goal + orphan tool hops (paint redraw loop).
+        pre_raw = _list_lead_chat_rows(
+            session_key,
+            limit=None,
+            min_seq=int(anchor_seq),
+            before_seq=int(compaction_seq),
+        )
         pre_rows = _filter_pre_compaction_bridge_rows(
-            _list_lead_chat_rows_from_min_seq(session_key, anchor_seq, max_want=pre_cap),
+            pre_raw,
             compaction_seq=int(compaction_seq),
         )
         summary_row = _lead_row_at_seq(session_key, int(compaction_seq))

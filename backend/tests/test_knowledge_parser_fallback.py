@@ -105,6 +105,56 @@ def test_pptx_parser_falls_back_when_markitdown_returns_empty(tmp_path: Path, mo
     assert "仍可兜底抽出" in text
 
 
+def test_parse_file_rejects_tiny_fake_xlsx(tmp_path: Path):
+    """13-byte stub xlsx must fail before markitdown (permanent parse noise)."""
+    fake = tmp_path / "产品数据_最终版.xlsx"
+    fake.write_bytes(b"not-a-real-xlsx")
+    try:
+        parser.parse_file(fake, doc_id="doc_x", kb_id="kb_y")
+        raise AssertionError("expected RuntimeError for tiny non-zip xlsx")
+    except RuntimeError as exc:
+        msg = str(exc)
+        assert "无法解析" in msg
+        assert "not a zip file" in msg.lower() or "过小" in msg
+
+
+def test_parse_file_rejects_non_zip_docx(tmp_path: Path):
+    fake = tmp_path / "会议记录.docx"
+    fake.write_bytes(b"x" * 128)  # large enough, but not PK zip
+    try:
+        parser.parse_file(fake, doc_id="doc_x", kb_id="kb_y")
+        raise AssertionError("expected RuntimeError for non-zip docx")
+    except RuntimeError as exc:
+        assert "not a zip file" in str(exc).lower()
+
+
+def test_validate_upload_bytes_rejects_corrupt_ooxml():
+    from evoflow.knowledge.owned.formats import validate_upload_bytes
+
+    try:
+        validate_upload_bytes("a.xlsx", b"tiny")
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "过小" in str(exc) or "损坏" in str(exc)
+
+    try:
+        validate_upload_bytes("a.docx", b"N" * 128)
+        raise AssertionError("expected ValueError")
+    except ValueError as exc:
+        assert "ZIP" in str(exc) or "Office" in str(exc)
+
+    # Real zip magic passes the gate (content validity is parser's job).
+    validate_upload_bytes("ok.xlsx", b"PK\x03\x04" + b"\x00" * 80)
+
+
+def test_error_looks_like_parse_failure_hints():
+    from evoflow.knowledge.owned.service import _error_looks_like_parse_failure
+
+    assert _error_looks_like_parse_failure("无法解析 foo.xlsx：File is not a zip file")
+    assert _error_looks_like_parse_failure("bad zipfile")
+    assert not _error_looks_like_parse_failure("429 usage quota exceeded")
+
+
 def test_pptx_fallback_helper_orders_slides(tmp_path: Path):
     pptx = tmp_path / "ordered.pptx"
     # Write slides out of numeric order in the zip to ensure sort by slide number.

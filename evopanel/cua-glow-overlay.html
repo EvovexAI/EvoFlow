@@ -111,7 +111,7 @@
       <span id="cua-glow-count" class="count"></span>
       <span id="cua-glow-elapsed" class="elapsed"></span>
     </span>
-    <button id="cua-glow-stop" class="stop" type="button">解除控制</button>
+    <button id="cua-glow-stop" class="stop" type="button" title="Esc">解除控制</button>
   </div>
   <script>
     (function () {
@@ -120,7 +120,7 @@
       var countEl = document.getElementById('cua-glow-count')
       var elapsedEl = document.getElementById('cua-glow-elapsed')
       var stopBtn = document.getElementById('cua-glow-stop')
-      if (stopBtn) stopBtn.textContent = isZh ? '解除控制' : 'Stop'
+      if (stopBtn) stopBtn.textContent = isZh ? '解除 · Esc' : 'Stop · Esc'
       document.documentElement.lang = isZh ? 'zh-CN' : 'en'
       document.documentElement.dataset.state = 'active'
 
@@ -163,9 +163,12 @@
         if (base < 0) base = 0
         var wantRun = running === true
         if (wantRun && elapsedRunning) {
+          // 同轮防回跳：已在跑时服务端偶发 stale/0，不能把秒数打回去。
+          // 跨轮归零靠熄灭路径（setLeaving / running=false）先停表，再起时信服务端。
           var local = currentElapsedMs()
           if (base + 1500 < local) base = Math.floor(local)
         }
+        // 停表后再起（wantRun && !elapsedRunning）：一律信服务端基数，通常是 0。
         elapsedBaseMs = base
         elapsedRunning = wantRun
         elapsedAnchor = elapsedRunning ? Date.now() : 0
@@ -192,7 +195,13 @@
             document.documentElement.classList.remove('flash')
           }, 260)
         },
-        setLeaving: function () { document.documentElement.dataset.state = 'leaving' },
+        setLeaving: function () {
+          document.documentElement.dataset.state = 'leaving'
+          // 熄灭时清掉页面秒表，避免窗口复用时下一轮接着上一轮的秒数。
+          setElapsed(0, false)
+          if (stepEl) stepEl.textContent = ''
+          if (countEl) countEl.textContent = ''
+        },
         setStep: function (text, doneCount, elapsedMs, running) {
           if (stepEl) stepEl.textContent = String(text || '')
           if (countEl) {
@@ -209,6 +218,7 @@
           if (stopBtn.dataset.busy === '1') return
           stopBtn.dataset.busy = '1'
           stopBtn.textContent = isZh ? '已解除' : 'Stopped'
+          stopBtn.title = ''
           try {
             if (typeof window.__cuaGlowOverlay.onStop === 'function') {
               window.__cuaGlowOverlay.onStop()

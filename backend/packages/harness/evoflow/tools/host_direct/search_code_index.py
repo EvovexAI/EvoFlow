@@ -121,18 +121,33 @@ def _run_search_index_lookup(
         from evoflow.code_index.store import index_status
 
         st = index_status(workspace_root=root or None, thread_id=thread_id)
-        if st.get("building"):
+        # 【self-evolution-bot · 2026-11-22 · 第124轮 · 模型:deepseek-v4.1-flash】
+        # 坏库判定必须**排在** building / ready 两个分支**之前**。
+        # 为什么（本轮自撞）：初版把这段放在 `if not st.get("building")` 之后，
+        # 而隔离后紧接着调 index_status，`ready` 仍是 False 且 `building` 可能还没置位
+        # （重建是异步排队的），于是先撞上「not ready」分支 → 用户只看到
+        # "Workspace index is not ready … open the project in EvoPanel"。
+        # 库明明是我刚改名隔离掉并已排队重建，文案却让人去找 UI 建索引 —— 下一步动作指错。
+        if data.get("index_corrupt_recovered"):
             return (
-                f"No index hits for '{label}' yet — workspace index is still building. Retry search_code_index in a few seconds.",
+                f"No index hits for '{label}' yet — this workspace's index DB was CORRUPTED "
+                f"(sqlite reported a broken file). The bad file has been quarantined (kept, renamed "
+                f"with a .corrupt-<timestamp> suffix) and a full rebuild was just scheduled. "
+                f"Retry search_code_index after the rebuild finishes; do NOT expect hits right now.",
                 None,
             )
-        if not st.get("ready"):
+        if not st.get("building"):
+            if not st.get("ready"):
+                return (
+                    f"No index hits for '{label}'. Workspace index is not ready — open the project in EvoPanel (index build) or wait for background indexing.",
+                    None,
+                )
             return (
-                f"No index hits for '{label}'. Workspace index is not ready — open the project in EvoPanel (index build) or wait for background indexing.",
+                f"No index hits for '{label}'. Try pipe synonyms (dall-e|dalle), shorter symbols, or read_file on likely paths after index miss.",
                 None,
             )
         return (
-            f"No index hits for '{label}'. Try pipe synonyms (dall-e|dalle), shorter symbols, or read_file on likely paths after index miss.",
+            f"No index hits for '{label}' yet — workspace index is still building. Retry search_code_index in a few seconds.",
             None,
         )
     data["label"] = label

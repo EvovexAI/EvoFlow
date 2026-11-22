@@ -231,6 +231,9 @@ export default defineConfig({
       'tests/goal-closure-local.test.js',
       'tests/license-nav.test.js',
       'tests/task-summary-outputs.test.js',
+      // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
+      // 任务详情「对话」面板选源：不许把别处对话挂在任务名下，也不许把真执行记录漏掉。
+      'tests/task-conversation-source.test.js',
       'tests/assets-file-prefetch.test.js',
       'tests/task-tree.test.js',
       'tests/ui-extension-manifest.test.js',
@@ -301,7 +304,11 @@ export default defineConfig({
       'tests/cua-glow-agui.test.js',
       'tests/cua-glow-ring-wiring.test.js',
       'tests/cua-glow-elapsed-page.test.js',
+      // 【self-evolution-bot · 2026-11-22】drawStroke 内嵌 PowerShell 的参数名回归
+      // （`$Pid` 是只读自动变量，撞上就整条笔画路径跑不通）。
+      'tests/cua-stroke-ps-param.test.ts',
       'tests/cua-control-revoke-semantics.test.js',
+      'tests/cua-release-on-chat-stop.test.js',
       'tests/platform-feedback.test.js',
       'tests/platform-workflow-progress.test.ts',
       'tests/platform-tool-title.test.ts',

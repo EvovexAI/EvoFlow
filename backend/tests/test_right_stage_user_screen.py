@@ -659,6 +659,89 @@ def test_fresh_snapshot_is_not_flagged_stale():
     assert snap.get("ageSeconds", 999) < 60
 
 
+# 【self-evolution-bot · 2026-11-22 · 第123轮 · 模型:deepseek-v4.1-flash】
+# 改了什么：三条回归 —— stale 判据从「早于本进程启动」改为「写者进程已不在」。
+# 为什么（现网实证）：网关写盘、langgraph 工具进程读盘，读侧晚起一分钟就把
+#   reportedAt=08:52:43Z 的新鲜快照判成「早于本进程启动」（ageSeconds 只有 21~736 秒）：
+#   psutil 没装 → 兜底取了本模块**懒加载**时刻，比真实上报晚 9 分钟。
+
+
+def test_process_start_comes_from_kernel_not_import_time():
+    """进程启动时刻必须取自内核（Windows ctypes 路线），不能靠 import 时刻兜底。
+
+    反证依据（现网 2026-11-22）：``psutil`` 不在本仓依赖里，
+    ``_process_start_epoch()`` 恒落到 ``_MODULE_IMPORT_EPOCH``；本模块在 langgraph
+    工具进程里懒加载，兜底值比真实启动晚 9 分钟 → 新鲜快照被判成上个进程的残留。
+    判据：Windows 上 ``_win_process_create_epoch()`` 必须给出真值，且
+    ``_process_start_epoch()`` 采用的正是它（不是导入时刻）。
+    """
+    import os
+    import time
+
+    start = srp._process_start_epoch()
+    assert isinstance(start, float)
+    assert start <= time.time() + 2, "进程启动时刻不可能在未来"
+    assert start > 1_500_000_000, "必须是合理的 Unix epoch（秒）"
+    if os.name == "nt":
+        kernel = srp._win_process_create_epoch()
+        assert kernel is not None, "Windows 上取不到内核真值 = 又退回 import 时刻兜底"
+        assert abs(kernel - start) < 1e-6, "_process_start_epoch 没有采用内核值"
+
+
+def test_fresh_snapshot_with_live_writer_is_not_stale():
+    """写这份快照的进程还活着 → 不许标 stale（主路径不许误报）。"""
+    from datetime import UTC, datetime
+
+    srp.store_right_stage_state(
+        {
+            "activeKey": "employeeProcess:process:live:reviewer",
+            "activeKind": "employeeProcess",
+            "collapsed": False,
+            "tabs": [{"key": "employeeProcess:process:live:reviewer"}],
+            "rev": 7,
+            "reportedAt": datetime.now(UTC).isoformat(),
+        }
+    )
+    snap = srp.read_right_stage_state()
+    assert snap["known"] is True
+    assert not snap.get("stale")
+    assert snap.get("ageSeconds", 999) < 60
+    assert "staleHint" not in snap
+
+
+def test_snapshot_written_by_dead_process_is_stale():
+    """写者进程已消失（重启残留）→ 必须标 stale 并说清原因。
+
+    反制「只看年龄」：年龄再小，写的人不在了就是残留 ——
+    这正是「重启后第一份上报之前」的真实形态。
+    """
+    import json
+    import os
+    from datetime import UTC, datetime
+
+    srp.store_right_stage_state(
+        {
+            "activeKey": "shell-page:shell:/tasks",
+            "activeKind": "shell-page",
+            "collapsed": False,
+            "tabs": [{"key": "shell-page:shell:/tasks"}],
+            "rev": 5,
+            "reportedAt": datetime.now(UTC).isoformat(),
+        }
+    )
+    path = srp.right_stage_state_path()
+    on_disk = json.loads(path.read_text(encoding="utf-8"))
+    assert on_disk.get("writerPid") == os.getpid(), "落盘必须盖章写者进程号"
+    dead_pid = 999999
+    assert srp._pid_alive(dead_pid) is False, "测试前提：999999 不可能是活进程"
+    path.write_text(json.dumps({**on_disk, "writerPid": dead_pid}), encoding="utf-8")
+    srp._STATE.clear()
+    snap = srp.read_right_stage_state()
+    assert snap.get("stale") is True
+    assert "写它的进程已经不在了" in snap.get("staleHint", "")
+    assert "不代表用户此刻" in snap.get("staleHint", "")
+
+
 def test_snapshot_without_reported_at_is_not_fabricated():
     """缺 reportedAt 时不编年龄、不编 stale（无依据就不下结论）。"""
     _seed({"activeKey": "shell-page:shell:/tasks", "activeKind": "shell-page", "tabs": []})

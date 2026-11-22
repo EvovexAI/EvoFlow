@@ -666,7 +666,8 @@ export function PlatformToolCallBlock(context: ToolCallBlockRenderContext) {
             <span className="text-foreground-subtle">{kindDetail}</span>
           ) : undefined
         }
-        summaryContentSeparator="·"
+        // 有中文 title 时已隐藏「平台」，分隔点也不要（否则变成「图标 · 标题」）
+        summaryContentSeparator={hideKindLabel ? undefined : "·"}
         sourceLabel={context.sourceLabel}
         primaryText={primaryTextNode}
         secondaryText={toolCall.status === "failed" ? undefined : statusLabel}

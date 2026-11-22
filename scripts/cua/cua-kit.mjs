@@ -211,14 +211,142 @@ export function assertInCanvas(pts, rect = PAINT_CANVAS) {
  * 上一轮我凭猜撤 18 次，多撤的那几步把用户的横线抹了——**别猜，用 segs**。
  * canvas 传 null 可关闭越界闸（画布尺寸不明时）。
  */
-export async function drawPath(app, pts, { canvas = PAINT_CANVAS } = {}) {
+export async function drawPath(app, pts, { canvas = PAINT_CANVAS, stroke } = {}) {
   if (canvas) assertInCanvas(pts, canvas);
+  // 【2026-11-22 · 修 bug】快路径：一条笔迹只发一次系统调用（见 drawStroke）。
+  // 原实现（下面这段逐段循环）在本机实测的两种失败都出现过：
+  //   ① 72 段 → 72 次 broker 往返，单个 node_repl cell 直接 120s 超时（tool 被中断）；
+  //   ② 任一段前 EvoFlow 自己的窗口抢回前台 → 该段被拒：
+  //      `drag: raw foreground event ... was refused because the live frontmost
+  //       application is pid N. action_sent=false.` 于是笔迹断成几截。
+  // 判据：段数不是画家的问题，是往返次数的问题 —— 整条线必须在**一个**进程里画完。
+  if (stroke?.pid && stroke?.mapping) {
+    await drawStroke({ ...stroke, points: pts });
+    return pts.length - 1;
+  }
   let segs = 0;
   for (let i = 0; i < pts.length - 1; i++) {
     await app.drag(pts[i], pts[i + 1]);
     segs++;
   }
   return segs;
+}
+
+/* ─────────────────── 整条笔迹：一次激活 + 一次 SendInput ─────────────────── */
+
+/**
+ * 截图像素 → 物理屏幕像素。
+ * CUA 的坐标动作吃的是「本轮交付截图」的像素；SendInput/SetCursorPos 吃的是物理屏幕点。
+ * 两者之间只有窗口矩形这一个换算（实测：窗口 bounds 1432×989 ↔ 交付截图 1007×698，
+ * 比例同为 1.42 —— 截图是整窗等比缩小的，含标题栏，所以直接用窗口矩形线性映射）。
+ */
+export function shotToScreen(mapping) {
+  const { bounds, shot } = mapping;
+  const sx = bounds.width / shot.width;
+  const sy = bounds.height / shot.height;
+  return (pts) =>
+    pts.map(([x, y]) => [
+      Math.round(bounds.x + x * sx),
+      Math.round(bounds.y + y * sy),
+    ]);
+}
+
+/** 由 CUA 的窗口 bounds + 截图尺寸拼出 mapping（mapping 只在本次坐标空间内有效）。 */
+export function mappingFor(bounds, shot) {
+  return {
+    bounds: {
+      x: Math.round(bounds.x ?? bounds.left ?? 0),
+      y: Math.round(bounds.y ?? bounds.top ?? 0),
+      width: Math.round(bounds.width ?? 0),
+      height: Math.round(bounds.height ?? 0),
+    },
+    shot: { width: shot.width, height: shot.height },
+  };
+}
+
+const STROKE_PS = String.raw`param([Parameter(Mandatory=$true)][int]$TargetPid, [Parameter(Mandatory=$true)][string]$Points, [int]$StepMs = 6)
+$ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+public static class Pen {
+  [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+  [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool BringWindowToTop(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
+  [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+}
+'@
+[void][Pen]::SetProcessDPIAware()
+$p = Get-Process -Id $TargetPid
+$h = $p.MainWindowHandle
+[void][Pen]::ShowWindow($h, 9)
+$fg = [Pen]::GetForegroundWindow(); $fpid = 0
+$fgt = [Pen]::GetWindowThreadProcessId($fg, [ref]$fpid)
+$me = [Pen]::GetCurrentThreadId()
+[void][Pen]::AttachThreadInput($me, $fgt, $true)
+[void][Pen]::SetWindowPos($h, [IntPtr]::new(-1), 0, 0, 0, 0, 0x0001 -bor 0x0002)
+[void][Pen]::BringWindowToTop($h)
+[void][Pen]::SetForegroundWindow($h)
+[void][Pen]::AttachThreadInput($me, $fgt, $false)
+Start-Sleep -Milliseconds 120
+$fg2 = [Pen]::GetForegroundWindow(); $p2 = 0
+[void][Pen]::GetWindowThreadProcessId($fg2, [ref]$p2)
+if ($p2 -ne $TargetPid) { '{"ok":false,"reason":"foreground=' + $p2 + '"}'; exit 0 }
+$arr = @($Points -split '\s+' | Where-Object { $_ })
+$f = $arr[0] -split ','
+[void][Pen]::SetCursorPos([int]$f[0], [int]$f[1])
+Start-Sleep -Milliseconds 40
+[Pen]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+foreach ($pt in $arr) {
+  $xy = $pt -split ','
+  [void][Pen]::SetCursorPos([int]$xy[0], [int]$xy[1])
+  Start-Sleep -Milliseconds $StepMs
+}
+[Pen]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+'{"ok":true,"fgpid":' + $p2 + ',"points":' + $arr.Count + '}'`;
+
+/**
+ * 一条连续笔迹：整窗激活 → 按下 → 逐点移动 → 抬起，全程在**同一个** PowerShell 进程里。
+ * 为什么必须这样：
+ *  · 每段一次 `app.drag` 都要过一次前台校验，且是一次 broker 往返；几十段就超时。
+ *  · 这里只有一次前台校验，之后指针全在 Paint 里，中途被抢也不影响（已经按下去了）。
+ *  · 整条线等于**一步撤销**（ctrl+z 一次即回滚），而逐段拖拽是 N 步撤销 —— 之前
+ *    「多撤一步吃掉用户上一笔」的坑正是这么来的。
+ * @returns {Promise<{ok:boolean, fgpid?:number, points?:number, reason?:string}>}
+ */
+export async function drawStroke({ pid, points, mapping, stepMs = 6, tmpDir } = {}) {
+  const { writeFile, mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { execFile } = await import("node:child_process");
+  if (!pid) throw new Error("drawStroke 需要 pid（目标窗口所属进程）");
+  if (!Array.isArray(points) || points.length < 2) throw new Error("drawStroke 至少需要 2 个点");
+  const map = mapping ? shotToScreen(mapping) : (pts) => pts;
+  const flat = map(points).map(([x, y]) => `${x},${y}`).join(" ");
+  const dir = tmpDir ?? (await mkdtemp(join(tmpdir(), "cua-stroke-")));
+  const ps1 = join(dir, "stroke.ps1");
+  await writeFile(ps1, STROKE_PS, "utf8");
+  const out = await new Promise((resolve, reject) => {
+    execFile(
+      "powershell",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-TargetPid", String(pid), "-Points", flat, "-StepMs", String(stepMs)],
+      { encoding: "utf8", maxBuffer: 1 << 20, timeout: 60000 },
+      (err, stdout) => (err ? reject(err) : resolve(String(stdout).trim())),
+    );
+  });
+  const line = out.split(/\r?\n/).filter(Boolean).pop() ?? "{}";
+  try {
+    return JSON.parse(line);
+  } catch {
+    throw new Error("drawStroke 输出不是 JSON：" + out.slice(-400));
+  }
 }
 
 /**
@@ -243,7 +371,7 @@ export async function drawHeart(appOrOpts, opts) {
       );
     }
   }
-  const { cx, cy, scale = 1.2, n = 24, color = "红色" } = o;
+  const { cx, cy, scale = 1.2, n = 24, color = "红色", stroke } = o;
   if (Number.isInteger(cx) === false || Number.isInteger(cy) === false) {
     throw new Error(
       `drawHeart 需要整数 cx / cy（截图像素坐标），实际收到 cx=${cx} cy=${cy}。` +
@@ -253,8 +381,9 @@ export async function drawHeart(appOrOpts, opts) {
   await pickColor(app, color);
   await selectTool(app, "brush");
   const pts = heartPoints({ cx, cy, scale, n });
-  const segs = await drawPath(app, pts);
-  return { segs, undoSteps: segs, points: pts.length };
+  // 传了 stroke={pid, mapping} 就走「一次 SendInput 画完整条线」（快、抗抢前台、一步撤销）。
+  const segs = await drawPath(app, pts, { stroke });
+  return { segs, undoSteps: stroke ? 1 : segs, points: pts.length };
 }
 
 /**

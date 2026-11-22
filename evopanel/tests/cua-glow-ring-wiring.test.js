@@ -109,6 +109,19 @@ describe('cua 蓝光环接线', () => {
     const second = invoked.filter((c) => c === 'cua_glow_ring_show').length
     expect(second).toBe(first)
   })
+
+  it('已亮时再 begin 不得再调 overlay_show（否则每秒闪一下）', async () => {
+    const mod = await loadModule()
+    const core = await import('@tauri-apps/api/core')
+    mod.beginCuaGlowOverlay('no-flash-1')
+    await vi.waitFor(() => expect(invoked).toContain('cua_glow_overlay_show'))
+    const shows = () =>
+      core.invoke.mock.calls.filter(([c]) => c === 'cua_glow_overlay_show').length
+    const before = shows()
+    mod.beginCuaGlowOverlay('no-flash-2')
+    await new Promise((r) => setTimeout(r, 80))
+    expect(shows()).toBe(before)
+  })
 })
 
 // 【self-evolution-bot · 2026-11-19 · 第72轮 · 模型:deepseek-v4.1-flash-1017】

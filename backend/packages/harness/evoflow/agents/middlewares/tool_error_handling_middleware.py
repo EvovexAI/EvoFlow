@@ -750,6 +750,33 @@ class ToolErrorHandlingMiddleware(AgentMiddleware[AgentState]):
         if isinstance(args, dict):
             partial_read = args.get("offset") is not None or args.get("limit") is not None
         is_error_result = str(getattr(result, "status", None) or "").strip().lower() == "error"
+        # 【self-evolution-bot · 2026-11-22 · 第124轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：工具**返回**（而非抛出）一句 "Error: ..." 时，把 ToolMessage.status
+        # 同步成 "error"，不再让「obs 记 error、消息本身仍是 ok」两套口径并存。
+        # 为什么（现网实证，2026-11-22 17:58~18:01，agent=case-fullstack-dev）：
+        #   · search_code_index 返回纯字符串
+        #     "Error: search_code_index failed: database disk image is malformed"；
+        #   · obs 表 6 条同工具记录全是 status=error（`_completed_tool_should_log_as_error` 认了）；
+        #   · 但右侧面板那张卡显示的是「代码索引 / 查找 RightStagePanel / **已执行**」
+        #     —— 因为 v4 行状态来自 wire 的 tool_result.status，而 wire 状态取的是
+        #     ToolMessage.status（这里始终是 None → 归一化成 success），
+        #     于是 UI 说成功、obs 说失败、模型看到的是错误正文。三方各说一套。
+        #   · 这不是「文案难看」：失败卡长得跟成功卡一样，用户与模型都没有视觉信号
+        #     去重试或换工具，本轮的员工就是连调 6 次才被我自己发现库坏了。
+        # 边界：只在本函数（结果整形阶段）补 status，判定复用既有的
+        # `_completed_tool_should_log_as_error`（JSON 信封 / "Error:" 前缀 / 显式失败标记），
+        # 不新增任何字符串启发式；已经 error 的不重复构造；Command（非 ToolMessage）不动。
+        # 注意：**不在这里递归整形、也不提前 return**——换好 status 后继续走下面
+        # 既有的 `if is_error_result:` 分支（头部保留的错误截断 + 末尾 working memory
+        # 注册都在那里），否则等于把后两步动作绕过去（本岗栽过多次的「改中间层漏接线」）。
+        if not is_error_result and _completed_tool_should_log_as_error(result, raw_content):
+            is_error_result = True
+            result = ToolMessage(
+                content=raw_content,
+                tool_call_id=result.tool_call_id,
+                name=getattr(result, "name", None),
+                status="error",
+            )
         if is_error_result:
             # 错误结果的诊断价值集中在开头（失败原因/参数回显/栈帧头部）——
             # 中段截断会恰好截掉修复线索。改为保留头部的硬顶（与 partial_read

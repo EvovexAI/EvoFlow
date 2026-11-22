@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.46] - 2026-11-22
+
+相对 **1.3.45**：停对话立刻收回电脑控制；任务详情对话不再张冠李戴；坏代码索引库可自愈重建。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.46.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **停对话后电脑控制还挂着**：停止会话立刻收回控制并熄灭提示条
+- **任务页对话张冠李戴**：优先读本任务执行会话，回退须同属执行人
+- **代码索引库损坏连环失败**：坏库隔离并重建，返回可读说明
+- **列表任务遇库忙**：返回可重试 503
+- **工具失败字符串**：明确失败时状态标为 error
+
+### Changed
+
+- **知识库解析兜底**：失败路径更稳
+- **发消息避开忙会话**：少往正在跑的会话硬塞
+
+
 ## [1.3.45] - 2026-11-22
 
 相对 **1.3.44**：历史平台成功提示不再反复弹出；后台任务轮询更稳；Agent 应用冷启动先开签再挂页面。

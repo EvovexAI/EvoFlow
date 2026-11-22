@@ -216,7 +216,9 @@ function _runMemoryPressurePass(): void {
   if (closed > 0 || shrunk > 0 || stickyCleared > 0) {
     logV4Life({
       event: "mem_pressure_evict_warm",
-      level: level === "critical" ? "error" : "warn",
+      // warn only — critical eviction is protective, not a product failure.
+      // skipDedupe=false so 2s critical polls don't flood frontend ERROR logs.
+      level: "warn",
       zh:
         level === "critical"
           ? `渲染内存危急：清 keep-warm ${closed}、裁窗口 ${shrunk}、清 sticky ${stickyCleared}，避免 Out of Memory。`
@@ -230,7 +232,6 @@ function _runMemoryPressurePass(): void {
         heapMb: readRendererHeapMb(),
         onlyWithoutSnapshot,
       },
-      skipDedupe: true,
     });
   }
 }

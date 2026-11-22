@@ -19,10 +19,11 @@ from evoflow.knowledge.owned import settings as owned_settings
 from evoflow.knowledge.owned.embedding_bind import resolve_create_binding
 from evoflow.knowledge.owned.formats import (
     MAX_FILE_BYTES,
-    is_supported_file,
     folder_path_has_skipped_dir,
+    is_supported_file,
     should_skip_dir,
     should_skip_file,
+    validate_upload_bytes,
 )
 from evoflow.knowledge.owned.ids import new_id, utc_now
 from evoflow.knowledge.owned.kb_conn import db_for_kb
@@ -1016,11 +1017,31 @@ def requeue_orphan_parse_docs(
     statuses = ("pending", "processing", "failed") if include_failed else ("pending", "processing")
     orphans = jobs.list_orphan_parse_docs(kb_id, limit=limit, statuses=statuses)
     queued = 0
+    skipped_unparseable = 0
     now = utc_now()
     for row in orphans:
         doc_id = str(row.get("doc_id") or "").strip()
         kid = str(row.get("kb_id") or "").strip()
         if not doc_id or not kid:
+            continue
+        # Never re-queue corrupt/unsupported sources (e.g. 13-byte fake xlsx).
+        # Clearing error_message below would otherwise erase the permanent-fail
+        # hint and let the next reconcile tick pick them up again.
+        err_hint = str(row.get("error_message") or "")
+        if _error_looks_like_parse_failure(err_hint):
+            if str(row.get("parse_status") or "") != "failed":
+                with db_for_kb(kid) as conn:
+                    conn.execute(
+                        """
+                        UPDATE kb_documents
+                        SET parse_status='failed',
+                            index_status=CASE WHEN COALESCE(chunk_count,0) > 0 THEN 'ready' ELSE 'failed' END,
+                            updated_at=?
+                        WHERE id=? AND deleted_at IS NULL
+                        """,
+                        (now, doc_id),
+                    )
+            skipped_unparseable += 1
             continue
         with db_for_kb(kid) as conn:
             conn.execute(
@@ -1040,6 +1061,7 @@ def requeue_orphan_parse_docs(
         "ok": True,
         "orphanCount": len(orphans),
         "requeued": queued,
+        "skippedUnparseable": skipped_unparseable,
         "kbId": kb_id,
     }
 
@@ -2375,12 +2397,15 @@ def _create_doc_record(
     if data is not None:
         if len(data) > MAX_FILE_BYTES:
             raise ValueError(f"file too large (max {MAX_FILE_BYTES} bytes)")
+        validate_upload_bytes(file_name, data)
         import hashlib
 
         digest = hashlib.sha256(data).hexdigest()
         blob_path = blob_store.put_bytes(kb_id, doc_id, file_name, data)
         size = len(data)
     elif src_path is not None:
+        raw = src_path.read_bytes()
+        validate_upload_bytes(file_name, raw)
         blob_path, size, digest = blob_store.put_file(kb_id, doc_id, src_path, file_name)
     else:
         raise ValueError("no file content")
@@ -2449,6 +2474,7 @@ def _update_doc_from_bytes(
     name = str(file_name or existing.get("file_name") or "upload.bin")
     if len(data) > MAX_FILE_BYTES:
         raise ValueError(f"file too large (max {MAX_FILE_BYTES} bytes)")
+    validate_upload_bytes(name, data)
     digest = hashlib.sha256(data).hexdigest()
     if digest and digest == str(existing.get("content_hash") or ""):
         doc = get_document(doc_id) or _row_doc(existing)
@@ -2503,6 +2529,7 @@ def upload_bytes(
 ) -> dict[str, Any]:
     if not is_supported_file(file_name):
         raise ValueError(f"unsupported file type: {file_name}")
+    validate_upload_bytes(file_name, data)
     name = Path(file_name).name
     folder = _resolve_folder_path(folder_path)
     if folder_path_has_skipped_dir(folder):

@@ -1221,6 +1221,8 @@ function inferPlatformUiFeedbackFallback(
   const action = asString(obj.action)
   if (!action || !action.includes('.')) return null
   const [domain, verb] = action.split('.', 2)
+  // ui.*（panel/show/hide/…）全是界面操控，不要冒「ui操作成功」toast / 反馈卡
+  if (domain === 'ui') return null
   // 普通只读不发反馈；查看详情 / 列表要能开 shell-page
   if (
     !domain ||
