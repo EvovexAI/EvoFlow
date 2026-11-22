@@ -165,10 +165,20 @@ export function useStreamingWritePreview(opts: {
           existingEntries: turnPlatformEntriesRef.current,
         },
       )
-      if (platformEntries.length) {
+      // Only announce/toast when there are *new* platform UIs. Publishing the
+      // full merged list with announce=true on every tools-scan re-opens the
+      // middle summary bubble for already-notified ops after each send.
+      if (platformShown.length && platformEntries.length) {
         publishPlatformEntriesRef.current(
           platformEntries,
           latestPlatformRunEntryId(platformEntries),
+          { announce: true },
+        )
+      } else if (platformEntries.length) {
+        publishPlatformEntriesRef.current(
+          platformEntries,
+          undefined,
+          { announce: false },
         )
       }
       for (const ui of platformShown) {
