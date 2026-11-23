@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.51] - 2026-11-23
+
+相对 **1.3.50** 的后续开发版本（未打正式包标签）。
+
+
 ## [1.3.50] - 2026-11-23
 
 相对 **1.3.49**：部门群等当前轮完成再取正文/派工；去掉旧 sticky 误派；门店设计简要对齐；轻量寒暄。
