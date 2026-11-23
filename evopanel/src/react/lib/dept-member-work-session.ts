@@ -434,8 +434,14 @@ export async function runDeptMemberWorkTurn(
         throw new Error(`本轮回复未完成：${phase}`)
       }
       let historyText = ''
+      let historyCompleted = false
       try {
         const rows = (await loadDeptMemberHistory(sk)).filter((row) => belongsToTurn(row, fence))
+        const lastRow = rows[rows.length - 1]
+        historyCompleted = !!lastRow &&
+          ['assistant', 'ai'].includes(String(lastRow.role).toLowerCase()) &&
+          String(lastRow.turn_state || lastRow.turnState || '') === 'completed' &&
+          !!extractHistoryAssistantText(lastRow)
         for (const row of rows) {
           if (String(row.role).toLowerCase() === 'tool') {
             ingestHandoffs(row.content_json || row.contentJson || row.content)
@@ -447,7 +453,12 @@ export async function runDeptMemberWorkTurn(
         /* Keep waiting for the authoritative event/status. */
       }
       if (finalSeen) break
-      if (!sent?.awaitingV4 || terminal) {
+      // Desktop execution/state clears runId on completion and may not retain
+      // recently_completed. A durable final row for our exact run still proves
+      // completion; idle/unavailable status or another run's row never does.
+      const completedWithoutRunId = status?.status === 'done' && !status?.runId &&
+        !status?.executing && historyCompleted
+      if (!sent?.awaitingV4 || terminal || completedWithoutRunId) {
         if (historyText) finalText = historyText
         if (!sent?.awaitingV4 || historyText || ++terminalReads >= 3) break
       }

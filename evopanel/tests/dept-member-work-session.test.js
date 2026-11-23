@@ -268,4 +268,26 @@ describe('dept-member-work-session detached turn', () => {
     expect((await turn).text).toBe('')
   })
 
+
+  it('accepts persisted current-run completion when execution state clears the run id', async () => {
+    state = { runId: null, status: 'done', executing: false, recently_completed: false, recently_completed_run_id: null }
+    api.chatSend.mockImplementation(async () => {
+      rows.push({ seq: 2, role: 'assistant', run_id: 'current', turn_state: 'completed', turn_duration_ms: 17760, content: '实际已完成的回复' })
+      return { ok: true, runId: 'current', awaitingV4: true }
+    })
+    expect((await runDeptMemberWorkTurn(opts)).text).toBe('实际已完成的回复')
+  })
+
+  it('does not infer completion from id-less done state and an unrelated reply', async () => {
+    state = { runId: null, status: 'done', executing: false }
+    const signal = { aborted: false }
+    const turn = runDeptMemberWorkTurn({ ...opts, signal })
+    await vi.advanceTimersByTimeAsync(750)
+    rows.push({ seq: 2, role: 'assistant', run_id: 'other', turn_state: 'completed', content: '别人的回复' })
+    await vi.advanceTimersByTimeAsync(750)
+    signal.aborted = true
+    await vi.advanceTimersByTimeAsync(750)
+    expect((await turn).text).toBe('')
+  })
+
 })
