@@ -8,7 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.3.50] - 2026-11-23
 
-相对 **1.3.49** 的后续开发版本（未打正式包标签）。
+相对 **1.3.49**：部门群等当前轮完成再取正文/派工；去掉旧 sticky 误派；门店设计简要对齐；轻量寒暄。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.50.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **部门群 detached 轮次**：waitingV4 后按本轮 runId 等到最终事件/落库
+- **旧回复误派工**：去掉 unrestricted latest-reply 回退
+- **执行态清空 runId**：须有本轮非空最终助手行才算完成
+- **失败/取消/超时**：显式报错并释放监听，十分钟上限
+
+### Changed
+
+- **门店设计简要对齐**：门店设计 / 施工绘图岗交接前提示范围
+- **轻量寒暄**：单独打招呼走 ask；干活仍 agent
 
 
 ## [1.3.49] - 2026-11-23
