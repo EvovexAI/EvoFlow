@@ -139,6 +139,7 @@ _MODULE_LABEL_ZH = {
     "employees": "智能体员工",
     "knowledge": "知识库",
     "settings": "设置",
+    "automation": "自动化",
     "chat": "主对话",
     "home": "首页",
 }
@@ -150,6 +151,7 @@ _MODULE_HINT_ZH = {
     "employees": "当前是「智能体员工」，可管岗位与派活。",
     "knowledge": "当前是「知识库」。",
     "settings": "当前是「设置」。",
+    "automation": "当前是「自动化/调度」页，不是工作流编辑，也不是任务中心。",
     "chat": "当前在主对话工作台旁协助。",
 }
 
@@ -160,6 +162,7 @@ _MODULE_HINT_EN = {
     "employees": "User is on AI employees.",
     "knowledge": "User is on Knowledge.",
     "settings": "User is on Settings.",
+    "automation": "User is on Automation/schedules, NOT the workflow editor.",
     "chat": "User is beside the main chat workbench.",
 }
 
@@ -220,6 +223,40 @@ def format_page_context_block(
     hint = (_MODULE_HINT_EN if en else _MODULE_HINT_ZH).get(module_key)
     if hint:
         lines.append(hint)
+
+    chat = page_context.get("chat")
+    if not isinstance(chat, dict):
+        ui_pre = page_context.get("ui")
+        if isinstance(ui_pre, dict) and isinstance(ui_pre.get("chatSession"), dict):
+            chat = ui_pre.get("chatSession")
+    if isinstance(chat, dict) and chat:
+        sk = _clip_text(chat.get("sessionKey") or chat.get("session_key"), 80)
+        title = _clip_text(chat.get("title") or chat.get("label"), 80)
+        run_state = _clip_text(chat.get("runState") or chat.get("run_state") or chat.get("status"), 40)
+        if sk or title or run_state:
+            if en:
+                bits = []
+                if title:
+                    bits.append(f"title={title}")
+                if sk:
+                    bits.append(f"sessionKey={sk}")
+                if run_state:
+                    bits.append(f"run={run_state}")
+                lines.append("Main chat session: " + "; ".join(bits))
+            else:
+                bits = []
+                if title:
+                    bits.append(f"标题={title}")
+                if sk:
+                    bits.append(f"sessionKey={sk}")
+                if run_state:
+                    zh_run = (
+                        "运行中"
+                        if run_state in ("running", "executing", "in_progress")
+                        else ("空闲" if run_state in ("idle", "done", "completed") else run_state)
+                    )
+                    bits.append(f"状态={zh_run}")
+                lines.append("主对话当前会话：" + "；".join(bits))
 
     ui = page_context.get("ui")
     if isinstance(ui, dict) and ui:
@@ -286,15 +323,20 @@ def format_page_context_block(
             elif lab:
                 act_bits.append(lab)
         if act_bits:
-            lines.append(("Past nav (not current screen): " if en else "路过页面（不是当前位置）：") + " → ".join(act_bits))
+            label_zh = (
+                "Recent UI activity: "
+                if en
+                else "近期界面操作（点击/路过，便于对齐用户焦点）："
+            )
+            lines.append(label_zh + " → ".join(act_bits))
 
     if not lines:
         return ""
 
     guidance = (
-        "The Now viewing line is authoritative for where the user is. Ignore older chat turns that mention a different module. Prefer platform tools matching the module. Do not invent entities not listed here."
+        "The Now viewing / Main chat session lines are authoritative for where the user is and which chat session is selected (sessionKey + run state). Ignore older turns that mention a different module or session. Prefer platform tools matching the module. Do not invent entities not listed here."
         if en
-        else "「用户当前界面」为准：用户问「这里/当前页」时按模块回答，不要沿用对话历史里其它模块（例如把工作流说成任务中心/待办）。优先按模块走 platform 对应域；未列出的实体不要臆造。"
+        else "「用户当前界面」与「主对话当前会话」为准：问「这里/当前页/这个对话」时用其中的模块与 sessionKey/运行状态，不要沿用历史里其它模块或其它会话。优先按模块走 platform；未列出的实体不要臆造。"
     )
     body = "\n".join(lines)
     return f"<xiaomi_ui_context>\n{body}\n{guidance}\n</xiaomi_ui_context>"

@@ -1144,6 +1144,11 @@ async function reloadXiaomiHistoryQuiet(opts = {}) {
 export function fingerprintXiaomiPageSnap(snap) {
   if (!snap || typeof snap !== 'object') return ''
   const ui = snap.ui && typeof snap.ui === 'object' ? /** @type {Record<string, unknown>} */ (snap.ui) : {}
+  const chat =
+    (snap.chat && typeof snap.chat === 'object' ? /** @type {Record<string, unknown>} */ (snap.chat) : null) ||
+    (ui.chatSession && typeof ui.chatSession === 'object'
+      ? /** @type {Record<string, unknown>} */ (ui.chatSession)
+      : null)
   const tabs = Array.isArray(ui.activeTabs) ? ui.activeTabs.map((t) => String(t || '')).join(',') : ''
   const selected = Array.isArray(ui.selected)
     ? ui.selected
@@ -1165,6 +1170,7 @@ export function fingerprintXiaomiPageSnap(snap) {
     ui.pageTitle || '',
     tabs,
     selected,
+    chat ? `${chat.sessionKey || ''}:${chat.runState || ''}` : '',
   ].join('\n')
 }
 

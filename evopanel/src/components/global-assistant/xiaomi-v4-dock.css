@@ -1,0 +1,91 @@
+/* 非主对话：V4 小V 贴右 dock（与 ChatApp right-stage 同视觉语言） */
+.xm-v4-dock {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50020;
+  display: flex;
+  flex-direction: column;
+  /* 自有宽度：不跟旧 xm-panel 的 --xm-dock-width=0 互踩 */
+  width: var(--xm-v4-dock-width, var(--xm-dock-width, 400px));
+  min-width: 300px;
+  max-width: min(640px, 92vw);
+  background: var(--bg-elevated, #fff);
+  border-left: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 90%, transparent);
+  box-shadow: -8px 0 28px rgba(15, 23, 42, 0.08);
+  color: var(--text-primary, #111827);
+}
+
+.xm-v4-dock-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border, #e5e7eb) 85%, transparent);
+  background: var(--bg-surface, #fafafa);
+}
+
+.xm-v4-dock-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.xm-v4-dock-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.xm-v4-dock-sub {
+  font-size: 12px;
+  color: var(--text-tertiary, #9ca3af);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.xm-v4-dock-close {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary, #6b7280);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.xm-v4-dock-close:hover {
+  background: var(--bg-hover, #f3f4f6);
+  color: var(--text-primary, #111827);
+}
+
+.xm-v4-dock-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.xm-v4-dock-body .xm-stage-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
+html[data-theme='dark'] .xm-v4-dock,
+html.dark .xm-v4-dock {
+  background: var(--bg-elevated, #111827);
+  border-left-color: color-mix(in srgb, var(--border, #374151) 90%, transparent);
+  box-shadow: -8px 0 28px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme='dark'] .xm-v4-dock-head,
+html.dark .xm-v4-dock-head {
+  background: var(--bg-surface, #0b1220);
+}

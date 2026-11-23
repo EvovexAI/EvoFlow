@@ -6,9 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.3.51] - 2026-11-23
+## [1.3.51] - 2026-11-24
 
-相对 **1.3.50** 的后续开发版本（未打正式包标签）。
+相对 **1.3.50**：小 V 右栏对话时间线；从功能页打开时保留页面与点击上下文。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.51.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **小 V 右栏对话**：右栏挂载对话时间线
+
+### Fixed
+
+- **打开前页面上下文**：点开小 V 前的模块/路由与近期点击不因跳转对话页丢失
+- **主对话会话提示**：侧栏当前会话写入页面上下文
+
+### Changed
+
+- **小 V 提示词**：页面上下文格式更完整
+- **右栏打开小 V**：打开路径与焦点更稳
 
 
 ## [1.3.50] - 2026-11-23

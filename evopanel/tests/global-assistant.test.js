@@ -6,7 +6,16 @@ import {
   detectChatIntent,
   mapAgentWorkStatus,
 } from '../src/components/global-assistant/assistant-rules.js'
-import { extractPageContext, shouldHideAssistant } from '../src/components/global-assistant/assistant-context.js'
+import {
+  extractPageContext,
+  shouldHideAssistant,
+  collectXiaomiPageSnapshot,
+  collectActiveChatSessionHint,
+  stashXiaomiPageContextForOpen,
+  clearStashedXiaomiPageContext,
+} from '../src/components/global-assistant/assistant-context.js'
+import { fingerprintXiaomiPageSnap } from '../src/components/global-assistant/assistant-session.js'
+import { emitUiActivity, getRecentUiActivities, getUiFocusSnapshot } from '../src/lib/ui-focus.js'
 import { buildEmployeeThreadFromTasks } from '../src/components/global-assistant/assistant-api.js'
 import {
   aguiAssistantTextPiece,
@@ -73,6 +82,111 @@ describe('xiaomi page context', () => {
     expect(shouldHideAssistant('/qr-login')).toBe(true)
     expect(shouldHideAssistant('/chat')).toBe(false)
     expect(shouldHideAssistant('/proactive')).toBe(false)
+  })
+
+  it('extracts automation / cron routes', () => {
+    expect(extractPageContext('/automation').module).toBe('automation')
+    expect(extractPageContext('/cron').label).toBe('自动化')
+    expect(extractPageContext('/automation').contextId).toBe('automation')
+  })
+
+  it('extracts owned knowledge base id from route', () => {
+    const ctx = extractPageContext('/knowledge/owned/kb-abc123')
+    expect(ctx.module).toBe('knowledge')
+    expect(ctx.contextType).toBe('knowledge_base')
+    expect(ctx.contextId).toBe('kb-abc123')
+  })
+
+  it('scrapes active chat session from shell list DOM', () => {
+    document.body.innerHTML = `
+      <div id="chat-persistent-host">
+        <div class="react-chat-history-item active" data-shell-session="agent:main:thread-abc">
+          <span class="react-chat-history-item-title">报价跟进</span>
+          <span class="react-chat-session-type-ic is-running"></span>
+        </div>
+      </div>
+    `
+    const hint = collectActiveChatSessionHint()
+    expect(hint?.sessionKey).toBe('agent:main:thread-abc')
+    expect(hint?.title).toContain('报价跟进')
+    expect(hint?.runState).toBe('running')
+
+    const snap = collectXiaomiPageSnapshot('/chat')
+    expect(snap.contextId).toBe('agent:main:thread-abc')
+    expect(snap.chat?.sessionKey).toBe('agent:main:thread-abc')
+    expect(snap.chat?.runState).toBe('running')
+    expect(fingerprintXiaomiPageSnap(snap)).toContain('agent:main:thread-abc')
+    document.body.innerHTML = ''
+  })
+
+  it('keeps pre-open module context after forced navigate to chat', () => {
+    clearStashedXiaomiPageContext()
+    stashXiaomiPageContextForOpen({
+      module: 'workflow',
+      route: '/apps/demo',
+      contextType: 'workspace',
+      contextId: 'demo',
+      label: '工作流 · demo',
+    })
+    const snap = collectXiaomiPageSnapshot('/chat')
+    expect(snap.module).toBe('workflow')
+    expect(snap.route).toBe('/apps/demo')
+    expect(snap.label).toContain('工作流')
+    clearStashedXiaomiPageContext()
+  })
+})
+
+describe('ui-focus trail', () => {
+  it('records click and route rows for agents', () => {
+    const mark = `t-${Date.now()}`
+    emitUiActivity({
+      type: 'route',
+      module: 'knowledge',
+      label: '知识库',
+      entityId: 'kb-1',
+      route: '/knowledge/owned/kb-1',
+    })
+    emitUiActivity({
+      type: 'click',
+      module: 'knowledge',
+      label: '文档 A',
+      entityId: 'doc-1',
+      entityType: 'knowledge',
+      detail: mark,
+    })
+    const recent = getRecentUiActivities(8)
+    expect(recent.some((r) => r.type === 'click' && r.detail === mark)).toBe(true)
+    expect(recent.some((r) => r.type === 'route' && r.entityId === 'kb-1')).toBe(true)
+    const snap = getUiFocusSnapshot()
+    expect(snap.version).toBe(1)
+    expect(Array.isArray(snap.recentActivity)).toBe(true)
+  })
+})
+
+describe('xiaomi page context across modules', () => {
+  it('knowledge / automation / chat each carry distinct module+entity', () => {
+    clearStashedXiaomiPageContext()
+    const kb = collectXiaomiPageSnapshot('/knowledge/owned/kb-demo-99')
+    expect(kb.module).toBe('knowledge')
+    expect(kb.contextId).toBe('kb-demo-99')
+    expect(kb.contextType).toBe('knowledge_base')
+
+    const auto = collectXiaomiPageSnapshot('/automation')
+    expect(auto.module).toBe('automation')
+    expect(auto.contextId).toBe('automation')
+
+    document.body.innerHTML = `
+      <div id="chat-persistent-host">
+        <div class="react-chat-history-item active" data-shell-session="agent:main:sess-42">
+          <span class="react-chat-history-item-title">验收对话</span>
+        </div>
+      </div>
+    `
+    const chat = collectXiaomiPageSnapshot('/chat')
+    expect(chat.module).toBe('chat')
+    expect(chat.contextId).toBe('agent:main:sess-42')
+    expect(chat.chat?.sessionKey).toBe('agent:main:sess-42')
+    document.body.innerHTML = ''
   })
 })
 

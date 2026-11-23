@@ -9,7 +9,18 @@ export {
   refreshXiaomiSessionList,
   bindXiaomiStreamListener,
 } from './assistant-session.js'
-export { extractPageContext, shouldHideAssistant, isModuleGuideRoute, moduleGuideSuggestions, collectXiaomiPageSnapshot, edgeCoachTip } from './assistant-context.js'
+export {
+  extractPageContext,
+  shouldHideAssistant,
+  isModuleGuideRoute,
+  moduleGuideSuggestions,
+  collectXiaomiPageSnapshot,
+  collectActiveChatSessionHint,
+  stashXiaomiPageContextForOpen,
+  peekStashedXiaomiPageContext,
+  clearStashedXiaomiPageContext,
+  edgeCoachTip,
+} from './assistant-context.js'
 export { isFabUserHidden, setFabUserHidden } from './assistant-store.js'
 export {
   computeBadgeCount,

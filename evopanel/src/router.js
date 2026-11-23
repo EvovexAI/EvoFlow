@@ -683,15 +683,15 @@ async function loadRoute() {
   const hash = window.location.hash.slice(1) || _defaultRoute
   const path = hash.split('?')[0]
   try {
-    const { emitPageActivity } = await import('./lib/page-activity.js')
+    const { noteRouteFocus, ensureUiFocusClickCapture } = await import('./lib/ui-focus.js')
     const { extractPageContext } = await import('./components/global-assistant/assistant-context.js')
+    ensureUiFocusClickCapture()
     const ctx = extractPageContext(path)
-    emitPageActivity({
-      type: 'route',
+    noteRouteFocus({
       module: ctx.module || undefined,
       label: ctx.label || path,
       entityId: ctx.contextId || undefined,
-      detail: path,
+      route: path,
     })
   } catch {
     /* ignore */

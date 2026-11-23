@@ -267,6 +267,22 @@ export function getState(): PanelResult<Record<string, unknown>> {
     } catch {
       /* ignore */
     }
+    let focus: Record<string, unknown> | null = null
+    let recentActivity: unknown[] = []
+    try {
+      const hook = (
+        window as Window & {
+          __evoflowUiFocus?: {
+            getSnapshot: () => Record<string, unknown>
+            getRecent: (n?: number) => unknown[]
+          }
+        }
+      ).__evoflowUiFocus
+      if (hook?.getSnapshot) focus = hook.getSnapshot()
+      if (hook?.getRecent) recentActivity = hook.getRecent(12)
+    } catch {
+      focus = null
+    }
     return ok({
       route,
       href: String(w.location.href || ''),
@@ -276,6 +292,10 @@ export function getState(): PanelResult<Record<string, unknown>> {
       rightCollapsed,
       streaming,
       panelApi: true,
+      /** 当前界面焦点（模块 / 实体 / 知识库 id…） */
+      focus,
+      /** 近期点击 / 路由留痕 */
+      recentActivity,
     })
   } catch (e) {
     return err('execution_error', String((e as Error)?.message || e))

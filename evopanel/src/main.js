@@ -240,6 +240,19 @@ try {
   console.warn('[boot] panel CDP import failed', e)
 }
 
+// 用户界面操作留痕（点击 / 路由）→ platform ui.panel op=focus|state
+try {
+  void import('./lib/ui-focus.js')
+    .then((m) => {
+      m.ensureUiFocusClickCapture()
+      // 预热页面快照钩子
+      return import('./components/global-assistant/assistant-context.js')
+    })
+    .catch((e) => console.warn('[boot] ui-focus mount failed', e))
+} catch (e) {
+  console.warn('[boot] ui-focus import failed', e)
+}
+
 // 初始化主题与面板设置（SQLite evoflow_app_settings / panel.ui）
 initTheme()
 initFontSizePreference()

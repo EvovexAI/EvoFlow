@@ -26,7 +26,14 @@ platform action=ui.panel args_json={"op":"snapshot","mode":"debug"}
 
 
 `snapshot` → 用 refs `e1,e2,…` → `click` / `fill` / `type` / `scroll`。  
-`state` 读路由/会话/右栏；`action` 走产品动作：
+`state` 读路由/会话/右栏，并带 **`focus`（当前模块/实体）+ `recentActivity`（点击/路由留痕）**。  
+`focus` 是上述焦点字段的精简入口（小V / 其它 Agent 问「用户在哪」优先用它）：
+
+```text
+platform action=ui.panel args_json={"op":"focus"}
+```
+
+`action` 走产品动作：
 
 - `name=navigate` + `path`/`hash`
 - `name=openXiaomi`

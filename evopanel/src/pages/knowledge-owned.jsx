@@ -3026,6 +3026,12 @@ export default function KnowledgeOwnedPage() {
           ) : (
             <div
               className={`ko-detail${catalogOpen ? " is-catalog-open" : ""}${railOpen ? " is-rail-open" : ""}`}
+              data-kb-id={selectedId || undefined}
+              data-kb-title={selected?.name || undefined}
+              data-ui-track="knowledge-detail"
+              data-ui-type="knowledge"
+              data-ui-entity={selectedId || undefined}
+              data-ui-label={selected?.name || undefined}
             >
               {(catalogOpen || railOpen) ? (
                 <button

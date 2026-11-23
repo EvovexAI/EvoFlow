@@ -3664,7 +3664,7 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
     op = _arg_str(args, "op", "action", "cmd").lower()
     if not op:
         raise ValidationError(
-            "ui.panel requires op: snapshot|page_dump|click|fill|type|scroll|state|action|ax|screenshot|cdp|ws"
+            "ui.panel requires op: snapshot|page_dump|click|fill|type|scroll|state|focus|action|ax|screenshot|cdp|ws"
         )
 
     def _params_obj() -> dict[str, Any]:
@@ -3813,6 +3813,32 @@ def ui_panel(args: dict[str, Any]) -> dict[str, Any]:
     if op == "state":
         env = panel_request("GET", "state")
         return {**env, "action": "ui.panel", "op": op}
+
+    if op == "focus":
+        # 用户当前界面焦点 + 近期点击/路由留痕（与 GET state 的 focus/recentActivity 同源）
+        env = panel_request("GET", "state")
+        if isinstance(env, dict) and env.get("ok"):
+            result = env.get("result") if isinstance(env.get("result"), dict) else {}
+            focus = result.get("focus") if isinstance(result, dict) else None
+            recent = result.get("recentActivity") if isinstance(result, dict) else None
+            return {
+                "ok": True,
+                "action": "ui.panel",
+                "op": "focus",
+                "result": {
+                    "focus": focus,
+                    "recentActivity": recent if isinstance(recent, list) else [],
+                    "route": result.get("route") if isinstance(result, dict) else None,
+                    "selectedSessionKey": (
+                        result.get("selectedSessionKey") if isinstance(result, dict) else None
+                    ),
+                },
+                "text": (
+                    "Current UI focus + recent user activity. "
+                    "Use this to know which page/entity the user is on."
+                ),
+            }
+        return {**(env if isinstance(env, dict) else {"ok": False, "error": str(env)}), "action": "ui.panel", "op": "focus"}
 
     if op == "action":
         name = _arg_str(args, "name", "action_name", "panel_action")

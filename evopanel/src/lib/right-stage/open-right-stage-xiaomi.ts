@@ -37,7 +37,11 @@ function ensureXiaomiStageHintSync() {
 ensureXiaomiStageHintSync()
 
 export type OpenXiaomiRightStageOpts = {
-  /** 非 /chat 时先导航到工作台（right-stage 挂在 ChatApp） */
+  /**
+   * 非 /chat 时是否先导航到工作台（right-stage 挂在 ChatApp）。
+   * 默认 false：知识库/自动化等页应留在原页用 GlobalAssistant dock，勿强行跳主对话。
+   * 语音唤醒等显式传 true。
+   */
   navigateToChat?: boolean
   /**
    * 打开后是否进入语音全屏（默认 false）。
@@ -101,6 +105,16 @@ async function ensureChatRoute(navigateToChat: boolean) {
       .split('?')[0]
       .replace(/\/$/, '')
     if (route !== '/chat' && route !== '/chat-react') {
+      // 跳到工作台前钉住当前页快照，否则 send 时只剩「主对话」、丢 session/模块上下文
+      try {
+        const {
+          collectXiaomiPageSnapshot,
+          stashXiaomiPageContextForOpen,
+        } = await import('../../components/global-assistant/assistant-context.js')
+        stashXiaomiPageContextForOpen(collectXiaomiPageSnapshot())
+      } catch {
+        /* ignore */
+      }
       navigate('/chat')
     }
   } catch {
@@ -136,12 +150,79 @@ function hydrateXiaomiSessionInBackground() {
     .catch((e) => console.warn('[xiaomi-stage] ensure session failed', e))
 }
 
+function isChatWorkbenchVisibleNow(): boolean {
+  try {
+    const host = document.getElementById('chat-persistent-host')
+    return !!(host && !host.hasAttribute('hidden'))
+  } catch {
+    return false
+  }
+}
+
+async function syncXiaomiPageContextNow() {
+  try {
+    const sessionMod = await import('../../components/global-assistant/assistant-session.js')
+    const { getState } = await import('../../components/global-assistant/assistant-store.js')
+    const { api } = await import('../tauri-api.js')
+    await sessionMod.ensureXiaomiSession({ reloadHistory: false })
+    sessionMod.bindXiaomiStreamListener()
+    const snap = await sessionMod.syncXiaomiPageContext()
+    const key = String(getState().sessionKey || '').trim()
+    if (!key || !snap) return
+    const fp = sessionMod.fingerprintXiaomiPageSnap(snap) || ''
+    await api.chatUpdateContext(key, {
+      agent_name: 'xiaomi',
+      agent_id: 'xiaomi',
+      xiaomi_global_assistant: true,
+      xiaomi_page_context: snap,
+      xiaomi_page_context_fp: fp || null,
+    })
+  } catch (e) {
+    console.warn('[xiaomi-stage] page context sync failed', e)
+  }
+}
+
 /** 打开/激活小V 并钉住；默认仅文字侧栏。语音全屏须 opts.voiceMode === true。 */
 export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
-  const navigateToChat = opts.navigateToChat !== false
+  // 默认不跳主对话；语音唤醒仍显式 navigateToChat:true
+  const navigateToChat = opts.navigateToChat === true || opts.voiceMode === true
   // 边界：UI 打开 ≠ 语音唤醒。仅显式 voiceMode:true（唤醒词）才进语音全屏。
   const voiceMode = opts.voiceMode === true
   const showRightStage = opts.showRightStage !== false
+
+  // 功能页（知识库/自动化…）：ChatApp 藏着时不要 rightStageStore.show → 否则 xmStage=1
+  // 把边缘条藏掉，右栏却看不见 →「闪一下就没了」。改挂本页 V4 dock。
+  if (!navigateToChat && !isChatWorkbenchVisibleNow()) {
+    try {
+      const { patchState, getState } = await import(
+        '../../components/global-assistant/assistant-store.js'
+      )
+      if (getState().isOpen) {
+        patchState({ isOpen: false, isMinimized: false }, { persistUi: true, silent: true })
+      }
+    } catch {
+      /* ignore */
+    }
+    // 清掉误标的 xmStage（否则边缘条永久不回来）
+    try {
+      rightStageStore.collapse()
+      delete document.documentElement.dataset.xmStage
+    } catch {
+      try {
+        delete document.documentElement.dataset.xmStage
+      } catch {
+        /* ignore */
+      }
+    }
+    if (showRightStage) {
+      const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
+      dock.openXiaomiV4Dock()
+      syncShellXiaomiButton(true)
+    }
+    void syncXiaomiPageContextNow()
+    return
+  }
+
   await ensureChatRoute(navigateToChat)
 
   try {
@@ -164,14 +245,24 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   } catch {
     /* ignore */
   }
+  // 进主对话 right-stage：关掉功能页 V4 dock，避免双右栏
   try {
-    document.documentElement.classList.remove('is-xm-docked')
-    document.documentElement.style.setProperty('--xm-dock-width', '0px')
+    const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
+    if (dock.isXiaomiV4DockOpen()) dock.closeXiaomiV4Dock()
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (document.documentElement.dataset.xmV4Dock !== '1') {
+      document.documentElement.classList.remove('is-xm-docked')
+      document.documentElement.style.setProperty('--xm-dock-width', '0px')
+    }
   } catch {
     /* ignore */
   }
 
   hydrateXiaomiSessionInBackground()
+  void syncXiaomiPageContextNow()
 
   if (showRightStage) {
     // 先亮右侧小V 文字面板 / 语音全屏（壳按钮、快捷键等显式打开路径）
@@ -225,7 +316,7 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   }
 }
 
-/** 语音全屏中 / 小V 标签激活 → 退出并收起；否则打开小V（默认文字侧栏，除非 opts.voiceMode）。 */
+/** 语音全屏中 / 小V 标签激活 / 功能页 V4 dock → 退出并收起；否则打开小V。 */
 export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   let voiceOn = false
   try {
@@ -233,6 +324,14 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     voiceOn = isXwVoiceMode()
   } catch {
     /* ignore */
+  }
+
+  let v4DockOpen = false
+  try {
+    const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
+    v4DockOpen = dock.isXiaomiV4DockOpen()
+  } catch {
+    v4DockOpen = document.documentElement.dataset.xmV4Dock === '1'
   }
 
   // 关语音对话区 = 退出整套语音（停听/停播）；走 closeXiaomiVoice 才会落「关闭退出→已经退出」
@@ -250,11 +349,22 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     }
   }
 
-  if (voiceOn || isXiaomiRightStageActive()) {
-    const finishClose = () => {
+  if (voiceOn || isXiaomiRightStageActive() || v4DockOpen) {
+    const finishClose = async () => {
+      try {
+        const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
+        dock.closeXiaomiV4Dock()
+      } catch {
+        /* ignore */
+      }
       rightStageStore.collapse()
       syncXiaomiStageDomHint(false)
       syncShellXiaomiButton(false)
+      try {
+        delete document.documentElement.dataset.xmStage
+      } catch {
+        /* ignore */
+      }
       try {
         window.dispatchEvent(new CustomEvent('evopanel:xiaomi-stage-changed', { detail: { open: false } }))
       } catch {
@@ -264,10 +374,10 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     // 语音刚退：等窄槽位贴上再 collapse/park，避免大 HWND 盖住随后打开的图片预览。
     if (voiceOn) {
       const { afterXwVoiceExitSettle } = await import('../xw-voice-embed-settle.js')
-      afterXwVoiceExitSettle({ then: finishClose })
+      afterXwVoiceExitSettle({ then: () => void finishClose() })
       return
     }
-    finishClose()
+    await finishClose()
     return
   }
   if (isXiaomiRightStageVisible()) {
