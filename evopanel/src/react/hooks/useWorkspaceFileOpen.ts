@@ -57,6 +57,9 @@ export function useWorkspaceFileOpen(opts: {
           focusLine: previewOpts?.focusLine,
           focusEndLine: previewOpts?.focusEndLine,
           focusAnnotation: previewOpts?.focusAnnotation || null,
+          // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+          // 用户亲手点文件 → 盖章 user，签上才会显示「我」而不是会话归属。
+          openedBy: 'user',
         })
       }
       showFileTab(fileId, target.name)
