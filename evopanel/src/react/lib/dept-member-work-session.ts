@@ -81,23 +81,31 @@ export function extractHistoryAssistantText(row: any): string {
   return String(payload.text || '').trim()
 }
 
-/** 群气泡丢了正文时，从员工 sticky 会话回读最近一条助手回复 */
+async function loadDeptMemberHistory(workSessionKey: string): Promise<any[]> {
+  const hist = await api.chatHistory(workSessionKey, 200, { bypassCache: true })
+  return Array.isArray(hist?.messages) ? hist.messages : Array.isArray(hist) ? hist : []
+}
+
+type ReplyFence = { runId?: string; afterSeq?: number }
+
+function belongsToTurn(row: any, fence: ReplyFence): boolean {
+  const runId = String(row.runId || row.run_id || '').trim()
+  if (fence.runId) return runId === fence.runId
+  return fence.afterSeq != null && Number(row.seq) > fence.afterSeq
+}
+
+/** Legacy timeline recovery only; dispatch must use the current turn's result. */
 export async function loadLatestDeptMemberReply(workSessionKey: string): Promise<string> {
   const sk = String(workSessionKey || '').trim()
   if (!sk) return ''
   try {
-    const hist = await api.chatHistory(sk, 40, { bypassCache: true })
-    const rows = Array.isArray(hist?.messages)
-      ? hist.messages
-      : Array.isArray(hist)
-        ? hist
-        : []
+    const rows = await loadDeptMemberHistory(sk)
     for (let i = rows.length - 1; i >= 0; i--) {
       const t = extractHistoryAssistantText(rows[i])
       if (t) return t
     }
   } catch {
-    /* ignore */
+    /* A missing history is not evidence that the run completed. */
   }
   return ''
 }
@@ -309,6 +317,16 @@ export async function runDeptMemberWorkTurn(
     hints,
   })
 
+  let afterSeq: number | undefined
+  try {
+    const rows = await loadDeptMemberHistory(sk)
+    afterSeq = Math.max(0, ...rows.map((row) => Number(row.seq) || 0))
+  } catch {
+    /* Run-id matching remains available if history cannot be read. */
+  }
+  let targetRunId = ''
+  let finalSeen = false
+  let streamError = ''
   let collected = ''
   let finalText = ''
   const handoffMap = new Map<string, DeptGroupHandoff>()
@@ -328,7 +346,12 @@ export async function runDeptMemberWorkTurn(
     const p = msg.payload
     if (!p || String(p.sessionKey || '') !== sk) return
     if (opts.signal?.aborted) return
+    const eventRunId = String(p.runId || p.run_id || '').trim()
+    if (targetRunId && eventRunId !== targetRunId) return
     const st = String(p.state || '')
+    if (st === 'error' || st === 'aborted') {
+      streamError = String(p.errorMessage || p.error || '本轮回复已中断')
+    }
     if (st === 'tool' || st === 'tool_result') {
       ingestHandoffs(p.data)
       ingestHandoffs(p.result)
@@ -357,6 +380,7 @@ export async function runDeptMemberWorkTurn(
     } else if (st === 'final') {
       const t = extractAssistantText(p)
       if (t) {
+        finalSeen = true
         finalText = t
         collected = t
         opts.onDelta?.(t)
@@ -365,22 +389,76 @@ export async function runDeptMemberWorkTurn(
   })
 
   try {
-    await api.chatSend(sk, userText)
-  } finally {
-    try {
-      unsub?.()
-    } catch {
-      /* ignore */
+    if (opts.signal?.aborted) return { text: '', handoffs: [] }
+    const sent = await api.chatSend(sk, userText)
+    if (sent?.ok === false) throw new Error(String(sent.error || '发送失败'))
+    if (sent?.aborted) throw new Error('本轮回复已中断')
+    // A live SSE handoff returns before the backend finishes. Keep the listener
+    // alive and read only this run until its final event / execution terminal state.
+    targetRunId = sent?.awaitingV4 ? String(sent.runId || '').trim() : ''
+    if (sent?.awaitingV4) {
+      if (!targetRunId) throw new Error('回复接管缺少运行标识')
+      // Before the handoff identifies the backend run, an old sticky-session
+      // event may still arrive. Rebuild from this run's events/history only.
+      finalSeen = false
+      finalText = ''
+      collected = ''
+      streamError = ''
+      handoffMap.clear()
     }
+    const fence = { runId: targetRunId || undefined, afterSeq }
+    const deadline = Date.now() + 10 * 60 * 1000
+    let terminalReads = 0
+    while (!opts.signal?.aborted) {
+      if (streamError) throw new Error(streamError)
+      if (finalSeen) break
+      let status: any = null
+      if (sent?.awaitingV4) {
+        try {
+          status = await wsClient.getSessionRunStatus(sk)
+        } catch {
+          /* An unavailable status must not become a false idle/empty reply. */
+        }
+      }
+      const completedId = String(
+        status?.recently_completed_run_id === targetRunId ? targetRunId : status?.runId || '',
+      )
+      const phase = String(
+        status?.recently_completed_run_id === targetRunId
+          ? status?.recently_completed_status || status?.status
+          : status?.status || '',
+      ).toLowerCase()
+      const terminal = !status?.executing && completedId === targetRunId &&
+        ['done', 'completed', 'success', 'error', 'failed', 'cancelled', 'aborted', 'interrupted'].includes(phase)
+      if (terminal && ['error', 'failed', 'cancelled', 'aborted', 'interrupted'].includes(phase)) {
+        throw new Error(`本轮回复未完成：${phase}`)
+      }
+      let historyText = ''
+      try {
+        const rows = (await loadDeptMemberHistory(sk)).filter((row) => belongsToTurn(row, fence))
+        for (const row of rows) {
+          if (String(row.role).toLowerCase() === 'tool') {
+            ingestHandoffs(row.content_json || row.contentJson || row.content)
+          }
+          const text = extractHistoryAssistantText(row)
+          if (text) historyText = text
+        }
+      } catch {
+        /* Keep waiting for the authoritative event/status. */
+      }
+      if (finalSeen) break
+      if (!sent?.awaitingV4 || terminal) {
+        if (historyText) finalText = historyText
+        if (!sent?.awaitingV4 || historyText || ++terminalReads >= 3) break
+      }
+      if (Date.now() >= deadline) throw new Error('等待本轮回复超时，请查看员工处理过程')
+      await new Promise((resolve) => setTimeout(resolve, 750))
+    }
+    return {
+      text: String(finalText || collected || '').trim(),
+      handoffs: [...handoffMap.values()],
+    }
+  } finally {
+    unsub?.()
   }
-
-  if (opts.signal?.aborted) {
-    return { text: collected || finalText || '', handoffs: [...handoffMap.values()] }
-  }
-
-  let out = String(finalText || collected || '').trim()
-  if (!out) {
-    out = await loadLatestDeptMemberReply(sk)
-  }
-  return { text: out, handoffs: [...handoffMap.values()] }
 }
