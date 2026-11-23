@@ -125,10 +125,12 @@ export function useComposerSkillPluginSelection(opts: { selectedSessionKey: stri
   const refreshPluginCatalog = useCallback(async (force = false) => {
     setPluginListLoading(true)
     try {
-      const { loadPluginCatalog } = await import('../../lib/plugin-catalog.js')
-      const rows = await loadPluginCatalog({ enabledOnly: true, force })
+      const { loadPluginCatalog, reloadPluginCatalog } = await import('../../lib/plugin-catalog.js')
+      const rows = force
+        ? await reloadPluginCatalog({ enabledOnly: true })
+        : await loadPluginCatalog({ enabledOnly: true, force: false })
       setPluginList(
-        rows.map((p) => ({
+        (Array.isArray(rows) ? rows : []).map((p) => ({
           id: p.id,
           name: p.name,
           label: p.label,
@@ -140,7 +142,7 @@ export function useComposerSkillPluginSelection(opts: { selectedSessionKey: stri
         })),
       )
     } catch {
-      setPluginList([])
+      // 失败不清空已有列表，避免 UI 被瞬时错误打成「暂无已启用插件」
     } finally {
       setPluginListLoading(false)
     }
@@ -246,7 +248,7 @@ export function useComposerSkillPluginSelection(opts: { selectedSessionKey: stri
     })
   }, [pluginList])
 
-  /** 进入对话即订阅/预加载插件目录（与技能目录同模式；点「+」不再现拉）。 */
+  /** 进入对话即订阅/预加载插件目录（与技能目录同模式）。 */
   useEffect(() => {
     let cancelled = false
     queueMicrotask(() => setPluginListLoading(true))
@@ -271,17 +273,39 @@ export function useComposerSkillPluginSelection(opts: { selectedSessionKey: stri
         setPluginList(toPickerItems(rows))
         setPluginListLoading(false)
       })
-      void mod.loadPluginCatalog({ enabledOnly: true }).catch(() => {
-        if (cancelled) return
-        setPluginList([])
-        setPluginListLoading(false)
-      })
+      void mod
+        .loadPluginCatalog({ enabledOnly: true })
+        .then((rows: PluginCatalogRow[]) => {
+          if (cancelled) return
+          // 失败且无缓存时 load 不 notify；这里兜底写 UI，避免 loading 悬空
+          setPluginList(toPickerItems(Array.isArray(rows) ? rows : []))
+          setPluginListLoading(false)
+        })
+        .catch(() => {
+          if (cancelled) return
+          setPluginListLoading(false)
+        })
     })
     return () => {
       cancelled = true
       unsub()
     }
   }, [])
+
+  /**
+   * 点开「+」时若目录仍空：强制重拉一次（每开一次面板最多一次，防真·空目录死循环）。
+   */
+  const emptyCatalogForceRef = useRef(false)
+  useEffect(() => {
+    if (!bottomPluginPanelOpen) {
+      emptyCatalogForceRef.current = false
+      return
+    }
+    if (pluginListLoading || pluginList.length > 0) return
+    if (emptyCatalogForceRef.current) return
+    emptyCatalogForceRef.current = true
+    void refreshPluginCatalog(true)
+  }, [bottomPluginPanelOpen, pluginList.length, pluginListLoading, refreshPluginCatalog])
 
   /** 粘性 selectedPlugins 只有 id 时，目录尚未到达则强制拉一次补齐 iconUrl。 */
   useEffect(() => {
