@@ -101,6 +101,31 @@ describe('dept-member-work-session history extract', () => {
 })
 
 
+describe('store design brief before dispatch', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    api.chatSessionsCreate.mockResolvedValue({})
+    api.chatHistory.mockResolvedValue({ messages: [] })
+    api.chatSend.mockResolvedValue({ ok: true })
+    wsClient.onEvent.mockReturnValue(() => {})
+  })
+  it.each([
+    { deptName: '门店设计部', agentCode: 'xiaomi', stewardMode: true },
+    { deptName: '门店设计部', agentCode: 'szefong-construction-drafting' },
+  ])('requires the same store/part/action brief for $agentCode', async (person) => {
+    await runDeptMemberWorkTurn({ deptId: 'store-design', text: '圆盘大样图', ...person })
+    const prompt = api.chatSend.mock.calls[0][1]
+    expect(prompt).toContain('门店、具体部位、找原图还是重新绘制')
+    expect(prompt).toContain('柜面圆盘和背墙圆盘')
+    expect(prompt).toContain('已有明确答案就沿用，不重复确认')
+    expect(prompt).toContain('接手时复述同一任务范围')
+  })
+  it('does not inject store drawing rules into unrelated departments', async () => {
+    await runDeptMemberWorkTurn({ deptId: 'rd', deptName: '研发部', agentCode: 'dev', text: '检查接口' })
+    expect(api.chatSend.mock.calls[0][1]).not.toContain('柜面圆盘和背墙圆盘')
+  })
+})
+
 describe('dept-member-work-session detached turn', () => {
   const opts = { deptId: 'design', agentCode: 'xiaomi', text: '请查图纸' }
   const sk = 'proactive:xiaomi:chat:dept-design'

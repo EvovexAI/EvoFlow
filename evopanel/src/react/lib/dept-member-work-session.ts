@@ -18,6 +18,8 @@ import {
   type DeptGroupTurnHint,
 } from './dept-group-turn.js'
 
+export const DEPT_DESIGN_BRIEF_HINT = '门店设计任务：先对齐门店、具体部位、找原图还是重新绘制，并确认可用的图号或版本。已有明确答案就沿用，不重复确认；关键项不明时合并问一句，确认前不派工、不绘图。不得把柜面圆盘和背墙圆盘当成同一对象。找原图只检索和交付原文件，不自行重绘；明确要求绘图才制作。派工写清上述范围；接手时复述同一任务范围，不擅自更换部位或图号。状态查询、聊天验收和寒暄直接回应，不启动新设计任务。'
+
 export function deptMemberWorkSessionKey(deptId: string, agentCode: string): string {
   const code = String(agentCode || '').trim()
   const did = String(deptId || '')
@@ -260,6 +262,9 @@ export async function runDeptMemberWorkTurn(
   // instruction 才是用户可见指令（前端 extractDeptGroupVisibleUserText 剥离展示）。
   const trivialGoal = isTrivialGroupNestGoal(goal)
   const hints: DeptGroupTurnHint[] = []
+  if (!trivialGoal && (deptName.includes('门店设计') || code.endsWith('construction-drafting'))) {
+    hints.push({ kind: 'behavior', text: DEPT_DESIGN_BRIEF_HINT })
+  }
   if (opts.fromAgentName) {
     hints.push({
       kind: 'from_agent',
