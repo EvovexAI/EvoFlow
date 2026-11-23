@@ -94,8 +94,14 @@ export function shouldAdjustVirtualizerForItemSizeChange(input: {
   contentWidthChanging: boolean;
   itemEnd: number;
   scrollTop: number;
+  /** 往下读时上方行因截图测高变高，再补 scrollTop 会像整窗往上抽一下。 */
+  userScrollIntent?: TimelineUserScrollIntent;
 }): boolean {
   if (input.suppressAdjustment || input.following || input.contentWidthChanging) {
+    return false;
+  }
+  // 用户正在往下划：交给浏览器自然把下方内容推开；勿再抬 scrollTop。
+  if (input.userScrollIntent === "towardBottom") {
     return false;
   }
   return input.itemEnd <= input.scrollTop;
@@ -149,13 +155,15 @@ export function timelineKeyboardScrollIntent(input: {
  * 用户上滚（wheel）或测试程序化 scrollTop 赋值之后、事件派发之前，若恰好落进一个
  * totalSize/rowCount 变化的 React commit（流式 delta、ResizeObserver 测高修正、
  * composer 尺寸变化引起的窗口重算），贴底 effect 会拿着**过期的 following=true**
- * 把 scrollTop 拽回底部，且回弹落点让随后的 scroll 事件把跟随判回 true——
- * 用户/测试的上滚被整体吞掉（“resize/测量 commit 夺走滚动权”）。
+ * 把 scrollTop 拽回底部——用户/测试的上滚被整体吞掉。
  *
  * 对账规则（在贴底动作之前执行，输入为 commit 时刻的实时指标）：
  * 1. 明确向上滚动 → 立即解除跟随，同帧 terminal/layout commit 也必须让位；
  * 2. 没有用户输入 → 原样保持 following，virtualizer/折叠导致的 scrollTop 回退不算上滚；
- * 3. 方向未知或向下的用户输入 → 落点在底则恢复跟随，明显回退则解除，其余保持。
+ * 3. 未观察的上滚回退 → 解除跟随；
+ * 4. **绝不**在内容 commit 里把 following false→true：窗裁/测高塌缩会假贴底，
+ *    再 scrollToBottom + releaseBalloon 会把中部阅读拽飞（现场 #5428 follow=0→1、
+ *    90↔339 抽风）。真滚到底由 `resolveFollowingAfterScroll`（用户 scroll）恢复。
  */
 export function reconcileFollowingForContentAnchor(input: {
   /** 当前跟随态（scroll 事件驱动的既有值）。 */
@@ -172,9 +180,6 @@ export function reconcileFollowingForContentAnchor(input: {
   const userScrollIntent = input.userScrollIntent ?? "unknown";
   if (userScrollIntent === "awayFromBottom") return false;
   if (userScrollIntent === "none") return input.following;
-  if (isAtBottom(input.metrics, input.bottomEpsilonPx ?? BOTTOM_ANCHOR_EPSILON_PX)) {
-    return true;
-  }
   const unobservedUpscroll =
     input.metrics.scrollTop <
     input.lastObservedScrollTop - (input.scrollEpsilonPx ?? UNOBSERVED_SCROLL_EPSILON_PX);
@@ -283,6 +288,10 @@ export function historyPrefetchTriggerPx(viewportHeight: number): number {
  * 「距顶 ≤ 2×视口」里，刚离底上滚一点就会 loadOlder → prepend 把 scrollTop
  * 猛推一截（滚轮 !JUMP prependAnchorAdjust「蹦高」）。须先离开近底区，或真到顶
  * （scrollTop≤64）才拉。
+ *
+ * 用户正在往下读（towardBottom）时也禁止「预取带」loadOlder：CUA 长轮截图场景下
+ * scrollTop 常落在 2×视口内，往下划会误触发 loadOlder → prependAnchorAdjust
+ * 把 scrollTop 猛加一截，肉眼就是「往下划却整窗往上蹦」。真到顶（≤64）仍放行。
  */
 export function shouldTriggerLoadOlder(input: {
   scrollTop: number;
@@ -294,8 +303,16 @@ export function shouldTriggerLoadOlder(input: {
   /** 距底像素；与 viewportHeight 一起用于短尾窗近底门闸。 */
   distanceFromBottom?: number;
   viewportHeight?: number;
+  /** 与 capture 层登记的 wheel/touch/keyboard 意图对齐；省略则不额外门闸。 */
+  userScrollIntent?: TimelineUserScrollIntent;
 }): boolean {
   if (input.following === true) return false;
+  if (
+    input.userScrollIntent === "towardBottom" &&
+    input.scrollTop > LOAD_OLDER_TRIGGER_PX
+  ) {
+    return false;
+  }
   const viewport = Number(input.viewportHeight);
   const gap = Number(input.distanceFromBottom);
   if (

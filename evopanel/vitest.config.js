@@ -234,6 +234,10 @@ export default defineConfig({
       // 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
       // 任务详情「对话」面板选源：不许把别处对话挂在任务名下，也不许把真执行记录漏掉。
       'tests/task-conversation-source.test.js',
+      'tests/employee-pane-send-target.test.js',
+      // 【self-evolution-bot · 2026-11-22 · 第127轮 · 模型:deepseek-v4.1-flash】
+      // 平台排队的首条消息：面板忙时必须 hold（不许 return 丢消息），且只有发送成功才清签。
+      'tests/pending-send-gate.test.js',
       'tests/assets-file-prefetch.test.js',
       'tests/task-tree.test.js',
       'tests/ui-extension-manifest.test.js',

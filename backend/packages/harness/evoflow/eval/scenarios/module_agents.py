@@ -16,6 +16,7 @@ def _run(home: Path) -> dict:
     availability = agents_admin.check_agent_name(code)
     created = agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "模块评测智能体",
             "description": "agents module scenario",

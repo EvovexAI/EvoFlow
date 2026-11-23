@@ -116,10 +116,9 @@
 }
 
 /*
- * V4 ConversationTurnNavigator 源码用 Tailwind 容器查询：
- *   invisible … @min-[864px]/conversation:visible …
- * 但 evopanel 构建未产出这套 utility，主对话左侧快捷进度条会永远 invisible。
- * 小V 窄栏走 hideTurnNavigator（不挂载）；主对话在此强制露出。
+ * V4 ConversationTurnNavigator：源码曾用 @min-[864px]/conversation 显隐，
+ * 但 evopanel 构建未产出该 utility。主对话左侧快捷进度条由 JS 在目录补齐后挂载，
+ * 此处再对可见 host 强制可见（兜底旧 invisible 类名）。小V 窄栏走 hideTurnNavigator。
  * 注意：仅对「可见 host」内的 navigator 生效，避免穿透 KeepAlive 隐藏层。
  */
 .zcode-bridge-root:not([data-v4-embedded="true"])

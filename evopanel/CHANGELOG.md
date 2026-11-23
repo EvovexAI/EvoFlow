@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.47] - 2026-11-23
+
+相对 **1.3.46**：主窗口内存不足时可自动恢复一次；员工面板排队发送更稳；创建 Agent 可自动入职。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.47.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **主窗口 OOM 自动恢复**：渲染进程因内存不足退出时自动 Reload 一次（冷却窗口内限一次）
+
+### Fixed
+
+- **员工面板排队发送**：忙碌时保留待发内容，空闲后再发；失败时保留便于重试
+- **创建 Agent 入职**：创建流程可自动完成入职绑定
+- **长对话裁窗与滚动**：投影窗口与跟底裁剪更稳定
+
+### Changed
+
+- **平台操作反馈**：动作标签与结果提示更清楚
+
+
 ## [1.3.46] - 2026-11-22
 
 相对 **1.3.45**：停止会话后立即收回电脑控制；任务详情对话优先展示本任务执行记录；代码索引库损坏时可自动隔离并重建。

@@ -38,6 +38,7 @@ def _run(home: Path) -> dict:
     try:
         agents_admin.create_agent(
             {
+                "as_employee": False,
                 "agent_code": agent_code,
                 "agent_name": "MCP绑定评测",
                 "description": "mcp module",

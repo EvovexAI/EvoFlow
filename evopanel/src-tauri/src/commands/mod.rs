@@ -16,6 +16,8 @@ pub mod browser_cdp_server;
 pub mod config;
 #[cfg(target_os = "windows")]
 pub mod main_popup_guard;
+#[cfg(target_os = "windows")]
+pub mod main_oom_autoreload;
 pub mod ui_extensions;
 pub mod gateway;
 pub mod log_files;

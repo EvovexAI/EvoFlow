@@ -25,10 +25,11 @@ describe('resolveRendererMemoryLevel', () => {
 })
 
 describe('adaptive caps under memory pressure', () => {
-  it('shrinks projection soft cap as pressure rises', () => {
-    expect(projectionSoftCapForMemoryLevel('normal')).toBe(220)
-    expect(projectionSoftCapForMemoryLevel('high')).toBe(100)
-    expect(projectionSoftCapForMemoryLevel('critical')).toBe(50)
+  it('holds full-window soft cap at all memory levels (ZCode align 2026-11-22)', () => {
+    // 行数软顶已退役；内存安全靠 lighten + pin 驱逐，不按水位裁窗。
+    expect(projectionSoftCapForMemoryLevel('normal')).toBe(100_000)
+    expect(projectionSoftCapForMemoryLevel('high')).toBe(100_000)
+    expect(projectionSoftCapForMemoryLevel('critical')).toBe(100_000)
   })
 
   it('shrinks pin max as pressure rises', () => {

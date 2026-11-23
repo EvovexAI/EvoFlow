@@ -19,6 +19,8 @@ import {
 import type { ConversationTurnRenderUnitsPartition } from "@/v4/conversationTurnRenderUnits.js";
 
 interface ConversationTurnNavigatorProps {
+  /** 对齐 ZCode：窄屏 / 目录未就绪时关掉 rail virtualizer，避免半截目录抖动。 */
+  enabled?: boolean;
   renderUnits: ConversationTurnRenderUnitsPartition;
   scrollOffsetPx: number;
   viewportHeightPx: number;
@@ -46,6 +48,7 @@ function usePrefersReducedMotion() {
 }
 
 function ConversationTurnNavigatorImpl({
+  enabled = true,
   renderUnits,
   scrollOffsetPx,
   viewportHeightPx,
@@ -111,6 +114,7 @@ function ConversationTurnNavigatorImpl({
   const getRailScrollElement = useCallback(() => railScrollRef.current, []);
   const getRailItemKey = useCallback((index: number) => items[index]?.key ?? index, [items]);
   const railVirtualizer = useVirtualizer({
+    enabled,
     count: items.length,
     estimateSize: () => 10,
     getItemKey: getRailItemKey,
@@ -120,7 +124,7 @@ function ConversationTurnNavigatorImpl({
   const virtualRows = railVirtualizer.getVirtualItems();
 
   useEffect(() => {
-    if (activeItemIndex < 0 || items.length < 2) return;
+    if (!enabled || activeItemIndex < 0 || items.length < 2) return;
     railVirtualizer.scrollToIndex(activeItemIndex, { align: "auto" });
     const element = railScrollRef.current;
     if (!element) return;
@@ -131,9 +135,10 @@ function ConversationTurnNavigatorImpl({
       // 只同步 rail observer，确保活动项对应的可视窗口立即挂载。
       element.dispatchEvent(new Event("scroll"));
     });
-  }, [activeItemIndex, items.length, railVirtualizer]);
+  }, [activeItemIndex, enabled, items.length, railVirtualizer]);
 
-  if (items.length < 2) {
+  // 对齐 ZCode：未 enabled 或不足 2 条时不挂 DOM，避免尾窗 2–3 条先闪再跳到全量。
+  if (!enabled || items.length < 2) {
     return null;
   }
 
@@ -145,7 +150,9 @@ function ConversationTurnNavigatorImpl({
       data-v4-turn-navigator="true"
       data-item-count={items.length}
       data-rendered-item-count={virtualRows.length}
-      className="pointer-events-none invisible absolute inset-y-0 left-0 z-10 w-12 -translate-x-2 opacity-0 transition-[opacity,transform,visibility] duration-150 ease-out motion-reduce:transition-none @min-[864px]/conversation:visible @min-[864px]/conversation:translate-x-0 @min-[864px]/conversation:opacity-100"
+      // 显隐：evopanel 未产出 @min-[864px]/conversation utility；主对话由 styles-bridge
+      // 对可见 host 强制露出。此处默认可见，勿再 invisible——否则窄栏永远看不到刻度。
+      className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12"
     >
       <div
         ref={railScrollRef}

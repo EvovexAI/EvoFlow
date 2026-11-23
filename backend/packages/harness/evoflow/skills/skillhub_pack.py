@@ -504,6 +504,21 @@ def install_skillhub_expert_pack(
     save_agent_soul(code, soul)
     avatar_path = _save_avatar(code, slug)
 
+    # Publish BOT/employee so SkillHub install is chat-ready (智能体=员工).
+    try:
+        from evoflow.admin.employees import hire as hire_employee
+        from evoflow.admin.errors import ConflictError as _HireConflict
+
+        hire_employee({"agent_code": code, "role_name": display or code})
+    except _HireConflict:
+        pass
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "skillhub install auto-hire failed code=%s", code, exc_info=True
+        )
+
     # Re-read to confirm
     cfg = load_agent_config(code)
     return ExpertPackInstallResult(

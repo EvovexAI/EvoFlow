@@ -333,27 +333,64 @@ def build_agent_create_assistant_guide(result: dict[str, Any] | None = None) -> 
     bind_block = format_bindings_say_block(data)
     bind_part = f"\n{bind_block}\n" if bind_block else "\n"
 
-    say = (
-        f"智能体「{name}」{code_part}已创建。{bind_part}"
-        f"可在智能体页查看或继续用 agents.update 调整绑定；"
-        f"若要雇为值班员工，用 employees.create / hire。"
-    )
-    next_steps = [
-        "把 assistant_guide.say_to_user 告诉用户（含已绑定清单，便于核对）",
-    ]
-    if code:
-        next_steps.append(f"查看：agents.get name={code}")
-        next_steps.append("调整绑定：agents.update 或 agents.bindings 选 pack 后再 update")
+    # Default product path auto-publishes BOT/employee; capability-only needs hire.
+    as_emp = data.get("as_employee")
+    if as_emp is None:
+        as_emp = agent.get("as_employee")
+    if as_emp is None:
+        as_emp = bool(data.get("employee") or agent.get("employee") or data.get("role_created") or agent.get("role_created"))
+    hire_error = _first_str(data.get("hire_error"), agent.get("hire_error"))
+
+    if as_emp and not hire_error:
+        say = (
+            f"智能体员工「{name}」{code_part}已创建并发布到花名册。{bind_part}"
+            f"可直接在 BOT / 智能体员工页对话、派发；"
+            f"需要飞书/企微时再调 employees.bind_channel_begin。"
+        )
+        next_steps = [
+            "把 assistant_guide.say_to_user 告诉用户（含已绑定清单，便于核对）",
+        ]
+        if code:
+            next_steps.append(f"对话：在 BOT 列表打开「{name}」或 employees.get agent_code={code}")
+            next_steps.append("调整绑定：agents.update 或 agents.bindings 选 pack 后再 update")
+            next_steps.append("渠道（可选）：employees.bind_channel_begin")
+        status = "employee_created"
+        summary = f"智能体员工「{name}」已创建，可直接对话"
+        instruction = (
+            "向用户复述 say_to_user（务必带上已绑定的工具/技能/MCP/知识库）；"
+            "强调已在花名册、可直接对话，无需再 hire。"
+        )
+    else:
+        say = (
+            f"智能体「{name}」{code_part}已创建。{bind_part}"
+            f"可在智能体页查看或继续用 agents.update 调整绑定；"
+            + (
+                f"自动发布岗位失败（{hire_error}），请用 employees.hire 补建。"
+                if hire_error
+                else "若要雇为值班员工，用 employees.create / hire。"
+            )
+        )
+        next_steps = [
+            "把 assistant_guide.say_to_user 告诉用户（含已绑定清单，便于核对）",
+        ]
+        if code:
+            next_steps.append(f"查看：agents.get name={code}")
+            next_steps.append("调整绑定：agents.update 或 agents.bindings 选 pack 后再 update")
+            if hire_error or as_emp is False:
+                next_steps.append(f"发布岗位：employees.hire agent_code={code} confirm=true")
+        status = "agent_created"
+        summary = f"智能体「{name}」已创建"
+        instruction = "向用户复述 say_to_user（务必带上已绑定的工具/技能/MCP/知识库）。"
 
     return {
-        "status": "agent_created",
-        "summary": f"智能体「{name}」已创建",
+        "status": status,
+        "summary": summary,
         "say_to_user": say,
         "next_steps": next_steps,
         "agent_code": code or None,
         "agent_name": name,
         "bindings": bindings,
-        "instruction": "向用户复述 say_to_user（务必带上已绑定的工具/技能/MCP/知识库）。",
+        "instruction": instruction,
     }
 
 

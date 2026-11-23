@@ -19,6 +19,7 @@ def _run(home: Path) -> dict:
     try:
         agents_admin.create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Saga未雇佣",
                 "description": "saga no hire",

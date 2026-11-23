@@ -277,12 +277,30 @@ export async function resolveProactiveProcessMeta(opts = {}) {
   if (autoBindSince && !explicitSk && !taskId) {
     // 时钟/入库抖动容忍：会话行 created_at 可能比派发返回早几百毫秒
     const sinceMs = autoBindSince - 3000
-    const createdAtMs = (c) => {
-      const raw = String(c?.created_at || c?.createdAt || '').trim()
-      const t = raw ? Date.parse(raw) : NaN
-      return Number.isFinite(t) ? t : 0
+    const touchedMs = (c) => {
+      const createdRaw = String(c?.created_at || c?.createdAt || '').trim()
+      const updatedRaw = String(c?.updated_at || c?.updatedAt || '').trim()
+      const created = createdRaw ? Date.parse(createdRaw) : NaN
+      const updated = updatedRaw ? Date.parse(updatedRaw) : NaN
+      return {
+        created: Number.isFinite(created) ? created : 0,
+        updated: Number.isFinite(updated) ? updated : 0,
+      }
     }
-    const eligible = convs.filter((c) => !looksLikeForeignSession(c?.session_key) && createdAtMs(c) >= sinceMs)
+    // 【self-evolution-bot · 2026-11-22 · 第113轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：判据从「created_at 晚于本次派发」放宽成「created_at **或** updated_at 晚于本次派发」。
+    // 为什么（个人助理现场实证，不是推测）：续派同一员工的**已有 chat 会话**时，
+    //   会话行早在 48 秒前就建好了（20:47:30），而本轮派发时刻是 20:48:18。
+    //   只比 created_at ⇒ 这条会话被筛掉 ⇒ eligible 为空 ⇒ meta 回空
+    //   ⇒ 右栏拿不到 run_status ⇒ 只剩派单时写死的乐观 busy=true
+    //   ⇒ 处理完了徽标还永久停在「执行中」（后端 DB run_status 明明是 done）。
+    // 判据：这一轮只要**碰过**这条会话（派发后仍有写入）就算本次派发的，既保住
+    //   「不许把别人对话派的任务显示到这一屏」的原意，又不误杀续派同一会话。
+    const eligible = convs.filter((c) => {
+      if (looksLikeForeignSession(c?.session_key)) return false
+      const t = touchedMs(c)
+      return t.created >= sinceMs || t.updated >= sinceMs
+    })
     if (!eligible.length) {
       return { session_key: '', thread_id: '', run_status: '', role_name: roleName || undefined }
     }
@@ -298,8 +316,21 @@ export async function resolveProactiveProcessMeta(opts = {}) {
 
   // 闸生效时，不许再用「拼出来的猜测键」擅自绑会话（拼出来的键不是本次派发产生的那条）
   if (autoBindSince && !explicitSk && !taskId) {
-    const picked = pickProactiveConversationSessionKey(convs, { taskId, roundId })
-    sk = looksLikeForeignSession(picked) ? '' : picked
+    // 【self-evolution-bot · 2026-11-22 · 第113轮 · 模型:deepseek-v4.1-flash-1017】
+    // 改了什么：这里不再调 pick（它会「running 优先」），改成**取本轮碰过且最新写入**的那条。
+    // 为什么：上面闸门放宽到 updated_at 后，同一员工可能同时存在「别的对话派的正跑任务」
+    //   ——它 updated_at 也很新。若沿用 pick 的 running 优先，串台问题会重新长出来
+    //   （用户明令禁止的老毛病）。判据改成「谁最近被写过就是谁」：本轮刚派发的会话
+    //   一定在派发后有过写入，而别人那条在本次派发后不会再被写。
+    const stampOf = (c) => {
+      const raw = String(c?.updated_at || c?.updatedAt || c?.created_at || c?.createdAt || '').trim()
+      const t = raw ? Date.parse(raw) : NaN
+      return Number.isFinite(t) ? t : 0
+    }
+    const freshest = convs
+      .filter((c) => !looksLikeForeignSession(c?.session_key))
+      .reduce((best, c) => (stampOf(c) >= stampOf(best || {}) ? c : best), null)
+    sk = looksLikeForeignSession(freshest?.session_key) ? '' : String(freshest?.session_key || '')
   }
 
   const hit =

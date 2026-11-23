@@ -796,11 +796,11 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "agents.create",
             "agents",
-            "创建智能体（优先 capability_pack；省略 tools→空；tools:null 须 confirm_inherit_all）",
+            "创建智能体员工（默认发布到花名册可对话；as_employee=false 仅能力体；优先 capability_pack；省略 tools→空；tools:null 须 confirm_inherit_all）",
             "write",
-            "agent_code, capability_pack?, tools_extra?, tools?, confirm_inherit_all?, confirm_wide_tools?, skills?, mcp_servers?, knowledge_vault_ids?, model?…",
+            "agent_code, as_employee?, capability_pack?, tools_extra?, tools?, confirm_inherit_all?, confirm_wide_tools?, skills?, mcp_servers?, knowledge_vault_ids?, model?…",
             H.agents_create,
-            "建个文案助手用 capability_pack=writer",
+            "建个文案助手用 capability_pack=writer（创建后即可对话，无需再 hire）",
         ),
         _A(
             "agents.update",

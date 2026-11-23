@@ -737,6 +737,8 @@ def create_employee(data: dict[str, Any]) -> dict[str, Any]:
             if key in data:
                 agent_payload[key] = data.get(key)
         # Employee path: forbid tools:null unless confirm_inherit_all=true.
+        # Skip create_agent's auto-hire — we hire below with full role payload.
+        agent_payload["as_employee"] = False
         agent_row = create_agent(agent_payload, forbid_inherit_all=True)
         created_agent = True
         agent_code = str(agent_row.get("agent_code") or agent_code).strip()
@@ -952,8 +954,14 @@ def _hire_existing_agent(
     ).strip()
     from evoflow.proactive.prompt import validate_agent_knowledge_ids
 
+    # knowledge_vault_ids: omit → inherit Agent bindings; explicit [] clears.
     try:
-        vault_ids = validate_agent_knowledge_ids(list(data.get("knowledge_vault_ids") or []))
+        if "knowledge_vault_ids" in data:
+            vault_ids = validate_agent_knowledge_ids(list(data.get("knowledge_vault_ids") or []))
+        else:
+            vault_ids = validate_agent_knowledge_ids(
+                list(agent_row.get("knowledge_vault_ids") or [])
+            )
     except ValueError as e:
         raise ValidationError(str(e)) from e
 
@@ -977,6 +985,25 @@ def _hire_existing_agent(
     # Inherit from Agent unless hire payload explicitly set capability fields.
     inherit = not (explicit_skills or bool(str(data.get("soul_md") or "").strip()))
 
+    # Duties live on agent system_prompt (## 岗位职责). Merge on hire then clear role list.
+    legacy_resp = _coerce_responsibilities(data.get("responsibilities"))
+    if legacy_resp:
+        try:
+            from evoflow.admin import agents as agents_admin
+            from evoflow.proactive.employee_prompting.job import replace_duty_in_system_prompt
+
+            existing_sp = str(agent_row.get("system_prompt") or "").strip()
+            merged_sp = replace_duty_in_system_prompt(existing_sp, legacy_resp)
+            if merged_sp != existing_sp:
+                agents_admin.update_agent(agent_code, {"system_prompt": merged_sp or None})
+                agent_row = {**agent_row, "system_prompt": merged_sp}
+        except Exception:
+            logger.debug(
+                "hire: merge responsibilities into system_prompt skipped code=%s",
+                agent_code,
+                exc_info=True,
+            )
+
     # 0 = no wall-clock cap (engine treats falsy as unlimited). Never use ``or 300``:
     # that forced a 5min kill and also turned an explicit 0 into 300.
     _raw_timeout = data.get("timeout_seconds")
@@ -985,7 +1012,7 @@ def _hire_existing_agent(
     )
 
     config = ProactiveRoleConfig(
-        responsibilities=_coerce_responsibilities(data.get("responsibilities")),
+        responsibilities=[],  # duties are on agent system_prompt after merge above
         workspace_path=_validate_workspace_path(data.get("workspace_path")),
         knowledge_vault_ids=vault_ids,
         kpis=list(data.get("kpis") or []),
@@ -2814,7 +2841,13 @@ def chat_send(
                 mode = str((detail or {}).get("mode") or "").strip()
                 # live = 面板已在自己 chatSend（真流式）；pending-open = 面板刚被拉开排队首发。
                 # 两种都代表「面板侧会发」，前端不得再发一遍。
-                panel_dispatch = mode if mode in {"pane-live", "pending-open"} else ""
+                # 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+                # 改了什么：mode 白名单加 `pending-open-switch`。
+                # 为什么：面板挂的是别的会话、需要切换时也属于「面板侧会发」，
+                #   漏掉它会让 panel_dispatch 变空 → 前端再 pendingSend → 同一句话发两遍。
+                panel_dispatch = (
+                    mode if mode in {"pane-live", "pending-open", "pending-open-switch"} else ""
+                )
                 panel_dispatch_detail = dict(detail or {})
                 logger.info(
                     "chat_send: panel dispatch mode=%s agent=%s sk=%s",
@@ -2942,11 +2975,23 @@ def chat_send(
                 out["session_key_matched"] = False
                 if matched_by is not None:
                     out["session_key_matched_by"] = matched_by
-                out["hint"] = (
-                    f"消息已写入面板当前会话 {actual_sk}；"
-                    f"你请求的是 {requested_sk or '（空）'}，二者不同。"
-                    "请用回执里的 session_key 查 messages，不要用请求时预计算的键。"
-                )
+                # 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+                # 改了什么：pending-open-switch 分支不许说「消息已写入面板当前会话」——
+                #   那条消息此刻只是排队，面板要切到新会话才会发。
+                # 为什么：本轮实证 19:46:57 旧文案就是这么说的，而真实情况是
+                #   code-fallback 把话塞进了正在跑的旧会话。文案必须描述实际路径。
+                if panel_dispatch == "pending-open-switch":
+                    out["hint"] = (
+                        f"面板当前挂的是别的会话，已改为在新会话 {actual_sk or requested_sk} "
+                        f"重新打开后再发；本条消息此刻**尚未发送**。"
+                        f"请用回执 session_key 查 messages，若为空说明面板未接住。"
+                    )
+                else:
+                    out["hint"] = (
+                        f"消息已写入面板当前会话 {actual_sk}；"
+                        f"你请求的是 {requested_sk or '（空）'}，二者不同。"
+                        "请用回执里的 session_key 查 messages，不要用请求时预计算的键。"
+                    )
             elif matched_raw is True:
                 out["session_key_matched"] = True
                 if matched_by is not None:

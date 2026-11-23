@@ -108,3 +108,53 @@ export function findEmployeePaneSender(
 export function clearEmployeePaneSenders(): void {
   senders.clear()
 }
+
+/** 员工面板发送目标选择结果。 */
+export type PaneSendTarget = {
+  /** 允许直接调用面板 sender（否则必须走 pending-open 切会话）。 */
+  useSender: boolean
+  /** 走 pending-open 时要把消息排进哪个会话键。 */
+  pendingSessionKey: string
+  mode: 'pane-live' | 'pending-open' | 'pending-open-switch'
+}
+
+/**
+ * 决定这条消息该由「面板当前 sender」发，还是先切/开会话再发。
+ *
+ * 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+ * 为什么单独抽出来：本轮现网实证（19:46:57 agent=case-fullstack-dev）——
+ *   后端已按 busy 判据 mint 了新会话并把新键传进来，但面板挂的是旧的 busy 会话，
+ *   `findEmployeePaneSenderEntry` exact 未命中 → `code-fallback` 拿到旧 sender，
+ *   `sender(text)` 把话塞进了正在跑的旧会话（回执 `sessionKeyMatched=false`）。
+ *   「派单开新对话」这条修复因此在面板路径上完全失效。
+ * 判据（可反证）：
+ *   · 请求键非空且命中面板键 → pane-live（直接用 sender）；
+ *   · 请求键非空但**不同** → pending-open-switch（绝不 code-fallback 发送）；
+ *   · 请求键为空（面板刚开、键未回填）→ 允许按 code 兜底 pane-live。
+ */
+export function decidePaneSendTarget(input: {
+  requestedSessionKey: string
+  /** 命中的面板 sender 真实会话键（未命中传空）。 */
+  actualSessionKey: string
+  /** exact = code+sk 命中；code-fallback = 仅按 code 命中；null = 没命中。 */
+  matched: 'exact' | 'code-fallback' | null
+  /** 回落打开面板时使用的会话键（通常是请求键）。 */
+  fallbackSessionKey?: string
+}): PaneSendTarget {
+  const requested = String(input.requestedSessionKey || '').trim()
+  const actual = String(input.actualSessionKey || '').trim()
+  const fallback = String(input.fallbackSessionKey || requested || '').trim()
+  if (!requested) {
+    // 面板刚打开、键还没回填 → 只能按 code 兜底
+    return {
+      useSender: input.matched === 'exact' || input.matched === 'code-fallback',
+      pendingSessionKey: actual || fallback,
+      mode: 'pane-live',
+    }
+  }
+  if (requested === actual) {
+    return { useSender: true, pendingSessionKey: requested, mode: 'pane-live' }
+  }
+  // 键不一致：无论 matched 是 exact 还是 code-fallback，都不许把这条塞进旧会话。
+  return { useSender: false, pendingSessionKey: requested, mode: 'pending-open-switch' }
+}

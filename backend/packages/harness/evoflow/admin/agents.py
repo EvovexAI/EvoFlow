@@ -684,6 +684,11 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
     with ``confirm_inherit_all=true`` when you intentionally want every configurable tool.
 
     ``forbid_inherit_all``: employee create path rejects inherit-all unless confirmed.
+
+    ``as_employee`` (default True for ``custom`` / ``acp``; False for ``subagent``):
+    also publish a BOT/employee role so the new agent appears in 花名册 and is
+    chat-ready without a separate ``employees.hire``. Pass ``as_employee=false``
+    for capability-only agents (subtasks, workflow nodes, eval fixtures).
     """
     if not isinstance(data, dict):
         raise ValidationError("Agent payload must be a JSON object")
@@ -699,6 +704,10 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
         raise ValidationError(str(exc)) from exc
 
     pack_applied = data.pop("_capability_pack_applied", None)
+    # Pop so it is not mistaken for an AgentConfig field later.
+    as_employee_raw = data.pop("as_employee", None)
+    if as_employee_raw is None and "asEmployee" in data:
+        as_employee_raw = data.pop("asEmployee")
 
     raw_code = _require_agent_code(data)
     _validate_agent_name(raw_code)
@@ -808,6 +817,56 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
             "请 agents.bindings 选 packs（research|writer|duty|coding）或短 tools 白名单后再 update，"
             "或创建时传入 capability_pack / tools:[...] / knowledge_vault_ids:[...]。"
         )
+
+    # Product default: 智能体 = 员工. Subagents stay capability-only.
+    if as_employee_raw is None:
+        as_employee = agent_type != "subagent"
+    else:
+        as_employee = bool(as_employee_raw)
+    row["as_employee"] = as_employee
+    if as_employee:
+        try:
+            from evoflow.admin.employees import hire as hire_employee
+
+            hire_payload: dict[str, Any] = {
+                "agent_code": normalized,
+                "role_name": str(row.get("agent_name") or normalized).strip() or normalized,
+            }
+            for key in (
+                "department",
+                "reports_to",
+                "position_code",
+                "heartbeat_schedule",
+                "heartbeat_rrule",
+                "responsibilities",
+                "kpis",
+                "status",
+                "workspace_path",
+                "kb_injection",
+            ):
+                if key in data:
+                    hire_payload[key] = data[key]
+            # Omit knowledge_vault_ids so hire inherits agent bindings when not set.
+            if "knowledge_vault_ids" in data:
+                hire_payload["knowledge_vault_ids"] = data.get("knowledge_vault_ids")
+            emp = hire_employee(hire_payload)
+            row["employee"] = emp
+            row["role_created"] = True
+        except ConflictError:
+            row["role_created"] = False
+        except Exception as exc:
+            logger.warning(
+                "create_agent auto-hire failed code=%s: %s",
+                normalized,
+                exc,
+                exc_info=True,
+            )
+            row["role_created"] = False
+            row["hire_error"] = str(exc)
+            extra_hint = "自动发布岗位失败，可用 employees.hire（confirm=true）补建。"
+            row["hint"] = f"{row.get('hint') or ''} {extra_hint}".strip()
+    else:
+        row["role_created"] = False
     return row
 
 

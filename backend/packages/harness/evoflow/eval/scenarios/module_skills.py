@@ -33,6 +33,7 @@ def _run(home: Path) -> dict:
     try:
         agents_admin.create_agent(
             {
+                "as_employee": False,
                 "agent_code": agent_code,
                 "agent_name": "技能绑定评测",
                 "description": "skills module",

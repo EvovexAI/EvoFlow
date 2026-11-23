@@ -1,6 +1,6 @@
 # V4 对话时间线对齐清单（EvoFlow ↔ ZCode）
 
-> 日期：2026-11-19。  
+> 日期：2026-11-19（A5 全窗对齐更新：2026-11-22）。  
 > 目的：把「聊天视口」拆成可逐条对齐的原子点，停止零打碎敲。  
 > 上游契约：`D:/dev/github/ZCode/docs/ui/chat-virtual-scroll.md`  
 > 上游实现：`D:/dev/github/ZCode/packages/ui/src/v4/`  
@@ -14,7 +14,7 @@
 
 1. **ZCode：`rows.window` 是唯一事实源**；虚拟化只限 DOM，客户端不得再发明第二套「焦点窗」。  
 2. **`following` = 用户滚动权**，不是瞬时几何；只有真实用户输入能改它；程序化贴底 / 测高 / 折叠不得抢权。  
-3. **EvoFlow 故意偏离：soft-cap**（WebView2 OOM）。所有「跟底门闸预取 / 上一问锚点 / user-first」都是 soft-cap 的配套，**不是**要「对齐回纯几何预取」。
+3. **对齐 ZCode 投影**：宽屏问题导航 `loadAllOlder` 分页到 `!hasMore`（先尾窗、后一次合并全量——ZCode TN07 本意）。禁止 `releaseBalloon` 跟底裁回。内存靠 lighten + pin。跟底仍禁止 loadOlder（A3）。
 
 ```text
 用户意图（wheel/touch/key）
@@ -36,7 +36,7 @@
 | **A2** | stickToBottom | following→instant 吸底；测高在途不抢吸底 | 同上 + `contentMeasurementPending` |
 | **A3** | loadOlder 触发 | 近顶预取；**跟底禁止** | `shouldTriggerLoadOlder`, Timeline `handleScroll`, SessionPane 冷快照补齐 |
 | **A4** | prepend 锚定 | 前插后按 turn key 平移 scrollTop | Timeline prepend layout effect |
-| **A5** | 投影软顶 soft-cap | EvoFlow 独有；保直播轮 + 上一问 | `projectionWindowCap.ts` |
+| **A5** | 投影全窗（原 soft-cap） | 持全窗；lighten 控内存；releaseBalloon 退役 | `projectionWindowCap.ts` |
 | **A6** | snapshot / delta 合并 | snapshot 可 cap+保历史；**delta 禁止 cap** | `conversationProjectionStore.ts` |
 | **A7** | 冷快照首 turn 补齐 | 窗首缺 turnHeader → 自动 loadOlder | `SessionPane.tsx` + `shouldAutoLoadIncompleteLeadingTurn` |
 | **A8** | 轮内用户气泡 vs 工作 | realUser 必须在「已工作」之上 | `conversationTurnRenderUnits.ts`（`normalizeOrderedRowsUserFirst`） |
@@ -70,7 +70,7 @@
 | | |
 |--|--|
 | **ZCode** | `shouldTriggerLoadOlder`：仅几何（近顶 + 可拉 + 非在途）。**无 following 参数**——上游无 soft-cap，窗够长。`mergeOlderRows` = **纯前插** `[...older, ...window]`，不裁行。前插后 `prependVirtualAnchor` 平移 scrollTop。 |
-| **EvoFlow** | soft-cap 后尾窗短 → 跟底时 scrollTop 常落在预取带 → 已加 `following===true → 禁止预取`（故意门闸）。`mergeOlderRows` **已收回纯前插**（2026-11-20），不再在上滚路径 soft-cap+钉直播。 |
+| **EvoFlow** | 全窗后尾窗够长；仍保留 `following===true → 禁止预取`（防短尾窗过渡态死循环）。`mergeOlderRows` **纯前插**（2026-11-20）。 |
 | **状态** | ✅ 跟底门闸 + 近底短窗门闸 + 上滚纯前插对齐 ZCode 语义 |
 | **动作** | 验收：跟底 `auto=0`；近底刚离底不预取；上滚离开近底或真到顶后 `loading=1` 且 winFirst 前进（A4） |
 
@@ -83,23 +83,23 @@
 | **状态** | ✅ 对齐 |
 | **动作** | 保持；勿在 prepend 同帧再 `scrollToBottom` |
 
-### A5 · soft-cap（故意偏离）
+### A5 · 投影全窗（原 soft-cap）
 
 | | |
 |--|--|
 | **ZCode** | **不存在** soft-cap。文档写明：store 持全窗；分区 + memoize 控派生成本。 |
-| **EvoFlow** | `projectionWindowCap.ts`：行数软顶 + 旧工具卡瘦身；`ensureLiveTurnInProjectionWindow` 钉直播；`MIN_OLDER_ANCHOR_BUDGET` 保上一问头+气泡。曾回撤「按埋深只留当前轮」重建。 |
-| **状态** | 🔶 故意分歧（WebView2 内存） |
-| **动作** | 对齐**语义**（直播可见、上一问可见、turn 边界完整），不是删 soft-cap |
+| **EvoFlow** | 对齐 ZCode：`loadAllOlder` 日常分页到 `!hasMore`（`conversation-turn-navigator.md`：until firstRowId）；跟底 `releaseBalloon` 恒 no-op；`projectionSoftCap`→100k。分享另限 SHARE_CAP。内存靠 lighten + pin/keep-warm。 |
+| **状态** | ✅ 目录全量补拉 + 跟底不裁窗 |
+| **动作** | 禁止再给日常 `loadAllOlder` 加行顶；禁止跟底裁窗；「先短后长」是 ZCode 宽屏预期 |
 
 ### A6 · snapshot / delta 合并
 
 | | |
 |--|--|
 | **ZCode** | snapshot 整窗替换；loadOlder 纯前插；流式 delta 只改尾轮；`advanceConversationRowsPartition` 冻结历史引用。 |
-| **EvoFlow** | snapshot：`applySoftCap` + `mergePreservedOlderRowsIntoTailSnapshot`；loadOlder：cap + ensureLive；**delta 路径禁止 soft-cap**（对齐「直播只增不减」）。无 rowPool/partition。 |
-| **状态** | ✅ snapshot/preserve/delta 不裁 已修（2026-11-20 再次拆掉 delta balloon soft-cap 回潮——曾致 STREAM_AHEAD）；⚠️ partition 未跟 |
-| **动作** | backlog：评估回港 partition（与 soft-cap 正交，降每帧 O(N)）；**禁止**再在 delta 热路径加 cap |
+| **EvoFlow** | snapshot：`applySoftCap`（全窗上限下日常只 lighten）+ `mergePreservedOlderRowsIntoTailSnapshot`；loadOlder：纯前插；**delta 路径禁止 cap**。无 rowPool/partition。 |
+| **状态** | ✅ snapshot/preserve/delta 不裁；⚠️ partition 未跟 |
+| **动作** | backlog：评估回港 partition（降每帧 O(N)）；**禁止**再在 delta 热路径加 cap |
 
 ### A7 · 冷快照首 turn 补齐
 
@@ -143,7 +143,7 @@
 
 | 用户看到的现象 | 主责原子点 | 说明 |
 |----------------|------------|------|
-| 发完消息最新/用户气泡不显示，乱跳 | **A3↔A5↔A2** | 跟底仍 loadOlder + soft-cap 裁高 + scrollToBottom |
+| 发完消息最新/用户气泡不显示，乱跳 | **A3↔A5↔A2** | 跟底仍 loadOlder +（已退役的）裁窗 + scrollToBottom |
 | 上滚历史又被拽回底 | **A1 / A2** | 假贴底恢复 following，或布局抢权 |
 | 切会话偶发正常，再上滚又乱 | **A3** | 短尾窗再次进入预取死循环 |
 | 「已工作」在用户气泡上面 | **A8** | 同 turn 工具行序先于 user |
@@ -158,7 +158,7 @@
 
 - following 门闸 loadOlder（A3）
 - resolveFollowing + scrollIntent 假贴底守卫（A1）
-- soft-cap 上一问锚点（A5）
+- 投影全窗 + releaseBalloon 退役（A5，2026-11-22）
 - snapshot preserve older（A6）
 - delta 不做 soft-cap（A6）
 - normalizeOrderedRowsUserFirst（A8）
@@ -173,9 +173,9 @@
 
 ### 故意偏离（写进评审）
 
-- soft-cap 本身（A5）
 - CUA / platform 轮尾媒体种类扩展（A9）
 - 视口调试浮层（宿主诊断，非协议）
+- 跟底仍禁 loadOlder（A3；上游无 following 参数，EvoFlow 留门闸防短尾窗）
 
 ### backlog（按优先级）
 
@@ -190,7 +190,7 @@
 ```text
 1) 打开 2000+ 行会话，跟底：浮层 auto 必须为 0；不得出现 loadOlder↔!JUMP scrollToBottom 互殴
 2) 上滚 follow=0 后：才允许 loading=1；阅读位置不跳（A4）
-3) 发一条新消息：用户气泡 + 最新正文可见；不得整窗被软顶吃掉上一问（A5/A8）
+3) 宽屏长会话：首帧尾窗 → 问题导航 `loadAllOlder` 一次合并到顶；跟底不得 releaseBalloon 砍回（A5）
 4) 切会话再切回：记忆/跟底符合 A1/A2；再上滚不得立刻死循环
 5) 带绘画/CUA/平台生图的轮：媒体在轮尾槽，不在「已工作」里（A9）
 ```
@@ -199,6 +199,7 @@
 
 - `evopanel/tests/v4-timeline-scroll-anchor.test.ts`
 - `evopanel/tests/projection-window-cap.test.ts`
+- `evopanel/tests/tip-soft-cap-latch.test.ts`
 - `evopanel/tests/v4-preserve-older-on-tail-snapshot.test.ts`
 - `evopanel/tests/v4-turn-user-first-order.test.ts`
 - `evopanel/tests/v4-userinput-visible-in-tail.test.ts`
@@ -210,6 +211,6 @@
 以后改对话视口：
 
 1. 先标 **A1–A10 哪一条**；  
-2. 对照本文「ZCode 契约 / EvoFlow 现状」；  
-3. soft-cap 相关改动必须同时检查 **A3 跟底门闸**；  
-4. 禁止「为对齐而删 soft-cap」或「为对齐而去掉 following 门闸」。
+2. 对照 ZCode 源码 / `conversation-turn-navigator.md` / `chat-virtual-scroll.md`；  
+3. 投影窗相关改动必须同时检查 **A3 跟底门闸** 与 **A5**；  
+4. 日常 `loadAllOlder` 必须跟 ZCode 一样拉到 `!hasMore`；禁止跟底裁窗；禁止「为对齐而去掉 following 门闸」。

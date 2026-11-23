@@ -17,6 +17,7 @@ def _run(home: Path) -> dict:
 
     agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": "eval-dispatcher",
             "agent_name": "Eval Dispatcher",
             "description": "eval",

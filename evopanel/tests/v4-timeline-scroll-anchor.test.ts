@@ -67,6 +67,84 @@ describe("V4 timeline scroll anchor (history upscroll)", () => {
     ).toBe(true);
   });
 
+  it("content commit must not reclaim follow on false at-bottom (collapse→scrollToBottom steal)", () => {
+    // 现场 #5428：follow=0 中部阅读时窗/测高塌缩 → 假贴底 → reconcile 把 follow
+    // 抢回 true → scrollToBottom + releaseBalloon 90↔339 → 预取雪崩。
+    const collapsedNearBottom = {
+      scrollTop: 0,
+      viewportHeight: 615,
+      contentHeight: 900,
+    };
+    expect(
+      reconcileFollowingForContentAnchor({
+        following: false,
+        metrics: collapsedNearBottom,
+        lastObservedScrollTop: 4327,
+        userScrollIntent: "towardBottom",
+      }),
+    ).toBe(false);
+    expect(
+      reconcileFollowingForContentAnchor({
+        following: false,
+        metrics: collapsedNearBottom,
+        lastObservedScrollTop: 4327,
+        userScrollIntent: "unknown",
+      }),
+    ).toBe(false);
+    // 已在跟底时保持跟底（不误伤流式贴底）
+    expect(
+      reconcileFollowingForContentAnchor({
+        following: true,
+        metrics: collapsedNearBottom,
+        lastObservedScrollTop: 0,
+        userScrollIntent: "towardBottom",
+      }),
+    ).toBe(true);
+  });
+
+  it("towardBottom blocks prefetch band (CUA screenshot scroll-down JUMP)", () => {
+    // 现场：电脑控制长轮截图 · follow=0 · scrollTop 落在 2×视口内往下划，
+    // 误 loadOlder → prependAnchorAdjust Δ+1892，肉眼「往下划却整窗往上蹦」。
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 338,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+        distanceFromBottom: 3552,
+        viewportHeight: 615,
+        userScrollIntent: "towardBottom",
+      }),
+    ).toBe(false);
+    // 同上几何，上滚意图仍允许预取
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 338,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+        distanceFromBottom: 3552,
+        viewportHeight: 615,
+        userScrollIntent: "awayFromBottom",
+      }),
+    ).toBe(true);
+    // 真到顶（≤64）即使正在往下划也放行（刚离开顶边）
+    expect(
+      shouldTriggerLoadOlder({
+        scrollTop: 40,
+        canLoadOlder: true,
+        loadingOlder: false,
+        triggerPx: 1230,
+        following: false,
+        distanceFromBottom: 5000,
+        viewportHeight: 615,
+        userScrollIntent: "towardBottom",
+      }),
+    ).toBe(true);
+  });
+
   it("wheel awayFromBottom must release following even when content looks short", () => {
     // 估高偏矮时 scrollHeight≈clientHeight，「看似」不足一屏；上滚意图仍必须解除跟随。
     expect(timelineWheelScrollIntent(-40)).toBe("awayFromBottom");

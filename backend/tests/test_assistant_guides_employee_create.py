@@ -114,6 +114,7 @@ def test_agent_create_guide_lists_bindings():
             "agent": {
                 "agent_code": "research-bot",
                 "agent_name": "调研助手",
+                "as_employee": False,
                 "bindings_applied": {
                     "tools_mode": "allowlist",
                     "tools": ["web_search"],
@@ -132,6 +133,35 @@ def test_agent_create_guide_lists_bindings():
     assert "web_search" in say
     assert "browser" in say
     assert "research" in say
+
+
+def test_agent_create_guide_auto_employee_ready():
+    guide = build_agent_create_assistant_guide(
+        {
+            "ok": True,
+            "as_employee": True,
+            "role_created": True,
+            "agent": {
+                "agent_code": "kb-bot",
+                "agent_name": "资料助手",
+                "as_employee": True,
+                "role_created": True,
+                "bindings_applied": {
+                    "tools_mode": "allowlist",
+                    "tools": ["knowledge"],
+                    "skills": [],
+                    "mcp_servers": [],
+                    "knowledge_vault_ids": ["kb_demo"],
+                },
+            },
+        }
+    )
+    assert guide["status"] == "employee_created"
+    say = guide["say_to_user"]
+    assert "资料助手" in say
+    assert "花名册" in say or "对话" in say
+    assert "hire" not in say.lower() or "无需" in guide["instruction"]
+    assert any("对话" in s or "BOT" in s for s in guide["next_steps"])
 
 
 def test_knowledge_create_guide_has_say_to_user():

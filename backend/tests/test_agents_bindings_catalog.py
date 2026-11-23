@@ -34,7 +34,7 @@ def test_list_bindings_catalog_has_described_rows() -> None:
 def test_create_agent_omitted_tools_is_empty_allowlist() -> None:
     code = f"bind-omit-{uuid.uuid4().hex[:8]}"
     try:
-        row = create_agent({"agent_code": code, "agent_name": "Omit Tools"})
+        row = create_agent({"agent_code": code, "agent_name": "Omit Tools", "as_employee": False})
         assert row.get("tools") == []
         assert row.get("bindings_applied", {}).get("tools_mode") == "empty"
         assert row.get("mcp_servers") == []
@@ -50,7 +50,7 @@ def test_create_agent_omitted_tools_is_empty_allowlist() -> None:
 def test_create_agent_omitted_skills_is_empty_allowlist() -> None:
     code = f"bind-omit-skills-{uuid.uuid4().hex[:8]}"
     try:
-        row = create_agent({"agent_code": code, "agent_name": "Omit Skills"})
+        row = create_agent({"agent_code": code, "agent_name": "Omit Skills", "as_employee": False})
         assert row.get("skills") == []
     finally:
         try:
@@ -68,7 +68,7 @@ def test_bindings_catalog_defaults_on_create_has_no_skills() -> None:
 def test_create_agent_explicit_null_tools_requires_confirm() -> None:
     code = f"bind-null-{uuid.uuid4().hex[:8]}"
     with pytest.raises(ValidationError, match="confirm_inherit_all"):
-        create_agent({"agent_code": code, "agent_name": "Null Tools", "tools": None})
+        create_agent({"agent_code": code, "agent_name": "Null Tools", "tools": None, "as_employee": False})
 
 
 def test_create_agent_explicit_null_tools_inherits_all_with_confirm() -> None:
@@ -76,6 +76,7 @@ def test_create_agent_explicit_null_tools_inherits_all_with_confirm() -> None:
     try:
         row = create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Null Tools Ok",
                 "tools": None,
@@ -97,6 +98,7 @@ def test_create_agent_capability_pack_writer() -> None:
     try:
         row = create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Writer Pack",
                 "capability_pack": "writer",
@@ -119,6 +121,7 @@ def test_create_agent_pack_plus_tools_extra() -> None:
     try:
         row = create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Research Extra",
                 "capability_pack": "research",
@@ -140,6 +143,7 @@ def test_create_agent_pack_rejects_tools_override() -> None:
     with pytest.raises(ValidationError, match="tools_extra"):
         create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Conflict",
                 "capability_pack": "duty",
@@ -153,7 +157,7 @@ def test_create_agent_wide_allowlist_requires_confirm() -> None:
     # Guard runs before catalog validation — synthetic names are enough.
     wide = [f"tool-{i}" for i in range(MAX_ALLOWLIST_TOOLS + 1)]
     with pytest.raises(ValidationError, match="confirm_wide_tools"):
-        create_agent({"agent_code": code, "agent_name": "Wide", "tools": wide})
+        create_agent({"agent_code": code, "agent_name": "Wide", "tools": wide, "as_employee": False})
 
 
 def test_create_agent_forbid_inherit_all_for_employees() -> None:
@@ -161,6 +165,7 @@ def test_create_agent_forbid_inherit_all_for_employees() -> None:
     with pytest.raises(ValidationError, match="employees must not"):
         create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": "Emp Null",
                 "tools": None,
@@ -195,6 +200,7 @@ def test_create_agent_with_each_shipped_pack(pack_id: str) -> None:
     try:
         row = create_agent(
             {
+                "as_employee": False,
                 "agent_code": code,
                 "agent_name": f"Pack {pack_id}",
                 "capability_pack": pack_id,

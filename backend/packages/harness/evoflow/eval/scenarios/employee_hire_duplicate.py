@@ -17,6 +17,7 @@ def _run(home: Path) -> dict:
     code = "eval-hire-dup"
     agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "重复雇佣评测",
             "description": "dup hire",

@@ -1175,6 +1175,14 @@ def agents_create(args: dict[str, Any]) -> dict[str, Any]:
             out["hint"] = agent.get("hint")
         if agent.get("warning"):
             out["warning"] = agent.get("warning")
+        if agent.get("as_employee") is not None:
+            out["as_employee"] = agent.get("as_employee")
+        if agent.get("role_created") is not None:
+            out["role_created"] = agent.get("role_created")
+        if agent.get("employee") is not None:
+            out["employee"] = agent.get("employee")
+        if agent.get("hire_error"):
+            out["hire_error"] = agent.get("hire_error")
     out["assistant_guide"] = build_agent_create_assistant_guide(out)
     return out
 

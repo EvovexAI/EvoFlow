@@ -34,7 +34,7 @@ export const PLATFORM_DOMAIN_ZH = {
 /** @type {Record<string, string>} */
 export const PLATFORM_ACTION_ZH = {
   'agents.bindings': '可绑定能力包 packs + 工具/技能/MCP/知识库（创建前先查；优先选 pack）',
-  'agents.create': '创建智能体（优先 capability_pack；省略 tools→空；tools:null 须 confirm_inherit_all）',
+  'agents.create': '创建智能体员工（默认进花名册可对话；as_employee=false 仅能力体；优先 capability_pack）',
   'agents.delete': '删除智能体',
   'agents.get': '查看智能体详情',
   'agents.list': '列出智能体角色',

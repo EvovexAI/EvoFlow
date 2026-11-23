@@ -30,15 +30,15 @@ describe('停对话 / 回合结束 → 收回电脑控制', () => {
     expect(body).toContain("reason: 'user_stop'")
   })
 
-  it('RUN_FINISHED 与 RUN_ERROR 都清掉顶栏（不只 ERROR）', () => {
+  it('只在 RUN_ERROR 清顶栏；RUN_FINISHED 不清（中间会闪灭）', () => {
     const raw = fs.readFileSync(WS_SRC, 'utf8')
-    // 定位 RUN_FINISHED / RUN_ERROR 分支，确认两条都走 hide/clear
     const idx = raw.indexOf("aguiEvent.type === 'RUN_FINISHED' || aguiEvent.type === 'RUN_ERROR'")
     expect(idx, '找不到 RUN_FINISHED/RUN_ERROR 分支').toBeGreaterThan(-1)
-    const slice = stripComments(raw.slice(idx, idx + 800))
-    expect(slice).toContain('hideCuaGlowOverlayForced')
-    expect(slice).toContain('clearCuaGlowStatusRemote')
-    // 不许再只对 RUN_ERROR 收起
-    expect(slice).not.toMatch(/if\s*\(\s*aguiEvent\.type\s*===\s*['"]RUN_ERROR['"]\s*\)/)
+    const slice = stripComments(raw.slice(idx, idx + 900))
+    // 必须仍是「仅 ERROR 收起」——工具循环中间的 RUN_FINISHED 不能 clear
+    expect(slice).toMatch(/if\s*\(\s*aguiEvent\.type\s*===\s*['"]RUN_ERROR['"]\s*\)/)
+    const errorOnly = slice.slice(slice.search(/aguiEvent\.type\s*===\s*['"]RUN_ERROR['"]/))
+    expect(errorOnly).toContain('hideCuaGlowOverlayForced')
+    expect(errorOnly).toContain('clearCuaGlowStatusRemote')
   })
 })

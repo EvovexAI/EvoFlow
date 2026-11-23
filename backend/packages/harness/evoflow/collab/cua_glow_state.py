@@ -1,20 +1,16 @@
 """Computer Use top-indicator state — aligned with ZCode windowsCuaOperationIndicator.
 
-ZCode lifecycle (docs/cua/2026-09-14-windows-cua-indicator-repair-spec.md):
+Lifecycle switch (one continuous session, not per-tool flicker):
 
-- **Start**: first real CUA cell begins executing (tool-started / setupComputerUseRuntime).
-- **Stay on**: same turn, more CUA cells → refresh; do **not** hide when a cell ends.
-- **End**:
-  1. turn / session explicitly cleared, or
-  2. ``AUTO_HIDE_MS`` (30s) after the last CUA activity with no new cell, or
-  3. app quit / force clear.
+- **ON** ``pulse_cua_glow_start``: first/next CUA cell begins.
+- **STAY ON** ``pulse_cua_glow_end``: cell finished → ``AUTO_HIDE_MS`` (30s) grace;
+  next cell inside grace keeps the same round (indicator must not blink off).
+- **OFF** only when:
+  1. user stop / 「解除控制」/ Esc → ``revoke_cua_control`` / ``clear_cua_glow``, or
+  2. ``RUN_ERROR``, or
+  3. grace expires with no new cell.
 
-EvoFlow mapping (LangGraph has no CLI sideband):
-
-- node_repl CUA cell **start** → ``pulse_cua_glow_start``
-- node_repl CUA cell **end** → ``pulse_cua_glow_end`` (keeps indicator for 30s grace;
-  long-running cell stays on via ``_RUNNING`` until the cell returns)
-- user stop / RUN_ERROR → ``clear_cua_glow``
+Do **not** clear on mid-turn ``RUN_FINISHED`` (tool loop emits those between cells).
 """
 
 from __future__ import annotations

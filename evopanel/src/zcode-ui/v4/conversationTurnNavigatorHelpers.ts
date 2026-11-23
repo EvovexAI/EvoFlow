@@ -70,7 +70,7 @@ interface ResolveConversationTurnNavigatorVisualFocusItemIndexOptions {
   interactionItemIndex: number | undefined;
 }
 
-const CONVERSATION_TURN_NAVIGATOR_MIN_WIDTH_PX = 864;
+export const CONVERSATION_TURN_NAVIGATOR_MIN_WIDTH_PX = 864;
 
 export type ConversationTurnNavigatorHydrationResult =
   | { status: "hydrated"; logEpoch: string }

@@ -22,6 +22,7 @@ Where data is stored
 from __future__ import annotations
 
 import asyncio
+import gc
 import hashlib
 import json
 import logging
@@ -879,6 +880,14 @@ def _sqlite_vec_available(conn: sqlite3.Connection) -> bool:
 _SEARCH_CONN_POOL: dict[str, list[sqlite3.Connection]] = {}
 _SEARCH_CONN_POOL_LOCK = threading.Lock()
 _SEARCH_CONN_POOL_MAX = 8
+# 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+# 当前**借出未归还**的连接作用域（按 root 归组，id(scope) → scope）。
+# 为什么需要：`_search_index_impl` 是手动 `__enter__()/__exit__()` 而不是 `with`，
+#   查询抛错时直接跳出函数，`__exit__` 永不执行 —— 那条连接既不还池也不 close，
+#   一直攥着 index.db 的句柄，于是坏库隔离时改名恒 `[WinError 32]`（本轮实测）。
+#   靠 `__del__` 不行：异常 traceback 持有该栈帧，`exc` 活多久它就活多久，
+#   而隔离动作恰好发生在 `except` 块里。所以隔离前必须能**主动**把这些连接关掉。
+_SEARCH_LIVE_SCOPES: dict[str, dict[int, _search_conn_scope]] = {}
 
 
 class _search_conn_scope:
@@ -936,14 +945,45 @@ class _search_conn_scope:
         if pooled is not None:
             self.conn = pooled
             self._from_pool = True
+            self._track()
             return pooled
         self.conn = _connect(self.root)
         self._from_pool = False
+        self._track()
         return self.conn
+
+    def _track(self) -> None:
+        with _SEARCH_CONN_POOL_LOCK:
+            _SEARCH_LIVE_SCOPES.setdefault(str(self.root or ""), {})[id(self)] = self
+
+    def _untrack(self) -> None:
+        with _SEARCH_CONN_POOL_LOCK:
+            bucket = _SEARCH_LIVE_SCOPES.get(str(self.root or ""))
+            if bucket is not None:
+                bucket.pop(id(self), None)
+                if not bucket:
+                    _SEARCH_LIVE_SCOPES.pop(str(self.root or ""), None)
+
+    def close_now(self) -> bool:
+        """把这条借出的连接**立刻关掉**（不进池），返回是否真的关了。
+
+        隔离坏库前必须调：坏连接不关，Windows 上 `os.replace` 必失败。
+        """
+        conn = self.conn
+        self.conn = None
+        self._untrack()
+        if conn is None:
+            return False
+        try:
+            conn.close()
+            return True
+        except Exception:  # noqa: BLE001
+            return False
 
     def __exit__(self, *_exc: object) -> bool:
         conn = self.conn
         self.conn = None
+        self._untrack()
         if conn is None:
             return False
         reusable = True
@@ -966,6 +1006,30 @@ class _search_conn_scope:
         except Exception:  # noqa: BLE001
             pass
         return False
+
+    def __del__(self) -> None:
+        """兜底关连接：异常路径上调用方没机会 `__exit__`。
+
+        【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+        为什么：`_search_index_impl` 是手动 `__enter__() / __exit__()`（不是 with），
+        查询在 `conn.execute(...)` 上抛 `DatabaseError` 时直接跳出函数，
+        `__exit__` 永不执行 → 这条连接既不还池也不 close，**一直攥着 index.db 的句柄**。
+        本轮实测后果：坏库自愈时 `os.replace` 全员 `[WinError 32]`，
+        盘上一个 `.corrupt-*` 都没有，库永远修不好；把探针里的连接全释放后再改名就成功了。
+        边界：这里只关连接，不往池里放（异常态连接不该复用）。
+        """
+        conn = getattr(self, "conn", None)
+        self.conn = None
+        if conn is None:
+            return
+        try:
+            self._untrack()
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            conn.close()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _connect(root: str) -> sqlite3.Connection:
@@ -4517,16 +4581,135 @@ def _drop_search_conn_pool(root: str) -> int:
     return dropped
 
 
+_QUARANTINE_TIMEOUT_S = 12.0
+
+
+def _kill_build_jobs_for_root(root: str) -> int:
+    """停掉**本进程**为该 root 起的构建任务，返回停掉的个数。
+
+    【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+    为什么（本轮现网实证，2026-11-22 19:37，agent=case-fullstack-dev）：
+      `_search_index_impl` 在发现 `vectors_missing` 时会 **自动** `force` 落一次
+      `schedule_build_index`，而起的是 `_SubprocessBuildJob`（`build_worker` 子进程）。
+      那个子进程正握着 `<root>/.evoflow/code_index/index.db` 的写句柄；
+      紧接着坏库分支要 `os.replace(index.db, index.db.corrupt-<ts>)` →
+      `PermissionError: [WinError 32] 另一个程序正在使用此文件，进程无法访问。`
+      于是 `index.db` / `-wal` / `-shm` 三个全改名失败，`moved=[]`。
+    后果（这才是真正的缺陷）：工具出口不看 `index_quarantined`，只认
+      `index_corrupt_recovered=True`，照样回「The bad file has been quarantined (kept,
+      renamed with a .corrupt-<timestamp> suffix)」。**盘上一个 .corrupt-* 都没有**，
+      index.db 仍是原来那个坏库（本轮 `quick_check` 复验：同样报
+      `Freelist: freelist leaf count too big on page 204`），下次检索继续坏 ——
+      回执说假话，员工按回执去等重建，永远等不到。
+    """
+    key = _workspace_hash(root)
+    killed = 0
+    with _jobs_lock:
+        job = _build_jobs.get(key)
+    if job is None:
+        return 0
+    proc = getattr(job, "_proc", None)
+    thread = getattr(job, "_thread", None)
+    if proc is not None:
+        try:
+            proc.kill()
+            killed = 1
+            # kill 只是发信号；不等它真正退出，句柄仍被占着，改名照样 WinError 32。
+            # 本轮实测：`killed=1` 之后 `os.replace` 仍失败，就是漏了这一步等待。
+            try:
+                proc.wait(timeout=_QUARANTINE_TIMEOUT_S)
+            except Exception:  # noqa: BLE001 - 超时也别卡住主流程
+                logger.warning("code_index: 构建子进程 kill 后未按时退出 root=%s", root)
+        except Exception:  # noqa: BLE001 - 已退出/已回收都算正常
+            logger.debug("code_index: build subprocess kill failed root=%s", root, exc_info=True)
+    elif thread is not None:
+        # 线程版没法安全强杀（正则跑在 FTS 写入中）；只能等它把当前批写完，
+        # 交给下面 _release_db_handles 的重试窗口去拿句柄。
+        logger.warning("code_index: 坏库隔离遇到 in-process 构建线程 root=%s", root)
+    with _jobs_lock:
+        if _build_jobs.get(key) is job:
+            _build_jobs.pop(key, None)
+    return killed
+
+
+def _release_db_handles(dbp: Path) -> None:
+    """尽最大努力让本进程别再攥着 dbp 的句柄（Windows 改名的前置条件）。
+
+    【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+    改了什么：不再只清「池里的」连接，还要把**借出未归还**的连接（`_SEARCH_LIVE_SCOPES`）
+    逐个 `close_now()`。同时修正 root 推导（原来用 `parent.parent.parent` 猜，本仓
+    `.evoflow/code_index/index.db` 拼出来是仓根，与 `_db_path(root)` 的入参口径不一定一致）。
+    为什么：本轮实测第三次仍 `[WinError 32]` —— 池里是空的，但异常路径上那条借出的
+    连接还活着，`os.replace` 就拿不到句柄。这就是「清池了却还是改不了名」的真因。
+    """
+    root = str(dbp.parent.parent.parent)
+    released = 0
+    try:
+        with _SEARCH_CONN_POOL_LOCK:
+            bucket = dict(_SEARCH_LIVE_SCOPES.get(root) or {})
+    except Exception:  # noqa: BLE001
+        bucket = {}
+    for scope in list(bucket.values()):
+        try:
+            if scope.close_now():
+                released += 1
+        except Exception:  # noqa: BLE001
+            pass
+    try:
+        _drop_search_conn_pool(root)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        # sqlite3 的句柄在 gc 前不会关；显式催一次回收，别等下一个 GC 周期。
+        gc.collect()
+    except Exception:  # noqa: BLE001
+        pass
+    if released:
+        logger.info("code_index: 隔离前主动关闭 %s 条借出连接 root=%s", released, root)
+
+
+def _rename_with_retry(src: Path, dst: Path, *, timeout_s: float = _QUARANTINE_TIMEOUT_S) -> bool:
+    """Windows 上改名会撞 EBUSY/WinError 32；在 timeout_s 内退避重试。"""
+    deadline = time.time() + timeout_s
+    delay = 0.05
+    last: BaseException | None = None
+    while True:
+        try:
+            src.replace(dst)
+            return True
+        except (PermissionError, OSError) as exc:
+            last = exc
+            if time.time() >= deadline:
+                break
+            time.sleep(delay)
+            delay = min(delay * 2, 0.5)
+    logger.warning(
+        "code_index: 坏库隔离改名失败 %s -> %s (%s)",
+        src,
+        dst,
+        last,
+    )
+    return False
+
+
 def _quarantine_corrupt_index(root: str) -> list[str]:
     """把坏掉的索引库改名隔离（**不删**），返回改名后的路径列表。
 
     为什么保留而不删：坏库是证据。下次有人问「为什么这个员工的检索挂了」，
     盘上还有一份能跑 quick_check 的原件，而不是只能靠日志回忆。
+
+    【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+    改了什么：改名之前先（a）停掉本进程为该 root 起的构建子进程、（b）清连接池、
+      （c）退避重试改名最多 12s；并把**真实结果**原样返回（不再吞成空列表）。
+    为什么：见 `_kill_build_jobs_for_root` 的注释 —— `quarantined=[]` 时工具出口
+      仍宣称「已改名隔离」，是本轮现网复验抓到的「说假话」。
+    边界：返回空列表 = 隔离**真的没成功**。调用方必须据此说真话，不许再写成已隔离。
     """
     dbp = _db_path(root)
     if not dbp.exists():
         return []
-    _drop_search_conn_pool(root)
+    _kill_build_jobs_for_root(root)
+    _release_db_handles(dbp)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     moved: list[str] = []
     for suffix in ("", "-wal", "-shm"):
@@ -4534,11 +4717,8 @@ def _quarantine_corrupt_index(root: str) -> list[str]:
         if not src.exists():
             continue
         dst = Path(f"{dbp}.corrupt-{stamp}{suffix}")
-        try:
-            src.replace(dst)
+        if _rename_with_retry(src, dst):
             moved.append(str(dst))
-        except Exception:  # noqa: BLE001 - 改名失败就继续，别把主流程卡死
-            logger.warning("code_index: 坏库隔离改名失败 %s", src, exc_info=True)
     return moved
 
 
@@ -4626,18 +4806,33 @@ def search_index(
             raise
         root = resolve_index_root(workspace_root=workspace_root, thread_id=thread_id)
         quarantined = _quarantine_corrupt_index(root)
-        logger.error(
-            "code_index: 检测到索引库损坏，已隔离并触发重建 root=%s quarantined=%s err=%s",
-            root,
-            quarantined,
-            exc,
-        )
-        try:
-            schedule_build_index(
-                workspace_root=workspace_root, thread_id=thread_id, force=True
+        # 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：日志按真实结果分两支；**隔离失败就不再调度重建**（在坏文件上重建必然失败），
+        #   并把 `rebuild_scheduled` 回给工具出口，碳不再靠「意图」写文案。
+        # 为什么：本轮现网复验，`quarantined=[]`（[WinError 32]，构建子进程攥着句柄）
+        #   但旧代码照样 logger.error「已隔离并触发重建」+ `rebuild_in_progress=True`。
+        if not quarantined:
+            logger.error(
+                "code_index: 检测到索引库损坏，但隔离**失败**（文件被占用），未调度重建 root=%s err=%s",
+                root,
+                exc,
             )
-        except Exception:  # noqa: BLE001 - 重建调度失败也不能吞掉「库坏了」这个事实
-            logger.warning("code_index: 坏库隔离后重建调度失败 root=%s", root, exc_info=True)
+        else:
+            logger.error(
+                "code_index: 检测到索引库损坏，已隔离并触发重建 root=%s quarantined=%s err=%s",
+                root,
+                quarantined,
+                exc,
+            )
+        rebuild_scheduled = False
+        if quarantined:
+            try:
+                schedule_build_index(
+                    workspace_root=workspace_root, thread_id=thread_id, force=True
+                )
+                rebuild_scheduled = True
+            except Exception:  # noqa: BLE001 - 重建调度失败也不能吞掉「库坏了」这个事实
+                logger.warning("code_index: 坏库隔离后重建调度失败 root=%s", root, exc_info=True)
         return {
             "hits": [],
             "symbols": [],
@@ -4652,7 +4847,8 @@ def search_index(
             "search_terms": [],
             "root": root,
             "db_path": str(_db_path(root)),
-            "rebuild_in_progress": True,
+            "rebuild_in_progress": rebuild_scheduled,
+            "rebuild_scheduled": rebuild_scheduled,
             "index_quarantined": bool(quarantined),
             "index_corrupt_recovered": True,
         }

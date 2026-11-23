@@ -1,19 +1,16 @@
 /**
- * Renderer projection soft-cap：超大会话（复刻 1k–2k+ 行）若把完整历史常驻
- * `rows.window`，切会话/重绘会被拖死，最终 WebView2 「错误代码: Out of Memory」。
- * Wire 首帧本就只给尾窗（~60），但 loadAllOlder / 长流式 delta 仍会把窗口撑爆——
- * 这里统一裁回软顶，并把窗口深处的工具卡重载荷瘦身。
+ * Renderer projection window helpers（裁切 / 瘦身 / 钉直播轮）。
  *
- * - prefer `tail`：保最新（直播追加 / 导航探测）
- * - prefer `head`：保刚补拉的更早行（用户上滚 loadOlder）
- * 裁切尽量落在 turnHeader，避免半截 turn 挂在窗口头。
+ * 2026-11-22 对齐 ZCode：store 持全窗，日常路径 softCap≈100k，**不再按内存水位裁行数**。
+ * 现场 soft-cap + releaseBalloon → 90↔339 滚动条抽风已退役 releaseBalloon。
  *
- * 2026-11-15 回撤「直播轮焦点窗重建」（tighten/pin）：按埋深把 rows.window 重建成
- * 只剩当前轮 ≤80 行，会把前面轮次从窗口里整个丢掉——「历史记录看不到了」的实锤
- * （ZCode 契约：store 持有全会话行，虚拟列表只挂可视区；客户端绝不发明窗口）。
- * 内存安全网保留两层：① 软顶裁切（只裁行数，不重建）；② 旧工具卡 text 瘦身
- * （display 截图/文件卡必须保留——那是历史的一部分；10MB 级元凶已在服务端
- * mirror/hydrate 出口截断，见 agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX）。
+ * 仍保留：
+ * - {@link capProjectionWindow} / {@link ensureLiveTurnInProjectionWindow}：单测与极端上限
+ * - {@link lightenProjectionRowsForMemory}：旧工具卡 text 瘦身（内存安全主路径）
+ * - prefer `tail`/`head` 裁切算法：显式 cap 调用时用
+ *
+ * ZCode 契约：store 持有全会话行，虚拟列表只挂可视区；客户端绝不发明第二套焦点窗。
+ * 10MB 级元凶已在服务端 mirror/hydrate 出口截断（agui_mirror._TOOL_OUTPUT_ROW_PREVIEW_MAX）。
  */
 import type { ConversationRow } from "@zcode/shared/zcode-protocol-v4";
 import {
@@ -23,8 +20,25 @@ import {
   type RendererMemoryLevel,
 } from "../../react/lib/renderer-memory-pressure.js";
 
-/** 正常水位下的渲染层窗口软顶（行）。高压时见 {@link resolveProjectionWindowSoftCap}。 */
-export const PROJECTION_WINDOW_SOFT_CAP = 220;
+/**
+ * 渲染层窗口软顶（行）。
+ *
+ * 2026-11-22 对齐 ZCode：投影 store 持全窗，日常路径不再裁行数。
+ * 本常量与 {@link resolveProjectionWindowSoftCap} 仍保留给单测 / 显式 cap 调用；
+ * 热路径一律走 resolve（已返回全窗上限）。
+ */
+export const PROJECTION_WINDOW_SOFT_CAP = 100_000;
+
+/**
+ * 旧 soft-cap 诊断别名（220）。
+ *
+ * ZCode 问题导航日常 **无行顶**：`loadAllOlder` 分页到 `!hasMore`。
+ * EvoFlow 跟底也不裁窗；本常量仅供历史对照 / 探针，勿再当日常目录停手条件。
+ */
+export const PROJECTION_WINDOW_LEGACY_SOFT_CAP = 220;
+
+/** @deprecated 误加的「目录行顶」；日常应对齐 ZCode 全量补拉，勿再用。 */
+export const PROJECTION_WINDOW_DIRECTORY_CAP = PROJECTION_WINDOW_LEGACY_SOFT_CAP;
 
 /** 分享全量导出允许更大窗口，避免截断分享目录。 */
 export const PROJECTION_WINDOW_SHARE_CAP = 8_000;
@@ -823,36 +837,15 @@ export function capAndLightenProjectionWindow(
 }
 
 /**
- * 跟底收回 balloon：只做 prefer=tail 裁回 softCap（+ 旧卡瘦身）。
+ * 跟底收回 balloon（已退役）。
  *
- * 禁止再跑 ensureLiveTurnInProjectionWindow：那条路径按 liveTurnSpan 重建
- * older+live，在 rowId 交错 / 多完成轮时会把窗尾 tip（更大 rowId 的后续轮）
- * 整段丢掉（现场：884→窗尾 630，first>last）。跟底语义就是「看最新」，
- * soft-cap 尾窗本身已含 tip；直播 in-flight 若被裁，后续 snapshot/delta pin 会补。
- *
- * 上滚阅读历史期间不要调——会把刚拉到的更早页冲掉。
- * 返回 null = 无需改（未超 balloon、裁后不更短、或尾 tip 保不住）。
+ * 2026-11-22 对齐 ZCode：store 持全窗，跟底不得裁掉上滚前插的历史（现场
+ * releaseBalloon → 90↔339 → scrollToBottom !JUMP）。恒返回 null。
+ * 单测若要验证旧裁窗算法，直接调 {@link capProjectionWindow}。
  */
 export function releaseBalloonProjectionWindow(
-  rows: readonly ConversationRow[],
-  softCap: number = PROJECTION_WINDOW_SOFT_CAP,
+  _rows: readonly ConversationRow[],
+  _softCap: number = PROJECTION_WINDOW_SOFT_CAP,
 ): readonly ConversationRow[] | null {
-  const cap = Math.max(MIN_KEEP, Math.floor(softCap));
-  if (!Array.isArray(rows) || !isProjectionWindowBallooned(rows.length, cap)) {
-    return null;
-  }
-  const tipRowId = rows.reduce<number | null>((max, row) => {
-    const id = Number(row.rowId);
-    if (!Number.isFinite(id)) return max;
-    return max == null || id > max ? id : max;
-  }, null);
-  const capped = capAndLightenProjectionWindow(rows, { softCap: cap, prefer: "tail" });
-  if (capped.length >= rows.length) return null;
-  if (
-    tipRowId != null &&
-    !capped.some((row) => Number(row.rowId) === tipRowId)
-  ) {
-    return null;
-  }
-  return capped;
+  return null;
 }

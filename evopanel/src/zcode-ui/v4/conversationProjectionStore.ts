@@ -34,13 +34,11 @@ import {
 } from "../../react/lib/renderer-memory-pressure.js";
 import {
   PROJECTION_WINDOW_SHARE_CAP,
-  PROJECTION_WINDOW_SOFT_CAP,
   capAndLightenProjectionWindow,
   countRealUserQueries,
   ensureLiveTurnInProjectionWindow,
   lightenProjectionRowsForMemory,
   pinLiveTurnAfterDeltas,
-  releaseBalloonProjectionWindow,
   resolveProjectionWindowSoftCap,
 } from "@/v4/projectionWindowCap.js";
 
@@ -526,7 +524,10 @@ export function mergeOlderRows(
   return lightened === merged ? merged : [...lightened];
 }
 
-/** snapshot / delta 应用后裁尾窗 + 瘦旧工具卡，避免多轮撑爆 WebView2。 */
+/**
+ * snapshot 应用后：全窗模式下 softCap≈100k，日常只做 lighten + 钉直播轮；
+ * 行数裁切仅在极端超上限时触发。delta 热路径禁止走这里。
+ */
 function applySoftCapToSnapshot(
   snapshot: ConversationSnapshot,
   prefer: "tail" | "head" = "tail",
@@ -534,8 +535,7 @@ function applySoftCapToSnapshot(
 ): ConversationSnapshot {
   const prev = snapshot.rows.window;
   const capped = capAndLightenProjectionWindow(prev, { softCap, prefer });
-  // 尾窗裁切后必须钉回直播轮 in-flight（思考/工具进行中），否则 shrink/snapshot
-  // 一刀切掉中间思考行 → V4 仍推 row.delta，apply 找不到行，页面空白。
+  // 钉回直播轮 in-flight（思考/工具进行中），避免尾窗替换丢进行中行。
   const next = ensureLiveTurnInProjectionWindow(prev, capped, softCap);
   if (next === prev) return snapshot;
   if (next.length < prev.length) {
@@ -682,9 +682,7 @@ export class ConversationProjectionStore {
     | null = null;
   private closed = false;
   /**
-   * 跟底刚收回 balloon：禁止 autoBackfill / loadAllOlder 再把尾窗撑回全量历史。
-   * 现场（f2fdc69c 14:16）：release 3185→90 后 loading 连拉到 3185，与 scrollToBottom
-   * 互殴出 ±4 万像素 !JUMP。用户上滚 loadOlder 时清闩。
+   * @deprecated 2026-11-22 对齐 ZCode 全窗后 releaseBalloon 已退役；保留字段仅防旧调用写闩。
    */
   private tipSoftCapLatch = false;
   /** Mutable so stream-404 remint can rebind without dropping the snapshot. */
@@ -1724,7 +1722,6 @@ export class ConversationProjectionStore {
     if (!sessionId) return;
     const beforeRowId = snapshot.rows.window[0]?.rowId;
     if (beforeRowId === undefined) return;
-    // 用户主动上滚阅读 → 允许再扩窗；清掉跟底 soft-cap 闩。
     this.tipSoftCapLatch = false;
     this.setState({ loadingOlder: true });
     try {
@@ -1822,8 +1819,6 @@ export class ConversationProjectionStore {
    */
   async autoBackfillForRestore(maxPages: number = 8): Promise<void> {
     if (this.closed || this.state.loadingOlder) return;
-    // 跟底 soft-cap 后禁止补拉：否则 leadingIncomplete/userMissing 会把窗一路灌回全量。
-    if (this.tipSoftCapLatch) return;
     const startSnapshot = this.state.snapshot;
     if (!startSnapshot || !hasOlderRows(startSnapshot)) return;
     const startWindow = startSnapshot.rows.window;
@@ -1842,7 +1837,6 @@ export class ConversationProjectionStore {
       !startWindow.some((r) => r.kind === "userInput" && r.origin === "realUser");
     if (!leadingIncomplete && !userMissing) return;
 
-    const softCap = resolveProjectionWindowSoftCap();
     this.setState({ loadingOlder: true });
     try {
       let beforeRowId = startFirstRowId;
@@ -1873,9 +1867,8 @@ export class ConversationProjectionStore {
         if (older.length === 0) break; // 没有更早行 → 到顶
         combined.unshift(...older); // rows/range 升序返回，头插保持整体升序
         beforeRowId = older[0]?.rowId;
-        // 硬顶：补拉不得把投影窗撑过 softCap（跟底/冷开都适用）。
-        if (combined.length + startWindow.length >= softCap) break;
         // 停止条件按「已拉到的行 + 原窗口」预判，满足即不再翻页：
+        // （2026-11-22 对齐 ZCode：不再用 softCap 截断补拉；有界靠 maxPages。）
         const projectedLeading = combined[0]?.turnId;
         const leadingSettled =
           projectedLeading != null &&
@@ -1919,7 +1912,10 @@ export class ConversationProjectionStore {
    * 避免每 200 行重建一次 timeline render units 与两个 virtualizer。
    */
   async loadAllOlder(opts?: {
-    /** 分享目录需要更大窗口；默认走渲染软顶，避免超大会话把完整历史钉进 timeline。 */
+    /**
+     * 对齐 ZCode：日常问题导航 `rows/range` 分页直到 `!hasMore`（到 firstRowId）。
+     * 分享导出额外限 SHARE_CAP（EvoFlow 独有，避免一次钉 8k+）。
+     */
     forShare?: boolean;
   }): Promise<ConversationTurnNavigatorHydrationResult> {
     const stale = (logEpoch = this.state.snapshot?.logEpoch ?? "unknown") => ({
@@ -1936,59 +1932,33 @@ export class ConversationProjectionStore {
       this.turnNavigatorHydrationTerminal?.logEpoch === snapshot.logEpoch &&
       this.turnNavigatorHydrationTerminal.directoryRevision === directoryRevision
     ) {
-      return this.turnNavigatorHydrationTerminal;
-    }
-    // 跟底 soft-cap：目录补拉会再把窗撑开，与 scrollToBottom 互殴；分享导出不受闩。
-    if (this.tipSoftCapLatch && !opts?.forShare) {
-      const softHeld = {
-        status: "hydrated" as const,
-        logEpoch: snapshot.logEpoch,
-        directoryRevision,
-      };
-      this.turnNavigatorHydrationTerminal = softHeld;
-      return softHeld;
+      // 终态仅在「已无更早行」时可信。keep-warm 失效 / 尾窗 snapshot 重灌后
+      // hasOlder 又变 true，却仍命中旧 hydrated → 永远停在 2–3 轮（现场 120/1476）。
+      if (!hasOlderRows(snapshot)) {
+        return this.turnNavigatorHydrationTerminal;
+      }
+      this.turnNavigatorHydrationTerminal = null;
     }
     if (!hasOlderRows(snapshot)) return stale(snapshot.logEpoch);
     const sessionId = parseConversationTopic(this.topic);
     const initialBeforeRowId = snapshot.rows.window[0]?.rowId;
     if (!sessionId || initialBeforeRowId === undefined) return stale(snapshot.logEpoch);
 
-    const softCap = opts?.forShare
-      ? PROJECTION_WINDOW_SHARE_CAP
-      : resolveProjectionWindowSoftCap();
-    // 已在软顶且窗口内已有 ≥2 条 query：不必再为 rail 拉全量历史。
-    if (
-      !opts?.forShare &&
-      snapshot.rows.window.length >= softCap &&
-      countRealUserQueries(snapshot.rows.window) >= 2
-    ) {
-      const early = {
-        status: "hydrated" as const,
-        logEpoch: snapshot.logEpoch,
-        directoryRevision,
-      };
-      this.turnNavigatorHydrationTerminal = early;
-      logger.info("[v4-store] 完整问题目录跳过（已在软顶）", {
-        loadedRows: snapshot.rows.window.length,
-        softCap,
-        totalRows: snapshot.rows.totalCount,
-        sessionId,
-      });
-      return early;
-    }
+    // ZCode 日常无行顶；仅分享导出限 SHARE_CAP。
+    const shareCap = opts?.forShare ? PROJECTION_WINDOW_SHARE_CAP : null;
 
     const initialLogEpoch = snapshot.logEpoch;
     const preserveIncompleteLeadingTurn = shouldAutoLoadIncompleteLeadingTurn(snapshot, false);
     const pages: ConversationRow[][] = [];
     let beforeRowId = initialBeforeRowId;
     let committed = false;
-    let hitSoftCap = false;
+    let hitShareCap = false;
     this.setState({ loadingOlder: true });
     logger.debug("[v4-store] 完整问题目录开始补拉历史 rows", {
       beforeRowId,
       loadedRows: snapshot.rows.window.length,
       sessionId,
-      softCap,
+      shareCap,
       totalRows: snapshot.rows.totalCount,
     });
 
@@ -2031,19 +2001,22 @@ export class ConversationProjectionStore {
         }
         pages.push(older);
         beforeRowId = nextBeforeRowId;
-        const pendingRows =
-          pages.reduce((n, page) => n + page.length, 0) + current.rows.window.length;
-        if (pendingRows >= softCap) {
-          hitSoftCap = true;
-          logger.info("[v4-store] 完整问题目录补拉触软顶，停止继续拉", {
-            pendingRows,
-            softCap,
-            pages: pages.length,
-            sessionId,
-            totalRows: current.rows.totalCount,
-          });
-          break;
+        if (shareCap != null) {
+          const pendingRows =
+            pages.reduce((n, page) => n + page.length, 0) + current.rows.window.length;
+          if (pendingRows >= shareCap) {
+            hitShareCap = true;
+            logger.info("[v4-store] 分享目录补拉触 SHARE_CAP，停止继续拉", {
+              pendingRows,
+              shareCap,
+              pages: pages.length,
+              sessionId,
+              totalRows: current.rows.totalCount,
+            });
+            break;
+          }
         }
+        // 对齐 ZCode：日常只认 !hasMore（拉到分支起点 / firstRowId）。
         if (!result.hasMore) break;
       }
 
@@ -2090,7 +2063,7 @@ export class ConversationProjectionStore {
         this.turnNavigatorHydrationTerminal = result;
         return result;
       }
-      // 导航/日常/分享：纯前插；拉页循环已用 softCap 停手，此处不再裁行。
+      // 对齐 ZCode：纯前插一次合并；日常无行顶裁切。
       const window = mergeOlderRows(current.rows.window, this.shareRows(olderRows));
       if (window === null) return stale(initialLogEpoch);
       committed = true;
@@ -2099,11 +2072,11 @@ export class ConversationProjectionStore {
         snapshot: { ...current, rows: { ...current.rows, window } },
       });
       logger.debug("[v4-store] 完整问题目录历史 rows 补拉完成", {
-        hitSoftCap,
+        hitShareCap,
         loadedRows: window.length,
         pages: pages.length,
         sessionId,
-        softCap,
+        shareCap,
       });
       const result = {
         status: "hydrated" as const,
@@ -2305,33 +2278,13 @@ export class ConversationProjectionStore {
   }
 
   /**
-   * 跟底 / 回底部：若上滚 loadOlder 已把窗撑成 balloon（≫ softCap），裁回尾窗 softCap。
-   * 上滚阅读历史期间禁止调用——会冲掉刚前插的更早页。
+   * 跟底 / 回底部收回 balloon（已退役）。
+   *
+   * 2026-11-22 对齐 ZCode：恒 no-op。宿主仍可调（V4StreamRowsBridge onFollowingTip），
+   * 不得裁掉上滚前插的历史（现场 90↔339 !JUMP）。
    */
   releaseBalloonForFollowingTip(): boolean {
-    if (this.closed || this.state.loadingOlder) return false;
-    const snap = this.state.snapshot;
-    if (!snap?.rows?.window?.length) return false;
-    const softCap = resolveProjectionWindowSoftCap();
-    const next = releaseBalloonProjectionWindow(snap.rows.window, softCap);
-    if (!next) return false;
-    logger.info("[v4-store] release balloon on following tip", {
-      from: snap.rows.window.length,
-      to: next.length,
-      softCap,
-      totalCount: snap.rows.totalCount,
-      topic: this.topic,
-    });
-    // 闩住：阻止紧随其后的 autoBackfill / 目录 loadAllOlder 把尾窗再灌回全量。
-    // 不 bump directoryRevision——否则 hydrate effect 立刻再拉历史，等于白裁。
-    this.tipSoftCapLatch = true;
-    this.setState({
-      snapshot: {
-        ...snap,
-        rows: { ...snap.rows, window: [...next] },
-      },
-    });
-    return true;
+    return false;
   }
 
   /** 退订并终结本 store（仅 SessionDataLayer 调用）。 */

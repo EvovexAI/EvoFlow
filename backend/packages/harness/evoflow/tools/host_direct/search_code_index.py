@@ -128,12 +128,28 @@ def _run_search_index_lookup(
         # （重建是异步排队的），于是先撞上「not ready」分支 → 用户只看到
         # "Workspace index is not ready … open the project in EvoPanel"。
         # 库明明是我刚改名隔离掉并已排队重建，文案却让人去找 UI 建索引 —— 下一步动作指错。
+        # 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+        # 改了什么：文案按 `index_quarantined` **真实取值**分两支，不再一律宣称「已改名隔离」。
+        # 为什么（本轮现网复验抓到的说假话）：隔离因 `[WinError 32]` 全员改名失败时
+        #   `quarantined=[]`，但旧文案照样写 "has been quarantined (kept, renamed …)"。
+        #   实测同句回执出现后我立刻 `quick_check` 那个库 → 仍是同一份坏库、盘上没有一个
+        #   `.corrupt-*`，员工按回执「等重建」永远等不到。判据必须是事实，不是意图。
         if data.get("index_corrupt_recovered"):
+            if data.get("index_quarantined"):
+                return (
+                    f"No index hits for '{label}' yet — this workspace's index DB was CORRUPTED "
+                    f"(sqlite reported a broken file). The bad file has been quarantined (kept, renamed "
+                    f"with a .corrupt-<timestamp> suffix) and a full rebuild was just scheduled. "
+                    f"Retry search_code_index after the rebuild finishes; do NOT expect hits right now.",
+                    None,
+                )
+            # 隔离没成功：库还坏着，重建也没法在坏文件上跑起来。必须说清并给出人工动作，
+            # 否则员工会像本轮一样连调 6 次拿到同一句「稍后重试」。
             return (
-                f"No index hits for '{label}' yet — this workspace's index DB was CORRUPTED "
-                f"(sqlite reported a broken file). The bad file has been quarantined (kept, renamed "
-                f"with a .corrupt-<timestamp> suffix) and a full rebuild was just scheduled. "
-                f"Retry search_code_index after the rebuild finishes; do NOT expect hits right now.",
+                f"Error: search_code_index failed — this workspace's index DB is CORRUPTED and could "
+                f"NOT be quarantined (file still locked by another process: {data.get('db_path')}). "
+                f"A rebuild cannot start on a broken file. Ask the operator to close anything holding "
+                f"that file (or delete it), then retry.",
                 None,
             )
         if not st.get("building"):

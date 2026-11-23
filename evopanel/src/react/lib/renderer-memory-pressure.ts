@@ -45,12 +45,15 @@ export function resolveRendererMemoryLevel(heapMb?: number | null): RendererMemo
   return 'normal'
 }
 
-/** 投影 rows.window 软顶：高压时更狠，保住多轮「还能聊」而不是整页 OOM。 */
-export function projectionSoftCapForMemoryLevel(level: RendererMemoryLevel): number {
-  if (level === 'critical') return 50
-  if (level === 'high') return 100
-  // 正常 220：更早的行仍可通过上滚 loadOlder 拉回；常驻 400 行在长流式下仍易把 heap 顶穿。
-  return 220
+/**
+ * 投影 rows.window「软顶」行数。
+ *
+ * 2026-11-22 对齐 ZCode：store 持全窗，**不再按内存水位裁行**（现场 90↔339 滚动条抽风
+ * 的根因是 soft-cap + releaseBalloon）。内存安全改靠旧工具卡 lighten + pin/keep-warm 驱逐。
+ * 返回值仅作理论上限，日常会话到不了。
+ */
+export function projectionSoftCapForMemoryLevel(_level: RendererMemoryLevel): number {
+  return 100_000
 }
 
 /** 后台 pin 会话数上限。normal 收紧到 4；high=2；critical=1。 */

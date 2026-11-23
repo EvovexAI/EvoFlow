@@ -904,84 +904,37 @@ describe('capAndLightenProjectionWindow', () => {
 })
 
 describe('releaseBalloonProjectionWindow', () => {
-  it('returns null under balloon threshold', () => {
+  it('is retired: always returns null (ZCode full-window align 2026-11-22)', () => {
     const rows = Array.from({ length: 100 }, (_, i) => row(i + 1))
     expect(isProjectionWindowBallooned(100, 220)).toBe(false)
     expect(releaseBalloonProjectionWindow(rows, 220)).toBeNull()
-  })
 
-  it('trims loadOlder balloon back to softCap tip (following tip)', () => {
-    // 模拟上滚把 15 轮完整历史前插进窗（现场 884 行 / softCap 220）。
-    const rows: ConversationRow[] = []
+    // 即使远超旧 softCap，跟底也不得裁窗（现场 90↔339 !JUMP 根因）。
+    const balloon: ConversationRow[] = []
     let id = 1
     for (let t = 0; t < 40; t += 1) {
       const turnId = `hist-${t}`
-      rows.push({ ...row(id++), turnId, kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
-      rows.push({
+      balloon.push({ ...row(id++), turnId, kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
+      balloon.push({
         ...row(id++, 'userInput', 'realUser'),
         turnId,
         text: `q${t}`,
       } as ConversationRow)
       for (let k = 0; k < 8; k += 1) {
-        rows.push({
+        balloon.push({
           ...row(id++, 'toolCall'),
           turnId,
           status: 'success',
         } as ConversationRow)
       }
-      rows.push({
+      balloon.push({
         ...row(id++, 'assistantText'),
         turnId,
         text: `a${t}`,
       } as ConversationRow)
     }
-    expect(rows.length).toBeGreaterThan(330)
-    expect(isProjectionWindowBallooned(rows.length, 80)).toBe(true)
-    const tipId = rows[rows.length - 1]!.rowId
-    const released = releaseBalloonProjectionWindow(rows, 80)
-    expect(released).not.toBeNull()
-    expect(released!.length).toBeLessThanOrEqual(Math.floor(80 * 1.5) + 12)
-    expect(released!.length).toBeLessThan(rows.length)
-    expect(released![released!.length - 1]?.rowId).toBe(tipId)
-    expect(released!.some((r) => r.rowId === tipId)).toBe(true)
-    // 尾轮用户问仍在（跟底可读最新）
-    expect(
-      released!.some(
-        (r) => r.kind === 'userInput' && String((r as { text?: string }).text || '') === 'q39',
-      ),
-    ).toBe(true)
-  })
-
-  it('keeps max rowId tip even when a mid live turn would tempt ensureLiveTurn drop', () => {
-    // 交错：较早 realUser 轮 tip=200；其后另有完成轮到 400。ensureLiveTurn
-    // 若按 live 重建会丢 201…400；release 必须保 tip=400。
-    const rows: ConversationRow[] = []
-    for (let i = 1; i <= 200; i += 1) {
-      const turnId = i <= 2 ? 'live' : i <= 100 ? 'old' : 'live'
-      if (i === 1) {
-        rows.push({ ...row(i), turnId: 'live', kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
-      } else if (i === 2) {
-        rows.push({ ...row(i, 'userInput', 'realUser'), turnId: 'live', text: 'latest-q' } as ConversationRow)
-      } else if (i <= 100) {
-        rows.push({ ...row(i), turnId: 'old', kind: 'toolCall', status: 'success' } as ConversationRow)
-      } else {
-        rows.push({ ...row(i), turnId: 'live', kind: 'toolCall', status: 'success' } as ConversationRow)
-      }
-    }
-    for (let i = 201; i <= 400; i += 1) {
-      const turnId = 'later'
-      if (i === 201) {
-        rows.push({ ...row(i), turnId, kind: 'turnHeader', state: 'completedSuccess' } as ConversationRow)
-      } else if (i === 202) {
-        rows.push({ ...row(i, 'userInput', 'realUser'), turnId, text: 'even-later' } as ConversationRow)
-      } else {
-        rows.push({ ...row(i), turnId, kind: 'assistantText', text: `t${i}` } as ConversationRow)
-      }
-    }
-    expect(isProjectionWindowBallooned(rows.length, 80)).toBe(true)
-    const released = releaseBalloonProjectionWindow(rows, 80)
-    expect(released).not.toBeNull()
-    expect(Math.max(...released!.map((r) => r.rowId))).toBe(400)
-    expect(released!.some((r) => r.rowId === 400)).toBe(true)
+    expect(balloon.length).toBeGreaterThan(330)
+    expect(isProjectionWindowBallooned(balloon.length, 80)).toBe(true)
+    expect(releaseBalloonProjectionWindow(balloon, 80)).toBeNull()
   })
 })

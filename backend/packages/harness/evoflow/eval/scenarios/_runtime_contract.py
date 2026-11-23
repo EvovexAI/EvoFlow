@@ -31,6 +31,7 @@ def ensure_agent(
     from evoflow.collab.agent_assignment import clear_assignable_agent_cache
 
     payload: dict[str, Any] = {
+        "as_employee": False,
         "agent_code": agent_code,
         "agent_name": agent_name,
         "description": description,

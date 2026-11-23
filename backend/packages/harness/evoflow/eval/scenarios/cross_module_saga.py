@@ -102,6 +102,7 @@ def _run(home: Path) -> dict:
     try:
         agents_admin.create_agent(
             {
+                "as_employee": False,
                 "agent_code": _AGENT,
                 "agent_name": "跨模块Saga智能体",
                 "description": "cross-module saga",

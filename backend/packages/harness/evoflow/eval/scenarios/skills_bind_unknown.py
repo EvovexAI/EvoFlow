@@ -18,6 +18,7 @@ def _run(home: Path) -> dict:
     code = "eval-skill-ghost"
     agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "幽灵技能绑定",
             "description": "unknown skill",

@@ -67,8 +67,17 @@ export interface V4TimelinePayload {
   /** 快照自动补拉（恢复可视性）：fresh subscribe / resync 后尾窗截断历史时用。 */
   onAutoBackfill: () => Promise<void> | void;
   /**
-   * 跟底 / 回底部：若 loadOlder 已把投影窗撑成 balloon，裁回 softCap。
-   * 上滚阅读历史时不要调。
+   * 对齐 ZCode SessionPane：宽屏问题导航 `loadAllOlder`（rows/range 到顶一次合并）。
+   * 缺这条时 Timeline 只显示尾窗 2–3 轮，滚动条突然被撑高。
+   */
+  onLoadAllOlder: () => Promise<{
+    status: "hydrated" | "not-enough-queries" | "retryable-failure" | "stale";
+    logEpoch: string;
+  }>;
+  /** 问题导航目录失效代际（real-user 增删后重探测）。 */
+  turnNavigatorDirectoryRevision: number;
+  /**
+   * 跟底 / 回底部钩子（releaseBalloon 已退役为 no-op；保留签名兼容 Timeline）。
    */
   onFollowingTip?: () => void;
 }
@@ -1458,6 +1467,37 @@ export function V4StreamRowsBridge(props: {
     [store],
   );
 
+  const onLoadAllOlder = useMemo(
+    () => async () => {
+      // 每次调用现取 store：避免闭包拿到已释放/错代 lease；sticky 先画时 store 可能刚 recover。
+      const liveStore =
+        (lease && sessionId && lease.sessionId === sessionId ? lease.store : null) ||
+        (sessionId ? layer.peekStore(sessionId) : null);
+      if (!liveStore) {
+        return {
+          status: "stale" as const,
+          logEpoch: state?.snapshot?.logEpoch ?? "unknown",
+        };
+      }
+      const st = liveStore.getState();
+      if (!st.snapshot) {
+        // subscribe timeout / error 后无投影：先拉活再让 Timeline 按 retryable 退避重试。
+        try {
+          if (st.status === "error") void liveStore.retry();
+          else liveStore.ensureConnected();
+        } catch {
+          /* best-effort */
+        }
+        return {
+          status: "retryable-failure" as const,
+          logEpoch: state?.snapshot?.logEpoch ?? "unknown",
+        };
+      }
+      return liveStore.loadAllOlder();
+    },
+    [lease, layer, sessionId, state?.snapshot?.logEpoch],
+  );
+
   const onFollowingTip = useMemo(
     () => () => {
       try {
@@ -1853,6 +1893,10 @@ export function V4StreamRowsBridge(props: {
       loadingOlder: usedStickyPaint ? false : loadingOlder,
       onLoadOlder,
       onAutoBackfill,
+      onLoadAllOlder,
+      turnNavigatorDirectoryRevision: usedStickyPaint
+        ? 0
+        : (state?.turnNavigatorDirectoryRevision ?? 0),
       onFollowingTip,
     };
   }, [
@@ -1862,7 +1906,9 @@ export function V4StreamRowsBridge(props: {
     loadingOlder,
     onLoadOlder,
     onAutoBackfill,
+    onLoadAllOlder,
     onFollowingTip,
+    state?.turnNavigatorDirectoryRevision,
     store,
     usedStickyPaint,
   ]);

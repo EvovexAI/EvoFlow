@@ -271,8 +271,8 @@ using System;
 using System.Runtime.InteropServices;
 public static class Pen {
   [DllImport("user32.dll")] public static extern bool SetProcessDPIAware();
-  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
   [DllImport("user32.dll")] public static extern void mouse_event(uint f, uint dx, uint dy, uint d, UIntPtr e);
+  [DllImport("user32.dll")] public static extern int GetSystemMetrics(int i);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool AttachThreadInput(uint a, uint b, bool f);
@@ -281,6 +281,21 @@ public static class Pen {
   [DllImport("user32.dll")] public static extern bool SetWindowPos(IntPtr h, IntPtr a, int x, int y, int cx, int cy, uint f);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int c);
   [DllImport("kernel32.dll")] public static extern uint GetCurrentThreadId();
+
+  // MUST send real mouse input events (MOVE|ABSOLUTE); SetCursorPos alone does not
+  // register in WinUI Paint (symptom: only the first dot appears, no line).
+  // Coordinates are normalized to 0..65535 over the virtual desktop.
+  public static void MoveTo(int x, int y) {
+    int vx = GetSystemMetrics(76), vy = GetSystemMetrics(77);
+    int vw = GetSystemMetrics(78); int vh = GetSystemMetrics(79);
+    if (vw <= 1) { vw = 1; }
+    if (vh <= 1) { vh = 1; }
+    uint nx = (uint)Math.Round((x - vx) * 65535.0 / (vw - 1));
+    uint ny = (uint)Math.Round((y - vy) * 65535.0 / (vh - 1));
+    mouse_event(0x0001 | 0x8000 | 0x4000, nx, ny, 0, UIntPtr.Zero);
+  }
+  public static void Down() { mouse_event(0x0002, 0, 0, 0, UIntPtr.Zero); }
+  public static void Up() { mouse_event(0x0004, 0, 0, 0, UIntPtr.Zero); }
 }
 '@
 [void][Pen]::SetProcessDPIAware()
@@ -295,21 +310,29 @@ $me = [Pen]::GetCurrentThreadId()
 [void][Pen]::BringWindowToTop($h)
 [void][Pen]::SetForegroundWindow($h)
 [void][Pen]::AttachThreadInput($me, $fgt, $false)
-Start-Sleep -Milliseconds 120
+Start-Sleep -Milliseconds 150
 $fg2 = [Pen]::GetForegroundWindow(); $p2 = 0
 [void][Pen]::GetWindowThreadProcessId($fg2, [ref]$p2)
 if ($p2 -ne $TargetPid) { '{"ok":false,"reason":"foreground=' + $p2 + '"}'; exit 0 }
 $arr = @($Points -split '\s+' | Where-Object { $_ })
 $f = $arr[0] -split ','
-[void][Pen]::SetCursorPos([int]$f[0], [int]$f[1])
-Start-Sleep -Milliseconds 40
-[Pen]::mouse_event(0x0002, 0, 0, 0, [UIntPtr]::Zero)
+[Pen]::MoveTo([int]$f[0], [int]$f[1])
+Start-Sleep -Milliseconds 90
+[Pen]::Down()
+Start-Sleep -Milliseconds 70
+$prev = $f
 foreach ($pt in $arr) {
   $xy = $pt -split ','
-  [void][Pen]::SetCursorPos([int]$xy[0], [int]$xy[1])
-  Start-Sleep -Milliseconds $StepMs
+  # interpolate 3 mid points: Paint only links consecutive small moves
+  $x0 = [int]$prev[0]; $y0 = [int]$prev[1]; $x1 = [int]$xy[0]; $y1 = [int]$xy[1]
+  for ($k = 1; $k -le 3; $k++) {
+    [Pen]::MoveTo([int]($x0 + ($x1 - $x0) * $k / 4), [int]($y0 + ($y1 - $y0) * $k / 4))
+    Start-Sleep -Milliseconds $StepMs
+  }
+  $prev = $xy
 }
-[Pen]::mouse_event(0x0004, 0, 0, 0, [UIntPtr]::Zero)
+Start-Sleep -Milliseconds 60
+[Pen]::Up()
 '{"ok":true,"fgpid":' + $p2 + ',"points":' + $arr.Count + '}'`;
 
 /**

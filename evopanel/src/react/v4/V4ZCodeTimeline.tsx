@@ -60,7 +60,6 @@ import type { IServiceAccessor } from "@zcode/services";
 import { packWorkspaceFileEntries } from "@zcode/shared/workspaceFileEntriesCodec";
 import {
   getSharedV4SessionDataLayer,
-  isEvoflowV4CatchupInFlight,
   type V4TimelinePayload,
 } from "./V4StreamRowsBridge.js";
 import type { ConversationRowRenderContext } from "@zcode/ui/v4/conversationRowContext.js";
@@ -1558,44 +1557,10 @@ export function V4ZCodeTimeline(props: {
     sessionBusy,
   ]);
 
-  // 快照自动补拉（对齐 ZCode SessionPane 冷快照自动补拉）：
-  // fresh subscribe / resync / recovery 后 rows.window 只有服务端尾窗（~60 行，
-  // 巨型工具行曾把字节预算压到 20 行）——「前面轮次 / 最新用户消息看不到」的主因。
-  // 触发：① 窗口首行所在轮缺 turnHeader（leading turn 被截断）；
-  //       ② 直播中（canStop）窗口里没有任何 realUser 行（被长回合挤出尾窗）。
-  // 有界：store.autoBackfillForRestore 逐页补拉，条件满足/到顶/页数上限即停。
-  // catchup 在途时跳过：与 settle/recovery 合流，避免双通道滚动跳动。
-  const autoBackfillSigRef = useRef("");
-  useEffect(() => {
-    // 切会话 measure/content hold 期间不补拉，避免与测高、catchup 叠成滚动跳动。
-    if (sessionSwitchHold) return;
-    const snapshotRef = snapshot;
-    if (!snapshotRef || !sessionId) return;
-    if (payload?.loadingOlder) return;
-    if (isEvoflowV4CatchupInFlight(sessionId)) return;
-    if (!hasOlderRows(snapshotRef)) return;
-    const window = snapshotRef.rows.window;
-    if (!Array.isArray(window) || window.length === 0) return;
-    const leadingIncomplete = !window.some(
-      (r) => r.turnId === window[0]?.turnId && r.kind === "turnHeader",
-    );
-    const turnLive = snapshotRef.control?.canStop === true;
-    const hasRealUserInWindow = window.some(
-      (r) => r.kind === "userInput" && r.origin === "realUser",
-    );
-    const need = leadingIncomplete || (turnLive && !hasRealUserInWindow);
-    if (!need) return;
-    const sig = `${sessionId}|${window[0]?.rowId ?? 0}`;
-    if (autoBackfillSigRef.current === sig) return;
-    autoBackfillSigRef.current = sig;
-    void Promise.resolve(payload?.onAutoBackfill?.()).catch(() => {});
-  }, [
-    snapshot,
-    sessionId,
-    payload?.loadingOlder,
-    payload?.onAutoBackfill,
-    sessionSwitchHold,
-  ]);
+  // 冷快照首 turn 缺 header：ZCode 只走 SessionPane `loadOlder`（有界逐页）。
+  // EvoFlow 曾另开 autoBackfillForRestore，会在宽屏 `loadAllOlder` 全量合并前
+  // 再撑一次窗高 → 左侧目录/右侧滚动条抖两回。对齐 ZCode：这里不再预拉；
+  // 不完整首轮由 SessionPane effect 处理，宽屏目录由 Timeline loadAllOlder 一次合并。
 
   type PendingApprovalItem = {
     toolCallId: string;
@@ -2450,6 +2415,10 @@ export function V4ZCodeTimeline(props: {
               canLoadOlder={snapshot ? hasOlderRows(snapshot) : false}
               loadingOlder={payload?.loadingOlder ?? false}
               onLoadOlder={payload?.onLoadOlder}
+              onLoadAllOlder={payload?.onLoadAllOlder}
+              turnNavigatorDirectoryRevision={
+                payload?.turnNavigatorDirectoryRevision ?? 0
+              }
               onFollowingTip={payload?.onFollowingTip}
               onEdit={onEdit}
               bottomDock={dockWithQueue}

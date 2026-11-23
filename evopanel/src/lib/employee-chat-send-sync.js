@@ -142,12 +142,28 @@ export async function syncEmployeeChatSendFromToolResult(raw, opts = {}) {
   //   panel_dispatch 为空（CDP 不可用）时若不 pendingSend，用户就真的看不到任何回话。
   const panelDelivery = obj.panel_delivery === true
   const panelDispatch = String(obj.panel_dispatch || '').trim()
-  const panelDroveIt = panelDispatch === 'pane-live' || panelDispatch === 'pending-open'
+  // 【self-evolution-bot · 2026-11-22 · 第127轮 · 模型:deepseek-v4.1-flash】
+  // 改了什么：`panelDroveIt` 补上 `pending-open-switch`。
+  // 为什么（本轮现网实证 22:01:57）：后端已 mint 新会话、CDP 回 `pending-open-switch`，
+  //   后端 `employees.py` 的 panel_dispatch 白名单也已认它（= 面板侧会发、且已把正文
+  //   写进签 data 的 pendingSendMessage）。前端这里漏认，就会判成「面板没接管」
+  //   → 再补一条 pendingSend —— 同一句话两条投递源，正是「发两遍」的现成配方。
+  //   两端口径必须一致：后端说接管了，前端就不许再补。
+  // 注意：这里**只**认同口径，不额外传 pending；正文已由 CDP 那条腿带进签 data。
+  const panelDroveIt =
+    panelDispatch === 'pane-live' ||
+    panelDispatch === 'pending-open' ||
+    panelDispatch === 'pending-open-switch'
   const pendingSendMessage = panelDroveIt ? undefined : panelDelivery || !serverHandled ? message : undefined
   logRightStagePlatform('employee_chat_send.send-owner', {
     serverHandled,
     panelDelivery,
-    willPendingSend: !serverHandled || panelDelivery,
+    panelDispatch: panelDispatch || null,
+    // 【self-evolution-bot · 2026-11-22 · 第127轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：日志字段改成与实际投递判据一致（原来写 `!serverHandled || panelDelivery`，
+    //   那是旧算式，跟上面真正的三元判据不同源）。
+    // 为什么：判据改了日志不改 = 下次照日志排查会被指向错误方向（本轮我就是先被它带偏）。
+    willPendingSend: Boolean(pendingSendMessage),
     agentCode,
     sessionKey,
   })

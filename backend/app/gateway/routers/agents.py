@@ -323,6 +323,13 @@ class AgentCreateRequest(BaseModel):
             "(platform mounted = all actions)."
         ),
     )
+    as_employee: bool | None = Field(
+        default=True,
+        description=(
+            "Also publish a BOT/employee role so the agent appears in 花名册 and is chat-ready. "
+            "Default true (智能体=员工). Pass false for capability-only agents."
+        ),
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -849,6 +856,29 @@ async def create_agent_endpoint(http_request: Request, request: AgentCreateReque
             logger.debug("agent ownership stamp skipped", exc_info=True)
 
         logger.info("Created agent '%s' in SQLite", normalized_name)
+
+        # Product default: 智能体 = 员工 — publish BOT role so create → chat without hire.
+        as_employee = True if request.as_employee is None else bool(request.as_employee)
+        if as_employee:
+            try:
+                from evoflow.admin.employees import hire as hire_employee
+                from evoflow.admin.errors import ConflictError as _HireConflict
+
+                hire_payload: dict[str, Any] = {
+                    "agent_code": normalized_name,
+                    "role_name": str(request.agent_name or normalized_name).strip() or normalized_name,
+                }
+                if request.knowledge_vault_ids is not None:
+                    hire_payload["knowledge_vault_ids"] = list(request.knowledge_vault_ids or [])
+                await asyncio.to_thread(hire_employee, hire_payload)
+            except _HireConflict:
+                pass
+            except Exception:
+                logger.warning(
+                    "POST /agents auto-hire failed code=%s",
+                    normalized_name,
+                    exc_info=True,
+                )
 
         agent_cfg = load_agent_config(normalized_name)
         return _agent_config_to_response(agent_cfg, include_soul=True)

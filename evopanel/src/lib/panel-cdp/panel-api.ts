@@ -409,18 +409,25 @@ export async function dispatch(
         if (!paneText) return err('execution_error', 'employeeChatSend requires text')
         const bridgeMod = await import('../right-stage/employee-pane-send-bridge.js')
         const hit = bridgeMod.findEmployeePaneSenderEntry(paneCode, paneSk)
-        // 【self-evolution-bot · 2026-11-21 · 第112轮 · 模型:deepseek-v4.1-flash-1017】
-        // 改了什么：detail.sessionKey 从「传进来的 paneSk」改成「实际发送者的 sk」，
-        //   并补 `requestedSessionKey` / `sessionKeyMatched` 两个字段暴露差异。
-        // 为什么（本轮真机实测）：给 dev-fullstack 发消息，服务端算出的 sk 是
-        //   `chat:dept-4de7e33a602b`，但那个签实际挂在 `chat:2026-11-21T13-20-20.208Z`
-        //   （桥按 code 唯一兜底命中），消息真落进了后者；而回执回显了传进来的 sk。
-        //   工具层再原样上抛 → 用户照回执去查会话，读到的是另一条。说 A 做 B。
-        // 判据：回执里的 sessionKey 必须等于消息**实际写入**的会话键。
+        // 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+        // 改了什么：发送目标由纯函数 `decidePaneSendTarget` 决定，不再直接拿 `hit.send`。
+        // 为什么（本轮现网实证，2026-11-22 19:46:57，agent=case-fullstack-dev）：
+        //   后端 `chat_send` 已按 busy 判据 mint 了新会话（回执带
+        //   `busy_avoided_session_key` / `busy_avoided_reason=target_session_running_new_conversation_minted`），
+        //   但 CDP 到面板时 exact 未命中 → code-fallback 拿到旧面板的 sender，
+        //   `sender(text)` 直接把这句话写进了**正在跑**的旧会话
+        //   `proactive:case-fullstack-dev:chat:dept-28baad343765`（回执 sessionKeyMatched=false）。
+        //   等于「新开一条独立对话」这条修复在面板路径上完全失效，话照样插进别人的回合。
         const actualSk = hit ? hit.sessionKey : ''
         const skMatches =
           Boolean(paneSk) && Boolean(actualSk) && String(paneSk).trim() === String(actualSk).trim()
-        const sender = hit?.send ?? null
+        const target = bridgeMod.decidePaneSendTarget({
+          requestedSessionKey: paneSk,
+          actualSessionKey: actualSk,
+          matched: (hit?.matched as 'exact' | 'code-fallback' | undefined) ?? null,
+          fallbackSessionKey: paneSk,
+        })
+        const sender = target.useSender && hit?.send ? hit.send : null
         if (sender) {
           // 【self-evolution-bot · 2026-11-21 · 第109轮 · 模型:deepseek-v4.1-flash-1017】
           // 改了什么：先拿 sender 的**同步返回值**判定接没接住；不 await 整轮流。
@@ -464,9 +471,15 @@ export async function dispatch(
             },
           })
         }
-        // 回落：面板没开 → 打开右栏并排队，由面板挂载后走同一套 handleSend
+        // 回落：面板没开（或指定会话与面板当前会话不一致）→ 打开右栏并排队，
+        // 由面板挂载后走同一套 handleSend（它按 employeeSessionKey 挑会话）。
+        // 【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+        // 改了什么：pending-open 路径把 `paneSk` 作为 employeeSessionKey 传进去，
+        //   并把 mode 细分成 `pending-open-switch`（会话不一致、需切换）与 `pending-open`。
+        // 为什么：同一轮实证里 paneSk 是新 mint 的会话，而面板挂的是旧的 busy 会话；
+        //   不带上键，面板挂载后仍会挑自己那条旧会话，新会话等于白开。
         const stageMod = await import('../right-stage/open-employee-process-stage.js')
-        const pickedSk = String(paneSk || params.employeeSessionKey || '').trim()
+        const pickedSk = String(target.pendingSessionKey || paneSk || params.employeeSessionKey || '').trim()
         const tabId = stageMod.openEmployeeProcessInRightStage(
           {
             taskId: String(params.taskId || params.task_id || '').trim(),
@@ -481,9 +494,12 @@ export async function dispatch(
         return ok({
           action: act,
           detail: {
-            mode: 'pending-open',
+            mode: target.mode,
             agentCode: paneCode,
             sessionKey: pickedSk || null,
+            requestedSessionKey: paneSk || null,
+            sessionKeyMatched: skMatches,
+            sessionKeyMatchedBy: hit?.matched || null,
             tabId: tabId || null,
             length: paneText.length,
           },

@@ -19,6 +19,7 @@ def _run(home: Path) -> dict:
     try:
         agents_admin.create_agent(
             {
+                "as_employee": False,
                 "agent_code": "Bad Name!",
                 "agent_name": "非法",
                 "description": "should fail",
@@ -42,6 +43,7 @@ def _run(home: Path) -> dict:
         pass
     created = agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "模块L2智能体",
             "description": "agents detail",

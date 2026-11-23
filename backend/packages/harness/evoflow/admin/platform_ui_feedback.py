@@ -210,7 +210,7 @@ def _build_title(action: str, domain: str, verb: str, label: str, args: dict[str
         "employees.messages": f"员工「{name}」近况消息",
         "employees.bind_channel_begin": f"已为「{name}」生成绑定二维码",
         "employees.bind_channel_apply": f"已绑定本岗 AI 员工「{name}」",
-        "agents.create": f"已创建智能体「{name}」",
+        "agents.create": f"已创建智能体员工「{name}」",
         "agents.update": f"已更新智能体「{name}」配置",
         "agents.delete": f"已删除智能体「{name}」",
         "knowledge.create": f"已创建知识库「{name}」",
@@ -367,8 +367,6 @@ def _build_subtitle(domain: str, action: str, result: dict[str, Any]) -> str:
     if action == "employees.bind_channel_apply":
         return "本岗 AI 员工已绑定渠道"
     if action in {"employees.create", "employees.hire", "agents.create"}:
-        if action == "agents.create":
-            return "可在智能体页查看绑定"
         return "可对话、派发或扫码绑定渠道"
     if action.startswith("employees."):
         return "可在智能体员工页查看"

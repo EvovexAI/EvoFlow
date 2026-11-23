@@ -37,6 +37,7 @@ def _run(home: Path) -> dict:
     # None = unrestricted (stored as null)
     agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "MCP L2",
             "description": "mcp detail",

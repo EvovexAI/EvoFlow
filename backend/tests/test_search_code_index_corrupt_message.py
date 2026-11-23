@@ -86,3 +86,58 @@ def test_plain_not_ready_message_still_used_for_healthy_index(monkeypatch):
     assert data is None
     assert "not ready" in msg
     assert "CORRUPTED" not in msg
+
+
+def test_corrupt_not_quarantined_says_so_and_gives_next_action(monkeypatch):
+    """隔离**失败**时（quarantined=[]）不许再说「已改名隔离」。
+
+    【self-evolution-bot · 2026-11-22 · 第126轮 · 模型:deepseek-v4.1-flash】
+    现网实证：工具回执写着 "The bad file has been quarantined (kept, renamed with a
+    .corrupt-<timestamp> suffix)"，但盘上一个 `.corrupt-*` 都没有、`quick_check`
+    仍报同一个 freelist 损坏 —— index.db 根本没被移走。
+    根因：`_search_index_impl` 自动起构建子进程攥着句柄 →
+    `os.replace` 全部 `[WinError 32]` → `quarantined=[]`。
+    这条锁的是「工具出口必须按 quarantined 的真实取值分两支」：
+    没隔离就明说没隔离、并给出可执行的下一步（人工释放/删除），
+    不许让员工按「稍后重试」无限等一个不会发生的重建。
+    """
+
+    def _fake_search_index(*args, **kwargs):
+        return {
+            "hits": [],
+            "symbols": [],
+            "related_files": [],
+            "imported_by": [],
+            "imports": [],
+            "internal_ref_users": [],
+            "type_supertypes": [],
+            "type_subtypes": [],
+            "index_corrupt_recovered": True,
+            "index_quarantined": False,
+            "rebuild_scheduled": False,
+            "rebuild_in_progress": False,
+            "db_path": "D:/ws/.evoflow/code_index/index.db",
+        }
+
+    import evoflow.code_index.store as S
+
+    monkeypatch.setattr(S, "search_index", _fake_search_index)
+    monkeypatch.setattr(S, "index_status", lambda **kw: {"ready": False, "building": False})
+
+    msg, data = SC._run_search_index_lookup(
+        root="D:/ws",
+        thread_id=None,
+        query="anything",
+        queries=None,
+        limit=5,
+    )
+    assert data is None
+    low = msg.lower()
+    # 1) 不许出现「已隔离」的断言
+    assert "has been quarantined" not in low
+    # 2) 必须说清库坏了 + 隔离失败
+    assert "corrupted" in low
+    assert "could not be quarantined" in low or "could not" in low
+    # 3) 必须给下一步动作，而不是「稍后重试」
+    assert "retry" in low
+    assert "operator" in low or "delete" in low

@@ -1,6 +1,6 @@
 /**
- * 跟底 releaseBalloon 后不得被 autoBackfill / loadAllOlder 再灌回全量历史。
- * 复刻 f2fdc69c 14:16：3185→90 后 loading 连拉到 3185 + scrollToBottom !JUMP。
+ * 2026-11-22 对齐 ZCode 全窗：releaseBalloon 退役为 no-op，不得裁掉上滚前插历史。
+ * 旧闩逻辑（裁窗后再禁 autoBackfill）已删除——全窗持有即稳定滚动条。
  */
 import { describe, expect, it, vi } from "vitest";
 import { ConversationProjectionStore } from "../src/zcode-ui/v4/conversationProjectionStore.ts";
@@ -51,8 +51,8 @@ function mockTransport(olderPages: ConversationRow[][]): ConversationTransport {
   } as unknown as ConversationTransport;
 }
 
-describe("tip soft-cap latch", () => {
-  it("releaseBalloon latches so autoBackfill does not re-expand the window", async () => {
+describe("full-window projection (ZCode align)", () => {
+  it("releaseBalloon is a no-op and does not shrink the window", async () => {
     const window = balloonWindow(500);
     const store = new ConversationProjectionStore(
       "conversation/tip-latch-test",
@@ -60,7 +60,6 @@ describe("tip soft-cap latch", () => {
         balloonWindow(200).map((r) => ({ ...r, rowId: r.rowId - 200 })),
       ]),
     );
-    // 注入 balloon 快照（跳过 subscribe）
     (store as unknown as { setState: (p: object) => void }).setState({
       status: "ready",
       snapshot: {
@@ -82,18 +81,8 @@ describe("tip soft-cap latch", () => {
     });
 
     const released = store.releaseBalloonForFollowingTip();
-    expect(released).toBe(true);
-    const afterRelease = store.getState().snapshot!.rows.window.length;
-    expect(afterRelease).toBeLessThan(500);
-    expect(afterRelease).toBeLessThanOrEqual(220 * 1.5 + 40);
-
-    await store.autoBackfillForRestore(8);
-    expect(store.getState().snapshot!.rows.window.length).toBe(afterRelease);
-    expect(store.getState().loadingOlder).toBe(false);
-
-    const dir = await store.loadAllOlder();
-    expect(dir.status).toBe("hydrated");
-    expect(store.getState().snapshot!.rows.window.length).toBe(afterRelease);
+    expect(released).toBe(false);
+    expect(store.getState().snapshot!.rows.window.length).toBe(500);
 
     await store.close();
   });

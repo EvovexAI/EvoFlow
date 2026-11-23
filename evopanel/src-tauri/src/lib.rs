@@ -171,6 +171,10 @@ pub fn run() {
                                 commands::main_popup_guard::install_main_window_popup_guard(
                                     &guard_app,
                                 );
+                                // OOM sad tab → 宿主自动 Reload 一次（冷却内不连环刷）。
+                                commands::main_oom_autoreload::install_main_window_oom_autoreload(
+                                    &guard_app,
+                                );
                                 return;
                             }
                             std::thread::sleep(std::time::Duration::from_millis(250));

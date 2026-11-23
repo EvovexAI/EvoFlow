@@ -1248,6 +1248,16 @@ class UiStreamNormalizer:
     emitted_tool_call_ids: set[str] = field(default_factory=set)
     # 已下发过 tool_result 的 id（values 兜底与 messages 路径去重）。
     emitted_tool_result_ids: set[str] = field(default_factory=set)
+    # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    # tool_call_id → 真实工具名。为什么必须有它：ToolMessage 在部分路径上退化成
+    # 只有 tool_call_id/type 的形态，`_slim_tool_result_message` 于是把 name 兜底成
+    # 字面量 "tool"，而 `tool_omit_from_chat_panel("tool")` **返回 True** ——
+    # 整条 tool_result 被当成「未知内部工具」静默丢弃，V4 卡永久停在「等待中」。
+    # 现网证据（20 份 sse-recv 全量复算）：search_code_index 5 次调用 4 次没下发
+    # 结果（80%），bash 4%、platform 8%、read 0%；缺失集中在带 queries/read_limit、
+    # 走过 post_search_reads 附赠读取的那几次。START 那一侧名字是全的，
+    # 记下来就能在 RESULT 侧补回去，判据只看「有没有名字」，不看谁发的。
+    tool_call_names: dict[str, str] = field(default_factory=dict)
     # 流式 AI 块：同 id 上 tool_calls 出现前暂存正文，确认带工具则丢弃（非用户可见回复）。
     stream_ai_id: str = ""
     pending_text_by_ai_id: dict[str, str] = field(default_factory=dict)
@@ -1552,6 +1562,19 @@ class UiStreamNormalizer:
             self.emitted_tool_call_ids.add(wire_id)
             if meta is not None:
                 self.block_ledger.register_tool_id(meta.block_id, wire_id)
+            # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+            # 这是**唯一在真实路径上**登记 START 的点（`_register_tool_id` 原来没有任何
+            # 调用点，是死函数——我第一版就改在那儿，等于没改）。名字在 chunk 分片里
+            # 常常只出现在第一片，所以要「有就记、没有不擦」。
+            fn = sanitized.get("function")
+            wire_name = str(
+                sanitized.get("name")
+                or sanitized.get("tool_name")
+                or (fn.get("name") if isinstance(fn, dict) else "")
+                or ""
+            ).strip()
+            if wire_name and wire_name.lower() != "tool":
+                self.tool_call_names[wire_id] = wire_name
         if ev_type == "tool_call_chunk":
             payload: dict[str, Any] = {"type": "tool_call_chunk", "chunk": sanitized, "source": source}
             self._wire_block(payload, meta)
@@ -1775,6 +1798,10 @@ class UiStreamNormalizer:
         self.prev_turn_assistant_id = ""
         self.emitted_tool_call_ids.clear()
         self.emitted_tool_result_ids.clear()
+        # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+        # 与上面两个 set 同生命周期：重锚后 tool_call_id 会重新登记，旧名字留着
+        # 只会把上一轮的 id 映射到这一轮的同名 id（泄漏 + 错名）。
+        self.tool_call_names.clear()
         self.stream_ai_id = ""
         self.pending_text_by_ai_id.clear()
         self.tool_call_ai_ids.clear()
@@ -1791,9 +1818,48 @@ class UiStreamNormalizer:
         self._reset_block_ledger(human_idx)
 
     def _register_tool_id(self, tc_or_chunk: dict[str, Any]) -> None:
+        """登记 tool_call_id（+ 名字）：START 那一侧名字全，RESULT 侧常缺失。
+
+        【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+        为什么需要 name 映射：`_slim_tool_result_message` 对缺 name 的 ToolMessage
+        兜底成字面量 "tool"，而 `tool_omit_from_chat_panel("tool")` 返回 True
+        （把「未知工具」当内部工具隐藏）→ **已有全文的 result 被静默丢弃**，
+        前端卡永久「等待中」。现网 20 份 sse-recv 复算：search_code_index 5 次调用
+        4 次没下发结果（80%），bash 4%、platform 8%、read 0%。
+        接线口径：真实路径的 START 登记在 `_append_write_tool_wire`，
+        本函数保留作为显式手工登记入口（本仓曾有大量「定义了却没人调」的死函数）。
+        """
         cid = str(tc_or_chunk.get("id") or tc_or_chunk.get("tool_call_id") or "").strip()
         if cid:
             self.emitted_tool_call_ids.add(cid)
+        # 只填不覆盖：chunk 分片里 name 往往是空的，别用空值把已记的真名擦掉。
+        if not cid:
+            return
+        fn = tc_or_chunk.get("function")
+        name = str(
+            tc_or_chunk.get("name")
+            or tc_or_chunk.get("tool_name")
+            or (fn.get("name") if isinstance(fn, dict) else "")
+            or ""
+        ).strip()
+        if name and name.lower() != "tool" and cid not in self.tool_call_names:
+            self.tool_call_names[cid] = name
+
+    def _resolve_tool_name_for_result(self, payload: dict[str, Any]) -> str:
+        """RESULT 侧补名：payload 里的名字优先，缺失或退化成 "tool" 时查 START 登记表。
+
+        【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+        为什么必须补：`_slim_tool_result_message` 对缺失 name 的 ToolMessage 兜底成
+        字面量 "tool"，而 `tool_omit_from_chat_panel("tool")` 返回 True（它把
+        「未知工具」当内部工具隐藏）——于是**已有全文的 tool_result 被静默丢弃**，
+        前端卡永久「等待中」。这不是显示问题，是数据没下发。
+        判据：只补名字，不改 content/status；查不到名字时原样返回，不吞不改。
+        """
+        name = str(payload.get("name") or payload.get("tool_name") or "").strip()
+        if name and name.lower() != "tool":
+            return name
+        tcid = str(payload.get("tool_call_id") or payload.get("id") or "").strip()
+        return self.tool_call_names.get(tcid) or name
 
     def _buffer_preanchor_stream(self, root: dict[str, Any]) -> None:
         """按 messages 到达顺序缓冲，锚定后原序重放（避免工具全在顶、正文沉底）。"""
@@ -2093,7 +2159,12 @@ class UiStreamNormalizer:
                 return []
             tool_payload = _slim_tool_result_message(root)
             tcid = str(tool_payload.get("tool_call_id") or tool_payload.get("id") or "").strip()
-            tool_name = str(tool_payload.get("name") or tool_payload.get("tool_name") or "tool").strip()
+            # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+            # 先补名再判隐藏：否则 name 缺失被兜底成 "tool" → tool_omit 命中 →
+            # 已落库全文的 result 在这里被静默丢弃，卡永久「等待中」。
+            resolved_name = self._resolve_tool_name_for_result(tool_payload)
+            tool_payload["name"] = resolved_name
+            tool_name = str(resolved_name or "").strip()
             if tool_omit_from_chat_panel(tool_name):
                 return out
             if not tcid:
@@ -2252,14 +2323,17 @@ class UiStreamNormalizer:
         for m in messages[human_idx + 1 :]:
             if not isinstance(m, dict) or not _is_tool(m):
                 continue
-            if tool_omit_from_chat_panel(
-                str(m.get("name") or m.get("tool_name") or "tool")
-            ):
-                continue
             tool_payload = _slim_tool_result_message(m)
             tcid = str(
                 tool_payload.get("tool_call_id") or tool_payload.get("id") or ""
             ).strip()
+            # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+            # 同上：按 **补名后的** 名字判隐藏，且这两条空值是「无法挂载」而非
+            # 「内部工具」——分开判，否则名字缺失时连 tcid 都拿不到却被当成隐藏工具。
+            resolved_name = self._resolve_tool_name_for_result(tool_payload)
+            tool_payload["name"] = resolved_name
+            if tool_omit_from_chat_panel(str(resolved_name or "")):
+                continue
             if not tcid:
                 continue
             # 只补「本轮已下发过 START」的结果，避免历史 ToolMessage 回放造卡。

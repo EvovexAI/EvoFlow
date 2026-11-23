@@ -20,6 +20,7 @@ def _run(home: Path) -> dict:
     code = "eval-lifecycle"
     agents_admin.create_agent(
         {
+                "as_employee": False,
             "agent_code": code,
             "agent_name": "Eval Lifecycle",
             "description": "eval",

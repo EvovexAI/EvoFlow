@@ -109,6 +109,23 @@ describe('employee-chat-send-sync: 一个 owner', () => {
     expect(payload.pendingSendMessage).toBeUndefined()
   })
 
+  // 【self-evolution-bot · 2026-11-22 · 第127轮 · 模型:deepseek-v4.1-flash】
+  // 改了什么：补 `pending-open-switch` 用例。
+  // 为什么（现网实证 22:01:57）：后端 mint 新会话 + panel_dispatch=pending-open-switch，
+  //   前端漏认这个值 → 判成「面板没接管」→ 又补一条 pendingSend，同一句两条投递源。
+  // 判据（可反证）：把 panelDroveIt 里的 pending-open-switch 去掉，本用例必红。
+  it('会话切换排队（panel_dispatch=pending-open-switch）→ 前端不再补发', async () => {
+    const { syncEmployeeChatSendFromToolResult } = await import(
+      '../src/lib/employee-chat-send-sync.js'
+    )
+    await syncEmployeeChatSendFromToolResult(
+      result({ queued: false, panel_delivery: true, panel_dispatch: 'pending-open-switch' }),
+    )
+
+    const payload = openEmployeeProcessInRightStage.mock.calls[0][0]
+    expect(payload.pendingSendMessage).toBeUndefined()
+  })
+
   it('CDP 不可用（panel_dispatch 空）→ 前端必须补发，否则用户什么都看不到', async () => {
     const { syncEmployeeChatSendFromToolResult } = await import(
       '../src/lib/employee-chat-send-sync.js'
