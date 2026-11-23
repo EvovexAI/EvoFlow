@@ -20,6 +20,13 @@ import {
 
 export const DEPT_DESIGN_BRIEF_HINT = '门店设计任务：先对齐门店、具体部位、找原图还是重新绘制，并确认可用的图号或版本。已有明确答案就沿用，不重复确认；关键项不明时合并问一句，确认前不派工、不绘图。不得把柜面圆盘和背墙圆盘当成同一对象。找原图只检索和交付原文件，不自行重绘；明确要求绘图才制作。派工写清上述范围；接手时复述同一任务范围，不擅自更换部位或图号。状态查询、聊天验收和寒暄直接回应，不启动新设计任务。'
 
+/** Only standalone courtesies or bounded literal echoes may bypass tools. */
+export function isLightweightDeptTurn(text: string): boolean {
+  const t = String(text || '').trim()
+  if (/^(你好|您好|嗨|在吗|收到|谢谢|多谢|好的|好|ok)[！!。.?？\s]*$/i.test(t)) return true
+  return /^(?:群聊回填验收\s+[\w-]+[：:]\s*)?(?:只|仅)回复[“「"][^”」"\n]{1,100}[”」"](?:[，,]不要查资料、调用工具、绘图或点名任何同事[。.]?)?[。.!！\s]*$/.test(t)
+}
+
 export function deptMemberWorkSessionKey(deptId: string, agentCode: string): string {
   const code = String(agentCode || '').trim()
   const did = String(deptId || '')
@@ -184,6 +191,27 @@ export async function runDeptMemberWorkTurn(
   const goal = String(opts.text || '').trim()
   if (!goal) throw new Error('请输入内容')
 
+  const perfStartedAt = Date.now()
+  const turnPerf: Record<string, any> = {
+    sessionKey: sk, agentCode: code, startedAt: perfStartedAt,
+    mode: isLightweightDeptTurn(goal) ? 'ask' : 'agent',
+    stageMs: {}, historyReads: 0, historyRows: 0, historyReadMs: 0, statusReads: 0,
+  }
+  // Numeric diagnostics only: never retain a prompt, message body or credentials.
+  const perfRing = ((globalThis as any).__evoflowDeptTurnPerf ||= [])
+  perfRing.push(turnPerf)
+  if (perfRing.length > 32) perfRing.splice(0, perfRing.length - 32)
+  const markPerf = (stage: string) => { turnPerf.stageMs[stage] = Date.now() - perfStartedAt }
+  const readHistory = async () => {
+    const start = Date.now()
+    turnPerf.historyReads++
+    const rows = await loadDeptMemberHistory(sk)
+    turnPerf.historyRows += rows.length
+    turnPerf.historyReadMs += Date.now() - start
+    return rows
+  }
+  markPerf('start')
+
   const { wsClient } = await import('../../lib/ws-client.js')
   const deptName = String(opts.deptName || '部门').trim() || '部门'
 
@@ -220,6 +248,7 @@ export async function runDeptMemberWorkTurn(
     /* 岗位拉不到时交给后端 apply_role_*_to_run_cfg */
   }
 
+  markPerf('role_ready')
   const sessionCtx = {
     source: 'proactive',
     proactive_agent_code: code,
@@ -227,7 +256,7 @@ export async function runDeptMemberWorkTurn(
     agent_name: roleName,
     employee_talk_mode: 'chat',
     workspace_kind: 'chat',
-    session_mode: 'agent',
+    session_mode: turnPerf.mode,
     dept_group_id: deptId,
     dept_group_name: deptName,
     dept_group_im: true,
@@ -251,12 +280,14 @@ export async function runDeptMemberWorkTurn(
     /* 已有会话时偶发冲突，ensure-thread 会在 chatSend 里再补 */
   }
 
+  markPerf('session_ready')
   try {
     await wsClient.updateSessionContext?.(sk, sessionCtx)
   } catch {
     /* optional */
   }
 
+  markPerf('context_ready')
   // 群身份 / 硬规则 / 花名册已由 sessionCtx → 系统提示 <dept_group_im> 注入。
   // 本轮 user 文本用 <dept_group_turn> 标签分层：hint/recent 仅给模型；
   // instruction 才是用户可见指令（前端 extractDeptGroupVisibleUserText 剥离展示）。
@@ -324,11 +355,12 @@ export async function runDeptMemberWorkTurn(
 
   let afterSeq: number | undefined
   try {
-    const rows = await loadDeptMemberHistory(sk)
+    const rows = await readHistory()
     afterSeq = Math.max(0, ...rows.map((row) => Number(row.seq) || 0))
   } catch {
     /* Run-id matching remains available if history cannot be read. */
   }
+  markPerf('history_baseline_ready')
   let targetRunId = ''
   let finalSeen = false
   let streamError = ''
@@ -380,6 +412,7 @@ export async function runDeptMemberWorkTurn(
         } else {
           collected = `${collected}${piece}`
         }
+        if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
         opts.onDelta?.(collected)
       }
     } else if (st === 'final') {
@@ -388,6 +421,7 @@ export async function runDeptMemberWorkTurn(
         finalSeen = true
         finalText = t
         collected = t
+        if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
         opts.onDelta?.(t)
       }
     }
@@ -395,7 +429,10 @@ export async function runDeptMemberWorkTurn(
 
   try {
     if (opts.signal?.aborted) return { text: '', handoffs: [] }
+    markPerf('send_started')
     const sent = await api.chatSend(sk, userText)
+    markPerf('send_returned')
+    turnPerf.awaitingV4 = !!sent?.awaitingV4
     if (sent?.ok === false) throw new Error(String(sent.error || '发送失败'))
     if (sent?.aborted) throw new Error('本轮回复已中断')
     // A live SSE handoff returns before the backend finishes. Keep the listener
@@ -420,6 +457,7 @@ export async function runDeptMemberWorkTurn(
       let status: any = null
       if (sent?.awaitingV4) {
         try {
+          turnPerf.statusReads++
           status = await wsClient.getSessionRunStatus(sk)
         } catch {
           /* An unavailable status must not become a false idle/empty reply. */
@@ -440,8 +478,12 @@ export async function runDeptMemberWorkTurn(
       }
       let historyText = ''
       let historyCompleted = false
+      // Running runs cannot yield a final dispatch result. Avoid repeatedly
+      // transferring the full transcript while the status already says running.
+      const mayReadHistory = !sent?.awaitingV4 || terminal ||
+        (!status?.executing && status?.status === 'done')
       try {
-        const rows = (await loadDeptMemberHistory(sk)).filter((row) => belongsToTurn(row, fence))
+        const rows = mayReadHistory ? (await readHistory()).filter((row) => belongsToTurn(row, fence)) : []
         const lastRow = rows[rows.length - 1]
         historyCompleted = !!lastRow &&
           ['assistant', 'ai'].includes(String(lastRow.role).toLowerCase()) &&
@@ -464,17 +506,23 @@ export async function runDeptMemberWorkTurn(
       const completedWithoutRunId = status?.status === 'done' && !status?.runId &&
         !status?.executing && historyCompleted
       if (!sent?.awaitingV4 || terminal || completedWithoutRunId) {
-        if (historyText) finalText = historyText
+        if (historyText) {
+          finalText = historyText
+          if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
+        }
         if (!sent?.awaitingV4 || historyText || ++terminalReads >= 3) break
       }
       if (Date.now() >= deadline) throw new Error('等待本轮回复超时，请查看员工处理过程')
       await new Promise((resolve) => setTimeout(resolve, 750))
     }
+    markPerf('result_ready')
     return {
       text: String(finalText || collected || '').trim(),
       handoffs: [...handoffMap.values()],
     }
   } finally {
+    markPerf('finished')
+    turnPerf.elapsedMs = Date.now() - perfStartedAt
     unsub?.()
   }
 }

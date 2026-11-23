@@ -19,6 +19,7 @@ vi.mock('../src/lib/ws-client.js', () => ({
 import { api } from '../src/lib/tauri-api.js'
 import { wsClient } from '../src/lib/ws-client.js'
 import {
+  isLightweightDeptTurn,
   extractHistoryAssistantText,
   loadLatestDeptMemberReply,
   runDeptMemberWorkTurn,
@@ -120,6 +121,12 @@ describe('store design brief before dispatch', () => {
     expect(prompt).toContain('已有明确答案就沿用，不重复确认')
     expect(prompt).toContain('接手时复述同一任务范围')
   })
+  it('uses ask only for explicit short replies and restores agent mode next turn', async () => {
+    await runDeptMemberWorkTurn({ deptId: 'design', agentCode: 'xiaomi', text: '仅回复“收到”' })
+    expect(api.chatSessionsCreate.mock.calls[0][1].context.session_mode).toBe('ask')
+    await runDeptMemberWorkTurn({ deptId: 'design', agentCode: 'xiaomi', text: '查找IFC背墙圆盘原图' })
+    expect(api.chatSessionsCreate.mock.calls[1][1].context.session_mode).toBe('agent')
+  })
   it('does not inject store drawing rules into unrelated departments', async () => {
     await runDeptMemberWorkTurn({ deptId: 'rd', deptName: '研发部', agentCode: 'dev', text: '检查接口' })
     expect(api.chatSend.mock.calls[0][1]).not.toContain('柜面圆盘和背墙圆盘')
@@ -151,6 +158,7 @@ describe('dept-member-work-session detached turn', () => {
     await vi.advanceTimersByTimeAsync(1500)
     expect(settled).toBe(false)
     expect(unsubscribe).not.toHaveBeenCalled()
+    expect(api.chatHistory).toHaveBeenCalledTimes(1)
     emit({ state: 'tool_result', result: { handlers: [{ agent_code: 'designer', content: '查图纸' }] } })
     emit({ state: 'final', message: { content: '@设计师 请接手' } })
     state = { runId: 'current', status: 'done', executing: false }
@@ -315,4 +323,14 @@ describe('dept-member-work-session detached turn', () => {
     expect((await turn).text).toBe('')
   })
 
+})
+
+
+describe('department turn performance routing', () => {
+  it.each(['你好', '收到！', '谢谢', '仅回复“测试通过”', '群聊回填验收 20261123-P：仅回复“测试通过”，不要查资料、调用工具、绘图或点名任何同事。'])('keeps an explicit short reply lightweight: %s', (text) => {
+    expect(isLightweightDeptTurn(text)).toBe(true)
+  })
+  it.each(['你好，帮我找国金图纸', '处理结果呢', '只回复方案，然后生成CAD', '仅回复“收到”，再查图纸', '找国金圆盘大样图', '把上一张图改成140mm'])('keeps real work and status queries in agent mode: %s', (text) => {
+    expect(isLightweightDeptTurn(text)).toBe(false)
+  })
 })
