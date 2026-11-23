@@ -51,6 +51,11 @@ function snapshot(overrides = {}) {
         id: 'live:reviewer',
         title: '审核员',
         sessionKey: 'proactive:reviewer:chat:dept-x',
+        // 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+        // 夹具带 openedBy：用户 2026-11-23 要求「让 AI 能看懂就可以了」，而本上报
+        // 是 AI 唯一能读到「谁开的签」的通道（platform action=ui.current → tabs[]）。
+        // 夹具不含该字段时，白名单把它吃掉也不会有任何测试变红 —— 那就是假绿。
+        openedBy: 'agent:reviewer',
         data: {
           agentCode: 'reviewer',
           // 载荷：绝不允许上报出去
@@ -97,6 +102,10 @@ describe('right-stage-state-report', () => {
     // key 必须由 kind:id 算出来，不能是空串（现网曾全空）
     expect(body.tabs[0].key).toBe('employeeProcess:live:reviewer')
     expect(body.tabs[0].data.agentCode).toBe('reviewer')
+    // 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+    // 「谁说这签是谁开的」必须能随上报出去：AI 走 platform ui.current 只能看这里。
+    // 这条断言漏了的话，白名单吃掉 openedBy 也不会红 → 用户要的功能对 AI 等于不存在。
+    expect(body.tabs[0].openedBy).toBe('agent:reviewer')
   })
 
   it('反证：上报 URL 绝不能带 /__evoflow 前缀（网关没这个挂载）', async () => {

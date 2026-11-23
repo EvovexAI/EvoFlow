@@ -136,7 +136,8 @@ _INTERJECTION_TOKENS = {
 # 旧值 120 + 无软尾：日志常见「已播=120 后续≈6字 → 收尾提示」，听感像念完前卡住。
 _VOICE_SPEAK_MAX_CHARS = 160
 _VOICE_SPEAK_SOFT_TAIL = 80
-_VOICE_SPEAK_HARD_MAX = 260
+# 硬顶只拦「后面还很长」；尾段 ≤ SOFT_TAIL 时继续念完（日志：已播264后续≈1字仍硬顶 → 听感卡死）
+_VOICE_SPEAK_HARD_MAX = 360
 _VOICE_SPEAK_TRIM_NOTICE = "详细内容我发到聊天里了。"
 
 
@@ -749,20 +750,27 @@ class PipecatVoiceBridge(FrameProcessor):
 
         remaining = self._remaining_speak_chars(buf)
         spoken = self._turn_spoken_chars
-        if spoken >= _VOICE_SPEAK_HARD_MAX:
+        # 硬顶 / 软预算：都要求「后面还长」才切收尾提示；短尾一律念完
+        # （日志：已播264后续≈1 仍硬顶 → 用户只听到「发到聊天」；实为缓冲短暂见底）
+        if spoken >= _VOICE_SPEAK_HARD_MAX and remaining > _VOICE_SPEAK_SOFT_TAIL:
             await self._trim_speak_with_notice(dropped=remaining, reason="硬顶")
             return
         if spoken >= _VOICE_SPEAK_MAX_CHARS and remaining > _VOICE_SPEAK_SOFT_TAIL:
-            # 预算已用完且后面还有实质内容 → 截断 + 收尾提示
             await self._trim_speak_with_notice(dropped=remaining, reason="软预算+长尾")
             return
+        if spoken >= _VOICE_SPEAK_HARD_MAX and remaining <= 0:
+            # 硬顶已到且缓冲空：封口，后续 LLM delta 不再进 TTS
+            self._turn_trimmed = True
+            self._stream_buf = ""
+            self._stream_merge = ""
+            return
         if spoken >= _VOICE_SPEAK_MAX_CHARS and remaining > 0:
-            # 尾段不长：把剩余念完，不插「发到聊天」（今日日志：后续≈6 字仍截断）
             voice_log(
                 "播报",
-                f"软预算超限但尾段短 turn={self._turn} 已播={spoken}字 "
+                f"预算超限但尾段短 turn={self._turn} 已播={spoken}字 "
                 f"后续≈{remaining}字≤{_VOICE_SPEAK_SOFT_TAIL} → 继续念完"
-                f"{'（End冲尾）' if force else ''}",
+                f"{'（End冲尾）' if force else ''}"
+                f"{' ·越过硬顶' if spoken >= _VOICE_SPEAK_HARD_MAX else ''}",
             )
 
         cut = -1
@@ -834,6 +842,20 @@ class PipecatVoiceBridge(FrameProcessor):
         )
         await self._push_hold_body_to_tts(pending)
         self._turn_spoken_chars += readable
+        # 越过硬顶后：缓冲空 → 封口；又涌出长尾 → 收尾提示（防无限软收尾）
+        if self._turn_spoken_chars >= _VOICE_SPEAK_HARD_MAX and not self._turn_trimmed:
+            left = self._remaining_speak_chars()
+            if left <= 0:
+                self._turn_trimmed = True
+                self._stream_buf = ""
+                self._stream_merge = ""
+                voice_log(
+                    "播报",
+                    f"硬顶短尾已念完 → 封口 turn={self._turn} "
+                    f"已播={self._turn_spoken_chars}字（不插收尾提示）",
+                )
+            elif left > _VOICE_SPEAK_SOFT_TAIL:
+                await self._trim_speak_with_notice(dropped=left, reason="硬顶")
 
     async def inject_assistant_end(self) -> None:
         plain = (self._assistant_plain or "").strip()
@@ -869,16 +891,20 @@ class PipecatVoiceBridge(FrameProcessor):
                 # End 残句：超软预算但尾短 → 念完；尾长/硬顶 → 收尾提示（与流式闸门一致）
                 if (
                     not self._turn_trimmed
-                    and self._turn_spoken_chars >= _VOICE_SPEAK_MAX_CHARS
+                    and tail_n > _VOICE_SPEAK_SOFT_TAIL
                     and (
                         self._turn_spoken_chars >= _VOICE_SPEAK_HARD_MAX
-                        or tail_n > _VOICE_SPEAK_SOFT_TAIL
+                        or self._turn_spoken_chars >= _VOICE_SPEAK_MAX_CHARS
                     )
                 ):
                     self._stream_merge = ""
                     await self._trim_speak_with_notice(
                         dropped=tail_n,
-                        reason="End残句过长" if tail_n > _VOICE_SPEAK_SOFT_TAIL else "End硬顶",
+                        reason=(
+                            "End硬顶"
+                            if self._turn_spoken_chars >= _VOICE_SPEAK_HARD_MAX
+                            else "End残句过长"
+                        ),
                     )
                 else:
                     self._stream_merge = ""

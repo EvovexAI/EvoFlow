@@ -138,6 +138,7 @@ export function DeptGroupVoiceSettings({ agentCode, roleName }: Props) {
     openTtsSpeakerPicker({
       presets,
       currentValue: speaker || presets[0]?.value || '',
+      provider: 'volcengine',
       title: roleName ? `${roleName} · 选择音色` : '选择 TTS 音色',
       onSelect: (value: string) => {
         const next = String(value || '').trim()
@@ -171,6 +172,7 @@ export function DeptGroupVoiceSettings({ agentCode, roleName }: Props) {
       }
       const { audio } = await previewSpeechTts(previewLine(disp.label, speaker), speaker, {
         signal: ac.signal,
+        provider: 'volcengine',
       })
       if (gen !== genRef.current) {
         audio.pause()

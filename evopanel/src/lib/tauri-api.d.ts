@@ -39,7 +39,7 @@ export function gatewayProxy(
   path: string,
   body?: unknown,
   query?: Record<string, unknown> | null,
-  options?: { silent?: boolean; timeoutMs?: number } | null,
+  options?: { silent?: boolean; timeoutMs?: number; skipRetry?: boolean; skipDedup?: boolean; __probe__?: boolean } | null,
 ): Promise<any>
 
 /** 前端日志旁路（invoke append_frontend_log）；非 Tauri / invoke 未就绪时静默丢弃。 */

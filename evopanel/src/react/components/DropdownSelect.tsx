@@ -187,7 +187,8 @@ export function DropdownSelect({
           top: 'auto',
           minWidth: minW,
           maxHeight: Math.max(80, Math.min(maxH, r.top - gap - sidePad)),
-          zIndex: 10060,
+          // Above settings modal (1000001) / modal-overlay (1000020)
+          zIndex: 1000035,
         })
       } else {
         const top = Math.min(window.innerHeight - sidePad - 80, r.bottom + gap)
@@ -198,7 +199,7 @@ export function DropdownSelect({
           bottom: 'auto',
           minWidth: minW,
           maxHeight: Math.max(80, Math.min(maxH, window.innerHeight - top - sidePad)),
-          zIndex: 10060,
+          zIndex: 1000035,
         })
       }
     }

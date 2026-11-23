@@ -119,10 +119,8 @@ class VolcengineTTSService(TTSService):
             **kwargs,
         )
         self._provider = (provider or "volcengine").strip().lower()
-        # 空 speaker 钉死产品默认，避免各句落到不同 Gateway 默认
-        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
-
-        self._speaker = (speaker or "").strip() or DEFAULT_TTS_SPEAKER
+        # 空 speaker 按厂商钉死默认，避免把火山 uranus 送给阿里云（或反过来）
+        self._speaker = (speaker or "").strip() or self._default_speaker_for_provider()
         # 同会话复用 uid，减轻厂商侧音色/韵律漂移
         self._session_uid = f"evoflow-chat-{uuid.uuid4().hex[:12]}"
         self._bg_tasks: set[asyncio.Task] = set()
@@ -135,18 +133,40 @@ class VolcengineTTSService(TTSService):
             language=self._text_aggregator.language,
         )
 
+    def _default_speaker_for_provider(self) -> str:
+        prov = (self._provider or "volcengine").strip().lower()
+        if prov == "dashscope":
+            try:
+                from evoflow.community.media_generation.providers.dashscope_tts import (
+                    TOKEN_PLAN_DEFAULT_VOICE,
+                )
+
+                return TOKEN_PLAN_DEFAULT_VOICE
+            except Exception:
+                return "longanlingxin"
+        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
+
+        return DEFAULT_TTS_SPEAKER
+
     def set_tone(self, tone: dict | None) -> None:
         """设置下一句的语气（emotion/语速增量）；见 runtime/emotion.py。"""
         self._pending_tone = tone
 
     def set_provider(self, provider: str | None) -> None:
-        if provider:
-            self._provider = provider.strip().lower()
+        if not provider:
+            return
+        prev = self._provider
+        self._provider = provider.strip().lower()
+        # 换厂商时若音色明显属于旧厂商，落到新默认
+        if prev != self._provider:
+            sid = (self._speaker or "").strip().lower()
+            if self._provider == "dashscope" and ("_uranus_" in sid or sid.endswith("_bigtts")):
+                self._speaker = self._default_speaker_for_provider()
+            elif self._provider in {"volcengine", "doubao"} and sid.startswith("long"):
+                self._speaker = self._default_speaker_for_provider()
 
     def set_speaker(self, speaker: str | None) -> None:
-        from app.gateway.speech.volcengine_speech import DEFAULT_TTS_SPEAKER
-
-        pinned = (speaker or "").strip() or DEFAULT_TTS_SPEAKER
+        pinned = (speaker or "").strip() or self._default_speaker_for_provider()
         # 同会话内不因空值冲掉已钉好的音色
         if pinned:
             self._speaker = pinned

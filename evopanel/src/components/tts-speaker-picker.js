@@ -1,5 +1,5 @@
 /**
- * 豆包 TTS 音色选择器 — 可搜索弹窗 + 在线试听。
+ * TTS 音色选择器 — 可搜索弹窗 + 在线试听（火山 OpenSpeech / 各厂商共用壳）。
  */
 
 import { toast } from './toast.js'
@@ -70,7 +70,7 @@ function previewTextForSpeaker(voiceType, presets) {
       if (v.startsWith('en_') || v.includes('_en_')) {
         return `Hello, this is ${name}. Welcome to the voice preview.`
       }
-      return `你好，我是${name}，欢迎试听豆包语音合成效果。`
+      return `你好，我是${name}，欢迎试听火山语音合成效果。`
     }
   }
   if (v.startsWith('en_') || v.includes('_en_')) return VOLCENGINE_TTS_PREVIEW_TEXT_EN
@@ -101,8 +101,16 @@ function setPreviewBtnPlaying(btn, playing) {
   btn.innerHTML = playing ? PREVIEW_STOP_SVG : PREVIEW_PLAY_SVG
 }
 
-async function playSpeakerPreview(voiceType, btn, presets) {
+/**
+ * @param {string} voiceType
+ * @param {HTMLElement | null} btn
+ * @param {{ value: string, label: string }[]} [presets]
+ * @param {string} [providerHint] 弹窗内试听必须显式传入：列表不在 data-media-tts-speaker-group 内，
+ *   否则会默认 volcengine，阿里云音色 ▶ 也会打成 OpenSpeech → 401。
+ */
+async function playSpeakerPreview(voiceType, btn, presets, providerHint) {
   const group = btn?.closest('[data-media-tts-speaker-group]')
+  const overlay = btn?.closest('[data-tts-preview-provider]')
   const hiddenVoice = group?.querySelector('[data-media-tts-speaker-value]')?.value?.trim() || ''
   const voice = String(voiceType || hiddenVoice || '').trim()
   if (!voice) return
@@ -117,15 +125,21 @@ async function playSpeakerPreview(voiceType, btn, presets) {
   const gen = _previewGen
   const ac = new AbortController()
   _previewAbort = ac
-  const provider =
-    group?.getAttribute('data-tts-provider')?.trim().toLowerCase() || 'volcengine'
+  const provider = String(
+    providerHint ||
+      group?.getAttribute('data-tts-provider') ||
+      overlay?.getAttribute('data-tts-preview-provider') ||
+      'volcengine',
+  )
+    .trim()
+    .toLowerCase() || 'volcengine'
   try {
     if (provider === 'volcengine' || provider === 'doubao') {
       const configured = await fetchSpeechConfigured()
       if (gen !== _previewGen) return
       if (!configured) {
         stopPreview()
-        toast('请先在设置中配置火山 TTS API Key，或前往豆包语音控制台试听', 'info')
+        toast('请先在设置中配置火山语音 API Key，或前往火山语音控制台试听', 'info')
         window.open(VOLCENGINE_TTS_SPEAKER_TRIAL_URL, '_blank', 'noopener,noreferrer')
         return
       }
@@ -155,7 +169,20 @@ async function playSpeakerPreview(voiceType, btn, presets) {
   } catch (e) {
     if (e?.name === 'AbortError') return
     stopPreview()
-    toast(String(e?.message || e), 'error')
+    const msg = String(e?.message || e)
+    if (
+      (provider === 'volcengine' || provider === 'doubao') &&
+      /45000010|Invalid X-Api-Key|InvalidApiKey/i.test(msg)
+    ) {
+      toast(
+        '火山试听失败：OpenSpeech 拒绝当前 API Key。请换火山语音控制台 / Agent Plan 语音 Key；阿里云音色请在「阿里云语音」页试听。',
+        'error',
+      )
+    } else if (provider === 'dashscope' && /volcengine|openspeech|45000010/i.test(msg)) {
+      toast('阿里云试听误走了火山口，请刷新页面后再试（已修复 provider 传递）。', 'error')
+    } else {
+      toast(msg, 'error')
+    }
   } finally {
     if (_previewAbort === ac) _previewAbort = null
   }
@@ -240,7 +267,7 @@ function renderPickerList(presets, query, selectedValue) {
     .join('')
 }
 
-function bindPreviewButtons(root, presets) {
+function bindPreviewButtons(root, presets, provider) {
   root.querySelectorAll('[data-tts-speaker-preview]').forEach((btn) => {
     if (btn.dataset.previewBound) return
     btn.dataset.previewBound = '1'
@@ -248,24 +275,40 @@ function bindPreviewButtons(root, presets) {
       e.preventDefault()
       e.stopPropagation()
       const voice = btn.getAttribute('data-tts-speaker-preview') || ''
-      playSpeakerPreview(voice, btn, presets)
+      playSpeakerPreview(voice, btn, presets, provider)
     })
   })
 }
 
+function subtitleForProvider(provider) {
+  const p = String(provider || 'volcengine').trim().toLowerCase()
+  if (p === 'dashscope') return '阿里云语音 · Token Plan / CosyVoice'
+  if (p === 'openai') return 'OpenAI TTS'
+  if (p === 'elevenlabs') return 'ElevenLabs'
+  if (p === 'minimax') return 'MiniMax TTS'
+  if (p === 'doubao') return '火山方舟 Key · OpenSpeech（非阿里云）'
+  return '火山 OpenSpeech · seed-tts-2.0'
+}
+
 /**
  * 全屏音色弹窗（可搜索 + 行内试听）。供设置页与 React 部门群声线共用。
- * @param {{ presets: { value: string, label: string }[], currentValue?: string, onSelect: (value: string) => void, title?: string }} opts
+ * @param {{ presets: { value: string, label: string }[], currentValue?: string, onSelect: (value: string) => void, title?: string, provider?: string }} opts
  */
-export function openTtsSpeakerPicker({ presets, currentValue, onSelect, title }) {
+export function openTtsSpeakerPicker({ presets, currentValue, onSelect, title, provider }) {
+  const prov = String(provider || 'volcengine').trim().toLowerCase() || 'volcengine'
   const overlay = document.createElement('div')
   overlay.className = 'modal-overlay media-tts-speaker-overlay'
+  overlay.setAttribute('data-tts-preview-provider', prov)
+  const footLink =
+    prov === 'dashscope'
+      ? `<a href="https://help.aliyun.com/zh/model-studio/token-plan-speech-synthesis" target="_blank" rel="noopener noreferrer">阿里云音色说明</a>`
+      : `<a href="${escAttr(VOLCENGINE_TTS_SPEAKER_TRIAL_URL)}" target="_blank" rel="noopener noreferrer">火山语音控制台试听</a>`
   overlay.innerHTML = `
     <div class="modal models-edit-modal media-tts-speaker-modal" role="dialog" aria-modal="true" aria-labelledby="tts-speaker-modal-title">
       <div class="models-edit-modal-header">
         <div class="models-edit-modal-title-row">
           <h2 class="models-edit-modal-title" id="tts-speaker-modal-title">${escHtml(title || '选择 TTS 音色')}</h2>
-          <span class="models-edit-modal-subtitle">豆包语音合成 2.0 · seed-tts-2.0</span>
+          <span class="models-edit-modal-subtitle">${escHtml(subtitleForProvider(prov))}</span>
         </div>
         <button type="button" class="models-edit-modal-close" data-tts-speaker-close title="关闭">&times;</button>
       </div>
@@ -274,8 +317,8 @@ export function openTtsSpeakerPicker({ presets, currentValue, onSelect, title })
       </div>
       <div class="media-tts-speaker-list" data-tts-speaker-list></div>
       <div class="media-tts-speaker-modal-foot">
-        <a href="${escAttr(VOLCENGINE_TTS_SPEAKER_TRIAL_URL)}" target="_blank" rel="noopener noreferrer">豆包语音控制台试听</a>
-        <span>· 已配置 API Key 时点击 ▶ 在线试听</span>
+        ${footLink}
+        <span>· 已配置对应厂商 Key 时点击 ▶ 在线试听</span>
       </div>
     </div>`
 
@@ -287,7 +330,7 @@ export function openTtsSpeakerPicker({ presets, currentValue, onSelect, title })
 
   const paint = () => {
     listEl.innerHTML = renderPickerList(presets, searchEl.value, selectedValue)
-    bindPreviewButtons(listEl, presets)
+    bindPreviewButtons(listEl, presets, prov)
     listEl.querySelectorAll('[data-tts-speaker-pick]').forEach((btn) => {
       btn.addEventListener('click', () => {
         selectedValue = btn.getAttribute('data-tts-speaker-pick') || ''
@@ -350,7 +393,9 @@ function bindOneTtsSpeakerField(group, presets) {
   const customInput = group.querySelector(`[data-media-tts-speaker-custom="${CSS.escape(fieldId)}"]`)
   const hidden = group.querySelector(`[data-media-tts-speaker-value="${CSS.escape(fieldId)}"]`)
 
-  bindPreviewButtons(group, presets)
+  const provider =
+    group.getAttribute('data-tts-provider')?.trim().toLowerCase() || 'volcengine'
+  bindPreviewButtons(group, presets, provider)
 
   // 「自定义音色」勾选框是 UI 模式切换(预设选择器 ↔ 手动输入),不是数据字段:
   // 进入自定义模式不得立即用空输入覆盖已配置音色(曾配合面板自动保存把预设音色
@@ -378,6 +423,7 @@ function bindOneTtsSpeakerField(group, presets) {
     openTtsSpeakerPicker({
       presets,
       currentValue: current,
+      provider,
       onSelect: (value) => {
         syncTrigger(group, presets, value)
         if (customToggle) customToggle.checked = false
@@ -410,8 +456,8 @@ export function bindTtsSpeakerFields(root, presets) {
  * @param {{ value: string, label: string }[]} [presets]
  * @param {HTMLElement | null} [btn]
  */
-export function previewTtsSpeaker(voiceType, presets = [], btn = null) {
-  return playSpeakerPreview(voiceType, btn, presets)
+export function previewTtsSpeaker(voiceType, presets = [], btn = null, provider) {
+  return playSpeakerPreview(voiceType, btn, presets, provider)
 }
 
 export function stopTtsSpeakerPreview() {

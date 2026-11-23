@@ -1,8 +1,11 @@
 from app.gateway.speech.volcengine_speech import (
+    DEFAULT_TTS_SPEAKER,
     TTS_URL_AGENT_PLAN,
     TTS_URL_STANDARD,
     _format_tts_business_error,
+    _looks_like_volc_speaker,
     _resolve_tts_resource_id,
+    _sanitize_volc_speaker,
     _tts_urls_to_try,
 )
 
@@ -51,3 +54,20 @@ def test_format_agent_plan_deduct_error():
     )
     assert "AgentPlanDeductNotEnabled" in msg
     assert "seed-tts-2.0" in msg
+
+
+def test_format_resource_mismatch_55000000():
+    msg = _format_tts_business_error(55000000, "resource ID is mismatched with speaker related resource")
+    assert "音色与 Resource-Id 不匹配" in msg
+    assert "longanyang" in msg
+
+
+def test_sanitize_drops_dashscope_voice_ids():
+    assert _looks_like_volc_speaker("longanyang") is False
+    assert _looks_like_volc_speaker("zh_female_vv_uranus_bigtts") is True
+    speaker, explicit = _sanitize_volc_speaker("longanyang", DEFAULT_TTS_SPEAKER)
+    assert speaker == DEFAULT_TTS_SPEAKER
+    assert explicit is False
+    speaker2, explicit2 = _sanitize_volc_speaker("zh_female_vv_uranus_bigtts", DEFAULT_TTS_SPEAKER)
+    assert speaker2 == "zh_female_vv_uranus_bigtts"
+    assert explicit2 is True

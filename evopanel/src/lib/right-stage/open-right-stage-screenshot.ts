@@ -11,6 +11,14 @@ export type OpenRightStageScreenshotOpts = {
   sessionKey?: string | null
   title?: string
   mimeType?: string
+  /**
+   * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+   * 改了什么：新增「谁打开的」来源标记，透传给 store.show。
+   * 为什么：截图既可能由智能体跑电脑控制时自动开，也可能用户自己点开；
+   *   缺省让 store 兜底成 `session:<归属会话>`，不猜成 user。
+   */
+  openedBy?: string
+
   layout?: 'half' | 'wide' | 'narrow' | 'workspace-write'
   /** 去重键；默认用 uri */
   dedupeKey?: string
@@ -76,6 +84,7 @@ export function showRightStageScreenshot(
     title,
     layout,
     sessionKey,
+    openedBy: opts?.openedBy,
     data: {
       uri: raw,
       mimeType,

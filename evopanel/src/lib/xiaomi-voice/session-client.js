@@ -259,9 +259,9 @@ export async function connectXiaomiFrameSession() {
       _ensurePhaseWire()
       const asr = getXiaomiAsrProvider()
       const tts = getXiaomiTtsProvider()
-      // 固定音色：永不空，避免多句分片落到不同默认说话人
+      // 固定音色：按 TTS 厂商解析，永不空；丢弃跨厂商残留
       const speaker = resolveXiaomiTtsSpeaker()
-      if (!getXiaomiTtsSpeaker()) setXiaomiTtsSpeaker(speaker)
+      setXiaomiTtsSpeaker(speaker)
       const tid = getVoiceTrace() || beginVoiceTrace({ reason: 'frame-session-start' })
       // 判停静默窗口：默认 1100（连续说少切半句）；可用 localStorage 调参
       const silenceRaw = Number(localStorage.getItem('evoflow-voice-turn-silence-ms'))
@@ -272,7 +272,13 @@ export async function connectXiaomiFrameSession() {
       _pendingStart = { asr, tts, speaker, tid, silenceMs }
       voiceFeLog(
         '会话',
-        `WebSocket 已连接，等待 ready 再 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}`,
+        `WebSocket 已连接，等待 ready 再 start ASR=${asr} TTS=${tts} 音色=${speaker} TRACE=${tid}` +
+          (tts === 'dashscope' && (speaker.includes('uranus') || speaker.endsWith('_bigtts'))
+            ? ' ⚠音色仍像火山，请重选阿里云音色'
+            : '') +
+          (tts !== 'dashscope' && String(speaker).startsWith('long')
+            ? ' ⚠音色像阿里云，但 TTS 仍是火山/豆包口'
+            : ''),
       )
       // ready 可能已先到（handler 已挂）→ 立刻 start；否则等 ready 回调
       _sendStartIfNeeded('connected')

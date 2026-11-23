@@ -112,6 +112,14 @@ function buildPayload(snapshot: {
     kind: String(t?.kind || ''),
     title: String(t?.title || ''),
     ...(t?.sessionKey ? { sessionKey: String(t.sessionKey) } : {}),
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 改了什么：上报里补 ``openedBy``（这个签是谁打开的）。
+    // 为什么（用户 2026-11-23 原话）：「让 AI 能看懂就可以了……这个后面主要是让 AI 看」。
+    //   本函数是**手工拼 tabs** 的白名单式重建，没列进来的字段一律消失——
+    //   于是就算 store 里存了 openedBy，``platform action=ui.current`` 回给模型的
+    //   tabs[] 里也读不到，AI 根本看不见「谁开的签」，只能靠人悬停。
+    // 判据：上报 payload 的 tabs[].openedBy 与 store 里的值逐字一致（空值不发，保持旧形态）。
+    ...(t?.openedBy ? { openedBy: String(t.openedBy) } : {}),
     data: slimData(t?.data),
   }))
   const activeKey = String(snapshot?.activeKey || '') || null

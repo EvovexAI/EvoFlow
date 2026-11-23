@@ -2025,6 +2025,21 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           {deptName}
         </h2>
         <span className="react-chat-dept-pane-count">{roster.length} 人</span>
+        {meta ? (
+          <button
+            type="button"
+            className="react-chat-dept-pane-edit"
+            title="编辑部门"
+            aria-label={`编辑 ${deptName}`}
+            onClick={() => {
+              void import('../../lib/proactive-dept-edit.js').then(({ showEditDeptModal }) => {
+                void showEditDeptModal(meta)
+              })
+            }}
+          >
+            <Pencil size={14} strokeWidth={1.75} aria-hidden />
+          </button>
+        ) : null}
       </header>
       <p className="react-chat-dept-pane-hint">
         单击看信息；双击或「实时过程」看对话；群里 @ 点名派活。摘要里「回复中/排队中」= 本轮该他说话。

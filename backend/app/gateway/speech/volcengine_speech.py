@@ -246,6 +246,13 @@ def _format_tts_business_error(code, message: str) -> str:
     raw = str(message or "")
     if _is_agent_plan_deduct_error(raw) or code in (45000030, "45000030"):
         return f"当前方舟 Key 未开通 Agent Plan 语音抵扣（AgentPlanDeductNotEnabled）。请确认已订阅 Agent Plan，并在方舟控制台开启语音/AFP 抵扣；TTS 应使用 Plan 接口与 Resource-Id=seed-tts-2.0。说明：{AGENT_PLAN_DOC_URL}"
+    if code in (55000000, "55000000") or "resource id is mismatched" in raw.lower():
+        return (
+            f"TTS error code={code}: 音色与 Resource-Id 不匹配。"
+            "uranus/saturn 音色需 seed-tts-2.0；moon/mars 需 seed-tts-1.0；"
+            "勿把阿里云 CosyVoice/Qwen 音色（如 longanyang）传给火山。"
+            f"原文：{raw}"
+        )
     return f"TTS error code={code}: {raw}"
 
 
@@ -321,6 +328,33 @@ def _parse_tts_ndjson(body: str) -> bytes:
     return b"".join(chunks)
 
 
+def _looks_like_volc_speaker(speaker: str) -> bool:
+    """True when speaker id belongs to OpenSpeech seed-tts / ICL families."""
+    sid = str(speaker or "").strip().lower()
+    if not sid:
+        return False
+    # CosyVoice / Qwen-Audio 音色（longanyang、longxiaochun_v3…）不是火山 speaker
+    if sid.startswith(
+        (
+            "longxiao",
+            "longcheng",
+            "longze",
+            "longmiao",
+            "longan",
+            "longying",
+            "longhua",
+            "longsan",
+            "longshu",
+        )
+    ):
+        return False
+    if sid.startswith(("s_", "saturn_", "icl_")):
+        return True
+    if "_uranus_" in sid or sid.endswith("_bigtts") or "_conversation_wvae_bigtts" in sid:
+        return True
+    return True
+
+
 def _resolve_tts_resource_id(speaker: str, configured: str) -> str:
     """Map speaker id to X-Api-Resource-Id (seed-tts-2.0 vs seed-tts-1.0 vs seed-icl-2.0)."""
     sid = str(speaker or "").strip().lower()
@@ -340,6 +374,22 @@ def _resolve_tts_resource_id(speaker: str, configured: str) -> str:
     return fallback
 
 
+def _sanitize_volc_speaker(speaker: str | None, default_speaker: str) -> tuple[str, bool]:
+    """Return (speaker, explicit). Drop cross-provider voice ids that cause 55000000."""
+    raw = str(speaker or "").strip()
+    fallback = str(default_speaker or "").strip() or DEFAULT_TTS_SPEAKER
+    if not raw:
+        return fallback, False
+    if _looks_like_volc_speaker(raw):
+        return raw, True
+    logger.warning(
+        "Volc TTS speaker %r is not an OpenSpeech voice; falling back to %s",
+        raw,
+        fallback,
+    )
+    return fallback, False
+
+
 def synthesize_speech_v3(
     text: str,
     *,
@@ -348,8 +398,7 @@ def synthesize_speech_v3(
     speech_rate: int | None = None,
 ) -> tuple[bytes, str]:
     api_key, configured_resource, default_speaker, _, agent_plan = _require_credentials()
-    explicit_speaker = bool(str(speaker or "").strip())
-    use_speaker = str(speaker or "").strip() or default_speaker
+    use_speaker, explicit_speaker = _sanitize_volc_speaker(speaker, default_speaker)
     resource_id = _resolve_tts_resource_id(use_speaker, configured_resource)
     req_params: dict = {
         "text": text[:4000],
@@ -457,8 +506,7 @@ async def synthesize_speech_v3_stream(
     import json as _json
 
     api_key, configured_resource, default_speaker, _, agent_plan = _require_credentials()
-    explicit_speaker = bool(str(speaker or "").strip())
-    use_speaker = str(speaker or "").strip() or default_speaker
+    use_speaker, explicit_speaker = _sanitize_volc_speaker(speaker, default_speaker)
     resource_id = _resolve_tts_resource_id(use_speaker, configured_resource)
     req_params: dict = {
         "text": text[:4000],
@@ -606,7 +654,11 @@ def _raise_asr_http_error(resp: httpx.Response, *, agent_plan: bool) -> None:
     if "Invalid X-Api-Key" in msg or "45000010" in msg:
         if agent_plan:
             raise ValueError(f"语音 API Key 无效。Agent Plan 请确认已开通语音权益，并使用火山方舟专属 Key（ark- 开头）。配置说明：{AGENT_PLAN_DOC_URL}") from None
-        raise ValueError(f"语音 API Key 无效。请使用豆包语音控制台创建的 Speech Key，或 Agent Plan 专属 Key。控制台：{SPEECH_CONSOLE_URL}") from None
+        raise ValueError(
+            f"火山语音 API Key 无效（OpenSpeech 45000010）。"
+            f"请用火山语音控制台 / Agent Plan 的 Speech Key；测阿里云请到「阿里云语音」并切小V ASR/TTS 通道。"
+            f"控制台：{SPEECH_CONSOLE_URL}"
+        ) from None
     raise RuntimeError(f"ASR HTTP {resp.status_code}: {msg}")
 
 

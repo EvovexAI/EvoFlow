@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 
 from evoflow.admin.errors import ConflictError, NotFoundError, ValidationError
+from evoflow.organizations.manifest import strip_unexpanded_placeholders
 from evoflow.proactive.models import (
     Initiative,
     InitiativeRiskLevel,
@@ -429,7 +430,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
         "tags": agent_tags,
         "config": {
             "responsibilities": list(cfg.responsibilities or []),
-            "workspace_path": cfg.workspace_path or "",
+            "workspace_path": strip_unexpanded_placeholders(cfg.workspace_path or ""),
             "knowledge_vault_ids": list(getattr(cfg, "knowledge_vault_ids", None) or []),
             "kb_injection": dict(getattr(cfg, "kb_injection", None) or {}),
             "kpis": list(cfg.kpis or []),
@@ -1637,7 +1638,7 @@ def _role_summary(role: ProactiveRole, *, busy_codes: set[str]) -> dict[str, Any
         "busy": code in busy_codes,
         "last_heartbeat_at": role.last_heartbeat_at,
         "next_heartbeat_at": role.next_heartbeat_at,
-        "workspace_path": role.config.workspace_path or "",
+        "workspace_path": strip_unexpanded_placeholders(role.config.workspace_path or ""),
         "org_key": role_org_key(role),
         "responsibilities": list(role.config.responsibilities or [])[:8],
         "kpis": list(role.config.kpis or [])[:6],

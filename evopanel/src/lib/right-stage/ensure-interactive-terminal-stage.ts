@@ -8,6 +8,11 @@ export type EnsureInteractiveTerminalStageInput = {
   threadId?: string
   /** Force a brand-new tab (ZCode: each + Terminal creates a new instance). */
   forceNew?: boolean
+  /**
+   * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+   * 「谁打开的」：点侧栏「终端」是用户亲手开 → 'user'；缺省由 store 兜底成会话归属。
+   */
+  openedBy?: string
 }
 
 let _ptySeq = 0
@@ -28,6 +33,7 @@ export function ensureInteractiveTerminalStage(input: EnsureInteractiveTerminalS
     title: baseTitle,
     layout: 'half',
     sessionKey,
+    openedBy: input.openedBy,
     forceExpand: true,
     data: {
       cwd,

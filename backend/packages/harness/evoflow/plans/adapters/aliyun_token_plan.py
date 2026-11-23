@@ -68,12 +68,16 @@ class AliyunTokenPlanAdapter:
         tier_models = default_media_models_for_tier(binding.get("tier_id"))
         media_patch: dict[str, Any] = {
             "dashscopeApiKey": api_key,
+            # 语音/媒体必须走 token-plan…/api/v1；勿留按量 dashscope.aliyuncs.com
             "dashscopeBaseUrl": media_ep,
             "enabledVendors": {
                 "dashscope": "image" in caps or "video" in caps,
                 "dashscope-tts": "tts" in caps or "asr" in caps,
             },
         }
+        # Token Plan TTS 官方模型 qwen-audio-3.0-tts-plus；CosyVoice 音色不可用
+        if "tts" in caps or "asr" in caps:
+            media_patch["dashscopeTtsVoice"] = "longanlingxin"
         patch_media_credentials(media_patch)
 
         try:

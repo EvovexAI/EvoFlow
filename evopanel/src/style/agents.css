@@ -1617,6 +1617,186 @@ html[data-liquid-glass-webgl='1'] .role-filter-select {
   font-weight: 450;
   color: var(--text-tertiary);
 }
+.hire-dept-identity {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.hire-dept-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.hire-dept-avatar-btn {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 14px;
+}
+.hire-dept-avatar-btn:hover .hire-dept-avatar-preview {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--hire-accent, #6366f1) 45%, transparent);
+}
+.hire-dept-avatar-preview {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg-secondary, #f4f4f5);
+  color: var(--text-secondary, #64748b);
+  font-weight: 700;
+  font-size: 22px;
+  user-select: none;
+}
+.hire-dept-avatar-preview.has-image,
+.hire-dept-avatar-preview img {
+  width: 56px;
+  height: 56px;
+  object-fit: cover;
+  display: block;
+}
+.hire-dept-avatar-pencil {
+  appearance: none;
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 1px solid var(--border-primary, rgba(0,0,0,0.12));
+  background: var(--bg-elevated, #fff);
+  color: var(--text-secondary, #64748b);
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+.hire-dept-avatar-pencil:hover {
+  color: var(--hire-accent, #6366f1);
+  border-color: color-mix(in srgb, var(--hire-accent, #6366f1) 45%, transparent);
+}
+.hire-dept-identity-fields {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hire-dept-avatar-picker {
+  margin: -4px 0 14px;
+}
+.hire-dept-avatar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(72px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle, color-mix(in srgb, var(--text-primary) 12%, transparent));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
+  max-height: 220px;
+  overflow: auto;
+}
+.hire-dept-avatar-opt {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 10px;
+  padding: 6px 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+  min-width: 0;
+}
+.hire-dept-avatar-opt:hover {
+  background: color-mix(in srgb, var(--hire-accent, #6366f1) 8%, transparent);
+}
+.hire-dept-avatar-opt.is-on {
+  border-color: color-mix(in srgb, var(--hire-accent, #6366f1) 45%, transparent);
+  background: color-mix(in srgb, var(--hire-accent, #6366f1) 12%, transparent);
+  color: var(--hire-accent, #6366f1);
+}
+.hire-dept-avatar-opt-img {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background: var(--bg-secondary, #f4f4f5);
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.hire-dept-avatar-opt-img.has-image,
+.hire-dept-avatar-opt-img img {
+  width: 36px;
+  height: 36px;
+  object-fit: cover;
+  display: block;
+}
+.hire-dept-avatar-upload-icon {
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.hire-dept-avatar-opt-label {
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.hire-dept-member-list {
+  list-style: none;
+  margin: 0 0 8px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 240px;
+  overflow: auto;
+}
+.hire-dept-member {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--border-subtle, color-mix(in srgb, var(--text-primary) 12%, transparent));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--bg-elevated, #fff) 92%, transparent);
+}
+.hire-dept-member-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.hire-dept-member-main strong {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.hire-dept-member-reports {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.hire-dept-member > .btn {
+  justify-self: end;
+}
 .hire-vault-list {
   display: flex;
   flex-direction: column;

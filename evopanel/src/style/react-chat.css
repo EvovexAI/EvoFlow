@@ -1156,6 +1156,201 @@ html.dark .shell-view-tab.is-active {
   white-space: nowrap;
 }
 
+/* 部门 Tab：部门头 + 子级成员（树形缩进，明确挂在部门下） */
+.shell-dept-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: 6px;
+}
+
+.shell-dept-group__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shell-dept-group__head .shell-dept-row {
+  flex: 1;
+  min-width: 0;
+  padding-left: 4px;
+}
+
+.shell-dept-group__chevron {
+  appearance: none;
+  flex-shrink: 0;
+  width: 22px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.shell-dept-group__chevron:hover {
+  background: var(--shell-hover, #f0f2f7);
+  color: var(--shell-text, #171a2b);
+}
+
+.shell-dept-group__chevron-ic {
+  transition: transform 0.12s ease;
+  transform: rotate(-90deg);
+}
+
+.shell-dept-group__chevron-ic.is-open {
+  transform: rotate(0deg);
+}
+
+.shell-dept-row__edit {
+  appearance: none;
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.shell-dept-row:hover .shell-dept-row__edit,
+.shell-dept-group__head:focus-within .shell-dept-row__edit,
+.shell-dept-row__edit:focus-visible {
+  opacity: 1;
+}
+
+.shell-dept-row__edit:hover {
+  background: color-mix(in srgb, var(--shell-text, #171a2b) 8%, transparent);
+  color: var(--shell-text, #171a2b);
+}
+
+.shell-dept-member-list {
+  list-style: none;
+  margin: 0;
+  /* 对齐部门行内容起点，再向右一级，树干线标父子关系 */
+  padding: 2px 0 4px 34px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  position: relative;
+}
+
+.shell-dept-member-list::before {
+  content: '';
+  position: absolute;
+  left: 18px;
+  top: 0;
+  bottom: 6px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border, #d0d5dd) 85%, transparent);
+}
+
+.shell-dept-member-item {
+  min-width: 0;
+  position: relative;
+}
+
+.shell-dept-member-item::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 50%;
+  width: 12px;
+  height: 1px;
+  background: color-mix(in srgb, var(--border, #d0d5dd) 85%, transparent);
+}
+
+.shell-dept-member-row {
+  appearance: none;
+  width: 100%;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.shell-dept-member-row:hover {
+  background: var(--shell-hover, #f0f2f7);
+}
+
+.shell-dept-member-row.active {
+  background: color-mix(in srgb, var(--accent, #6366f1) 12%, transparent);
+}
+
+.shell-dept-member-row__avatar {
+  flex-shrink: 0;
+}
+
+.shell-dept-member-row__body {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.shell-dept-member-row__title {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--shell-text, #171a2b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-dept-member-row__meta {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  color: var(--text-secondary, #64748b);
+}
+
+.shell-dept-member-row.is-busy .shell-dept-member-row__meta {
+  color: color-mix(in srgb, #f59e0b 80%, var(--text-secondary, #64748b));
+}
+
+.shell-dept-member-empty {
+  position: relative;
+  margin: 2px 0 4px 34px;
+  padding: 4px 8px 4px 6px;
+  font-size: 11px;
+  color: var(--text-secondary, #64748b);
+}
+
+.shell-dept-member-empty::before {
+  content: '';
+  position: absolute;
+  left: -16px;
+  top: 0;
+  bottom: 4px;
+  width: 1px;
+  background: color-mix(in srgb, var(--border, #d0d5dd) 85%, transparent);
+}
+
 /* V4 主区部门群聊：普通 IM 布局，不要指挥台卡片壳 */
 .dept-chat-main {
   display: flex;
@@ -1225,8 +1420,56 @@ html.dark .shell-view-tab.is-active {
   flex: 1;
 }
 
-.dept-im__tts-btn {
+.dept-im__avatar-btn {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  border-radius: 10px;
+  flex-shrink: 0;
+  line-height: 0;
+}
+
+.dept-im__avatar-btn:hover {
+  outline: 2px solid color-mix(in srgb, var(--accent, #4f46e5) 35%, transparent);
+  outline-offset: 1px;
+}
+
+.dept-im__head-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.dept-im__edit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0.72;
+}
+
+.dept-im__title-row:hover .dept-im__edit-btn,
+.dept-im__edit-btn:focus-visible {
+  opacity: 1;
+}
+
+.dept-im__edit-btn:hover {
+  background: var(--surface-hover, rgba(15, 23, 42, 0.06));
+  color: var(--text-primary, #0f172a);
+}
+
+.dept-im__tts-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -10421,6 +10664,26 @@ html[data-theme='dark'] .react-chat-conversation-col .msg-turn-assistant-meta .m
   padding: 1px 7px;
 }
 
+.react-chat-dept-pane-edit {
+  appearance: none;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+}
+
+.react-chat-dept-pane-edit:hover {
+  background: var(--surface-hover, rgba(15, 23, 42, 0.06));
+  color: var(--text-primary, #0f172a);
+}
+
 .react-chat-dept-pane-hint {
   margin: 0;
   font-size: 11px;
@@ -16252,6 +16515,7 @@ html[data-app-occluded='1'] * {
 }
 
 .ef-dropdown-select__menu {
+  /* Non-portal menus stay in local stacking; portal override below. */
   z-index: 40;
   box-sizing: border-box;
   min-width: 100%;
@@ -16330,6 +16594,10 @@ html[data-app-occluded='1'] * {
 
 .ef-dropdown-select__menu--portal {
   position: fixed;
+  /* Must sit above settings modal (.react-chat-modal-overlay = 1000001) and
+     generic .modal-overlay (1000020); otherwise Xiaomi ASR/TTS etc. look
+     “stuck” — click opens a menu that is invisible behind the overlay. */
+  z-index: 1000035;
 }
 
 .ef-dropdown-select__group + .ef-dropdown-select__group,
@@ -26701,6 +26969,7 @@ html.dark .evo-home-cmd__detail {
   color: var(--cmd-text-secondary);
 }
 
+.evo-home-cmd__detail-edit,
 .evo-home-cmd__detail-close {
   appearance: none;
   border: 0;
@@ -26711,6 +26980,7 @@ html.dark .evo-home-cmd__detail {
   border-radius: 8px;
 }
 
+.evo-home-cmd__detail-edit:hover,
 .evo-home-cmd__detail-close:hover {
   background: color-mix(in srgb, var(--cmd-text) 8%, transparent);
   color: var(--cmd-text);

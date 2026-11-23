@@ -1,5 +1,8 @@
 import { useMemo, useState } from 'react'
-import { defaultTitleForKind, normalizeRightStageKind, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
+import { defaultTitleForKind, describeOpenedBy, normalizeRightStageKind, parseOpenedBy, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
+// 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+// 悬停展开的归属文本要按三态拼 className，与本仓其它面板同一入口（不自己拼字符串）。
+import { cn } from '@zcode/ui/components/lib/utils.js'
 import type { RecentClosedRightStageTab } from '../../lib/right-stage/right-stage-store.js'
 import { KindTabIcon } from './RightStageTabIcon.js'
 
@@ -17,6 +20,8 @@ type TabEntry = {
   key: string
   title: string
   kind: string
+  /** 「谁打开的」原始取值（`user` / `agent:*` / `session:*`）；空串表示未知。 */
+  openedBy: string
   searchText: string
 }
 
@@ -36,6 +41,7 @@ export function RightStageTabOverview({
   tabs,
   activeKey,
   recentClosed,
+  agentLabelMap,
   onActivateTab,
   onCloseTab,
   onReopenClosedTab,
@@ -43,6 +49,14 @@ export function RightStageTabOverview({
   tabs: RightStageSurface[]
   activeKey: string | null
   recentClosed: RecentClosedRightStageTab[]
+  /**
+   * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+   * 改了什么：总览列表每行加「谁打开的」归属文本。
+   * 为什么（用户原话）：「我在 A 打开了一个截图，但在其他地方看到这个截图，
+   *   却不知道是谁打开的。」总览就是那个「其他地方」——这里不给溯源，等于没解决。
+   * 判据：openedBy 为空的行不占位（不显示空角标）。
+   */
+  agentLabelMap?: Record<string, string> | null
   onActivateTab: (key: string) => void
   onCloseTab: (key: string) => void
   onReopenClosedTab: (key: string) => void
@@ -62,6 +76,7 @@ export function RightStageTabOverview({
           key: `${kind}:${t.id}`,
           title,
           kind,
+          openedBy: String(t.openedBy || ''),
           searchText: `${title} ${kindLabel} ${t.id}`.toLowerCase(),
         }
       }),
@@ -78,6 +93,7 @@ export function RightStageTabOverview({
           key: entry.key,
           title,
           kind,
+          openedBy: String(entry.tab.openedBy || ''),
           searchText: `${title} ${kindLabel} ${entry.tab.id}`.toLowerCase(),
         }
       }),
@@ -114,13 +130,19 @@ export function RightStageTabOverview({
       {filteredOpen.length > 0 ? (
         <section className="flex flex-col gap-0.5">
           <h3 className="px-1 pb-1 text-xs font-medium text-[var(--text-secondary)]">打开的标签</h3>
-          {filteredOpen.map((entry) => (
+          {filteredOpen.map((entry) => {
+            const byText = describeOpenedBy(entry.openedBy, agentLabelMap)
+            return (
             <div
               key={entry.key}
               role="button"
               tabIndex={0}
               aria-current={entry.key === activeKey || undefined}
-              className={`flex min-h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm ${
+              // 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+              // 悬停这一行才显出「谁打开的」：整行 title 承载全量文案（鼠标移上去即见），
+              // 行内常显只留极短三态字、且悬停才显形（用户：不需要很明显地显示，不然很占空间）。
+              title={byText ? `${entry.title} — ${byText}打开的` : entry.title}
+              className={`group flex min-h-8 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm ${
                 entry.key === activeKey ? 'bg-[var(--bg-selected)]' : 'hover:bg-[var(--bg-hover)]'
               }`}
               onClick={() => onActivateTab(entry.key)}
@@ -133,6 +155,40 @@ export function RightStageTabOverview({
             >
               <KindTabIcon kind={entry.kind} />
               <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{entry.title}</span>
+              {/* 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+                  改了什么：归属文本从「常显」改成「悬停该行才显示」，且只显示极短三态字。
+                  为什么（用户原话）：「这个鼠标移动上去再显示就行了，不需要很明显地显示，
+                    不然的话很占空间」——列表行本来就紧，一枝「智能体：某某某」会白占 9rem。
+                  判据：
+                    ① 常显态占位 0：`w-0 opacity-0` + `group-hover:w-auto opacity-100`，
+                       悬停时**才撑开**（不是一开始就留着空位）；
+                    ② 悬停给全量文案（整行 title），行内只给三态首字（我 / AI / 会话），
+                       不给「智能体：某某某」这种长串；
+                    ③ `data-opened-by-text` 保留原始值、`aria-hidden` 不让读屏念两遍。
+                  为什么不做浮层：签根节点与内容容器都带 `overflow-hidden` + 右端
+                    `mask-image` 渐隐，浮层会被裁掉或淡到看不清。 */}
+              {(() => {
+                const byText = describeOpenedBy(entry.openedBy, agentLabelMap)
+                if (!byText) return null
+                const kind = parseOpenedBy(entry.openedBy)?.kind
+                const short = kind === 'user' ? '我' : kind === 'agent' ? 'AI' : '会话'
+                return (
+                  <span
+                    aria-hidden
+                    data-opened-by-text={entry.openedBy}
+                    title={byText}
+                    className={cn(
+                      'ml-auto w-0 shrink-0 overflow-hidden whitespace-nowrap text-[10px]',
+                      'opacity-0 transition-all duration-100 group-hover:w-auto group-hover:px-1 group-hover:opacity-100',
+                      kind === 'user' && 'text-[#8ec5ff]',
+                      kind === 'agent' && 'text-[#ffcf8a]',
+                      kind === 'session' && 'text-[#b9b9c4]',
+                    )}
+                  >
+                    {short}
+                  </span>
+                )
+              })()}
               <button
                 type="button"
                 aria-label={`关闭 ${entry.title}`}
@@ -153,7 +209,8 @@ export function RightStageTabOverview({
                 </svg>
               </button>
             </div>
-          ))}
+            )
+          })}
         </section>
       ) : null}
 
@@ -178,6 +235,15 @@ export function RightStageTabOverview({
               >
                 <KindTabIcon kind={entry.kind} />
                 <span className="min-w-0 flex-1 truncate text-[var(--text-primary)]">{entry.title}</span>
+                {/* 最近关闭的行也带归属：重开前就该知道当初是谁开的。 */}
+                {describeOpenedBy(entry.openedBy, agentLabelMap) ? (
+                  <span
+                    className="shrink-0 max-w-[7rem] truncate text-xs text-[var(--text-secondary)]"
+                    title={describeOpenedBy(entry.openedBy, agentLabelMap)}
+                  >
+                    {describeOpenedBy(entry.openedBy, agentLabelMap)}
+                  </span>
+                ) : null}
                 <span className="shrink-0 text-xs text-[var(--text-secondary)]">
                   {formatRelativeTime(closedAt, now)}
                 </span>

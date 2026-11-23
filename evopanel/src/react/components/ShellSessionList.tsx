@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Plus } from 'lucide-react'
+import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Pencil, Plus } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import { toast } from '../../components/toast.js'
 import {
@@ -55,10 +55,13 @@ import {
   isSpecialWorkspaceGroupKey,
   normalizeWorkspacePathKey,
   employeeOwnerCodeFromSession,
+  parseProactiveSessionKey,
   proactiveAgentCodeFromSessionKey,
   resolveShellGroupWorkspacePath,
   splitVisibleAndFoldedDutySessions,
 } from '../lib/session-list/workspace-groups.js'
+import { looksLikeDeptGroupChat } from '../lib/session-list/session-identity.js'
+import { deptMemberWorkSessionKey } from '../lib/dept-member-work-session.js'
 import { buildWorkspaceRecentSections } from '../lib/session-list/recent-sections.js'
 import {
   isGenericEmployeeLabel,
@@ -67,6 +70,8 @@ import {
   resolveEmployeeDisplayName,
 } from '../lib/employee-display.js'
 import { AssignedAgentAvatar } from './AssignedAgentAvatar.js'
+import { DeptAvatar } from './DeptAvatar.js'
+import { showEditDeptModal } from '../../lib/proactive-dept-edit.js'
 import {
   ShellChevronIcon,
   ShellFolderPlusIcon,
@@ -375,6 +380,8 @@ export function ShellSessionList({
   )
   const [deptRows, setDeptRows] = useState<DeptChatMeta[]>(() => getCachedDeptList() || [])
   const [deptLoading, setDeptLoading] = useState(false)
+  /** 折叠的部门 id；默认全部展开，方便一眼看到成员。 */
+  const [collapsedDeptIds, setCollapsedDeptIds] = useState<Set<string>>(() => new Set())
   const deptRowsRef = useRef(deptRows)
   deptRowsRef.current = deptRows
 
@@ -578,7 +585,7 @@ export function ShellSessionList({
 
   /**
    * 选中会话时对齐 Tab（只在 sessionKey 变化时跑一次，不覆盖之后手动点 Tab）。
-   * 部门 / 员工会话分别落到对应 Tab；普通会话不强制切回「任务」。
+   * 部门群 / 部门@员工 sticky 留在「部门」；其它 proactive 进 BOT；普通会话不强制切 Tab。
    */
   useEffect(() => {
     if (!displaySelectedKey) return
@@ -589,6 +596,11 @@ export function ShellSessionList({
       return
     }
     if (isProactiveSessionKey(displaySelectedKey)) {
+      const parsed = parseProactiveSessionKey(displaySelectedKey)
+      if (looksLikeDeptGroupChat(parsed.suffix)) {
+        setViewMode('depts')
+        return
+      }
       setViewMode('project')
     }
   }, [displaySelectedKey])
@@ -1190,6 +1202,41 @@ export function ShellSessionList({
     [onSelectSession],
   )
 
+  /** 部门 Tab：点成员 → 打开该员工在本部门下的群聊 sticky（dept-{id}）。 */
+  const openDeptMemberChat = useCallback(
+    (dept: DeptChatMeta, agentCode: string) => {
+      const code = String(agentCode || '').trim()
+      const sk = deptMemberWorkSessionKey(dept.id, code)
+      if (!code || !sk) return
+      try {
+        rememberDeptChatMeta(dept)
+      } catch {
+        /* ignore */
+      }
+      clearPendingShellSession()
+      try {
+        sessionStorage.setItem(SS_PENDING_SHELL_SESSION, sk)
+      } catch {
+        /* ignore */
+      }
+      markShellEmptyDraft(sk)
+      if (!isChatHashRoute()) navigate('/chat')
+      onSelectSession(sk)
+    },
+    [onSelectSession],
+  )
+
+  const toggleDeptCollapsed = useCallback((deptId: string) => {
+    const id = String(deptId || '').trim()
+    if (!id) return
+    setCollapsedDeptIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
   /** 刷新某员工：花名册 + 会话列表；若当前正打开其会话则一并刷历史 */
   const refreshEmployeeGroup = useCallback(
     async (agentCode: string, rows: ShellSidebarSyncRow[]) => {
@@ -1317,6 +1364,26 @@ export function ShellSessionList({
       handleSelect(deptChatSessionKey(dept.id))
     },
     [handleSelect],
+  )
+
+  const refreshDeptRows = useCallback(async () => {
+    try {
+      const rows = await loadDeptChatList({ force: true })
+      setDeptRows(rows)
+    } catch (e) {
+      console.warn('[shell] dept refresh failed', e)
+    }
+  }, [])
+
+  const openDeptEdit = useCallback(
+    (dept: DeptChatMeta) => {
+      void showEditDeptModal(dept, {
+        onSaved: async () => {
+          await refreshDeptRows()
+        },
+      })
+    },
+    [refreshDeptRows],
   )
 
   /** 员工下拉：按岗位名 / agent_code / 花名册姓名过滤（「全部员工」固定项不受影响） */
@@ -1455,8 +1522,26 @@ export function ShellSessionList({
   // 组头 = 图标 + 组名（员工 tab 用头像 + 员工名）+ 会话数；单组/聚焦组不折叠（保持原行为）。
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
   const groupedRecentSections = useMemo(() => {
-    if (isEmployeesTab && focusedEmployeeCode) return null
     if (isEmployeesTab) {
+      // 下拉选中单个 BOT：仍渲染组头（头像/刷新/新开），否则「全部」时挂在组头上的
+      // 「+」会随分组树一起消失，用户找不到添加入口。
+      if (focusedEmployeeCode) {
+        const code = String(focusedEmployeeCode).trim()
+        const lc = code.toLowerCase()
+        const g = employeeGroups.find((x) => x.agentCode.toLowerCase() === lc)
+        const avatarCode = g?.agentCode || code
+        const label =
+          g?.label ||
+          resolveEmployeeGroupLabel(avatarCode, effectiveEmployeeRoles, agents)
+        return [
+          {
+            key: normalizeEmployeeCodeKey(avatarCode) || lc,
+            label: label || avatarCode,
+            rows: recentVisibleRows,
+            avatarAgentCode: avatarCode,
+          },
+        ]
+      }
       // 员工 tab：按 agent_code 分组，组头 = 员工头像 + 员工名
       const byCode = new Map<
         string,
@@ -1475,7 +1560,8 @@ export function ShellSessionList({
         entry.rows.push(row)
         byCode.set(lc, entry)
       }
-      if (byCode.size <= 1) return null
+      // 即使只有 1 个 BOT 有会话，也保留组头（否则「+ 新开」同样找不到）
+      if (byCode.size < 1) return null
       const sections = Array.from(byCode.entries()).map(([key, value]) => ({
         key,
         label: value.label || key,
@@ -1494,6 +1580,7 @@ export function ShellSessionList({
     recentVisibleRows,
     isEmployeesTab,
     focusedEmployeeCode,
+    employeeGroups,
     focusedWorkspaceKey,
     groups,
     effectiveEmployeeRoles,
@@ -1848,13 +1935,11 @@ export function ShellSessionList({
               onClick={() => setDeptMenuOpen((v) => !v)}
             >
               {activeDept ? (
-                <AssignedAgentAvatar
-                  agentCode={
-                    String(activeDept.head_agent_code || '').trim() ||
-                    String(activeDept.members[0]?.agent_code || '').trim() ||
-                    undefined
-                  }
-                  agents={agents}
+                <DeptAvatar
+                  avatar={activeDept.avatar}
+                  deptId={activeDept.id}
+                  avatarRev={activeDept.avatar_rev}
+                  name={activeDept.name}
                   size={16}
                   className="react-chat-aside-ws-trigger-ic"
                 />
@@ -1900,9 +1985,6 @@ export function ShellSessionList({
                 </button>
                 {deptMenuOptions.map((d) => {
                   const active = activeDeptId === d.id
-                  const avatarCode =
-                    String(d.head_agent_code || '').trim() ||
-                    String(d.members[0]?.agent_code || '').trim()
                   return (
                     <button
                       key={d.id}
@@ -1913,16 +1995,14 @@ export function ShellSessionList({
                       title={`${d.members.length} 人`}
                       onClick={() => selectDeptFromMenu(d)}
                     >
-                      {avatarCode ? (
-                        <AssignedAgentAvatar
-                          agentCode={avatarCode}
-                          agents={agents}
-                          size={16}
-                          className="react-chat-aside-ws-menu-item-avatar"
-                        />
-                      ) : (
-                        <ShellDeptsIcon size={14} className="react-chat-aside-ws-menu-item-avatar" />
-                      )}
+                      <DeptAvatar
+                        avatar={d.avatar}
+                        deptId={d.id}
+                        avatarRev={d.avatar_rev}
+                        name={d.name}
+                        size={16}
+                        className="react-chat-aside-ws-menu-item-avatar"
+                      />
                       <span className="react-chat-aside-ws-menu-item-label">{d.name}</span>
                       <span className="react-chat-aside-ws-menu-item-count">{d.members.length}</span>
                     </button>
@@ -2153,48 +2233,138 @@ export function ShellSessionList({
                   }
                   return filtered.map((d) => {
                     const sk = deptChatSessionKey(d.id)
-                    const active = displaySelectedKey === sk
-                    const head =
-                      d.head_role_name ||
-                      d.members.find((m) => m.agent_code === d.head_agent_code)?.role_name ||
-                      ''
-                    const avatarCode =
-                      String(d.head_agent_code || '').trim() ||
-                      String(d.members[0]?.agent_code || '').trim()
+                    const activeDept = displaySelectedKey === sk
+                    const collapsed = collapsedDeptIds.has(d.id)
+                    const headLc = String(d.head_agent_code || '').trim().toLowerCase()
+                    const members = (() => {
+                      const raw = Array.isArray(d.members) ? [...d.members] : []
+                      if (!headLc) return raw
+                      raw.sort((a, b) => {
+                        const aH =
+                          String(a.agent_code || '').trim().toLowerCase() === headLc
+                        const bH =
+                          String(b.agent_code || '').trim().toLowerCase() === headLc
+                        if (aH && !bH) return -1
+                        if (!aH && bH) return 1
+                        return 0
+                      })
+                      return raw
+                    })()
                     return (
-                      <li key={d.id} className="react-chat-session-item-wrap">
-                        <button
-                          type="button"
-                          className={`react-chat-session-item shell-dept-row${active ? ' active' : ''}`}
-                          onClick={() => {
-                            try {
-                              rememberDeptChatMeta(d)
-                            } catch {
-                              /* ignore */
-                            }
-                            handleSelect(sk)
-                          }}
-                        >
-                          {avatarCode ? (
-                            <AssignedAgentAvatar
-                              agentCode={avatarCode}
-                              agents={agents}
+                      <li key={d.id} className="react-chat-session-item-wrap shell-dept-group">
+                        <div className="shell-dept-group__head group/dept">
+                          <button
+                            type="button"
+                            className="shell-dept-group__chevron"
+                            aria-label={collapsed ? '展开部门成员' : '折叠部门成员'}
+                            aria-expanded={!collapsed}
+                            title={collapsed ? '展开成员' : '折叠成员'}
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              toggleDeptCollapsed(d.id)
+                            }}
+                          >
+                            <ShellChevronIcon
+                              size={12}
+                              className={`shell-dept-group__chevron-ic${collapsed ? '' : ' is-open'}`}
+                            />
+                          </button>
+                          <button
+                            type="button"
+                            className={`react-chat-session-item shell-dept-row${activeDept ? ' active' : ''}`}
+                            title="打开部门群聊"
+                            onClick={() => {
+                              try {
+                                rememberDeptChatMeta(d)
+                              } catch {
+                                /* ignore */
+                              }
+                              handleSelect(sk)
+                            }}
+                          >
+                            <DeptAvatar
+                              avatar={d.avatar}
+                              deptId={d.id}
+                              avatarRev={d.avatar_rev}
+                              name={d.name}
                               size={20}
                               className="shell-dept-row__avatar"
                             />
-                          ) : (
-                            <span className="shell-dept-row__avatar shell-dept-row__avatar--empty" aria-hidden>
-                              {String(d.name || '部').trim().slice(0, 1) || '部'}
+                            <span className="shell-dept-row__body">
+                              <span className="shell-dept-row__title">{d.name}</span>
+                              <span className="shell-dept-row__meta">{members.length}人</span>
                             </span>
-                          )}
-                          <span className="shell-dept-row__body">
-                            <span className="shell-dept-row__title">{d.name}</span>
-                            <span className="shell-dept-row__meta">
-                              {d.members.length}人
-                              {head ? ` · ${head}` : ''}
+                            <span
+                              role="button"
+                              tabIndex={0}
+                              className="shell-dept-row__edit"
+                              title="编辑部门"
+                              aria-label={`编辑 ${d.name}`}
+                              onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                openDeptEdit(d)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key !== 'Enter' && e.key !== ' ') return
+                                e.preventDefault()
+                                e.stopPropagation()
+                                openDeptEdit(d)
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" strokeWidth={2} />
                             </span>
-                          </span>
-                        </button>
+                          </button>
+                        </div>
+                        {!collapsed && members.length > 0 ? (
+                          <ul className="shell-dept-member-list" aria-label={`${d.name} 成员`}>
+                            {members.map((m) => {
+                              const code = String(m.agent_code || '').trim()
+                              if (!code) return null
+                              const memberSk = deptMemberWorkSessionKey(d.id, code)
+                              const activeMember = displaySelectedKey === memberSk
+                              const isHead =
+                                !!d.head_agent_code &&
+                                d.head_agent_code.toLowerCase() === code.toLowerCase()
+                              const role =
+                                String(m.role_name || '').trim() ||
+                                resolveEmployeeDisplayName(code, {
+                                  roles: effectiveEmployeeRoles,
+                                  agents,
+                                }) ||
+                                code
+                              return (
+                                <li key={`${d.id}:${code}`} className="shell-dept-member-item">
+                                  <button
+                                    type="button"
+                                    className={`shell-dept-member-row${activeMember ? ' active' : ''}${
+                                      m.busy ? ' is-busy' : ''
+                                    }`}
+                                    title={`打开 ${role} 的部门对话`}
+                                    onClick={() => openDeptMemberChat(d, code)}
+                                  >
+                                    <AssignedAgentAvatar
+                                      agentCode={code}
+                                      agents={agents}
+                                      size={18}
+                                      className="shell-dept-member-row__avatar"
+                                    />
+                                    <span className="shell-dept-member-row__body">
+                                      <span className="shell-dept-member-row__title">{role}</span>
+                                      <span className="shell-dept-member-row__meta">
+                                        {isHead ? '负责人' : '成员'}
+                                        {m.busy ? ' · 忙碌' : ''}
+                                      </span>
+                                    </span>
+                                  </button>
+                                </li>
+                              )
+                            })}
+                          </ul>
+                        ) : null}
+                        {!collapsed && members.length === 0 ? (
+                          <div className="shell-dept-member-empty">暂无成员</div>
+                        ) : null}
                       </li>
                     )
                   })

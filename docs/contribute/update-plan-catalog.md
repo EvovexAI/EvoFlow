@@ -57,4 +57,4 @@
 
 改完后更新本文件顶部「上次核对」日期（建议在 PR 描述里写官方 changelog 链接）。
 
-上次核对：2026-11-21（Token Plan：去掉全家 256K 占位，按百炼官方页写入 1M 上下文；补 qwen4-max / preview / decision-model-preview；DeepSeek max_output=393216）
+上次核对：2026-11-23（Agent Plan：补 Seedream 5.5 / Seedance 2.5 Flash，标注 Kimi-K3 即将下线；Token Plan：档位额度对齐 11-09 上调 Lite 20k / Essential 45k / Standard 80k / Pro 200k，Pro 价 ¥312）

@@ -24,7 +24,7 @@ export const DEFAULT_ENABLED_VENDORS = {
 export const DEFAULT_MEDIA_CREDENTIALS = {
   dashscopeApiKey: '',
   dashscopeBaseUrl: '',
-  dashscopeTtsVoice: 'longanyang',
+  dashscopeTtsVoice: 'longanlingxin',
   klingAccessKeyId: '',
   klingAccessKeySecret: '',
   klingApiKey: '',

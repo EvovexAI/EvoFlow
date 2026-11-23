@@ -723,7 +723,62 @@ def _audit_emit(outcome: str, event: dict[str, Any], action: Any, detail: str | 
         pass
 
 
+def _resolve_opened_by_actor() -> str:
+    """【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+
+    改了什么：新增「这个面板是谁打开的」后端盖章，返回 ``agent:<code>`` 或空串。
+    为什么（用户 2026-11-23 原话）：右栏面板必须能看出是用户 / 某个智能体 / 某条会话
+      打开的，否则「A 处打开的截图在别处出现时不知道来路」就会串台。
+      前端只能拿到 surface，拿不到「哪个运行体在调工具」，所以必须在这一层取环境 actor。
+    判据：只用 ``get_current_agent_actor()``（由 ``platform`` 工具按 runtime 注入的
+      ``proactive_agent_code`` 绑定）；取不到就返回空串，让前端按归属会话兜底成
+      ``session:<sessionKey>``——绝不在这里猜成 ``user``。
+    """
+    try:
+        from evoflow.authz.agent_actor import get_current_agent_actor
+
+        code = str(get_current_agent_actor() or "").strip()
+    except Exception:
+        return ""
+    if not code:
+        return ""
+    # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    # 实测（本轮 `_resolve_opened_by_actor` 直接调用，7 个取值）：
+    #   'proactive:release-engineer:task' → agent:release-engineer ✓
+    #   'agent:release-engineer'          → **agent:agent:release-engineer** ✗
+    # `normalize_agent_actor` 只认 ``proactive:`` / ``agent:main:`` 两类前缀，
+    # 通用 ``agent:<code>`` 前缀会原样保留 → 二次加前缀就变成双前缀，
+    # 前端按 agent_code 查岗位中文名查不到，签上只能显示裸串。
+    # 判据：自愈式剥前缀，不管上游有没有已经加过、加了几层，
+    # 出口永远是**恰好一层** ``agent:``。循环剥是必须的——本轮实测输入
+    # ``agent:agent:tech-director`` 时，只剥一次仍会吐 ``agent:agent:tech-director``。
+    while code.lower().startswith("agent:"):
+        code = code[len("agent:") :].strip()
+    # 实测：runtime 注入的 proactive_agent_code 可能是 ``proactive:x:task``，
+    # normalize_agent_actor 剥掉 ``proactive:`` 后仍留 ``:task``。
+    # 前端按 agent_code 查岗位中文名，带后缀就查不到 → 签上显示裸 code。这里剥干净。
+    for marker in (":task", ":duty", ":chat"):
+        if code.endswith(marker):
+            code = code[: -len(marker)].strip()
+    # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    # 为什么再排一次：`_bind_runtime_identity` 已把 main/user/auto 清成空，
+    # 但这是**另一条**入口（本函数直接读 ambient 变量）。若有人绕过那条入口设成
+    # `user`，这里会盖出 `agent:user` —— 把用户操作标成「智能体打开的」是谎报，
+    # 比不标更糟。宁可返回空让前端兜底成会话归属。
+    if code.lower() in {"user", "main", "auto", "lead_agent", "system"}:
+        return ""
+    return f"agent:{code}" if code else ""
+
+
 def _emit_surface(action: str, surface: dict[str, Any] | None = None) -> None:
+    # 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    # 改了什么：出站前统一盖一层 `openedBy`（surface 自带时不覆盖）。
+    # 为什么：本项目有 5 处 _emit_surface 调用点（show/update × 各分支），逐处加必漏；
+    #   统一钉在这个唯一出口，等于把「谁开的」变成结构保证而不是自觉。
+    if isinstance(surface, dict) and not str(surface.get("openedBy") or "").strip():
+        actor = _resolve_opened_by_actor()
+        if actor:
+            surface = {**surface, "openedBy": actor}
     _emit({"type": "right_stage", "action": action, "surface": surface})
 
 

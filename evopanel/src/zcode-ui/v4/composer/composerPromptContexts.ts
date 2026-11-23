@@ -18,6 +18,7 @@ import {
   parsePromptPptxElementReferences,
   type PptxElementReference,
 } from "@/lib/pptxElementReference.js";
+import { extractDeptGroupVisibleUserText } from "../../../react/lib/dept-group-turn.js";
 
 interface ComposerPromptContexts {
   codeComments: readonly CodeCommentComposerAttachment[];
@@ -66,7 +67,9 @@ export function parseComposerPromptContexts(
   webElements: WebElementContextComposerAttachment[];
   pptxElements: PptxElementReference[];
 } {
-  const pptx = parsePromptPptxElementReferences(content);
+  // 部门群聊 sticky 注入包：hint/recent 不进气泡，只留 instruction
+  const deptVisible = extractDeptGroupVisibleUserText(content);
+  const pptx = parsePromptPptxElementReferences(deptVisible);
   const web = parsePromptWebElementContexts(pptx.visibleContent, workspace);
   const code = parsePromptCodeComments(web.visibleContent, workspace);
   const selections = parsePromptConversationSelections(code.visibleContent);

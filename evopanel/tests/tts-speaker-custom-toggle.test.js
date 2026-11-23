@@ -15,7 +15,9 @@ import {
   buildTtsSpeakerFieldHtml,
   bindTtsSpeakerFields,
   readTtsSpeakerDraft,
+  openTtsSpeakerPicker,
 } from '../src/components/tts-speaker-picker.js'
+import { previewSpeechTts } from '../src/lib/speech-client.js'
 
 const PRESETS = [
   { value: 'zh_female_a', label: '音色A' },
@@ -65,5 +67,31 @@ describe('tts speaker custom-mode toggle', () => {
     input.value = 'my_custom_voice'
     input.dispatchEvent(new Event('input', { bubbles: true }))
     expect(readTtsSpeakerDraft(host)[FIELD]).toBe('my_custom_voice')
+  })
+
+  it('modal preview keeps dashscope provider (not default volcengine)', async () => {
+    previewSpeechTts.mockResolvedValue({
+      audio: { play: vi.fn(async () => {}), pause: vi.fn(), onended: null, onerror: null },
+      speakerUsed: 'longanlingxin',
+      digest: '',
+    })
+    openTtsSpeakerPicker({
+      presets: [{ value: 'longanlingxin', label: '龙安灵心' }],
+      currentValue: 'longanlingxin',
+      provider: 'dashscope',
+      onSelect: () => {},
+    })
+    const overlay = document.querySelector('[data-tts-preview-provider="dashscope"]')
+    expect(overlay).toBeTruthy()
+    const btn = overlay.querySelector('[data-tts-speaker-preview="longanlingxin"]')
+    expect(btn).toBeTruthy()
+    btn.click()
+    await vi.waitFor(() => expect(previewSpeechTts).toHaveBeenCalled())
+    expect(previewSpeechTts).toHaveBeenCalledWith(
+      expect.any(String),
+      'longanlingxin',
+      expect.objectContaining({ provider: 'dashscope' }),
+    )
+    overlay.remove()
   })
 })

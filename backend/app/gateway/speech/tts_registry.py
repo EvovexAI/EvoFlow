@@ -35,8 +35,8 @@ logger = logging.getLogger(__name__)
 
 TTS_PROVIDERS: list[dict[str, Any]] = [
     {"id": "volcengine", "label": "火山引擎", "streaming": True},
-    {"id": "doubao", "label": "豆包（方舟）", "streaming": True},
-    {"id": "dashscope", "label": "阿里 DashScope", "streaming": False},
+    {"id": "doubao", "label": "火山方舟 Key（同 OpenSpeech，非阿里云）", "streaming": True},
+    {"id": "dashscope", "label": "阿里云语音", "streaming": False},
     {"id": "openai", "label": "OpenAI TTS", "streaming": True},
     {"id": "elevenlabs", "label": "ElevenLabs", "streaming": True},
     {"id": "minimax", "label": "MiniMax", "streaming": False},
@@ -131,14 +131,14 @@ TTS_PROVIDER_REQUIREMENTS: dict[str, dict[str, Any]] = {
         "guide": ("请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key，并打开启用开关。Agent Plan 用户可填火山方舟专属 Key（ark- 开头）。"),
     },
     "doubao": {
-        "label": "豆包（方舟）",
+        "label": "火山方舟 Key（同 OpenSpeech，非阿里云）",
         "groups": [{"keys": ["volcengineSpeechApiKey", "volcengineApiKey"], "label": "语音 API Key / 方舟 Key"}],
-        "guide": ("请在 设置 → 模型 → 创意媒体 → 火山 TTS 填写语音 API Key（ark- 开头的方舟 Key 也可）。"),
+        "guide": ("请在 设置 → 模型 → 语音 → 火山语音 填写 API Key（ark- 方舟 Key 也可；仍走 openspeech，不是百炼）。"),
     },
     "dashscope": {
-        "label": "阿里 DashScope",
+        "label": "阿里云语音",
         "groups": [{"keys": ["dashscopeApiKey"], "label": "DashScope API Key"}],
-        "guide": ("请在 设置 → 模型 → 创意媒体 → 通义万相 填写 DashScope API Key，并打开启用开关。"),
+        "guide": ("请在 设置 → 模型 → 语音 → 阿里云语音 填写 DashScope / Token Plan Key，并打开启用开关。"),
     },
     "openai": {
         "label": "OpenAI TTS",
@@ -330,9 +330,15 @@ def synthesize_tts(
         return audio, used
 
     if prov == "dashscope":
-        from evoflow.community.media_generation.providers.dashscope_tts import synthesize_speech as _ds
+        from evoflow.community.media_generation.providers.dashscope_tts import (
+            TOKEN_PLAN_DEFAULT_VOICE,
+            synthesize_speech as _ds,
+            _is_token_plan_key,
+        )
 
-        used = voice or _cred_value(creds, "dashscopeTtsVoice") or "longanyang"
+        key = _cred_value(creds, "dashscopeApiKey", "DASHSCOPE_API_KEY")
+        default_voice = TOKEN_PLAN_DEFAULT_VOICE if _is_token_plan_key(key) else "longanyang"
+        used = voice or _cred_value(creds, "dashscopeTtsVoice") or default_voice
         audio = _ds(text, voice=used)
         return audio, used
 
@@ -414,9 +420,15 @@ async def synthesize_tts_stream(
     if prov == "dashscope":
         # DashScope has no native stream; synthesize (sync HTTP) then yield once.
         # Off-loop: the sync request would otherwise stall the gateway loop.
-        from evoflow.community.media_generation.providers.dashscope_tts import synthesize_speech as _ds
+        from evoflow.community.media_generation.providers.dashscope_tts import (
+            TOKEN_PLAN_DEFAULT_VOICE,
+            synthesize_speech as _ds,
+            _is_token_plan_key,
+        )
 
-        used = voice or _cred_value(creds, "dashscopeTtsVoice") or "longanyang"
+        key = _cred_value(creds, "dashscopeApiKey", "DASHSCOPE_API_KEY")
+        default_voice = TOKEN_PLAN_DEFAULT_VOICE if _is_token_plan_key(key) else "longanyang"
+        used = voice or _cred_value(creds, "dashscopeTtsVoice") or default_voice
         yield await asyncio.to_thread(_ds, text, voice=used)
         return
 

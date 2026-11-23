@@ -1,19 +1,24 @@
-/** CosyVoice v3-flash 常用音色（与 backend TTS_VOICES.dashscope 对齐） */
+/** 阿里云语音音色：Token Plan（sk-sp-）用 Qwen-Audio；按量 sk- 才用 CosyVoice */
 export const DASHSCOPE_TTS_SPEAKER_DOC_URL =
-  'https://help.aliyun.com/zh/model-studio/cosyvoice-voice-list'
+  'https://help.aliyun.com/zh/model-studio/token-plan-speech-synthesis'
 
 export const DASHSCOPE_TTS_SPEAKER_PRESETS = [
-  { value: 'longanyang', label: '龙安洋（男声，阳光）' },
-  { value: 'longanhuan', label: '龙安欢（女声，元气）' },
-  { value: 'longxiaochun_v3', label: '龙小淳 v3（女声，知性）' },
-  { value: 'longxiaoxia_v3', label: '龙小夏 v3（女声，沉稳）' },
-  { value: 'longcheng_v3', label: '龙橙 v3（男声，智慧）' },
-  { value: 'longze_v3', label: '龙泽 v3（男声，温暖）' },
-  { value: 'longmiao_v3', label: '龙妙 v3（女声，有声书）' },
-  { value: 'longsanshu_v3', label: '龙三叔 v3（男声，沉稳）' },
-  { value: 'longanrou_v3', label: '龙安柔 v3（女声，温柔）' },
-  { value: 'longyingjing_v3', label: '龙应静 v3（女声，客服）' },
-  { value: 'longhua_v3', label: '龙华 v3（女声，元气甜美）' },
+  // Token Plan（sk-sp- / qwen-audio-3.0-tts-plus）— 套餐用户请只用这组
+  { value: 'longanlingxin', label: '龙安灵心（推荐 · Token Plan · 女声）' },
+  { value: 'longanlufeng', label: '龙安鲁风（Token Plan · 男声）' },
+  { value: 'longanhuan_v3.6', label: '龙安欢 v3.6（Token Plan）' },
+  // 按量 CosyVoice（仅 sk- + dashscope.aliyuncs.com；Token Plan 会自动落到上面音色）
+  { value: 'longanyang', label: '龙安洋（仅按量 CosyVoice · 男声）' },
+  { value: 'longanhuan', label: '龙安欢（仅按量 CosyVoice · 女声）' },
+  { value: 'longxiaochun_v3', label: '龙小淳 v3（仅按量 CosyVoice）' },
+  { value: 'longxiaoxia_v3', label: '龙小夏 v3（仅按量 CosyVoice）' },
+  { value: 'longcheng_v3', label: '龙橙 v3（仅按量 CosyVoice）' },
+  { value: 'longze_v3', label: '龙泽 v3（仅按量 CosyVoice）' },
+  { value: 'longmiao_v3', label: '龙妙 v3（仅按量 CosyVoice）' },
+  { value: 'longsanshu_v3', label: '龙三叔 v3（仅按量 CosyVoice）' },
+  { value: 'longanrou_v3', label: '龙安柔 v3（仅按量 CosyVoice）' },
+  { value: 'longyingjing_v3', label: '龙应静 v3（仅按量 CosyVoice）' },
+  { value: 'longhua_v3', label: '龙华 v3（仅按量 CosyVoice）' },
 ]
 
 export const OPENAI_TTS_SPEAKER_PRESETS = [

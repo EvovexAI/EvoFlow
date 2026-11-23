@@ -10,18 +10,30 @@ logger = logging.getLogger(__name__)
 
 
 def synthesize_speech(text: str, *, voice_type: str | None = None) -> bytes:
-    """Volcengine openspeech TTS (same API as podcast-generation skill)."""
+    """Volcengine openspeech TTS.
+
+    Prefer legacy AppId+Token v1 when present; otherwise Agent Plan / Seed
+    Speech ``ark-`` Key via runtime speech port (OpenSpeech ``/api/v3/plan/tts``).
+    """
     from evoflow.persistence.media_settings import get_vendor_credentials, vendor_setup_hint
 
     bundle = get_vendor_credentials("volcengine-tts")
     app_id = bundle.get("ttsAppId", "")
     access_token = bundle.get("ttsAccessToken", "")
     cluster = bundle.get("ttsCluster", "volcano_tts")
+    voice = voice_type or bundle.get("ttsSpeaker", "zh_female_vv_uranus_bigtts")
 
     if not app_id or not access_token:
+        speech_key = str(bundle.get("speechApiKey") or bundle.get("apiKey") or "").strip()
+        if speech_key:
+            from evoflow.runtime.ports import synthesize_speech_v3
+
+            result = synthesize_speech_v3(text, speaker=voice)
+            if not result or not result[0]:
+                raise RuntimeError("Volcengine Agent Plan TTS returned empty audio")
+            return result[0]
         raise ValueError(vendor_setup_hint("volcengine-tts"))
 
-    voice = voice_type or bundle.get("ttsSpeaker", "zh_female_vv_uranus_bigtts")
     url = "https://openspeech.bytedance.com/api/v1/tts"
     headers = {
         "Content-Type": "application/json",

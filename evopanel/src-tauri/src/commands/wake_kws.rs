@@ -141,6 +141,21 @@ fn first_existing(paths: &[PathBuf], marker: &str) -> Option<PathBuf> {
   None
 }
 
+/// Node on Windows (esp. v24) realpaths the main script via `lstat`; a verbatim
+/// `\\?\D:\...` path can collapse to drive root `D:` → EISDIR and instant exit.
+/// Strip the prefix before handing paths to node / JSON modelDir.
+fn path_for_node(p: &Path) -> PathBuf {
+  let s = p.to_string_lossy();
+  if let Some(rest) = s.strip_prefix(r"\\?\") {
+    // Keep UNC `\\?\UNC\server\share\...` as `\\server\share\...`
+    if let Some(unc) = rest.strip_prefix("UNC\\") {
+      return PathBuf::from(format!(r"\\{unc}"));
+    }
+    return PathBuf::from(rest);
+  }
+  p.to_path_buf()
+}
+
 fn write_line(stdin: &mut ChildStdin, value: &serde_json::Value) -> Result<(), String> {
   let mut line = value.to_string();
   line.push('\n');
@@ -281,18 +296,23 @@ pub fn wake_kws_start(
     stop_session_locked(&mut guard);
   }
 
-  let sidecar_dir = first_existing(&candidate_sidecar_dirs(&app), "kws-process.cjs")
+  let sidecar_dir_raw = first_existing(&candidate_sidecar_dirs(&app), "kws-process.cjs")
     .ok_or_else(|| "找不到 kws-sidecar/kws-process.cjs".to_string())?;
-  let node = which_node(Some(&sidecar_dir)).ok_or_else(|| {
-    "未找到 Node.js：请打包时执行 npm run kws:node，或安装系统 Node 以运行 kws-sidecar"
-      .to_string()
-  })?;
-  let script = sidecar_dir.join("kws-process.cjs");
+  let sidecar_dir = path_for_node(&sidecar_dir_raw);
+  let node = which_node(Some(&sidecar_dir_raw))
+    .or_else(|| which_node(Some(&sidecar_dir)))
+    .ok_or_else(|| {
+      "未找到 Node.js：请打包时执行 npm run kws:node，或安装系统 Node 以运行 kws-sidecar"
+        .to_string()
+    })?;
+  let node = path_for_node(&node);
+  let script = path_for_node(&sidecar_dir.join("kws-process.cjs"));
   let model_dir = first_existing(
     &candidate_model_dirs(&app),
     "encoder-epoch-12-avg-2-chunk-16-left-64.onnx",
   )
   .ok_or_else(|| "找不到 public/kws 模型目录".to_string())?;
+  let model_dir = path_for_node(&model_dir);
 
   let mut cmd = Command::new(&node);
   cmd.arg(&script)

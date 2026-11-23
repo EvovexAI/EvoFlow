@@ -81,6 +81,7 @@ export default defineConfig({
       'tests/transcript-persist.test.js',
       'tests/transcript-resume-anchor.test.js',
       'tests/workspace-api-scope.test.js',
+      'tests/chat-workspace-root-placeholder.test.js',
       'tests/artifact-absolute-path.test.js',
       'tests/workspace-stream-preview.test.js',
       'tests/workspace-html-preview.test.js',
@@ -227,6 +228,7 @@ export default defineConfig({
       'tests/background-voice.test.js',
       'tests/voice-listen-control.test.js',
       'tests/voice-reply-speech.test.js',
+      'tests/xiaomi-voice-provider.test.js',
       'tests/speech-client-queue.test.js',
       'tests/goal-closure-local.test.js',
       'tests/license-nav.test.js',
@@ -266,6 +268,10 @@ export default defineConfig({
       'tests/right-stage-codeviewer-error-boundary.test.js',
       'tests/right-stage-tab-layout.test.ts',
       'tests/right-stage-store-tabs.test.ts',
+      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+      // 右栏「谁打开的」溯源：三态取值域 + 创建时定死 + 缺省兜底会话而非 user。
+      // 用户原话「我在 A 打开了一个截图，但在别处看到却不知道是谁打开的，就容易错乱」。
+      'tests/right-stage-opened-by.test.ts',
       'tests/right-stage-force-expand.test.js',
       'tests/right-stage-scope.test.ts',
       'tests/right-stage-artifacts-session-stamp.test.ts',

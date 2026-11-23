@@ -147,7 +147,9 @@ function updatePortalPosition(trigger, menu, placement) {
   menu.style.position = 'fixed'
   menu.style.left = `${Math.max(sidePad, Math.min(r.left, window.innerWidth - sidePad - minW))}px`
   menu.style.minWidth = `${minW}px`
-  menu.style.zIndex = '10060'
+  // Must beat settings modal overlay (1000001). Inline 10060 used to bury the menu
+  // behind the modal →「下拉打开了但啥都看不到」.
+  menu.style.zIndex = '1000035'
 
   if (placement === 'up') {
     const bottom = Math.max(sidePad, window.innerHeight - r.top + gap)

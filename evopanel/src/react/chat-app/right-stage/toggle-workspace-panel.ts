@@ -52,6 +52,10 @@ export function toggleWorkspacePanel(ctx: ToggleWorkspacePanelCtx): void {
       layout: existing.layout,
       data: existing.data || {},
       sessionKey: existing.sessionKey,
+      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+      // 用户亲手点开侧栏工作区 → 盖章 user。已有的 true 值仍以 store 里的首次值为准
+      // （store 的 same-key 分支不会覆盖 openedBy）。
+      openedBy: 'user',
       forceExpand: true,
     })
     ctx.syncShellAsideForWorkspacePanel(true)

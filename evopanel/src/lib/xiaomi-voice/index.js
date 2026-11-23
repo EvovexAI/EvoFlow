@@ -7,6 +7,7 @@ export {
   getXiaomiTtsSpeaker,
   resolveXiaomiTtsSpeaker,
   setXiaomiTtsSpeaker,
+  preferDashscopeWhenVolcMissing,
   XIAOMI_DEFAULT_TTS_SPEAKER,
 } from './config.js'
 

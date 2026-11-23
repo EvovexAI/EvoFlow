@@ -182,6 +182,10 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
       title: '小V',
       layout: 'narrow',
       data: { globalAssistant: true },
+      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+      // 小V 签的打开来源：用户点侧栏 / 唤醒词都是用户侧动作 → 'user'。
+      // 这样签上显示「我」，不会被误当成某个员工智能体在动右栏。
+      openedBy: 'user',
       forceExpand: true,
     })
     syncXiaomiStageDomHint(true)

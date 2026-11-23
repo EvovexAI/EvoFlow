@@ -72,6 +72,9 @@ export const WorkspaceDeliverableCard = memo(function WorkspaceDeliverableCard({
       showRightStageFilePreview(rawPath, {
         name: title,
         sessionKey: getCurrentRightStageSessionKey(),
+        // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+        // 交付卡是用户亲手点开的 → 盖章 user，与模型自动开栏区分开。
+        openedBy: 'user',
       })
     },
     [isUrl, onPreview, rawPath, title],

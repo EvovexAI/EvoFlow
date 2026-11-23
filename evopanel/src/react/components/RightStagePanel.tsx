@@ -49,7 +49,9 @@ import '@/styles-bridge.css'
 import { RightStageTabActiveProvider } from '../v4/right-stage-tab-active.js'
 import {
   defaultTitleForKind,
+  describeOpenedBy,
   normalizeRightStageKind,
+  parseOpenedBy,
   type RightStageSurface,
 } from '../../lib/right-stage/right-stage-types.js'
 import type { RecentClosedRightStageTab } from '../../lib/right-stage/right-stage-store.js'
@@ -176,6 +178,7 @@ function StageTabChip({
   tab,
   active,
   alone = false,
+  agentLabelMap,
   onActivate,
   onClose,
   onContextMenu,
@@ -184,6 +187,11 @@ function StageTabChip({
   active: boolean
   /** 仅一枚标签时放宽 max-width，标题可读；多签仍等宽弹性、不抢拖窗区。 */
   alone?: boolean
+  /**
+   * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+   * agent_code → 岗位中文名。有中文名就不显示裸 code（`agent:e8f1…` 对用户无意义）。
+   */
+  agentLabelMap?: Record<string, string> | null
   onActivate: (key: string) => void
   onClose: (key: string) => void
   onContextMenu: (key: string, x: number, y: number) => void
@@ -227,6 +235,16 @@ function StageTabChip({
   }
   if (isDragging) wasDraggingRef.current = true
 
+  // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+  // 改了什么：签上显示「谁打开的」——tooltip 写全量文案，签面加一枚极小的角标字，
+  //   并把三态写进 data-opened-by / data-opened-by-kind 供 UI 实测与排障读取。
+  // 为什么（用户 2026-11-23 原话）：「我在 A 这个地方打开了一个截图，但是我在其他地方
+  //   看到这个截图，却不知道是谁打开的，就容易错乱。」没有溯源就只能靠猜会话键。
+  // 判据：`openedBy` 为空时**不显示任何角标**（不猜、不占位）；三态各用自己的字符，
+  //   用户=「我」、智能体=「AI」、会话=「会话」，颜色也不同，肉眼一眼能分。
+  const openedByText = describeOpenedBy(tab.openedBy, agentLabelMap)
+  const openedByInfo = parseOpenedBy(tab.openedBy)
+
   return (
     <div
       ref={setNodeRef}
@@ -235,7 +253,9 @@ function StageTabChip({
       data-alone={alone ? '1' : undefined}
       data-active={active ? '' : undefined}
       data-state={active ? 'active' : 'inactive'}
-      title={title}
+      data-opened-by={tab.openedBy || undefined}
+      data-opened-by-kind={openedByInfo?.kind}
+      title={openedByText ? `${title} — ${openedByText}打开的` : title}
       style={style}
       {...attributes}
       {...listeners}
@@ -307,6 +327,18 @@ function StageTabChip({
             agentTitle={empTitle || undefined}
           />
         </span>
+        {/* 【self-evolution-bot · 2026-11-23 · 第128轮续 · 模型:deepseek-v4.1-flash】
+            改了什么：签面上**不再常显**任何归属角标，归属只在鼠标移上去时通过签的
+            `title` 悬停提示看到；签上平时只有 icon + 标题，横向空间零占用。
+            为什么（用户 2026-11-23 原话）：「这个鼠标移动上去再显示就行了，不需要很明显地
+              显示，不然的话很占空间」「右侧本来卡片的位置，标题占用的空间就很小了」
+              「让 AI 能看懂就可以了……这个后面主要是让 AI 看，或者鼠标移上去看」。
+            为什么不做悬停浮层：签根节点与内容容器都带 `overflow-hidden` + 右端
+              `mask-image` 渐隐，浮层会被裁掉或淡到看不清，等于白做。
+            判据：归属的可读面只有两处——① 悬停（`title`，见本组件根节点的
+              `${title} — ${openedByText}打开的`）；② 机读（根节点 `data-opened-by` /
+              `data-opened-by-kind` + 上报 payload 的 `tabs[].openedBy`，AI 走
+              `platform action=ui.current` 即可读到）。**没有任何常显像素**。 */}
         <span data-side-pane-tab-title="" className="min-w-0 truncate whitespace-nowrap">
           {title}
         </span>
@@ -561,6 +593,23 @@ export const RightStagePanel = memo(function RightStagePanel({
     () => (draggingKey ? tabs.find((t) => tabKeyOf(t) === draggingKey) ?? null : null),
     [draggingKey, tabs],
   )
+
+  // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+  // 改了什么：把「agent_code → 岗位中文名」映射提到组件层只算一次。
+  // 为什么：先前是写在 `tabs.map()` 里，**每个签各建一份**对象；右栏多开 8 个签
+  //   就是同一次渲染里 reduce 8 遍、产生 8 份临时对象。签数越多越贵，且没有意义
+  //   （输入完全相同）。
+  // 判据：`employeeChatRoles` 引用不变时不重算（useMemo 依赖就是它）。
+  const agentLabelMap = useMemo<Record<string, string>>(() => {
+    return employeeChatRoles.reduce<Record<string, string>>((m, r) => {
+      const code = String(r.agent_code || '').trim()
+      // 岗位中文名优先取 role_name，其次 agent_name；都没有就不登记，
+      // 让 describeOpenedBy 退回裸 code（宁可显示 code，也不显示空标签）。
+      const label = String(r.role_name || r.agent_name || '').trim()
+      if (code && label) m[code] = label
+      return m
+    }, {})
+  }, [employeeChatRoles])
 
   const isOverflowing = resolveStageTabsOverflow({
     addButtonWidth: 28,
@@ -863,6 +912,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                 tabs={tabs}
                 activeKey={visibleActiveKey}
                 recentClosed={recentClosed}
+                agentLabelMap={agentLabelMap}
                 onActivateTab={(key) => {
                   onActivateTab(key)
                   setOverviewOpen(false)
@@ -898,6 +948,7 @@ export const RightStagePanel = memo(function RightStagePanel({
                     tab={tab}
                     alone={tabs.length === 1}
                     active={tabKeyOf(tab) === visibleActiveKey}
+                    agentLabelMap={agentLabelMap}
                     onActivate={onActivateTab}
                     onClose={onCloseTab}
                     onContextMenu={openTabContextMenu}

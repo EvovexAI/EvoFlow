@@ -55,6 +55,13 @@ def _image_model_guide() -> list[dict[str, Any]]:
             "use_when": "要更快出图、可略降画质",
             "modes": ["text2image", "image2image"],
         },
+        {
+            "id": "doubao-seedream-5.5",
+            "label": "Seedream 5.5",
+            "min_tier": "small",
+            "use_when": "Agent Plan 新上线；画质 / 一致性优先时可试",
+            "modes": ["text2image", "image2image"],
+        },
     ]
 
 
@@ -65,6 +72,14 @@ def _video_model_guide() -> list[dict[str, Any]]:
             "label": "Seedance 2.5",
             "min_tier": "large",
             "use_when": "默认推荐；更强运镜与多模态参考（最长约 30s）",
+            "duration": "4–30 秒（或 -1 由模型自选）",
+            "resolution": ["480p", "720p", "1080p"],
+        },
+        {
+            "id": "doubao-seedance-2.5-flash",
+            "label": "Seedance 2.5 Flash",
+            "min_tier": "large",
+            "use_when": "要更快出片、可略降画质；Large / Max",
             "duration": "4–30 秒（或 -1 由模型自选）",
             "resolution": ["480p", "720p", "1080p"],
         },

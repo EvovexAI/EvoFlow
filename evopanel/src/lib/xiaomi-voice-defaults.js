@@ -3,8 +3,8 @@
  * 朗读靠 prefer / xwVoice，不改全局「语音播报」开关（避免退出后主对话误播）。
  *
  * 语音转换在哪：
- * - ASR（你说 → 字）：前台采麦 → Gateway `/api/speech/asr*` → 火山识别（后台）
- * - TTS（字 → 播报）：前台拿到助手正文 → Gateway `POST /api/speech/tts` → 火山合成（后台）→ 前台 Audio 播放
+ * - ASR / TTS：小V Frame 会话按设置里的识别/合成通道（默认火山；可切阿里云等）
+ * - 勿把「豆包」当成阿里云——豆包/方舟与火山走同一 OpenSpeech 口
  *
  * 诊断日志：过滤控制台 `[xiaomi-voice]`。
  * 更细 TTS 队列：localStorage.setItem('EVOFLOW_DEBUG_SPEECH','1')
@@ -192,13 +192,34 @@ export async function ensureXiaomiVoiceReplyOn() {
   }
   xiaomiVoiceLog('ensure: speech status', speechDetail)
   if (!speechOk) {
-    console.warn(
-      '[xiaomi-voice] ensure: Gateway 报告语音未配置。请到「设置 → 模型」确认火山 TTS/ASR；合成在后台 Gateway，播放在前台。',
-    )
+    try {
+      const { getXiaomiTtsProvider } = await import('./xiaomi-voice/config.js')
+      const tts = getXiaomiTtsProvider()
+      if (tts === 'dashscope') {
+        console.warn(
+          '[xiaomi-voice] ensure: 火山 status 未就绪，但小V TTS=阿里云；请确认「设置 → 语音 → 阿里云语音」Key，并重新进小V 全屏。',
+        )
+      } else {
+        console.warn(
+          '[xiaomi-voice] ensure: Gateway 报告火山语音未配置。测阿里云请到「阿里云语音」并切 ASR/TTS 通道；勿停在火山/豆包口。',
+        )
+      }
+    } catch {
+      console.warn('[xiaomi-voice] ensure: Gateway 报告语音未配置。')
+    }
   }
 
-  // 当前配置的朗读音色（设置 → 媒体 / 模型里的 volcengineTtsSpeaker）
+  // 按当前小V TTS 通道写入匹配音色（勿永远钉死火山 uranus）
   try {
+    const {
+      getXiaomiTtsProvider,
+      setXiaomiTtsSpeaker,
+      resolveXiaomiTtsSpeaker,
+      labelXiaomiTtsProvider,
+      labelXiaomiAsrProvider,
+      getXiaomiAsrProvider,
+      preferDashscopeWhenVolcMissing,
+    } = await import('./xiaomi-voice/config.js')
     const { getCachedMediaCredentials, fetchMediaCredentials, DEFAULT_MEDIA_CREDENTIALS } =
       await import('./media-settings.js')
     let creds = getCachedMediaCredentials?.()
@@ -209,14 +230,29 @@ export async function ensureXiaomiVoiceReplyOn() {
         creds = null
       }
     }
-    const speakerId = String(
-      creds?.volcengineTtsSpeaker || DEFAULT_MEDIA_CREDENTIALS?.volcengineTtsSpeaker || '',
-    ).trim()
-    // 先落 speaker（唤醒热路径依赖），label 解析可慢（日志曾卡 ~5s）放到后台
-    if (speakerId) {
-      const { setXiaomiTtsSpeaker } = await import('./xiaomi-voice/config.js')
-      setXiaomiTtsSpeaker(speakerId)
+    const enabled = creds?.enabledVendors || {}
+    const auto = preferDashscopeWhenVolcMissing({
+      dashscopeKey: creds?.dashscopeApiKey,
+      dashscopeTtsEnabled: enabled['dashscope-tts'] !== false && !!String(creds?.dashscopeApiKey || '').trim(),
+      volcSpeechKey: creds?.volcengineSpeechApiKey || creds?.volcengineApiKey,
+      volcTtsEnabled: !!enabled['volcengine-tts'],
+    })
+    if (auto.switched) {
+      xiaomiVoiceLog('ensure: 仅阿里云可用，已自动切小V ASR/TTS → 阿里云', auto)
     }
+    const ttsProv = getXiaomiTtsProvider()
+    const fromCreds =
+      ttsProv === 'dashscope'
+        ? String(creds?.dashscopeTtsVoice || DEFAULT_MEDIA_CREDENTIALS?.dashscopeTtsVoice || '').trim()
+        : String(creds?.volcengineTtsSpeaker || DEFAULT_MEDIA_CREDENTIALS?.volcengineTtsSpeaker || '').trim()
+    if (fromCreds) setXiaomiTtsSpeaker(fromCreds)
+    const speakerId = resolveXiaomiTtsSpeaker()
+    setXiaomiTtsSpeaker(speakerId)
+    xiaomiVoiceLog('ensure: 通道', {
+      asr: labelXiaomiAsrProvider(getXiaomiAsrProvider()),
+      tts: labelXiaomiTtsProvider(ttsProv),
+      speaker: speakerId,
+    })
     void resolveTtsSpeakerLabel(speakerId).then((label) => {
       xiaomiVoiceLog('ensure: 配置音色', { speaker: speakerId || '(空)', label })
     })

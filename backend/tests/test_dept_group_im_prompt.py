@@ -68,7 +68,8 @@ def test_build_dept_group_im_steward_block():
     assert "打招呼" in block
     assert "Markdown" in block
     assert "本群可点名：技术总监、测试工程师、全栈工程师" in block
-    assert "【群近期】" in block
+    assert "<dept_group_recent>" in block
+    assert "<dept_group_instruction>" in block
     assert "agent_code" in block or "内部编码" in block
     assert "employees.dispatch" in block
     assert "禁止用派发代替" in block or "优先 @" in block

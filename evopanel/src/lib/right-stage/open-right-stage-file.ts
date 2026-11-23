@@ -150,6 +150,12 @@ export type OpenRightStageCodeViewerOpts = {
   threadId?: string | null
   /** 默认 half：侧栏可读，不把对话挤没。 */
   layout?: RightStageLayout
+  /**
+   * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+   * 「谁打开的」：只有**用户亲手点**的入口传 `'user'`；模型/自动链路一律不传，
+   * 由 store 兜底成 `session:<归属会话>`。缺省不猜 user，避免把自动开谎报成用户行为。
+   */
+  openedBy?: string
 }
 
 /** 音视频：与文件树 createCodeViewerSourceForWorkspaceFile 同构，走流式 serve-file。 */
@@ -233,6 +239,9 @@ export function showRightStageCodeViewer(
     title: source.title || basename(pathOrTitle) || '代码对比',
     layout: opts?.layout || 'half',
     sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 透传「谁打开的」：只有用户亲手点的入口会带 'user'，其余由 store 兜底成会话归属。
+    openedBy: opts?.openedBy,
     forceExpand: true,
     data: {
       // 原样透传，PreviewPane 需要完整联合成员字段（patch / media 等）
@@ -321,6 +330,8 @@ export type OpenRightStageFilePreviewOpts = {
   focusEndLine?: number
   focusAnnotation?: { title?: string; body?: string; priority?: number } | null
   layout?: RightStageLayout
+  /** 「谁打开的」：仅用户亲手点开的入口传 'user'；自动链路不传（store 兜底成会话归属）。 */
+  openedBy?: string
 }
 
 /** 工作区文件路径 → 右栏 file 标签（WorkspaceFilePreviewPanel）。音视频改走 media。 */
@@ -347,6 +358,7 @@ export function showRightStageFilePreview(
       sessionKey: opts?.sessionKey,
       threadId: opts?.threadId,
       layout: opts?.layout,
+      openedBy: opts?.openedBy,
     })
   }
   const key = `file:${id}`
@@ -366,6 +378,8 @@ export function showRightStageFilePreview(
     title: name,
     layout,
     sessionKey,
+    // 透传「谁打开的」：只有用户亲手点的入口带 'user'，其余由 store 兜底成会话归属。
+    openedBy: opts?.openedBy,
     forceExpand: true,
     data: {
       path: id,
@@ -409,6 +423,8 @@ export type OpenRightStageWorkspaceBrowseOpts = {
   focusPath?: string | null
   workspaceRoot?: string | null
   title?: string | null
+  /** 「谁打开的」：仅用户亲手点开的入口传 'user'；自动链路不传（store 兜底成会话归属）。 */
+  openedBy?: string
 }
 
 /** 右栏「工作区文件」树；可带 focusPath 展开到对话里点的那一层目录。 */
@@ -437,6 +453,9 @@ export function showRightStageWorkspaceBrowse(
     title,
     layout: 'workspace-browse',
     sessionKey: String(opts?.sessionKey || '').trim() || undefined,
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 透传「谁打开的」：只有用户亲手点的入口会带 'user'，其余由 store 兜底成会话归属。
+    openedBy: opts?.openedBy,
     forceExpand: true,
     data: {
       ...(workspaceRoot ? { workspaceRoot } : {}),
@@ -452,6 +471,8 @@ export type OpenRightStageAssetPreviewOpts = {
   entityId?: string | null
   name?: string | null
   layout?: RightStageLayout
+  /** 「谁打开的」：仅用户亲手点开的入口传 'user'；自动链路不传（store 兜底成会话归属）。 */
+  openedBy?: string
 }
 
 /**
@@ -484,6 +505,9 @@ export function showRightStageAssetPreview(
     id,
     title: name,
     layout,
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 透传「谁打开的」：只有用户亲手点的入口会带 'user'，其余由 store 兜底成会话归属。
+    openedBy: opts?.openedBy,
     forceExpand: true,
     sessionKey,
     data: {

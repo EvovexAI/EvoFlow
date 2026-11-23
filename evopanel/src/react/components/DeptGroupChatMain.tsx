@@ -29,6 +29,7 @@ function metaToDept(meta: DeptChatMeta): HomeCmdDept {
     id: meta.id,
     name: meta.name,
     avatar: meta.avatar || '',
+    avatar_rev: meta.avatar_rev || '',
     head_agent_code: meta.head_agent_code || '',
     head_role_name: meta.head_role_name || '',
     members,

@@ -31,21 +31,21 @@ _BUILTIN: list[dict[str, Any]] = [
         "name": "火山方舟 Agent Plan",
         "description": (
             "胜任 Coding，不止 Coding。支持 DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、"
-            "Doubao-Seed-2.1、GLM-5.3 / Flash、Seedance 2.5 等；全模态 + Harness。"
-            "价格与额度以控制台为准。"
+            "Doubao-Seed-2.1、GLM-5.3 / Flash、Seedream 5.5、Seedance 2.5 / Flash 等；"
+            "全模态 + Harness。价格与额度以控制台为准。"
         ),
         "subscribe_url": "https://www.volcengine.com/product/ark",
         "invite_code": "",
         "docs_url": "https://www.volcengine.com/docs/82379/2366394?lang=zh",
         "promo_hint": (
-            "套餐概览同步于 2026-11-08：已移除 MiniMax-M3 / Kimi-K2.7-Code；"
-            "Kimi-K3.1-Pro 最大输出 1024k；DeepSeek-V4.1-Flash 权重 261101"
+            "套餐概览同步于 2026-11-23：新增 Seedream 5.5 / Seedance 2.5 Flash；"
+            "Kimi-K3 即将下线；限时折扣覆盖 Auto / V4.1-Flash(-Economy) / K2.8 / K3.1-Pro"
         ),
         "models_hint": [
             "DeepSeek-V4.1-Flash",
             "Kimi-K3.1-Pro",
             "Doubao-Seed-2.1",
-            "GLM-5.3",
+            "Seedream-5.5",
         ],
         "chat_models": AGENT_PLAN_CHAT_MODELS,
         "capabilities": AGENT_PLAN_CAPABILITIES,
@@ -143,13 +143,21 @@ _BUILTIN: list[dict[str, Any]] = [
                 "api": "vendor-native",
             },
             "tts": {
-                "base_url": "https://ark.cn-beijing.volces.com",
+                # Agent Plan 语音走 OpenSpeech Plan 口，不是方舟对话 /api/v3 或 /api/plan/v3。
+                "base_url": "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional",
                 "api": "vendor-native",
-                "notes": "Plan TTS path owned by VolcAgentPlanAdapter / volcengine_speech",
+                "notes": (
+                    "HTTP TTS；Resource-Id=seed-tts-2.0；X-Api-Key=ark- Key。"
+                    "勿用 ark.cn-beijing.volces.com（会 401 或误计按量）。"
+                ),
             },
             "asr": {
-                "base_url": "https://ark.cn-beijing.volces.com",
+                "base_url": "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async",
                 "api": "vendor-native",
+                "notes": (
+                    "WebSocket ASR；Resource-Id 默认 volc.seedasr.sauc.duration；"
+                    "同源 ark- Key。实现见 volcengine_speech。"
+                ),
             },
             "embedding": {
                 "base_url": PLAN_CHAT_BASE,
@@ -189,11 +197,15 @@ _BUILTIN: list[dict[str, Any]] = [
         "subscribe_url": "https://bailian.console.aliyun.com/",
         "invite_code": "",
         "docs_url": "https://help.aliyun.com/zh/model-studio/token-plan-personal-overview",
-        "promo_hint": "套餐专属 Key 以 sk-sp- 开头；聊天用 compatible-mode/v1，勿用按量 DashScope 地址",
+        "promo_hint": (
+            "套餐概览同步于 2026-11-23：Key 以 sk-sp- 开头；聊天用 compatible-mode/v1；"
+            "2026-11-09 起额度上调（Lite 20k / Essential 45k / Standard 80k / Pro 200k Credits）；"
+            "Pro 目录价 ¥312/月"
+        ),
         "models_hint": [
             "auto",
+            "qwen4-max",
             "qwen3.8-max",
-            "qwen3.8-flash",
             "deepseek-v4.1-flash",
             "glm-5.3",
         ],
@@ -204,30 +216,30 @@ _BUILTIN: list[dict[str, Any]] = [
             {
                 "id": "lite",
                 "label": "Lite",
-                "price_hint": "¥39/月（新用户限时约 ¥19.5）",
+                "price_hint": "¥39/月（新用户限时约 ¥19.5，至 2026-11-30）",
                 "entitlements": ["chat", "tts", "asr", "image", "video", "web_search"],
-                "limits_hint": {"credits_month": 11500, "harness": False},
+                "limits_hint": {"credits_month": 20000, "harness": False},
             },
             {
                 "id": "essential",
                 "label": "Essential",
-                "price_hint": "¥79/月（新用户限时约 ¥39.5）",
+                "price_hint": "¥79/月（新用户限时约 ¥39.5，至 2026-11-30）",
                 "entitlements": ["chat", "tts", "asr", "image", "video", "web_search"],
-                "limits_hint": {"credits_month": 25500, "harness": False},
+                "limits_hint": {"credits_month": 45000, "harness": False},
             },
             {
                 "id": "standard",
                 "label": "Standard",
                 "price_hint": "¥139/月",
                 "entitlements": ["chat", "tts", "asr", "image", "video", "web_search"],
-                "limits_hint": {"credits_month": 45000, "harness": True},
+                "limits_hint": {"credits_month": 80000, "harness": True},
             },
             {
                 "id": "pro",
                 "label": "Pro",
-                "price_hint": "¥499/月",
+                "price_hint": "¥312/月",
                 "entitlements": ["chat", "tts", "asr", "image", "video", "web_search"],
-                "limits_hint": {"credits_month": 180000, "harness": True},
+                "limits_hint": {"credits_month": 200000, "harness": True},
             },
         ],
         "endpoints": {

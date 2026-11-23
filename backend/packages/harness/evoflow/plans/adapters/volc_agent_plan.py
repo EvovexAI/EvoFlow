@@ -154,6 +154,10 @@ class VolcAgentPlanAdapter:
             base_url = PLAN_MEDIA_BASE
         if capability == "chat" and not base_url:
             base_url = PLAN_CHAT_BASE
+        if capability == "tts" and not base_url:
+            base_url = "https://openspeech.bytedance.com/api/v3/plan/tts/unidirectional"
+        if capability == "asr" and not base_url:
+            base_url = "wss://openspeech.bytedance.com/api/v3/plan/sauc/bigmodel_async"
         tier_models = default_media_models_for_tier(binding.get("tier_id"))
         model_hint: str | None = None
         if capability == "image":

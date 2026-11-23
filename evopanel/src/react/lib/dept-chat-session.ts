@@ -13,6 +13,8 @@ export type DeptChatMeta = {
   name: string
   /** 部门头像预设 id（裸 id，如 ``studio``）；空则文字首字兜底 */
   avatar?: string
+  /** 上传头像版本号，拼 URL 防缓存 */
+  avatar_rev?: string
   head_agent_code?: string
   head_role_name?: string
   accent?: string
@@ -199,11 +201,25 @@ export function deptRowsFromDepartmentsApi(raw: unknown): DeptChatMeta[] {
     }
     if (!members.length) continue
     const avatar = String(row?.avatar || '').trim()
+    const avatarRev = String(row?.avatar_rev || '').trim()
+    const headCode = String(row?.head_agent_code || '').trim()
+    const headLc = headCode.toLowerCase()
+    // 负责人置顶，其余保持接口顺序
+    if (headLc) {
+      members.sort((a, b) => {
+        const aH = a.agent_code.toLowerCase() === headLc
+        const bH = b.agent_code.toLowerCase() === headLc
+        if (aH && !bH) return -1
+        if (!aH && bH) return 1
+        return 0
+      })
+    }
     rows.push({
       id,
       name,
       ...(avatar ? { avatar } : {}),
-      head_agent_code: String(row?.head_agent_code || '').trim(),
+      ...(avatarRev ? { avatar_rev: avatarRev } : {}),
+      head_agent_code: headCode,
       head_role_name: String(row?.head_role_name || '').trim(),
       accent: DEPT_ACCENTS[ai % DEPT_ACCENTS.length],
       members,

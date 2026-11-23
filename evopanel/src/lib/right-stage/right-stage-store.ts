@@ -1,6 +1,7 @@
 import {
   defaultLayoutForKind,
   defaultTitleForKind,
+  normalizeOpenedBy,
   normalizeRightStageKind,
   type RightStageKind,
   type RightStageStreamChunk,
@@ -373,6 +374,14 @@ export class RightStageStore {
      * 以免顶掉用户「收起」或把已切走的 active 抢回去。
      */
     forceExpand?: boolean
+    /**
+     * 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+     * 改了什么：新增「谁打开的」。创建签时定死，后续同签 show/update **不覆盖**。
+     * 为什么：用户要求标签上能看出是用户 / 某个智能体 / 某条会话打开的，避免串台。
+     * 判据：缺省兜底成 `session:<当前会话>`（拿不到 sessionKey 时干脆不写，
+     *   不猜），绝不默认成 `user` —— 那会把模型自动开的签谎报成用户亲手开的。
+     */
+    openedBy?: string
   }) {
     const kind = normalizeRightStageKind(String(input.kind || '').trim())
     if (!kind) {
@@ -400,6 +409,13 @@ export class RightStageStore {
       input.sessionKey,
       getCurrentRightStageSessionKey(),
     )
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 「谁打开的」在创建时定死（对齐 sessionKey 的盖戳时机）：
+    //   显式传入优先 → 没有则按归属会话兜底成 `session:<key>` → 连会话都没有就不写。
+    // 不兜成 'user'：模型自动开的签被标成用户亲手开，正是用户要防的那种串台。
+    const openedBy =
+      normalizeOpenedBy(input.openedBy) ||
+      (sessionKey ? (`session:${sessionKey}` as const) : '')
     const next: RightStageSurface = {
       id: String(input.id || 'primary').trim() || 'primary',
       kind,
@@ -407,6 +423,7 @@ export class RightStageStore {
       layout: input.layout || defaultLayoutForKind(kind),
       data: { ...(input.data || {}) },
       ...(sessionKey ? { sessionKey } : {}),
+      ...(openedBy ? { openedBy } : {}),
     }
     const key = this.tabKeyOf(next)
     const pinned = this.userPinnedActiveKey
@@ -426,10 +443,17 @@ export class RightStageStore {
       if (explicitSk) next.sessionKey = explicitSk
       else if (prev.sessionKey) next.sessionKey = prev.sessionKey
       else delete next.sessionKey
+      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+      // 「谁打开的」创建时定死：已有值一律**不覆盖**（否则同签被别的 agent update 一次，
+      // 归属就被改写成后者，溯源当场失真）。只在空缺时补一次，
+      // 补的是老会话记忆里没有该字段的存量签（回填后仍以首次真值为准）。
+      if (prev.openedBy) next.openedBy = prev.openedBy
+      else if (!next.openedBy) delete next.openedBy
       const same =
         prev.title === next.title &&
         prev.layout === next.layout &&
         prev.sessionKey === next.sessionKey &&
+        prev.openedBy === next.openedBy &&
         JSON.stringify(prev.data) === JSON.stringify(next.data)
       if (same) {
         // 仅激活；用户收起锁定时不偷偷展开（forceExpand 除外）
@@ -458,6 +482,7 @@ export class RightStageStore {
       kind,
       title: next.title,
       sessionKey: next.sessionKey || '(空)',
+      openedBy: next.openedBy || '(未标)',
       tabCount: this.tabs.length,
       collapsed: this.collapsed,
       userCollapsed: this.userCollapsed,
@@ -871,12 +896,31 @@ export class RightStageStore {
           title: surfNorm.title,
           layout: surfNorm.layout,
           data: surfNorm.data || {},
+          openedBy: surfNorm.openedBy,
           forceExpand: surfNorm.expand === true,
         })
       } else {
+        // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+        // update 分支同样不许改「谁打开的」：同签被别的 agent update 一次就改归属，
+        // 溯源等于作废。先把 payload 里的 openedBy 剔掉，只在存量签空缺时补一次。
+        const { openedBy: incomingOpenedBy, ...surfNoOpened } = surfNorm as
+          RightStageSurface & Record<string, unknown>
+        const backfill = existing.openedBy
+          ? ''
+          : normalizeOpenedBy(incomingOpenedBy) ||
+            (existing.sessionKey ? (`session:${existing.sessionKey}` as const) : '')
         this.tabs = this.tabs.map((t) =>
           this.tabKeyOf(t) === key
-            ? { ...t, ...surfNorm, data: { ...t.data, ...(surfNorm.data || {}) } }
+            ? {
+                ...t,
+                ...surfNoOpened,
+                data: { ...t.data, ...(surfNorm.data || {}) },
+                ...(t.openedBy
+                  ? { openedBy: t.openedBy }
+                  : backfill
+                    ? { openedBy: backfill }
+                    : {}),
+              }
             : t,
         )
         // 【self-evolution-bot · 2026-11-20 · 第95轮 · 模型:deepseek-v4.1-flash-1017】
@@ -918,6 +962,12 @@ export class RightStageStore {
       title: surfNorm.title,
       layout: surfNorm.layout,
       data: surfNorm.data || {},
+      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+      // 改了什么：SSE 下来的 surface 也带上 openedBy（后端 platform 工具按 ambient
+      // actor 盖章），前端不再把它当"无来源"。
+      // 为什么：这条是智能体打开面板的主通路；不带就等于所有模型开的签都退回会话兜底，
+      // 用户看到的全是「会话：xxx」而分不出是哪个智能体在动他的右栏。
+      openedBy: surfNorm.openedBy,
       // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
       // 改了什么：applyRemote 把 surface.expand 映射为 show() 的 forceExpand。
       // 为什么：此前 applyRemote 调 show() 从不传 forceExpand，导致

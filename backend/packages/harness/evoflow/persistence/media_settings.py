@@ -64,7 +64,7 @@ DEFAULT_MEDIA_CREDENTIALS: dict[str, Any] = {
     "elevenLabsVoice": "21m00Tcm4TlvDq8ikWAM",
     "minimaxKey": "",
     "minimaxTtsVoice": "male-qn-qingse",
-    "dashscopeTtsVoice": "longanyang",
+    "dashscopeTtsVoice": "longanlingxin",
     "minimaxMediaApiKey": "",
     "minimaxMediaBaseUrl": "https://api.minimax.cn",
     "aliyunAccessKeyId": "",
@@ -210,6 +210,10 @@ def vendor_has_usable_credentials(vendor_id: str, *, require_enabled: bool = Tru
             return True
         return bool(bundle.get("accessKeyId") and bundle.get("accessKeySecret"))
     if vendor == "volcengine-tts":
+        # Agent Plan / Seed Speech：只用 ark- Key（speechApiKey 或复用方舟 apiKey）。
+        # 旧 OpenSpeech v1 才要 AppId + AccessToken；二者任一即可视为已配置。
+        if bundle.get("speechApiKey") or bundle.get("apiKey"):
+            return True
         return bool(bundle.get("ttsAppId") and bundle.get("ttsAccessToken"))
     if vendor == "aliyun":
         return bool(bundle.get("accessKeyId") and bundle.get("accessKeySecret"))

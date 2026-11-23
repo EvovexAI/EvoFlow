@@ -87,12 +87,15 @@ describe('dept-member-work-session history extract', () => {
     expect(ctx.dept_group_roster).toEqual(['技术总监', '测试工程师'])
 
     const userText = api.chatSend.mock.calls[0][1]
-    expect(userText).toContain('【群近期】')
+    expect(userText).toContain('<dept_group_turn')
+    expect(userText).toContain('<dept_group_recent')
     expect(userText).toContain('用户：哈喽')
-    expect(userText).toContain('【用户对群说（未点名，请你接住）】')
+    expect(userText).toContain('<dept_group_instruction')
     expect(userText).toContain('群里有谁啊')
+    expect(userText).toContain('<dept_group_hint')
     expect(userText).not.toContain('硬规则')
     expect(userText).not.toContain('本群可点名')
     expect(userText).not.toContain('禁止 Markdown')
+    expect(userText).not.toContain('【群近期】')
   })
 })

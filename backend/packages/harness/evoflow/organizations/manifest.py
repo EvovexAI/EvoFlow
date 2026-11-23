@@ -228,6 +228,28 @@ def apply_placeholders(text: str, *, org_workspace: str, org_root: str) -> str:
     return re.sub(r"\$\{([A-Za-z0-9_]+)\}", _sub, s)
 
 
+def strip_unexpanded_placeholders(text: str) -> str:
+    """Drop literal ``${ORG_WORKSPACE}``-style segments left unexpanded in stored data.
+
+    【self-evolution-bot · 2026-11-23 · 第130轮 · 模型:qwen3.8-flash】
+    为什么：安装时 ``org_ws`` 为空的包会把 ``${ORG_WORKSPACE}`` 原样存进员工
+    ``workspace_path``；platform 工具（employees.get/list）把卡片**原文回显给模型**
+    （现网 large_tool_results 28 份中 8 份含字面占位符），模型照着写进回复的文件路径 →
+    前端点卡片 → 网关 root/path 带占位符 → HTTP 400。
+    改了什么：读侧出口统一剥掉占位符段；剥空即返回空串（= 未绑根，下游自行回落到 host 根）。
+    与网关 ``workspaces._strip_org_placeholder_tokens``、前端
+    ``chat-workspace-context.setChatWorkspaceRoot`` 同一判据，三处同轮落地。
+    """
+    import re
+
+    s = str(text or "").strip()
+    if "${" not in s:
+        return s
+    segs = [p for p in s.replace("\\", "/").split("/") if p]
+    kept = [p for p in segs if not re.match(r"^\$\{[A-Za-z0-9_.]+\}$", p.strip())]
+    return "/".join(kept)
+
+
 def deep_apply_placeholders(obj: Any, *, org_workspace: str, org_root: str) -> Any:
     if isinstance(obj, str):
         return apply_placeholders(obj, org_workspace=org_workspace, org_root=org_root)

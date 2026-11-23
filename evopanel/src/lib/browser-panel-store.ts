@@ -608,6 +608,10 @@ export function ensureBrowserStage(opts?: {
     title: String(opts?.title || '').trim() || existing?.title || '浏览器',
     layout: 'wide',
     sessionKey: stageSessionKey,
+    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+    // 浏览器签基本都是由用户点开/输入地址触发的 → 盖 'user'；
+    // 已有签的首次归属不会被这里覆盖（store 的 same-key 分支保护）。
+    openedBy: 'user',
     data: nextData,
     forceExpand: true,
   })

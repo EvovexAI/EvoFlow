@@ -13,6 +13,10 @@ import {
   type DeptGroupHandoff,
 } from './dept-group-handoff.js'
 import { isTrivialGroupNestGoal } from './dept-group-nest-policy.js'
+import {
+  buildDeptGroupTurnUserText,
+  type DeptGroupTurnHint,
+} from './dept-group-turn.js'
 
 export function deptMemberWorkSessionKey(deptId: string, agentCode: string): string {
   const code = String(agentCode || '').trim()
@@ -109,10 +113,15 @@ export type DeptMemberWorkTurnOpts = {
   groupContext?: string
   fromAgentName?: string
   /**
-   * 小V 群管家模式：用户未 @ 任何人，默认由小V接住。
+   * 小V 群管家模式：显式 @ 小V，或无人 @ 且部门无负责人时的兜底。
    * 需知道本群花名册，才能灵活 @ 分派。
    */
   stewardMode?: boolean
+  /**
+   * 无人 @ 时由部门负责人默认承接（非小V管家）。
+   * 走普通成员 prompt，另加一条「负责人接住」hint。
+   */
+  headDefaultCatcher?: boolean
   /** 本群成员（角色名），给管家提示「可以 @ 谁」 */
   roster?: Array<{ agent_code: string; role_name: string }>
   onDelta?: (text: string) => void
@@ -169,6 +178,7 @@ export async function runDeptMemberWorkTurn(
   const deptName = String(opts.deptName || '部门').trim() || '部门'
 
   const stewardMode = !!opts.stewardMode
+  const headDefaultCatcher = !!opts.headDefaultCatcher && !stewardMode
   const roster = Array.isArray(opts.roster) ? opts.roster : []
   const rosterNames = roster
     .map((m) => String(m.role_name || m.agent_code || '').trim())
@@ -238,37 +248,66 @@ export async function runDeptMemberWorkTurn(
   }
 
   // 群身份 / 硬规则 / 花名册已由 sessionCtx → 系统提示 <dept_group_im> 注入。
-  // 用户消息只带本轮变化：群近期时间线 + 当前话（避免每轮全量复读规则）。
-  const parts: string[] = []
-  if (opts.fromAgentName) {
-    parts.push(`（「${opts.fromAgentName}」在群里 @ 了你，请直接回群）`)
-  }
-  // 寒暄/报到类：强约束——只回一声，禁止展开旧单、禁止嵌套派活
+  // 本轮 user 文本用 <dept_group_turn> 标签分层：hint/recent 仅给模型；
+  // instruction 才是用户可见指令（前端 extractDeptGroupVisibleUserText 剥离展示）。
   const trivialGoal = isTrivialGroupNestGoal(goal)
-  if (!stewardMode) {
+  const hints: DeptGroupTurnHint[] = []
+  if (opts.fromAgentName) {
+    hints.push({
+      kind: 'from_agent',
+      text: `「${opts.fromAgentName}」在群里 @ 了你，请直接回群`,
+    })
+  }
+  if (stewardMode) {
+    hints.push({
+      kind: 'steward',
+      text: '请你以群管家身份接住本条（显式点名或部门暂无负责人时的兜底）。',
+    })
+  } else if (headDefaultCatcher) {
+    hints.push({
+      kind: 'behavior',
+      text:
+        '用户未 @ 任何人；你是本部门负责人，请先接住本条。'
+        + '能自己答就答；确实需要专人时再在正文 @ 岗位名交代。'
+        + '对用户说话用岗位名，不要写内部编码。',
+    })
     if (trivialGoal) {
-      parts.push(
-        '（群聊提示：本条只是打招呼/报到/回一声。用一两句说清你是谁、平时干什么即可；'
-          + '禁止汇报进度、禁止展开记忆/站立摘要/群近期里的旧任务、'
-          + '禁止 @ 同事派活。用户可见正文只用岗位名，不要写内部编码。）',
-      )
-    } else {
-      parts.push(
-        '（群聊提示：把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
-          + '只有本轮明确要推进的新活才 @，且不要重复点名已经出过面的人。'
-          + '对用户说话用岗位名，不要写 agent_code / 内部编码。）',
-      )
+      hints.push({
+        kind: 'behavior',
+        text:
+          '本条偏打招呼/报到：一两句回应即可，不要展开旧任务，也不要借机给下级派活。',
+      })
     }
+  } else if (trivialGoal) {
+    hints.push({
+      kind: 'behavior',
+      text:
+        '本条只是打招呼/报到/回一声。用一两句说清你是谁、平时干什么即可；'
+        + '禁止汇报进度、禁止展开记忆/站立摘要/群近期里的旧任务、'
+        + '禁止 @ 同事派活。用户可见正文只用岗位名，不要写内部编码。',
+    })
+  } else {
+    hints.push({
+      kind: 'behavior',
+      text:
+        '把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
+        + '只有本轮明确要推进的新活才 @，且不要重复点名已经出过面的人。'
+        + '对用户说话用岗位名，不要写 agent_code / 内部编码。',
+    })
   }
   const groupCtx = String(opts.groupContext || '').trim()
-  // 寒暄轮次不塞长群近期，避免模型被旧单带跑
-  if (groupCtx && !trivialGoal) {
-    parts.push(`【群近期】\n${groupCtx.slice(0, 2400)}`)
-  } else if (groupCtx && trivialGoal) {
-    parts.push(`【群近期·摘要】\n${groupCtx.slice(0, 400)}`)
-  }
-  parts.push(stewardMode ? `【用户对群说（未点名，请你接住）】\n${goal}` : `【本条消息】\n${goal}`)
-  const userText = parts.join('\n\n')
+  const recent = groupCtx
+    ? trivialGoal
+      ? groupCtx.slice(0, 400)
+      : groupCtx.slice(0, 2400)
+    : ''
+  const userText = buildDeptGroupTurnUserText({
+    instruction: goal,
+    stewardMode,
+    recent,
+    recentSummary: trivialGoal && !!recent,
+    hints,
+  })
 
   let collected = ''
   let finalText = ''

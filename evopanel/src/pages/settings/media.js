@@ -35,12 +35,14 @@ import {
 const JIMENG_IMAGE_MODEL_PRESETS = [
   { value: 'doubao-seedream-5-0-pro', label: 'Seedream 5.0 Pro（套餐）' },
   { value: 'doubao-seedream-5.0-flash', label: 'Seedream 5.0 Flash（套餐）' },
+  { value: 'doubao-seedream-5.5', label: 'Seedream 5.5（套餐）' },
   { value: 'doubao-seedream-5-0-pro-260628', label: 'Seedream 5.0 Pro · 260628（按量）' },
   { value: 'doubao-seedream-5-0-flash-260915', label: 'Seedream 5.0 Flash · 260915（按量）' },
 ]
 
 const JIMENG_VIDEO_MODEL_PRESETS = [
   { value: 'doubao-seedance-2.5', label: 'Seedance 2.5（套餐）' },
+  { value: 'doubao-seedance-2.5-flash', label: 'Seedance 2.5 Flash（套餐）' },
   { value: 'doubao-seedance-2.0', label: 'Seedance 2.0（套餐）' },
   { value: 'doubao-seedance-2.0-fast', label: 'Seedance 2.0 Fast（套餐）' },
   { value: 'doubao-seedance-2.0-mini', label: 'Seedance 2.0 Mini（套餐）' },
@@ -96,9 +98,10 @@ const ADVANCED_VENDORS = [
     label: '火山语音',
     sub: '合成 · 识别',
     icon: 'volcengine',
-    setupGuide: '',
-    officialUrl: 'https://console.volcengine.com/speech/service/8',
-    officialLabel: '获取 API Key',
+    setupGuide:
+      'Agent Plan 用 ark- Key；接口自动走 openspeech.bytedance.com Plan 口，勿用方舟对话 Base URL。',
+    officialUrl: 'https://www.volcengine.com/docs/82379/2516286?lang=zh',
+    officialLabel: 'Agent Plan 语音说明',
   },
   {
     key: 'dashscope-tts',
@@ -661,7 +664,7 @@ function buildVolcengineTtsHeader() {
   return `
     <header class="media-vendor-detail-head media-vendor-detail-head--speech">
       <h3 class="media-vendor-detail-title">火山语音</h3>
-      <p class="media-vendor-detail-desc">小V Frame 语音运行时默认走火山 ASR/TTS；下方可选其它通道（需已配置凭证）。</p>
+      <p class="media-vendor-detail-desc">本页是火山 OpenSpeech 凭证。小V 要测阿里云请到「阿里云语音」填 Key，并把下方识别/合成通道都改成阿里云（「豆包/方舟」仍是火山口，不是百炼）。</p>
       <p class="media-vendor-help-links">
         <a href="https://console.volcengine.com/speech/service/8" target="_blank" rel="noopener noreferrer">获取 API Key</a>
         <span class="media-tts-speaker-hint-sep">·</span>
@@ -706,7 +709,7 @@ function buildXiaomiProviderFieldsHtml() {
   return `
     <div class="form-field" data-xiaomi-voice-providers>
       <label class="form-label">小V · 识别通道（ASR）</label>
-      <select class="form-input" data-xiaomi-asr-provider>
+      <select class="form-input" data-xiaomi-asr-provider data-ef-portal="1">
         <option value="volcengine">火山引擎（默认）</option>
         <option value="dashscope">阿里云 Paraformer</option>
         <option value="whisper">本地 Whisper</option>
@@ -715,15 +718,16 @@ function buildXiaomiProviderFieldsHtml() {
     </div>
     <div class="form-field">
       <label class="form-label">小V · 合成通道（TTS）</label>
-      <select class="form-input" data-xiaomi-tts-provider>
-        <option value="volcengine">火山引擎（默认）</option>
-        <option value="doubao">豆包（方舟）</option>
-        <option value="dashscope">阿里 CosyVoice</option>
+      <select class="form-input" data-xiaomi-tts-provider data-ef-portal="1">
+        <option value="volcengine">火山引擎 OpenSpeech（默认）</option>
+        <option value="doubao">火山方舟 Key（同 OpenSpeech，不是阿里云）</option>
+        <option value="dashscope">阿里云语音（Token Plan / CosyVoice）</option>
         <option value="openai">OpenAI TTS</option>
         <option value="elevenlabs">ElevenLabs</option>
         <option value="minimax">MiniMax</option>
       </select>
       <p class="form-hint" data-xiaomi-tts-hint></p>
+      <p class="form-hint">测阿里云：ASR+TTS 都选「阿里云…」，音色用龙安灵心/鲁风（Token Plan）。通道仍是火山却选 CosyVoice 音色会报错。改完后重新进小V 语音全屏。</p>
     </div>`
 }
 
@@ -731,7 +735,12 @@ function buildDashscopeTtsFieldsHtml(creds) {
   return `
     ${secretFieldHtml('dashscopeApiKey', 'DashScope API Key', creds)}
     ${textFieldHtml('dashscopeBaseUrl', 'Base URL（可选）', 'https://dashscope.aliyuncs.com/api/v1', creds)}
-    <p class="form-hint">与「通义万相」共用同一 Key。ASR=Paraformer 实时；TTS=CosyVoice v3-flash。</p>
+    <p class="form-hint">
+      Token Plan（<code>sk-sp-</code>）请用媒体口
+      <code>https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1</code>，
+      TTS 模型自动为 <code>qwen-audio-3.0-tts-plus</code>（勿留按量 dashscope 地址，否则 InvalidApiKey）。
+      按量 <code>sk-</code> Key 才用默认 CosyVoice 口。与「通义万相」共用同一 Key。
+    </p>
     ${buildXiaomiProviderFieldsHtml()}
     ${withTtsProviderAttr(
       buildTtsSpeakerFieldHtml('dashscopeTtsVoice', '朗读音色', DASHSCOPE_TTS_SPEAKER_PRESETS, creds, {
@@ -798,6 +807,13 @@ function withTtsProviderAttr(html, provider) {
 function buildVolcengineTtsFieldsHtml(creds) {
   return `
     ${secretFieldHtml('volcengineSpeechApiKey', 'API Key', creds)}
+    <p class="form-hint">
+      Agent Plan 填 <code>ark-</code> 方舟专属 Key 即可。语音接口<strong>自动</strong>走 OpenSpeech Plan 口
+      （TTS <code>openspeech.bytedance.com/api/v3/plan/tts/unidirectional</code>、
+      ASR <code>wss://…/api/v3/plan/sauc/bigmodel_async</code>），
+      <strong>不要</strong>填方舟对话地址 <code>ark.cn-beijing.volces.com/api/v3</code>（会 401 或误计按量）。
+      套餐绑定后会写入此 Key；也可与「火山方舟」页共用同一把 Key。
+    </p>
     ${buildXiaomiProviderFieldsHtml()}
     ${withTtsProviderAttr(
       buildTtsSpeakerFieldHtml('volcengineTtsSpeaker', '朗读音色', VOLCENGINE_TTS_SPEAKER_PRESETS, creds, {
@@ -814,7 +830,7 @@ function buildVolcengineTtsFieldsHtml(creds) {
     <div class="media-advanced-group" data-media-advanced-group hidden>
       ${textFieldHtml('volcengineTtsResourceId', 'TTS 模型', 'seed-tts-2.0', creds)}
       ${textFieldHtml('volcengineAsrBoostingTableId', 'ASR 热词表 ID（可选）', '在火山控制台建热词表后填 ID', creds)}
-      <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。</p>
+      <p class="form-hint">小V 语音全屏走 Frame 运行时（/api/speech/session）；切句与打断由后端编排。接口地址由后端按 Key 类型固定，无需自定义 Base URL。</p>
       ${voiceTuningFieldsHtml()}
     </div>`
 }
@@ -1133,7 +1149,12 @@ function renderDetail() {
     bindTtsSpeakerFields(panel, speakerPresets)
     bindMediaAdvancedToggle(panel)
     bindAutosave(panel)
+    // 先绑通道（可能改 select.value），再 enhance，避免下拉触发器停在旧文案；
+    // z-index 已在 ef-dropdown-select 提到 1000035，菜单才能盖过设置弹窗。
     void bindXiaomiProviderFields(panel)
+      .then(() => import('../../lib/ef-dropdown-select.js'))
+      .then(({ enhanceSelectsIn }) => enhanceSelectsIn(panel))
+      .catch(() => {})
   } catch (e) {
     mount.innerHTML = `<p style="color:var(--error);padding:16px">渲染失败：${escHtml(e?.message || e)}</p>`
   }
@@ -1150,21 +1171,82 @@ async function bindXiaomiProviderFields(panel) {
       setXiaomiAsrProvider,
       getXiaomiTtsProvider,
       setXiaomiTtsProvider,
+      defaultSpeakerForTtsProvider,
+      setXiaomiTtsSpeaker,
+      resolveXiaomiTtsSpeaker,
+      labelXiaomiAsrProvider,
+      labelXiaomiTtsProvider,
     } = await import('../../lib/xiaomi-voice/config.js')
+    const vendorKey = panel.getAttribute('data-media-vendor-panel') || ''
+    // 打开「阿里云语音」页：强制把小V 通道对齐到阿里云（你截图里通道还是火山、音色却是 CosyVoice）
+    if (vendorKey === 'dashscope-tts') {
+      setXiaomiTtsProvider('dashscope', { resetSpeaker: true })
+      setXiaomiAsrProvider('dashscope')
+      const keyRaw = String(
+        panel.querySelector('[data-media-field="dashscopeApiKey"]')?.value ||
+          _loaded?.dashscopeApiKey ||
+          '',
+      ).trim()
+      const isTokenPlan = keyRaw.toLowerCase().startsWith('sk-sp-')
+      const voiceHidden = panel.querySelector('[data-media-tts-speaker-value]')
+      const voiceField = panel.querySelector('[data-media-field="dashscopeTtsVoice"]')
+      let dsVoice = String(voiceHidden?.value || voiceField?.value || '').trim()
+      // Token Plan 用户若还停在 CosyVoice「龙安洋」等，落到官方推荐，避免以为换音色失败
+      const cosyOnly = new Set([
+        'longanyang',
+        'longanhuan',
+        'longxiaochun_v3',
+        'longxiaoxia_v3',
+        'longcheng_v3',
+        'longze_v3',
+        'longmiao_v3',
+        'longsanshu_v3',
+        'longanrou_v3',
+        'longyingjing_v3',
+        'longhua_v3',
+      ])
+      if (isTokenPlan && (!dsVoice || cosyOnly.has(dsVoice))) {
+        dsVoice = defaultSpeakerForTtsProvider('dashscope')
+        if (voiceHidden) voiceHidden.value = dsVoice
+        if (voiceField) voiceField.value = dsVoice
+        const labelEl = panel.querySelector('.media-tts-speaker-trigger-label')
+        if (labelEl) labelEl.textContent = '龙安灵心（推荐 · Token Plan · 女声）'
+      }
+      if (dsVoice) setXiaomiTtsSpeaker(dsVoice)
+      else setXiaomiTtsSpeaker(resolveXiaomiTtsSpeaker())
+    }
     if (asrEl) {
       asrEl.value = getXiaomiAsrProvider()
       asrEl.addEventListener('change', () => {
         setXiaomiAsrProvider(asrEl.value)
         const hint = panel.querySelector('[data-xiaomi-asr-hint]')
-        if (hint) hint.textContent = `已选择 ${asrEl.value}（下次进入小V语音全屏生效）`
+        if (hint) {
+          hint.textContent = `已选择 ${labelXiaomiAsrProvider(asrEl.value)}（下次进入小V语音全屏生效）`
+        }
       })
     }
     if (ttsEl) {
       ttsEl.value = getXiaomiTtsProvider()
+      const hint0 = panel.querySelector('[data-xiaomi-tts-hint]')
+      if (hint0) {
+        const sp = resolveXiaomiTtsSpeaker()
+        hint0.textContent = `当前 ${labelXiaomiTtsProvider(ttsEl.value)} · 音色 ${sp}`
+        if (ttsEl.value !== 'dashscope' && String(sp).startsWith('long')) {
+          hint0.textContent += ' ⚠通道不是阿里云，换音色也会失败'
+        }
+      }
       ttsEl.addEventListener('change', () => {
-        setXiaomiTtsProvider(ttsEl.value)
+        setXiaomiTtsProvider(ttsEl.value, { resetSpeaker: true })
+        const speaker = resolveXiaomiTtsSpeaker()
+        setXiaomiTtsSpeaker(speaker)
         const hint = panel.querySelector('[data-xiaomi-tts-hint]')
-        if (hint) hint.textContent = `已选择 ${ttsEl.value}（需对应厂商凭证已配置）`
+        if (hint) {
+          hint.textContent = `已选择 ${labelXiaomiTtsProvider(ttsEl.value)} · 音色 ${speaker}（需对应厂商凭证；下次进小V 生效）`
+        }
+        if (ttsEl.value === 'dashscope') {
+          const ds = panel.querySelector('[data-media-field="dashscopeTtsVoice"]')
+          if (ds && 'value' in ds) ds.value = defaultSpeakerForTtsProvider('dashscope')
+        }
       })
     }
     // Validate against gateway catalogs (best-effort)
@@ -1311,12 +1393,14 @@ async function onSave({ quiet = false, fromAutosave = false } = {}) {
     _loaded = await fetchMediaCredentials()
     _draft = { ...DEFAULT_MEDIA_CREDENTIALS, ..._loaded }
     delete _draft._configured
-    // Keep Xiaomi Frame session speaker in sync with the vendor just saved
+    // Keep Xiaomi Frame session speaker in sync — 以面板下拉为准，勿用「当前厂商页」强行覆盖
+    // （以前保存「火山语音」会把已选的阿里云通道打回 volc → OpenSpeech 401 / 听成豆包）
     try {
       const {
         setXiaomiTtsSpeaker,
         setXiaomiTtsProvider,
         setXiaomiAsrProvider,
+        resolveXiaomiTtsSpeaker,
       } = await import('../../lib/xiaomi-voice/config.js')
       const voiceFieldByVendor = {
         'volcengine-tts': 'volcengineTtsSpeaker',
@@ -1332,15 +1416,28 @@ async function onSave({ quiet = false, fromAutosave = false } = {}) {
         'elevenlabs-tts': 'elevenlabs',
         'minimax-tts': 'minimax',
       }
+      const panel = _modelsPage?.querySelector(`[data-media-vendor-panel="${CSS.escape(_selected)}"]`)
+      const asrEl = panel?.querySelector('[data-xiaomi-asr-provider]')
+      const ttsEl = panel?.querySelector('[data-xiaomi-tts-provider]')
+      const ttsFromUi = String(ttsEl?.value || '').trim()
+      const asrFromUi = String(asrEl?.value || '').trim()
+      if (ttsFromUi) {
+        setXiaomiTtsProvider(ttsFromUi, { resetSpeaker: true })
+      } else if (ttsProviderByVendor[_selected]) {
+        setXiaomiTtsProvider(ttsProviderByVendor[_selected], { resetSpeaker: true })
+      }
+      if (asrFromUi) {
+        setXiaomiAsrProvider(asrFromUi)
+      } else if (_selected === 'dashscope-tts') {
+        setXiaomiAsrProvider('dashscope')
+      }
       const voiceKey = voiceFieldByVendor[_selected]
-      if (voiceKey) {
+      const ttsNow = ttsFromUi || ttsProviderByVendor[_selected] || ''
+      if (voiceKey && ttsNow && ttsProviderByVendor[_selected] === ttsNow) {
         const sp = String(patch[voiceKey] || _loaded[voiceKey] || '').trim()
         if (sp) setXiaomiTtsSpeaker(sp)
       }
-      const ttsProv = ttsProviderByVendor[_selected]
-      if (ttsProv) setXiaomiTtsProvider(ttsProv)
-      // 阿里云语音页保存时默认把 ASR 切到 Paraformer（可再在下拉里改）
-      if (_selected === 'dashscope-tts') setXiaomiAsrProvider('dashscope')
+      setXiaomiTtsSpeaker(resolveXiaomiTtsSpeaker())
     } catch {
       /* ignore */
     }

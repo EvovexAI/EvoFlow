@@ -9,7 +9,11 @@
  *
  * 用户 2026-11-20 明确：**不按天翻篇**。因此判据统一成 token 预算：
  * 从最新一条往前累加，超预算就停，拿到的正好是「最近且装得下的那几条」。
+ *
+ * 用户气泡若是 ``<dept_group_turn>`` 注入包，只取 ``instruction`` 进群近期，
+ * 避免 hint/recent 脚手架自我复读。
  */
+import { sanitizeDeptGroupTextForRecentContext } from './dept-group-turn.js'
 
 /** 粗估 token：CJK 每字约 1 token，其余约 4 字符 1 token。 */
 export function estimateTokens(text: string): number {
@@ -69,7 +73,10 @@ export function buildRecentGroupContext(
   for (let i = list.length - 1; i >= 0 && scanned < maxScan; i -= 1) {
     const m = list[i]
     if (!m || m.kind === 'system' || m.streaming) continue
-    const text = String(m.text || '').trim()
+    const text = sanitizeDeptGroupTextForRecentContext(
+      String(m.kind || ''),
+      String(m.text || ''),
+    )
     if (!text) continue
     scanned += 1
     const who = m.kind === 'user' ? '用户' : String(m.agentName || m.agentCode || '成员')

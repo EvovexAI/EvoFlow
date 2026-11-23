@@ -35,6 +35,13 @@ def test_aliyun_token_plan_catalog_shape():
     assert "image" in ents
     assert "video" in ents
     assert "web_search" in ents
+    # 2026-11-09 官方额度上调 + Pro 目录价下调
+    by_tier = {t["id"]: t for t in entry["tiers"]}
+    assert by_tier["lite"]["limits_hint"]["credits_month"] == 20000
+    assert by_tier["essential"]["limits_hint"]["credits_month"] == 45000
+    assert by_tier["standard"]["limits_hint"]["credits_month"] == 80000
+    assert by_tier["pro"]["limits_hint"]["credits_month"] == 200000
+    assert "312" in str(by_tier["pro"]["price_hint"])
 
 
 def test_chat_models_and_media_defaults():

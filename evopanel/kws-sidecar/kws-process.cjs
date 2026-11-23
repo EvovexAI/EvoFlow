@@ -47,6 +47,19 @@ function logErr(...args) {
   }
 }
 
+function normalizeModelDir(modelDir) {
+  // Strip Windows verbatim prefix if Rust/canonicalize left it on (Node realpath EISDIR on 'D:').
+  let s = String(modelDir || '').trim()
+  if (s.startsWith('\\\\?\\UNC\\')) s = '\\\\' + s.slice('\\\\?\\UNC\\'.length)
+  else if (s.startsWith('\\\\?\\')) s = s.slice('\\\\?\\'.length)
+  const resolved = path.resolve(s)
+  const root = path.parse(resolved).root
+  if (!resolved || resolved === root || /^[A-Za-z]:\\?$/.test(resolved)) {
+    throw new Error('invalid modelDir: ' + modelDir)
+  }
+  return resolved
+}
+
 function resolveModelFile(modelDir, name) {
   const p = path.join(modelDir, name)
   if (!fs.existsSync(p)) throw new Error('missing model file: ' + name)
@@ -54,6 +67,7 @@ function resolveModelFile(modelDir, name) {
 }
 
 function initSpotter(modelDir, opts = {}) {
+  modelDir = normalizeModelDir(modelDir)
   const sherpa = require('sherpa-onnx')
   const keywordsPath = resolveModelFile(modelDir, 'keywords.txt')
   const keywords = fs.readFileSync(keywordsPath, 'utf8')

@@ -36,6 +36,8 @@ export type WakeEnqueueInput = {
   depth: number
   fromAgentName?: string
   stewardMode?: boolean
+  /** 无人 @ 时由部门负责人默认承接 */
+  headDefaultCatcher?: boolean
   contextSummary?: string
   sourceMsgId?: string
   /** A→B 防环键；已存在则跳过 */
@@ -302,6 +304,7 @@ export class DeptGroupWakeQueue {
         detail: {
           depth: input.depth,
           stewardMode: !!input.stewardMode,
+          headDefaultCatcher: !!input.headDefaultCatcher,
           fromAgentName: input.fromAgentName || undefined,
           queueLen: list.length,
           goal: goal.slice(0, 160),
@@ -373,6 +376,7 @@ export class DeptGroupWakeQueue {
           depth: job.depth,
           fromAgentName: job.fromAgentName,
           stewardMode: job.stewardMode,
+          headDefaultCatcher: job.headDefaultCatcher,
           contextSummary: job.contextSummary,
           sourceMsgId: job.sourceMsgId,
           signal,

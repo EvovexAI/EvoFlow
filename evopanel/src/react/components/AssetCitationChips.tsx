@@ -45,6 +45,9 @@ export function AssetCitationChips({ entries, entityType, entityId }: Props) {
                     entityId,
                     name,
                     sessionKey: getCurrentRightStageSessionKey() || undefined,
+                    // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
+                    // 引用 chip 是用户亲手点开的 → 盖章 user。
+                    openedBy: 'user',
                   })
                 }}
               >

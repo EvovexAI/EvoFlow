@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.48] - 2026-11-23
+
+相对 **1.3.47**：语音音色与阿里云 / 火山套餐对齐；部门群语音设置更完整；右栏记录打开来源。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.48.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **阿里云语音音色**：Token Plan 与按量 CosyVoice 列表分开，预览与套餐匹配
+- **火山 Agent Plan 语音**：套餐落盘补齐语音端点与默认项
+- **工作区路径占位**：根路径占位与打开文件更稳
+- **右栏打开来源**：记录打开方，便于核对
+
+### Changed
+
+- **部门群对话**：轮次、值守与成员工作会话衔接更清楚
+- **小 V 语音**：提供商与默认音色配置更完整
+
+
 ## [1.3.47] - 2026-11-23
 
 相对 **1.3.46**：主窗口内存不足时可自动恢复一次；员工面板排队发送更稳；创建 Agent 可自动入职。

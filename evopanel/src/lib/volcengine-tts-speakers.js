@@ -310,5 +310,5 @@ export const VOLCENGINE_TTS_SPEAKER_DOC_URL = 'https://www.volcengine.com/docs/6
 /** 豆包语音控制台（含在线体验 / 音色试听） */
 export const VOLCENGINE_TTS_SPEAKER_TRIAL_URL = 'https://console.volcengine.com/speech/service/8'
 
-export const VOLCENGINE_TTS_PREVIEW_TEXT_ZH = '你好，欢迎试听豆包语音合成效果。'
+export const VOLCENGINE_TTS_PREVIEW_TEXT_ZH = '你好，欢迎试听火山语音合成效果。'
 export const VOLCENGINE_TTS_PREVIEW_TEXT_EN = 'Hello, welcome to preview this voice.'

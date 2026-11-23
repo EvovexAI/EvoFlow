@@ -11,9 +11,16 @@ from evoflow.community.media_generation.config_helpers import dashscope_api_key,
 
 logger = logging.getLogger(__name__)
 
-# CosyVoice non-streaming HTTP API (Model Studio).
+# CosyVoice / Qwen-Audio-TTS non-streaming HTTP API (Model Studio / Token Plan).
 # https://help.aliyun.com/zh/model-studio/cosyvoice-tts-http-api
+# https://help.aliyun.com/zh/model-studio/token-plan-speech-synthesis
 _SPEECH_SYNTH_PATH = "/services/audio/tts/SpeechSynthesizer"
+
+TOKEN_PLAN_MEDIA_BASE = "https://token-plan.cn-beijing.maas.aliyuncs.com/api/v1"
+TOKEN_PLAN_TTS_MODEL = "qwen-audio-3.0-tts-plus"
+TOKEN_PLAN_DEFAULT_VOICE = "longanlingxin"
+PAYG_TTS_MODEL = "cosyvoice-v3-flash"
+PAYG_DEFAULT_VOICE = "longanyang"
 
 # Legacy / catalog aliases → CosyVoice v3-flash voice ids.
 _LEGACY_VOICE_MAP = {
@@ -27,23 +34,70 @@ _LEGACY_VOICE_MAP = {
     "longanyang": "longanyang",
 }
 
+# CosyVoice 音色在 Token Plan 上不可用；落到官方推荐系统音色。
+_TOKEN_PLAN_VOICE_FALLBACK = {
+    "longanyang": "longanlufeng",
+    "longanhuan": "longanlingxin",
+    "longanhuan_v3.6": "longanhuan_v3.6",
+    "longxiaochun_v3": "longanlingxin",
+    "longxiaoxia_v3": "longanlingxin",
+    "longcheng_v3": "longanlufeng",
+    "longze_v3": "longanlufeng",
+    "longmiao_v3": "longanlingxin",
+    "longsanshu_v3": "longanlufeng",
+    "longanrou_v3": "longanlingxin",
+    "longyingjing_v3": "longanlingxin",
+    "longhua_v3": "longanlingxin",
+}
 
-def _base_url() -> str:
-    return dashscope_base_url().rstrip("/")
+
+def _is_token_plan_key(api_key: str) -> bool:
+    return str(api_key or "").strip().lower().startswith("sk-sp-")
 
 
-def _resolve_model(model: str | None) -> str:
-    raw = (model or os.getenv("DASHSCOPE_TTS_MODEL", "cosyvoice-v3-flash")).strip()
+def _is_token_plan_base(base_url: str) -> bool:
+    return "token-plan" in str(base_url or "").strip().lower()
+
+
+def _base_url(*, api_key: str = "") -> str:
+    raw = dashscope_base_url().rstrip("/")
+    # sk-sp- 套餐 Key 只能打 Token Plan 媒体口；落到按量 dashscope 会 InvalidApiKey。
+    if _is_token_plan_key(api_key) and not _is_token_plan_base(raw):
+        logger.info(
+            "DashScope TTS: sk-sp- Key with non-token-plan base %s → %s",
+            raw,
+            TOKEN_PLAN_MEDIA_BASE,
+        )
+        return TOKEN_PLAN_MEDIA_BASE
+    return raw or TOKEN_PLAN_MEDIA_BASE
+
+
+def _resolve_model(model: str | None, *, token_plan: bool) -> str:
+    env_default = TOKEN_PLAN_TTS_MODEL if token_plan else PAYG_TTS_MODEL
+    raw = (model or os.getenv("DASHSCOPE_TTS_MODEL", env_default)).strip()
+    if token_plan:
+        # Token Plan 官方只列 qwen-audio-3.0-tts-plus；CosyVoice 型号会鉴权失败。
+        if not raw or raw.startswith("cosyvoice"):
+            return TOKEN_PLAN_TTS_MODEL
+        return raw
     if raw in ("cosyvoice-v1", "cosyvoice-v1-flash"):
         return "cosyvoice-v3-flash"
-    return raw or "cosyvoice-v3-flash"
+    return raw or PAYG_TTS_MODEL
 
 
-def _resolve_voice(voice: str | None, *, model: str) -> str:
-    raw = (voice or os.getenv("DASHSCOPE_TTS_VOICE", "longanyang")).strip()
+def _resolve_voice(voice: str | None, *, model: str, token_plan: bool) -> str:
+    env_default = TOKEN_PLAN_DEFAULT_VOICE if token_plan else PAYG_DEFAULT_VOICE
+    raw = (voice or os.getenv("DASHSCOPE_TTS_VOICE", env_default)).strip()
     if not raw:
-        return "longanyang"
+        return env_default
     mapped = _LEGACY_VOICE_MAP.get(raw, raw)
+    if token_plan:
+        # CosyVoice 音色名在 Qwen-Audio-TTS 上不通用
+        if mapped in _TOKEN_PLAN_VOICE_FALLBACK:
+            return _TOKEN_PLAN_VOICE_FALLBACK[mapped]
+        if mapped.startswith("longxiao") or mapped.startswith("longcheng") or mapped.startswith("longze"):
+            return TOKEN_PLAN_DEFAULT_VOICE
+        return mapped
     if model.startswith("cosyvoice-v2") and mapped == "longanyang":
         return os.getenv("DASHSCOPE_TTS_VOICE_V2", "longxiaochun_v2")
     return mapped
@@ -85,8 +139,27 @@ def _extract_audio_bytes(data: dict) -> bytes:
     raise RuntimeError(f"DashScope TTS missing audio in response: {json.dumps(data, ensure_ascii=False)[:300]}")
 
 
+def _format_http_error(status: int, body: str, *, token_plan: bool, base: str, model: str) -> str:
+    text = str(body or "")[:500]
+    low = text.lower()
+    if status in (401, 403) or "invalidapikey" in low or "invalid api-key" in low:
+        if token_plan or "sk-sp-" in text:
+            return (
+                f"DashScope TTS {status}: Token Plan（sk-sp-）语音请走 "
+                f"{TOKEN_PLAN_MEDIA_BASE} + model={TOKEN_PLAN_TTS_MODEL}，"
+                f"当前 base={base} model={model}。请在设置→语音→阿里云语音确认 Base URL，"
+                f"或重新「按套餐目录补齐」。原文：{text}"
+            )
+        return (
+            f"DashScope TTS {status}: API Key 无效。按量请用 sk- Key + "
+            f"https://dashscope.aliyuncs.com/api/v1；Token Plan 请用 sk-sp- + token-plan 媒体口。"
+            f"原文：{text}"
+        )
+    return f"DashScope TTS {status}: {text}"
+
+
 def synthesize_speech(text: str, *, voice: str | None = None, model: str | None = None) -> bytes:
-    """DashScope CosyVoice HTTP speech synthesis (non-streaming)."""
+    """DashScope / Token Plan speech synthesis (non-streaming)."""
     key = dashscope_api_key()
     if not key:
         raise ValueError("Set DASHSCOPE_API_KEY for DashScope TTS")
@@ -95,15 +168,21 @@ def synthesize_speech(text: str, *, voice: str | None = None, model: str | None 
     if not script:
         raise ValueError("TTS text must not be empty")
 
-    m = _resolve_model(model)
-    v = _resolve_voice(voice, model=m)
+    token_plan = _is_token_plan_key(key)
+    base = _base_url(api_key=key)
+    if _is_token_plan_base(base):
+        token_plan = True
+
+    m = _resolve_model(model, token_plan=token_plan)
+    v = _resolve_voice(voice, model=m, token_plan=token_plan)
     fmt = (os.getenv("DASHSCOPE_TTS_FORMAT", "mp3") or "mp3").strip().lower()
     if fmt not in ("mp3", "wav", "pcm", "opus"):
         fmt = "mp3"
     try:
-        sample_rate = int(os.getenv("DASHSCOPE_TTS_SAMPLE_RATE", "24000"))
+        default_rate = "22050" if token_plan else "24000"
+        sample_rate = int(os.getenv("DASHSCOPE_TTS_SAMPLE_RATE", default_rate))
     except ValueError:
-        sample_rate = 24000
+        sample_rate = 22050 if token_plan else 24000
 
     body = {
         "model": m,
@@ -114,14 +193,22 @@ def synthesize_speech(text: str, *, voice: str | None = None, model: str | None 
             "sample_rate": sample_rate,
         },
     }
-    url = f"{_base_url()}{_SPEECH_SYNTH_PATH}"
+    url = f"{base}{_SPEECH_SYNTH_PATH}"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
 
     with httpx.Client(timeout=120.0) as client:
         resp = client.post(url, headers=headers, json=body)
 
     if resp.status_code >= 400:
-        raise RuntimeError(f"DashScope TTS {resp.status_code}: {resp.text[:500]}")
+        raise RuntimeError(
+            _format_http_error(
+                resp.status_code,
+                resp.text,
+                token_plan=token_plan,
+                base=base,
+                model=m,
+            )
+        )
 
     content_type = (resp.headers.get("content-type") or "").lower()
     if "json" in content_type or (resp.content and resp.content[:1] == b"{"):
