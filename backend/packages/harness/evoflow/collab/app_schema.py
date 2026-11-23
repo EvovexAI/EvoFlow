@@ -579,6 +579,9 @@ def normalize_app_document(document: dict[str, Any]) -> dict[str, Any]:
     if top_path or "project_path" in doc:
         doc["project_path"] = top_path
 
+    if "folder_id" in doc:
+        doc["folder_id"] = _as_str(doc.get("folder_id"))
+
     mode = _as_str(doc.get("execution_mode"), "workflow") or "workflow"
     if mode not in ("workflow", "lead_supervised"):
         mode = "workflow"

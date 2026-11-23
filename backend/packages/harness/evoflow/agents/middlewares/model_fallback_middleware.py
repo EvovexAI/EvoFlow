@@ -563,6 +563,28 @@ def _is_model_api_error(exc: Exception) -> bool:
             return True
         cause = getattr(cause, "__cause__", None) or getattr(cause, "__context__", None)
 
+    # Vendor-generic "An internal error occurred" often arrives as a bare
+    # Exception (no openai/httpx type). classify() marks it SERVER_ERROR —
+    # treat as model API so wrap_model_call retries instead of RUN_ERROR.
+    # Do NOT include UNKNOWN: that would swallow programming bugs as soft fails.
+    try:
+        reason = classify(exc).reason
+        if reason in {
+            FailoverReason.SERVER_ERROR,
+            FailoverReason.OVERLOADED,
+            FailoverReason.TIMEOUT,
+            FailoverReason.CONNECTION_ERROR,
+            FailoverReason.RATE_LIMIT,
+            FailoverReason.AUTH,
+            FailoverReason.BILLING,
+            FailoverReason.CONTEXT_OVERFLOW,
+            FailoverReason.PAYLOAD_TOO_LARGE,
+            FailoverReason.MODEL_NOT_FOUND,
+        }:
+            return True
+    except Exception:
+        pass
+
     return False
 
 

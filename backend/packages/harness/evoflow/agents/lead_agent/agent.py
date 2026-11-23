@@ -1650,8 +1650,7 @@ def make_lead_agent(config: RunnableConfig, runtime: ServerRuntime | None = None
     ]
 
     # Apply tool whitelist filter: configurable tools only; session spine always kept.
-    # 小V：白名单是 bash 等显式项，但 mcp_servers=None 时仍保留全部 MCP 工具。
-    # 其它角色：保留 mcp_servers 绑定到的 MCP（或 None=全部），与 mount 语义一致。
+    # 小V默认 mcp_servers=[]（不挂 MCP）；其它角色 None=全部 / list=白名单，与 mount 语义一致。
     # Host plugin kernels (mcp__node_repl__js) follow plugin enable, not mcp_servers.
     if _tool_whitelist is not None:
         from evoflow.tools.tool_aliases import canonical_tool_name

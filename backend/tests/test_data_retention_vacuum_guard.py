@@ -136,6 +136,15 @@ def test_runner_guard_env_kill_switch(monkeypatch: pytest.MonkeyPatch) -> None:
     assert runner._vacuum_busy_guard() is True
 
 
+def test_obs_size_cap_retry_seconds_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    import app.gateway.data_retention_runner as runner
+
+    monkeypatch.delenv("EVOFLOW_OBS_SIZE_CAP_RETRY_S", raising=False)
+    assert runner._obs_size_cap_retry_seconds() == 3600
+    monkeypatch.setenv("EVOFLOW_OBS_SIZE_CAP_RETRY_S", "120")
+    assert runner._obs_size_cap_retry_seconds() == 300  # floor 300s
+
+
 def test_runner_guard_blocks_any_inflight(monkeypatch: pytest.MonkeyPatch) -> None:
     """任意 inflight REST（含 proactive）都应让路，不只 chat/langgraph。"""
     import app.gateway.data_retention_runner as runner
@@ -198,3 +207,90 @@ def test_vacuum_paths_runs_under_size_cap(tmp_path: Path, monkeypatch: pytest.Mo
     out = dr._vacuum_paths([small])
     assert out == [str(small)]
     assert any("VACUUM" in c for c in calls)
+
+
+def test_observability_rebuild_not_blocked_by_vacuum_max_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """VACUUM INTO must still run for multi-GB obs DBs (in-place VACUUM stays gated).
+
+    2026-11-23 non-dev: freelist ~1GB unreclaimed because rebuild wrongly called
+    ``_skip_vacuum_due_to_size`` and returned False while the file was 2.5GB.
+    """
+    obs = tmp_path / "evoflow_observability.db"
+    obs.write_bytes(b"x" * 2048)
+    monkeypatch.setenv("EVOFLOW_VACUUM_MAX_BYTES", "512")  # would block in-place VACUUM
+    monkeypatch.setattr(dr, "_observability_freelist_bytes", lambda _p: 512 * 1024 * 1024)
+    monkeypatch.setattr(
+        "evoflow.observability.recorder.reset_observability_store",
+        lambda: None,
+        raising=False,
+    )
+
+    real_calls: list[str] = []
+
+    class _Conn:
+        def execute(self, sql, *_a, **_k):
+            real_calls.append(str(sql))
+            if "VACUUM INTO" in str(sql):
+                rebuilt = obs.with_suffix(".db.rebuild")
+                rebuilt.write_bytes(b"compacted")
+            return None
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(dr.sqlite3, "connect", lambda *_a, **_k: _Conn())
+    ok = dr._vacuum_observability_rebuild(obs)
+    assert ok is True
+    assert any("VACUUM INTO" in c for c in real_calls)
+    assert obs.read_bytes() == b"compacted"
+    # In-place VACUUM remains gated for oversized files (rebuild must not share that gate).
+    fat = tmp_path / "fat.db"
+    fat.write_bytes(b"x" * 2048)
+    assert dr._skip_vacuum_due_to_size(fat) is True
+
+
+def test_size_cap_skips_rebuild_when_busy_guard_blocks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Busy chat/REST must not start VACUUM INTO mid-session."""
+    db = tmp_path / "obs.db"
+    conn = __import__("sqlite3").connect(str(db))
+    conn.execute(
+        "CREATE TABLE evoflow_obs_gateway_requests ("
+        "id TEXT, occurred_at TEXT, method TEXT, path TEXT, query_string TEXT,"
+        "client_ip TEXT, user_agent TEXT, request_content_type TEXT,"
+        "response_content_type TEXT, status_code INTEGER, duration_ms REAL,"
+        "request_headers_json TEXT, response_headers_json TEXT,"
+        "request_body_sample TEXT, response_body_sample TEXT,"
+        "request_body_truncated INTEGER, response_body_truncated INTEGER,"
+        "error_type TEXT, metadata_json TEXT)"
+    )
+    conn.execute(
+        "CREATE TABLE evoflow_obs_model_invocations ("
+        "id TEXT, requested_at TEXT, request_json TEXT, response_json TEXT)"
+    )
+    conn.execute("CREATE TABLE evoflow_obs_trace_events (id TEXT, occurred_at TEXT, payload_json TEXT)")
+    conn.execute(
+        "INSERT INTO evoflow_obs_gateway_requests (id, occurred_at, method, path, status_code, duration_ms)"
+        " VALUES ('1', '2020-01-01T00:00:00Z', 'GET', '/api/x', 200, 1)"
+    )
+    conn.commit()
+    conn.close()
+    # Pad file past freelist reclaim threshold via fake freelist probe.
+    monkeypatch.setattr(dr, "_observability_db_bytes", lambda _p: 3 * 1024**3)
+    monkeypatch.setattr(dr, "_observability_freelist_bytes", lambda _p: 512 * 1024 * 1024)
+    rebuild_calls = {"n": 0}
+    monkeypatch.setattr(
+        dr,
+        "_vacuum_observability_rebuild",
+        lambda _p: rebuild_calls.__setitem__("n", rebuild_calls["n"] + 1) or True,
+    )
+    _stripped, _deleted, vacuumed = dr.enforce_observability_db_size_cap(
+        db,
+        max_bytes=2 * 1024**3,
+        vacuum_path_guard=lambda: False,
+    )
+    assert vacuumed is False
+    assert rebuild_calls["n"] == 0

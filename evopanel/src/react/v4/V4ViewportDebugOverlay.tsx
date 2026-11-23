@@ -1175,7 +1175,7 @@ function buildOverlayDiagnosticText(opts: {
     "- 「肉眼所见」是屏幕 DOM 文案+坐标，不是投影幻想；不必复制 HTML/截长图；若肉眼叠了而本节无 !叠下一卡，再说一声。",
   );
   lines.push(
-    "- 「发送水位线 / 停止归因」：发了几次、何时出泡上屏、上线/首字/收口；异常带前后接口；点停/Esc/client_attach/断流的 whoZh 在「停止归因」。",
+    "- 「发送水位线 / 停止归因」：发了几次、何时出泡上屏、上线/首字/收口；异常带前后接口 +「原因=」；点停/Esc/client_attach/断流的 whoZh 在「停止归因」。",
   );
   lines.push(
     "- 「虚拟化」表：软顶/窗首尾/流式 tip/直播轮——转圈但 SSE 在动、上滚没历史，先对这一节。",
@@ -1203,6 +1203,12 @@ function buildOverlayDiagnosticText(opts: {
           sessionKey: s.sessionKey,
           runId: s.runId,
           fromUiStopButton: s.fromUiStopButton,
+          errMsg:
+            typeof s.detail?.errMsg === "string"
+              ? s.detail.errMsg
+              : typeof s.detail?.rawErr === "string"
+                ? s.detail.rawErr
+                : null,
         })),
       }),
     );
@@ -1305,6 +1311,12 @@ function buildOverlayDiagnosticText(opts: {
           sessionKey: s.sessionKey,
           runId: s.runId,
           fromUiStopButton: s.fromUiStopButton,
+          errMsg:
+            typeof s.detail?.errMsg === "string"
+              ? s.detail.errMsg
+              : typeof s.detail?.rawErr === "string"
+                ? s.detail.rawErr
+                : null,
         })),
     }),
   );
@@ -1873,6 +1885,9 @@ export function collectV4ViewportDiagnostic(
       firstMs: d(r.firstResponseAt),
       endMs: d(r.streamEndAt),
       outcome: r.outcome,
+      endWhoZh: r.endWhoZh,
+      endTrigger: r.endTrigger,
+      endErrMsg: r.endErrMsg,
     };
   });
 

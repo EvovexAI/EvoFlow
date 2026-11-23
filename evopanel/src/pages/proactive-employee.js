@@ -1346,8 +1346,11 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
       schedulePreview,
     }
     bindEmployeePage(page, role, initiatives)
-    // 将操作栏搬进 Tauri 标题栏（与窗口控制按钮同一行）
-    mountEmployeeNavToChrome(page)
+    // 右栏嵌入时勿把操作栏浮到主窗标题栏——侧栏里点不到「编辑」。
+    // 头像旁铅笔仍可用；主区全页才挂到 chrome。
+    if (!page.classList.contains('shell-page-embed')) {
+      mountEmployeeNavToChrome(page)
+    }
     // 任务可能从任务中心 / IM / 工作流派发，本页不会收到任何事件。
     // 只要还有执行中的工作，就低频自动刷新，让「完成」「产出」自己浮现，
     // 用户不必手动刷新才看到状态变化。
@@ -1798,7 +1801,15 @@ function renderRoleProfile(
   return `
     <section class="pro-duty-sheet" aria-label="岗位信息">
       <div class="pro-duty-sheet-hero">
-        <div class="pro-duty-sheet-avatar" data-avatar-agent="${esc(code)}" aria-hidden="true"></div>
+        <div class="pro-duty-sheet-avatar-wrap">
+          <div class="pro-duty-sheet-avatar" data-avatar-agent="${esc(code)}" aria-hidden="true"></div>
+          <button type="button" class="pro-duty-sheet-edit" data-act="edit" title="编辑岗位设置" aria-label="编辑岗位设置">
+            <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 20h9" />
+              <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+            </svg>
+          </button>
+        </div>
         <div class="pro-duty-sheet-text">
           <p class="pro-duty-sheet-kicker">${
             !!role.system_front_desk || String(code || '') === 'xiaomi'
@@ -4318,7 +4329,7 @@ function bindEmployeePage(page, role, initiatives) {
       setEmployeeTab(next, role, next._employeeTab)
     }
   })
-  page.querySelector('[data-act="edit"]')?.addEventListener('click', () => {
+  const openEmployeeEdit = () => {
     void showEditRoleModal(role, {
       onSaved: async (updated) => {
         const newCode = String(updated?.agent_code || role.agent_code || '').trim()
@@ -4341,6 +4352,10 @@ function bindEmployeePage(page, role, initiatives) {
         }
       },
     })
+  }
+  // 顶栏「编辑岗位」+ 头像旁铅笔（侧栏嵌入时顶栏可能浮走，铅笔仍可点）
+  page.querySelectorAll('[data-act="edit"]').forEach((btn) => {
+    btn.addEventListener('click', openEmployeeEdit)
   })
   page.querySelector('[data-act="feishu-bind"]')?.addEventListener('click', () => {
     void startFeishuEmployeeScan(role.agent_code, {

@@ -316,6 +316,11 @@ export type ChatTurnTimingRow = {
   endWhoZh: string | null
   /** 收口 trigger（composer_stop_button / sse_aborted / client_attach …） */
   endTrigger: string | null
+  /**
+   * 流错误 / RUN_ERROR 的人话原因（toUserFacingError）。
+   * 例：「本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过」
+   */
+  endErrMsg: string | null
 }
 
 /** 水位线旁路：同会话近期停止归因（避免 timing ↔ stream-stop 循环 import） */
@@ -327,6 +332,8 @@ export type ChatTurnWaterlineStopHint = {
   sessionKey?: string
   runId?: string
   fromUiStopButton?: boolean
+  /** 流错误人话原因（detail.errMsg）；诊断「莫名其妙停」主字段 */
+  errMsg?: string | null
 }
 
 export type ChatTurnTimingVerdictLevel = 'ok' | 'pending' | 'warn' | 'error'
@@ -535,6 +542,11 @@ export function formatChatTurnWaterlineForDiag(opts?: {
     if (stageBits.length) {
       lines.push(`  卡点: ${stageBits.join(' · ')}`)
     }
+    // 流错误人话原因：工具卡中间停往往是 RUN_ERROR，不是工具本身失败
+    const endErr = String(row.endErrMsg || '').trim()
+    if (endErr) {
+      lines.push(`  原因: ${endErr.slice(0, 160)}`)
+    }
 
     const winStart = row.sendAt - 2_000
     const winEnd = (row.streamEndAt ?? now) + 2_000
@@ -586,7 +598,11 @@ export function formatChatTurnWaterlineForDiag(opts?: {
       lines.push(
         `  停止归因: ${nearStops
           .slice(-4)
-          .map((s) => `${s.whoZh}(${s.trigger}/${s.kind})`)
+          .map((s) => {
+            const reason = String(s.errMsg || '').trim()
+            const base = `${s.whoZh}(${s.trigger}/${s.kind})`
+            return reason ? `${base} · ${reason.slice(0, 80)}` : base
+          })
           .join('；')}`,
       )
     }
@@ -596,7 +612,7 @@ export function formatChatTurnWaterlineForDiag(opts?: {
   lines.push('')
   lines.push('### 停止归因（谁停的 / 用户操作）')
   lines.push(
-    '- 点停、Esc、打断重发、client_attach、断流都会落这里；「用户停止」只该出现在真点停/Esc',
+    '- 点停、Esc、打断重发、client_attach、断流都会落这里；「用户停止」只该出现在真点停/Esc；流错误带「原因=」',
   )
   if (stopHints.length === 0) {
     lines.push('- （尚无停止记录；点停止或断流后会出现 whoZh）')
@@ -604,8 +620,10 @@ export function formatChatTurnWaterlineForDiag(opts?: {
     for (const s of stopHints.slice(-12).reverse()) {
       const sk = s.sessionKey ? ` sk=${s.sessionKey.slice(0, 28)}` : ''
       const ui = s.fromUiStopButton ? ' uiStop' : ''
+      const reason = String(s.errMsg || '').trim()
+      const reasonBit = reason ? ` · 原因=${reason.slice(0, 120)}` : ''
       lines.push(
-        `- ${fmtClock(s.atMs)} [${s.kind}] ${s.whoZh} · trigger=${s.trigger}${ui}${sk}`,
+        `- ${fmtClock(s.atMs)} [${s.kind}] ${s.whoZh} · trigger=${s.trigger}${ui}${sk}${reasonBit}`,
       )
     }
   }
@@ -641,6 +659,7 @@ function persistTimingRow(row: ChatTurnTimingRow): void {
     outcome: row.outcome || undefined,
     endWhoZh: row.endWhoZh || undefined,
     endTrigger: row.endTrigger || undefined,
+    endErrMsg: row.endErrMsg || undefined,
     wireMs: row.wireAt != null ? row.wireAt - row.sendAt : null,
     bubbleMs: row.userBubbleAt != null ? row.userBubbleAt - row.sendAt : null,
     firstMs: row.firstResponseAt != null ? row.firstResponseAt - row.sendAt : null,
@@ -749,6 +768,7 @@ function beginTimingRow(opts: {
     outcome: null,
     endWhoZh: null,
     endTrigger: null,
+    endErrMsg: null,
   }
   timingRing.push(row)
   while (timingRing.length > TIMING_RING_MAX) timingRing.shift()
@@ -1373,6 +1393,16 @@ export type ChatTurnStreamEndOutcome =
   | 'ui_stop'
   | 'other'
 
+/** 从 stream-stop detail 抽出人话 errMsg（或 rawErr 兜底）。 */
+function extractEndErrMsg(detail?: Record<string, unknown> | null): string | null {
+  if (!detail || typeof detail !== 'object') return null
+  for (const key of ['errMsg', 'errorMessage', 'message', 'rawErr'] as const) {
+    const v = detail[key]
+    if (typeof v === 'string' && v.trim()) return v.trim().slice(0, 200)
+  }
+  return null
+}
+
 /**
  * ④ 流式结束：正常 final / 异常断流 / 用户点停。
  * 同一轮只记一次；关闭生命周期（stream_end）。
@@ -1412,6 +1442,7 @@ export function logChatTurnStreamEnd(opts: {
             : '其它结束'
   const who = String(opts.whoZh || '').trim() || outcomeZh
   const trigger = String(opts.trigger || outcome).trim()
+  const endErrMsg = extractEndErrMsg(opts.detail)
   const level =
     outcome === 'sse_final' ? 'info' : outcome === 'ui_stop' ? 'info' : 'warn'
   const endRunId = String(opts.runId || sendTrace?.runId || '').trim()
@@ -1420,6 +1451,7 @@ export function logChatTurnStreamEnd(opts: {
     outcome,
     endWhoZh: who,
     endTrigger: trigger,
+    ...(endErrMsg ? { endErrMsg } : {}),
     rebind: true,
     ...(endRunId ? { runId: endRunId } : {}),
     ...(sessionKey ? { sessionKey } : {}),
@@ -1434,6 +1466,7 @@ export function logChatTurnStreamEnd(opts: {
     runId: endRunId || undefined,
     textPreview: sendTrace?.textPreview || undefined,
     ...(since != null ? { sinceSendMs: since } : {}),
+    ...(endErrMsg ? { errMsg: endErrMsg } : {}),
     ...(opts.detail || {}),
   }, level)
   stopFirstTokenWatch()

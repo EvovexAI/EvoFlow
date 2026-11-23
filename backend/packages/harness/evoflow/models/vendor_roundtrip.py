@@ -92,6 +92,13 @@ def _reschedule_watchdog(scope: Any, when: float) -> None:
 
 
 def _is_retriable_stream_error(exc: BaseException) -> bool:
+    """True when a failed stream may be safely re-opened (caller must also
+    ensure zero chunks were already yielded — otherwise retry duplicates UI).
+
+    Includes vendor-generic ``An internal error occurred`` (SERVER_ERROR):
+    historically only timeout/429 retried here, so that message bubbled as
+    RUN_ERROR and the UI told users to manually resend.
+    """
     if isinstance(exc, (TimeoutError, asyncio.TimeoutError)):
         return True
     name = type(exc).__name__
@@ -101,6 +108,10 @@ def _is_retriable_stream_error(exc: BaseException) -> bool:
         "ReadTimeout",
         "ConnectTimeout",
         "ConnectTimeoutError",
+        "InternalServerError",
+        "APIConnectionError",
+        "RemoteProtocolError",
+        "APIStatusError",
     }:
         return True
     msg = str(exc).lower()
@@ -108,6 +119,37 @@ def _is_retriable_stream_error(exc: BaseException) -> bool:
         return True
     if "429" in msg or "rate limit" in msg:
         return True
+    if any(
+        marker in msg
+        for marker in (
+            "internal error",
+            "server error",
+            "service unavailable",
+            "temporarily unavailable",
+            "overloaded",
+            "connection reset",
+            "server disconnected",
+            "broken pipe",
+        )
+    ):
+        return True
+    if any(code in msg for code in (" 500", " 502", " 503", " 504", "status 500", "status 502", "status 503", "status 504")):
+        return True
+    if isinstance(exc, Exception):
+        try:
+            from evoflow.error_classifier import FailoverReason, classify
+
+            reason = classify(exc).reason
+            if reason in {
+                FailoverReason.SERVER_ERROR,
+                FailoverReason.OVERLOADED,
+                FailoverReason.TIMEOUT,
+                FailoverReason.CONNECTION_ERROR,
+                FailoverReason.RATE_LIMIT,
+            }:
+                return True
+        except Exception:
+            pass
     return False
 
 
@@ -839,7 +881,12 @@ class VendorRoundtripChatMixin:
                 if self._retry_once_stripping_thinking(e) and attempt + 1 < attempts:
                     # 已置位实例记忆，下一轮 attempt 的载荷会剥离 thinking 参数。
                     continue
-                if _is_retriable_stream_error(e) and attempt + 1 < attempts:
+                # 仅零 chunk 时重开流：已下发过 token 再 retry 会重复渲染。
+                if (
+                    ttft is None
+                    and _is_retriable_stream_error(e)
+                    and attempt + 1 < attempts
+                ):
                     logger.warning(
                         "vendor _stream retry %d/%d after %s: %s",
                         attempt + 1,
@@ -891,15 +938,23 @@ class VendorRoundtripChatMixin:
         attempts = _stream_retry_attempts()
         self._strip_control_kwargs(kwargs)
         for attempt in range(attempts):
+            yielded_any = False
             try:
                 async for chunk in self._astream_once(messages, stop=stop, run_manager=run_manager, **kwargs):
+                    yielded_any = True
                     yield chunk
                 return
             except Exception as e:
                 if self._retry_once_stripping_thinking(e) and attempt + 1 < attempts:
                     # 已置位实例记忆，下一轮 attempt 的载荷会剥离 thinking 参数。
                     continue
-                if _is_retriable_stream_error(e) and attempt + 1 < attempts:
+                # 已下发 chunk 时不要在此层重开（避免重复输出）；
+                # 零 chunk 的可恢复错误（含 An internal error occurred）再试。
+                if (
+                    not yielded_any
+                    and _is_retriable_stream_error(e)
+                    and attempt + 1 < attempts
+                ):
                     logger.warning(
                         "vendor _astream retry %d/%d after %s: %s",
                         attempt + 1,

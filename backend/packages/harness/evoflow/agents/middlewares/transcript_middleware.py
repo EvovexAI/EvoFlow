@@ -775,10 +775,14 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
         session_key = _session_key_for_thread(thread_id)
         if not session_key:
             return
-        rid = _run_id_for_transcript(thread_id, session_key)
-        if not rid:
-            return
+        # Entire body must soft-fail: ``_run_id_for_transcript`` → ``get_db`` on the
+        # LangGraph asyncio bg-loop can raise ``db_process_lock_timeout`` (0.5s).
+        # That used to abort the run after a successful tool hop; serde then showed
+        # the user a fake 「模型服务临时内部错误」.
         try:
+            rid = _run_id_for_transcript(thread_id, session_key)
+            if not rid:
+                return
             from evoflow.persistence.session_run_state import peek_current_run_id
             from evoflow.session_execution.lifecycle import start_session_turn
 
@@ -790,7 +794,11 @@ class TranscriptMiddleware(AgentMiddleware[AgentState]):
                 rid = existing
             start_session_turn(session_key=session_key, thread_id=thread_id, run_id=rid, source="model_step")
         except Exception:
-            logger.debug("mark run active before model failed thread=%s", thread_id, exc_info=True)
+            logger.warning(
+                "mark run active before model failed thread=%s (continuing model call)",
+                thread_id,
+                exc_info=True,
+            )
 
     # ------------------------------------------------------------------
     # Messages

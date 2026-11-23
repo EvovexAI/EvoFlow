@@ -121,11 +121,13 @@ export async function loadPluginCatalog(opts = {}) {
       const rows = raw.map(normalizePluginRow).filter(Boolean)
       return commitCache(rows)
     } catch (e) {
-      // Non-admin / transient gateway errors must not surface as Uncaught —
-      // chat 「+」 and home prefetch share this path on every session open.
+      // 瞬时失败（网关未就绪 / Best-effort 503）不得把空数组写进缓存：
+      // `_cached = []` 仍是 truthy，后续 load 会一直命中空目录，表现成
+      // 「新对话看不到插件、有时两边都空」。保留旧缓存；无缓存则返回 [] 且不 commit。
       _inflight = null
       console.warn('[plugin-catalog] overview failed:', e?.message || e)
-      return commitCache([])
+      if (_cached) return _cached
+      return []
     }
   })()
 

@@ -909,6 +909,9 @@ function ConversationTimelineImpl({
     if (!wasActive && layoutActive) {
       remountMeasureGuardUntilRef.current = performance.now() + 450;
       layoutScrollGuardUntilRef.current = Date.now() + 450;
+      // 隐藏态 / 他会话留下的水位会误伤：要么拒贴（停在 top≈0 空屏），要么贴到塌高（半屏白）。
+      lastStickScrollHeightRef.current = 0;
+      liveTailHeightFloorRef.current = 0;
       const cache = heightCacheRef.current;
       const units = virtualizedUnitsRef.current;
       const root = scrollRef.current;
@@ -961,15 +964,25 @@ function ConversationTimelineImpl({
       let cancelled = false;
       let raf2 = 0;
       let settleTimer: number | null = null;
+      const memoryScrollHeight = memory?.scrollHeight ?? 0;
       const stickIfFollowing = () => {
         if (cancelled) return;
         const later = userScrollIntentRef.current;
         const laterAway =
           later.intent === "awayFromBottom" &&
           Date.now() - later.observedAt <= USER_SCROLL_INTENT_TTL_MS;
-        if (followingRef.current && !laterAway) {
-          becomeVisibleFollowBottomRef.current?.();
+        if (!(followingRef.current && !laterAway)) return;
+        const el = scrollRef.current;
+        // 估高未齐：scrollHeight 远小于记忆高度时贴底只会钳到近 0 → 画面空。
+        // 等测高涨回（或没有可用记忆）再 stick。
+        if (
+          el &&
+          memoryScrollHeight > 800 &&
+          el.scrollHeight < memoryScrollHeight * 0.45
+        ) {
+          return;
         }
+        becomeVisibleFollowBottomRef.current?.();
       };
       const raf1 = window.requestAnimationFrame(() => {
         raf2 = window.requestAnimationFrame(() => {
@@ -991,13 +1004,13 @@ function ConversationTimelineImpl({
           layoutScrollGuardUntilRef.current = Date.now() + LAYOUT_SCROLL_GUARD_MS;
           stickIfFollowing();
           // 估高→实高常滞后双 rAF；跟底时再补几次，避免 follow=1 却 dist 上千
-          // （现场 KeepAlive 切回 dist≈2996）。
+          // （现场 KeepAlive 切回 dist≈2996）。多补两轮：长单轮（数千 px）测高更慢。
           let settleN = 0;
           const settle = () => {
             if (cancelled) return;
             stickIfFollowing();
             settleN += 1;
-            if (settleN < 4) {
+            if (settleN < 6) {
               settleTimer = window.setTimeout(settle, 80 * settleN);
             } else {
               settleTimer = null;
@@ -1528,6 +1541,8 @@ function ConversationTimelineImpl({
 
   /** 上一帧 scrollHeight；骤降时禁止贴底，避免钳到 top≈0 半屏空白。 */
   const lastStickScrollHeightRef = useRef(0);
+  /** live tail 流式测高高水位：防 markdown 中间帧塌高 → browser 上跳 + scrollToBottom 下抢。 */
+  const liveTailHeightFloorRef = useRef(0);
   // 贴底必须 instant（scrollTop 赋值）：smooth 的中间帧会被 scroll 判定误读为「离底」。
   const scrollToBottom = useCallback(() => {
     const element = scrollRef.current;
@@ -1538,15 +1553,19 @@ function ConversationTimelineImpl({
     // 顶部安全留白会被滚走。草稿始终展示顶部，真实会话继续吸底。
     const nextHeight = element.scrollHeight;
     const prevHeight = lastStickScrollHeightRef.current;
-    // KeepAlive 切回 / 软顶裁窗时 scrollHeight 先掉几百～上千再涨回来。
+    // KeepAlive 切回 / 软顶裁窗 / 流式塌高：scrollHeight 先掉几百～上千再涨回来。
     // 骤降帧若仍 scrollTop=scrollHeight，会被钳到接近 0 → 半屏白；等测高恢复后再贴。
+    // 跟底中勿把水位降到塌高——否则回涨帧会被当成「正常长高」连续 !JUMP 互殴
+    // （现场 browser/native 上跳 ↔ scrollToBottom 下跳，gap≈0、h±600）。
     if (
       !responsiveCenteredEmptyLayout &&
       prevHeight > 0 &&
       nextHeight < prevHeight - 400
     ) {
       recordScrollWrite("scrollToBottom", element);
-      lastStickScrollHeightRef.current = nextHeight;
+      if (!followingRef.current) {
+        lastStickScrollHeightRef.current = nextHeight;
+      }
       lastObservedScrollTopRef.current = element.scrollTop;
       return;
     }
@@ -1583,6 +1602,8 @@ function ConversationTimelineImpl({
     userAdjustedScrollSinceRestoreRef.current = false;
     markLayoutScrollGuard();
     commitFollowing(true);
+    // 切回瞬间清水位：隐藏态塌高 / 他会话高度会让 scrollToBottom 拒贴或贴到近 0。
+    lastStickScrollHeightRef.current = 0;
     scrollToBottom();
   };
 
@@ -1788,12 +1809,38 @@ function ConversationTimelineImpl({
     const cacheKey = getUnitHeightCacheKey(liveUnit ?? undefined);
     if (!element || cacheKey === undefined) return;
 
+    // 换 live 轮次 / 收口时清高度地板。
+    // 收口后若仍钉着流式高水位 minHeight，跟底会滚进「垫高空白」→ 整屏白
+    // （现场：SSE final 后 loading 槽塌掉，rect 仍被 minHeight 撑着，视口只见白）。
+    liveTailHeightFloorRef.current = 0;
+    element.style.minHeight = "";
+
+    const pinHeightFloor = liveUnit?.isRunning === true;
+
     const cacheHeight = (entry?: ResizeObserverEntry) => {
       const height = measureRowHeight(element, entry);
       heightCacheRef.current?.set(cacheKey, height);
       return height;
     };
     let observedHeight = cacheHeight();
+    // 仅运行中钉地板；已 settled 只缓存真实高度，禁止空垫高。
+    if (observedHeight > 0 && pinHeightFloor) {
+      liveTailHeightFloorRef.current = observedHeight;
+      element.style.minHeight = `${observedHeight}px`;
+    } else if (observedHeight > 0) {
+      liveTailHeightFloorRef.current = observedHeight;
+    }
+
+    // 刚从 running→settled：清掉垫高后立刻贴真实内容底，避免停在旧 scrollTop 的白区。
+    if (!pinHeightFloor && followingRef.current) {
+      const scrollElement = scrollRef.current;
+      if (scrollElement) {
+        lastStickScrollHeightRef.current = 0;
+        markLayoutScrollGuard();
+        scrollToBottom();
+      }
+    }
+
     if (typeof ResizeObserver === "undefined") return;
 
     // projection revision 的父 layout effect 可能早于 Markdown 子树最终测高；
@@ -1803,7 +1850,31 @@ function ConversationTimelineImpl({
     const observer = new ResizeObserver((entries) => {
       const nextHeight = cacheHeight(entries[0]);
       if (nextHeight === observedHeight) return;
+      const grew = nextHeight > observedHeight;
+      const shrank = nextHeight < observedHeight;
       observedHeight = nextHeight;
+
+      // 流式 markdown 中间帧常先塌再涨（现场 h±600、top 反复回 3528）。
+      // 跟底时用高水位 minHeight 钉住，避免 browser/native 上跳再被 scrollToBottom 拽回。
+      // 注意：measure 含 minHeight 本身，settled 后绝不能继续钉——否则白屏。
+      if (pinHeightFloor && grew && nextHeight > liveTailHeightFloorRef.current) {
+        liveTailHeightFloorRef.current = nextHeight;
+        element.style.minHeight = `${nextHeight}px`;
+      } else if (
+        pinHeightFloor &&
+        shrank &&
+        followingRef.current &&
+        liveTailHeightFloorRef.current > 0
+      ) {
+        element.style.minHeight = `${liveTailHeightFloorRef.current}px`;
+        return;
+      } else if (!pinHeightFloor) {
+        liveTailHeightFloorRef.current = nextHeight;
+        if (element.style.minHeight) element.style.minHeight = "";
+      }
+
+      // 只在长高时贴底；运行中塌高帧交给地板，禁止 shrink→scrollToBottom 互殴。
+      if (!grew) return;
 
       const scrollElement = scrollRef.current;
       if (!scrollElement) return;
@@ -1830,11 +1901,15 @@ function ConversationTimelineImpl({
       scrollToBottom();
     });
     observer.observe(element);
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      element.style.minHeight = "";
+    };
   }, [
     commitFollowing,
     getActiveUserScrollIntent,
     isContentWidthChanging,
+    liveUnit?.isRunning,
     liveUnit?.key,
     markLayoutScrollGuard,
     scrollToBottom,
@@ -2654,7 +2729,9 @@ function ConversationTimelineImpl({
               </div>
               {liveUnit !== null && liveUnitIndex !== null ? (
                 <div
-                  key={`live:${liveUnitIndex}:${liveUnit.key}:${rowContext.logEpoch ?? "0"}`}
+                  // 只用 turn key：index/logEpoch 进 key 会在分区微调时整轮重挂，
+                  // 流式正文高度瞬间塌掉 → browser 上跳 + scrollToBottom 下抢（!JUMP 互殴）。
+                  key={`live:${liveUnit.key}`}
                   ref={liveTailRef}
                   data-index={liveUnitIndex}
                   data-v4-running-live-tail="true"
@@ -2663,8 +2740,10 @@ function ConversationTimelineImpl({
                   data-v4-timeline-content-column="true"
                   style={{ overflowAnchor: "none" }}
                   className={cn(
-                    // ≥1280px 面板让位时降级为只过渡 transform，避免大范围跳变叠加位移抖动。
-                    "relative mx-auto w-full shrink-0 transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
+                    // 运行中禁 width 过渡：流式帧上 transition 会触发布局抖动，放大贴底互殴。
+                    "relative mx-auto w-full shrink-0",
+                    !liveUnit.isRunning &&
+                      "transition-[width,max-width,transform] duration-150 ease-out @min-[1280px]/conversation:transition-[transform]",
                     contentWidthClassName,
                     summaryPanelInlineOffsetClassName,
                   )}

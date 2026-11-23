@@ -125,6 +125,52 @@ describe('chat turn waterline', () => {
     expect(blob).toContain('client_attach')
   })
 
+  it('surfaces stream_error errMsg as 原因 on waterline and stopHints', async () => {
+    const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
+    const sk = 'sk-err'
+    mod.logChatTurnSendClick({ sessionKey: sk, text: '工具中途停' })
+    mod.logChatTurnUserBubbleVisible({ sessionKey: sk })
+    mod.logChatTurnSendWire({ sessionKey: sk })
+    mod.logChatTurnRunStarted({ sessionKey: sk, runId: 'r-err' })
+    mod.logChatTurnFirstResponse({
+      sessionKey: sk,
+      kind: 'tool',
+      preview: 'bash',
+      runId: 'r-err',
+    })
+    const errMsg =
+      '本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过'
+    mod.logChatTurnStreamEnd({
+      sessionKey: sk,
+      runId: 'r-err',
+      outcome: 'stream_error',
+      whoZh: '流错误结束',
+      trigger: 'stream_error',
+      hasEndMarker: false,
+      detail: { errMsg, rawErr: 'An internal error occurred' },
+    })
+    const row = mod.listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === 'r-err')
+    expect(row?.endErrMsg).toContain('模型服务临时内部错误')
+    const blob = mod
+      .formatChatTurnWaterlineForDiag({
+        sessionKey: sk,
+        stopHints: [
+          {
+            atMs: Date.now(),
+            whoZh: '流错误结束',
+            trigger: 'stream_error',
+            kind: 'abnormal',
+            sessionKey: sk,
+            errMsg,
+          },
+        ],
+      })
+      .join('\n')
+    expect(blob).toContain('原因: 本轮生成失败：模型服务临时内部错误')
+    expect(blob).toContain('原因=本轮生成失败：模型服务临时内部错误')
+    expect(blob).toContain('异常·流错误')
+  })
+
   it('binds stream_end to the wired row after a duplicate send_click', async () => {
     const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
     const sk = 'sk-rebind'

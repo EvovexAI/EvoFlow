@@ -581,10 +581,14 @@ export function EvoFlowHomeDashboard({ onPrompt, workspaceLabel = '', workspaceP
       setPluginList(toPickerItems(rows))
       setPluginListLoading(false)
     })
-    void loadPluginCatalog({ enabledOnly: true }).catch(() => {
-      setPluginList([])
-      setPluginListLoading(false)
-    })
+    void loadPluginCatalog({ enabledOnly: true })
+      .then((rows) => {
+        setPluginList(toPickerItems(Array.isArray(rows) ? rows : []))
+        setPluginListLoading(false)
+      })
+      .catch(() => {
+        setPluginListLoading(false)
+      })
     return () => {
       unsub()
     }

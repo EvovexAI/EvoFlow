@@ -38,6 +38,12 @@ def test_resolve_target_is_best_effort() -> None:
     )
 
 
+def test_workspaces_search_is_best_effort() -> None:
+    # Settings code-index graph search must shed under lag (2026-11-23 100s hang).
+    assert classify_path("/api/workspaces/search").lane == Lane.BEST_EFFORT
+    assert classify_path("/api/workspaces/search", method="GET").lane == Lane.BEST_EFFORT
+
+
 def test_unknown_api_defaults_to_data_not_control() -> None:
     """Coverage guarantee: new slow endpoints are isolated until allow-listed."""
     assert classify_path("/api/brand-new-slow-thing").lane == Lane.DATA

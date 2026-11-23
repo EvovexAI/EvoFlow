@@ -3436,9 +3436,26 @@ export function useChatAppController() {
   }, [selectedSessionKey, setSessions, setRoleUiNonce, setRows])
 
   const currentRoleAgent = useMemo(() => {
-    const code = currentRoleCodeForUi
-    return agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code) ?? { agent_code: code }
-  }, [currentRoleCodeForUi, agents])
+    // 员工会话优先用 session 里的 agent_code，避免 currentRoleCodeForUi 漂移时
+    // 读到空 stub（mcp_servers 缺失 → UI 永远显示「全部 MCP」，点 × 像没反应）。
+    const code = String(
+      (isProactiveEmployeeSession ? employeeSessionAgentCode : '') ||
+        currentRoleCodeForUi ||
+        '',
+    )
+      .trim()
+      .toLowerCase()
+    return (
+      agents.find((a) => String(a?.agent_code || '').trim().toLowerCase() === code) ?? {
+        agent_code: code,
+      }
+    )
+  }, [
+    isProactiveEmployeeSession,
+    employeeSessionAgentCode,
+    currentRoleCodeForUi,
+    agents,
+  ])
 
   const currentAgentCapabilities = useMemo(
     () =>
@@ -4469,6 +4486,7 @@ export function useChatAppController() {
           setCapabilityPatchBusy,
           setRoleUiNonce,
           refreshAgentsList,
+          setAgents,
         },
         patch,
       )

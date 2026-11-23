@@ -28,8 +28,12 @@ export async function render() {
       </div>
       <div class="page-actions">
         <div class="apps-new-dropdown">
-          <button type="button" class="btn btn-primary btn-sm" id="btn-new-app">新建工作流 ▾</button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-new-app">新建 ▾</button>
           <div class="apps-new-menu" hidden>
+            <button type="button" class="apps-new-menu-item" data-act="folder">
+              <span class="apps-new-menu-icon" aria-hidden="true">📁</span>
+              <span>文件夹</span>
+            </button>
             <button type="button" class="apps-new-menu-item" data-act="blank">
               <span class="apps-new-menu-icon">${appGlyphSvg('workflow', 16)}</span>
               <span>空白工作流</span>
@@ -49,19 +53,8 @@ export async function render() {
     </div>
 
     <div class="page-content">
-      <div class="apps-tip">
-        <span class="apps-tip-dot" aria-hidden="true"></span>
-        <div class="apps-tip-content apps-tip-content--inline">
-          <span class="apps-tip-main"><strong>何时用</strong> 固定流程、换参复跑</span>
-          <span class="apps-tip-sep" aria-hidden="true">·</span>
-          <span class="apps-tip-detail"><strong>怎么用</strong> 编排 → 试跑 → 发布 → 填参运行</span>
-        </div>
-      </div>
-
-      <div class="apps-filter" role="tablist" aria-label="工作流筛选">
-        <button type="button" class="apps-filter-btn is-active" data-filter="active">活跃</button>
-        <button type="button" class="apps-filter-btn" data-filter="archived">已归档</button>
-        <button type="button" class="apps-filter-btn" data-filter="all">全部</button>
+      <div class="apps-toolbar">
+        <nav class="apps-folder-breadcrumb" id="apps-folder-breadcrumb" aria-label="当前位置"></nav>
         <input type="search" class="apps-filter-search" placeholder="搜索工作流…" aria-label="搜索工作流" />
       </div>
 
@@ -79,6 +72,7 @@ export async function render() {
         <p data-role="empty-desc">从模板快速创建，或从对话中沉淀</p>
         <div class="apps-empty-actions">
           <button type="button" class="btn btn-primary" id="btn-empty-new-app">创建空白工作流</button>
+          <button type="button" class="btn btn-ghost" id="btn-empty-new-folder">新建文件夹</button>
           <button type="button" class="btn btn-ghost" id="btn-empty-template">从模板创建</button>
         </div>
       </div>
@@ -86,11 +80,278 @@ export async function render() {
   `
 
   let apps = []
-  /** @type {'active' | 'archived' | 'all'} */
-  let listFilter = 'active'
+  /** @type {Array<{folder_id:string,parent_id?:string,name?:string}>} */
+  let folders = []
+  /** 当前所在夹：'' = 根目录；其它 = 文件夹 id（点进去往下钻） */
+  let selectedFolderId = ''
   let searchQuery = ''
   let listPage = 1
   let listPageSize = readStoredPageSize(APPS_PAGE_SIZE_KEY)
+
+  function folderById(id) {
+    const fid = String(id || '')
+    return folders.find((f) => String(f.folder_id) === fid) || null
+  }
+
+  function folderChildren(parentId) {
+    const pid = String(parentId || '')
+    return folders
+      .filter((f) => String(f.parent_id || '') === pid)
+      .slice()
+      .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'zh'))
+  }
+
+  function folderPath(folderId) {
+    const parts = []
+    let cur = String(folderId || '')
+    const seen = new Set()
+    while (cur && !seen.has(cur)) {
+      seen.add(cur)
+      const f = folderById(cur)
+      if (!f) break
+      parts.unshift({ id: f.folder_id, name: f.name || '未命名' })
+      cur = String(f.parent_id || '')
+    }
+    return parts
+  }
+
+  function folderPathLabel(folderId) {
+    const parts = folderPath(folderId)
+    if (!parts.length) return '全部'
+    return parts.map((p) => p.name).join(' / ')
+  }
+
+  function createTargetFolderId() {
+    return String(selectedFolderId || '')
+  }
+
+  function enterFolder(folderId) {
+    selectedFolderId = String(folderId || '')
+    listPage = 1
+    renderBreadcrumb()
+    renderAppsList()
+  }
+
+  // 指针拖放：卡片本身 transform 跟手（不用 HTML5 DnD，避免 WebView「禁止」光标）。
+  const DRAG_THRESHOLD_PX = 6
+  let dragDidMove = false
+  let dragBusy = false
+
+  async function moveAppToFolder(appId, folderId) {
+    const app = apps.find((a) => String(a.id) === String(appId))
+    if (!app) return
+    const next = String(folderId || '')
+    if (String(app.folder_id || '') === next) return
+    try {
+      await api.updateApp(appId, { folder_id: next })
+      toast.success('已移入')
+      await loadApps()
+    } catch (err) {
+      toast.error('移动失败: ' + (err?.message || err))
+    }
+  }
+
+  async function moveFolderToParent(folderId, parentId) {
+    const fid = String(folderId || '')
+    const nextParent = String(parentId || '')
+    if (!fid) return
+    if (fid === nextParent) return
+    const f = folderById(fid)
+    if (!f) return
+    if (String(f.parent_id || '') === nextParent) return
+    try {
+      await api.updateAppFolder(fid, { parent_id: nextParent })
+      toast.success('文件夹已移动')
+      await loadApps()
+    } catch (err) {
+      toast.error('移动失败: ' + (err?.message || err))
+    }
+  }
+
+  function clearDropHighlights() {
+    page.querySelectorAll('.is-drop-target').forEach((n) => n.classList.remove('is-drop-target'))
+  }
+
+  function resolveDropFolderIdFromPoint(clientX, clientY, dragEl, dragKind, dragId) {
+    const stack = document.elementsFromPoint(clientX, clientY) || []
+    for (const node of stack) {
+      if (!(node instanceof Element)) continue
+      if (dragEl && (node === dragEl || dragEl.contains(node))) continue
+      const hit = node.closest('[data-drop-folder]')
+      if (!hit || !page.contains(hit)) continue
+      if (
+        dragKind === 'folder' &&
+        hit.classList.contains('app-card--folder') &&
+        String(hit.dataset.folderId || '') === String(dragId)
+      ) {
+        continue
+      }
+      return String(hit.getAttribute('data-drop-folder') ?? '')
+    }
+    return null
+  }
+
+  function highlightDropAtPoint(clientX, clientY, dragEl, dragKind, dragId) {
+    clearDropHighlights()
+    const stack = document.elementsFromPoint(clientX, clientY) || []
+    for (const node of stack) {
+      if (!(node instanceof Element)) continue
+      if (dragEl && (node === dragEl || dragEl.contains(node))) continue
+      const hit = node.closest('[data-drop-folder]')
+      if (!hit || !page.contains(hit)) continue
+      if (
+        dragKind === 'folder' &&
+        hit.classList.contains('app-card--folder') &&
+        String(hit.dataset.folderId || '') === String(dragId)
+      ) {
+        continue
+      }
+      hit.classList.add('is-drop-target')
+      return hit
+    }
+    return null
+  }
+
+  function bindCardDrag(el, payload) {
+    if (!el) return
+    el.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return
+      if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
+      if (dragBusy) return
+
+      const pointerId = e.pointerId
+      const startX = e.clientX
+      const startY = e.clientY
+      let started = false
+      /** @type {HTMLElement | null} */
+      let ghost = null
+      dragDidMove = false
+      dragBusy = true
+
+      // 立刻捕获，离开卡片后仍能收到 move
+      try {
+        el.setPointerCapture(pointerId)
+      } catch {
+        /* ignore */
+      }
+
+      const cleanupVisual = () => {
+        el.classList.remove('is-dragging')
+        el.style.transform = ''
+        el.style.zIndex = ''
+        el.style.transition = ''
+        el.style.willChange = ''
+        page.classList.remove('apps-is-dragging')
+        if (ghost?.parentNode) ghost.parentNode.removeChild(ghost)
+        ghost = null
+        clearDropHighlights()
+      }
+
+      /** 按下时卡片左上角（用于幽灵跟手） */
+      let baseLeft = 0
+      let baseTop = 0
+
+      const onMove = (ev) => {
+        if (ev.pointerId !== pointerId) return
+        const dx = ev.clientX - startX
+        const dy = ev.clientY - startY
+        if (!started) {
+          if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return
+          started = true
+          dragDidMove = true
+          const rect = el.getBoundingClientRect()
+          baseLeft = rect.left
+          baseTop = rect.top
+
+          el.classList.add('is-dragging')
+          el.style.willChange = 'transform'
+          el.style.transition = 'none'
+          el.style.zIndex = '40'
+          page.classList.add('apps-is-dragging')
+
+          ghost = /** @type {HTMLElement} */ (el.cloneNode(true))
+          ghost.classList.add('app-card-drag-ghost')
+          ghost.querySelectorAll('.app-card-menu, .app-card-more').forEach((n) => n.remove())
+          ghost.setAttribute('aria-hidden', 'true')
+          ghost.style.cssText = [
+            'position:fixed',
+            `left:${baseLeft}px`,
+            `top:${baseTop}px`,
+            `width:${rect.width}px`,
+            `height:${rect.height}px`,
+            'margin:0',
+            'z-index:10000',
+            'pointer-events:none',
+            'opacity:0.95',
+            'transform:scale(1.03)',
+            'box-shadow:0 18px 40px rgba(0,0,0,0.22)',
+            'border-radius:14px',
+          ].join(';')
+          document.body.appendChild(ghost)
+        }
+
+        // 原卡跟手（用户要的「能动起来」）
+        el.style.transform = `translate(${dx}px, ${dy}px)`
+        if (ghost) {
+          ghost.style.left = `${baseLeft + dx}px`
+          ghost.style.top = `${baseTop + dy}px`
+        }
+
+        highlightDropAtPoint(ev.clientX, ev.clientY, el, payload.kind, payload.id)
+        ev.preventDefault()
+      }
+
+      const finish = (ev, commit) => {
+        if (ev.pointerId !== pointerId) return
+        el.removeEventListener('pointermove', onMove)
+        el.removeEventListener('pointerup', onUp)
+        el.removeEventListener('pointercancel', onCancel)
+        try {
+          el.releasePointerCapture(pointerId)
+        } catch {
+          /* ignore */
+        }
+
+        const x = ev.clientX
+        const y = ev.clientY
+        const didDrag = started
+        cleanupVisual()
+        dragBusy = false
+
+        if (!didDrag) return
+
+        dragDidMove = true
+        if (commit) {
+          const targetFolderId = resolveDropFolderIdFromPoint(x, y, el, payload.kind, payload.id)
+          if (targetFolderId != null) {
+            if (payload.kind === 'app') void moveAppToFolder(payload.id, targetFolderId)
+            else if (payload.kind === 'folder') void moveFolderToParent(payload.id, targetFolderId)
+          }
+        }
+        setTimeout(() => {
+          dragDidMove = false
+        }, 0)
+      }
+
+      const onUp = (ev) => finish(ev, true)
+      const onCancel = (ev) => finish(ev, false)
+
+      el.addEventListener('pointermove', onMove)
+      el.addEventListener('pointerup', onUp)
+      el.addEventListener('pointercancel', onCancel)
+    })
+  }
+
+  async function loadFolders() {
+    try {
+      folders = await api.listAppFolders()
+      if (!Array.isArray(folders)) folders = []
+    } catch (e) {
+      folders = []
+      toast.error('加载文件夹失败: ' + (e?.message || e))
+    }
+    renderBreadcrumb()
+  }
 
   async function loadApps() {
     const listEl = page.querySelector('#apps-list')
@@ -98,6 +359,7 @@ export async function render() {
       const { takeNavWarm } = await import('../lib/nav-panel-prefetch.js')
       const warm = takeNavWarm('apps:list')
       apps = Array.isArray(warm) ? warm : await api.listApps()
+      await loadFolders()
       renderAppsList()
     } catch (e) {
       toast.error('加载工作流列表失败: ' + e.message)
@@ -149,22 +411,148 @@ export async function render() {
   }
 
   function visibleApps() {
-    let result = apps
-    if (listFilter === 'archived') {
-      result = result.filter((a) => String(a.status || '').toLowerCase() === 'archived')
-    } else if (listFilter === 'active') {
-      result = result.filter((a) => String(a.status || '').toLowerCase() !== 'archived')
-    }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase()
+    // 不展示归档：要去掉就删，不再用「活跃/已归档」分栏
+    let result = apps.filter((a) => String(a.status || '').toLowerCase() !== 'archived')
+    const q = searchQuery.trim().toLowerCase()
+    if (q) {
       result = result.filter((a) => {
         const name = String(a.name || '').toLowerCase()
         const desc = String(a.description || '').toLowerCase()
         return name.includes(q) || desc.includes(q)
       })
+    } else {
+      const fid = String(selectedFolderId || '')
+      result = result.filter((a) => String(a.folder_id || '') === fid)
     }
-    // 按最近修改时间倒序（最新在前）
     return [...result].sort((a, b) => appSortTime(b) - appSortTime(a))
+  }
+
+  function renderBreadcrumb() {
+    const el = page.querySelector('#apps-folder-breadcrumb')
+    if (!el) return
+    const parts = [{ id: '__root__', name: '全部' }, ...folderPath(selectedFolderId)]
+    el.innerHTML = parts
+      .map((p, i) => {
+        const last = i === parts.length - 1
+        const dropId = p.id === '__root__' ? '' : p.id
+        if (last) {
+          return `<span class="apps-bc-current apps-bc-drop" data-drop-folder="${escHtml(dropId)}">${escHtml(p.name)}</span>`
+        }
+        return `<button type="button" class="apps-bc-link apps-bc-drop" data-folder-id="${escHtml(p.id)}" data-drop-folder="${escHtml(dropId)}">${escHtml(p.name)}</button><span class="apps-bc-sep" aria-hidden="true">/</span>`
+      })
+      .join('')
+    el.querySelectorAll('.apps-bc-link').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (dragDidMove) return
+        const raw = String(btn.dataset.folderId || '')
+        enterFolder(raw === '__root__' ? '' : raw)
+      })
+    })
+  }
+
+  async function promptNewFolder(parentId) {
+    const parent = parentId == null ? createTargetFolderId() : String(parentId || '')
+    showModal({
+      title: '新建文件夹',
+      fields: [{ name: 'name', label: '文件夹名称', value: '', placeholder: '例如：又又相关' }],
+      onConfirm: async (result) => {
+        const name = (result.name || '').trim()
+        if (!name) {
+          toast.warning('请输入文件夹名称')
+          return
+        }
+        try {
+          await api.createAppFolder({ name, parent_id: parent })
+          toast.success('文件夹已创建')
+          // 留在当前层，新文件夹出现在本层网格里（像 GPT）
+          await loadFolders()
+          renderAppsList()
+        } catch (err) {
+          toast.error('创建失败: ' + (err?.message || err))
+        }
+      },
+    })
+  }
+
+  async function promptRenameFolder(folderId) {
+    const f = folderById(folderId)
+    if (!f) return
+    showModal({
+      title: '重命名文件夹',
+      fields: [{ name: 'name', label: '文件夹名称', value: f.name || '', placeholder: '文件夹名称' }],
+      onConfirm: async (result) => {
+        const name = (result.name || '').trim()
+        if (!name) {
+          toast.warning('请输入文件夹名称')
+          return
+        }
+        try {
+          await api.updateAppFolder(folderId, { name })
+          toast.success('已重命名')
+          await loadFolders()
+          renderAppsList()
+        } catch (err) {
+          toast.error('重命名失败: ' + (err?.message || err))
+        }
+      },
+    })
+  }
+
+  async function deleteFolderConfirm(folderId) {
+    const f = folderById(folderId)
+    if (!f) return
+    if (folderChildren(folderId).length) {
+      toast.warning('请先删除或移走子文件夹')
+      return
+    }
+    const ok = await showConfirm(
+      `删除文件夹「${f.name || '未命名'}」？\n夹内工作流会移回上一级，不会删除工作流。`,
+    )
+    if (!ok) return
+    try {
+      await api.deleteAppFolder(folderId)
+      toast.success('文件夹已删除')
+      if (selectedFolderId === String(folderId)) {
+        selectedFolderId = String(f.parent_id || '') || ''
+      }
+      await loadApps()
+    } catch (err) {
+      toast.error('删除失败: ' + (err?.message || err))
+    }
+  }
+
+  function showMoveToFolderModal(app) {
+    const options = [
+      { id: '', label: '全部（顶层）' },
+      ...folders.map((f) => ({
+        id: String(f.folder_id),
+        label: folderPathLabel(f.folder_id),
+      })),
+    ]
+    const current = String(app.folder_id || '')
+    showModal({
+      title: `移动「${app.name || '未命名'}」`,
+      fields: [
+        {
+          name: 'folder_id',
+          label: '目标文件夹',
+          type: 'select',
+          value: current,
+          options: options.map((o) => ({ value: o.id, label: o.label })),
+        },
+      ],
+      onConfirm: async (result) => {
+        const next = String(result.folder_id ?? '')
+        if (next === current) return
+        try {
+          await api.updateApp(app.id, { folder_id: next })
+          toast.success('已移动')
+          await loadApps()
+        } catch (err) {
+          toast.error('移动失败: ' + (err?.message || err))
+        }
+      },
+    })
   }
 
   function renderAppsList() {
@@ -172,33 +560,34 @@ export async function render() {
     const emptyEl = page.querySelector('#apps-empty')
     const pagerWrap = page.querySelector('#apps-list-pager')
     const shown = visibleApps()
+    const searching = Boolean(searchQuery.trim())
+    const childFolders = !searching ? folderChildren(selectedFolderId) : []
 
-    page.querySelectorAll('.apps-filter-btn').forEach((btn) => {
-      btn.classList.toggle('is-active', btn.dataset.filter === listFilter)
-    })
-
-    if (shown.length === 0) {
+    if (shown.length === 0 && childFolders.length === 0) {
       listEl.style.display = 'none'
       emptyEl.style.display = 'block'
       if (pagerWrap) pagerWrap.innerHTML = ''
       const title = emptyEl.querySelector('[data-role="empty-title"]')
       const desc = emptyEl.querySelector('[data-role="empty-desc"]')
       const emptyBtn = emptyEl.querySelector('#btn-empty-new-app')
-      if (listFilter === 'archived') {
-        if (title) title.textContent = '没有已归档工作流'
-        if (desc) desc.textContent = '归档后的工作流会出现在这里；可恢复为草稿后重新发布。'
+      const emptyFolderBtn = emptyEl.querySelector('#btn-empty-new-folder')
+      if (searching) {
+        if (title) title.textContent = '没有匹配的工作流'
+        if (desc) desc.textContent = '换个关键词试试，或清空搜索看当前文件夹。'
         if (emptyBtn) emptyBtn.style.display = 'none'
-      } else if (apps.length > 0) {
-        if (title) title.textContent = '当前筛选下没有工作流'
-        if (desc) desc.textContent = '可切换到「全部」或「已归档」查看。'
-        if (emptyBtn) emptyBtn.style.display = 'none'
+        if (emptyFolderBtn) emptyFolderBtn.style.display = 'none'
+      } else if (selectedFolderId) {
+        if (title) title.textContent = '这个文件夹是空的'
+        if (desc) desc.textContent = '点「新建」可以加文件夹或工作流。'
+        if (emptyBtn) emptyBtn.style.display = ''
+        if (emptyFolderBtn) emptyFolderBtn.style.display = ''
       } else {
-        if (title) title.textContent = '还没有工作流'
+        if (title) title.textContent = '还没有内容'
         if (desc) {
-          desc.textContent =
-            '点下方创建 → 在画布写任务名、选执行者 → 点「试跑」→ 满意再「发布」。'
+          desc.textContent = '点「新建」建文件夹或工作流；工作流编排满意后再发布。'
         }
         if (emptyBtn) emptyBtn.style.display = ''
+        if (emptyFolderBtn) emptyFolderBtn.style.display = ''
       }
       return
     }
@@ -206,34 +595,76 @@ export async function render() {
     listEl.style.display = 'grid'
     emptyEl.style.display = 'none'
 
+    const folderCardsHtml = childFolders
+      .map((f) => {
+        const subFolders = folderChildren(f.folder_id).length
+        const appCount = apps.filter(
+          (a) =>
+            String(a.folder_id || '') === String(f.folder_id) &&
+            String(a.status || '').toLowerCase() !== 'archived',
+        ).length
+        const meta =
+          subFolders && appCount
+            ? `${subFolders} 个文件夹 · ${appCount} 个工作流`
+            : subFolders
+              ? `${subFolders} 个文件夹`
+              : appCount
+                ? `${appCount} 个工作流`
+                : '空文件夹'
+        return `
+        <article class="app-card app-card--folder" data-folder-id="${escHtml(f.folder_id)}" data-drop-folder="${escHtml(f.folder_id)}" tabindex="0" title="拖到这里可放入；拖动此卡可嵌套到其他文件夹">
+          <button type="button" class="app-card-more" data-folder-id="${escHtml(f.folder_id)}" aria-label="更多操作" title="更多">
+            <span aria-hidden="true">···</span>
+          </button>
+          <div class="app-card-menu" hidden data-menu-for-folder="${escHtml(f.folder_id)}">
+            <button type="button" class="app-card-menu-item" data-act="rename-folder">重命名</button>
+            <button type="button" class="app-card-menu-item app-card-menu-item--danger" data-act="delete-folder">删除</button>
+          </div>
+          <div class="app-card-top">
+            <div class="app-ico-tile app-ico-tile--folder" aria-hidden="true">📁</div>
+            <div class="app-card-heading">
+              <div class="app-card-title-row">
+                <h3 class="app-card-name" title="${escHtml(f.name || '未命名')}">${escHtml(f.name || '未命名')}</h3>
+                <span class="app-card-status is-folder">文件夹</span>
+              </div>
+              <p class="app-card-meta">${escHtml(meta)}</p>
+            </div>
+          </div>
+        </article>`
+      })
+      .join('')
+
     const paged = paginateItems(shown, listPage, listPageSize)
     listPage = paged.page
     listPageSize = paged.pageSize
 
-    listEl.innerHTML = paged.items.map(app => {
+    const appCardsHtml = paged.items.map(app => {
       const st = String(app.status || 'draft').toLowerCase()
       const published = st === 'published'
-      const archived = st === 'archived'
-      const badgeClass = published ? 'is-published' : archived ? 'is-archived' : 'is-draft'
-      const badgeLabel = published ? '已发布' : archived ? '已归档' : '草稿'
+      const badgeClass = published ? 'is-published' : 'is-draft'
+      const badgeLabel = published ? '已发布' : '草稿'
       const stepN = appStepCount(app)
       const paramN = appParamCount(app)
+      const pathHint =
+        searching && app.folder_id
+          ? folderPathLabel(app.folder_id)
+          : searching
+            ? '全部'
+            : ''
       // 元信息一行放下：步数/参数 + 更新时间，卡片不再另设底栏，做减法。
       const metaBits = [
+        pathHint || null,
         stepN && paramN ? `${stepN} 步 · ${paramN} 参数` : stepN ? `${stepN} 步` : paramN ? `${paramN} 参数` : null,
         formatAppTime(app.updated_at || app.created_at) || null,
       ].filter(Boolean)
-      const menuArchive = archived
-        ? `<button type="button" class="app-card-menu-item" data-act="unarchive">恢复为草稿</button>`
-        : `<button type="button" class="app-card-menu-item" data-act="archive">归档</button>`
       return `
-        <article class="app-card${archived ? ' is-archived' : ''}" data-app-id="${escHtml(app.id)}" data-status="${escHtml(st)}" tabindex="0">
+        <article class="app-card" data-app-id="${escHtml(app.id)}" data-status="${escHtml(st)}" tabindex="0" title="拖到文件夹可归类">
           <button type="button" class="app-card-more" data-app-id="${escHtml(app.id)}" aria-label="更多操作" title="更多">
             <span aria-hidden="true">···</span>
           </button>
           <div class="app-card-menu" hidden data-menu-for="${escHtml(app.id)}">
             <button type="button" class="app-card-menu-item" data-act="edit">编辑信息</button>
-            ${menuArchive}
+            <button type="button" class="app-card-menu-item" data-act="move">移到文件夹…</button>
             <button type="button" class="app-card-menu-item app-card-menu-item--danger" data-act="delete">删除</button>
           </div>
           <div class="app-card-top">
@@ -249,6 +680,8 @@ export async function render() {
         </article>
       `
     }).join('')
+
+    listEl.innerHTML = folderCardsHtml + appCardsHtml
 
     if (pagerWrap) {
       pagerWrap.innerHTML = renderListPagerHtml({
@@ -283,37 +716,26 @@ export async function render() {
       listEl.querySelectorAll('.app-card-more.is-open').forEach((b) => b.classList.remove('is-open'))
     }
 
-    listEl.querySelectorAll('.app-card').forEach(card => {
-      const warmDetail = () => {
-        const id = String(card.dataset.appId || '').trim()
-        if (!id) return
-        void import('../lib/nav-panel-prefetch.js').then((m) => {
-          m.warmNavKey?.(`apps:detail:${id}`, () => api.getApp(id))
-        })
-        void import('../components/app-workflow-canvas.js').then((m) => {
-          m.preloadAppWorkflowCanvas?.()
-        })
-      }
-      const open = () => {
-        warmDetail()
-        navigate(`/apps/${card.dataset.appId}`)
-      }
-      card.addEventListener('pointerenter', warmDetail)
+    listEl.querySelectorAll('.app-card--folder').forEach((card) => {
+      const fid = String(card.dataset.folderId || '')
+      bindCardDrag(card, { kind: 'folder', id: fid })
+      const openFolder = () => enterFolder(fid)
       card.addEventListener('click', (e) => {
+        if (dragDidMove) return
         if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
         closeAllMenus()
-        open()
+        openFolder()
       })
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
           e.preventDefault()
-          open()
+          openFolder()
         }
       })
     })
 
-    listEl.querySelectorAll('.app-card-more').forEach((btn) => {
+    listEl.querySelectorAll('.app-card--folder .app-card-more').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation()
         const card = btn.closest('.app-card')
@@ -328,7 +750,66 @@ export async function render() {
       })
     })
 
-    listEl.querySelectorAll('.app-card-menu').forEach((menu) => {
+    listEl.querySelectorAll('[data-menu-for-folder]').forEach((menu) => {
+      menu.addEventListener('click', async (e) => {
+        e.stopPropagation()
+        const item = e.target.closest('[data-act]')
+        if (!item) return
+        const fid = String(menu.dataset.menuForFolder || '')
+        closeAllMenus()
+        if (item.dataset.act === 'rename-folder') await promptRenameFolder(fid)
+        else if (item.dataset.act === 'delete-folder') await deleteFolderConfirm(fid)
+      })
+    })
+
+    listEl.querySelectorAll('.app-card:not(.app-card--folder)').forEach(card => {
+      const appId = String(card.dataset.appId || '').trim()
+      bindCardDrag(card, { kind: 'app', id: appId })
+      const warmDetail = () => {
+        if (!appId) return
+        void import('../lib/nav-panel-prefetch.js').then((m) => {
+          m.warmNavKey?.(`apps:detail:${appId}`, () => api.getApp(appId))
+        })
+        void import('../components/app-workflow-canvas.js').then((m) => {
+          m.preloadAppWorkflowCanvas?.()
+        })
+      }
+      const open = () => {
+        warmDetail()
+        navigate(`/apps/${appId}`)
+      }
+      card.addEventListener('pointerenter', warmDetail)
+      card.addEventListener('click', (e) => {
+        if (dragDidMove) return
+        if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
+        closeAllMenus()
+        open()
+      })
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          if (e.target.closest('.app-card-more') || e.target.closest('.app-card-menu')) return
+          e.preventDefault()
+          open()
+        }
+      })
+    })
+
+    listEl.querySelectorAll('.app-card:not(.app-card--folder) .app-card-more').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        const card = btn.closest('.app-card')
+        const menu = card?.querySelector('.app-card-menu')
+        if (!menu) return
+        const willOpen = menu.hidden
+        closeAllMenus()
+        if (willOpen) {
+          menu.hidden = false
+          btn.classList.add('is-open')
+        }
+      })
+    })
+
+    listEl.querySelectorAll('.app-card-menu[data-menu-for]').forEach((menu) => {
       menu.addEventListener('click', async (e) => {
         e.stopPropagation()
         const item = e.target.closest('[data-act]')
@@ -341,10 +822,8 @@ export async function render() {
           navigate(`/apps/${app.id}/run`)
         } else if (item.dataset.act === 'edit') {
           showEditAppModal(app)
-        } else if (item.dataset.act === 'archive') {
-          await archiveAppConfirm(app)
-        } else if (item.dataset.act === 'unarchive') {
-          await unarchiveAppConfirm(app)
+        } else if (item.dataset.act === 'move') {
+          showMoveToFolderModal(app)
         } else if (item.dataset.act === 'delete') {
           await deleteAppConfirm(app)
         }
@@ -406,7 +885,7 @@ export async function render() {
   }
 
   async function deleteAppConfirm(app) {
-    const ok = await showConfirm(`确定删除工作流「${app.name || '未命名'}」？\n删除后不可恢复，工作流定义和运行记录将一并删除。`)
+    const ok = await showConfirm(`确定删除工作流「${app.name || '未命名'}」？\n删除后不可恢复。`)
     if (!ok) return
     try {
       await api.deleteApp(app.id)
@@ -414,35 +893,6 @@ export async function render() {
       await loadApps()
     } catch (err) {
       toast.error('删除失败: ' + (err?.message || err))
-    }
-  }
-
-  async function archiveAppConfirm(app) {
-    const ok = await showConfirm(
-      `归档工作流「${app.name || '未命名'}」？\n归档后不在默认列表显示，也不能新开填参运行 / API；编排仍可查看。可随时恢复为草稿。`,
-    )
-    if (!ok) return
-    try {
-      await api.updateApp(app.id, { status: 'archived' })
-      toast.success('已归档')
-      await loadApps()
-    } catch (err) {
-      toast.error('归档失败: ' + (err?.message || err))
-    }
-  }
-
-  async function unarchiveAppConfirm(app) {
-    const ok = await showConfirm(
-      `将「${app.name || '未命名'}」恢复为草稿？\n恢复后需重新点「发布」，才能填参运行或创建 API Key。`,
-    )
-    if (!ok) return
-    try {
-      await api.updateApp(app.id, { status: 'draft' })
-      toast.success('已恢复为草稿')
-      listFilter = 'active'
-      await loadApps()
-    } catch (err) {
-      toast.error('恢复失败: ' + (err?.message || err))
     }
   }
 
@@ -460,7 +910,9 @@ export async function render() {
         e.stopPropagation()
         const act = item.dataset.act
         newMenu.hidden = true
-        if (act === 'blank') {
+        if (act === 'folder') {
+          promptNewFolder()
+        } else if (act === 'blank') {
           showNewAppModal()
         } else if (act === 'template') {
           showTemplateModal()
@@ -476,16 +928,9 @@ export async function render() {
   }
 
   page.querySelector('#btn-empty-new-app').addEventListener('click', () => showNewAppModal())
+  page.querySelector('#btn-empty-new-folder')?.addEventListener('click', () => promptNewFolder())
   page.querySelector('#btn-empty-template')?.addEventListener('click', () => showTemplateModal())
   page.querySelector('#btn-refresh').addEventListener('click', loadApps)
-  page.querySelectorAll('.apps-filter-btn').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      listFilter = /** @type {'active' | 'archived' | 'all'} */ (btn.dataset.filter || 'active')
-      listPage = 1
-      renderAppsList()
-    })
-  })
-
   // 搜索框事件
   const searchInput = page.querySelector('.apps-filter-search')
   if (searchInput) {
@@ -527,6 +972,7 @@ export async function render() {
             name,
             description,
             execution_mode,
+            folder_id: createTargetFolderId(),
             plan: {
               goal: description || name,
               steps: [
@@ -697,6 +1143,7 @@ export async function render() {
             name: template.name,
             description: template.desc,
             execution_mode: 'workflow',
+            folder_id: createTargetFolderId(),
             plan: {
               goal: template.goal,
               steps: template.steps,

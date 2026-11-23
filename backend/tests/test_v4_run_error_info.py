@@ -31,6 +31,7 @@ def test_run_error_info_generic_upstream_error_is_actionable() -> None:
     # 原始英文必须仍留在 detail 里，供「详情/复制」取证
     assert info["detail"] == "An internal error occurred"
     assert "An internal error occurred" not in info["message"]
+    assert info["recoverable"] is True
 
 
 @pytest.mark.parametrize(

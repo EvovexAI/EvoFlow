@@ -171,6 +171,39 @@ def mark_uninstalled(org_instance_id: str) -> None:
     db.commit()
 
 
+def clear_org_artifacts(org_instance_id: str) -> int:
+    """Delete evoflow_org_artifacts rows for an instance. Returns deleted count."""
+    oid = str(org_instance_id or "").strip()
+    if not oid:
+        return 0
+    db = get_db()
+    cur = db.execute("DELETE FROM evoflow_org_artifacts WHERE org_instance_id = ?", (oid,))
+    db.commit()
+    return int(cur.rowcount or 0)
+
+
+def find_active_instance_for_pack(pack_id: str) -> str | None:
+    """Return active org_instance_id for pack_id, if any."""
+    pid = str(pack_id or "").strip()
+    if not pid:
+        return None
+    row = (
+        get_db()
+        .execute(
+            """
+            SELECT id FROM evoflow_org_registry
+            WHERE pack_id = ? AND status = 'active'
+            ORDER BY installed_at DESC LIMIT 1
+            """,
+            (pid,),
+        )
+        .fetchone()
+    )
+    if not row:
+        return None
+    return str(row[0] or "") or None
+
+
 def find_artifact_owner(artifact_type: str, artifact_id: str) -> str | None:
     """Return active org_instance_id that owns this artifact, if any."""
     row = (

@@ -55,8 +55,26 @@ def register(subparsers: argparse._SubParsersAction) -> None:
 
     un = sub.add_parser("uninstall", help="Uninstall an organization instance")
     un.add_argument("org_instance_id")
-    un.add_argument("--keep-primitives", action="store_true", help="Keep agents/skills")
-    un.add_argument("--delete-workspace", action="store_true", help="Also delete workspace dir")
+    un.add_argument(
+        "--keep-primitives",
+        action="store_true",
+        help="Keep agents/skills/MCP (default: delete)",
+    )
+    un.add_argument(
+        "--keep-workspace",
+        action="store_true",
+        help="Keep org-packs / workspace disk tree (default: delete)",
+    )
+    un.add_argument(
+        "--keep-knowledge",
+        action="store_true",
+        help="Keep knowledge bases (default: delete)",
+    )
+    un.add_argument(
+        "--delete-workspace",
+        action="store_true",
+        help="Deprecated alias: force delete workspace (now the default)",
+    )
     add_output_flags(un)
     un.set_defaults(handler=_uninstall)
 
@@ -160,11 +178,16 @@ def _get(args: argparse.Namespace):
 
 def _uninstall(args: argparse.Namespace):
     try:
+        keep_ws = bool(getattr(args, "keep_workspace", False))
+        # Legacy --delete-workspace means "do not keep" (default already deletes).
+        if bool(getattr(args, "delete_workspace", False)):
+            keep_ws = False
         return uninstall_organization(
             args.org_instance_id,
             options={
                 "keep_primitives": bool(getattr(args, "keep_primitives", False)),
-                "keep_workspace": not bool(getattr(args, "delete_workspace", False)),
+                "keep_workspace": keep_ws,
+                "keep_knowledge": bool(getattr(args, "keep_knowledge", False)),
             },
         )
     except OrganizationInstallError as e:

@@ -135,6 +135,8 @@ _HIRE_KEYS = frozenset(
         "max_turns",
         "timeout_seconds",
         "skills",
+        "tools",
+        "mcp_servers",
         "work_schedule_enabled",
         "work_start_hour",
         "work_end_hour",
@@ -447,6 +449,7 @@ def _role_detail(role: ProactiveRole) -> dict[str, Any]:
             "max_turns": cfg.max_turns,
             "timeout_seconds": cfg.timeout_seconds,
             "tools": agent_tools,
+            "mcp_servers": list(getattr(cfg, "mcp_servers", None) or []),
             "skills": skills,
             "work_schedule_enabled": cfg.work_schedule_enabled,
             "work_start_hour": cfg.work_start_hour,
@@ -986,7 +989,8 @@ def _hire_existing_agent(
     # Inherit from Agent unless hire payload explicitly set capability fields.
     inherit = not (explicit_skills or bool(str(data.get("soul_md") or "").strip()))
 
-    # Duties live on agent system_prompt (## 岗位职责). Merge on hire then clear role list.
+    # Duties also live on agent system_prompt (## 岗位职责). Merge into Agent,
+    # but keep the list on role.config so org-pack declarations survive in config_json.
     legacy_resp = _coerce_responsibilities(data.get("responsibilities"))
     if legacy_resp:
         try:
@@ -1005,6 +1009,19 @@ def _hire_existing_agent(
                 exc_info=True,
             )
 
+    # Capability allowlists: prefer hire payload, else inherit Agent.
+    hire_mcp = data.get("mcp_servers") if "mcp_servers" in data else None
+    if hire_mcp is None:
+        hire_mcp = list(agent_row.get("mcp_servers") or [])
+    else:
+        hire_mcp = [str(x).strip() for x in (hire_mcp or []) if str(x).strip()]
+
+    hire_tools = data.get("tools") if "tools" in data else None
+    if hire_tools is None:
+        hire_tools = list(agent_tools) if agent_tools is not None else None
+    elif hire_tools is not None:
+        hire_tools = [str(x).strip() for x in (hire_tools or []) if str(x).strip()]
+
     # 0 = no wall-clock cap (engine treats falsy as unlimited). Never use ``or 300``:
     # that forced a 5min kill and also turned an explicit 0 into 300.
     _raw_timeout = data.get("timeout_seconds")
@@ -1013,9 +1030,10 @@ def _hire_existing_agent(
     )
 
     config = ProactiveRoleConfig(
-        responsibilities=[],  # duties are on agent system_prompt after merge above
+        responsibilities=list(legacy_resp),
         workspace_path=_validate_workspace_path(data.get("workspace_path")),
         knowledge_vault_ids=vault_ids,
+        mcp_servers=list(hire_mcp or []),
         kpis=list(data.get("kpis") or []),
         autonomy_level=_parse_autonomy(data.get("autonomy_level")),
         max_initiatives_per_cycle=int(data.get("max_initiatives_per_cycle") or 3),
@@ -1047,7 +1065,7 @@ def _hire_existing_agent(
         extra_context={
             "agent_description": str(agent_row.get("description") or ""),
             "agent_tags": list(agent_row.get("tags") or []),
-            "agent_tools": agent_tools,
+            "agent_tools": hire_tools if hire_tools is not None else agent_tools,
             **({"override_capabilities": True} if not inherit else {}),
         },
     )
@@ -1103,6 +1121,29 @@ def _hire_existing_agent(
                     DepartmentRepository.set_members(str(dept["id"]), codes)
         except Exception:
             logger.debug("create_employee: dept sync skipped", exc_info=True)
+
+    # Mirror capability + turn limit onto Agent (runtime MCP/tools + agents.max_turns).
+    agent_patch: dict[str, Any] = {}
+    if "mcp_servers" in data:
+        agent_patch["mcp_servers"] = list(hire_mcp or [])
+    if "tools" in data and hire_tools is not None:
+        agent_patch["tools"] = list(hire_tools)
+    if data.get("max_turns") is not None:
+        try:
+            agent_patch["max_turns"] = int(data.get("max_turns"))
+        except (TypeError, ValueError):
+            pass
+    if agent_patch:
+        try:
+            from evoflow.admin import agents as agents_admin
+
+            agents_admin.update_agent(agent_code, agent_patch)
+        except Exception:
+            logger.debug(
+                "hire: mirror mcp/tools/max_turns to agent skipped code=%s",
+                agent_code,
+                exc_info=True,
+            )
 
     # Mirror kb_injection into agent's extra_json (per-employee toggle).
     if data.get("kb_injection") is not None or config.kb_injection:
@@ -1238,8 +1279,9 @@ def update_role(agent_code: str, data: dict[str, Any]) -> dict[str, Any]:
                 agents_admin.update_agent(code, {"system_prompt": merged or None})
         except Exception:
             logger.debug("employees.update: system_prompt merge skipped code=%s", code, exc_info=True)
-        # Always clear role responsibilities after handling (duties live on agent).
-        cfg.responsibilities = []
+        # Keep duties on role.config as well (org-pack / UI round-trip).
+        if incoming_resp is not None:
+            cfg.responsibilities = list(incoming_resp)
     if data.get("workspace_path") is not None:
         cfg.workspace_path = _validate_workspace_path(data.get("workspace_path"))
     if data.get("knowledge_vault_ids") is not None:

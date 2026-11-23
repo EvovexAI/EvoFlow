@@ -2,7 +2,10 @@
  * Patch skills/tools/mcp/knowledge bindings for the current agent or employee role.
  * Extracted from ChatApp.tsx (P36).
  */
+import type { Dispatch, SetStateAction } from 'react'
 import { toast } from '../../../components/toast.js'
+import type { AgentPickerRow } from '../../lib/agent-tags.js'
+import { mapAgentPickerRows } from './map-agent-picker-rows.js'
 
 export type PatchCurrentAgentCapabilitiesCtx = {
   currentRoleCodeForUi: string | null | undefined
@@ -15,6 +18,80 @@ export type PatchCurrentAgentCapabilitiesCtx = {
   setCapabilityPatchBusy: (busy: boolean) => void
   setRoleUiNonce: (fn: (n: number) => number) => void
   refreshAgentsList: () => Promise<void>
+  /** Merge updateAgent response into local picker rows so MCP/tools UI updates immediately. */
+  setAgents?: Dispatch<SetStateAction<AgentPickerRow[]>>
+}
+
+function upsertAgentRow(
+  setAgents: Dispatch<SetStateAction<AgentPickerRow[]>> | undefined,
+  code: string,
+  updated: unknown,
+  patch: {
+    skills?: string[]
+    tools?: string[] | null
+    mcp_servers?: string[] | null
+    knowledge_vault_ids?: string[]
+  },
+): void {
+  if (!setAgents) return
+  const want = String(code || '')
+    .trim()
+    .toLowerCase()
+  if (!want) return
+  const fromApi = updated && typeof updated === 'object' ? (updated as AgentPickerRow) : null
+  const mapped = fromApi
+    ? mapAgentPickerRows([
+        {
+          ...fromApi,
+          agent_code: String(fromApi.agent_code || want).trim() || want,
+        },
+      ])[0]
+    : null
+  setAgents((prev) => {
+    const list = Array.isArray(prev) ? prev : []
+    const idx = list.findIndex(
+      (a) => String(a?.agent_code || '').trim().toLowerCase() === want,
+    )
+    const base =
+      idx >= 0
+        ? list[idx]
+        : ({ agent_code: want } as AgentPickerRow)
+    const nextRow: AgentPickerRow = {
+      ...base,
+      ...(mapped || {}),
+      agent_code: String(mapped?.agent_code || base.agent_code || want).trim() || want,
+      skills:
+        patch.skills !== undefined
+          ? patch.skills
+          : mapped?.skills !== undefined
+            ? mapped.skills
+            : base.skills,
+      tools:
+        patch.tools !== undefined
+          ? patch.tools
+          : mapped?.tools !== undefined
+            ? mapped.tools
+            : base.tools,
+      mcp_servers:
+        patch.mcp_servers !== undefined
+          ? patch.mcp_servers
+          : mapped?.mcp_servers !== undefined
+            ? mapped.mcp_servers
+            : base.mcp_servers,
+      knowledge_vault_ids:
+        patch.knowledge_vault_ids !== undefined
+          ? patch.knowledge_vault_ids
+          : mapped?.knowledge_vault_ids !== undefined
+            ? mapped.knowledge_vault_ids
+            : base.knowledge_vault_ids,
+    }
+    if (idx >= 0) {
+      const copy = list.slice()
+      copy[idx] = nextRow
+      return copy
+    }
+    return [...list, nextRow]
+  })
 }
 
 export async function patchCurrentAgentCapabilities(
@@ -55,8 +132,14 @@ export async function patchCurrentAgentCapabilities(
     }
 
     if (Object.keys(agentPatch).length > 0) {
-      await api.updateAgent(code, agentPatch)
-      await ctx.refreshAgentsList()
+      const updated = await api.updateAgent(code, agentPatch)
+      upsertAgentRow(ctx.setAgents, code, updated, patch)
+      ctx.setRoleUiNonce((n) => n + 1)
+      try {
+        await ctx.refreshAgentsList()
+      } catch {
+        /* local upsert already applied */
+      }
     }
     toast('已更新能力绑定', 'success')
   } catch (e) {

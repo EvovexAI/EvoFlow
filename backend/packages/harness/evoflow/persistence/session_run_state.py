@@ -216,18 +216,36 @@ def peek_current_run_id(
     session_key: str | None = None,
     thread_id: str | None = None,
 ) -> str | None:
-    """Read ``current_run_id`` before ``mark_session_run_ended`` clears it."""
+    """Read ``current_run_id`` before ``mark_session_run_ended`` clears it.
+
+    Soft-fail on ``db_process_lock_timeout``: this is often called from
+    ``TranscriptMiddleware.before_model`` on LangGraph's asyncio bg-loop.
+    Raising there kills the whole run and LangGraph serde redacts it to
+    ``An internal error occurred`` (looks like a model failure). Skip peek
+    instead — caller can continue without a stable run_id stamp.
+    """
     sk = _resolve_session_key(session_key=session_key, thread_id=thread_id)
     if not sk:
         return None
-    row = (
-        get_db()
-        .execute(
-            "SELECT current_run_id FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
-            (sk,),
+    try:
+        row = (
+            get_db()
+            .execute(
+                "SELECT current_run_id FROM evoflow_chat_sessions WHERE session_key = ? AND is_deleted = 0",
+                (sk,),
+            )
+            .fetchone()
         )
-        .fetchone()
-    )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "db_process_lock_timeout" in msg or "database is locked" in msg:
+            logger.warning(
+                "peek_current_run_id skipped (db busy) session=%s: %s",
+                sk[:48],
+                str(exc)[:180],
+            )
+            return None
+        raise
     if not row:
         return None
     rid = str(row[0] or "").strip()

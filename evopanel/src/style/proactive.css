@@ -1461,6 +1461,13 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
   background: linear-gradient(135deg, color-mix(in srgb, var(--pro-teal) 7%, transparent), transparent 62%);
 }
 
+.pro-duty-sheet-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  width: 64px;
+  height: 64px;
+}
+
 .pro-duty-sheet-avatar {
   width: 64px;
   height: 64px;
@@ -1476,6 +1483,41 @@ html.evopanel-macos-titlebar .pro-employee-page--nav-in-chrome {
 
 .pro-duty-sheet-avatar .agent-avatar--pending {
   background: color-mix(in srgb, var(--bg-secondary, #f4f4f5) 88%, var(--pro-teal, #0d9488) 12%);
+}
+
+/* 头像角标铅笔：侧栏打开详情时顶栏编辑可能点不到，靠这里进编辑 */
+.pro-duty-sheet-edit {
+  appearance: none;
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--pro-teal, #0d9488) 28%, var(--border-primary, rgba(0, 0, 0, 0.12)));
+  background: var(--bg-elevated, var(--bg-primary, #fff));
+  color: var(--text-secondary, #64748b);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
+  z-index: 1;
+}
+
+.pro-duty-sheet-edit:hover,
+.pro-duty-sheet-edit:focus-visible {
+  color: var(--pro-teal, #0d9488);
+  border-color: color-mix(in srgb, var(--pro-teal, #0d9488) 55%, transparent);
+  outline: none;
+}
+
+[data-theme="dark"] .pro-duty-sheet-edit {
+  background: var(--bg-elevated, #1e293b);
+  border-color: color-mix(in srgb, var(--pro-teal, #0d9488) 35%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
 
 .pro-duty-sheet-text {

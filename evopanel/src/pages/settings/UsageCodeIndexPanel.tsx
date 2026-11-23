@@ -152,33 +152,19 @@ function UsageCodeIndexPanel() {
     }
   }, [query, workspace, refreshStatus, applySearchResponse])
 
+  // 打开面板只拉状态，不自动打重搜索。默认 q=class 曾对 monorepo + personal
+  // 连续发 /workspaces/search，卡 60–100s 把设置页整页冻住（2026-11-23）。
   useEffect(() => {
     if (!workspace) return
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      setHasSearched(false)
-      try {
-        const res = await fetchCodeIndexSearch('class', 40, workspace)
-        if (cancelled) return
-        applySearchResponse(res)
-      } catch (e) {
-        if (!cancelled) {
-          setHits([])
-          setSymbols([])
-          setRelatedFiles([])
-          setRelations([])
-          setError(String((e as Error)?.message || e || '加载失败'))
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [workspace, applySearchResponse])
+    setHits([])
+    setSymbols([])
+    setRelatedFiles([])
+    setRelations([])
+    setFocusPath(null)
+    setHasSearched(false)
+    setError(null)
+    void refreshStatus()
+  }, [workspace, refreshStatus])
 
   const handleBuild = useCallback(async () => {
     if (!workspace) return

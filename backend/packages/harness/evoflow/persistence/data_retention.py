@@ -220,16 +220,38 @@ def _skip_vacuum_due_to_size(path: Path) -> bool:
     return True
 
 
+def _observability_freelist_bytes(obs_path: Path) -> int:
+    """Bytes held in SQLite freelist (deleted but not yet reclaimed by VACUUM)."""
+    if not obs_path.is_file():
+        return 0
+    try:
+        conn = sqlite3.connect(f"file:{obs_path.as_posix()}?mode=ro", uri=True, timeout=30.0)
+        try:
+            page_size = int(conn.execute("PRAGMA page_size").fetchone()[0] or 0)
+            freelist = int(conn.execute("PRAGMA freelist_count").fetchone()[0] or 0)
+            return max(0, page_size * freelist)
+        finally:
+            conn.close()
+    except Exception:
+        logger.debug("observability freelist probe failed", exc_info=True)
+        return 0
+
+
 def _vacuum_observability_rebuild(obs_path: Path) -> bool:
     """Rebuild observability.db via ``VACUUM INTO`` (compact file, drop WAL).
+
+    This is the supported compact path for **multi-GB** obs DBs. Do **not** gate on
+    ``EVOFLOW_VACUUM_MAX_BYTES`` — that guard is only for in-place ``VACUUM``
+    (2026-11-23 non-dev: ~1GB freelist unreclaimed because rebuild wrongly skipped
+    when the file was already over the in-process VACUUM size limit).
 
     Requires no other connections holding the DB. Returns True when the rebuilt
     file replaced the original.
     """
     if not obs_path.is_file():
         return False
-    if _skip_vacuum_due_to_size(obs_path):
-        return False
+    before = _observability_db_bytes(obs_path)
+    freelist_b = _observability_freelist_bytes(obs_path)
     rebuilt = obs_path.with_suffix(".db.rebuild")
     backup = obs_path.with_suffix(".db.bak")
     # 先关闭本进程的 store 单例连接：Windows 下 rename/unlink 撞上打开中的句柄
@@ -244,6 +266,12 @@ def _vacuum_observability_rebuild(obs_path: Path) -> bool:
     try:
         if rebuilt.exists():
             rebuilt.unlink()
+        logger.info(
+            "observability VACUUM INTO rebuild starting size=%.2f GB freelist=%.2f GB path=%s",
+            before / (1024**3),
+            freelist_b / (1024**3),
+            obs_path,
+        )
         conn = sqlite3.connect(str(obs_path), timeout=300.0)
         conn.execute("PRAGMA busy_timeout=300000")
         # Forward slashes work on Windows for SQLite path args.
@@ -261,6 +289,12 @@ def _vacuum_observability_rebuild(obs_path: Path) -> bool:
                 side.unlink()
         if backup.is_file():
             backup.unlink()
+        after = _observability_db_bytes(obs_path)
+        logger.info(
+            "observability VACUUM INTO rebuild done %.2f GB -> %.2f GB",
+            before / (1024**3),
+            after / (1024**3),
+        )
         return True
     except Exception as exc:
         logger.warning("observability VACUUM INTO rebuild failed: %s", exc)
@@ -279,6 +313,7 @@ def enforce_observability_db_size_cap(
     min_gateway_days: int = 3,
     model_json_limit: int = 32 * 1024,
     min_model_days: int = 3,
+    vacuum_path_guard: Callable[[], bool] | None = None,
 ) -> tuple[int, int, bool]:
     """Shrink observability.db when it exceeds *max_bytes*. Returns (stripped, deleted, vacuumed).
 
@@ -294,12 +329,17 @@ def enforce_observability_db_size_cap(
     ① 先剥大字段（模型 request/response JSON）——这是体积大头，不丢耗时数字；
     ② 删行只在「超过底线天数」的行里删，绝不碰底线内的数据；
     ③ 若守住底线后仍超上限，**明确 warning 报超出多少**，由人决定调高
-       ``observability_max_size_gb`` 或缩短保留天数，而不是静默削掉近期历史。
+       ``observability_max_size_gb`` 或缩短保留天数，而不是静默削掉近期历史；
+    ④ 回收磁盘必须走 ``VACUUM INTO``（多 GB 也允许）；忙时由 ``vacuum_path_guard`` 让路。
     """
     if not obs_path.is_file() or max_bytes <= 0:
         return (0, 0, False)
     before = _observability_db_bytes(obs_path)
-    if before <= max_bytes:
+    freelist_before = _observability_freelist_bytes(obs_path)
+    # Also reclaim when freelist bloat alone is huge (DELETE already ran; file still fat).
+    freelist_reclaim_min = 256 * 1024 * 1024
+    needs_compact = before > max_bytes or freelist_before >= freelist_reclaim_min
+    if not needs_compact:
         return (0, 0, False)
 
     stripped = 0
@@ -308,8 +348,9 @@ def enforce_observability_db_size_cap(
     conn = sqlite3.connect(str(obs_path), timeout=120.0)
     try:
         logger.warning(
-            "observability.db size %.2f GB exceeds cap %.2f GB; compacting",
+            "observability.db size %.2f GB (freelist %.2f GB) exceeds cap %.2f GB or freelist reclaim; compacting",
             before / (1024**3),
+            freelist_before / (1024**3),
             max_bytes / (1024**3),
         )
         stripped = strip_gateway_request_heavy_columns(conn)
@@ -318,89 +359,95 @@ def enforce_observability_db_size_cap(
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.commit()
 
-        gw_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.GATEWAY_REQUESTS}").fetchone()
-        gw_count = int(gw_count_row[0] or 0) if gw_count_row else 0
-        # SQLite file size barely drops until VACUUM — estimate rows to delete from ratio.
-        target_ratio = max(0.05, min(1.0, max_bytes / before))
-        keep_gateway = max(1, int(gw_count * target_ratio * 0.85))
-        if gw_count > 10_000:
-            keep_gateway = max(5_000, keep_gateway)
-        keep_gateway = min(gw_count, keep_gateway)
-        to_delete = max(0, gw_count - keep_gateway)
-        # 硬底线：底线天数内的行一条都不许删（2026-11-19 实测 7 天被削成 13 小时）。
-        gw_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
-        batch = 50_000
-        while to_delete > 0:
-            n = _delete_oldest_rows(
-                conn,
-                ObservabilityTable.GATEWAY_REQUESTS,
-                batch=min(batch, to_delete),
-                older_than=gw_floor,
-            )
-            if n <= 0:
-                break
-            deleted += n
-            to_delete -= n
-
-        if before > max_bytes * 1.2:
-            model_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.MODEL_INVOCATIONS}").fetchone()
-            model_count = int(model_count_row[0] or 0) if model_count_row else 0
-            keep_model = max(1_000, int(model_count * target_ratio * 0.85))
-            if model_count > 5_000:
-                keep_model = max(2_000, keep_model)
-            keep_model = min(model_count, keep_model)
-            model_to_delete = max(0, model_count - keep_model)
-            model_floor = _cutoff_iso(max(1, int(min_model_days))) if min_model_days > 0 else None
-            while model_to_delete > 0:
+        if before > max_bytes:
+            gw_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.GATEWAY_REQUESTS}").fetchone()
+            gw_count = int(gw_count_row[0] or 0) if gw_count_row else 0
+            # SQLite file size barely drops until VACUUM — estimate rows to delete from ratio.
+            target_ratio = max(0.05, min(1.0, max_bytes / before))
+            keep_gateway = max(1, int(gw_count * target_ratio * 0.85))
+            if gw_count > 10_000:
+                keep_gateway = max(5_000, keep_gateway)
+            keep_gateway = min(gw_count, keep_gateway)
+            to_delete = max(0, gw_count - keep_gateway)
+            # 硬底线：底线天数内的行一条都不许删（2026-11-19 实测 7 天被削成 13 小时）。
+            gw_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
+            batch = 50_000
+            while to_delete > 0:
                 n = _delete_oldest_rows(
                     conn,
-                    ObservabilityTable.MODEL_INVOCATIONS,
-                    batch=min(batch, model_to_delete),
-                    time_col="requested_at",
-                    older_than=model_floor,
+                    ObservabilityTable.GATEWAY_REQUESTS,
+                    batch=min(batch, to_delete),
+                    older_than=gw_floor,
                 )
                 if n <= 0:
                     break
                 deleted += n
-                model_to_delete -= n
+                to_delete -= n
 
-        if before > max_bytes * 1.5:
-            trace_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.TRACE_EVENTS}").fetchone()
-            trace_count = int(trace_count_row[0] or 0) if trace_count_row else 0
-            keep_trace = max(10_000, int(trace_count * target_ratio * 0.85))
-            trace_to_delete = max(0, trace_count - keep_trace)
-            trace_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
-            while trace_to_delete > 0:
-                n = _delete_oldest_rows(
-                    conn,
-                    ObservabilityTable.TRACE_EVENTS,
-                    batch=min(batch, trace_to_delete),
-                    older_than=trace_floor,
-                )
-                if n <= 0:
-                    break
-                deleted += n
-                trace_to_delete -= n
+            if before > max_bytes * 1.2:
+                model_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.MODEL_INVOCATIONS}").fetchone()
+                model_count = int(model_count_row[0] or 0) if model_count_row else 0
+                keep_model = max(1_000, int(model_count * target_ratio * 0.85))
+                if model_count > 5_000:
+                    keep_model = max(2_000, keep_model)
+                keep_model = min(model_count, keep_model)
+                model_to_delete = max(0, model_count - keep_model)
+                model_floor = _cutoff_iso(max(1, int(min_model_days))) if min_model_days > 0 else None
+                while model_to_delete > 0:
+                    n = _delete_oldest_rows(
+                        conn,
+                        ObservabilityTable.MODEL_INVOCATIONS,
+                        batch=min(batch, model_to_delete),
+                        time_col="requested_at",
+                        older_than=model_floor,
+                    )
+                    if n <= 0:
+                        break
+                    deleted += n
+                    model_to_delete -= n
+
+            if before > max_bytes * 1.5:
+                trace_count_row = conn.execute(f"SELECT COUNT(*) FROM {ObservabilityTable.TRACE_EVENTS}").fetchone()
+                trace_count = int(trace_count_row[0] or 0) if trace_count_row else 0
+                keep_trace = max(10_000, int(trace_count * target_ratio * 0.85))
+                trace_to_delete = max(0, trace_count - keep_trace)
+                trace_floor = _cutoff_iso(max(1, int(min_gateway_days))) if min_gateway_days > 0 else None
+                while trace_to_delete > 0:
+                    n = _delete_oldest_rows(
+                        conn,
+                        ObservabilityTable.TRACE_EVENTS,
+                        batch=min(batch, trace_to_delete),
+                        older_than=trace_floor,
+                    )
+                    if n <= 0:
+                        break
+                    deleted += n
+                    trace_to_delete -= n
 
         conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.commit()
     finally:
         conn.close()
 
-    if stripped > 0 or deleted > 0:
-        vacuumed = _vacuum_observability_rebuild(obs_path)
-        if not vacuumed and not _skip_vacuum_due_to_size(obs_path):
-            try:
-                conn = sqlite3.connect(str(obs_path), timeout=300.0)
-                conn.execute("PRAGMA busy_timeout=300000")
-                conn.execute("VACUUM")
-                conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-                conn.close()
-                vacuumed = True
-            except Exception as exc:
-                logger.warning("observability size-cap VACUUM failed: %s", exc)
-    elif before > max_bytes:
-        vacuumed = _vacuum_observability_rebuild(obs_path)
+    # Disk reclaim: VACUUM INTO works for multi-GB; skip only when chat/REST is busy.
+    should_rebuild = stripped > 0 or deleted > 0 or before > max_bytes or freelist_before >= freelist_reclaim_min
+    if should_rebuild:
+        if vacuum_path_guard is not None and not vacuum_path_guard():
+            logger.info(
+                "observability size-cap: skip VACUUM INTO (busy guard); will retry while over cap"
+            )
+        else:
+            vacuumed = _vacuum_observability_rebuild(obs_path)
+            if not vacuumed and not _skip_vacuum_due_to_size(obs_path):
+                try:
+                    conn = sqlite3.connect(str(obs_path), timeout=300.0)
+                    conn.execute("PRAGMA busy_timeout=300000")
+                    conn.execute("VACUUM")
+                    conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                    conn.close()
+                    vacuumed = True
+                except Exception as exc:
+                    logger.warning("observability size-cap VACUUM failed: %s", exc)
 
     after = _observability_db_bytes(obs_path)
     logger.info(
@@ -926,6 +973,7 @@ def run_data_retention(
                 max_bytes=max_bytes,
                 min_gateway_days=min(cfg.gateway_requests_days, 3),
                 model_json_limit=int(cfg.observability_model_json_limit_bytes),
+                vacuum_path_guard=vacuum_path_guard,
             )
             result.obs_gateway_stripped = stripped
             result.obs_size_cap_deleted = cap_deleted

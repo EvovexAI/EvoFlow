@@ -483,11 +483,19 @@ def _agent_config_to_response(agent_cfg: AgentConfig, include_soul: bool = False
         from evoflow.config.agents_config import xiaomi_front_desk_capability_defaults
 
         if is_xiaomi_agent(code):
+            # tools 仍按前台策略展示；MCP / 知识库读真实落盘（侧栏可改，不再伪装成全量 MCP / 空 KB）。
             caps = xiaomi_front_desk_capability_defaults()
             tools = list(caps["tools"] or [])
-            mcp_servers = caps["mcp_servers"]  # None = all MCP
-            skills = list(caps["skills"] or [])
-            knowledge_vault_ids = []
+            if mcp_servers is None:
+                mcp_servers = list(caps.get("mcp_servers") or [])
+            try:
+                from evoflow.config.agents_config import get_agent_kb_vault_ids
+
+                knowledge_vault_ids = list(get_agent_kb_vault_ids(code) or knowledge_vault_ids)
+            except Exception:
+                pass
+            if not knowledge_vault_ids:
+                knowledge_vault_ids = list(caps.get("knowledge_vault_ids") or [])
     except Exception:
         pass
 
@@ -1018,7 +1026,7 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             elif agent_cfg.model is not None:
                 updated["model"] = agent_cfg.model
 
-            # 小V：bash + 全量 MCP + 浏览器/电脑控制技能（与 capability defaults 对齐）。
+            # 小V：tools/skills 对齐前台策略；MCP / 知识库尊重请求（默认可空 MCP + 用户指南）。
             _is_xiaomi = False
             try:
                 from evoflow.agents.xiaomi.identity import is_xiaomi_agent
@@ -1031,26 +1039,71 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
             if _is_xiaomi:
                 caps = xiaomi_front_desk_capability_defaults()
                 new_tools = list(caps["tools"] or [])
-                new_mcp = caps["mcp_servers"]  # None = all
                 new_skills = list(caps["skills"] or [])
+                if "mcp_servers" in request_set:
+                    # 显式 null 也按空名单处理（产品已弃用「小V=全量 MCP」）。
+                    new_mcp = (
+                        list(request.mcp_servers)
+                        if request.mcp_servers is not None
+                        else list(caps.get("mcp_servers") or [])
+                    )
+                else:
+                    cur = agent_cfg.mcp_servers
+                    new_mcp = list(cur) if cur is not None else list(caps.get("mcp_servers") or [])
             elif _agent_requires_external_cli(agent_cfg):
                 new_tools = agent_cfg.tools
-                new_mcp = agent_cfg.mcp_servers
+                new_mcp = (
+                    request.mcp_servers
+                    if "mcp_servers" in request_set
+                    else agent_cfg.mcp_servers
+                )
                 new_skills = agent_cfg.skills
             else:
-                new_tools = _normalize_agent_tools_for_api(request.tools if request.tools is not None else agent_cfg.tools)
-                new_mcp = request.mcp_servers if request.mcp_servers is not None else agent_cfg.mcp_servers
-                new_skills = request.skills if request.skills is not None else agent_cfg.skills
+                new_tools = _normalize_agent_tools_for_api(
+                    request.tools if "tools" in request_set else agent_cfg.tools
+                )
+                new_mcp = (
+                    request.mcp_servers
+                    if "mcp_servers" in request_set
+                    else agent_cfg.mcp_servers
+                )
+                new_skills = (
+                    request.skills if "skills" in request_set else agent_cfg.skills
+                )
 
             if new_tools is not None:
                 updated["tools"] = new_tools
             if _is_xiaomi:
-                # mcp_servers=None means all enabled MCP.
                 updated["mcp_servers"] = new_mcp
                 updated["skills"] = new_skills if new_skills is not None else []
-                updated["knowledge_vault_ids"] = []
+                if "knowledge_vault_ids" in request_set:
+                    from evoflow.proactive.prompt import validate_agent_knowledge_ids
+
+                    try:
+                        updated["knowledge_vault_ids"] = validate_agent_knowledge_ids(
+                            list(request.knowledge_vault_ids or [])
+                        )
+                    except ValueError as e:
+                        raise HTTPException(status_code=422, detail=str(e)) from e
+                else:
+                    try:
+                        from evoflow.config.agents_config import get_agent_kb_vault_ids
+
+                        updated["knowledge_vault_ids"] = list(
+                            get_agent_kb_vault_ids(name)
+                            or getattr(agent_cfg, "knowledge_vault_ids", None)
+                            or caps.get("knowledge_vault_ids")
+                            or []
+                        )
+                    except Exception:
+                        updated["knowledge_vault_ids"] = list(
+                            getattr(agent_cfg, "knowledge_vault_ids", None)
+                            or caps.get("knowledge_vault_ids")
+                            or []
+                        )
             else:
-                if new_mcp is not None:
+                # Key absent → 全量 MCP；显式 [] → 空白名单；list → 白名单。
+                if "mcp_servers" in request_set or new_mcp is not None:
                     updated["mcp_servers"] = new_mcp
                 if new_skills is not None:
                     updated["skills"] = new_skills
@@ -1105,7 +1158,10 @@ async def update_agent(http_request: Request, name: str, request: AgentUpdateReq
 
             save_agent_config(name, updated)
             # Keep extra_json vault mirror in sync (middleware prefers it; removals must stick).
-            if "knowledge_vault_ids" in request_set and not _is_xiaomi:
+            # 小V 也会写 knowledge_vault_ids（用户指南默认 + 侧栏可改），同样要镜像。
+            if "knowledge_vault_ids" in request_set or (
+                _is_xiaomi and "knowledge_vault_ids" in updated
+            ):
                 try:
                     from evoflow.admin.agents import _persist_agent_knowledge_vault_ids
 

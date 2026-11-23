@@ -181,10 +181,10 @@ def test_reinstall_is_idempotent(isolated_home: Path, tmp_path: Path) -> None:
 def test_reinstall_with_replace_rebinds_employee(
     isolated_home: Path, tmp_path: Path
 ) -> None:
-    """员工已存在时 replace 重装应删旧重建，把 ${KB_REF} 绑定补上（存量员工补绑场景）。"""
+    """replace 重装先卸旧实例再装，${KB_REF} 绑定必须回到包声明。"""
     pack, _ = _make_pack(tmp_path)
     source = {"type": "path", "path": str(pack)}
-    install_organization(source=source)
+    first = install_organization(source=source)
 
     # 先人为把员工的知识库绑定清空，模拟「员工先在、绑定缺失」
     from evoflow.proactive.repositories import ProactiveRepository
@@ -194,36 +194,61 @@ def test_reinstall_with_replace_rebinds_employee(
     ProactiveRepository.save_role(role)
 
     second = install_organization(source=source, options={"conflict_policy": "replace"})
-    assert any("employee replaced: worker" in w for w in second["warnings"])
+    assert second.get("rolled_back") is False
+    assert second["org_instance_id"] != first["org_instance_id"]
     role2 = ProactiveRepository.get_role("worker")
     assert role2 is not None
     assert role2.config.knowledge_vault_ids == [second["artifacts"]["knowledge"][0]]
 
 
-def test_uninstall_removes_extension_keeps_knowledge_by_default(
+def test_uninstall_true_delete_by_default(
+    isolated_home: Path, tmp_path: Path
+) -> None:
+    """Default uninstall removes extension + knowledge + roles; reinstall is clean."""
+    from evoflow.admin import agents as agents_admin
+    from evoflow.admin.errors import NotFoundError
+    from evoflow.knowledge.owned import service as owned_service
+    from evoflow.proactive.repositories import ProactiveRepository
+
+    pack, _ = _make_pack(tmp_path)
+    result = install_organization(source={"type": "path", "path": str(pack)})
+    kb_id = result["artifacts"]["knowledge"][0]
+    oid = result["org_instance_id"]
+
+    out = uninstall_organization(oid)
+    assert out["removed"]["extensions"] == ["my-ext"]
+    assert out["removed"]["knowledge"] == [kb_id]
+    assert out["removed"]["employees"] == ["worker"]
+    assert out["removed"]["agents"] == ["worker"]
+    assert not any(out.get("not_removed", {}).values())
+    assert _registry_rows(isolated_home) == []  # 扩展行已摘除
+    assert not any(b["id"] == kb_id for b in owned_service.list_bases())
+    assert ProactiveRepository.get_role("worker") is None
+    try:
+        agents_admin.get_agent("worker")
+        raise AssertionError("agent should be gone")
+    except NotFoundError:
+        pass
+
+    # Clean reinstall must not hit Role already exists
+    result2 = install_organization(source={"type": "path", "path": str(pack)})
+    assert result2["artifacts"]["employees"] == ["worker"]
+    assert ProactiveRepository.get_role("worker") is not None
+
+
+def test_uninstall_can_keep_knowledge(
     isolated_home: Path, tmp_path: Path
 ) -> None:
     pack, _ = _make_pack(tmp_path)
     result = install_organization(source={"type": "path", "path": str(pack)})
     kb_id = result["artifacts"]["knowledge"][0]
-
-    out = uninstall_organization(result["org_instance_id"])
-    assert out["removed"]["extensions"] == ["my-ext"]
+    out = uninstall_organization(
+        result["org_instance_id"], options={"keep_knowledge": True}
+    )
     assert out["kept"]["knowledge"] == [kb_id]
-    assert _registry_rows(isolated_home) == []  # 扩展行已摘除
-
     from evoflow.knowledge.owned import service as owned_service
 
-    assert any(b["id"] == kb_id for b in owned_service.list_bases())  # 默认保留
-
-    # 重装（幂等复用同一个知识库）后显式删除知识库卸载
-    result2 = install_organization(
-        source={"type": "path", "path": str(pack)}, options={"conflict_policy": "skip"}
-    )
-    assert result2["artifacts"]["knowledge"] == [kb_id]
-    out2 = uninstall_organization(result2["org_instance_id"], options={"keep_knowledge": False})
-    assert out2["removed"]["knowledge"] == [kb_id]
-    assert not any(b["id"] == kb_id for b in owned_service.list_bases())
+    assert any(b["id"] == kb_id for b in owned_service.list_bases())
 
 
 def test_zip_install_persists_and_forces_extension_copy(
@@ -270,6 +295,91 @@ def test_zip_install_persists_and_forces_extension_copy(
     copied = json.loads((install_path / "evoflow.extension.json").read_text(encoding="utf-8"))
     assert (copied.get("service") or {}).get("link") in (False, None)
     _ = config_dir  # keep import used for clarity in failures
+
+
+def test_install_forwards_employee_mcp_resp_max_turns(
+    isolated_home: Path, tmp_path: Path
+) -> None:
+    """P1: hire whitelist must land mcp_servers / responsibilities / max_turns."""
+    from evoflow.admin import agents as agents_admin
+    from evoflow.admin import mcp as mcp_admin
+    from evoflow.proactive.repositories import ProactiveRepository
+
+    pack, _ = _make_pack(tmp_path)
+    mcp_name = "pack-hire-mcp"
+    mcp_dir = pack / "mcp"
+    mcp_dir.mkdir()
+    (mcp_dir / f"{mcp_name}.json").write_text(
+        json.dumps(
+            {
+                "name": mcp_name,
+                "enabled": True,
+                "type": "stdio",
+                "command": "npx",
+                "args": ["-y", "demo"],
+                "description": "pack mcp",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (pack / "agents" / "worker.yaml").write_text(
+        "agent_code: worker\nagent_name: 测试员工\ndescription: t\n"
+        f"system_prompt: 你是测试员工\nskills: [my-skill]\nmcp_servers: [{mcp_name}]\n"
+        "max_turns: 20\n",
+        encoding="utf-8",
+    )
+    (pack / "employees" / "worker.json").write_text(
+        json.dumps(
+            {
+                "agent_code": "worker",
+                "role_name": "测试员工",
+                "mcp_servers": [mcp_name],
+                "max_turns": 20,
+                "config": {
+                    "workspace_path": "${ORG_WORKSPACE}",
+                    "knowledge_vault_ids": ["${KB_REF:reports}"],
+                    "skills": ["my-skill"],
+                    "mcp_servers": [mcp_name],
+                    "max_turns": 20,
+                    "responsibilities": ["梳大纲", "陪练", "出题"],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    man = json.loads((pack / "evoflow.organization.json").read_text(encoding="utf-8"))
+    man["primitives"]["mcp"] = [{"from": f"./mcp/{mcp_name}.json"}]
+    (pack / "evoflow.organization.json").write_text(json.dumps(man), encoding="utf-8")
+
+    result = install_organization(source={"type": "path", "path": str(pack)})
+    assert result.get("rolled_back") is False
+    assert "readiness" in result
+
+    role = ProactiveRepository.get_role("worker")
+    assert role is not None
+    assert role.config.max_turns == 20
+    assert mcp_name in (role.config.mcp_servers or [])
+    assert "梳大纲" in (role.config.responsibilities or [])
+
+    agent = agents_admin.get_agent("worker")
+    assert mcp_name in (agent.get("mcp_servers") or [])
+    assert int(agent.get("max_turns") or 0) == 20
+    assert mcp_admin.get_mcp_server(mcp_name)["name"] == mcp_name
+
+    # preflight after install must report conflicts (shared checker)
+    from evoflow.organizations.installer import preflight_organization
+
+    pre = preflight_organization(source={"type": "path", "path": str(pack)})
+    assert pre["ok"] is False
+    kinds = {c["type"] for c in pre["conflicts"]}
+    assert "employee" in kinds or "agent" in kinds or "org_instance" in kinds
+
+    # uninstall + reinstall idempotent
+    out = uninstall_organization(result["org_instance_id"])
+    assert out["ok"] is True
+    result2 = install_organization(source={"type": "path", "path": str(pack)})
+    assert result2.get("rolled_back") is False
+    assert ProactiveRepository.get_role("worker") is not None
 
 
 def test_install_registers_mcp_before_agent(isolated_home: Path, tmp_path: Path) -> None:

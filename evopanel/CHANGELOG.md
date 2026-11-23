@@ -8,7 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.3.49] - 2026-11-23
 
-相对 **1.3.48** 的后续开发版本（未打正式包标签）。
+相对 **1.3.48**：应用文件夹；组织包安装；对话贴底与收口空白；临时错误可重试；观测库回收更稳。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.49.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **应用文件夹**：工作流列表嵌套文件夹与面包屑，应用可移入文件夹
+
+### Fixed
+
+- **对话贴底**：切会话 / 收口后减少整屏空白、贴不到底
+- **临时内部错误**：模型短暂错误、断连时提示可直接再发
+- **本机库忙**：水合 / 读会话在库锁超时 soft-fail，不误报成模型失败
+- **观测库回收**：超限 VACUUM INTO，忙时让路重试
+
+### Changed
+
+- **组织包安装**：安装与注册更完整
+- **能力页签**：技能 / MCP / 知识库勾选先乐观更新
 
 
 ## [1.3.48] - 2026-11-23

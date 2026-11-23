@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 
 from evoflow.persistence.chat_message_content import (
@@ -16,6 +17,8 @@ from evoflow.persistence.chat_message_content import (
 )
 from evoflow.persistence.db import db_connection_lock, get_db, run_db_transaction
 from evoflow.persistence.timestamps import iso_z_to_ms, ms_to_iso_z, now_iso_z
+
+logger = logging.getLogger(__name__)
 
 # Real user turns kept immediately before the compaction marker (runtime-aligned).
 _PRE_COMPACTION_KEEP_USER_TURNS = 3
@@ -1718,20 +1721,37 @@ def find_latest_compaction_seq(session_key: str) -> int | None:
 
 
 def get_session_hydration_watermark(session_key: str) -> tuple[int, int | None]:
-    """Cheap ``(max_seq, compaction_seq)`` for hydration cache fingerprinting."""
+    """Cheap ``(max_seq, compaction_seq)`` for hydration cache fingerprinting.
+
+    Soft-fail on ``db_process_lock_timeout``: this runs from
+    ``SessionTranscriptHydrationMiddleware.before_model`` on LangGraph's
+    asyncio bg-loop. Raising kills the whole run; LangGraph serde then shows
+    a fake 「An internal error occurred」. Prefer ``(0, None)`` and skip rebuild.
+    """
     sk = str(session_key or "").strip()
     if not sk:
         return 0, None
-    row = (
-        get_db()
-        .execute(
-            "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_messages WHERE session_key = ?",
-            (sk,),
+    try:
+        row = (
+            get_db()
+            .execute(
+                "SELECT COALESCE(MAX(seq), 0) FROM evoflow_chat_messages WHERE session_key = ?",
+                (sk,),
+            )
+            .fetchone()
         )
-        .fetchone()
-    )
-    max_seq = int(row[0] or 0) if row else 0
-    return max_seq, find_latest_compaction_seq(sk)
+        max_seq = int(row[0] or 0) if row else 0
+        return max_seq, find_latest_compaction_seq(sk)
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "db_process_lock_timeout" in msg or "database is locked" in msg:
+            logger.warning(
+                "get_session_hydration_watermark skipped (db busy) session=%s: %s",
+                sk[:48],
+                str(exc)[:180],
+            )
+            return 0, None
+        raise
 
 
 def load_conversation_summary_text(session_key: str) -> str | None:

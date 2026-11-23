@@ -64,22 +64,30 @@ function hideBackendWarmingBanner() {
 
 export function startBackendReadyPoll() {
   if (!isTauri || _backendReadyPollTimer) return
+  let attempts = 0
+  let everHealthy = false
+  let finishedReady = false
+  let tickInFlight = false
+  let retryShowTimer = null
   // Prefer injecting into chrome after boot; retry a few times if chrome not yet mounted.
+  // Must NOT re-show after finishReady — otherwise a late chrome mount (or the 400ms
+  // retry) permanently orphans「引擎加载中…」with the poll already stopped.
   const tryShow = () => {
+    if (finishedReady) return
     showBackendWarmingBanner()
     if (!document.getElementById('backend-warming-banner') && document.getElementById('tauri-main-chrome')) {
       showBackendWarmingBanner()
     }
   }
   tryShow()
-  setTimeout(tryShow, 400)
-  let attempts = 0
-  let everHealthy = false
-  let finishedReady = false
-  let tickInFlight = false
+  retryShowTimer = setTimeout(tryShow, 400)
   const maxAttempts = 240 // ~120s at 500ms
   const WARMING_TIMEOUT_ATTEMPTS = 180 // ~90s at 500ms
   const finishReady = (source) => {
+    if (retryShowTimer) {
+      clearTimeout(retryShowTimer)
+      retryShowTimer = null
+    }
     hideBackendWarmingBanner()
     if (finishedReady) return
     finishedReady = true

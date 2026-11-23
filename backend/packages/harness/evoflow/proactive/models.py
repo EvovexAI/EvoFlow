@@ -171,6 +171,9 @@ class ProactiveRoleConfig:
     workspace_path: str = ""
     # Bound Knowledge Vault ids (multi). Injected into duty system prompt when set.
     knowledge_vault_ids: list[str] = field(default_factory=list)
+    # MCP server names declared on the role (mirrored to Agent on hire/update).
+    # Org-pack install writes these so config_json matches the employee JSON.
+    mcp_servers: list[str] = field(default_factory=list)
     # Free-text strings and/or structured dicts (name/target/probe/…).
     kpis: list[Any] = field(default_factory=list)
     # Default: human must approve before any initiative executes.

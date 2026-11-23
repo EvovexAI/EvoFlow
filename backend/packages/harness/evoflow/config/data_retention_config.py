@@ -11,16 +11,23 @@ class DataRetentionConfig(BaseModel):
     logs_days: int = Field(default=14, ge=1, le=365, description="Gateway daily log file retention (ZCode-aligned)")
     observability_days: int = Field(default=90, ge=1, le=3650, description="evoflow_obs_* row retention")
     gateway_requests_days: int = Field(
-        default=7,
+        default=3,
         ge=1,
         le=3650,
-        description=("Shorter retention for evoflow_obs_gateway_requests (high-volume HTTP access log). Falls back to observability_days when unset in legacy configs."),
+        description=(
+            "Shorter retention for evoflow_obs_gateway_requests (high-volume HTTP access log; "
+            "desktop can write 100k+/day). Falls back to observability_days when unset in legacy configs."
+        ),
     )
     observability_max_size_gb: float = Field(
         default=2.0,
         ge=0.25,
         le=100.0,
-        description=("When observability.db (+ WAL) exceeds this size, strip heavy JSON columns, delete oldest gateway/trace/model rows, then VACUUM until under the cap."),
+        description=(
+            "When observability.db (+ WAL) exceeds this size — or freelist bloat is large — "
+            "strip heavy JSON, delete oldest gateway/trace/model rows (respecting day floors), "
+            "then VACUUM INTO to reclaim disk."
+        ),
     )
     observability_model_json_limit_bytes: int = Field(
         default=32 * 1024,

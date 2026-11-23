@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,6 +24,21 @@ from evoflow.organizations.manifest import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Per-pack_id install mutex (same-process). Prevents concurrent org.install of the
+# same pack from racing create_agent/hire then rolling back each other's artifacts.
+_PACK_INSTALL_LOCKS: dict[str, threading.Lock] = {}
+_PACK_INSTALL_LOCKS_GUARD = threading.Lock()
+
+
+def _pack_install_lock(pack_id: str) -> threading.Lock:
+    key = str(pack_id or "").strip() or "_"
+    with _PACK_INSTALL_LOCKS_GUARD:
+        lock = _PACK_INSTALL_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _PACK_INSTALL_LOCKS[key] = lock
+        return lock
 
 
 class OrganizationInstallError(RuntimeError):
@@ -52,6 +68,77 @@ def _prefixed(code: str, prefix: str) -> str:
 def _conflict_policy(options: dict[str, Any] | None) -> str:
     p = str((options or {}).get("conflict_policy") or "fail").strip().lower()
     return p if p in ("fail", "skip", "replace") else "fail"
+
+
+# Employee hire keys the org installer forwards from employees/*.json (config or top-level).
+_EMP_HIRE_FORWARD_KEYS = (
+    "workspace_path",
+    "knowledge_vault_ids",
+    "skills",
+    "tools",
+    "mcp_servers",
+    "autonomy_level",
+    "responsibilities",
+    "kpis",
+    "max_turns",
+    "timeout_seconds",
+    "daily_budget_usd",
+    "soul_md",
+    "model_name",
+    "kb_injection",
+    "think_mode",
+    "thinking_enabled",
+)
+
+
+def _knowledge_readiness(kb_ids: list[str]) -> dict[str, Any]:
+    """Snapshot owned-KB indexing progress for install return payload."""
+    bases_out: list[dict[str, Any]] = []
+    ready_all = True
+    try:
+        from evoflow.knowledge.owned import service as owned_service
+
+        listed = {str(b.get("id") or ""): b for b in (owned_service.list_bases() or [])}
+        for kid in kb_ids:
+            kid = str(kid or "").strip()
+            if not kid:
+                continue
+            b = listed.get(kid) or {}
+            health = b.get("documentHealth") if isinstance(b.get("documentHealth"), dict) else {}
+            pending = int(health.get("pending") or 0)
+            processing = int(health.get("processing") or 0)
+            failed = int(health.get("failed") or 0)
+            ready_docs = int(health.get("ready") or 0)
+            total = int(b.get("documentCount") or ready_docs + pending + processing + failed)
+            is_ready = pending == 0 and processing == 0 and failed == 0
+            if not is_ready:
+                ready_all = False
+            bases_out.append(
+                {
+                    "id": kid,
+                    "name": b.get("name"),
+                    "document_count": total,
+                    "document_health": {
+                        "ready": ready_docs,
+                        "pending": pending,
+                        "processing": processing,
+                        "failed": failed,
+                    },
+                    "ready": is_ready,
+                    "status": b.get("status"),
+                }
+            )
+    except Exception as e:
+        logger.debug("knowledge readiness snapshot failed: %s", e, exc_info=True)
+        ready_all = False
+        bases_out = [{"id": k, "ready": False, "error": str(e)} for k in kb_ids if k]
+    return {
+        "ready": ready_all and bool(bases_out or not kb_ids),
+        "knowledge": bases_out,
+        "note": None
+        if ready_all
+        else "knowledge bases still indexing; poll knowledge.bases / documentHealth",
+    }
 
 
 def _plan_will_install(pack: LoadedPack, *, prefix: str) -> dict[str, list[str]]:
@@ -142,12 +229,30 @@ def _plan_will_install(pack: LoadedPack, *, prefix: str) -> dict[str, list[str]]
     return will
 
 
-def _collect_conflicts(will: dict[str, list[str]]) -> list[dict[str, str]]:
+def _collect_conflicts(
+    will: dict[str, list[str]],
+    *,
+    pack_id: str | None = None,
+) -> list[dict[str, str]]:
+    """Shared conflict scan for preflight and install (same data sources)."""
     from evoflow.admin import agents as agents_admin
     from evoflow.admin.errors import NotFoundError
     from evoflow.proactive.repositories import ProactiveRepository
 
     conflicts: list[dict[str, str]] = []
+    pid = str(pack_id or "").strip()
+    if pid:
+        active = org_registry.find_active_instance_for_pack(pid)
+        if active:
+            conflicts.append(
+                {
+                    "type": "org_instance",
+                    "id": active,
+                    "reason": "pack_already_installed",
+                    "owned_by": active,
+                }
+            )
+
     for code in will.get("agents") or []:
         try:
             agents_admin.get_agent(code)
@@ -196,7 +301,9 @@ def preflight_organization(
         )
         prefix = _id_prefix(options)
         will = _plan_will_install(pack, prefix=prefix)
-        conflicts = _collect_conflicts(will)
+        # Same lock as install so preflight sees a stable world vs concurrent install.
+        with _pack_install_lock(pack.pack_id):
+            conflicts = _collect_conflicts(will, pack_id=pack.pack_id)
         policy = _conflict_policy(options)
         blocking = conflicts if policy == "fail" else []
         missing_deps: list[str] = []
@@ -378,14 +485,11 @@ def install_organization(
     workspace_path: str | None = None,
     options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Install a resource pack. Rollback on failure when possible."""
-    pre = preflight_organization(source=source, workspace_path=workspace_path, options=options)
-    if not pre.get("ok"):
-        err = pre.get("error") or "preflight failed"
-        if pre.get("conflicts"):
-            err = f"conflicts: {pre['conflicts']}"
-        raise OrganizationInstallError(str(err), rolled_back=False)
+    """Install a resource pack. Rollback on failure when possible.
 
+    Conflict checks use the same ``_collect_conflicts`` as preflight, under a
+    per-``pack_id`` lock so concurrent installs cannot race hire/create_agent.
+    """
     pack = load_pack_from_source(
         source_type=str(source.get("type") or ""),
         path=source.get("path"),
@@ -398,39 +502,18 @@ def install_organization(
         source_requires_portable,
     )
 
-    # Zip/market extracts live under TEMP; persist before registering anything.
-    portable = source_requires_portable(source, options) or pack_needs_persist(pack)
-    if pack_needs_persist(pack) or (portable and pack.cleanup_dirs):
-        pack = persist_pack_tree(pack)
-        portable = True
-
     prefix = _id_prefix(options)
     policy = _conflict_policy(options)
-    org_root = str(pack.root)
-    org_ws = str(workspace_path or "").strip()
-    ws_cfg = pack.manifest.get("workspace") if isinstance(pack.manifest.get("workspace"), dict) else {}
-    if not org_ws:
-        org_ws = str(ws_cfg.get("path") or "").strip()
-    # Expand ${ORG_ROOT} / ${ORG_WORKSPACE} before mkdir + registry write
-    if org_ws:
-        org_ws = apply_placeholders(org_ws, org_workspace="", org_root=org_root)
-        org_ws = apply_placeholders(org_ws, org_workspace=org_ws, org_root=org_root)
-    if org_ws and bool(ws_cfg.get("create_if_missing", True)):
-        Path(org_ws).mkdir(parents=True, exist_ok=True)
-        tpl = str(ws_cfg.get("template") or "").strip()
-        if tpl:
-            try:
-                src = resolve_pack_rel(pack, tpl)
-                if src.is_dir():
-                    for child in src.iterdir():
-                        dest = Path(org_ws) / child.name
-                        if child.is_dir() and not dest.exists():
-                            shutil.copytree(child, dest)
-                        elif child.is_file() and not dest.exists():
-                            shutil.copy2(child, dest)
-            except PackManifestError as e:
-                logger.warning("workspace template skipped: %s", e)
+    # Capture portable intent before lock; actual persist runs AFTER replace uninstall
+    # so we do not delete the tree we just copied into org-packs/.
+    want_portable = source_requires_portable(source, options) or pack_needs_persist(pack)
 
+    lock = _pack_install_lock(pack.pack_id)
+    if not lock.acquire(blocking=True, timeout=120):
+        raise OrganizationInstallError(
+            f"install lock timeout for pack_id={pack.pack_id}",
+            rolled_back=False,
+        )
     try:
         from evoflow.admin import agents as agents_admin
         from evoflow.admin import apps as apps_admin
@@ -438,6 +521,65 @@ def install_organization(
         from evoflow.admin.errors import ConflictError
         from evoflow.skills.installer import install_skill_from_directory
         from evoflow.skills.loader import clear_skills_cache
+
+        will = _plan_will_install(pack, prefix=prefix)
+        # replace：先卸掉同 pack 的 active 实例，避免双实例 + 再撞 Role
+        if policy == "replace":
+            active_oid = org_registry.find_active_instance_for_pack(pack.pack_id)
+            if active_oid:
+                try:
+                    uninstall_organization(
+                        active_oid,
+                        options={
+                            "keep_primitives": False,
+                            "keep_workspace": False,
+                            "keep_knowledge": True,  # 知识库 upsert 复用；真删留给显式 uninstall
+                            "_holding_pack_lock": True,
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "replace: uninstall prior instance %s failed: %s",
+                        active_oid,
+                        e,
+                    )
+
+        # Persist after replace cleanup (zip/temp → durable org-packs/).
+        portable = want_portable
+        if pack_needs_persist(pack) or (portable and pack.cleanup_dirs):
+            pack = persist_pack_tree(pack)
+            portable = True
+
+        org_root = str(pack.root)
+        org_ws = str(workspace_path or "").strip()
+        ws_cfg = pack.manifest.get("workspace") if isinstance(pack.manifest.get("workspace"), dict) else {}
+        if not org_ws:
+            org_ws = str(ws_cfg.get("path") or "").strip()
+        if org_ws:
+            org_ws = apply_placeholders(org_ws, org_workspace="", org_root=org_root)
+            org_ws = apply_placeholders(org_ws, org_workspace=org_ws, org_root=org_root)
+        if org_ws and bool(ws_cfg.get("create_if_missing", True)):
+            Path(org_ws).mkdir(parents=True, exist_ok=True)
+            tpl = str(ws_cfg.get("template") or "").strip()
+            if tpl:
+                try:
+                    src = resolve_pack_rel(pack, tpl)
+                    if src.is_dir():
+                        for child in src.iterdir():
+                            dest = Path(org_ws) / child.name
+                            if child.is_dir() and not dest.exists():
+                                shutil.copytree(child, dest)
+                            elif child.is_file() and not dest.exists():
+                                shutil.copy2(child, dest)
+                except PackManifestError as e:
+                    logger.warning("workspace template skipped: %s", e)
+
+        conflicts = _collect_conflicts(will, pack_id=pack.pack_id)
+        if policy == "fail" and conflicts:
+            raise OrganizationInstallError(
+                f"conflicts: {conflicts}",
+                rolled_back=False,
+            )
 
         undo = _undo_stack()
         artifacts: dict[str, list[str]] = {
@@ -450,7 +592,9 @@ def install_organization(
             "vaults": [],
             "mcp": [],
         }
-        warnings: list[str] = list(pre.get("warnings") or [])
+        warnings: list[str] = []
+        if will.get("vaults"):
+            warnings.append("vault import skipped in Phase 1")
 
         try:
             prim = pack.manifest.get("primitives") if isinstance(pack.manifest.get("primitives"), dict) else {}
@@ -653,10 +797,12 @@ def install_organization(
                     "soul": str(agent_def.get("soul") or agent_def.get("system_prompt") or ""),
                     # Pack author curated the allowlist; sync/install must not soft-cap at 12.
                     "confirm_wide_tools": True,
+                    # team.employees 负责雇佣；禁止 create_agent 自动建岗，否则立刻撞 Role exists。
+                    "as_employee": False,
                 }
                 if agent_def.get("system_prompt") and not payload["soul"]:
                     payload["system_prompt"] = agent_def["system_prompt"]
-                for _extra in ("capability_pack", "tools_extra", "model"):
+                for _extra in ("capability_pack", "tools_extra", "model", "max_turns", "timeout_seconds"):
                     if agent_def.get(_extra) is not None:
                         payload[_extra] = agent_def[_extra]
                 try:
@@ -707,25 +853,50 @@ def install_organization(
                     "reports_to": _prefixed(str(emp.get("reports_to") or "").strip(), prefix) if emp.get("reports_to") else "",
                     "status": "active",
                 }
-                for k in (
-                    "workspace_path",
-                    "knowledge_vault_ids",
-                    "skills",
-                    "autonomy_level",
-                    "responsibilities",
-                    "kpis",
-                    "max_turns",
-                    "timeout_seconds",
-                    "daily_budget_usd",
-                ):
+                known = set(_EMP_HIRE_FORWARD_KEYS) | {
+                    "agent_code",
+                    "role_name",
+                    "position_code",
+                    "department",
+                    "reports_to",
+                    "status",
+                    "config",
+                    "agent_name",
+                    "description",
+                    "from",
+                    "schedule",
+                    "budget_daily_usd",
+                    "heartbeat_rrule",
+                    "heartbeat_schedule",
+                }
+                for k in _EMP_HIRE_FORWARD_KEYS:
                     if k in cfg:
                         hire_data[k] = cfg[k]
                     elif k in emp:
                         hire_data[k] = emp[k]
+                # Soft-warn on unknown keys so pack authors see silent drops.
+                for k in list(cfg.keys()) + [x for x in emp.keys() if x != "config"]:
+                    if k not in known and not str(k).startswith("_"):
+                        warnings.append(
+                            f"employee {code}: ignored unknown key '{k}' "
+                            f"(not forwarded to hire; see installer whitelist)"
+                        )
                 if cfg.get("schedule") and not hire_data.get("heartbeat_rrule"):
                     hire_data["heartbeat_rrule"] = cfg["schedule"]
                 if cfg.get("budget_daily_usd") is not None and "daily_budget_usd" not in hire_data:
                     hire_data["daily_budget_usd"] = cfg["budget_daily_usd"]
+                # Align Agent.max_turns with employee declaration when yaml omitted it.
+                if hire_data.get("max_turns") is not None and code in artifacts["agents"]:
+                    try:
+                        agents_admin.update_agent(
+                            code, {"max_turns": int(hire_data["max_turns"])}
+                        )
+                    except Exception:
+                        logger.debug(
+                            "employee max_turns → agent mirror skipped code=%s",
+                            code,
+                            exc_info=True,
+                        )
                 try:
                     employees_admin.hire(hire_data)
                     artifacts["employees"].append(code)
@@ -881,9 +1052,17 @@ def install_organization(
                 manifest=pack.manifest,
                 artifacts=artifacts,
             )
+            readiness = _knowledge_readiness(list(artifacts.get("knowledge") or []))
             instance["warnings"] = warnings
             instance["pack_root"] = org_root
             instance["portable"] = portable
+            instance["rolled_back"] = False
+            instance["readiness"] = readiness
+            if not readiness.get("ready"):
+                warnings.append(
+                    "install returned before knowledge indexing finished; see readiness.knowledge"
+                )
+                instance["warnings"] = warnings
             return instance
 
         except Exception as e:
@@ -897,6 +1076,10 @@ def install_organization(
                 raise OrganizationInstallError(str(e), rolled_back=True) from e
             raise OrganizationInstallError(str(e), rolled_back=True) from e
     finally:
+        try:
+            lock.release()
+        except RuntimeError:
+            pass
         pack.cleanup()
 
 
@@ -905,113 +1088,267 @@ def uninstall_organization(
     *,
     options: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    """Uninstall an org instance.
+
+    Defaults to a **true delete** of roles / agents / skills / MCP / extensions /
+    pack disk tree / knowledge bases. Pass ``keep_primitives`` / ``keep_workspace`` /
+    ``keep_knowledge`` to retain. Idempotent: a second call still attempts residual
+    cleanup and reports ``not_removed``.
+    """
     opts = options or {}
     keep_primitives = bool(opts.get("keep_primitives", False))
-    keep_workspace = bool(opts.get("keep_workspace", True))
-    # keep_vault_data 为历史别名；知识库默认保留（数据安全），显式 delete_knowledge 才删
-    keep_knowledge = bool(opts.get("keep_knowledge", bool(opts.get("keep_vault_data", True))))
+    # 默认清掉磁盘工作区 / org-packs；需要保留时显式 keep_workspace=true
+    keep_workspace = bool(opts.get("keep_workspace", False))
+    # keep_vault_data 为历史别名；默认真删知识库，保留请 keep_knowledge=true
+    if "keep_knowledge" in opts:
+        keep_knowledge = bool(opts.get("keep_knowledge"))
+    elif "keep_vault_data" in opts:
+        keep_knowledge = bool(opts.get("keep_vault_data"))
+    else:
+        keep_knowledge = False
 
     inst = org_registry.get_org_instance(org_instance_id)
     if not inst:
         raise OrganizationInstallError(f"Organization instance not found: {org_instance_id}")
-    if inst.get("status") == "uninstalled":
-        return {"ok": True, "org_instance_id": org_instance_id, "removed": {}, "kept": {}}
 
-    arts = inst.get("artifacts") or {}
-    removed: dict[str, list[str]] = {
-        "employees": [],
-        "apps": [],
-        "knowledge": [],
-        "extensions": [],
-        "agents": [],
-        "skills": [],
-        "mcp": [],
-        "vaults": [],
-    }
-    kept: dict[str, Any] = {"agents": [], "skills": [], "workspace_path": None, "knowledge": []}
+    pack_id = str(inst.get("pack_id") or "").strip()
+    holding = bool(opts.get("_holding_pack_lock"))
+    lock = _pack_install_lock(pack_id) if pack_id and not holding else None
+    if lock is not None:
+        lock.acquire(blocking=True, timeout=120)
 
-    from evoflow.admin import agents as agents_admin
-    from evoflow.admin import apps as apps_admin
-    from evoflow.admin import skills as skills_admin
-    from evoflow.admin.ui_extensions_registry import remove_row as ext_remove_row
-    from evoflow.proactive.repositories import ProactiveRepository
-
-    for code in list(arts.get("employees") or []):
-        try:
-            ProactiveRepository.delete_role(code)
-            removed["employees"].append(code)
-        except Exception as e:
-            logger.warning("uninstall employee failed code=%s err=%s", code, e)
-
-    for aid in list(arts.get("apps") or []):
-        try:
-            apps_admin.delete_app(aid)
-            removed["apps"].append(aid)
-        except Exception as e:
-            logger.warning("uninstall app failed id=%s err=%s", aid, e)
-
-    for eid in list(arts.get("extensions") or []):
-        try:
-            ext_remove_row(eid)
-            removed["extensions"].append(eid)
-        except Exception as e:
-            logger.warning("uninstall extension failed id=%s err=%s", eid, e)
-
-    kb_ids = list(arts.get("knowledge") or [])
-    if not keep_knowledge:
-        from evoflow.knowledge.owned import service as owned_service
-
-        for kb_id in kb_ids:
+    try:
+        arts = inst.get("artifacts") if isinstance(inst.get("artifacts"), dict) else {}
+        # If artifacts empty (legacy / corrupted), fall back to manifest plan.
+        if not any(arts.get(k) for k in ("employees", "agents", "extensions", "skills", "mcp", "knowledge")):
             try:
-                owned_service.delete_base(kb_id)
-                removed["knowledge"].append(kb_id)
-            except Exception as e:
-                logger.warning("uninstall knowledge base failed kb=%s err=%s", kb_id, e)
-    else:
-        kept["knowledge"] = kb_ids
+                from evoflow.organizations.manifest import LoadedPack
 
-    if not keep_primitives:
-        for code in list(arts.get("agents") or []):
-            try:
-                agents_admin.delete_agent(code)
-                removed["agents"].append(code)
-            except Exception as e:
-                logger.warning("uninstall agent failed code=%s err=%s", code, e)
-                kept["agents"].append(code)
-        for sname in list(arts.get("skills") or []):
-            try:
-                skills_admin.delete_skill(sname)
-                removed["skills"].append(sname)
-            except Exception as e:
-                logger.warning("uninstall skill failed name=%s err=%s", sname, e)
-                kept["skills"].append(sname)
-        # MCP 可能被其他 Agent 共用；仅卸本包登记过的，失败则保留
-        from evoflow.admin import mcp as mcp_admin
+                # Reconstruct will-list from stored manifest alone (no pack files).
+                man = inst.get("manifest") if isinstance(inst.get("manifest"), dict) else {}
+                fake = LoadedPack(
+                    root=Path(str((arts.get("pack_root") or [""])[0] or ".")),
+                    manifest=man,
+                    cleanup_dirs=[],
+                )
+                planned = _plan_will_install(fake, prefix="")
+                for k in ("employees", "agents", "skills", "mcp", "extensions"):
+                    if not arts.get(k) and planned.get(k):
+                        arts = {**arts, k: list(planned[k])}
+            except Exception:
+                logger.debug("uninstall: manifest fallback plan skipped", exc_info=True)
 
-        for mname in list(arts.get("mcp") or []):
-            try:
-                mcp_admin.remove_mcp_server(mname)
-                removed["mcp"].append(mname)
-            except Exception as e:
-                logger.warning("uninstall mcp failed name=%s err=%s", mname, e)
-    else:
-        kept["agents"] = list(arts.get("agents") or [])
-        kept["skills"] = list(arts.get("skills") or [])
-        kept["mcp"] = list(arts.get("mcp") or [])
+        removed: dict[str, list[str]] = {
+            "employees": [],
+            "apps": [],
+            "knowledge": [],
+            "extensions": [],
+            "agents": [],
+            "skills": [],
+            "mcp": [],
+            "vaults": [],
+            "pack_root": [],
+        }
+        kept: dict[str, Any] = {
+            "agents": [],
+            "skills": [],
+            "mcp": [],
+            "workspace_path": None,
+            "knowledge": [],
+            "pack_root": [],
+        }
+        not_removed: dict[str, list[str]] = {
+            "employees": [],
+            "apps": [],
+            "knowledge": [],
+            "extensions": [],
+            "agents": [],
+            "skills": [],
+            "mcp": [],
+            "pack_root": [],
+        }
 
-    ws = inst.get("workspace_path")
-    if ws and not keep_workspace:
+        from evoflow.admin import agents as agents_admin
+        from evoflow.admin import apps as apps_admin
+        from evoflow.admin import skills as skills_admin
+        from evoflow.admin.ui_extensions_registry import remove_row as ext_remove_row
+        from evoflow.proactive.repositories import ProactiveRepository
+
+        for code in list(arts.get("employees") or []):
+            try:
+                ProactiveRepository.delete_role(code)
+                removed["employees"].append(code)
+            except Exception as e:
+                logger.warning("uninstall employee failed code=%s err=%s", code, e)
+                not_removed["employees"].append(code)
+
+        for aid in list(arts.get("apps") or []):
+            try:
+                apps_admin.delete_app(aid)
+                removed["apps"].append(aid)
+            except Exception as e:
+                logger.warning("uninstall app failed id=%s err=%s", aid, e)
+                not_removed["apps"].append(str(aid))
+
+        for eid in list(arts.get("extensions") or []):
+            try:
+                ext_remove_row(eid)
+                removed["extensions"].append(eid)
+            except Exception as e:
+                logger.warning("uninstall extension failed id=%s err=%s", eid, e)
+                not_removed["extensions"].append(eid)
+
+        kb_ids = list(arts.get("knowledge") or [])
+        if not keep_knowledge:
+            from evoflow.knowledge.owned import service as owned_service
+
+            for kb_id in kb_ids:
+                try:
+                    owned_service.delete_base(kb_id)
+                    removed["knowledge"].append(kb_id)
+                except Exception as e:
+                    logger.warning("uninstall knowledge base failed kb=%s err=%s", kb_id, e)
+                    not_removed["knowledge"].append(kb_id)
+        else:
+            kept["knowledge"] = kb_ids
+
+        if not keep_primitives:
+            for code in list(arts.get("agents") or []):
+                try:
+                    agents_admin.delete_agent(code)
+                    removed["agents"].append(code)
+                except Exception as e:
+                    logger.warning("uninstall agent failed code=%s err=%s", code, e)
+                    not_removed["agents"].append(code)
+                    kept["agents"].append(code)
+            for sname in list(arts.get("skills") or []):
+                try:
+                    skills_admin.delete_skill(sname)
+                    removed["skills"].append(sname)
+                except Exception as e:
+                    logger.warning("uninstall skill failed name=%s err=%s", sname, e)
+                    not_removed["skills"].append(sname)
+                    kept["skills"].append(sname)
+            from evoflow.admin import mcp as mcp_admin
+
+            for mname in list(arts.get("mcp") or []):
+                try:
+                    mcp_admin.remove_mcp_server(mname)
+                    removed["mcp"].append(mname)
+                except Exception as e:
+                    logger.warning("uninstall mcp failed name=%s err=%s", mname, e)
+                    not_removed["mcp"].append(mname)
+                    kept["mcp"].append(mname)
+        else:
+            kept["agents"] = list(arts.get("agents") or [])
+            kept["skills"] = list(arts.get("skills") or [])
+            kept["mcp"] = list(arts.get("mcp") or [])
+
+        # Disk: only delete trees under org-packs/ (portable copy). Never rmtree a
+        # path-install source directory that happens to be recorded as pack_root.
+        def _under_org_packs(path: Path) -> bool:
+            try:
+                from evoflow.organizations.pack_persist import org_packs_root
+
+                path.resolve().relative_to(org_packs_root().resolve())
+                return True
+            except Exception:
+                return False
+
+        disk_targets: list[Path] = []
+        ws = inst.get("workspace_path")
+        if ws:
+            disk_targets.append(Path(str(ws)))
+        for pr in list(arts.get("pack_root") or []):
+            if pr:
+                disk_targets.append(Path(str(pr)))
+        seen: set[str] = set()
+        uniq_targets: list[Path] = []
+        for p in disk_targets:
+            try:
+                key = str(p.resolve())
+            except OSError:
+                key = str(p)
+            if key in seen:
+                continue
+            seen.add(key)
+            uniq_targets.append(p)
+
+        if not keep_workspace:
+            for target in uniq_targets:
+                if not _under_org_packs(target):
+                    # Path-install / folder-link source — keep on disk, note in kept.
+                    kept.setdefault("pack_root_skipped_source", [])
+                    if isinstance(kept.get("pack_root_skipped_source"), list):
+                        kept["pack_root_skipped_source"].append(str(target))
+                    continue
+                try:
+                    if target.is_dir():
+                        shutil.rmtree(target, ignore_errors=False)
+                        removed["pack_root"].append(str(target))
+                    elif not target.exists():
+                        removed["pack_root"].append(str(target))
+                    else:
+                        not_removed["pack_root"].append(str(target))
+                except Exception as e:
+                    logger.warning("uninstall pack disk failed path=%s err=%s", target, e)
+                    not_removed["pack_root"].append(str(target))
+            if pack_id:
+                try:
+                    from evoflow.organizations.pack_persist import org_packs_root
+
+                    fallback = org_packs_root() / pack_id
+                    if fallback.is_dir():
+                        try:
+                            key = str(fallback.resolve())
+                        except OSError:
+                            key = str(fallback)
+                        if key not in seen:
+                            shutil.rmtree(fallback, ignore_errors=True)
+                            removed["pack_root"].append(str(fallback))
+                except Exception:
+                    logger.debug("uninstall org-packs fallback skipped", exc_info=True)
+        else:
+            kept["workspace_path"] = ws
+            kept["pack_root"] = [str(p) for p in uniq_targets]
+
+        # Clear artifact index rows so residual inventory is empty.
         try:
-            shutil.rmtree(ws, ignore_errors=True)
+            org_registry.clear_org_artifacts(org_instance_id)
         except Exception:
-            logger.debug("workspace delete failed path=%s", ws, exc_info=True)
-    else:
-        kept["workspace_path"] = ws
+            logger.debug("clear_org_artifacts failed oid=%s", org_instance_id, exc_info=True)
 
-    org_registry.mark_uninstalled(org_instance_id)
-    return {
-        "ok": True,
-        "org_instance_id": org_instance_id,
-        "removed": removed,
-        "kept": kept,
-    }
+        org_registry.mark_uninstalled(org_instance_id)
+
+        # Residual scan: roles/agents that should be gone
+        for code in list(arts.get("employees") or []):
+            if ProactiveRepository.get_role(code) and code not in not_removed["employees"]:
+                not_removed["employees"].append(code)
+        if not keep_primitives:
+            from evoflow.admin.errors import NotFoundError as _NF
+
+            for code in list(arts.get("agents") or []):
+                try:
+                    agents_admin.get_agent(code)
+                    if code not in not_removed["agents"]:
+                        not_removed["agents"].append(code)
+                except _NF:
+                    pass
+                except Exception:
+                    pass
+
+        ok = not any(not_removed.values())
+        return {
+            "ok": ok,
+            "org_instance_id": org_instance_id,
+            "removed": removed,
+            "kept": kept,
+            "not_removed": not_removed,
+            "already_uninstalled": str(inst.get("status") or "") == "uninstalled",
+        }
+    finally:
+        if lock is not None:
+            try:
+                lock.release()
+            except RuntimeError:
+                pass

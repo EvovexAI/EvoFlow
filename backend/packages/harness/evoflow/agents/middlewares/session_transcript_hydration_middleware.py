@@ -786,6 +786,37 @@ class SessionTranscriptHydrationMiddleware(AgentMiddleware[AgentState]):
         if not session_key:
             return None
 
+        try:
+            return self._before_model_impl(state, runtime, thread_id=thread_id, session_key=session_key)
+        except Exception as exc:
+            # Never abort the agent run for hydration/DB hiccups. 2026-11-23:
+            # db_process_lock_timeout here was redacted to 「An internal error occurred」
+            # and looked like a model failure after a successful tool hop.
+            msg = str(exc).lower()
+            if "db_process_lock_timeout" in msg or "database is locked" in msg:
+                logger.warning(
+                    "session transcript hydration: soft-fail db busy thread=%s session=%s: %s",
+                    thread_id,
+                    session_key[:48],
+                    str(exc)[:180],
+                )
+                return None
+            logger.warning(
+                "session transcript hydration: soft-fail unexpected error thread=%s: %s",
+                thread_id,
+                type(exc).__name__,
+                exc_info=True,
+            )
+            return None
+
+    def _before_model_impl(
+        self,
+        state: AgentState,
+        runtime: Runtime,
+        *,
+        thread_id: str | None,
+        session_key: str,
+    ) -> dict[str, Any] | None:
         state_messages = list(state.get("messages") or [])
         # Capture before wipe — replay markers are intentionally not written to chat_messages.
         replay_msgs = _extract_tool_approval_replay_messages(state_messages)

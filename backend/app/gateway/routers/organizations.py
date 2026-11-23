@@ -56,9 +56,13 @@ class UpgradeRequest(BaseModel):
 
 
 class UninstallOptions(BaseModel):
+    """Defaults: true-delete (roles/agents/disk/knowledge). Opt in to keep."""
+
     keep_primitives: bool = False
-    keep_workspace: bool = True
-    keep_vault_data: bool = True
+    keep_workspace: bool = False
+    keep_knowledge: bool = False
+    # Historical alias for keep_knowledge
+    keep_vault_data: bool = False
 
 
 class UninstallRequest(BaseModel):

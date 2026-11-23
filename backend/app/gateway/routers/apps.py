@@ -71,6 +71,7 @@ class CreateAppRequest(BaseModel):
     # Frontend sends a unified ``plan`` object {goal, steps, canvas}; we split it into
     # goal_template + steps + canvas for storage.  Kept optional for backward compat.
     plan: dict | None = None
+    folder_id: str = ""
 
 
 class GenerateAppRequest(BaseModel):
@@ -107,6 +108,19 @@ class UpdateAppRequest(BaseModel):
     canvas: dict | None = None
     plan: dict | None = None
     project_path: str | None = None
+    folder_id: str | None = None
+
+
+class CreateAppFolderRequest(BaseModel):
+    name: str
+    parent_id: str = ""
+    sort_order: int = 0
+
+
+class UpdateAppFolderRequest(BaseModel):
+    name: str | None = None
+    parent_id: str | None = None
+    sort_order: int | None = None
 
 
 class RunAppRequest(BaseModel):
@@ -147,6 +161,90 @@ class SaveAsAppRequest(BaseModel):
 # ─────────────────────────────── App Management Endpoints ─────────────────────────────
 
 
+def _apps_list_viewer(request: Request) -> tuple[bool, dict[str, str] | None, dict[str, Any]]:
+    """Return (is_admin, viewer_or_None, principal_dict). Raises HTTPException on authz failure."""
+    try:
+        from evoflow.authz.context import resolve_request_authz
+        from evoflow.authz.scope import org_scope, personal_scope
+
+        ctx = resolve_request_authz(request)
+    except Exception:
+        logger.exception("apps: authz resolution failed — failing closed")
+        raise HTTPException(status_code=503, detail="Authorization unavailable") from None
+
+    p = ctx.get("principal") or {}
+    pid = str(p.get("principal_id") or "")
+    is_admin = bool(ctx.get("is_org_admin"))
+    oid = str(ctx.get("org_id") or "local")
+    viewer = None
+    if not is_admin:
+        if not pid:
+            return is_admin, None, p
+        viewer = {
+            "principal_id": pid,
+            "personal_scope": personal_scope(pid),
+            "org_scope": org_scope(oid),
+            "org_id": oid,
+        }
+    return is_admin, viewer, p
+
+
+def _stamp_folder_from_request(request: Request, folder_id: str) -> None:
+    from evoflow.authz.resource_visibility import stamp_kwargs_from_request
+    from evoflow.authz.scope import org_scope, personal_scope
+    from evoflow.authz.types import DEFAULT_ORG_ID
+    from evoflow.persistence import app_folders
+
+    own = stamp_kwargs_from_request(request)
+    org_id = str(own.get("org_id") or DEFAULT_ORG_ID).strip() or DEFAULT_ORG_ID
+    owner = str(own.get("owner_scope_id") or "").strip()
+    created_by = str(own.get("created_by") or "").strip()
+    if not owner:
+        try:
+            from evoflow.authz.context import resolve_request_authz
+
+            ctx = resolve_request_authz(request)
+            p = ctx.get("principal") or {}
+            pid = str(p.get("principal_id") or "").strip()
+            if pid:
+                owner = personal_scope(pid)
+                created_by = created_by or pid
+                org_id = str(ctx.get("org_id") or org_id).strip() or org_id
+        except Exception:
+            logger.debug("stamp folder owner resolve failed", exc_info=True)
+    if not owner:
+        owner = org_scope(org_id)
+    app_folders.set_folder_owner_scope(
+        folder_id,
+        org_id=org_id,
+        owner_scope_id=owner,
+        created_by=created_by or None,
+    )
+
+
+def _require_folder_visible(request: Request, folder_id: str) -> dict[str, Any]:
+    from evoflow.persistence import app_folders
+
+    folder = app_folders.get_folder(folder_id)
+    if folder is None:
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_id}")
+    is_admin, viewer, _p = _apps_list_viewer(request)
+    if is_admin:
+        return folder
+    if viewer is None:
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_id}")
+    if not app_folders.folder_visible_to_principal(
+        folder,
+        principal_id=str(viewer.get("principal_id") or ""),
+        is_admin=False,
+        personal_scope=str(viewer.get("personal_scope") or ""),
+        org_scope=str(viewer.get("org_scope") or ""),
+        org_id=str(viewer.get("org_id") or ""),
+    ):
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_id}")
+    return folder
+
+
 def _normalize_plan_for_storage(document: dict[str, Any]) -> dict[str, Any]:
     """Split a frontend ``plan`` object into goal_template + steps + canvas for storage.
 
@@ -184,6 +282,7 @@ def _decorate_app_response(app: dict[str, Any], *, total_runs_override: int | No
     app["steps"] = steps
     app["parameters"] = parameters
     app["project_path"] = project_path
+    app["folder_id"] = str(app.get("folder_id") or "").strip()
     app["step_count"] = len(steps)
     app["parameter_count"] = len(parameters)
     app.setdefault("plan", {})
@@ -213,6 +312,7 @@ def list_apps_endpoint(
     status: str | None = None,
     category: str | None = None,
     search: str | None = None,
+    folder_id: str | None = None,
     limit: int = Query(100, ge=1, le=500),
     summary: bool = Query(
         True,
@@ -223,35 +323,14 @@ def list_apps_endpoint(
 
     Visibility is pushed into SQL (viewer=…) so LIMIT applies after the filter;
     the per-app Python check below stays as defense-in-depth.
+
+    ``folder_id``: omit for all folders; ``""`` / ``__root__`` for root only;
+    otherwise filter to that folder.
     """
-    try:
-        from evoflow.authz.context import resolve_request_authz
-        from evoflow.authz.scope import org_scope, personal_scope
-
-        ctx = resolve_request_authz(request)
-    except Exception:
-        # Fail-closed: resolve_request_authz already falls back to local admin
-        # for local/no-JWT requests, so an exception here means the authz
-        # infrastructure itself is broken. Swallowing it used to return the
-        # full unfiltered app list (roadmap P0-1).
-        logger.exception("list_apps: authz resolution failed — failing closed")
-        raise HTTPException(status_code=503, detail="Authorization unavailable") from None
-
-    p = ctx.get("principal") or {}
-    pid = str(p.get("principal_id") or "")
-    is_admin = bool(ctx.get("is_org_admin"))
-    oid = str(ctx.get("org_id") or "local")
-    viewer = None
-    if not is_admin:
-        if not pid:
-            # Non-admin with no principal identity: nothing is visible.
-            return []
-        viewer = {
-            "principal_id": pid,
-            "personal_scope": personal_scope(pid),
-            "org_scope": org_scope(oid),
-            "org_id": oid,
-        }
+    is_admin, viewer, p = _apps_list_viewer(request)
+    if not is_admin and viewer is None:
+        return []
+    pid = str((p or {}).get("principal_id") or "")
 
     apps = app_repositories.list_apps(
         status=status,
@@ -260,6 +339,7 @@ def list_apps_endpoint(
         limit=limit,
         summary=summary,
         viewer=viewer,
+        folder_id=folder_id,
     )
     # Defense-in-depth: re-check each row (SQL clause is a superset — membership
     # rows don't re-validate principal active status, and legacy unstamped rows
@@ -285,6 +365,113 @@ def list_apps_endpoint(
             continue
         _decorate_app_response(a, total_runs_override=run_counts.get(str(a.get("id")), 0))
     return apps
+
+
+# ── Folder CRUD (must be registered before ``/{app_id}``) ─────────────────────
+
+
+@router.get("/folders")
+def list_app_folders_endpoint(request: Request) -> dict[str, Any]:
+    from evoflow.persistence import app_folders
+
+    is_admin, viewer, _p = _apps_list_viewer(request)
+    if not is_admin and viewer is None:
+        return {"items": []}
+    items = app_folders.list_folders(viewer=None if is_admin else viewer)
+    if viewer is not None:
+        items = [
+            f
+            for f in items
+            if app_folders.folder_visible_to_principal(
+                f,
+                principal_id=str(viewer.get("principal_id") or ""),
+                is_admin=False,
+                personal_scope=str(viewer.get("personal_scope") or ""),
+                org_scope=str(viewer.get("org_scope") or ""),
+                org_id=str(viewer.get("org_id") or ""),
+            )
+        ]
+    return {"items": items}
+
+
+@router.post("/folders")
+def create_app_folder_endpoint(request: Request, body: CreateAppFolderRequest) -> dict[str, Any]:
+    from evoflow.persistence import app_folders
+
+    parent = str(body.parent_id or "").strip()
+    if parent:
+        _require_folder_visible(request, parent)
+    try:
+        created = app_folders.create_folder(
+            body.name,
+            parent_id=parent,
+            sort_order=int(body.sort_order or 0),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    fid = str(created.get("folder_id") or "")
+    try:
+        _stamp_folder_from_request(request, fid)
+    except Exception:
+        logger.exception("failed to stamp ownership for app folder %s", fid)
+        try:
+            app_folders.delete_folder(fid)
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to assign folder ownership; please retry",
+        ) from None
+    refreshed = app_folders.get_folder(fid) or created
+    _audit(request, "app.folder.create", fid, {"name": str(body.name or "")})
+    return refreshed
+
+
+@router.patch("/folders/{folder_id}")
+def update_app_folder_endpoint(
+    request: Request,
+    folder_id: str,
+    body: UpdateAppFolderRequest,
+) -> dict[str, Any]:
+    from evoflow.persistence import app_folders
+
+    _require_folder_visible(request, folder_id)
+    parent = body.parent_id
+    if parent is not None and str(parent).strip():
+        _require_folder_visible(request, str(parent).strip())
+    try:
+        updated = app_folders.update_folder(
+            folder_id,
+            name=body.name,
+            parent_id=body.parent_id,
+            sort_order=body.sort_order,
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    _audit(
+        request,
+        "app.folder.update",
+        folder_id,
+        {"changed_keys": sorted(k for k, v in body.model_dump(exclude_none=True).items())},
+    )
+    return updated
+
+
+@router.delete("/folders/{folder_id}")
+def delete_app_folder_endpoint(request: Request, folder_id: str) -> dict[str, bool]:
+    from evoflow.persistence import app_folders
+
+    _require_folder_visible(request, folder_id)
+    try:
+        ok = app_folders.delete_folder(folder_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"Folder not found: {folder_id}")
+    _audit(request, "app.folder.delete", folder_id, None)
+    return {"ok": True}
 
 
 @router.get("/{app_id}")
@@ -317,6 +504,10 @@ def create_app_endpoint(request: Request, body: CreateAppRequest) -> dict[str, A
     app_id = f"App_{ts}_{uuid.uuid4().hex[:6]}"
 
     document = body.model_dump()
+    folder_id = str(document.get("folder_id") or "").strip()
+    document["folder_id"] = folder_id
+    if folder_id:
+        _require_folder_visible(request, folder_id)
     document = _normalize_plan_for_storage(document)
     document["created_at"] = utc_now_iso_z()
     document["status"] = "draft"
@@ -401,6 +592,11 @@ def update_app_endpoint(http_request: Request, app_id: str, request: UpdateAppRe
     # Merge update with existing
     updated = dict(existing)
     update_data = request.model_dump(exclude_none=True)
+    if "folder_id" in update_data:
+        target_folder = str(update_data.get("folder_id") or "").strip()
+        update_data["folder_id"] = target_folder
+        if target_folder:
+            _require_folder_visible(http_request, target_folder)
     update_data = _normalize_plan_for_storage(update_data)
 
     # Detect structural changes that warrant a version bump

@@ -84,6 +84,19 @@ def _effective_startup_delay_seconds() -> int:
     return _startup_delay_seconds()
 
 
+def _obs_size_cap_retry_seconds() -> int:
+    """When still over the obs size cap, retry retention sooner than the daily interval.
+
+    VACUUM INTO may be skipped by the busy guard; without a short retry the file
+    stays multi-GB until the next day (2026-11-23 non-dev: 2.5GB with ~1GB freelist).
+    """
+    raw = (os.getenv("EVOFLOW_OBS_SIZE_CAP_RETRY_S") or "3600").strip()
+    try:
+        return max(300, int(raw))
+    except ValueError:
+        return 3600
+
+
 def _vacuum_busy_guard() -> bool:
     """True = 允许本轮 VACUUM。聊天 REST / 流式 / 事件循环过载时让路。
 
@@ -293,13 +306,22 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
             except Exception:
                 logger.exception("Data retention pass failed")
             last_retention = time.monotonic()
-            retention_due_at = last_retention + interval
+            # Over size cap → retry hourly (busy-guard may have skipped VACUUM INTO).
+            if _observability_db_over_size_cap():
+                retry_s = _obs_size_cap_retry_seconds()
+                retention_due_at = last_retention + retry_s
+                logger.warning(
+                    "observability.db still over size cap; next retention in %ss (not full interval)",
+                    retry_s,
+                )
+            else:
+                retention_due_at = last_retention + interval
 
         # Wake often enough for WAL + startup delay without busy-looping.
         if last_retention <= 0.0:
             wait_for = max(5.0, min(300.0, retention_due_at - time.monotonic()))
         else:
-            wait_for = float(min(interval, wal_interval, 300))
+            wait_for = float(min(interval, wal_interval, 300, max(5.0, retention_due_at - time.monotonic())))
         try:
             await asyncio.wait_for(stop.wait(), timeout=wait_for)
         except TimeoutError:

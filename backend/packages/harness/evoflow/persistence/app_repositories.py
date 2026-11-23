@@ -230,63 +230,108 @@ def save_app(app_id: str, document: dict[str, Any]) -> None:
     def _do_save() -> None:
         conn = get_db()
         now = utc_now_iso_z()
-        # Preserve ownership columns across REPLACE (REPLACE clears omitted cols).
+        # Preserve ownership / folder columns across REPLACE (REPLACE clears omitted cols).
         prev_org = prev_owner = prev_created = None
+        prev_folder = ""
         cols = {str(r[1]) for r in conn.execute("PRAGMA table_info(evoflow_apps)").fetchall()}
-        if "owner_scope_id" in cols:
+        if "owner_scope_id" in cols or "folder_id" in cols:
+            select_bits = []
+            if "owner_scope_id" in cols:
+                select_bits.extend(["org_id", "owner_scope_id"])
+                if "created_by" in cols:
+                    select_bits.append("created_by")
+            if "folder_id" in cols:
+                select_bits.append("folder_id")
             prev = conn.execute(
-                "SELECT org_id, owner_scope_id, created_by FROM evoflow_apps WHERE id = ?" if "created_by" in cols else "SELECT org_id, owner_scope_id FROM evoflow_apps WHERE id = ?",
+                f"SELECT {', '.join(select_bits)} FROM evoflow_apps WHERE id = ?",
                 (app_id,),
             ).fetchone()
             if prev:
-                prev_org = str(prev[0] or "").strip() or None
-                prev_owner = str(prev[1] or "").strip() or None
-                if "created_by" in cols and len(prev) > 2:
-                    prev_created = str(prev[2] or "").strip() or None
+                idx = 0
+                if "owner_scope_id" in cols:
+                    prev_org = str(prev[idx] or "").strip() or None
+                    prev_owner = str(prev[idx + 1] or "").strip() or None
+                    idx += 2
+                    if "created_by" in cols:
+                        prev_created = str(prev[idx] or "").strip() or None
+                        idx += 1
+                if "folder_id" in cols:
+                    prev_folder = str(prev[idx] or "").strip()
         document_n = _normalize_for_storage(document)
         canvas = document_n.get("canvas")
         if not isinstance(canvas, dict):
             canvas = {}
         version = int(document_n.get("version") or 1)
+        folder_id_val = (
+            str(document_n.get("folder_id")).strip()
+            if "folder_id" in document_n
+            else prev_folder
+        )
+        insert_cols = [
+            "id",
+            "name",
+            "description",
+            "icon",
+            "category",
+            "parameters_json",
+            "steps_json",
+            "goal_template",
+            "validation_template_json",
+            "flowchart_mermaid",
+            "execution_mode",
+            "auto_run",
+            "source",
+            "source_task_id",
+            "version",
+            "status",
+            "tags_json",
+            "created_at",
+            "updated_at",
+            "usage_count",
+            "last_used_at",
+            "canvas_json",
+            "answer_from_ref",
+            "final_rollup",
+            "final_rollup_agent",
+            "final_rollup_instruction",
+            "project_path",
+        ]
+        insert_vals: list[Any] = [
+            app_id,
+            document_n.get("name", ""),
+            document_n.get("description", ""),
+            document_n.get("icon", ""),
+            document_n.get("category", "general"),
+            _json_dump(document_n.get("parameters", [])),
+            _json_dump(document_n.get("steps", [])),
+            document_n.get("goal_template", ""),
+            _json_dump(document_n.get("validation_template", [])),
+            document_n.get("flowchart_mermaid", ""),
+            document_n.get("execution_mode", "workflow"),
+            1 if document_n.get("auto_run") else 0,
+            document_n.get("source", "generated"),
+            document_n.get("source_task_id"),
+            version,
+            document_n.get("status", "draft"),
+            _json_dump(document_n.get("tags", [])),
+            document_n.get("created_at") or now,
+            now,
+            document_n.get("usage_count", 0),
+            document_n.get("last_used_at"),
+            _json_dump(canvas, default="{}"),
+            document_n.get("answer_from_ref", ""),
+            document_n.get("final_rollup", "off"),
+            document_n.get("final_rollup_agent", ""),
+            document_n.get("final_rollup_instruction", ""),
+            str(document_n.get("project_path") or "").strip(),
+        ]
+        if "folder_id" in cols:
+            insert_cols.append("folder_id")
+            insert_vals.append(folder_id_val)
+        placeholders = ", ".join("?" for _ in insert_cols)
         conn.execute(
-            """
-INSERT OR REPLACE INTO evoflow_apps (
-    id, name, description, icon, category,
-    parameters_json, steps_json, goal_template, validation_template_json, flowchart_mermaid,
-    execution_mode, auto_run, source, source_task_id, version,
-    status, tags_json, created_at, updated_at, usage_count, last_used_at, canvas_json,
-    answer_from_ref, final_rollup, final_rollup_agent, final_rollup_instruction, project_path
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-""",
-            (
-                app_id,
-                document_n.get("name", ""),
-                document_n.get("description", ""),
-                document_n.get("icon", ""),
-                document_n.get("category", "general"),
-                _json_dump(document_n.get("parameters", [])),
-                _json_dump(document_n.get("steps", [])),
-                document_n.get("goal_template", ""),
-                _json_dump(document_n.get("validation_template", [])),
-                document_n.get("flowchart_mermaid", ""),
-                document_n.get("execution_mode", "workflow"),
-                1 if document_n.get("auto_run") else 0,
-                document_n.get("source", "generated"),
-                document_n.get("source_task_id"),
-                version,
-                document_n.get("status", "draft"),
-                _json_dump(document_n.get("tags", [])),
-                document_n.get("created_at") or now,
-                now,
-                document_n.get("usage_count", 0),
-                document_n.get("last_used_at"),
-                _json_dump(canvas, default="{}"),
-                document_n.get("answer_from_ref", ""),
-                document_n.get("final_rollup", "off"),
-                document_n.get("final_rollup_agent", ""),
-                document_n.get("final_rollup_instruction", ""),
-                str(document_n.get("project_path") or "").strip(),
-            ),
+            f"INSERT OR REPLACE INTO evoflow_apps ({', '.join(insert_cols)}) VALUES ({placeholders})",
+            tuple(insert_vals),
         )
         if prev_owner and "owner_scope_id" in cols:
             if "created_by" in cols:
@@ -553,6 +598,7 @@ def list_apps(
     *,
     summary: bool = True,
     viewer: dict[str, str] | None = None,
+    folder_id: str | None = None,
 ) -> list[dict[str, Any]]:
     """List applications with optional filtering.
 
@@ -563,6 +609,9 @@ def list_apps(
     (own personal / org shared / group+channel membership) into the SQL WHERE so
     LIMIT applies *after* the visibility filter, not before. ``None`` = no
     filtering (admin / local single-user callers).
+
+    ``folder_id``: ``None`` = no folder filter; ``""`` / ``"__root__"`` = root only
+    (empty folder_id); otherwise exact folder match.
     """
     params: list[Any] = []
     where = []
@@ -578,6 +627,15 @@ def list_apps(
     if search:
         where.append("(name LIKE ? OR description LIKE ?)")
         params.extend([f"%{search}%", f"%{search}%"])
+    if folder_id is not None:
+        table_cols_early = _evoflow_apps_columns()
+        if "folder_id" in table_cols_early:
+            fid = str(folder_id).strip()
+            if fid in ("", "__root__"):
+                where.append("(folder_id IS NULL OR folder_id = '')")
+            else:
+                where.append("folder_id = ?")
+                params.append(fid)
     if viewer:
         pid = str(viewer.get("principal_id") or "").strip()
         personal = str(viewer.get("personal_scope") or "").strip()
@@ -625,6 +683,7 @@ def list_apps(
             "org_id",
             "owner_scope_id",
             "created_by",
+            "folder_id",
         ]
         ordered = [c for c in preferred if c in select_cols]
         ordered.extend(c for c in select_cols if c not in ordered)

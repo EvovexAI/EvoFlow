@@ -274,6 +274,8 @@ def _agent_row(
         "skills": _dedupe_list_inplace(list(agent_cfg.skills) if agent_cfg.skills is not None else None),
         "system_prompt": agent_cfg.system_prompt,
         "agent_type": agent_cfg.agent_type,
+        "max_turns": int(getattr(agent_cfg, "max_turns", 500) or 500),
+        "timeout_seconds": int(getattr(agent_cfg, "timeout_seconds", 900) or 900),
         "tags": _agent_tags(agent_cfg),
         "avatar": agent_cfg.avatar,
         "avatar_meta": agent_cfg.avatar_meta,
@@ -778,6 +780,17 @@ def create_agent(data: dict[str, Any], *, forbid_inherit_all: bool = False) -> d
     if data.get("tags") is not None:
         config_data["tags"] = normalize_tags(data.get("tags"))
 
+    if data.get("max_turns") is not None:
+        try:
+            config_data["max_turns"] = max(1, int(data.get("max_turns")))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("max_turns must be an integer >= 1") from e
+    if data.get("timeout_seconds") is not None:
+        try:
+            config_data["timeout_seconds"] = max(0, int(data.get("timeout_seconds")))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("timeout_seconds must be an integer >= 0") from e
+
     if data.get("avatar") is not None and str(data.get("avatar") or "").strip():
         config_data["avatar"] = _validate_avatar_value(data["avatar"])
     else:
@@ -966,6 +979,16 @@ def update_agent(name: str, data: dict[str, Any]) -> dict[str, Any]:
             if rate < -50 or rate > 100:
                 raise ValidationError("tts_speech_rate must be in -50..100")
             config_data["tts_speech_rate"] = rate
+    if "max_turns" in data and data.get("max_turns") is not None:
+        try:
+            config_data["max_turns"] = max(1, int(data.get("max_turns")))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("max_turns must be an integer >= 1") from e
+    if "timeout_seconds" in data and data.get("timeout_seconds") is not None:
+        try:
+            config_data["timeout_seconds"] = max(0, int(data.get("timeout_seconds")))
+        except (TypeError, ValueError) as e:
+            raise ValidationError("timeout_seconds must be an integer >= 0") from e
 
     save_agent_config(normalized, config_data)
     if "soul" in data and data["soul"] is not None:

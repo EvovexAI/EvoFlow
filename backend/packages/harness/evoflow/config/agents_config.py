@@ -839,11 +839,12 @@ def merge_baseline_skills_for_lead_family() -> None:
 
 
 def xiaomi_front_desk_capability_defaults() -> dict[str, list[str] | None]:
-    """小V 持久化能力面：bash + 全量 MCP + 浏览器/电脑控制技能。
+    """小V 持久化能力面：bash + 空 MCP + 用户指南知识库 + 浏览器/电脑控制技能。
 
     - ``tools``：角色可配置白名单含 bash；前台 ``xiaomi_*`` / ``platform`` 运行时强制挂载。
-    - ``mcp_servers``：``None`` = 全量已启用 MCP（与 main 同语义）。
+    - ``mcp_servers``：默认 ``[]``（不挂任何 MCP）。侧栏可按需加；**不再**默认全量。
     - ``skills``：写入 browser-use / computer-use 插件技能名（插件开关仍是总闸）。
+    - ``knowledge_vault_ids``：默认挂内置「EvoFlow 用户指南」。
     """
     skills: list[str] = []
     try:
@@ -858,15 +859,27 @@ def xiaomi_front_desk_capability_defaults() -> dict[str, list[str] | None]:
         tools = list(XIAOMI_DEFAULT_CONFIG_TOOLS)
     except Exception:
         tools = ["bash"]
+    guide_ids: list[str] = []
+    try:
+        from evoflow.knowledge.owned.builtin_seed import BUILTIN_OWNED_USER_GUIDE_KB_ID
+
+        guide_ids = [BUILTIN_OWNED_USER_GUIDE_KB_ID]
+    except Exception:
+        logger.debug("xiaomi KB defaults: user-guide id resolve failed", exc_info=True)
     return {
         "tools": tools,
-        "mcp_servers": None,
+        "mcp_servers": [],
         "skills": skills,
+        "knowledge_vault_ids": guide_ids,
     }
 
 
 def enforce_xiaomi_front_desk_capabilities() -> bool:
-    """Keep ``xiaomi`` on bash + all MCP + browser/computer-use skills.
+    """Keep ``xiaomi`` on bash + browser skills; migrate MCP/KB to product defaults.
+
+    - tools / skills：始终对齐 defaults（前台策略锁）。
+    - mcp_servers：历史 ``None``（全量）迁成 ``[]``；已有白名单保留不动。
+    - knowledge_vault_ids：确保含用户指南；其它用户自选库保留。
 
     Returns True when the config was written (or already correct after load).
     """
@@ -881,26 +894,47 @@ def enforce_xiaomi_front_desk_capabilities() -> bool:
     caps = xiaomi_front_desk_capability_defaults()
     xm_full = xm_cfg.model_dump(exclude_none=False, exclude={"name"})
     changed = False
-    for key, desired in caps.items():
-        current = xm_full.get(key)
-        if desired is None:
-            # None = unrestricted MCP — clear stale [] / list.
-            if current is not None:
-                xm_full[key] = None
-                changed = True
-            continue
+
+    # tools / skills：硬对齐
+    for key in ("tools", "skills"):
+        desired = list(caps.get(key) or [])
+        current = list(xm_full.get(key) or []) if xm_full.get(key) is not None else []
         if current != desired:
-            xm_full[key] = list(desired)
+            xm_full[key] = desired
             changed = True
+
+    # mcp：弃用「None=全量」；迁成空名单。用户侧栏收窄后的 list 保留。
+    cur_mcp = xm_full.get("mcp_servers")
+    if cur_mcp is None:
+        xm_full["mcp_servers"] = list(caps.get("mcp_servers") or [])
+        changed = True
+
+    # 知识库：至少挂上用户指南；不冲掉用户另加的库
+    guide = [str(x).strip() for x in (caps.get("knowledge_vault_ids") or []) if str(x).strip()]
+    # Prefer extra_json mirror (middleware authority) when present.
+    cur_kb = list(get_agent_kb_vault_ids("xiaomi") or [])
+    if not cur_kb:
+        cur_kb = [str(x).strip() for x in (xm_full.get("knowledge_vault_ids") or []) if str(x).strip()]
+    merged_kb = list(dict.fromkeys([*guide, *cur_kb]))
+    if merged_kb != cur_kb or xm_full.get("knowledge_vault_ids") != merged_kb:
+        xm_full["knowledge_vault_ids"] = merged_kb
+        changed = True
+
     if changed:
-        # Persist None for mcp_servers (all); keep tools/skills lists.
         payload = {k: v for k, v in xm_full.items() if v is not None or k == "mcp_servers"}
         save_agent_config("xiaomi", payload)
+        try:
+            from evoflow.admin.agents import _persist_agent_knowledge_vault_ids
+
+            _persist_agent_knowledge_vault_ids("xiaomi", list(xm_full.get("knowledge_vault_ids") or []))
+        except Exception:
+            logger.debug("xiaomi KB vault mirror skipped", exc_info=True)
         logger.info(
-            "[Xiaomi] enforced capabilities tools=%s mcp=%s skills=%s",
-            caps["tools"],
-            caps["mcp_servers"],
-            caps["skills"],
+            "[Xiaomi] enforced capabilities tools=%s mcp=%s skills=%s kb=%s",
+            caps.get("tools"),
+            xm_full.get("mcp_servers"),
+            caps.get("skills"),
+            xm_full.get("knowledge_vault_ids"),
         )
     return True
 
@@ -1396,7 +1430,7 @@ def ensure_builtin_agents_materialized() -> None:
     _migrate_shell_tools_onto_agents()
 
     # ``xiaomi`` = system front desk (separate builtin; never overwrite ``main``).
-    # Capability: bash + all MCP + browser/computer-use skills; runtime also mounts xiaomi_*.
+    # Capability: bash + 空 MCP + 用户指南 KB + browser/computer-use skills；运行时另挂 xiaomi_*。
     _xm_caps = xiaomi_front_desk_capability_defaults()
     if not cfg_repo.agent_exists("xiaomi"):
         save_agent_config(
@@ -1409,6 +1443,15 @@ def ensure_builtin_agents_materialized() -> None:
                 "avatar": _BUILTIN_AGENT_AVATARS.get("xiaomi"),
             },
         )
+        try:
+            from evoflow.admin.agents import _persist_agent_knowledge_vault_ids
+
+            _persist_agent_knowledge_vault_ids(
+                "xiaomi",
+                list(_xm_caps.get("knowledge_vault_ids") or []),
+            )
+        except Exception:
+            logger.debug("xiaomi initial KB vault mirror skipped", exc_info=True)
     if cfg_repo.agent_exists("xiaomi"):
         try:
             xm_cfg = load_agent_config("xiaomi")
@@ -1437,21 +1480,11 @@ def ensure_builtin_agents_materialized() -> None:
             if not str(xm_cfg.description or "").strip():
                 xm_full["description"] = "用户的全局前台：接待、传讯、分诊给智能体员工；不亲自做一线工程。"
                 xm_changed = True
-            for key, desired in _xm_caps.items():
-                current = xm_full.get(key)
-                if desired is None:
-                    # None = unrestricted MCP — do not list(None).
-                    if current is not None:
-                        xm_full[key] = None
-                        xm_changed = True
-                    continue
-                if current != desired:
-                    xm_full[key] = list(desired)
-                    xm_changed = True
+            # 名称/头像等轻量字段就地修；tools/mcp/skills/kb 统一交给 enforce（含 None→[] 迁移）。
             if xm_changed:
                 save_agent_config(
                     "xiaomi",
-                    {k: v for k, v in xm_full.items() if v is not None or k in _xm_caps},
+                    {k: v for k, v in xm_full.items() if v is not None or k == "mcp_servers"},
                 )
         # Idempotent enforce even when only name/avatar were already correct.
         try:

@@ -53,4 +53,34 @@ describe('stream stop sinceStopMs', () => {
     expect(streamStopSinceMs({ sessionKey: 'abc-thread' })).not.toBeNull()
     expect(streamStopSinceMs({ threadId: 'abc-thread' })).not.toBeNull()
   })
+
+  it('forwards stream_error errMsg into timing row endErrMsg', async () => {
+    const { listChatTurnTimingRows, logChatTurnSendClick, logChatTurnSendWire, logChatTurnRunStarted, logChatTurnFirstResponse, logChatTurnUserBubbleVisible } =
+      await import('../src/react/lib/chat-turn-timing-log.ts')
+    const sk = 'agent:main:stream-err'
+    logChatTurnSendClick({ sessionKey: sk, text: 'mid-tool stop' })
+    logChatTurnUserBubbleVisible({ sessionKey: sk })
+    logChatTurnSendWire({ sessionKey: sk })
+    logChatTurnRunStarted({ sessionKey: sk, runId: 'run-err' })
+    logChatTurnFirstResponse({
+      sessionKey: sk,
+      kind: 'tool',
+      preview: 'bash',
+      runId: 'run-err',
+    })
+    logStreamStop({
+      sessionKey: sk,
+      runId: 'run-err',
+      trigger: 'stream_error',
+      hasEndMarker: false,
+      detail: {
+        whoZh: '流错误结束',
+        errMsg: '本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过',
+        rawErr: 'An internal error occurred',
+      },
+    })
+    const row = listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === 'run-err')
+    expect(row?.outcome).toBe('stream_error')
+    expect(row?.endErrMsg).toContain('模型服务临时内部错误')
+  })
 })

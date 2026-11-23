@@ -109,6 +109,8 @@ _BEST_EFFORT_CONTAINS = (
     "/runtime-status",  # deprecated alias of execution/state
     "/workspaces/index-status",  # code-index poll while rebuild runs
     "/workspaces/index-warm",
+    # Settings「代码索引图谱」默认 q=class；FTS/语义/建库锁可卡 60–100s+（2026-11-23 16:55）。
+    "/workspaces/search",
 )
 
 _BEST_EFFORT_EXACT = frozenset(

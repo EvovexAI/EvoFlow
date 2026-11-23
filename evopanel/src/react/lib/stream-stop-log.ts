@@ -542,6 +542,12 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
           : trigger === 'sse_aborted_after_ui_stop'
             ? 'ui_stop'
             : 'sse_aborted'
+    const errMsg =
+      typeof detail?.errMsg === 'string' && detail.errMsg.trim()
+        ? detail.errMsg.trim().slice(0, 200)
+        : typeof detail?.rawErr === 'string' && detail.rawErr.trim()
+          ? detail.rawErr.trim().slice(0, 200)
+          : undefined
     logChatTurnStreamEnd({
       sessionKey: sessionKey || undefined,
       runId: runId || undefined,
@@ -552,6 +558,7 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
       detail: {
         kind,
         ...(sinceStop != null ? { sinceStopMs: sinceStop } : {}),
+        ...(errMsg ? { errMsg } : {}),
       },
     })
   }

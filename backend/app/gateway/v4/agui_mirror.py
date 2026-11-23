@@ -894,7 +894,11 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
         #   —— 既看不出是模型侧还是我的操作有问题，也不知道该不该重发。
         #   实测同一句重发一次就成功（DA14C 正常回），所以这是**可直接重发**的偶发故障，
         #   文案必须把「再发一次」写成默认动作。
-        facing = "本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过（刚才这一轮没生成内容）"
+        # 注（2026-11-23）：LangGraph ``serde`` 也会把 ``sqlite3.OperationalError``
+        #   （含 db_process_lock_timeout）红acted 成同一句英文——那时根因是本机 DB 锁，
+        #   不是模型。Hydration / TranscriptMiddleware 已 soft-fail；若仍漏到 wire，
+        #   文案仍提示重发（middleware 硬失败没有 model_fallback 重试路径）。
+        facing = "本轮生成失败：模型服务临时内部错误，直接再发一次通常就能过"
     elif bare:
         # Upstream often emits only ``run_error`` with no vendor text — say what to do.
         facing = "本轮生成失败：模型服务中断或本机负载过高，请稍后重试；超长对话建议开新会话"
@@ -907,11 +911,20 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
         facing = raw
     else:
         facing = "本轮生成失败（可点「详情/复制」把原文发给协助排查的人）"
+    generic_upstream = _is_generic_upstream_error(low)
     return {
         "code": code[:120],
         "message": facing[:500],
         "detail": detail,
-        "recoverable": bare or "remoteprotocol" in low or "disconnected" in low,
+        # 临时内部错误 / 断连：前端可提示重发；与「再发一次通常就能过」文案对齐
+        "recoverable": bool(
+            bare
+            or generic_upstream
+            or "remoteprotocol" in low
+            or "disconnected" in low
+            or "timeout" in low
+            or "timed out" in low
+        ),
         "at": now_ms,
         "source": "runtime",
     }

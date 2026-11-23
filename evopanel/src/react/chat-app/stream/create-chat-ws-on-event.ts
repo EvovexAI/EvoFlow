@@ -2285,6 +2285,11 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
               const endTrigger = isRunError
                 ? 'agui_run_error'
                 : 'agui_model_error_finished'
+              const runErrRaw = String(
+                (aguiEvent as { message?: unknown; error?: unknown }).message ||
+                  (aguiEvent as { message?: unknown; error?: unknown }).error ||
+                  '',
+              ).trim()
               logStreamStop({
                 sessionKey: targetSk,
                 runId: String(S.runId || runId || rt.activeChatRunId || '').trim() || null,
@@ -2299,6 +2304,15 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
                   livePostOpen,
                   terminalModelError,
                   note: '协议终态收尾，不是用户点停',
+                  ...(runErrRaw
+                    ? {
+                        rawErr: runErrRaw.slice(0, 1200),
+                        errMsg: String(toUserFacingError(runErrRaw) || runErrRaw).slice(
+                          0,
+                          200,
+                        ),
+                      }
+                    : {}),
                 },
               })
               if (terminalModelError) {
@@ -3834,7 +3848,8 @@ export function createChatWsOnEventHandler(ctx: ChatWsOnEventCtx) {
         }
         // For network/timeout errors where there's no visible content, show a helpful retry hint.
         if (!streamTurnHasVisibleContent(S.turn)) {
-          const isRecoverable = /超时|中断|网络|暂时不可用|请稍后/i.test(errMsg)
+          const isRecoverable =
+            /超时|中断|网络|暂时不可用|请稍后|临时内部错误|再发一次/i.test(errMsg)
           applyRowsUpdate((r) => [
             ...r,
             {

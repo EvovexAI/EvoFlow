@@ -44,6 +44,15 @@ _RESOLVE_TARGET_HEAL_MAX_SCAN = 1_500
 _RESOLVE_TARGET_HEAL_MAX_KEYS = 2
 _RESOLVE_TARGET_HEAL_BUDGET_S = 2.5
 
+# Settings code-index search (2026-11-23): q=class against EvoFlow + personal roots sat
+# on DATA for 100s+ (SQLite busy + semantic import). Isolate like resolve-target.
+_CODE_INDEX_SEARCH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="evoflow-code-index-search"
+)
+_CODE_INDEX_SEARCH_SLOT: asyncio.Semaphore | None = None
+_CODE_INDEX_SEARCH_WALL_S = 8.0
+_CODE_INDEX_SEARCH_ACQUIRE_S = 1.0
+
 
 def _git_slot() -> asyncio.Semaphore:
     """Lazy semaphore bound to the running loop (avoid import-time loop binding)."""
@@ -66,6 +75,13 @@ def _resolve_target_slot() -> asyncio.Semaphore:
     if _RESOLVE_TARGET_SLOT is None:
         _RESOLVE_TARGET_SLOT = asyncio.Semaphore(2)
     return _RESOLVE_TARGET_SLOT
+
+
+def _code_index_search_slot() -> asyncio.Semaphore:
+    global _CODE_INDEX_SEARCH_SLOT
+    if _CODE_INDEX_SEARCH_SLOT is None:
+        _CODE_INDEX_SEARCH_SLOT = asyncio.Semaphore(2)
+    return _CODE_INDEX_SEARCH_SLOT
 
 from evoflow.authz.http_guard import require_workspace_path_visible, require_workspace_root_access
 from evoflow.authz.resource_visibility import stamp_kwargs_from_request
@@ -2112,6 +2128,34 @@ async def find_workspace_files(
     )
 
 
+def _soft_miss_index_search(query: str, *, message: str) -> IndexSearchResponse:
+    return IndexSearchResponse(
+        query=query,
+        hits=[],
+        symbols=[],
+        related_files=[],
+        ready=None,
+        building=None,
+        message=message,
+    )
+
+
+def _log_code_index_search_slow(*, kind: str, query: str, root: str | None, duration_s: float | None = None) -> None:
+    try:
+        from app.gateway.hang_diagnostics import append_gateway_slow_log
+
+        append_gateway_slow_log(
+            kind=kind,
+            method="GET",
+            path="/api/workspaces/search",
+            query=f"q={query[:80]}&root={(root or '')[:120]}",
+            duration_s=duration_s,
+            status_code=200,
+        )
+    except Exception:
+        pass
+
+
 @router.get("/search", response_model=IndexSearchResponse)
 async def search_workspace_index(
     request: Request,
@@ -2129,19 +2173,68 @@ async def search_workspace_index(
         raise HTTPException(status_code=400, detail="root or thread_id is required")
     if not query:
         raise HTTPException(status_code=400, detail="q is required")
+
+    # Cap fan-out: settings graph can fire personal + monorepo search together.
+    slot = _code_index_search_slot()
+    acquired = False
+    try:
+        await asyncio.wait_for(slot.acquire(), timeout=_CODE_INDEX_SEARCH_ACQUIRE_S)
+        acquired = True
+    except TimeoutError:
+        logger.warning("code-index search slot busy q=%s root=%s", query[:80], (root_s or "")[:160])
+        _log_code_index_search_slow(kind="code_index_search_shed", query=query, root=root_s, duration_s=0.0)
+        return _soft_miss_index_search(query, message="索引搜索繁忙，请稍后重试")
+
     try:
         from evoflow.code_index.store import index_status, search_index
 
         # 全网关最重的同步端点：FTS + 语义 encode + 索引未就绪时 _wait_index_ready 会
         # time.sleep 轮询（traffic_lanes 记录过 200s+ 占用）+ 30s 一次的全仓 source_drift
-        # 扫描——必须整体放 worker 线程，否则一次搜索冻结全部事件循环。
-        data = await asyncio.to_thread(search_index, root_s, query, thread_id=tid, limit=limit)
+        # 扫描——必须整体放独立线程池，并加墙钟，否则一次搜索冻结全部事件循环。
+        loop = asyncio.get_running_loop()
+        data = await asyncio.wait_for(
+            loop.run_in_executor(
+                _CODE_INDEX_SEARCH_EXECUTOR,
+                lambda: search_index(root_s, query, thread_id=tid, limit=limit),
+            ),
+            timeout=_CODE_INDEX_SEARCH_WALL_S,
+        )
+    except TimeoutError:
+        logger.warning(
+            "code-index search timed out after %.1fs q=%s root=%s",
+            _CODE_INDEX_SEARCH_WALL_S,
+            query[:80],
+            (root_s or "")[:160],
+        )
+        _log_code_index_search_slow(
+            kind="code_index_search_timeout",
+            query=query,
+            root=root_s,
+            duration_s=_CODE_INDEX_SEARCH_WALL_S,
+        )
+        return _soft_miss_index_search(
+            query,
+            message=f"索引搜索超时（{_CODE_INDEX_SEARCH_WALL_S:.0f}s），请缩小范围或稍后重试",
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    finally:
+        if acquired:
+            slot.release()
+
     hits = [IndexSearchHit(**h) for h in (data.get("hits") or [])]
     symbols = [IndexSymbolHit(**s) for s in (data.get("symbols") or [])]
     related = [IndexSearchHit(**h) for h in (data.get("related_files") or []) if isinstance(h, dict)]
-    st = await asyncio.to_thread(index_status, workspace_root=root_s, thread_id=tid)
+    try:
+        st = await asyncio.wait_for(
+            asyncio.get_running_loop().run_in_executor(
+                _CODE_INDEX_SEARCH_EXECUTOR,
+                lambda: index_status(workspace_root=root_s, thread_id=tid),
+            ),
+            timeout=2.0,
+        )
+    except TimeoutError:
+        st = {}
     ready = bool(data.get("ready")) if data.get("ready") is not None else bool(st.get("ready"))
     building = bool(data.get("building")) if data.get("building") is not None else bool(st.get("building"))
     rebuild_in_progress = bool(data.get("rebuild_in_progress"))

@@ -4443,9 +4443,17 @@ def org_uninstall(args: dict[str, Any]) -> dict[str, Any]:
         )
         opts["keep_workspace"] = not delete_ws
     elif "keep_workspace" in args:
-        opts["keep_workspace"] = _arg_bool(args, "keep_workspace", True)
+        opts["keep_workspace"] = _arg_bool(args, "keep_workspace", False)
     elif "keepWorkspace" in args:
-        opts["keep_workspace"] = _arg_bool(args, "keepWorkspace", True)
+        opts["keep_workspace"] = _arg_bool(args, "keepWorkspace", False)
+    if "keep_knowledge" in args:
+        opts["keep_knowledge"] = _arg_bool(args, "keep_knowledge", False)
+    elif "keepKnowledge" in args:
+        opts["keep_knowledge"] = _arg_bool(args, "keepKnowledge", False)
+    elif "keep_vault_data" in args:
+        opts["keep_knowledge"] = _arg_bool(args, "keep_vault_data", False)
+    elif "keepVaultData" in args:
+        opts["keep_knowledge"] = _arg_bool(args, "keepVaultData", False)
     try:
         data = uninstall_organization(oid, options=opts or None)
     except OrganizationInstallError as exc:

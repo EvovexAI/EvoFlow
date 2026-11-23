@@ -159,18 +159,32 @@ export function AgentCapabilityTabs({
   const [patching, setPatching] = useState(false)
   /** 「添加技能」里是否连已停用的技能一起列出（默认否；用来排查“装了却看不到”） */
   const [pickerShowDisabled, setPickerShowDisabled] = useState(false)
+  /** 本地乐观覆盖：父级 agents 列表刷新慢/漂移时，点 × 仍立刻从列表消失 */
+  const [localOverride, setLocalOverride] = useState<AgentCapabilityPatch | null>(null)
 
-  const mcpUnrestricted = mcpServers == null
-  const toolsUnrestricted = toolNames == null
-  const boundToolNames = Array.isArray(toolNames) ? toolNames : []
-  const boundMcpNames = Array.isArray(mcpServers) ? mcpServers : []
+  const effectiveSkillNames = localOverride?.skills ?? skillNames
+  const effectiveToolNames =
+    localOverride && Object.prototype.hasOwnProperty.call(localOverride, 'tools')
+      ? localOverride.tools
+      : toolNames
+  const effectiveMcpServers =
+    localOverride && Object.prototype.hasOwnProperty.call(localOverride, 'mcp_servers')
+      ? localOverride.mcp_servers
+      : mcpServers
+  const effectiveKnowledgeVaultIds =
+    localOverride?.knowledge_vault_ids ?? knowledgeVaultIds
+
+  const mcpUnrestricted = effectiveMcpServers == null
+  const toolsUnrestricted = effectiveToolNames == null
+  const boundToolNames = Array.isArray(effectiveToolNames) ? effectiveToolNames : []
+  const boundMcpNames = Array.isArray(effectiveMcpServers) ? effectiveMcpServers : []
   // Parent panels may recreate these arrays on every render.  Depend on a
   // content signature below so token estimation only runs when the actual
   // capability selection changes (rather than on every render).
-  const skillNamesSignature = JSON.stringify(skillNames)
-  const toolNamesSignature = JSON.stringify(toolNames)
-  const mcpNamesSignature = JSON.stringify(mcpServers)
-  const knowledgeSignature = JSON.stringify(knowledgeVaultIds)
+  const skillNamesSignature = JSON.stringify(effectiveSkillNames)
+  const toolNamesSignature = JSON.stringify(effectiveToolNames)
+  const mcpNamesSignature = JSON.stringify(effectiveMcpServers)
+  const knowledgeSignature = JSON.stringify(effectiveKnowledgeVaultIds)
   /** 步骤切换时的能力指纹：用来把默认 Tab 切到「已有内容」的那一栏 */
   const stepCapSignature = `${skillNamesSignature}|${toolNamesSignature}|${mcpNamesSignature}|${knowledgeSignature}`
 
@@ -180,11 +194,29 @@ export function AgentCapabilityTabs({
     setPickerQ('')
   }, [tab])
 
+  // 父级 props 追上本地乐观值后清掉 override，避免和远端永久分叉
+  useEffect(() => {
+    if (!localOverride) return
+    const skillsSame =
+      localOverride.skills === undefined ||
+      JSON.stringify(localOverride.skills) === JSON.stringify(skillNames)
+    const toolsSame =
+      !Object.prototype.hasOwnProperty.call(localOverride, 'tools') ||
+      JSON.stringify(localOverride.tools ?? null) === JSON.stringify(toolNames ?? null)
+    const mcpSame =
+      !Object.prototype.hasOwnProperty.call(localOverride, 'mcp_servers') ||
+      JSON.stringify(localOverride.mcp_servers ?? null) === JSON.stringify(mcpServers ?? null)
+    const kbSame =
+      localOverride.knowledge_vault_ids === undefined ||
+      JSON.stringify(localOverride.knowledge_vault_ids) === JSON.stringify(knowledgeVaultIds)
+    if (skillsSame && toolsSame && mcpSame && kbSame) setLocalOverride(null)
+  }, [localOverride, skillNames, toolNames, mcpServers, knowledgeVaultIds])
+
   // 点节点时若已绑工具却停在「技能」空态，看起来像「没配工具」——自动切到有内容的栏
   useEffect(() => {
     if (boundToolNames.length) setTab('tools')
-    else if (skillNames.length) setTab('skills')
-    else if (knowledgeVaultIds.length) setTab('knowledge')
+    else if (effectiveSkillNames.length) setTab('skills')
+    else if (effectiveKnowledgeVaultIds.length) setTab('knowledge')
     else if (!mcpUnrestricted && boundMcpNames.length) setTab('mcp')
     else setTab('skills')
     setExpanded(false)
@@ -213,7 +245,7 @@ export function AgentCapabilityTabs({
   useEffect(() => {
     let cancelled = false
     const toolsForTok = boundToolNames
-    if (!skillNames.length && !toolsForTok.length) {
+    if (!effectiveSkillNames.length && !toolsForTok.length) {
       setTokLoading(false)
       return () => {
         cancelled = true
@@ -221,7 +253,7 @@ export function AgentCapabilityTabs({
     }
     setTokLoading(true)
     void fetchCapabilityContextOverhead({
-      skills: skillNames,
+      skills: effectiveSkillNames,
       tools: toolsForTok,
       model: modelName || null,
     })
@@ -253,23 +285,28 @@ export function AgentCapabilityTabs({
 
   const knowledgeRows: CapRow[] = useMemo(() => {
     const byId = new Map(kbCatalog.map((k) => [k.id, k.name]))
-    return knowledgeVaultIds.map((id) => ({
+    return effectiveKnowledgeVaultIds.map((id) => ({
       id,
       name: byId.get(id) || id,
     }))
-  }, [knowledgeVaultIds, kbCatalog])
+  }, [effectiveKnowledgeVaultIds, kbCatalog])
 
   const mcpRows: CapRow[] = useMemo(() => {
-    if (Array.isArray(mcpServers)) {
+    if (Array.isArray(effectiveMcpServers)) {
       const byId = new Map(mcpCatalog.map((k) => [k.id, k.name]))
-      return mcpServers.map((id) => ({ id, name: byId.get(id) || id }))
+      return effectiveMcpServers.map((id) => ({ id, name: byId.get(id) || id }))
     }
     return mcpCatalog.map((k) => ({ id: k.id, name: k.name }))
-  }, [mcpServers, mcpCatalog])
+  }, [effectiveMcpServers, mcpCatalog])
 
   const skillRows: CapRow[] = useMemo(
-    () => skillNames.map((name) => ({ id: name, name, tokens: skillTok.get(name) ?? null })),
-    [skillNames, skillTok],
+    () =>
+      effectiveSkillNames.map((name) => ({
+        id: name,
+        name,
+        tokens: skillTok.get(name) ?? null,
+      })),
+    [effectiveSkillNames, skillTok],
   )
   const toolRows: CapRow[] = useMemo(() => {
     if (toolsUnrestricted) {
@@ -298,10 +335,10 @@ export function AgentCapabilityTabs({
   const sumLabel =
     tab === 'skills'
       ? skillsTotal != null
-        ? `${formatTok(skillsTotal)} · ${skillNames.length}个`
+        ? `${formatTok(skillsTotal)} · ${effectiveSkillNames.length}个`
         : tokLoading
-          ? `计算中 · ${skillNames.length}个`
-          : `${skillNames.length}个`
+          ? `计算中 · ${effectiveSkillNames.length}个`
+          : `${effectiveSkillNames.length}个`
       : tab === 'tools'
         ? toolsUnrestricted
           ? toolRows.length
@@ -339,11 +376,18 @@ export function AgentCapabilityTabs({
 
   const runPatch = useCallback(
     async (patch: AgentCapabilityPatch) => {
-      if (!onPatch || patching || busy) return
+      if (!onPatch) return
+      if (patching || busy) return
       setPatching(true)
+      // 先乐观更新列表，避免「点了 × 没反应」
+      setLocalOverride((prev) => ({ ...(prev || {}), ...patch }))
       try {
         await onPatch(patch)
         setPickerOpen(false)
+      } catch (e) {
+        // 失败回滚乐观值
+        setLocalOverride(null)
+        throw e
       } finally {
         setPatching(false)
       }
@@ -386,23 +430,26 @@ export function AgentCapabilityTabs({
   }, [tab, pickerShowDisabled])
 
   const boundIds = useMemo(() => {
-    if (tab === 'skills') return new Set(skillNames)
+    if (tab === 'skills') return new Set(effectiveSkillNames)
     if (tab === 'tools') {
       if (toolsUnrestricted) return new Set(toolCatalog.map((t) => t.id))
       return new Set(boundToolNames)
     }
-    if (tab === 'mcp') return mcpUnrestricted ? new Set(mcpCatalog.map((m) => m.id)) : new Set(mcpServers || [])
-    return new Set(knowledgeVaultIds)
+    if (tab === 'mcp')
+      return mcpUnrestricted
+        ? new Set(mcpCatalog.map((m) => m.id))
+        : new Set(effectiveMcpServers || [])
+    return new Set(effectiveKnowledgeVaultIds)
   }, [
     tab,
-    skillNames,
+    effectiveSkillNames,
     toolsUnrestricted,
     toolCatalog,
     boundToolNames,
     mcpUnrestricted,
     mcpCatalog,
-    mcpServers,
-    knowledgeVaultIds,
+    effectiveMcpServers,
+    effectiveKnowledgeVaultIds,
   ])
 
   const pickerCandidates = useMemo(() => {
@@ -418,7 +465,7 @@ export function AgentCapabilityTabs({
     async (id: string) => {
       if (!editable || !onPatch) return
       if (tab === 'skills') {
-        await runPatch({ skills: skillNames.filter((s) => s !== id) })
+        await runPatch({ skills: effectiveSkillNames.filter((s) => s !== id) })
         return
       }
       if (tab === 'tools') {
@@ -436,23 +483,27 @@ export function AgentCapabilityTabs({
           await runPatch({ mcp_servers: all })
           return
         }
-        await runPatch({ mcp_servers: (mcpServers || []).filter((m) => m !== id) })
+        await runPatch({
+          mcp_servers: (effectiveMcpServers || []).filter((m) => m !== id),
+        })
         return
       }
-      await runPatch({ knowledge_vault_ids: knowledgeVaultIds.filter((k) => k !== id) })
+      await runPatch({
+        knowledge_vault_ids: effectiveKnowledgeVaultIds.filter((k) => k !== id),
+      })
     },
     [
       editable,
       onPatch,
       tab,
-      skillNames,
+      effectiveSkillNames,
       toolsUnrestricted,
       toolCatalog,
       boundToolNames,
       mcpUnrestricted,
       mcpCatalog,
-      mcpServers,
-      knowledgeVaultIds,
+      effectiveMcpServers,
+      effectiveKnowledgeVaultIds,
       runPatch,
     ],
   )
@@ -461,8 +512,8 @@ export function AgentCapabilityTabs({
     async (id: string) => {
       if (!editable || !onPatch) return
       if (tab === 'skills') {
-        if (skillNames.includes(id)) return
-        await runPatch({ skills: [...skillNames, id] })
+        if (effectiveSkillNames.includes(id)) return
+        await runPatch({ skills: [...effectiveSkillNames, id] })
         return
       }
       if (tab === 'tools') {
@@ -473,23 +524,25 @@ export function AgentCapabilityTabs({
       }
       if (tab === 'mcp') {
         if (mcpUnrestricted) return
-        if ((mcpServers || []).includes(id)) return
-        await runPatch({ mcp_servers: [...(mcpServers || []), id] })
+        if ((effectiveMcpServers || []).includes(id)) return
+        await runPatch({ mcp_servers: [...(effectiveMcpServers || []), id] })
         return
       }
-      if (knowledgeVaultIds.includes(id)) return
-      await runPatch({ knowledge_vault_ids: [...knowledgeVaultIds, id] })
+      if (effectiveKnowledgeVaultIds.includes(id)) return
+      await runPatch({
+        knowledge_vault_ids: [...effectiveKnowledgeVaultIds, id],
+      })
     },
     [
       editable,
       onPatch,
       tab,
-      skillNames,
+      effectiveSkillNames,
       toolsUnrestricted,
       boundToolNames,
       mcpUnrestricted,
-      mcpServers,
-      knowledgeVaultIds,
+      effectiveMcpServers,
+      effectiveKnowledgeVaultIds,
       runPatch,
     ],
   )
@@ -504,13 +557,17 @@ export function AgentCapabilityTabs({
     : boundToolNames.length
   const mcpOverviewCount = mcpUnrestricted
     ? mcpCatalog.length || mcpRows.length
-    : (mcpServers || []).length
+    : (effectiveMcpServers || []).length
 
   const overviewItems = (
     [
-      { id: 'skills' as CapTab, label: '技能', value: skillNames.length },
+      { id: 'skills' as CapTab, label: '技能', value: effectiveSkillNames.length },
       { id: 'tools' as CapTab, label: '工具', value: toolsOverviewCount },
-      { id: 'knowledge' as CapTab, label: '知识', value: knowledgeVaultIds.length },
+      {
+        id: 'knowledge' as CapTab,
+        label: '知识',
+        value: effectiveKnowledgeVaultIds.length,
+      },
       { id: 'mcp' as CapTab, label: 'MCP', value: mcpOverviewCount },
     ] as const
   )
