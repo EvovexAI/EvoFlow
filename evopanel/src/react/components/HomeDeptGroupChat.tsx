@@ -1090,10 +1090,7 @@ export function HomeDeptGroupChat({
             }
           },
         })
-        let reply = formatBodyText(turn.text)
-        if (!reply && workSessionKey) {
-          reply = formatBodyText(await loadLatestDeptMemberReply(workSessionKey))
-        }
+        const reply = formatBodyText(turn.text)
         // 组件重挂 / 队列 dispose：有正文就定稿落盘，不要吞成「已取消」
         if (!aliveRef.current || input.signal.aborted) {
           if (reply) {

@@ -18,6 +18,15 @@ import {
   type DeptGroupTurnHint,
 } from './dept-group-turn.js'
 
+export const DEPT_DESIGN_BRIEF_HINT = '门店设计任务：先对齐门店、具体部位、找原图还是重新绘制，并确认可用的图号或版本。已有明确答案就沿用，不重复确认；关键项不明时合并问一句，确认前不派工、不绘图。不得把柜面圆盘和背墙圆盘当成同一对象。找原图只检索和交付原文件，不自行重绘；明确要求绘图才制作。派工写清上述范围；接手时复述同一任务范围，不擅自更换部位或图号。状态查询、聊天验收和寒暄直接回应，不启动新设计任务。'
+
+/** Only standalone courtesies or bounded literal echoes may bypass tools. */
+export function isLightweightDeptTurn(text: string): boolean {
+  const t = String(text || '').trim()
+  if (/^(你好|您好|嗨|在吗|收到|谢谢|多谢|好的|好|ok)[！!。.?？\s]*$/i.test(t)) return true
+  return /^(?:群聊回填验收\s+[\w-]+[：:]\s*)?(?:只|仅)回复[“「"][^”」"\n]{1,100}[”」"](?:[，,]不要查资料、调用工具、绘图或点名任何同事[。.]?)?[。.!！\s]*$/.test(t)
+}
+
 export function deptMemberWorkSessionKey(deptId: string, agentCode: string): string {
   const code = String(agentCode || '').trim()
   const did = String(deptId || '')
@@ -81,23 +90,31 @@ export function extractHistoryAssistantText(row: any): string {
   return String(payload.text || '').trim()
 }
 
-/** 群气泡丢了正文时，从员工 sticky 会话回读最近一条助手回复 */
+async function loadDeptMemberHistory(workSessionKey: string): Promise<any[]> {
+  const hist = await api.chatHistory(workSessionKey, 200, { bypassCache: true })
+  return Array.isArray(hist?.messages) ? hist.messages : Array.isArray(hist) ? hist : []
+}
+
+type ReplyFence = { runId?: string; afterSeq?: number }
+
+function belongsToTurn(row: any, fence: ReplyFence): boolean {
+  const runId = String(row.runId || row.run_id || '').trim()
+  if (fence.runId) return runId === fence.runId
+  return fence.afterSeq != null && Number(row.seq) > fence.afterSeq
+}
+
+/** Legacy timeline recovery only; dispatch must use the current turn's result. */
 export async function loadLatestDeptMemberReply(workSessionKey: string): Promise<string> {
   const sk = String(workSessionKey || '').trim()
   if (!sk) return ''
   try {
-    const hist = await api.chatHistory(sk, 40, { bypassCache: true })
-    const rows = Array.isArray(hist?.messages)
-      ? hist.messages
-      : Array.isArray(hist)
-        ? hist
-        : []
+    const rows = await loadDeptMemberHistory(sk)
     for (let i = rows.length - 1; i >= 0; i--) {
       const t = extractHistoryAssistantText(rows[i])
       if (t) return t
     }
   } catch {
-    /* ignore */
+    /* A missing history is not evidence that the run completed. */
   }
   return ''
 }
@@ -174,6 +191,27 @@ export async function runDeptMemberWorkTurn(
   const goal = String(opts.text || '').trim()
   if (!goal) throw new Error('请输入内容')
 
+  const perfStartedAt = Date.now()
+  const turnPerf: Record<string, any> = {
+    sessionKey: sk, agentCode: code, startedAt: perfStartedAt,
+    mode: isLightweightDeptTurn(goal) ? 'ask' : 'agent',
+    stageMs: {}, historyReads: 0, historyRows: 0, historyReadMs: 0, statusReads: 0,
+  }
+  // Numeric diagnostics only: never retain a prompt, message body or credentials.
+  const perfRing = ((globalThis as any).__evoflowDeptTurnPerf ||= [])
+  perfRing.push(turnPerf)
+  if (perfRing.length > 32) perfRing.splice(0, perfRing.length - 32)
+  const markPerf = (stage: string) => { turnPerf.stageMs[stage] = Date.now() - perfStartedAt }
+  const readHistory = async () => {
+    const start = Date.now()
+    turnPerf.historyReads++
+    const rows = await loadDeptMemberHistory(sk)
+    turnPerf.historyRows += rows.length
+    turnPerf.historyReadMs += Date.now() - start
+    return rows
+  }
+  markPerf('start')
+
   const { wsClient } = await import('../../lib/ws-client.js')
   const deptName = String(opts.deptName || '部门').trim() || '部门'
 
@@ -210,6 +248,7 @@ export async function runDeptMemberWorkTurn(
     /* 岗位拉不到时交给后端 apply_role_*_to_run_cfg */
   }
 
+  markPerf('role_ready')
   const sessionCtx = {
     source: 'proactive',
     proactive_agent_code: code,
@@ -217,7 +256,7 @@ export async function runDeptMemberWorkTurn(
     agent_name: roleName,
     employee_talk_mode: 'chat',
     workspace_kind: 'chat',
-    session_mode: 'agent',
+    session_mode: turnPerf.mode,
     dept_group_id: deptId,
     dept_group_name: deptName,
     dept_group_im: true,
@@ -241,17 +280,22 @@ export async function runDeptMemberWorkTurn(
     /* 已有会话时偶发冲突，ensure-thread 会在 chatSend 里再补 */
   }
 
+  markPerf('session_ready')
   try {
     await wsClient.updateSessionContext?.(sk, sessionCtx)
   } catch {
     /* optional */
   }
 
+  markPerf('context_ready')
   // 群身份 / 硬规则 / 花名册已由 sessionCtx → 系统提示 <dept_group_im> 注入。
   // 本轮 user 文本用 <dept_group_turn> 标签分层：hint/recent 仅给模型；
   // instruction 才是用户可见指令（前端 extractDeptGroupVisibleUserText 剥离展示）。
   const trivialGoal = isTrivialGroupNestGoal(goal)
   const hints: DeptGroupTurnHint[] = []
+  if (!trivialGoal && (deptName.includes('门店设计') || code.endsWith('construction-drafting'))) {
+    hints.push({ kind: 'behavior', text: DEPT_DESIGN_BRIEF_HINT })
+  }
   if (opts.fromAgentName) {
     hints.push({
       kind: 'from_agent',
@@ -309,6 +353,17 @@ export async function runDeptMemberWorkTurn(
     hints,
   })
 
+  let afterSeq: number | undefined
+  try {
+    const rows = await readHistory()
+    afterSeq = Math.max(0, ...rows.map((row) => Number(row.seq) || 0))
+  } catch {
+    /* Run-id matching remains available if history cannot be read. */
+  }
+  markPerf('history_baseline_ready')
+  let targetRunId = ''
+  let finalSeen = false
+  let streamError = ''
   let collected = ''
   let finalText = ''
   const handoffMap = new Map<string, DeptGroupHandoff>()
@@ -328,7 +383,12 @@ export async function runDeptMemberWorkTurn(
     const p = msg.payload
     if (!p || String(p.sessionKey || '') !== sk) return
     if (opts.signal?.aborted) return
+    const eventRunId = String(p.runId || p.run_id || '').trim()
+    if (targetRunId && eventRunId !== targetRunId) return
     const st = String(p.state || '')
+    if (st === 'error' || st === 'aborted') {
+      streamError = String(p.errorMessage || p.error || '本轮回复已中断')
+    }
     if (st === 'tool' || st === 'tool_result') {
       ingestHandoffs(p.data)
       ingestHandoffs(p.result)
@@ -352,35 +412,117 @@ export async function runDeptMemberWorkTurn(
         } else {
           collected = `${collected}${piece}`
         }
+        if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
         opts.onDelta?.(collected)
       }
     } else if (st === 'final') {
       const t = extractAssistantText(p)
       if (t) {
+        finalSeen = true
         finalText = t
         collected = t
+        if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
         opts.onDelta?.(t)
       }
     }
   })
 
   try {
-    await api.chatSend(sk, userText)
-  } finally {
-    try {
-      unsub?.()
-    } catch {
-      /* ignore */
+    if (opts.signal?.aborted) return { text: '', handoffs: [] }
+    markPerf('send_started')
+    const sent = await api.chatSend(sk, userText)
+    markPerf('send_returned')
+    turnPerf.awaitingV4 = !!sent?.awaitingV4
+    if (sent?.ok === false) throw new Error(String(sent.error || '发送失败'))
+    if (sent?.aborted) throw new Error('本轮回复已中断')
+    // A live SSE handoff returns before the backend finishes. Keep the listener
+    // alive and read only this run until its final event / execution terminal state.
+    targetRunId = sent?.awaitingV4 ? String(sent.runId || '').trim() : ''
+    if (sent?.awaitingV4) {
+      if (!targetRunId) throw new Error('回复接管缺少运行标识')
+      // Before the handoff identifies the backend run, an old sticky-session
+      // event may still arrive. Rebuild from this run's events/history only.
+      finalSeen = false
+      finalText = ''
+      collected = ''
+      streamError = ''
+      handoffMap.clear()
     }
+    const fence = { runId: targetRunId || undefined, afterSeq }
+    const deadline = Date.now() + 10 * 60 * 1000
+    let terminalReads = 0
+    while (!opts.signal?.aborted) {
+      if (streamError) throw new Error(streamError)
+      if (finalSeen) break
+      let status: any = null
+      if (sent?.awaitingV4) {
+        try {
+          turnPerf.statusReads++
+          status = await wsClient.getSessionRunStatus(sk)
+        } catch {
+          /* An unavailable status must not become a false idle/empty reply. */
+        }
+      }
+      const completedId = String(
+        status?.recently_completed_run_id === targetRunId ? targetRunId : status?.runId || '',
+      )
+      const phase = String(
+        status?.recently_completed_run_id === targetRunId
+          ? status?.recently_completed_status || status?.status
+          : status?.status || '',
+      ).toLowerCase()
+      const terminal = !status?.executing && completedId === targetRunId &&
+        ['done', 'completed', 'success', 'error', 'failed', 'cancelled', 'aborted', 'interrupted'].includes(phase)
+      if (terminal && ['error', 'failed', 'cancelled', 'aborted', 'interrupted'].includes(phase)) {
+        throw new Error(`本轮回复未完成：${phase}`)
+      }
+      let historyText = ''
+      let historyCompleted = false
+      // Running runs cannot yield a final dispatch result. Avoid repeatedly
+      // transferring the full transcript while the status already says running.
+      const mayReadHistory = !sent?.awaitingV4 || terminal ||
+        (!status?.executing && status?.status === 'done')
+      try {
+        const rows = mayReadHistory ? (await readHistory()).filter((row) => belongsToTurn(row, fence)) : []
+        const lastRow = rows[rows.length - 1]
+        historyCompleted = !!lastRow &&
+          ['assistant', 'ai'].includes(String(lastRow.role).toLowerCase()) &&
+          String(lastRow.turn_state || lastRow.turnState || '') === 'completed' &&
+          !!extractHistoryAssistantText(lastRow)
+        for (const row of rows) {
+          if (String(row.role).toLowerCase() === 'tool') {
+            ingestHandoffs(row.content_json || row.contentJson || row.content)
+          }
+          const text = extractHistoryAssistantText(row)
+          if (text) historyText = text
+        }
+      } catch {
+        /* Keep waiting for the authoritative event/status. */
+      }
+      if (finalSeen) break
+      // Desktop execution/state clears runId on completion and may not retain
+      // recently_completed. A durable final row for our exact run still proves
+      // completion; idle/unavailable status or another run's row never does.
+      const completedWithoutRunId = status?.status === 'done' && !status?.runId &&
+        !status?.executing && historyCompleted
+      if (!sent?.awaitingV4 || terminal || completedWithoutRunId) {
+        if (historyText) {
+          finalText = historyText
+          if (turnPerf.stageMs.first_visible_text == null) markPerf('first_visible_text')
+        }
+        if (!sent?.awaitingV4 || historyText || ++terminalReads >= 3) break
+      }
+      if (Date.now() >= deadline) throw new Error('等待本轮回复超时，请查看员工处理过程')
+      await new Promise((resolve) => setTimeout(resolve, 750))
+    }
+    markPerf('result_ready')
+    return {
+      text: String(finalText || collected || '').trim(),
+      handoffs: [...handoffMap.values()],
+    }
+  } finally {
+    markPerf('finished')
+    turnPerf.elapsedMs = Date.now() - perfStartedAt
+    unsub?.()
   }
-
-  if (opts.signal?.aborted) {
-    return { text: collected || finalText || '', handoffs: [...handoffMap.values()] }
-  }
-
-  let out = String(finalText || collected || '').trim()
-  if (!out) {
-    out = await loadLatestDeptMemberReply(sk)
-  }
-  return { text: out, handoffs: [...handoffMap.values()] }
 }
