@@ -334,10 +334,46 @@ export type OpenRightStageFilePreviewOpts = {
   openedBy?: string
 }
 
+/**
+ * 打开后若路径 404（相对 cite 拼到错误会话根），异步 heal 到 sibling skill 树
+ * 并换正确 workspaceRoot 重开，避免「file not found: …/infinite-canvas/projects/…」死签。
+ */
+function scheduleHealAndReopenFilePreview(
+  openedPath: string,
+  opts?: OpenRightStageFilePreviewOpts,
+): void {
+  const initialRoot =
+    String(opts?.workspaceRoot || '').trim() || String(getChatWorkspaceRoot() || '').trim()
+  if (!openedPath || !initialRoot) return
+  void (async () => {
+    try {
+      const { healWorkspaceOpenPath, inferWorkspaceRootFromHealedPath } = await import(
+        './heal-workspace-open-path.js'
+      )
+      const healed = await healWorkspaceOpenPath(openedPath, {
+        workspaceRoot: initialRoot,
+        threadId: opts?.threadId,
+      })
+      const healedNorm = normalizePathId(healed || '')
+      if (!healedNorm || healedNorm === normalizePathId(openedPath)) return
+      const nextRoot =
+        inferWorkspaceRootFromHealedPath(healedNorm, initialRoot) || initialRoot
+      showRightStageFilePreview(healedNorm, {
+        ...opts,
+        name: String(opts?.name || '').trim() || basename(healedNorm),
+        workspaceRoot: nextRoot,
+        _skipHealReopen: true,
+      })
+    } catch {
+      /* keep first open */
+    }
+  })()
+}
+
 /** 工作区文件路径 → 右栏 file 标签（WorkspaceFilePreviewPanel）。音视频改走 media。 */
 export function showRightStageFilePreview(
   path: string,
-  opts?: OpenRightStageFilePreviewOpts,
+  opts?: OpenRightStageFilePreviewOpts & { _skipHealReopen?: boolean },
 ): string {
   // 修复被剥掉盘符的 Windows 绝对路径，并把半路径（projects\\…\\x.mp4）
   // 拼到会话 / 员工绑定的 workspace 根上，否则右栏读文件失败或对话里点不开。
@@ -354,12 +390,16 @@ export function showRightStageFilePreview(
     workspacePath: workspaceRoot,
   })
   if (mediaSource) {
-    return showRightStageCodeViewer(mediaSource, {
+    const key = showRightStageCodeViewer(mediaSource, {
       sessionKey: opts?.sessionKey,
       threadId: opts?.threadId,
       layout: opts?.layout,
       openedBy: opts?.openedBy,
     })
+    if (!opts?._skipHealReopen) {
+      scheduleHealAndReopenFilePreview(id, opts)
+    }
+    return key
   }
   const key = `file:${id}`
   const sessionKey = String(opts?.sessionKey || '').trim() || undefined
@@ -414,6 +454,9 @@ export function showRightStageFilePreview(
       uiSessionKey: uiSk,
     })
   }
+  if (!opts?._skipHealReopen) {
+    scheduleHealAndReopenFilePreview(id, opts)
+  }
   return key
 }
 
@@ -431,12 +474,29 @@ export type OpenRightStageWorkspaceBrowseOpts = {
 export function showRightStageWorkspaceBrowse(
   opts?: OpenRightStageWorkspaceBrowseOpts,
 ): string {
-  const workspaceRoot =
+  let workspaceRoot =
     String(opts?.workspaceRoot || '').trim() || String(getChatWorkspaceRoot() || '').trim() || undefined
   const focusRaw = String(opts?.focusPath || '').trim()
   const focusPath = focusRaw
     ? normalizePathId(resolveWorkspaceRelativeHostPath(focusRaw, workspaceRoot || ''))
     : ''
+  // focus 落在会话根外（heal 到 sibling skill / 面包屑点绝对目录）时，抬根到
+  // ``…/<skill>``（projects/ 前一段），否则文件树仍挂在错误叶子根上展不开。
+  if (focusPath && isAbsoluteHostPath(focusPath)) {
+    const rootNorm = normalizePathId(workspaceRoot || '').replace(/\/+$/, '')
+    const underRoot =
+      !!rootNorm &&
+      (focusPath === rootNorm || focusPath.startsWith(`${rootNorm}/`))
+    if (!underRoot) {
+      const projectsIdx = focusPath.toLowerCase().lastIndexOf('/projects/')
+      if (projectsIdx > 0) {
+        workspaceRoot = focusPath.slice(0, projectsIdx)
+      } else {
+        const parent = focusPath.replace(/\/+$/, '').replace(/\/[^/]+$/, '')
+        if (parent && isAbsoluteHostPath(parent)) workspaceRoot = parent
+      }
+    }
+  }
   const id = focusPath ? `focus:${focusPath}` : 'root'
   const key = `workspace-browse:${id}`
   const title =
@@ -608,7 +668,8 @@ export function showRightStageFromFileLink(
     })()
     return key
   }
-  const fileKey = showRightStageFilePreview(path, {
+  // showRightStageFilePreview 内已 schedule heal（含 sibling projects/ 纠偏）
+  return showRightStageFilePreview(path, {
     name: String(target.label || '').trim() || basename(path),
     sessionKey: opts?.sessionKey,
     threadId: opts?.threadId,
@@ -616,24 +677,4 @@ export function showRightStageFromFileLink(
     // 对话 Markdown 路径 pill 带上 workspace，预览读文件才能带 root=…
     workspaceRoot,
   })
-  void (async () => {
-    try {
-      const { healWorkspaceOpenPath } = await import('./heal-workspace-open-path.js')
-      const healed = await healWorkspaceOpenPath(path, {
-        workspaceRoot,
-        threadId: opts?.threadId,
-      })
-      if (!healed || normalizePathId(healed) === normalizePathId(path)) return
-      showRightStageFilePreview(healed, {
-        name: String(target.label || '').trim() || basename(healed),
-        sessionKey: opts?.sessionKey,
-        threadId: opts?.threadId,
-        layout: opts?.layout,
-        workspaceRoot,
-      })
-    } catch {
-      /* keep first open */
-    }
-  })()
-  return fileKey
 }

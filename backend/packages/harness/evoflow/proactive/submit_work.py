@@ -462,69 +462,8 @@ def apply_proactive_submit_work(
             reflection=reflection_s or outcome_s or goal_s,
         )
 
-    # Person Kernel: LLM wrap-up (journal / lessons / craft / affect)
-    lesson_result: dict[str, Any] | None = None
-    person_memory_result: dict[str, Any] | None = None
-    craft_result: dict[str, Any] | None = None
-    # Per-individual memory switch: role off → no wrap-up reflection writes.
-    wrap_up_on = True
-    try:
-        from evoflow.agents.memory.runtime_overrides import role_memory_enabled_from_config
-
-        _wrap_up_role = ProactiveRepository.get_role(code)
-        if _wrap_up_role is not None:
-            wrap_up_on = role_memory_enabled_from_config(_wrap_up_role.config)
-    except Exception:
-        wrap_up_on = True
-    if phase_s == "wrap_up":
-        try:
-            from evoflow.person_wrap_up_reflect import run_person_wrap_up_llm
-
-            statements: list[str] = []
-            if goal_s:
-                statements.append(f"本轮目标：{goal_s[:200]}")
-            if outcome_s:
-                statements.append(f"产出：{outcome_s[:240]}")
-            if reflection_s:
-                statements.append(f"反思：{reflection_s[:240]}")
-            for o in obs[:8]:
-                statements.append(f"观察：{str(o)[:200]}")
-            if incomplete:
-                statements.append("标记：本轮未完整收口（incomplete）")
-            if statements and not wrap_up_on:
-                person_memory_result = {"ok": True, "skipped": True, "reason": "memory_disabled"}
-                craft_result = {"ok": True, "skipped": True, "reason": "memory_disabled"}
-            elif statements:
-                pk = run_person_wrap_up_llm(
-                    code,
-                    statements=statements,
-                    round_id=rid,
-                    environment_context=goal_s,
-                    run_error="incomplete" if incomplete else None,
-                    source="wrap_up_llm",
-                )
-                lesson_result = pk.get("lesson") if isinstance(pk, dict) else None
-                person_memory_result = {
-                    "ok": bool(pk.get("ok")),
-                    "journal_id": pk.get("journal_id"),
-                    "skipped": pk.get("skipped"),
-                    "error": pk.get("error"),
-                }
-                craft_result = {
-                    "ok": bool(pk.get("craft_id") or pk.get("ok")),
-                    "entry_id": pk.get("craft_id"),
-                }
-            else:
-                person_memory_result = {"ok": True, "skipped": True, "reason": "no_statements"}
-        except Exception:
-            logger.debug("proactive.submit_work: person kernel llm wrap_up skipped", exc_info=True)
-            if not incomplete:
-                lesson_result = lesson_result or {"ok": False, "error": "lesson_hook_failed"}
-                person_memory_result = person_memory_result or {
-                    "ok": False,
-                    "error": "person_memory_hook_failed",
-                }
-            craft_result = craft_result or {"ok": False, "error": "craft_hook_failed"}
+    # 不再在 submit_work(wrap_up) 后强制跑 Person Kernel LLM 写日记/经验/资产。
+    # 工作日志 journal 仍按上面写入；资产沉淀只靠员工主动调 assets。
 
     proposed_ids = [i.id for i in ProactiveRepository.list_initiatives(role_agent_code=code, limit=40) if str(i.round_id or "") == rid and i.status == InitiativeStatus.PROPOSED and not _is_journal(i)]
 
@@ -572,10 +511,6 @@ def apply_proactive_submit_work(
             )
         ),
     }
-    if lesson_result is not None:
-        result["person_lesson"] = lesson_result
-    if person_memory_result is not None:
-        result["person_memory"] = person_memory_result
     return result
 
 

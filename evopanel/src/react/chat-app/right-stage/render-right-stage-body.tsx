@@ -337,6 +337,15 @@ export function renderRightStageBody(
       title: name || path,
       workspacePath: root || undefined,
     })
+    const openFromPreviewBreadcrumb = (nextSource: Parameters<
+      typeof openRightStageForCodeViewerSource
+    >[0]) => {
+      openRightStageForCodeViewerSource(nextSource, {
+        sessionKey: surface.sessionKey,
+        threadId: String(threadId || ''),
+        openedBy: 'user',
+      })
+    }
     if (mediaSource && (root || threadId) && !data.poll && !focusAnnotation) {
       return sidePanelHeavyMount ? (
         <RightStageTabErrorBoundary title={name || '媒体预览'}>
@@ -345,6 +354,7 @@ export function renderRightStageBody(
             threadId={threadId}
             workspacePath={root || undefined}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+            onOpenCodeViewer={openFromPreviewBreadcrumb}
           />
         </RightStageTabErrorBoundary>
       ) : (
@@ -366,6 +376,7 @@ export function renderRightStageBody(
             threadId={threadId}
             workspacePath={root || undefined}
             onClose={() => rightStageStore.closeTab(tabKeyOf(surface))}
+            onOpenCodeViewer={openFromPreviewBreadcrumb}
           />
         </RightStageTabErrorBoundary>
       ) : (

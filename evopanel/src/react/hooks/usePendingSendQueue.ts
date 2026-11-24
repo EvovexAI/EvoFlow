@@ -24,8 +24,15 @@ import {
   isSessionExecuting,
   type StopSessionOptions,
 } from '../lib/session-execution/index.js'
-import { getSessionRuntime } from '../lib/session-runtime-store.js'
+import {
+  getSessionRuntime,
+  subscribeSessionRuntime,
+} from '../lib/session-runtime-store.js'
 import type { ChatSessionRow, DisplayRow } from '../chat-types.js'
+import {
+  collectPendingDrainCandidateKeys,
+  patchPendingSendQueueForSession,
+} from './pending-send-queue-session.js'
 
 export type PendingSendItem = { id: string; text: string }
 export type PendingSteerItem = { id: string; messageId: string; text: string; sessionKey: string }
@@ -77,11 +84,14 @@ export function usePendingSendQueue(opts: {
   const interruptSendSteersRef = useRef(false)
   /** interrupt+send 进行中：防快速双触（双 Enter/双 Esc）导致重复 stop+send。 */
   const interruptFlushInFlightRef = useRef(false)
-  const pendingDrainBusyRef = useRef(false)
+  /** 按会话串行 drain，允许 A 后台 drain 同时 B 前台 drain。 */
+  const pendingDrainBusyBySessionRef = useRef(new Set<string>())
   /** busy→idle 后 FE 已闲、LG 仍收尾时延后 drain；按 session 计数，避免僵尸 run 卡死排队。 */
   const pendingDrainLgWaitRef = useRef(new Map<string, number>())
   const PENDING_DRAIN_LG_WAIT_MAX = 24
   const prevTurnBusyForDrainRef = useRef(false)
+  /** 后台会话 busy 边沿：key → wasBusy */
+  const backgroundBusyBySessionRef = useRef(new Map<string, boolean>())
   /** 忙时 ↑ 已入 pending-inject；本轮结束后若尚未被模型消费则 skipAppend 续跑 */
   const midTurnInjectRef = useRef<Array<{ messageId: string; text: string; sessionKey: string }>>([])
 
@@ -95,6 +105,23 @@ export function usePendingSendQueue(opts: {
       })
     },
     [sessionRef],
+  )
+
+  /** 改指定会话的排队桶；仅当前聚焦会话才同步 React state。 */
+  const patchQueueForSession = useCallback(
+    (skRaw: string, updater: (prev: PendingSendItem[]) => PendingSendItem[]) => {
+      const sk = String(skRaw || '').trim()
+      if (!sk) return
+      const focused = sk === queueOwnerSessionRef.current
+      const next = patchPendingSendQueueForSession(
+        queuesBySessionRef.current,
+        sk,
+        updater,
+        focused ? pendingSendQueueRef.current : [],
+      )
+      if (focused) setPendingSendQueueState(next)
+    },
+    [],
   )
 
   const handleQueueWhileBusy = useCallback((text: string) => {
@@ -115,6 +142,8 @@ export function usePendingSendQueue(opts: {
     }
     const next = [...base, { id, text: t }]
     queuesBySessionRef.current.set(owner, next)
+    // 记下「排队时仍 busy」，切走后靠 busy→idle 边沿触发后台 drain
+    backgroundBusyBySessionRef.current.set(owner, true)
     if (owner === queueOwnerSessionRef.current) {
       setPendingSendQueueState(next)
     }
@@ -307,7 +336,7 @@ export function usePendingSendQueue(opts: {
     const merged = texts.join('\n\n').trim()
     const steerTextSet = new Set(texts.map((t) => String(t || '').trim()).filter(Boolean))
     interruptSendSteersRef.current = true
-    pendingDrainBusyRef.current = true
+    pendingDrainBusyBySessionRef.current.add(sk)
     try {
       try {
         await stopSessionExecutionRef.current?.(sk, {
@@ -335,7 +364,7 @@ export function usePendingSendQueue(opts: {
       }
     } finally {
       interruptSendSteersRef.current = false
-      pendingDrainBusyRef.current = false
+      pendingDrainBusyBySessionRef.current.delete(sk)
     }
   }, [sessionRef, stopSessionExecutionRef, handleSendRef, setPendingSendQueue])
 
@@ -379,7 +408,7 @@ export function usePendingSendQueue(opts: {
 
       interruptFlushInFlightRef.current = true
       interruptSendSteersRef.current = true
-      pendingDrainBusyRef.current = true
+      pendingDrainBusyBySessionRef.current.add(sk)
       try {
         try {
           await stopSessionExecutionRef.current?.(sk, {
@@ -398,7 +427,7 @@ export function usePendingSendQueue(opts: {
         }
       } finally {
         interruptSendSteersRef.current = false
-        pendingDrainBusyRef.current = false
+        pendingDrainBusyBySessionRef.current.delete(sk)
         interruptFlushInFlightRef.current = false
       }
     },
@@ -408,12 +437,11 @@ export function usePendingSendQueue(opts: {
   const runPendingDrain = useCallback(
     async (skRaw: string) => {
       const sk = String(skRaw || '').trim()
-      if (!sk || pendingDrainBusyRef.current) return
-      if (String(sessionRef.current || '').trim() !== sk) return
+      if (!sk || pendingDrainBusyBySessionRef.current.has(sk)) return
 
-      const queueForSk =
-        queuesBySessionRef.current.get(sk) ||
-        (sk === queueOwnerSessionRef.current ? pendingSendQueueRef.current : [])
+      const focusedFallback =
+        sk === queueOwnerSessionRef.current ? pendingSendQueueRef.current : []
+      const queueForSk = queuesBySessionRef.current.get(sk) || focusedFallback
       const injects = midTurnInjectRef.current.filter((x) => x.sessionKey === sk)
       const steers = pendingSteersRef.current.filter((s) => s.sessionKey === sk)
       const hasOrphanPendingUi = (
@@ -426,7 +454,7 @@ export function usePendingSendQueue(opts: {
         return
       }
 
-      pendingDrainBusyRef.current = true
+      pendingDrainBusyBySessionRef.current.add(sk)
       try {
         let pendingCount = -1
         let statusItems: Array<{ messageId: string; text: string }> = []
@@ -449,8 +477,6 @@ export function usePendingSendQueue(opts: {
         } catch {
           pendingCount = -1
         }
-
-        if (String(sessionRef.current || '').trim() !== sk) return
 
         if (pendingCount === 0) {
           const localIds = steers.map((s) => s.messageId)
@@ -523,8 +549,8 @@ export function usePendingSendQueue(opts: {
             return false
           }
         }
+        // 后台会话也要延后重试——切走后 LG 仍可能在收尾。
         const deferWhileLgBusy = (): boolean => {
-          if (String(sessionRef.current || '').trim() !== sk) return false
           const waits = pendingDrainLgWaitRef.current.get(sk) || 0
           if (waits >= PENDING_DRAIN_LG_WAIT_MAX) {
             pendingDrainLgWaitRef.current.delete(sk)
@@ -542,6 +568,7 @@ export function usePendingSendQueue(opts: {
             if ((await lgStillGoing()) && deferWhileLgBusy()) return
             pendingDrainLgWaitRef.current.delete(sk)
             await handleSendRef.current(needsContinue.text, undefined, undefined, {
+              sessionKey: sk,
               messageId: needsContinue.messageId,
               skipTranscriptAppend: true,
               alreadyInjected: true,
@@ -570,11 +597,10 @@ export function usePendingSendQueue(opts: {
         // 把上一轮打成「用户停止」。等 Gateway 确认不在跑再发。
         if ((await lgStillGoing()) && deferWhileLgBusy()) return
         pendingDrainLgWaitRef.current.delete(sk)
-        if (String(sessionRef.current || '').trim() !== sk) return
-        setPendingSendQueue((prev) => prev.filter((x) => x.id !== next.id))
-        await handleSendRef.current(next.text)
+        patchQueueForSession(sk, (prev) => prev.filter((x) => x.id !== next.id))
+        await handleSendRef.current(next.text, undefined, undefined, { sessionKey: sk })
       } finally {
-        pendingDrainBusyRef.current = false
+        pendingDrainBusyBySessionRef.current.delete(sk)
       }
     },
     [
@@ -584,7 +610,7 @@ export function usePendingSendQueue(opts: {
       setRows,
       sessionsRef,
       handleSendRef,
-      setPendingSendQueue,
+      patchQueueForSession,
     ],
   )
   const runPendingDrainRef = useRef(runPendingDrain)
@@ -592,6 +618,7 @@ export function usePendingSendQueue(opts: {
 
   // 切换会话：按 session 恢复本地排队；从 DB 恢复未消费 steers
   // 必须先于 busy→idle drain，以免把上一会话 busy 边沿误触发到新会话。
+  // 切走时**不**清上一会话的 lg-wait / drain 锁——后台 drain 可能仍在延后重试。
   useEffect(() => {
     const prevSk = queueOwnerSessionRef.current
     const sk = String(selectedSessionKey || '').trim()
@@ -601,8 +628,6 @@ export function usePendingSendQueue(opts: {
     }
 
     queueOwnerSessionRef.current = sk
-    pendingDrainBusyRef.current = false
-    if (prevSk) pendingDrainLgWaitRef.current.delete(prevSk)
 
     const restored = sk ? queuesBySessionRef.current.get(sk) || [] : []
     setPendingSendQueueState(restored)
@@ -617,7 +642,7 @@ export function usePendingSendQueue(opts: {
     let cancelled = false
     let resumeTimer: ReturnType<typeof setTimeout> | null = null
     if (sk && restored.length && !busy) {
-      // 后台回合已结束时选中态不会再走 busy→idle，切回后补一次 drain
+      // 切回时若本地仍有排队且已闲，补一次 drain（与后台订阅互补）
       resumeTimer = setTimeout(() => {
         if (!cancelled) void runPendingDrainRef.current(sk)
       }, 0)
@@ -653,7 +678,7 @@ export function usePendingSendQueue(opts: {
     }
   }, [selectedSessionKey, sessionsRef])
 
-  // 当前回复结束后：① 未消费的 ↑ 注入续跑；② 再发排队队首
+  // 当前选中会话回复结束后：① 未消费的 ↑ 注入续跑；② 再发排队队首
   useEffect(() => {
     const wasBusy = prevTurnBusyForDrainRef.current
     prevTurnBusyForDrainRef.current = selectedTurnBusy
@@ -662,6 +687,36 @@ export function usePendingSendQueue(opts: {
     if (!sk) return
     void runPendingDrainRef.current(sk)
   }, [selectedTurnBusy, selectedSessionKey, sessionRef])
+
+  // 后台会话 busy→idle：不依赖选中态，有排队/纠偏就 drain。
+  // 用 subscribeSessionRuntime（TURN_IDLE 等会 immediate notify），勿只订 executingList——
+  // 非 immediate 的 coalesced notify 不会打到 executingListListeners。
+  useEffect(() => {
+    const onRuntimeChange = () => {
+      const candidates = collectPendingDrainCandidateKeys({
+        queuesBySession: queuesBySessionRef.current,
+        midTurnInjects: midTurnInjectRef.current,
+        pendingSteers: pendingSteersRef.current,
+      })
+      if (!candidates.length) return
+      const focused = String(sessionRef.current || selectedSessionKey || '').trim()
+      for (const sk of candidates) {
+        const row = sessionsRef.current.find((s) => String(s.sessionKey || '') === sk)
+        const busy = isSessionExecuting(sk, { sessionRow: row })
+        if (!backgroundBusyBySessionRef.current.has(sk)) {
+          // 首次见到该候选：只建边沿快照，不把「已闲」误当成 busy→idle
+          backgroundBusyBySessionRef.current.set(sk, busy)
+          continue
+        }
+        const was = backgroundBusyBySessionRef.current.get(sk) === true
+        backgroundBusyBySessionRef.current.set(sk, busy)
+        // 选中会话仍走上面的 selectedTurnBusy 边沿，避免双触发抢队首
+        if (sk === focused) continue
+        if (was && !busy) void runPendingDrainRef.current(sk)
+      }
+    }
+    return subscribeSessionRuntime(onRuntimeChange)
+  }, [selectedSessionKey, sessionRef, sessionsRef])
 
   return {
     pendingSendQueue,

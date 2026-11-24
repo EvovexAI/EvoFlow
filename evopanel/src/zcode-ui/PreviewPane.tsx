@@ -45,6 +45,10 @@ import type { PdfViewerSource } from "@/components/ui/pdf-viewer.js";
 import { normalizeCodeViewerSource } from "@/lib/codeViewerSource.js";
 import { FileDisplayIcon, resolveFileDisplayDescriptor } from "@/lib/fileDisplay.js";
 import { getPathLeaf, isAbsoluteFilePath } from "@/lib/path.js";
+import {
+  normalizeBreadcrumbPathSegments,
+  resolveCodeViewerBreadcrumbFolderPath,
+} from "@/previewPaneBreadcrumb.js";
 import { decodeBase64ToArrayBuffer, getOfficeFilePreviewKind } from "@/lib/officeFilePreview.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { useFileContextActions } from "@/hooks/useFileContextActions.js";
@@ -102,10 +106,6 @@ const PREVIEW_PANE_DEFERRED_PLACEHOLDER_LINE_WIDTHS = [
   44, 72, 58, 86, 64, 78, 52, 90, 68, 48, 82, 60,
 ] as const;
 const EMPTY_CODE_COMMENT_PREVIEWS: readonly CodeCommentPreview[] = [];
-
-function normalizeBreadcrumbPathSegments(path: string): string[] {
-  return path.replace(/\\/g, "/").split("/").filter(Boolean);
-}
 
 function isMarkdownSource(source: CodeViewerSource): boolean {
   return source.type === "text" && source.language === "markdown";
@@ -1639,6 +1639,26 @@ export function PreviewPane({
     onOpenCodeViewer?.(diffFilePreviewSource);
   };
 
+  const handleBreadcrumbFolderOpen = (target: "root" | number) => {
+    if (!onOpenCodeViewer || !source.path) return;
+    const folderPath = resolveCodeViewerBreadcrumbFolderPath({
+      sourcePath: source.path,
+      workspacePath: sourceWorkspacePath,
+      target,
+    });
+    if (!folderPath) return;
+    onOpenCodeViewer({
+      type: "file",
+      title: getPathLeaf(folderPath) || folderPath,
+      path: folderPath,
+      ...(sourceWorkspacePath ? { workspacePath: sourceWorkspacePath } : {}),
+      ...(source.workspaceIdentity ? { workspaceIdentity: source.workspaceIdentity } : {}),
+      ...(source.workspaceRemoteSessionId
+        ? { workspaceRemoteSessionId: source.workspaceRemoteSessionId }
+        : {}),
+    });
+  };
+
   const deferredBodyStyle: CSSProperties | undefined =
     !renderHeavyContent && preservedScrollMetricsRef.current.scrollHeight > 0
       ? {
@@ -1669,14 +1689,36 @@ export function PreviewPane({
             className="flex min-w-max items-center px-3 gap-0.5 text-ui-base text-foreground-subtle"
           >
             {breadcrumb?.rootLabel ? (
-              <span className="shrink-0 text-foreground-subtle">{breadcrumb.rootLabel}</span>
+              onOpenCodeViewer && source.path ? (
+                <button
+                  type="button"
+                  className="shrink-0 rounded-sm text-foreground-subtle hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+                  onClick={() => handleBreadcrumbFolderOpen("root")}
+                  title={intl.formatMessage({ id: "git.changeContext.revealInFileTree" })}
+                >
+                  {breadcrumb.rootLabel}
+                </button>
+              ) : (
+                <span className="shrink-0 text-foreground-subtle">{breadcrumb.rootLabel}</span>
+              )
             ) : null}
             {breadcrumb?.rootLabel ? (
               <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
             ) : null}
             {breadcrumb?.parentSegments.map((segment, index) => (
               <Fragment key={`${segment}-${index}`}>
-                <span className="shrink-0">{segment}</span>
+                {onOpenCodeViewer && source.path ? (
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-sm text-foreground-subtle hover:text-foreground hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-input-border-focused"
+                    onClick={() => handleBreadcrumbFolderOpen(index)}
+                    title={intl.formatMessage({ id: "git.changeContext.revealInFileTree" })}
+                  >
+                    {segment}
+                  </button>
+                ) : (
+                  <span className="shrink-0">{segment}</span>
+                )}
                 <ChevronRightIcon className="size-3.5 shrink-0 text-foreground-subtlest" />
               </Fragment>
             ))}

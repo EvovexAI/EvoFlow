@@ -1,4 +1,10 @@
-"""LLM duty wrap-up reflection — distill shift evidence into person state.
+"""LLM duty wrap-up reflection helpers (retired from forced duty path).
+
+Historically the system ran a second LLM after each duty round and forced writes
+into Person Kernel SQLite + Asset Hub (``mirror_wrap_up_to_asset_hub``).
+That path is **disabled**: employees should only persist experience/reflection
+via the voluntary ``assets`` tool during work. Helpers remain for unit tests /
+manual scripts; ``run_person_wrap_up_llm*`` no-ops.
 
 Prompt lineage (adapted, not copied wholesale):
 - evoflow-inner-life journal.md — What happened / understood / shifted / next + 2–3 line state summary
@@ -701,42 +707,17 @@ def run_person_wrap_up_llm(
     model_name: str | None = None,
     source: str = "duty_llm",
 ) -> dict[str, Any]:
-    """Sync LLM wrap-up (submit_work / scripts)."""
-    from evoflow.persistence import config_repositories as cfg_repo
-    from evoflow.persistence import person_memory_repositories as pm_repo
-    from evoflow.persistence import person_relations_repositories as rel_repo
-    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
-
+    """Sync LLM wrap-up — **disabled** (no forced Person Kernel / Asset Hub writes)."""
+    _ = (statements, role_name, environment_context, run_error, model_name, source)
     code = str(agent_code or "").strip().lower()
-    rid = str(round_id or "").strip()
     if not code:
         return {"ok": False, "error": "missing agent_code"}
-    if rid and wrap_up_already_recorded(code, rid):
-        return {"ok": True, "skipped": True, "reason": "already_recorded_for_round"}
-
-    identity = (cfg_repo.get_agent_identity(code) or "")[:400]
-    recent = [str(r.get("content") or "") for r in pm_repo.list_person_memory(code, limit=5, layer="journal")]
-    user = build_person_wrap_up_user_prompt(
-        agent_code=code,
-        role_name=role_name,
-        as_of_date=_beijing_today(),
-        identity_excerpt=identity,
-        recent_journals=recent,
-        statements=statements,
-        environment_context=environment_context,
-        run_error=run_error,
-        open_commitments=rel_repo.count_open_commitments(code),
-        affect=rel_repo.get_affect(code),
-    )
-    try:
-        raw = _invoke_chat(system=PERSON_WRAP_UP_SYSTEM, user=user, model_name=model_name)
-    except Exception as exc:
-        logger.warning("person wrap_up llm failed agent=%s: %s", code, exc, exc_info=True)
-        return {"ok": False, "error": f"llm_failed:{exc}"}
-    parsed = parse_wrap_up_llm_result(raw)
-    if not parsed:
-        return {"ok": False, "error": "parse_failed", "raw": str(raw)[:500]}
-    return apply_llm_wrap_up_result(code, parsed, round_id=rid, source=source)
+    return {
+        "ok": True,
+        "skipped": True,
+        "reason": "voluntary_assets_only",
+        "round_id": str(round_id or "").strip(),
+    }
 
 
 async def run_person_wrap_up_llm_async(
@@ -750,39 +731,14 @@ async def run_person_wrap_up_llm_async(
     model_name: str | None = None,
     source: str = "duty_llm",
 ) -> dict[str, Any]:
-    """Async LLM wrap-up for duty engine."""
-    from evoflow.persistence import config_repositories as cfg_repo
-    from evoflow.persistence import person_memory_repositories as pm_repo
-    from evoflow.persistence import person_relations_repositories as rel_repo
-    from evoflow.person_kernel import _beijing_today, wrap_up_already_recorded
-
-    code = str(agent_code or "").strip().lower()
-    rid = str(round_id or "").strip()
-    if not code:
-        return {"ok": False, "error": "missing agent_code"}
-    if rid and wrap_up_already_recorded(code, rid):
-        return {"ok": True, "skipped": True, "reason": "already_recorded_for_round"}
-
-    identity = (cfg_repo.get_agent_identity(code) or "")[:400]
-    recent = [str(r.get("content") or "") for r in pm_repo.list_person_memory(code, limit=5, layer="journal")]
-    user = build_person_wrap_up_user_prompt(
-        agent_code=code,
-        role_name=role_name,
-        as_of_date=_beijing_today(),
-        identity_excerpt=identity,
-        recent_journals=recent,
+    """Async LLM wrap-up — **disabled** (same as sync)."""
+    return run_person_wrap_up_llm(
+        agent_code,
         statements=statements,
+        round_id=round_id,
+        role_name=role_name,
         environment_context=environment_context,
         run_error=run_error,
-        open_commitments=rel_repo.count_open_commitments(code),
-        affect=rel_repo.get_affect(code),
+        model_name=model_name,
+        source=source,
     )
-    try:
-        raw = await _ainvoke_chat(system=PERSON_WRAP_UP_SYSTEM, user=user, model_name=model_name)
-    except Exception as exc:
-        logger.warning("person wrap_up llm async failed agent=%s: %s", code, exc, exc_info=True)
-        return {"ok": False, "error": f"llm_failed:{exc}"}
-    parsed = parse_wrap_up_llm_result(raw)
-    if not parsed:
-        return {"ok": False, "error": "parse_failed", "raw": str(raw)[:500]}
-    return apply_llm_wrap_up_result(code, parsed, round_id=rid, source=source)

@@ -89,6 +89,7 @@ export default defineConfig({
       'tests/preview-doc-parsers.test.js',
       'tests/preview-pane-text-wrap-default.test.ts',
       'tests/preview-pane-code-review.test.ts',
+      'tests/preview-pane-breadcrumb-path.test.ts',
       'tests/workspace-recent-sections.test.js',
       'tests/zcode-theme-host-scope.test.ts',
       'tests/workspace-file-preview-view-toggle.test.tsx',
@@ -240,6 +241,7 @@ export default defineConfig({
       // 【self-evolution-bot · 2026-11-22 · 第127轮 · 模型:deepseek-v4.1-flash】
       // 平台排队的首条消息：面板忙时必须 hold（不许 return 丢消息），且只有发送成功才清签。
       'tests/pending-send-gate.test.js',
+      'tests/pending-send-queue-session.test.ts',
       'tests/assets-file-prefetch.test.js',
       'tests/task-tree.test.js',
       'tests/ui-extension-manifest.test.js',

@@ -6197,6 +6197,7 @@ export function useChatAppController() {
       voiceInitiated?: boolean
       goalInitiated?: boolean
       goalSessionKey?: string
+      sessionKey?: string
       messageId?: string
       skipTranscriptAppend?: boolean
       alreadyInjected?: boolean

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.53] - 2026-11-24
+
+相对 **1.3.52**：阿里云/火山 Coding Plan；员工页布局；右栏路径愈合；预览面包屑；待发送队列按会话隔离。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.53.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **Coding Plan**：阿里云、火山 Coding Plan 套餐与对话模型档
+
+### Fixed
+
+- **右栏打开路径**：工作区文件路径愈合更稳
+- **预览面包屑**：路径展示与跳转更清楚
+- **待发送队列**：按会话隔离，减少串会话误发
+
+### Changed
+
+- **智能员工页**：身份与能力速览前置，交工/审核/巡检分区更清楚
+- **Plan 目录**：套餐目录同步 Coding Plan
+
+
 ## [1.3.52] - 2026-11-24
 
 相对 **1.3.51**：全局右栏宿主；小 V 进主对话改走对话右栏；窄栏排版与员工过程页签。

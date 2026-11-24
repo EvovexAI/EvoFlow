@@ -22,6 +22,11 @@ export type HandleSendOpts = {
   voiceInitiated?: boolean
   goalInitiated?: boolean
   goalSessionKey?: string
+  /**
+   * 显式目标会话（后台排队 drain / 非当前选中会话续发）。
+   * 优先于 sessionRef / selectedSessionKey；与 goalSessionKey 二选一即可。
+   */
+  sessionKey?: string
   messageId?: string
   skipTranscriptAppend?: boolean
   alreadyInjected?: boolean
@@ -187,12 +192,19 @@ export async function handleSend(
       voiceSpeechSyncedPlainRef.current = ''
     }
     const preserveCollabOnSendEarly = isUserExecutionStartIntent(message)
-    const skBusy = String(sessionRef.current || '').trim()
-    const rowBusy = skBusy
-      ? sessionsRef.current.find((s) => String(s.sessionKey || '') === skBusy)
-      : null
+    // 先定目标会话，再按「目标会话」判忙——后台排队 drain 时当前选中会话可能另有回合在跑。
+    let sessionKey = String(opts?.sessionKey || opts?.goalSessionKey || '').trim()
+      || (sessionRef.current || selectedSessionKey || '').trim()
+    if (!sessionKey) {
+      if (pendingNewSessionRef.current && getGlobalCreateSessionInflight()) {
+        await getGlobalCreateSessionInflight()
+      }
+      sessionKey = (await ensureChatSessionKey()) || ''
+      if (!sessionKey) return
+    }
+    const rowBusy = sessionsRef.current.find((s) => String(s.sessionKey || '') === sessionKey) || null
     if (
-      isSessionExecuting(skBusy, { sessionRow: rowBusy }) &&
+      isSessionExecuting(sessionKey, { sessionRow: rowBusy }) &&
       !preserveCollabOnSendEarly &&
       !opts?.goalInitiated &&
       // ↑ 注入续跑：消息已在 transcript/队列，必须开新 run；勿被残留 busy/probe 拦住
@@ -205,12 +217,6 @@ export async function handleSend(
     chatSendSeqRef.current = sendSeq
     if (pendingNewSessionRef.current && getGlobalCreateSessionInflight()) {
       await getGlobalCreateSessionInflight()
-    }
-    let sessionKey = String(opts?.goalSessionKey || '').trim()
-      || (sessionRef.current || selectedSessionKey || '').trim()
-    if (!sessionKey) {
-      sessionKey = (await ensureChatSessionKey()) || ''
-      if (!sessionKey) return
     }
     ssLog('send.session', {
       sendSeq,

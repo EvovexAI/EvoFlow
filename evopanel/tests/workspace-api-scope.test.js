@@ -131,6 +131,61 @@ describe('workspace path normalization', () => {
     }
   })
 
+  it('heals projects/ cites across showcase sibling skill trees', async () => {
+    const { setChatWorkspaceRoot } = await import('../src/lib/chat-workspace-context.js')
+    const {
+      healWorkspaceOpenPath,
+      extractProjectsRelativeSuffix,
+      inferWorkspaceRootFromHealedPath,
+    } = await import('../src/lib/right-stage/heal-workspace-open-path.ts')
+    const bound =
+      'D:/dev/github/knowledge-library/ai-showcase/aigc/infinite-canvas'
+    const real =
+      'D:/dev/github/knowledge-library/ai-showcase/ai-creative-ad-video/projects/火锅15s-20261124/打码版10张-第2段15秒-豆包直接粘.txt'
+    const wrong = `${bound}/projects/火锅15s-20261124/打码版10张-第2段15秒-豆包直接粘.txt`
+    setChatWorkspaceRoot(bound)
+    const apiMod = await import('../src/lib/tauri-api.js')
+    const api = apiMod.api
+    const origResolve = api.resolveWorkspaceTarget
+    const origSearch = api.searchWorkspaceFiles
+    api.resolveWorkspaceTarget = async (root, path) => {
+      const p = String(path || '').replace(/\\/g, '/')
+      const r = String(root || '').replace(/\\/g, '/')
+      if (p === real || (r.includes('ai-creative-ad-video') && p.includes('打码版10张'))) {
+        return { exists: true, resolved: real }
+      }
+      return { exists: false, resolved: p }
+    }
+    api.searchWorkspaceFiles = async (root) => {
+      const r = String(root || '').replace(/\\/g, '/')
+      if (r.endsWith('/ai-showcase') || r.endsWith('/ai-creative-ad-video')) {
+        return {
+          files: [
+            {
+              name: '打码版10张-第2段15秒-豆包直接粘.txt',
+              path: real,
+            },
+          ],
+        }
+      }
+      return { files: [] }
+    }
+    try {
+      expect(extractProjectsRelativeSuffix(wrong)).toBe(
+        'projects/火锅15s-20261124/打码版10张-第2段15秒-豆包直接粘.txt',
+      )
+      const healed = await healWorkspaceOpenPath(wrong, { workspaceRoot: bound })
+      expect(healed.replace(/\\/g, '/')).toBe(real)
+      expect(inferWorkspaceRootFromHealedPath(healed, bound).replace(/\\/g, '/')).toBe(
+        'D:/dev/github/knowledge-library/ai-showcase/ai-creative-ad-video',
+      )
+    } finally {
+      api.resolveWorkspaceTarget = origResolve
+      api.searchWorkspaceFiles = origSearch
+      setChatWorkspaceRoot('')
+    }
+  })
+
   it('opens chat media paths as type:media like the file tree', async () => {
     const { buildRightStageMediaSource } = await import(
       '../src/lib/right-stage/open-right-stage-file.ts'

@@ -1521,6 +1521,22 @@ export function ShellSessionList({
   // 工作区分组树（对齐 ZCode WorkspaceSidebar）：多工作区时 recent 列表按组折叠显示，
   // 组头 = 图标 + 组名（员工 tab 用头像 + 员工名）+ 会话数；单组/聚焦组不折叠（保持原行为）。
   const [collapsedGroupKeys, setCollapsedGroupKeys] = useState<Set<string>>(() => new Set())
+
+  // 下拉聚焦单个 BOT：清掉该组折叠态并保持展开。否则「全部 BOT」时若曾点折叠，
+  // 再选中该 BOT 后列表仍收着，还要再点一次组头才展开。
+  useEffect(() => {
+    const code = String(focusedEmployeeCode || '').trim()
+    if (!code) return
+    const key = normalizeEmployeeCodeKey(code)
+    if (!key) return
+    setCollapsedGroupKeys((prev) => {
+      if (!prev.has(key)) return prev
+      const next = new Set(prev)
+      next.delete(key)
+      return next
+    })
+  }, [focusedEmployeeCode])
+
   const groupedRecentSections = useMemo(() => {
     if (isEmployeesTab) {
       // 下拉选中单个 BOT：仍渲染组头（头像/刷新/新开），否则「全部」时挂在组头上的
@@ -2451,13 +2467,24 @@ export function ShellSessionList({
               <ul className="react-chat-session-recent-list">
                 {groupedRecentSections
                   ? groupedRecentSections.map((section) => {
-                      const collapsed = collapsedGroupKeys.has(section.key)
+                      // 聚焦单个 BOT：组头保留（刷新/新开），会话列表强制展开（对齐注释「聚焦组不折叠」）
+                      const focusedBot =
+                        isEmployeesTab &&
+                        !!focusedEmployeeCode &&
+                        normalizeEmployeeCodeKey(section.key) ===
+                          normalizeEmployeeCodeKey(focusedEmployeeCode)
+                      const collapsed = focusedBot
+                        ? false
+                        : collapsedGroupKeys.has(section.key)
                       return (
                         <li key={`ws-${section.key}`} className="react-chat-session-ws-group">
                           <div
                             className="group/ws flex h-6 min-w-0 cursor-pointer items-center gap-2 rounded-lg pl-2 pr-1 transition-colors hover:bg-surface-hover"
                             data-ws-group-head={section.key}
-                            onClick={() => toggleGroupCollapsed(section.key)}
+                            onClick={() => {
+                              if (focusedBot) return
+                              toggleGroupCollapsed(section.key)
+                            }}
                             onPointerDown={(e) => handleWorkspaceGroupHeadPointerDown(section.key, e)}
                           >
                             <span className="relative flex size-3.5 shrink-0 items-center justify-center">

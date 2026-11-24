@@ -3355,21 +3355,6 @@ export const api = {
       days,
       ...(runProbes ? { run_probes: true } : {}),
     }),
-  /** Person Kernel: identity + lessons + soul changelog + craft */
-  proactiveRoleGrowth: async (code, limit = 30) =>
-    gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(code || ''))}/growth`, null, {
-      limit,
-    }),
-  proactiveRoleProposalApprove: async (code, proposalId) =>
-    gatewayProxy(
-      'POST',
-      `/proactive/roles/${encodeURIComponent(String(code || ''))}/proposals/${encodeURIComponent(String(proposalId || ''))}/approve`,
-    ),
-  proactiveRoleProposalReject: async (code, proposalId) =>
-    gatewayProxy(
-      'POST',
-      `/proactive/roles/${encodeURIComponent(String(code || ''))}/proposals/${encodeURIComponent(String(proposalId || ''))}/reject`,
-    ),
   proactiveRoleCost: async (code, days = 7) =>
     gatewayProxy('GET', `/proactive/roles/${encodeURIComponent(String(code || ''))}/cost`, null, { days }),
   proactiveGetMemory: async (code) =>

@@ -1340,6 +1340,8 @@ async function fillEmployeePage(page, code, { autoPatrol = false, autoLive = fal
       busy,
       agent: capability.agent,
       capabilityChips: capability.chips,
+      mcpHealthRows: capability.mcpHealthRows || [],
+      knowledgeVaults: Array.isArray(knowledgeVaults) ? knowledgeVaults : [],
       memory,
       cost,
       performance,
@@ -1672,7 +1674,17 @@ function renderMcpWorkbenchPanel(mcpHealthRows = []) {
 function renderRoleProfile(
   role,
   initiatives,
-  { busy = false, agent = null, capabilityChips = [], memory = null, cost = null, performance = null, schedulePreview = null, mcpHealthRows = [] } = {},
+  {
+    busy = false,
+    agent = null,
+    capabilityChips = [],
+    memory = null,
+    cost = null,
+    performance = null,
+    schedulePreview = null,
+    mcpHealthRows = [],
+    knowledgeVaults = [],
+  } = {},
 ) {
   const code = role.agent_code
   const cfg = role.config || {}
@@ -1684,6 +1696,9 @@ function renderRoleProfile(
   const autonomy = AUTONOMY_LABEL[cfg.autonomy_level] || cfg.autonomy_level || '—'
   const autonomyHint =
     AUTONOMY_HINT[cfg.autonomy_level] || AUTONOMY_HINT.approval_for_risky
+  const thinkLabel = cfg.think_mode === 'prompt_only' ? '轻量工作' : '深度工作'
+  const modelName = String(cfg.model_name || '').trim()
+  const ws = workspaceOf(role)
   const resp = Array.isArray(cfg.responsibilities) ? cfg.responsibilities.filter(Boolean) : []
   // 职责已并进智能体 system_prompt：优先回显旧职责列表；否则展示提示词摘要。
   const promptPreview = roleSystemPromptPreview(
@@ -1702,17 +1717,11 @@ function renderRoleProfile(
     heroDutyHtml = `<p class="pro-duty-sheet-prompt" title="系统提示词摘要">${esc(promptPreview)}</p>`
   }
 
-  // Hero 能力标签 + 工作量；频率只在「自动巡检时间」折叠里出现一次
-  const sheetStats = [
-    ...capabilityChips.map((c) => ({
-      label: c.label,
-      tip: c.tip || '',
-    })),
-    {
-      label: `${stats.total} 个工作项`,
-      tip: '本岗工作项总数：这个员工处理过的所有任务数。',
-    },
-  ]
+  // Hero 只留身份 + 能力速览；工作量放到「详细信息」
+  const sheetStats = capabilityChips.map((c) => ({
+    label: c.label,
+    tip: c.tip || '',
+  }))
 
   const field = (label, valueHtml, span = false) =>
     `<div class="detail-field"${span ? ' style="grid-column:1/-1"' : ''}>
@@ -1770,10 +1779,57 @@ function renderRoleProfile(
     { title: '即将自动巡检', hideSummary: true },
   )
 
-  // 职责已在 hero；岗位概要只放审批 / 花费 / 概况 / 记忆，避免再抄一遍频率与职责
-  const overviewBody = `<div class="detail-grid pro-duty-sheet-grid">
-          ${field('岗位名称', esc(role.role_name || '—'))}
-          ${field('智能体标识', `<code>${esc(code)}</code>`)}
+  const vaultIds = Array.isArray(cfg.knowledge_vault_ids)
+    ? cfg.knowledge_vault_ids.map((x) => String(x || '').trim()).filter(Boolean)
+    : []
+  const vaultById = new Map(
+    (Array.isArray(knowledgeVaults) ? knowledgeVaults : []).map((v) => [
+      String(v.id || '').trim(),
+      String(v.name || v.id || '').trim(),
+    ]),
+  )
+  const knowledgeHtml = vaultIds.length
+    ? `<div class="pro-role-tags">${vaultIds
+        .map((id) => {
+          const name = vaultById.get(id) || id
+          const tip = vaultById.get(id) ? id : ''
+          return `<span class="pro-tag" title="${esc(tip || name)}">${esc(name)}</span>`
+        })
+        .join('')}</div>`
+    : '<span class="pro-item-muted">未关联</span>'
+
+  const skillsToolsHtml = capabilityChips.length
+    ? `<div class="pro-role-tags">${capabilityChips
+        .map((c) => `<span class="pro-tag" title="${esc(c.tip || '')}">${esc(c.label)}</span>`)
+        .join('')}</div>`
+    : '<span class="pro-item-muted">暂无</span>'
+
+  // 中间区主读：先看「能干什么」，再看交工 / 审核 / 巡检
+  const basicsMeta = [
+    ws ? pathBasename(ws) : '未绑工作空间',
+    modelName || '默认模型',
+  ].join(' · ')
+  const basicsBody = `<div class="detail-grid pro-duty-sheet-grid">
+          ${field(
+            '工作空间',
+            ws
+              ? `<span title="${esc(ws)}">${esc(pathBasename(ws))}</span>`
+              : '<span class="pro-patrol-warn">未绑定</span>',
+          )}
+          ${field('工作模型', esc(modelName || '跟随智能体默认'))}
+          ${field('工作方式', esc(thinkLabel))}
+          ${field('技能与工具', skillsToolsHtml, true)}
+          ${field('知识库', knowledgeHtml, true)}
+        </div>`
+
+  const detailMeta = [
+    autonomy,
+    scheduleLabel || '',
+    role.next_heartbeat_at ? `下次 ${fmtTime(role.next_heartbeat_at)}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ')
+  const detailBody = `<div class="detail-grid pro-duty-sheet-grid">
           ${field(
             AUTONOMY_FIELD_LABEL,
             `<span title="${esc(autonomyHint)}">${esc(autonomy)}</span>`,
@@ -1788,15 +1844,10 @@ function renderRoleProfile(
             true,
           )}
           ${field('值班记忆', memBlock, true)}
-        </div>`
-
-  const foldMeta = autonomy
-  const nextDutyMeta = [
-    scheduleLabel || '',
-    role.next_heartbeat_at ? `下次 ${fmtTime(role.next_heartbeat_at)}` : '',
-  ]
-    .filter(Boolean)
-    .join(' · ')
+          ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
+          ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
+        </div>
+        ${schedulePreviewHtml}`
 
   return `
     <section class="pro-duty-sheet" aria-label="岗位信息">
@@ -1834,40 +1885,38 @@ function renderRoleProfile(
             ${dept ? `<span class="pro-duty-sheet-sep">·</span><span>${esc(dept)}</span>` : ''}
           </p>
           ${heroDutyHtml}
-          <div class="pro-duty-sheet-stats">
+          ${
+            sheetStats.length
+              ? `<div class="pro-duty-sheet-stats">
             ${sheetStats
               .map(
                 (s) =>
                   `<span class="pro-duty-sheet-stat pro-chip-tip" data-tip="${esc(s.tip || '')}">${esc(s.label)}</span>`,
               )
               .join('')}
-          </div>
+          </div>`
+              : ''
+          }
           ${renderMcpWorkbenchPanel(mcpHealthRows)}
         </div>
       </div>
 
       <div class="pro-duty-sheet-body" data-role="overview-folds">
-        <details class="pro-duty-fold" data-fold="schedule" open>
+        <details class="pro-duty-fold" data-fold="basics" open>
           <summary class="pro-duty-fold-sum">
-            <span class="pro-duty-fold-title">自动巡检时间</span>
-            <span class="pro-duty-fold-meta">${esc(nextDutyMeta || '未设周期')}</span>
+            <span class="pro-duty-fold-title">基础信息</span>
+            <span class="pro-duty-fold-meta">${esc(basicsMeta)}</span>
             <span class="pro-duty-fold-chev" aria-hidden="true"></span>
           </summary>
-          <div class="pro-duty-fold-body">
-            <div class="detail-grid pro-duty-sheet-grid">
-              ${field('上次巡检', esc(fmtTime(role.last_heartbeat_at)))}
-              ${field('下次自动巡检', esc(fmtTime(role.next_heartbeat_at)))}
-            </div>
-            ${schedulePreviewHtml}
-          </div>
+          <div class="pro-duty-fold-body">${basicsBody}</div>
         </details>
-        <details class="pro-duty-fold" data-fold="overview">
+        <details class="pro-duty-fold" data-fold="detail" open>
           <summary class="pro-duty-fold-sum">
-            <span class="pro-duty-fold-title">岗位概要</span>
-            <span class="pro-duty-fold-meta">${esc(foldMeta)}</span>
+            <span class="pro-duty-fold-title">详细信息</span>
+            <span class="pro-duty-fold-meta">${esc(detailMeta)}</span>
             <span class="pro-duty-fold-chev" aria-hidden="true"></span>
           </summary>
-          <div class="pro-duty-fold-body">${overviewBody}</div>
+          <div class="pro-duty-fold-body">${detailBody}</div>
         </details>
       </div>
       <p class="page-desc" data-hero-desc hidden>${esc(heroDesc(role, initiatives))}</p>
@@ -2233,6 +2282,8 @@ function patchRoleProfile(page, role, initiatives, opts = {}) {
     busy: opts.busy ?? false,
     agent: opts.agent ?? prev.agent ?? null,
     capabilityChips: opts.capabilityChips ?? prev.capabilityChips ?? [],
+    mcpHealthRows: opts.mcpHealthRows ?? prev.mcpHealthRows ?? [],
+    knowledgeVaults: opts.knowledgeVaults ?? prev.knowledgeVaults ?? [],
     memory: opts.memory ?? prev.memory ?? null,
     cost: opts.cost ?? prev.cost ?? null,
     performance: opts.performance ?? prev.performance ?? null,
@@ -2241,7 +2292,11 @@ function patchRoleProfile(page, role, initiatives, opts = {}) {
   page._dutyProfileCtx = next
   const foldOpen = readDutyFoldOpen(slot)
   slot.innerHTML = renderRoleProfile(role, initiatives, next)
-  applyDutyFoldOpen(slot, foldOpen)
+  // 折叠 id 从 schedule/overview 迁到 basics/detail：旧 open 集合对不上时用默认展开
+  const known = new Set(['basics', 'detail'])
+  const mapped =
+    foldOpen && [...foldOpen].some((id) => known.has(id)) ? foldOpen : null
+  applyDutyFoldOpen(slot, mapped)
 }
 
 /** 新手引导卡：员工还没跑过任何工作时显示 */
@@ -2527,7 +2582,6 @@ function renderEmployeeShell(
   }
   const tabs = [
     { key: 'rounds', label: '巡检记录' },
-    { key: 'growth', label: '成长' },
     { key: 'metrics', label: '运行数据' },
     { key: 'config', label: '配置' },
   ]
@@ -2553,7 +2607,17 @@ function renderEmployeeShell(
     </div>
 
     <div data-role-profile>
-      ${renderRoleProfile(role, initiatives, { busy, agent, capabilityChips, mcpHealthRows, memory, cost, performance, schedulePreview })}
+      ${renderRoleProfile(role, initiatives, {
+        busy,
+        agent,
+        capabilityChips,
+        mcpHealthRows,
+        knowledgeVaults,
+        memory,
+        cost,
+        performance,
+        schedulePreview,
+      })}
     </div>
 
     <div class="pro-employee-alerts" data-role="employee-alerts">
@@ -2584,11 +2648,6 @@ function renderEmployeeShell(
             view: 'diary',
             listStatus: 'all',
           })}
-        </div>
-      </div>
-      <div class="pro-employee-panel" data-panel="growth" hidden>
-        <div class="pro-employee-growth" data-role="growth-host">
-          <div class="pro-muted" style="padding:16px">加载成长记录…</div>
         </div>
       </div>
       <div class="pro-employee-panel" data-panel="metrics" hidden>
@@ -3172,9 +3231,9 @@ function paintEmployeeWorkBody(page, role, initiatives, { highlightRoundId = '' 
 
 function setEmployeeTab(page, role, tabKey) {
   let key = String(tabKey || 'rounds')
-  // 旧 Tab 名兼容
-  if (key === 'overview' || key === 'tasks') key = 'rounds'
-  if (!['rounds', 'growth', 'metrics', 'config'].includes(key)) key = 'rounds'
+  // 旧 Tab 名兼容（growth 已退役 → 资产中心）
+  if (key === 'overview' || key === 'tasks' || key === 'growth') key = 'rounds'
+  if (!['rounds', 'metrics', 'config'].includes(key)) key = 'rounds'
   page._employeeTab = key
   page.querySelectorAll('[data-act="employee-tab"]').forEach((btn) => {
     const on = btn.getAttribute('data-tab') === key
@@ -3188,401 +3247,6 @@ function setEmployeeTab(page, role, tabKey) {
   })
   if (key === 'rounds') {
     paintEmployeeWorkBody(page, role, page._initiatives || [])
-  }
-  if (key === 'growth') {
-    void loadEmployeeGrowthPanel(page, role)
-  }
-}
-
-function renderGrowthPanelHtml(data) {
-  const identity = String(data?.identity_md || '').trim()
-  const lessons = String(data?.lessons || '').trim()
-  const changelog = Array.isArray(data?.changelog) ? data.changelog : []
-  // person_memory kept on API for back-compat; UI uses timeline / semantic_self views
-  const proposals = Array.isArray(data?.proposals) ? data.proposals : []
-  const drafts = proposals.filter((p) => String(p.status || '') === 'draft')
-  const relations = Array.isArray(data?.relations) ? data.relations : []
-  const opens = Array.isArray(data?.open_commitments) ? data.open_commitments : []
-  const openCount = Number(data?.open_commitment_count || opens.length || 0)
-  const craft = Array.isArray(data?.craft) ? data.craft : []
-  const craftGrad = Number(data?.craft_graduated_count || 0)
-  const craftProp = Number(data?.craft_proposed_count || 0)
-  const aff = data?.affect && typeof data.affect === 'object' ? data.affect : {}
-  const poi = Number(data?.poignancy)
-  const poiShow = Number.isFinite(poi) ? poi.toFixed(2) : '0.00'
-  const refTheme = String(data?.last_reflection_theme || '').trim()
-  const refAt = String(data?.last_reflection_at || '')
-    .slice(0, 19)
-    .replace('T', ' ')
-  const wrap = data?.latest_wrap_up && typeof data.latest_wrap_up === 'object' ? data.latest_wrap_up : null
-  const wrapJournal = String(wrap?.journal || '').trim()
-  const wrapMood = String(wrap?.mood || '').trim()
-  const wrapArc = String(wrap?.arc_label || '').trim()
-  const wrapState = String(wrap?.state_summary || '').trim()
-  const wrapUnresolved = Array.isArray(wrap?.unresolved) ? wrap.unresolved.filter(Boolean) : []
-  const wrapInsights = Array.isArray(wrap?.insights) ? wrap.insights : []
-  const wrapAt = String(wrap?.created_at || '')
-    .slice(0, 19)
-    .replace('T', ' ')
-  const wrapPoi = wrap?.poignancy != null && Number.isFinite(Number(wrap.poignancy))
-    ? String(wrap.poignancy)
-    : ''
-  const timeline = Array.isArray(data?.timeline) ? data.timeline : []
-  const semanticSelf = Array.isArray(data?.semantic_self) ? data.semantic_self : []
-  const overviewData = data?.overview && typeof data.overview === 'object' ? data.overview : {}
-  const journalCount = Number(overviewData.journal_count || timeline.length || 0)
-  const semanticCount = Number(overviewData.semantic_count || semanticSelf.length || 0)
-
-  const memorySourceLabel = (src) => {
-    const s = String(src || '').toLowerCase()
-    if (s.includes('state_summary')) return '站立摘要'
-    if (s.includes('insight')) return '洞察'
-    if (s.includes('llm')) return '模型复盘'
-    if (s.startsWith('duty') || s === 'wrap_up') return '收工'
-    if (s.includes('reflection')) return '反思'
-    return String(src || '记忆').slice(0, 16)
-  }
-
-  const axis = (k, label) => {
-    const v = Number(aff[k])
-    const show = Number.isFinite(v) ? v.toFixed(2) : '—'
-    return `<span class="pro-growth-chip">${esc(label)} <b>${esc(show)}</b></span>`
-  }
-
-  const section = (title, body, extraHead = '') => `
-    <section class="pro-growth-section">
-      <div class="pro-growth-section-head">
-        <h3>${esc(title)}</h3>
-        ${extraHead}
-      </div>
-      <div class="pro-growth-section-body">${body}</div>
-    </section>`
-
-  const empty = (text) => `<p class="pro-growth-empty">${esc(text)}</p>`
-
-  const listHtml = (rows, mapFn) =>
-    rows.length
-      ? `<ul class="pro-growth-log">${rows.map(mapFn).join('')}</ul>`
-      : ''
-
-  // —— 概览 ——
-  const overview = `
-    <div class="pro-growth-overview">
-      <div class="pro-growth-overview-main">
-        ${wrapJournal ? `<span class="pro-growth-pill is-on">最近模型复盘</span>` : `<span class="pro-growth-pill">尚无复盘</span>`}
-        ${wrapMood ? `<span class="pro-growth-pill is-on">${esc(wrapMood)}</span>` : ''}
-        ${wrapArc ? `<span class="pro-growth-pill">${esc(wrapArc)}</span>` : ''}
-        <span class="pro-growth-pill">反思积压 ${esc(poiShow)}/1</span>
-        <span class="pro-growth-pill">承诺 ${esc(String(openCount))}</span>
-        <span class="pro-growth-pill">专长 ${esc(String(craftGrad || craft.length))}</span>
-        <span class="pro-growth-pill">日记 ${esc(String(journalCount))}</span>
-        ${drafts.length ? `<span class="pro-growth-pill is-warn">待批 ${esc(String(drafts.length))}</span>` : ''}
-      </div>
-    </div>
-    <div class="pro-growth-affect-row" title="职场情绪态（收工模型可微调）">
-      ${axis('curiosity', '好奇')}
-      ${axis('confidence', '把握')}
-      ${axis('pressure', '压力')}
-      ${axis('connection', '连结')}
-      ${axis('frustration', '受挫')}
-      ${axis('energy', '精力')}
-    </div>`
-
-  // —— 最近 LLM 收工（主区块） ——
-  let wrapBody
-  if (wrapJournal || wrapState) {
-    const metaLine = [
-      wrapAt ? `时间 ${wrapAt}` : '',
-      wrapPoi ? `重要度 ${wrapPoi}/10` : '',
-      wrap?.source ? `来源 ${memorySourceLabel(wrap.source)}` : '',
-      wrap?.round_id ? `轮次 ${String(wrap.round_id).slice(0, 36)}` : '',
-    ]
-      .filter(Boolean)
-      .join(' · ')
-    wrapBody =
-      (metaLine ? `<p class="pro-growth-inline pro-muted">${esc(metaLine)}</p>` : '') +
-      (wrapJournal
-        ? `<div class="pro-growth-block"><div class="pro-growth-label">心智日记</div><pre class="pro-growth-pre pro-growth-pre-lg">${esc(wrapJournal)}</pre></div>`
-        : '') +
-      (wrapState
-        ? `<div class="pro-growth-block"><div class="pro-growth-label">明日站立摘要（core）</div><pre class="pro-growth-pre">${esc(wrapState)}</pre></div>`
-        : '') +
-      (wrapInsights.length
-        ? `<div class="pro-growth-block"><div class="pro-growth-label">洞察</div>${listHtml(
-            wrapInsights,
-            (row) => `<li>${esc(String(row.text || '').slice(0, 320))}</li>`,
-          )}</div>`
-        : '') +
-      (wrapUnresolved.length
-        ? `<div class="pro-growth-block"><div class="pro-growth-label">未闭合</div><ul class="pro-growth-log">${wrapUnresolved
-            .map((u) => `<li>${esc(String(u).slice(0, 160))}</li>`)
-            .join('')}</ul></div>`
-        : '')
-  } else {
-    wrapBody = empty('还没有模型收工复盘。跑完有实质工作的值班后，会在这里出现第一人称日记与站立摘要。')
-  }
-
-  // —— 反思积压（有内容才展示） ——
-  const metaBits = []
-  if (refTheme || Number(poi) > 0) {
-    metaBits.push(
-      `<div class="pro-growth-block"><div class="pro-growth-label">重要度反思</div>` +
-        `<p class="pro-growth-inline">积压 ${esc(poiShow)}/1.00` +
-        (refTheme ? ` · 主题「${esc(refTheme)}」` : '') +
-        (refAt ? ` · ${esc(refAt)}` : '') +
-        `</p></div>`,
-    )
-  }
-  const metaBody = metaBits.length ? metaBits.join('') : ''
-
-  // —— 身份 + Lessons 合并 ——
-  const idBody = identity
-    ? `<pre class="pro-growth-pre">${esc(identity)}</pre>`
-    : empty('尚未拆出 L0。在 SOUL 写 Identity 段后会自动提取。')
-  const lessonsBody = lessons
-    ? `<pre class="pro-growth-pre">${esc(lessons)}</pre>`
-    : empty('值班收工由模型写入可执行教训。')
-  const personaBody = `
-    <div class="pro-growth-split">
-      <div><div class="pro-growth-label">身份本性 L0</div>${idBody}</div>
-      <div><div class="pro-growth-label">Lessons</div>${lessonsBody}</div>
-    </div>`
-
-  // —— 本事 / 时间线 / 语义（§13.1） ——
-  const craftBody = craft.length
-    ? listHtml(craft, (row) => {
-        const title = esc(String(row.title || row.kind || 'craft'))
-        const st = esc(String(row.status || ''))
-        const kind = esc(String(row.kind || ''))
-        const hits = esc(String(row.hit_count ?? 0))
-        const skill = esc(String(row.skill_name || ''))
-        const content = esc(String(row.content || '').slice(0, 280))
-        const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-        const src = esc(memorySourceLabel(row.source))
-        const skillBit = skill ? ` · <code>${skill}</code>` : ''
-        return `<li><div class="pro-growth-log-meta"><strong>${title}</strong> · ${kind}/${st} · ${src} · hits ${hits}${skillBit} · ${at}</div><div>${content}</div></li>`
-      }) +
-      `<p class="pro-muted pro-growth-foot">已巩固 ${esc(String(craftGrad))} · 草案 ${esc(String(craftProp))}</p>`
-    : ''
-
-  const groupByDay = (rows) => {
-    /** @type {Map<string, any[]>} */
-    const map = new Map()
-    for (const row of rows) {
-      const day = String(row.created_at || row.updated_at || '').slice(0, 10) || '未知日期'
-      if (!map.has(day)) map.set(day, [])
-      map.get(day).push(row)
-    }
-    return [...map.entries()].sort((a, b) => String(b[0]).localeCompare(String(a[0])))
-  }
-
-  const timelineBody = timeline.length
-    ? groupByDay(timeline)
-        .map(([day, rows]) => {
-          const items = listHtml(rows, (row) => {
-            const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-            const layer = esc(String(row.layer || 'journal'))
-            const src = esc(memorySourceLabel(row.source))
-            const pin = row.pin ? '★ ' : ''
-            const content = esc(String(row.content || '').slice(0, 400))
-            return `<li><div class="pro-growth-log-meta">${pin}<strong>${layer}</strong> · ${src} · ${at}</div><div>${content}</div></li>`
-          })
-          return `<div class="pro-growth-day"><div class="pro-growth-label">${esc(day)}</div>${items}</div>`
-        })
-        .join('') + `<p class="pro-muted pro-growth-foot">情景/日记 ${esc(String(journalCount))} 条 · 只读</p>`
-    : empty('还没有情景日记。值班收工或任务完成后会出现在时间线。')
-
-  const semanticBody = semanticSelf.length
-    ? listHtml(semanticSelf, (row) => {
-        const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-        const content = esc(String(row.content || '').slice(0, 400))
-        const src = esc(memorySourceLabel(row.source))
-        return `<li><div class="pro-growth-log-meta"><strong>semantic</strong> · ${src} · ${at}</div><div>${content}</div></li>`
-      }) + `<p class="pro-muted pro-growth-foot">共 ${esc(String(semanticCount))} 条</p>`
-    : empty('暂无自我语义记忆。')
-
-  const memoryCraftSection = `
-    <div class="pro-growth-view-tabs" role="tablist" data-role="growth-view-tabs">
-      <button type="button" class="pro-growth-view-tab is-active" data-growth-view="timeline">时间线</button>
-      <button type="button" class="pro-growth-view-tab" data-growth-view="craft">专长</button>
-      <button type="button" class="pro-growth-view-tab" data-growth-view="semantic">语义</button>
-      <button type="button" class="pro-growth-view-tab" data-growth-view="identity">身份</button>
-    </div>
-    <div class="pro-growth-view-panel" data-growth-panel="timeline">${section('时间线（person 情景）', timelineBody)}</div>
-    <div class="pro-growth-view-panel" data-growth-panel="craft" hidden>${section('专长', craftBody || empty('暂无专长卡（收工后积累）'))}</div>
-    <div class="pro-growth-view-panel" data-growth-panel="semantic" hidden>${section('自我语义', semanticBody)}</div>
-    <div class="pro-growth-view-panel" data-growth-panel="identity" hidden>${section('人格（只读）', personaBody)}</div>
-    <p class="pro-muted pro-growth-foot">用户偏好请到「记忆」页查看；本页仅员工自传命名空间。</p>
-  `
-
-  // —— 协作 ——
-  const opensBody = opens.length
-    ? listHtml(opens, (row) => {
-        const fr = esc(String(row.from_agent || ''))
-        const kind = esc(String(row.kind || 'handoff'))
-        const child = esc(String(row.child_task_id || '').slice(0, 24))
-        const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-        const note = esc(String(row.note || '').slice(0, 160))
-        return `<li><div class="pro-growth-log-meta"><strong>欠 ${fr}</strong> · ${kind}${child ? ` · ${child}` : ''} · ${at}</div><div class="pro-muted">${note}</div></li>`
-      })
-    : ''
-  const relBody = relations.length
-    ? listHtml(relations, (row) => {
-        const peer = esc(String(row.peer_code || ''))
-        const bond = Number(row.bond)
-        const bondShow = Number.isFinite(bond) ? bond.toFixed(2) : '—'
-        const ev = esc(String(row.last_event || '').slice(0, 40))
-        const at = esc(String(row.updated_at || '').slice(0, 19).replace('T', ' '))
-        return `<li><div class="pro-growth-log-meta"><strong>${peer}</strong> · bond ${esc(bondShow)} · ${at}</div><div class="pro-muted">${ev}</div></li>`
-      })
-    : ''
-  const collabSection =
-    opensBody || relBody
-      ? section(
-          '协作',
-          `${opensBody ? `<div class="pro-growth-block"><div class="pro-growth-label">开放承诺</div>${opensBody}</div>` : empty('无开放承诺')}` +
-            `${relBody ? `<div class="pro-growth-block"><div class="pro-growth-label">关系边</div>${relBody}</div>` : empty('暂无关系边')}`,
-        )
-      : ''
-
-  // —— 提案 / changelog ——
-  const proposalsBody = proposals.length
-    ? listHtml(proposals, (row) => {
-        const id = esc(String(row.id || ''))
-        const st = esc(String(row.status || ''))
-        const title = esc(String(row.title || ''))
-        const rationale = esc(String(row.rationale || '').slice(0, 280))
-        const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-        const actions =
-          st === 'draft'
-            ? `<div class="pro-growth-actions">
-                <button type="button" class="btn btn-sm btn-outline" data-act="proposal-approve" data-proposal-id="${id}">批准</button>
-                <button type="button" class="btn btn-sm btn-ghost" data-act="proposal-reject" data-proposal-id="${id}">拒绝</button>
-              </div>`
-            : `<div class="pro-muted">已${st === 'approved' ? '批准' : '拒绝'}</div>`
-        return `<li><div class="pro-growth-log-meta"><strong>${title || id}</strong> · ${st} · ${at}</div><div>${rationale}</div>${actions}</li>`
-      })
-    : ''
-  const logBody = changelog.length
-    ? listHtml(changelog, (row) => {
-        const at = esc(String(row.created_at || '').slice(0, 19).replace('T', ' '))
-        const field = esc(String(row.field || ''))
-        const reason = esc(String(row.reason || ''))
-        const neu = esc(String(row.new_value || '').slice(0, 240))
-        const src = esc(memorySourceLabel(row.source))
-        return `<li><div class="pro-growth-log-meta"><strong>${field}</strong> · ${src} · ${at}</div><div class="pro-muted">${reason}</div><div>${neu}</div></li>`
-      })
-    : ''
-
-  const auditSections =
-    (proposalsBody ? section('进化提案', proposalsBody) : '') +
-    (logBody ? section('成长变更', logBody) : '')
-
-  return `
-    <div class="pro-growth-layout">
-      <style>
-        .pro-growth-layout{display:flex;flex-direction:column;gap:14px;padding:4px 0 28px}
-        .pro-growth-overview{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
-        .pro-growth-overview-main{display:flex;flex-wrap:wrap;gap:6px}
-        .pro-growth-pill{font-size:12px;padding:4px 8px;border:1px solid color-mix(in srgb, currentColor 18%, transparent);border-radius:6px;opacity:.75}
-        .pro-growth-pill.is-on{opacity:1;border-color:color-mix(in srgb, currentColor 35%, transparent)}
-        .pro-growth-pill.is-warn{opacity:1}
-        .pro-growth-affect-row{display:flex;flex-wrap:wrap;gap:8px;font-size:12px;opacity:.65}
-        .pro-growth-chip{padding:2px 0}
-        .pro-growth-chip b{font-weight:600}
-        .pro-growth-section{padding:12px 0;border-top:1px solid color-mix(in srgb, currentColor 12%, transparent)}
-        .pro-growth-section-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
-        .pro-growth-section-head h3{margin:0;font-size:14px;font-weight:600}
-        .pro-growth-label{font-size:12px;opacity:.65;margin:0 0 6px}
-        .pro-growth-block + .pro-growth-block{margin-top:12px}
-        .pro-growth-empty{margin:0;font-size:13px;opacity:.55}
-        .pro-growth-inline{margin:0 0 8px;font-size:13px}
-        .pro-growth-split{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-        @media (max-width:800px){.pro-growth-split{grid-template-columns:1fr}}
-        .pro-growth-foot{margin:8px 0 0}
-        .pro-growth-actions{margin-top:8px;display:flex;gap:8px}
-        .pro-growth-pre{margin:0;white-space:pre-wrap;word-break:break-word;font-size:12px;line-height:1.5;max-height:220px;overflow:auto}
-        .pro-growth-pre-lg{max-height:320px;font-size:13px;line-height:1.55}
-        .pro-growth-log{margin:0;padding-left:1.1em;font-size:13px;line-height:1.45}
-        .pro-growth-log li{margin:0 0 10px}
-        .pro-growth-log-meta{font-size:12px;opacity:.7;margin-bottom:2px}
-        .pro-growth-featured{padding:12px 14px;border:1px solid color-mix(in srgb, currentColor 16%, transparent);border-radius:8px;background:color-mix(in srgb, currentColor 4%, transparent)}
-        .pro-growth-view-tabs{display:flex;flex-wrap:wrap;gap:6px;margin:4px 0 8px}
-        .pro-growth-view-tab{font-size:12px;padding:4px 10px;border:1px solid color-mix(in srgb, currentColor 18%, transparent);border-radius:6px;background:transparent;cursor:pointer;opacity:.7}
-        .pro-growth-view-tab.is-active{opacity:1;border-color:color-mix(in srgb, currentColor 40%, transparent)}
-        .pro-growth-day{margin:0 0 12px}
-        .pro-growth-day .pro-growth-label{font-weight:600;opacity:.85}
-      </style>
-      ${overview}
-      <section class="pro-growth-featured">
-        <div class="pro-growth-section-head"><h3>最近收工复盘</h3></div>
-        <div class="pro-growth-section-body">${wrapBody}</div>
-      </section>
-      ${metaBody ? section('反思积压', metaBody) : ''}
-      ${memoryCraftSection}
-      ${collabSection}
-      ${auditSections}
-    </div>
-  `
-}
-
-async function loadEmployeeGrowthPanel(page, role) {
-  const host = page.querySelector('[data-role="growth-host"]')
-  if (!host) return
-  const code = String(role?.agent_code || '')
-  host.innerHTML = `<div class="pro-muted" style="padding:16px">加载成长记录…</div>`
-  try {
-    const data = await api.proactiveRoleGrowth(code, 40)
-    host.innerHTML = renderGrowthPanelHtml(data || {})
-    const tabs = host.querySelector('[data-role="growth-view-tabs"]')
-    if (tabs && tabs.dataset.bound !== '1') {
-      tabs.dataset.bound = '1'
-      tabs.addEventListener('click', (ev) => {
-        const btn = ev.target instanceof Element ? ev.target.closest('[data-growth-view]') : null
-        if (!btn) return
-        const view = btn.getAttribute('data-growth-view') || 'timeline'
-        host.querySelectorAll('[data-growth-view]').forEach((b) => b.classList.toggle('is-active', b === btn))
-        host.querySelectorAll('[data-growth-panel]').forEach((p) => {
-          p.hidden = p.getAttribute('data-growth-panel') !== view
-        })
-      })
-    }
-    if (host.dataset.growthBound !== '1') {
-      host.dataset.growthBound = '1'
-      host.addEventListener('click', async (e) => {
-        const t = e.target
-        if (!(t instanceof Element)) return
-        const approveBtn = t.closest('[data-act="proposal-approve"]')
-        if (approveBtn && host.contains(approveBtn)) {
-          const pid = approveBtn.getAttribute('data-proposal-id') || ''
-          try {
-            await api.proactiveRoleProposalApprove(code, pid)
-            toast('已批准提案', 'success')
-            await loadEmployeeGrowthPanel(page, role)
-          } catch (err) {
-            toast(`批准失败：${String(err?.message || err)}`, 'error')
-          }
-          return
-        }
-        const rejectBtn = t.closest('[data-act="proposal-reject"]')
-        if (rejectBtn && host.contains(rejectBtn)) {
-          const pid = rejectBtn.getAttribute('data-proposal-id') || ''
-          try {
-            await api.proactiveRoleProposalReject(code, pid)
-            toast('已拒绝提案', 'success')
-            await loadEmployeeGrowthPanel(page, role)
-          } catch (err) {
-            toast(`拒绝失败：${String(err?.message || err)}`, 'error')
-          }
-        }
-      })
-    }
-  } catch (err) {
-    if (isRoleGoneError(err)) {
-      paintEmployeeLoadFailure(page, code, err)
-      return
-    }
-    host.innerHTML = `<div class="pro-muted" style="padding:16px;color:var(--danger,#c44)">加载失败：${esc(String(err?.message || err))}</div>`
   }
 }
 

@@ -16,12 +16,24 @@ const CATALOG_COPY = {
     boundTitle: '火山 Agent Plan 全家桶',
     unboundTitle: '一键接入方舟 Agent Plan',
     unboundDesc:
-      '最新 DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3 等；全模态 + Harness。粘贴 <code>ark-</code> Key 接通对话 / 生图视频 / 语音 ——',
+      '最新 GLM-5.4、DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1 等；全模态 + Harness。可与 Coding Plan 并存。粘贴 <code>ark-</code> Key 接通对话 / 生图视频 / 语音 ——',
     wizardTitle: '接入方舟 Agent Plan',
     wizardReplaceTitle: '更换方舟 Agent Plan Key',
     chatHintPrefix: '绑定后自动写入套餐对话模型。聊天地址使用 Agent Plan 专属',
     defaultSubscribe: 'https://www.volcengine.com/product/ark',
-    defaultModels: 'DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1、GLM-5.3',
+    defaultModels: 'GLM-5.4、DeepSeek-V4.1-Flash、Kimi-K3.1-Pro、Doubao-Seed-2.1',
+  },
+  'volcengine.coding_plan': {
+    boundTitle: '火山 Coding Plan',
+    unboundTitle: '一键接入方舟 Coding Plan',
+    unboundDesc:
+      '面向 Claude Code / Cursor / OpenCode 等编程工具；Doubao-Seed-2.1、GLM-5.3、DeepSeek-V4.1、Kimi 等。可与 Agent Plan <strong>同时</strong>绑定（独立 Key / <code>/api/coding/v3</code>）——',
+    wizardTitle: '接入方舟 Coding Plan',
+    wizardReplaceTitle: '更换方舟 Coding Plan Key',
+    chatHintPrefix:
+      '绑定后写入独立 Coding 对话模型（不覆盖 Agent Plan）。地址使用 Coding Plan 专属',
+    defaultSubscribe: 'https://www.volcengine.com/product/ark',
+    defaultModels: 'ark-code-latest、doubao-seed-2.1-pro、glm-5.3、deepseek-v4.1-flash',
   },
   'aliyun.token_plan': {
     boundTitle: '百炼 Token Plan 全家桶',
@@ -33,6 +45,18 @@ const CATALOG_COPY = {
     chatHintPrefix: '绑定后自动写入套餐对话模型。聊天地址使用 Token Plan 专属',
     defaultSubscribe: 'https://bailian.console.aliyun.com/',
     defaultModels: 'auto、qwen3.8-max、qwen3.8-flash、deepseek-v4.1-flash、glm-5.3',
+  },
+  'aliyun.coding_plan': {
+    boundTitle: '百炼 Coding Plan',
+    unboundTitle: '一键接入百炼 Coding Plan',
+    unboundDesc:
+      '面向 Claude Code / Cursor / Qoder 等；qwen3.7-plus、kimi-k2.5、glm-5、MiniMax-M2.5。可与 Token Plan <strong>同时</strong>绑定（独立 Key / <code>coding.dashscope</code>）——',
+    wizardTitle: '接入百炼 Coding Plan',
+    wizardReplaceTitle: '更换百炼 Coding Plan Key',
+    chatHintPrefix:
+      '绑定后写入独立 Coding 对话模型（不覆盖 Token Plan）。地址使用 Coding Plan 专属',
+    defaultSubscribe: 'https://bailian.console.aliyun.com/',
+    defaultModels: 'qwen3.7-plus、qwen3.6-plus、kimi-k2.5、glm-5、MiniMax-M2.5',
   },
 }
 

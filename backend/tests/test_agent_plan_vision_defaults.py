@@ -35,6 +35,14 @@ def test_agent_plan_media_catalog_includes_2026_11_23_models():
     assert any(c.get("id") == "image" for c in AGENT_PLAN_CAPABILITIES)
 
 
+def test_agent_plan_chat_includes_glm_54():
+    """官方 Agent Plan 模型上线公告 2026-11-23：glm-5.4。"""
+    row = next(m for m in AGENT_PLAN_CHAT_MODELS if m["id"] == "glm-5.4")
+    assert row["context_window"] == 1024000
+    assert row["max_output"] == 128000
+    assert row["min_tier"] == "small"
+
+
 def test_sync_agent_plan_vision_heals_stale_rows(monkeypatch):
     rows = [
         {

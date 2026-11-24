@@ -7,7 +7,9 @@
 | 厂商 | Catalog 条目 | 模型 / 能力表 | Adapter | 前端入口 |
 |------|--------------|---------------|---------|----------|
 | 火山方舟 Agent Plan | `plans/catalog.py` → `volcengine.agent_plan` | `plans/volc_agent_plan_models.py` | `plans/adapters/volc_agent_plan.py` | `evopanel/src/lib/plan-bundle.js`、`pages/settings/plans.js`、`pages/models.js` |
+| 火山方舟 Coding Plan | `plans/catalog.py` → `volcengine.coding_plan` | `plans/volc_coding_plan_models.py` | `plans/adapters/volc_coding_plan.py` | 同上（可与 Agent Plan **同时**绑定；独立 connection `volcengine-coding`） |
 | 阿里云百炼 Token Plan | `plans/catalog.py` → `aliyun.token_plan` | `plans/aliyun_token_plan_models.py` | `plans/adapters/aliyun_token_plan.py` | 同上（按 `catalogId` 区分） |
+| 阿里云百炼 Coding Plan | `plans/catalog.py` → `aliyun.coding_plan` | `plans/aliyun_coding_plan_models.py` | `plans/adapters/aliyun_coding_plan.py` | 同上（可与 Token Plan **同时**绑定；独立 connection `aliyun-coding`；Base=`coding.dashscope…/v1`） |
 
 公共：
 
@@ -20,9 +22,13 @@
 
 - 火山 Agent Plan 套餐概览：https://www.volcengine.com/docs/82379/2366394  
   （聊天 Base：`https://ark.cn-beijing.volces.com/api/plan/v3`，Key：`ark-`）
+- 火山 Coding Plan 套餐概览：https://www.volcengine.com/docs/82379/2098574  
+  （聊天 Base：`https://ark.cn-beijing.volces.com/api/coding/v3`，Key：`ark-`；可与 Agent Plan 并存）
 - 百炼 Token Plan 个人版：https://help.aliyun.com/zh/model-studio/token-plan-personal-overview  
   快速接入：https://help.aliyun.com/zh/model-studio/token-plan-personal-quick-start  
   （聊天 Base：`https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1`，Key：`sk-sp-`；媒体：`…/api/v1`）
+- 百炼 Coding Plan：https://help.aliyun.com/zh/model-studio/coding-plan  
+  （聊天 Base：`https://coding.dashscope.aliyuncs.com/v1`，Anthropic：`…/apps/anthropic`，Key：`sk-sp-`；与 Token Plan 不是同一产品，可并存）
 
 ## 更新清单（照抄改）
 
@@ -57,4 +63,4 @@
 
 改完后更新本文件顶部「上次核对」日期（建议在 PR 描述里写官方 changelog 链接）。
 
-上次核对：2026-11-23（Agent Plan：补 Seedream 5.5 / Seedance 2.5 Flash，标注 Kimi-K3 即将下线；Token Plan：档位额度对齐 11-09 上调 Lite 20k / Essential 45k / Standard 80k / Pro 200k，Pro 价 ¥312）
+上次核对：2026-11-24（Agent Plan：新增 GLM-5.4；火山/百炼均新增独立 `*.coding_plan` catalog，可与 Agent/Token Plan 并存。火山 Coding 官方尚未列 GLM-5.4；百炼 Coding 为 qwen3.7/3.6-plus、kimi-k2.5、glm-5、MiniMax-M2.5）
