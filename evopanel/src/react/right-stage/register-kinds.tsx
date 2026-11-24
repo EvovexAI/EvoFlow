@@ -1,5 +1,6 @@
 import { registerRightStageKind } from '../../lib/right-stage/right-stage-registry.js'
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
+import { resolveEmployeeProcessTabTitle } from '../../lib/right-stage/open-employee-process-stage.js'
 import { NewsDashboardKind } from './kinds/NewsDashboardKind.js'
 import { PlatformFeedbackKind } from './kinds/PlatformFeedbackKind.js'
 import { ScreenshotStage } from './kinds/ScreenshotStage.js'
@@ -8,6 +9,7 @@ import { XiaomiRightStagePane } from './kinds/XiaomiRightStagePane.js'
 import { ShellPageKind } from './kinds/ShellPageKind.js'
 import { BrowserPanel } from '../components/BrowserPanel.js'
 import { closeBrowserStage } from '../../lib/browser-panel-store.js'
+import { V4EmployeeProcessPane } from '../chat-app/right-stage/v4-employee-process-pane.js'
 
 let registered = false
 
@@ -18,6 +20,53 @@ export function ensureRightStageKindsRegistered() {
   registerRightStageKind({
     kind: 'xiaomi',
     render: () => <XiaomiRightStagePane />,
+  })
+
+  // 功能页 GlobalRightStageHost / 事项详情等无 ChatApp renderContent 时也要能开员工签
+  registerRightStageKind({
+    kind: 'employeeProcess',
+    render: ({ surface, onClose }) => {
+      const data = surface.data || {}
+      const agentCode = String(data.agentCode || '').trim()
+      if (!agentCode) {
+        return (
+          <aside
+            className="react-chat-right-stage-panel"
+            role="region"
+            aria-label="执行过程"
+          >
+            <div className="flex h-full min-h-0 flex-col items-center justify-center gap-1 px-4 text-ui-sm text-foreground-subtlest">
+              <p>无法打开「员工执行过程」：缺少 agentCode</p>
+            </div>
+          </aside>
+        )
+      }
+      const roleName = String(data.roleName || '').trim()
+      const empTitle = resolveEmployeeProcessTabTitle({
+        title: String(surface.title || data.title || '').trim(),
+        roleName,
+        agentCode,
+      })
+      return (
+        <V4EmployeeProcessPane
+          agentCode={agentCode}
+          roleName={roleName}
+          busy={!!data.busy}
+          title={empTitle}
+          roundId={String(data.roundId || '').trim()}
+          roundStamp={String(data.roundStamp || '').trim()}
+          taskId={String(data.taskId || '').trim()}
+          sessionKey={String(surface.sessionKey || '').trim() || undefined}
+          employeeSessionKeyHint={
+            String(
+              data.employeeSessionKey || data.sessionKey || data.session_key || '',
+            ).trim() || undefined
+          }
+          pendingSendMessage={String(data.pendingSendMessage || '').trim() || undefined}
+          onClose={onClose}
+        />
+      )
+    },
   })
 
   registerRightStageKind({

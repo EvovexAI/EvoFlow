@@ -767,6 +767,15 @@ async function boot() {
   initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })
   bootMark('initRouter done')
 
+  // 功能页全局 right-stage 宿主（#content | RightStagePanel 左右分割）
+  try {
+    void import('./components/global-assistant/mount-global-right-stage.js').then((m) => {
+      m.mountGlobalRightStage()
+    })
+  } catch (e) {
+    console.warn('[boot] mountGlobalRightStage failed', e)
+  }
+
   if (isTauri) {
     void import('./lib/background-voice.js').then(({ initBackgroundVoice }) => initBackgroundVoice())
   }

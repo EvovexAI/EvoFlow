@@ -2427,11 +2427,13 @@ export function V4ZCodeTimeline(props: {
               layoutActive={hostVisible && !sessionSwitchHold}
               // 小V 窄栏：隐藏左侧轮次导航，把宽度留给正文（主对话不变）
               hideTurnNavigator={embedded}
-              // 嵌入态 composer 在面板外：空态不要跟不存在的 dock 居中，否则发消息瞬间整栏跳布局。
-              // 仅真正的草稿空态（draftEmpty）才居中——对齐 ZCode SessionPane 的 isDraft。
-              // 切勿用 rows.length===0：打开有历史会话时 connecting/hydration 期间也会 0 行，
-              // 会把输入框误抬到中间，看起来像「空会话」。
-              centerEmptyStateWithDock={embedded ? false : draftEmpty}
+              // 草稿空态：问候 + bottomDock 成组排布（主对话同款）。
+              // 嵌入态也走 compact 贴底——否则 flex-1 空壳把问候顶到上方、输入贴底，中间一大块白。
+              // 仅 draftEmpty：connecting/hydration 的 0 行勿居中，否则像空会话。
+              centerEmptyStateWithDock={draftEmpty}
+              compactEmptyStateWithDock={embedded && draftEmpty}
+              // 嵌入多轮短回复：消息贴输入上方，勿顶栏顶留大块空白。
+              stickShortThreadAboveDock={embedded}
               emptyState={
                 draftEmpty ? (
                   <div data-testid="v4-draft-empty" className="w-full">

@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.52] - 2026-11-24
+
+相对 **1.3.51**：全局右栏宿主；小 V 进主对话改走对话右栏；窄栏排版与员工过程页签。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.52.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **全局右栏宿主**：功能页可开与主对话同一套右栏舞台
+
+### Fixed
+
+- **小 V 进主对话**：关掉嵌套窄栏，改用 ChatApp 右栏
+- **窄栏排版**：正文吃满宽度，减少贴中间 / 过大问候 / 过疏轮次
+
+### Changed
+
+- **右栏打开小 V**：与全局 / 对话宿主可见性衔接更清楚
+
+
 ## [1.3.51] - 2026-11-24
 
 相对 **1.3.50**：小 V 右栏对话时间线；从功能页打开时保留页面与点击上下文。

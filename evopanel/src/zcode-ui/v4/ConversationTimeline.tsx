@@ -343,6 +343,11 @@ interface ConversationTimelineProps {
   centerEmptyStateWithDock?: boolean;
   /** 窄屏/粗指针视口保留紧凑居中布局，不复用桌面草稿安全间距。 */
   compactEmptyStateWithDock?: boolean;
+  /**
+   * 侧栏嵌入：短线程贴在输入上方（justify-end），避免多轮短回复顶在栏顶、
+   * 中间留出大块空白。内容超出视口后仍靠 sticky dock + 跟随滚动。
+   */
+  stickShortThreadAboveDock?: boolean;
   /** 右侧状态面板对消息列的布局模式；auto 由 conversation container query 裁决。 */
   summaryPanelLayout?: "none" | "auto" | "inline";
   conversationFindQuery?: string;
@@ -417,6 +422,7 @@ function ConversationTimelineImpl({
   headerSlot,
   centerEmptyStateWithDock = false,
   compactEmptyStateWithDock = false,
+  stickShortThreadAboveDock = false,
   summaryPanelLayout = "none",
   conversationFindQuery = "",
   conversationFindActiveIndex = -1,
@@ -2636,8 +2642,15 @@ function ConversationTimelineImpl({
                 // 容器保留固有最小高度，由外层 timeline 统一承接受限高度下的溢出内容。
                 "flex min-h-full flex-col items-center px-4 before:block before:min-h-[52px] before:w-full before:shrink before:basis-[29dvh] before:content-[''] after:block after:min-h-4 after:w-full after:flex-1 after:content-['']"
               : centeredEmptyLayout
-                ? "flex min-h-full flex-col items-center justify-center gap-4 px-4"
-                : "flex min-h-full flex-col",
+                ? // compact（小V 窄栏）：问候+输入贴底成组，避免在 ~1000px 高栏里被
+                  // justify-center 悬在正中、下面留一大块白。主对话仍走 justify-center。
+                  compactEmptyStateWithDock
+                    ? "flex min-h-full flex-col items-center justify-end gap-3 px-4 pb-2"
+                    : "flex min-h-full flex-col items-center justify-center gap-4 px-4"
+                : // 嵌入侧栏短线程：整列贴底，消息紧贴输入；长线程自然撑高滚动。
+                  stickShortThreadAboveDock
+                    ? "flex min-h-full flex-col justify-end"
+                    : "flex min-h-full flex-col",
           )}
           // session 切到 draft 时内容高度骤降，Chrome 会把子树里的
           // sticky composer 选作原生 scroll anchor，并在切回后覆盖 layout/RAF 恢复值。
@@ -2659,7 +2672,14 @@ function ConversationTimelineImpl({
             <div
               ref={messageLayerRef}
               data-v4-timeline-message-layer="true"
-              className="relative w-full flex-1 [mask-repeat:no-repeat] [-webkit-mask-repeat:no-repeat]"
+              className={cn(
+                // stickShortThreadAboveDock：勿 flex-1，否则会吞掉 justify-end 的顶空隙，
+                // 短多轮又被顶回栏顶、输入下方空出一大块。
+                stickShortThreadAboveDock
+                  ? "relative w-full shrink-0"
+                  : "relative w-full flex-1",
+                "[mask-repeat:no-repeat] [-webkit-mask-repeat:no-repeat]",
+              )}
             >
               {/*
                * headerSlot 必须落在被 mask 的消息层内、并套用与实时消息列相同的宽度类：
@@ -2797,9 +2817,12 @@ function ConversationTimelineImpl({
                   ? "mt-3 shrink-0"
                   : centeredEmptyLayout
                     ? "shrink-0"
-                    : // mt-auto：内容被估高压短时仍把 dock 推到 min-h-full 底部，
-                      // 避免 sticky 落在短文档流末尾 → 输入框「飘到最上」。
-                      "mt-auto sticky bottom-0",
+                    : stickShortThreadAboveDock
+                      ? // 列已 justify-end：dock 跟在消息后即可，勿再 mt-auto。
+                        "sticky bottom-0 shrink-0"
+                      : // mt-auto：内容被估高压短时仍把 dock 推到 min-h-full 底部，
+                        // 避免 sticky 落在短文档流末尾 → 输入框「飘到最上」。
+                        "mt-auto sticky bottom-0",
               )}
             >
               <div

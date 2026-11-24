@@ -1796,6 +1796,21 @@ def _build_skills_prompt_section(
         container_base_path = dyn.SKILLS_CONTAINER_LABEL_LOCAL
 
     if available_skills is not None and skills:
+        # 【self-evolution-bot · 2026-11-24 · 第131轮 · 模型:deepseek-v4.1-flash】改了什么：
+        # 配置（agent.skills）里点名了、但 load_skills 解析不到的技能名，原来被这一行
+        # 直接过滤掉且不留任何痕迹 —— 调用方看到的就是「技能没被注入」，无从查因。
+        # 为什么：2026-11-24 直播编导 live-notes-keeper 绑定 doubao-book-writer，
+        # 该技能 evoflow_skills 注册表有行(enabled=1, 正文 2057 字)但磁盘目录已不存在，
+        # 解析结果为空 → 整段 <skill_system> 被省略，网关日志 0 条告警。
+        # 现网同类：39 条技能绑定里 5 条指向解析不到的技能，全部静默。
+        resolved_names = {skill.name for skill in skills}
+        missing = [name for name in sorted(available_skills) if name not in resolved_names]
+        if missing:
+            logger.warning(
+                "Agent 配置的技能解析不到，已从提示词中省略: %s（检查 skills_root 下是否存在该目录，"
+                "或注册表 evoflow_skills 残留行未被清理）",
+                ", ".join(missing),
+            )
         skills = [skill for skill in skills if skill.name in available_skills]
 
     # Tier 0 skills catalog: <=0 means uncapped (same convention as standing/catalog).

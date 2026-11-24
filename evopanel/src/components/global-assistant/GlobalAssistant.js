@@ -154,12 +154,15 @@ function notifyXmDockLayoutChanged(reason = 'dock') {
 }
 
 function syncDockChrome(st = getState()) {
-  // 功能页 V4 dock 也占右缘：勿因 isOpen=false 把 --xm-dock-width 打成 0（会闪一下后侧栏「消失」）
+  // 旧 body 外挂 dock / V4 dock 才改 --xm-dock-width；全局 right-stage 分割在 #main-col 内，不占 margin。
   let v4Dock = false
+  let stageOpen = false
   try {
     v4Dock = document.documentElement.dataset.xmV4Dock === '1'
+    stageOpen = document.documentElement.dataset.xmStage === '1'
   } catch {
     v4Dock = false
+    stageOpen = false
   }
   const docked =
     v4Dock || !!(st.isOpen && !st.isMinimized && resolvePanelLayout(st) === 'dock')
@@ -176,9 +179,10 @@ function syncDockChrome(st = getState()) {
   } catch {
     /* ignore */
   }
-  syncShellXiaomiActive(docked || !!(st.isOpen && !st.isMinimized) || v4Dock)
+  syncShellXiaomiActive(
+    docked || !!(st.isOpen && !st.isMinimized) || v4Dock || stageOpen,
+  )
   if (changed) {
-    // 布局要过一轮 paint；BrowserPanel wake 内部已有 settle 连贴，这里只通知一次。
     requestAnimationFrame(() => {
       notifyXmDockLayoutChanged(docked ? 'dock-open' : 'dock-close')
     })
@@ -1444,7 +1448,7 @@ function openPanel() {
     return
   }
 
-  // 非主对话：统一走 openXiaomiRightStage（内部自动挂本页 V4 dock，不跳 /chat）
+  // 非主对话：openXiaomiRightStage → #content | RightStagePanel 左右分割（不跳 /chat）
   const patch = {
     isOpen: false,
     isMinimized: false,
@@ -2825,9 +2829,8 @@ function render() {
 
   const stageOpen = document.documentElement.dataset.xmStage === '1'
   const v4DockOpen = document.documentElement.dataset.xmV4Dock === '1'
-  const chatWorkbenchVisible = isChatWorkbenchVisible()
-  // 主对话 right-stage / 功能页 V4 dock 已开：勿再画旧 xm-panel / 边缘条
-  const stageVisibleHere = (stageOpen && chatWorkbenchVisible) || v4DockOpen
+  // 主对话 / 功能页全局 right-stage（#global-right-stage-host）已开：勿再画旧 xm-panel / 边缘条
+  const stageVisibleHere = stageOpen || v4DockOpen
 
   if (stageVisibleHere && !st.isOpen) {
     const fab = _root.querySelector('.xm-fab')
@@ -3990,7 +3993,7 @@ function onHashChange() {
   } catch {
     /* ignore */
   }
-  // 带着功能页 V4 dock / 旧 isOpen 进主对话：收起 dock，改挂 right-stage
+  // 带着旧 dock / isOpen 进主对话：关掉嵌套 dock，改挂 ChatApp right-stage
   if (isChatWorkbenchVisible()) {
     const hadDock =
       document.documentElement.dataset.xmV4Dock === '1' || getState().isOpen

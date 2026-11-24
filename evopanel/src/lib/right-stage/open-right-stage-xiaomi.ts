@@ -38,8 +38,8 @@ ensureXiaomiStageHintSync()
 
 export type OpenXiaomiRightStageOpts = {
   /**
-   * 非 /chat 时是否先导航到工作台（right-stage 挂在 ChatApp）。
-   * 默认 false：知识库/自动化等页应留在原页用 GlobalAssistant dock，勿强行跳主对话。
+   * 非 /chat 时是否先导航到工作台。
+   * 默认 false：知识库/自动化等页留在原页，用 #global-right-stage-host 与 #content 左右分割。
    * 语音唤醒等显式传 true。
    */
   navigateToChat?: boolean
@@ -190,39 +190,6 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   const voiceMode = opts.voiceMode === true
   const showRightStage = opts.showRightStage !== false
 
-  // 功能页（知识库/自动化…）：ChatApp 藏着时不要 rightStageStore.show → 否则 xmStage=1
-  // 把边缘条藏掉，右栏却看不见 →「闪一下就没了」。改挂本页 V4 dock。
-  if (!navigateToChat && !isChatWorkbenchVisibleNow()) {
-    try {
-      const { patchState, getState } = await import(
-        '../../components/global-assistant/assistant-store.js'
-      )
-      if (getState().isOpen) {
-        patchState({ isOpen: false, isMinimized: false }, { persistUi: true, silent: true })
-      }
-    } catch {
-      /* ignore */
-    }
-    // 清掉误标的 xmStage（否则边缘条永久不回来）
-    try {
-      rightStageStore.collapse()
-      delete document.documentElement.dataset.xmStage
-    } catch {
-      try {
-        delete document.documentElement.dataset.xmStage
-      } catch {
-        /* ignore */
-      }
-    }
-    if (showRightStage) {
-      const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
-      dock.openXiaomiV4Dock()
-      syncShellXiaomiButton(true)
-    }
-    void syncXiaomiPageContextNow()
-    return
-  }
-
   await ensureChatRoute(navigateToChat)
 
   try {
@@ -234,7 +201,19 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
     /* ignore */
   }
 
-  // 外挂 dock 不再占用右缘（轻量同步，先于 show）
+  // 功能页：确保全局 RightStage 宿主已挂（与 #content 左右分割）
+  if (!isChatWorkbenchVisibleNow()) {
+    try {
+      const { mountGlobalRightStage } = await import(
+        '../../components/global-assistant/mount-global-right-stage.js'
+      )
+      mountGlobalRightStage()
+    } catch (e) {
+      console.warn('[xiaomi-stage] mount global right-stage failed', e)
+    }
+  }
+
+  // 关掉旧 xm-panel / 嵌套 V4 dock，统一走 right-stage 分割
   try {
     const { patchState, getState } = await import(
       '../../components/global-assistant/assistant-store.js'
@@ -245,7 +224,6 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   } catch {
     /* ignore */
   }
-  // 进主对话 right-stage：关掉功能页 V4 dock，避免双右栏
   try {
     const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
     if (dock.isXiaomiV4DockOpen()) dock.closeXiaomiV4Dock()
@@ -253,10 +231,9 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
     /* ignore */
   }
   try {
-    if (document.documentElement.dataset.xmV4Dock !== '1') {
-      document.documentElement.classList.remove('is-xm-docked')
-      document.documentElement.style.setProperty('--xm-dock-width', '0px')
-    }
+    document.documentElement.classList.remove('is-xm-docked')
+    document.documentElement.style.setProperty('--xm-dock-width', '0px')
+    delete document.documentElement.dataset.xmV4Dock
   } catch {
     /* ignore */
   }
@@ -265,7 +242,6 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
   void syncXiaomiPageContextNow()
 
   if (showRightStage) {
-    // 先亮右侧小V 文字面板 / 语音全屏（壳按钮、快捷键等显式打开路径）
     // forceExpand：用户点小V / 壳按钮是显式打开；否则收起锁会让「点了没撑开」。
     rightStageStore.show({
       kind: XIAOMI_STAGE_KIND,
@@ -273,12 +249,15 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
       title: '小V',
       layout: 'narrow',
       data: { globalAssistant: true },
-      // 【self-evolution-bot · 2026-11-23 · 第128轮 · 模型:deepseek-v4.1-flash】
-      // 小V 签的打开来源：用户点侧栏 / 唤醒词都是用户侧动作 → 'user'。
-      // 这样签上显示「我」，不会被误当成某个员工智能体在动右栏。
       openedBy: 'user',
       forceExpand: true,
     })
+    // 功能页可能残留 employeeProcess 等签；显式再激活小V，避免打开落到未注册/旧签
+    try {
+      rightStageStore.activateTab(XIAOMI_STAGE_TAB_KEY)
+    } catch {
+      /* ignore */
+    }
     syncXiaomiStageDomHint(true)
     requestUserPin(XIAOMI_STAGE_KIND)
 
@@ -301,7 +280,6 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
       void import('../xw-voice-mode.js')
         .then((m) => {
           m.enterXwVoiceMode({ expandRightStage: showRightStage })
-          // 仅当 ChatApp 尚未挂上、DOM 没标上语音态时再补一次；已在动画中勿再派发/重进
           window.setTimeout(() => {
             if (m.isXwVoiceMode()) return
             m.enterXwVoiceMode({ expandRightStage: showRightStage })
@@ -309,14 +287,13 @@ export async function openXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}):
         })
         .catch((e) => console.warn('[xiaomi-stage] enter voice mode failed', e))
     }
-    // 等右栏 / collapse 布局 commit 后再进语音全屏，弧形展开才有稳定可裁切主体
     requestAnimationFrame(() => {
       requestAnimationFrame(enter)
     })
   }
 }
 
-/** 语音全屏中 / 小V 标签激活 / 功能页 V4 dock → 退出并收起；否则打开小V。 */
+/** 语音全屏中 / 小V 标签激活 → 退出并收起；否则打开小V。 */
 export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}): Promise<void> {
   let voiceOn = false
   try {
@@ -326,6 +303,7 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     /* ignore */
   }
 
+  // 兼容：若仍残留嵌套 V4 dock，一并关掉
   let v4DockOpen = false
   try {
     const dock = await import('../../components/global-assistant/mount-xiaomi-v4-dock.js')
@@ -334,7 +312,6 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     v4DockOpen = document.documentElement.dataset.xmV4Dock === '1'
   }
 
-  // 关语音对话区 = 退出整套语音（停听/停播）；走 closeXiaomiVoice 才会落「关闭退出→已经退出」
   if (voiceOn) {
     try {
       const { closeXiaomiVoice } = await import('../xiaomi-voice-close.js')
@@ -371,7 +348,6 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
         /* ignore */
       }
     }
-    // 语音刚退：等窄槽位贴上再 collapse/park，避免大 HWND 盖住随后打开的图片预览。
     if (voiceOn) {
       const { afterXwVoiceExitSettle } = await import('../xw-voice-embed-settle.js')
       afterXwVoiceExitSettle({ then: () => void finishClose() })
@@ -381,7 +357,6 @@ export async function toggleXiaomiRightStage(opts: OpenXiaomiRightStageOpts = {}
     return
   }
   if (isXiaomiRightStageVisible()) {
-    // 已有小V 标签但未激活：按 opts 打开（默认文字侧栏）
     await openXiaomiRightStage(opts)
     return
   }

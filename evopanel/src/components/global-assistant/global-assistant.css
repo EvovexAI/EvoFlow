@@ -3214,24 +3214,51 @@ html.is-xm-docked {
   overflow: hidden;
 }
 
-/* 窄栏 V4：正文吃满宽度，取消主对话 840px 居中柱（否则侧栏更挤） */
-.xm-react-thread--v4 .zcode-bridge-root {
+/* 窄栏 V4：正文吃满宽度，取消主对话 max-w-4xl / 840px 居中柱（否则发消息后像贴在中间） */
+.xm-react-thread--v4 .zcode-bridge-root,
+.xm-stage-pane .zcode-bridge-root[data-v4-embedded='true'] {
   --chat-composer-max: 100%;
   --chat-column-gutter: 12px;
 }
 
-.xm-react-thread--v4 [data-v4-timeline-scroll='true'] {
+.xm-react-thread--v4 [data-v4-timeline-scroll='true'],
+.xm-stage-pane [data-v4-timeline-scroll='true'] {
   padding-left: var(--chat-column-gutter, 12px);
   padding-right: var(--chat-column-gutter, 12px);
   box-sizing: border-box;
 }
 
-.xm-react-thread--v4 [data-v4-timeline-content-column='true'] {
+.xm-react-thread--v4 [data-v4-timeline-content-column='true'],
+.xm-react-thread--v4 [data-v4-composer-dock-content='true'],
+.xm-stage-pane [data-v4-timeline-content-column='true'],
+.xm-stage-pane [data-v4-composer-dock-content='true'] {
   width: 100% !important;
-  max-width: 100% !important;
+  max-width: none !important;
   margin-left: 0 !important;
   margin-right: 0 !important;
   transform: none !important;
+}
+
+/* dock 外壳勿再 justify-center 把输入挤到水平中轴 */
+.xm-react-thread--v4 [data-v4-composer-dock='true'],
+.xm-stage-pane [data-v4-composer-dock='true'] {
+  justify-content: stretch !important;
+}
+
+/* 窄栏草稿问候：别用主对话超大字号，避免「飘在中间」的观感 */
+.xm-stage-pane [data-v4-draft-greeting],
+.xm-react-thread--v4 [data-v4-draft-greeting] {
+  font-size: 1.125rem !important;
+  line-height: 1.45 !important;
+  padding-left: 0.5rem !important;
+  padding-right: 0.5rem !important;
+}
+
+/* 窄栏多轮：主对话 pt-14/gap-5 过疏，压紧轮间距 */
+.xm-stage-pane [data-v4-turn-unit] > .relative.mx-auto.flex {
+  padding-top: 1.25rem !important;
+  gap: 0.75rem !important;
+  padding-bottom: 0.75rem !important;
 }
 
 .xm-react-thread-host {
@@ -3654,6 +3681,31 @@ html[data-translucent-ui='1'] .xm-stage-pane {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+}
+
+/* 高度链传到 V4 滚动容器（与员工签 .v4-employee-process 一致） */
+.xm-stage-thread > .xm-react-thread,
+.xm-stage-thread > .xm-react-thread--v4,
+.xm-stage-thread .zcode-bridge-root {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* 小V composer 深色对齐员工签 / 主聊 */
+.v4-xiaomi-composer {
+  background: var(--bg-card, var(--bg-primary, #ffffff));
+  border-top-color: var(--border-primary, rgba(15, 23, 42, 0.1));
+  flex: 0 0 auto;
+}
+
+html[data-theme='dark'] .v4-xiaomi-composer,
+html.dark .v4-xiaomi-composer {
+  background: var(--bg-card, #2a2a2a);
+  border-top-color: rgba(255, 255, 255, 0.1);
 }
 
 /* 小V 输入区已改挂主聊 ChatComposer（V4 bottomDock），旧 xm-stage-composer* 已移除 */

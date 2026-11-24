@@ -355,6 +355,16 @@ html[data-theme='dark'] .sidebar-logo img {
   overflow: hidden;
 }
 
+/* 对话宿主 / 功能页 / 全局右栏 横排容器 */
+#main-body-row {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
 /* 主内容区 */
 #content {
   flex: 1;
@@ -368,10 +378,62 @@ html[data-theme='dark'] .sidebar-logo img {
   height: 100%;
 }
 
+/* 功能页全局 right-stage：与 #content 左右分割（ChatApp 同款框） */
+#global-right-stage-host {
+  display: none;
+  flex: 0 0 var(--chat-right-panel-width, min(480px, 42vw));
+  width: var(--chat-right-panel-width, min(480px, 42vw));
+  max-width: 70%;
+  min-width: 280px;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+  flex-direction: column;
+  align-self: stretch;
+  background: var(--bg-secondary, #f8fafc);
+  border-left: 1px solid var(--border, #e5e7eb);
+}
+
+#main-col.is-global-rs-open #global-right-stage-host:not([hidden]) {
+  display: flex;
+}
+
+/* 宿主内 RightStagePanel 已自带壳宽；铺满宿主即可，避免再吃一遍 % 宽 */
+#global-right-stage-host > .react-chat-right-stage-panel,
+#global-right-stage-host > .react-chat-right-stage-shell {
+  flex: 1 1 0 !important;
+  width: 100% !important;
+  max-width: none !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  border-left: 0;
+  align-self: stretch;
+}
+
+/* HMR/双 createRoot 残留：只留第一个壳，避免上下叠两个半高小V */
+#global-right-stage-host > .react-chat-right-stage-panel ~ .react-chat-right-stage-panel,
+#global-right-stage-host > .react-chat-right-stage-shell ~ .react-chat-right-stage-shell {
+  display: none !important;
+}
+
+#main-col.is-global-rs-open #content:not([hidden]) {
+  /* 左区独立成框，与右栏对仗 */
+  border-right: 1px solid transparent;
+  box-shadow: inset -1px 0 0 color-mix(in srgb, var(--border, #e5e7eb) 70%, transparent);
+}
+
+html[data-theme='dark'] #global-right-stage-host,
+html.dark #global-right-stage-host {
+  background: var(--bg-secondary, #111827);
+  border-left-color: var(--border, #374151);
+}
+
 /* ChatApp 常驻容器：与 #content 互斥显示，路由 innerHTML 清空不影响 */
 #chat-persistent-host {
   flex: 1;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
   display: none;
   flex-direction: column;

@@ -257,9 +257,13 @@
     <div id="main-col">
       <div id="update-banner" class="update-banner update-banner-hidden"></div>
       <div id="gw-banner" class="gw-banner gw-banner-hidden"></div>
-      <!-- 独立于 #content：路由切换时隐藏而不卸载 ChatApp，保持 SSE 与对话状态 -->
-      <div id="chat-persistent-host" hidden></div>
-      <main id="content"></main>
+      <!-- 主区横排：对话宿主 / 功能页内容 | 全局 right-stage（与 ChatApp 同款分割） -->
+      <div id="main-body-row">
+        <!-- 独立于 #content：路由切换时隐藏而不卸载 ChatApp，保持 SSE 与对话状态 -->
+        <div id="chat-persistent-host" hidden></div>
+        <main id="content"></main>
+        <div id="global-right-stage-host" hidden aria-label="右侧面板"></div>
+      </div>
     </div>
   </div>
   <script type="module" src="/src/main.js"></script>

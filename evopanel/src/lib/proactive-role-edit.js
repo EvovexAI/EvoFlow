@@ -880,9 +880,12 @@ function fillCapabilityPanels(overlay, detail, catalog) {
   const selectedTools = locked
     ? []
     : resolveSelectedCapability(detail?.tools, toolValues, { defaultAll: true })
+  // MCP 未设置时不能默认全选：null 在运行时语义是「挂载全部 MCP」，
+  // 一旦按全选回显，用户改个 soul/提示词再保存就会被实体化成全量 MCP 绑定。
+  // 后端 create 已把未指定的 mcp_servers 落成 []（显式不绑），这里必须对齐。
   const selectedMcp = locked
     ? []
-    : resolveSelectedCapability(detail?.mcp_servers, mcpValues, { defaultAll: true })
+    : resolveSelectedCapability(detail?.mcp_servers, mcpValues, { defaultAll: false })
   const selectedSkills = locked
     ? []
     : resolveSelectedCapability(detail?.skills, skillValues, { defaultAll: false })
@@ -1456,7 +1459,7 @@ export async function showEditRoleModal(role, {
       : resolveSelectedCapability(agentBaseline.tools, toolValues, { defaultAll: true })
     const baseMcp = capLocked
       ? []
-      : resolveSelectedCapability(agentBaseline.mcp_servers, mcpValues, { defaultAll: true })
+      : resolveSelectedCapability(agentBaseline.mcp_servers, mcpValues, { defaultAll: false })
     const baseSkills = capLocked
       ? []
       : resolveSelectedCapability(agentBaseline.skills, skillValues, { defaultAll: false })
