@@ -43,3 +43,4 @@ skills/public/hyperframes-animation/examples/assets/*.mp4 -filter -diff -merge b
 *.key filter=lfs diff=lfs merge=lfs -text
 *.woff binary
 *.woff2 binary
+*.safetensors filter=lfs diff=lfs merge=lfs -text

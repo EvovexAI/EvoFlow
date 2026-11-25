@@ -11,6 +11,7 @@ import threading
 from pathlib import Path
 
 from app.gateway.startup_trace import startup_mark, startup_reset, startup_set_meta
+from evoflow.utils.frozen_modules import split_internal_mode_argv
 
 startup_reset()
 startup_mark("gateway_entry.begin", phase="entry")
@@ -216,6 +217,29 @@ def _run_cli_mode() -> None:
     raise SystemExit(cli_main(_cli_argv_without_mode(list(sys.argv[1:]))))
 
 
+def _internal_mode_argv(argv: list[str]) -> tuple[str, list[str]] | None:
+    """Detect ``--mode <internal-worker-mode>``; return ``(mode, remaining argv)``.
+
+    【self-evolution-bot · 2026-11-24 · 模型:deepseek-v4.1-flash】
+    为什么需要这条路径：冻结包里没有 python 解释器，`python -m <module>` 起不来
+    （`sys.executable` 就是 evoflow-gateway.exe，`-m` 会被 gateway 自己的 argparse
+    判成 unrecognized arguments，实测 exitCode=2）。所以子进程必须复用同一个 EXE，
+    用内部 mode 分发到 worker 模块的 ``main()``。模式表与解析都在
+    ``evoflow/utils/frozen_modules.py`` 里，spawn 侧用的也是那一份，两边不会漂移。
+    """
+    from evoflow.utils.frozen_modules import split_internal_mode_argv
+
+    return split_internal_mode_argv(list(argv))
+
+
+def _run_internal_worker_mode(module: str, argv: list[str]) -> None:
+    """Dispatch an internal worker mode to its module ``main()`` (frozen EXE only)."""
+    import importlib
+
+    mod = importlib.import_module(module)
+    raise SystemExit(int(mod.main(argv) or 0))
+
+
 def _prepare_stdio_for_frozen() -> None:
     """Re-run frozen stdio fix (idempotent). Keeps Tauri log redirection when fds are valid."""
     if not getattr(sys, "frozen", False):
@@ -370,6 +394,16 @@ def main() -> None:
         _ensure_runtime_env()
         _run_cli_mode()
         return
+
+    # 【self-evolution-bot · 2026-11-24 · 模型:deepseek-v4.1-flash】
+    # 内部 worker mode（code-index build / embed）必须在 _parse_args() 之前分发：
+    # gateway 的 argparse 只认 gateway/langgraph/cli/app-server，`--mode code-index-build-worker`
+    # 会被判成 invalid choice 直接退出——那正是安装版「索引永远建不起来」的现场。
+    internal = _internal_mode_argv(sys.argv[1:])
+    if internal is not None:
+        module, rest = internal
+        _ensure_runtime_env()
+        _run_internal_worker_mode(module, rest)
 
     args = _parse_args()
     _ensure_runtime_env()
@@ -599,4 +633,14 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    # 内部 worker 模式解析
+    import sys
+
+    from evoflow.utils.frozen_modules import split_internal_mode_argv
+    parsed = split_internal_mode_argv(sys.argv[1:])
+    if parsed is not None:
+        from evoflow.utils.frozen_modules import python_module_argv
+        module, rest = parsed
+        # 重新构造 argv，让 -m 子进程模式在冻结态也能被正确解析
+        sys.argv = python_module_argv(module, *rest)
     main()
