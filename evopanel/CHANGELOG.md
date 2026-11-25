@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.55] - 2026-11-26
+
+相对 **1.3.54**：冻结 EXE 内代码索引/本地向量 worker 可启动；拒绝 LFS 指针当模型权重（#118）。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.55.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **冻结 EXE 子进程**：索引/嵌入 worker 用内部 --mode 分发，不再静默失败
+- **LFS 指针当权重**：打包与运行前识别 safetensors LFS 指针
+- **构建失败可查**：worker 非零退出打 ERROR 日志
+
+### Changed
+
+- **本机一键入口**：start-evoflow.bat / uild-windows.bat
+
+
 ## [1.3.54] - 2026-11-25
 
 相对 **1.3.53**：侧栏 BOT 部门编组；右栏不串台；观测/用量库清理与 VACUUM 更稳。
