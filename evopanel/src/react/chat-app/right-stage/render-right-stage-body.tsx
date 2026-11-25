@@ -154,17 +154,20 @@ function CollabWorkflowStageBody({
       agents={agents}
       onClose={onClose}
       onSubtaskTranscriptOpen={(payload) => {
-        openCollabSubtaskInRightStage({
-          subtaskId: String(payload?.subtaskId || ''),
-          mainTaskId: String(payload?.mainTaskId || mainTaskId),
-          leadThreadId: String(payload?.leadThreadId || leadThreadId),
-          title: String(payload?.title || ''),
-          status: String(payload?.status || ''),
-          assignedAgent: String(payload?.assignedAgent || ''),
-          description: String(payload?.description || ''),
-          subtaskThreadId: String(payload?.subtaskThreadId || ''),
-          outcome: payload?.outcome,
-        })
+        openCollabSubtaskInRightStage(
+          {
+            subtaskId: String(payload?.subtaskId || ''),
+            mainTaskId: String(payload?.mainTaskId || mainTaskId),
+            leadThreadId: String(payload?.leadThreadId || leadThreadId),
+            title: String(payload?.title || ''),
+            status: String(payload?.status || ''),
+            assignedAgent: String(payload?.assignedAgent || ''),
+            description: String(payload?.description || ''),
+            subtaskThreadId: String(payload?.subtaskThreadId || ''),
+            outcome: payload?.outcome,
+          },
+          { forceExpand: true },
+        )
       }}
       canvasFillContainer
     />

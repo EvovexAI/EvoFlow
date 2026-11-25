@@ -63,9 +63,12 @@ def _fire_and_forget(fn: Any, **kwargs: Any) -> None:
             logger.debug("observability fire-and-forget sync fallback failed", exc_info=True)
 
 
-_lock = threading.Lock()
+_lock = threading.RLock()
 _store: ObservabilitySqliteStore | None = None
 _store_path: str | None = None
+# Held across VACUUM INTO + Windows file swap so writers cannot reopen the old
+# handle mid-rebuild (rename then fails with WinError 32).
+_rebuild_quiesced = False
 
 
 def _store_for_config() -> ObservabilitySqliteStore | None:
@@ -81,6 +84,8 @@ def _store_for_config() -> ObservabilitySqliteStore | None:
     except Exception:
         return None
     with _lock:
+        if _rebuild_quiesced:
+            return None
         if _store is not None and _store_path == raw_path:
             return _store
         if _store is not None:
@@ -448,6 +453,27 @@ def reset_observability_store() -> None:
                 pass
         _store = None
         _store_path = None
+
+
+class observability_store_quiesced:
+    """Close the store and block reopen until the context exits (rebuild swap)."""
+
+    def __enter__(self) -> None:
+        global _rebuild_quiesced
+        self._lock_cm = _lock
+        self._lock_cm.acquire()
+        reset_observability_store()
+        _rebuild_quiesced = True
+        return None
+
+    def __exit__(self, exc_type, exc, tb) -> None:  # noqa: ANN001
+        global _rebuild_quiesced
+        _rebuild_quiesced = False
+        try:
+            self._lock_cm.release()
+        except RuntimeError:
+            pass
+        return None
 
 
 def reset_observability_store_for_tests() -> None:

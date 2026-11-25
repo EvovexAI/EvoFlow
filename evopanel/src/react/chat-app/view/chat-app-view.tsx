@@ -1214,9 +1214,12 @@ export function renderChatAppView(ctx: ChatAppViewCtx): ReactNode {
                 setSubtaskTranscriptModal(null)
                 return
               }
-              // 侧栏点节点：与工作流画布同口径 → V4 右侧独立进度 tab
+              // 侧栏点节点：与工作流画布同口径 → V4 右侧独立进度 tab（须 forceExpand 才切签）
               void import('../../../lib/right-stage/open-collab-subtask-stage.js').then((m) => {
-                m.openCollabSubtaskInRightStage(next, { sessionKey: selectedSessionKey })
+                m.openCollabSubtaskInRightStage(next, {
+                  sessionKey: selectedSessionKey,
+                  forceExpand: true,
+                })
               })
             }}
             onOpenMessageFile={openMessageFilePreview}

@@ -298,7 +298,11 @@ async def run_data_retention_scheduler(stop: asyncio.Event) -> None:
                 last_wal_checkpoint = time.monotonic()
 
         # --- Full data retention pass (infrequent; delayed after startup) ---
-        retention_due = now >= retention_due_at and (last_retention <= 0.0 or (now - last_retention) >= interval)
+        # Due time is already encoded in retention_due_at (daily interval OR
+        # hourly size-cap retry). Do NOT also require (now - last_retention) >=
+        # interval — that made EVOFLOW_OBS_SIZE_CAP_RETRY_S a no-op and left
+        # multi-GB freelist unreclaimed for a full day (2026-11-24→25).
+        retention_due = now >= retention_due_at
         if retention_due:
             try:
                 summary = await asyncio.to_thread(run_retention_once)

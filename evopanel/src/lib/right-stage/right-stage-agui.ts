@@ -291,25 +291,25 @@ export function applyStageSetPayload(
       return false
     }
     // 后台会话：live 打开后立刻挪进该会话冻结记忆，再从当前 UI 表剔除，避免串进前台。
-    // 【self-evolution-bot · 2026-11-21 · 第104轮 · 模型:deepseek-v4.1-flash-1017】
-    // 改了什么：只有「确实是后台会话」且「本次不是用户主动发起」时才挪签。
-    // 为什么（本轮真机实测对照实验，用户原话「新打开的也没有显示最新的，也没有进行切换，
-    //   你现在也控制不了」）：
-    //   - `web-embed`（非进度类，不走本分支）：10:52:59.330 emit → 10:52:59.940 report，
-    //     610ms 落地，activeKey 正确切到新签。
-    //   - `shell-page` / `employeeProcess`（进度类，走本分支）：10:47:45.915 emit 之后
-    //     **两分钟零 report**，activeKey 原地不动。
-    //   同一工具、同一通道，唯一差别就是走不走这里 —— 通道没问题，是这条分支把事件吃掉了。
-    // 判据：用户的当前 UI 会话就是他正在看的会话，那次派单本来就该落在这个面板里；
-    //   ownerSessionKey 与 uiSessionKey 不等，更常见的原因是**其中一边取值抖动/为空**，
-    //   不能一律当「后台会话」处理。挪签只在 isBackgroundOwner 真正成立且非用户发起时做。
-    if (isBackgroundOwner && ownerSessionKey && !userInitiatedShow) {
+    // 即便带 expand=true 也不例外——expand 只表示「所属会话里要撑开」，
+    // 不能把别的对话的进度签盖到用户正在看的侧边上（侧边串台）。
+    // 用户点开路径走 open*InRightStage(forceExpand) 且通常 stamp=当前 UI，不进此分支。
+    if (isBackgroundOwner && ownerSessionKey) {
       const tabKey = `${kind}:${opened}`
       const tab = rightStageStore.findTab(tabKey)
       if (tab) {
-        upsertTabInSessionMemory({ sessionKey: ownerSessionKey, tab })
+        upsertTabInSessionMemory({
+          sessionKey: ownerSessionKey,
+          tab: { ...tab, sessionKey: ownerSessionKey },
+          // expand=true → 所属会话记忆里激活撑开；切回该会话才看见，不串前台
+          activate: true,
+        })
         rightStageStore.discardTab(tabKey)
-        logPanelSet('① 进度面板：已挪入后台会话记忆', { ownerSessionKey, tabKey })
+        logPanelSet('① 进度面板：已挪入后台会话记忆', {
+          ownerSessionKey,
+          tabKey,
+          expand: userInitiatedShow,
+        })
       }
     }
     dispatchStageSetApplied(payload)
@@ -355,26 +355,15 @@ export function applyStageSetPayload(
   const isBackgroundOwner =
     !xiaomiVoiceFg &&
     Boolean(ownerSessionKey && uiSessionKey && ownerSessionKey !== uiSessionKey)
-  // 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
-  // 改了什么：本条「后台会话 → 只写冻结记忆」的隔离分支，补上与进度类分支同一套
-  //   ``expand=true`` 豁免。
-  // 为什么（本轮现网日志定案的 44 秒真因，不是延迟）：
-  //   13:26:37.506 emit 一条 web-embed show(expand=true)；
-  //   13:26:52 / 13:26:56 / 13:26:59 三条 report 全是 12 个 screenshot 签在翻滚，
-  //   **我的 web-embed 签一次都没上过报**；
-  //   13:27:13.456 用户点发送切到我的会话 → 13:27:21.586 report 才变成 tabs=1/web-embed。
-  //   即：那签在 13:26:37 就被写进了「我的会话」的冻结记忆，用户切过来才换出表。
-  //   事件没丢、也没慢，是**隔离分支吃掉了 expand**——第104轮我只给进度类分支加了
-  //   豁免（userInitiatedShow），web-embed/file 等会话级 kind 走的是本分支，没有豁免。
-  // 判据：expand=true 是调用方明确要求「让用户看见」（语义等同用户亲手点开），
-  //   与「后台自动挂载不抢焦点」不冲突——后者从不带 expand。
-  //   带 expand 时按用户当前 UI 会话盖章写 live，让用户此刻就能看见。
-  if (isBackgroundOwner && scopeOfKind(kind) === 'session' && payload.surface.expand !== true) {
-    // 后台会话：只更新它自己的冻结记忆，绝不写当前 UI 的右栏。
+  // 后台会话（归属 ≠ 当前 UI）：会话级 kind 只写冻结记忆，绝不写当前右栏。
+  // expand=true 也不例外——那只表示「所属会话里要看见」，不能盖到别的对话侧边上（串台）。
+  // 小V语音全屏除外（xiaomiVoiceFg → isBackgroundOwner=false）。
+  if (isBackgroundOwner && scopeOfKind(kind) === 'session') {
     logPanelSet('① 后台会话：只写冻结记忆，不抢当前右栏', {
       ownerSessionKey,
       uiSessionKey,
       kind,
+      expand: payload.surface.expand === true,
     })
     upsertTabInSessionMemory({
       sessionKey: ownerSessionKey,
@@ -386,23 +375,17 @@ export function applyStageSetPayload(
         data: { ...(payload.surface.data || {}) },
         sessionKey: ownerSessionKey,
       },
+      activate: true,
     })
     dispatchStageSetApplied(payload)
     return true
   }
   logPanelSet('① 前台：applyRemote 写右栏', { kind, action, xiaomiVoiceFg })
-  // 语音全屏：归属钉到当前 UI 会话，避免 tab.sessionKey=小V 被 ChatApp 过滤掉
-  // 【self-evolution-bot · 2026-11-21 · 第106轮 · 模型:deepseek-v4.1-flash-1017】
-  // 改了什么：``expand=true``（调用方明确要求「让用户看见」）时，归属同样钉到当前 UI 会话。
-  // 为什么（与上面那条豁免配套，缺一不可）：只放行隔离分支不改盖章还不够——
-  //   签若仍盖 ``ownerSessionKey``（用户没在看的那条会话），
-  //   ChatApp 侧按 ``isRightStageTabVisibleForSession`` 过滤时会把刚写进去的签再滤掉，
-  //   表现为「分支放行了、屏幕上还是什么都没有」，与第104轮 610ms 落地那条的成功案例恰恰相反。
-  // 判据：expand=true → stampSk 必须等于 uiSessionKey；其余情况保持原语义。
-  const forceUserVisible = payload.surface?.expand === true
-  const stampSk = xiaomiVoiceFg || forceUserVisible
+  // 语音全屏：归属钉到当前 UI 会话，避免 tab.sessionKey=小V 被 ChatApp 过滤掉。
+  // 其余前台写入：优先事件归属会话，其次当前 UI；禁止再把「别的会话 expand」盖成当前 UI。
+  const stampSk = xiaomiVoiceFg
     ? uiSessionKey || ownerSessionKey || undefined
-    : ownerSessionKey || undefined
+    : ownerSessionKey || uiSessionKey || undefined
   rightStageStore.applyRemote({
     action,
     surface: stampSk

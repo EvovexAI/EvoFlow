@@ -100,7 +100,7 @@ export function applyPendingShellSession(ctx: ApplyPendingShellSessionCtx): void
               status: String(pendingSubtask?.status || ''),
               assignedAgent: String(pendingSubtask?.assignedAgent || ''),
             },
-            { sessionKey: pendingSession },
+            { sessionKey: pendingSession, forceExpand: true },
           )
         }, 80)
       }

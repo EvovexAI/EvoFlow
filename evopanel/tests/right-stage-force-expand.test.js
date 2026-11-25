@@ -75,7 +75,7 @@ describe('right stage user-explicit open vs collapse lock', () => {
     expect(snap.tabs).toHaveLength(0)
   })
 
-  it('openDeptGroupWakeProcessInRightStage depth 0 expands and pins sticky employee session', () => {
+  it('openDeptGroupWakeProcessInRightStage writes tab but does not auto-expand (user opens process)', () => {
     rightStageStore.collapse()
     const id = openDeptGroupWakeProcessInRightStage({
       deptId: 'rd',
@@ -87,7 +87,8 @@ describe('right stage user-explicit open vs collapse lock', () => {
     })
     expect(id).toBeTruthy()
     const snap = rightStageStore.getSnapshot()
-    expect(snap.collapsed).toBe(false)
+    // 群聊唤醒只预写签，不抢开右栏；用户点「查看实时过程」再 forceExpand
+    expect(snap.collapsed).toBe(true)
     const tab = snap.tabs.find((t) => t.kind === 'employeeProcess')
     expect(tab?.data?.agentCode).toBe('dev-a')
     expect(tab?.data?.employeeSessionKey).toBe('proactive:dev-a:chat:dept-rd')

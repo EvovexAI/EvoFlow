@@ -593,6 +593,19 @@ html.dark #global-right-stage-host {
   box-sizing: border-box;
 }
 
+/* Agent应用列表：同 apps-page，高度不够时由本页滚动 */
+#content > .page.extensions-page {
+  max-width: none;
+  width: 100%;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
 /* 智能体中心：同宽铺满；顶层 .page 同时作为窗口滚动容器 */
 #content > .page.expert-page {
   max-width: none;

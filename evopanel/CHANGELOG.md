@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.54] - 2026-11-25
+
+相对 **1.3.53**：侧栏 BOT 部门编组；右栏不串台；观测/用量库清理与 VACUUM 更稳。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.54.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **BOT 部门编组**：花名册按部门筛选/折叠，无会话岗位也占位
+
+### Fixed
+
+- **右栏不串台**：后台 expand 不盖到当前前台侧边
+- **观测库回收**：VACUUM INTO / 待应用重建在文件占用时重试
+- **用量事件清理**：按天裁剪并压缩过重 meta
+
+### Changed
+
+- **部门群正文**：群气泡正文格式更稳
+
+
 ## [1.3.53] - 2026-11-24
 
 相对 **1.3.52**：阿里云/火山 Coding Plan；员工页布局；右栏路径愈合；预览面包屑；待发送队列按会话隔离。

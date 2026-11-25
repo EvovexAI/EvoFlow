@@ -217,11 +217,9 @@ export function openEmployeeProcessInRightStage(
 }
 
 /**
- * 部门群聊 @ 唤醒：在 chatSend 之前把右栏钉到员工 sticky 会话，
- * 否则群气泡在流、摘要只有「回复中」，右栏看不到实时过程记录。
- *
- * - depth 0（用户/@管家首轮）：forceExpand，立刻看见跟岗时间线
- * - 嵌套接力：只写/激活签，尊重用户收起锁（与 platform autoOpen 同语义）
+ * 部门群聊：预写员工跟岗签（不强制撑开右栏）。
+ * 群聊唤醒默认不自动展开侧栏；用户点「查看实时过程」走 {@link openEmployeeProcessInRightStage}
+ * 并传 `forceExpand: true`。
  */
 export function openDeptGroupWakeProcessInRightStage(input: {
   deptId: string
@@ -230,7 +228,7 @@ export function openDeptGroupWakeProcessInRightStage(input: {
   /** 主壳会话（dept:{id}:chat），钉标签归属 */
   shellSessionKey?: string | null
   employeeSessionKey?: string | null
-  /** 唤醒深度；0 = 用户本轮点名 */
+  /** 唤醒深度（保留入参兼容；不再据此 forceExpand） */
   depth?: number
 }): string {
   const code = String(input.agentCode || '').trim()
@@ -238,7 +236,6 @@ export function openDeptGroupWakeProcessInRightStage(input: {
   const roleName = String(input.roleName || '').trim() || code
   const ownerSk = String(input.shellSessionKey || '').trim()
   const employeeSk = String(input.employeeSessionKey || '').trim()
-  const depth = Math.max(0, Number(input.depth) || 0)
   return openEmployeeProcessInRightStage(
     {
       taskId: `live:${code}`,
@@ -251,7 +248,7 @@ export function openDeptGroupWakeProcessInRightStage(input: {
     {
       sessionKey: ownerSk || undefined,
       layout: 'wide',
-      forceExpand: depth === 0,
+      forceExpand: false,
     },
   )
 }

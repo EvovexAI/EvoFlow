@@ -145,6 +145,23 @@ def test_obs_size_cap_retry_seconds_default(monkeypatch: pytest.MonkeyPatch) -> 
     assert runner._obs_size_cap_retry_seconds() == 300  # floor 300s
 
 
+def test_retention_due_uses_due_at_not_full_interval() -> None:
+    """Size-cap retry must not also require a full daily interval since last pass.
+
+    Mirrors the scheduler predicate (now >= retention_due_at). The old
+    ``and (now - last_retention) >= interval`` made hourly retry a no-op.
+    """
+    interval = 24 * 3600
+    last_retention = 1000.0
+    retention_due_at = last_retention + 3600  # hourly retry
+    now = last_retention + 3601
+    assert now >= retention_due_at
+    # Old broken predicate would be False here:
+    assert not (now >= retention_due_at and (now - last_retention) >= interval)
+    # Fixed predicate:
+    assert now >= retention_due_at
+
+
 def test_runner_guard_blocks_any_inflight(monkeypatch: pytest.MonkeyPatch) -> None:
     """任意 inflight REST（含 proactive）都应让路，不只 chat/langgraph。"""
     import app.gateway.data_retention_runner as runner
@@ -168,25 +185,30 @@ def test_runner_guard_blocks_any_inflight(monkeypatch: pytest.MonkeyPatch) -> No
     assert runner._vacuum_busy_guard() is False
 
 
-def test_vacuum_paths_skips_oversized_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """多 GB 库不得在 Gateway 进程内 VACUUM（2026-11-19 15:03 卡机）。"""
+def test_vacuum_paths_rebuilds_oversized_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Oversize DBs skip in-place VACUUM but still reclaim via VACUUM INTO rebuild."""
     big = tmp_path / "evoflow.db"
     big.write_bytes(b"x" * 1024)
     monkeypatch.setenv("EVOFLOW_VACUUM_MAX_BYTES", "512")
     calls: list[str] = []
 
     class _FakeConn:
-        def execute(self, *_a, **_k):
-            calls.append("VACUUM")
+        def execute(self, sql, *_a, **_k):
+            calls.append(str(sql))
+            if "VACUUM INTO" in str(sql):
+                rebuilt = big.with_suffix(big.suffix + ".rebuild")
+                rebuilt.write_bytes(b"compacted")
             return None
 
         def close(self) -> None:
             return None
 
     monkeypatch.setattr(dr.sqlite3, "connect", lambda *_a, **_k: _FakeConn())
+    monkeypatch.setattr(dr, "_replace_sqlite_file", lambda src, dest, **_k: dest.write_bytes(src.read_bytes()) or src.unlink())
     out = dr._vacuum_paths([big])
-    assert out == []
-    assert calls == []
+    assert out == [str(big)]
+    assert any("VACUUM INTO" in c for c in calls)
+    assert not any(c.strip().upper() == "VACUUM" for c in calls)
 
 
 def test_vacuum_paths_runs_under_size_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

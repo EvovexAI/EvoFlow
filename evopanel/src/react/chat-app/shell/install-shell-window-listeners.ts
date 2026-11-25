@@ -91,7 +91,7 @@ export function runShellWindowListenersEffect(ctx: RunShellWindowListenersEffect
                     status: String(pendingSubtask?.status || ''),
                     assignedAgent: String(pendingSubtask?.assignedAgent || ''),
                   },
-                  { sessionKey: pending || undefined },
+                  { sessionKey: pending || undefined, forceExpand: true },
                 )
               })
             }, 80)

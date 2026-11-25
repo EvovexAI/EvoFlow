@@ -2319,6 +2319,7 @@ export function V4ZCodeTimeline(props: {
           },
           {
             sessionKey: evoflowSessionKey ? String(evoflowSessionKey) : undefined,
+            forceExpand: true,
           },
         );
       },
