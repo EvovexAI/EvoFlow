@@ -175,10 +175,14 @@ export async function healWorkspaceOpenPath(
   const projectsSuffix = extractProjectsRelativeSuffix(candidate) || extractProjectsRelativeSuffix(raw)
 
   try {
-    const { api } = await import('../tauri-api.js')
+    const { api: rawApi } = await import('../tauri-api.js')
+    // tauri-api 的 api 表是宽 Record；此处只取路径纠偏用到的两个方法。
+    const api = rawApi as Parameters<typeof searchUnderRoot>[0]
+    if (typeof api.searchWorkspaceFiles !== 'function') return candidate
+
     if (workspaceRoot || threadId) {
       try {
-        const info = await api.resolveWorkspaceTarget(
+        const info = await api.resolveWorkspaceTarget?.(
           workspaceRoot || '',
           candidate,
           threadId,

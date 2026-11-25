@@ -897,6 +897,9 @@ export class RightStageStore {
           layout: surfNorm.layout,
           data: surfNorm.data || {},
           openedBy: surfNorm.openedBy,
+          // 必须透传 surface.sessionKey：否则归属回落到「当前 UI 会话 / 空」，
+          // 后台会话的签会串进前台或变成无归属全局可见。
+          sessionKey: surfNorm.sessionKey,
           forceExpand: surfNorm.expand === true,
         })
       } else {
@@ -968,6 +971,8 @@ export class RightStageStore {
       // 为什么：这条是智能体打开面板的主通路；不带就等于所有模型开的签都退回会话兜底，
       // 用户看到的全是「会话：xxx」而分不出是哪个智能体在动他的右栏。
       openedBy: surfNorm.openedBy,
+      // 透传归属：applyStageSetPayload 已按 owner/ui 盖好 sessionKey，这里丢掉就会串台。
+      sessionKey: surfNorm.sessionKey,
       // 【self-evolution-bot · 2026-11-20 · 第91轮 · 模型:deepseek-v4.1-flash-1017】
       // 改了什么：applyRemote 把 surface.expand 映射为 show() 的 forceExpand。
       // 为什么：此前 applyRemote 调 show() 从不传 forceExpand，导致

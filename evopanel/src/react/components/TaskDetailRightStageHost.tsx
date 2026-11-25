@@ -145,7 +145,7 @@ export function TaskDetailRightStageHost({
                   subtaskThreadId: String(payload?.subtaskThreadId || ''),
                   outcome: payload?.outcome,
                 },
-                { sessionKey: stageSk },
+                { sessionKey: stageSk, forceExpand: true },
               )
             }}
             hideHeaderStatus

@@ -148,6 +148,7 @@ export default defineConfig({
       'tests/session-list-pin.test.js',
       'tests/session-list-dept-reselect.test.js',
       'tests/session-list-proactive-group.test.js',
+      'tests/employee-dept-sections.test.js',
       'tests/employee-group-order-storage.test.ts',
       'tests/session-list-employee-orphan-prune.test.js',
       'tests/shell-running-preview.test.js',
@@ -339,6 +340,7 @@ export default defineConfig({
       // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
       // 渲染期冒烟：tsc 抓不到渲染异常，必须真挂载组件看 DOM
       'tests/dept-group-chat-render.test.tsx',
+      'tests/dept-group-format-body.test.js',
       'tests/dept-chat-list-cache.test.ts',
       'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',

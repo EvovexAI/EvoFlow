@@ -126,7 +126,7 @@ export function PlatformWorkflowProgressCard({
         ...(subtaskThreadId ? { subtaskThreadId } : {}),
         ...(pill.status ? { status: String(pill.status) } : {}),
       },
-      { sessionKey: stageSessionKey },
+      { sessionKey: stageSessionKey, forceExpand: true },
     );
   };
 

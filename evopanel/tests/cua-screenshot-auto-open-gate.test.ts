@@ -59,8 +59,8 @@ describe('screenshot tab visibility is session-scoped', () => {
     expect(isRightStageTabVisibleForSession(orphan, 'agent:main:B')).toBe(false)
   })
 
-  it('still tolerates legacy non-screenshot tabs without ownership', () => {
-    // 遗留豁免只保留给非截图内容，别把老标签一起打死。
+  it('session-scoped tabs without ownership never leak across chats', () => {
+    // 旧遗留豁免已撤：file / web-embed 等无归属也不再对所有会话可见。
     const legacyFile: RightStageSurface = {
       id: 'legacy',
       kind: 'file',
@@ -68,6 +68,19 @@ describe('screenshot tab visibility is session-scoped', () => {
       layout: 'half',
       data: { path: 'D:/tmp/a.txt' },
     }
-    expect(isRightStageTabVisibleForSession(legacyFile, 'agent:main:A')).toBe(true)
+    expect(isRightStageTabVisibleForSession(legacyFile, 'agent:main:A')).toBe(false)
+    expect(isRightStageTabVisibleForSession(legacyFile, 'agent:main:B')).toBe(false)
+  })
+
+  it('workspace-scoped tabs without ownership stay shared', () => {
+    const writeTab: RightStageSurface = {
+      id: 'primary',
+      kind: 'write',
+      title: '写入预览',
+      layout: 'half',
+      data: {},
+    }
+    expect(isRightStageTabVisibleForSession(writeTab, 'agent:main:A')).toBe(true)
+    expect(isRightStageTabVisibleForSession(writeTab, 'agent:main:B')).toBe(true)
   })
 })

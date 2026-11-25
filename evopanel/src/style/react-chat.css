@@ -2800,6 +2800,63 @@ html[data-theme='dark'] .shell-view-action-btn:hover {
   cursor: not-allowed;
 }
 
+.shell-view-action-new {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.shell-view-action-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 40;
+  min-width: 148px;
+  padding: 4px;
+  border: 1px solid var(--shell-border, #e8eaf1);
+  border-radius: 10px;
+  background: var(--surface-control-bg, var(--bg-card, #fff));
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+/* BOT 栏「+」选人：更宽、可滚动，避免花名册一长串撑破侧栏 */
+.shell-view-action-menu--bot {
+  min-width: 220px;
+  max-width: min(280px, calc(100vw - 24px));
+  max-height: min(360px, 70vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.shell-view-action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--shell-text, #171a2b);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-view-action-menu-item:hover {
+  background: var(--shell-hover, rgba(0, 0, 0, 0.04));
+}
+
+.shell-view-action-menu-item svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
 .react-chat-aside-history-head {
   flex-shrink: 0;
   display: flex;
@@ -41690,6 +41747,172 @@ html[data-theme='dark'] .react-chat-stage-tab.is-active {
   gap: 2px;
   height: 100%;
   margin-left: 4px;
+}
+
+/* BOT 花名册：部门折叠头（人数字 + 执行中/未读徽标） */
+.react-chat-session-bot-dept {
+  list-style: none;
+  margin: 6px 0 4px;
+  padding: 0;
+}
+
+.react-chat-session-bot-dept-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 28px;
+  padding: 0 2px 0 0;
+  border-radius: 8px;
+  color: var(--shell-text-muted, #6b7280);
+}
+
+.react-chat-session-bot-dept-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+  min-height: 28px;
+  padding: 2px 6px 2px 4px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: background-color var(--dur-fast, 120ms) ease-out, color var(--dur-fast, 120ms) ease-out;
+}
+
+.react-chat-session-bot-dept-toggle:hover {
+  background: var(--shell-hover, rgba(0, 0, 0, 0.04));
+  color: var(--shell-text, #171a2b);
+}
+
+.react-chat-session-bot-dept-toggle:focus-visible {
+  outline: 2px solid var(--shell-focus, rgba(59, 130, 246, 0.5));
+  outline-offset: -1px;
+}
+
+.react-chat-session-bot-dept-enter {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--shell-text-muted, #6b7280);
+  cursor: pointer;
+  outline: none;
+  transition: background-color var(--dur-fast, 120ms) ease-out, color var(--dur-fast, 120ms) ease-out;
+}
+
+.react-chat-session-bot-dept-head:hover .react-chat-session-bot-dept-enter,
+.react-chat-session-bot-dept-head:focus-within .react-chat-session-bot-dept-enter {
+  display: inline-flex;
+}
+
+.react-chat-session-bot-dept-enter:hover {
+  background: var(--shell-hover, rgba(0, 0, 0, 0.06));
+  color: var(--shell-text, #171a2b);
+}
+
+.react-chat-session-bot-dept-enter:focus-visible {
+  display: inline-flex;
+  outline: 2px solid var(--shell-focus, rgba(59, 130, 246, 0.5));
+  outline-offset: -1px;
+}
+
+/* ChevronRight：收起朝右 ›，展开朝下 ∨（与值班折叠一致） */
+.react-chat-session-bot-dept-chevron {
+  flex-shrink: 0;
+  opacity: 0.7;
+  transition: transform var(--dur-fast, 120ms) ease-out;
+  transform: rotate(0deg);
+}
+
+.react-chat-session-bot-dept-chevron.is-open {
+  transform: rotate(90deg);
+}
+
+.react-chat-session-bot-dept-avatar,
+.react-chat-session-bot-dept-avatar-fallback {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.react-chat-session-bot-dept-avatar img {
+  display: block;
+  width: 18px;
+  height: 18px;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.react-chat-session-bot-dept-label {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--shell-text-body, #42475a);
+}
+
+.react-chat-session-bot-dept-badge {
+  flex-shrink: 0;
+  min-width: 1.15rem;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.react-chat-session-bot-dept-badge.is-running {
+  background: color-mix(in srgb, var(--shell-brand, #4f46e5) 18%, transparent);
+  color: var(--shell-brand, #4f46e5);
+}
+
+.react-chat-session-bot-dept-badge.is-unread {
+  background: color-mix(in srgb, #ef4444 16%, transparent);
+  color: #dc2626;
+}
+
+.react-chat-session-bot-dept-list {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 2px 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+/* 员工组头旁的「负责人」角标（挂在名字右侧，不另起一行） */
+.react-chat-session-bot-dept-head-tag {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--shell-border, #e8eaf1) 70%, transparent);
+  color: var(--shell-text-muted, #6b7280);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
 }
 
 /* ── V4 侧栏工作区分组树（对齐 ZCode WorkspaceSidebar ghost-button 头 + 折叠列表）── */

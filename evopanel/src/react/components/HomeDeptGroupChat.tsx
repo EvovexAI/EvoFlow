@@ -179,10 +179,51 @@ function SelfChatAvatar({
 }
 
 /**
+ * 口播 / 旁白机器 JSON：`{"heard","say","gap","avoid"}` → 只留人话 `say`。
+ * 整段或夹在正文里的对象都剥；解析失败则原样返回。
+ */
+export function unwrapSpokenReplyJson(raw: string): string {
+  const src = String(raw || '').trim()
+  if (!src || !src.includes('"say"')) return src
+
+  const tryParse = (s: string): string | null => {
+    try {
+      const obj = JSON.parse(s)
+      if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return null
+      if (typeof (obj as { say?: unknown }).say !== 'string') return null
+      const keys = Object.keys(obj as object)
+      const looksSpoken =
+        'heard' in (obj as object) ||
+        'gap' in (obj as object) ||
+        'avoid' in (obj as object) ||
+        keys.every((k) => k === 'say' || k === 'heard' || k === 'gap' || k === 'avoid')
+      if (!looksSpoken) return null
+      return String((obj as { say: string }).say || '').trim()
+    } catch {
+      return null
+    }
+  }
+
+  const whole = tryParse(src)
+  if (whole !== null) return whole
+
+  // 正文里夹一段 JSON 对象时，用匹配到的对象替换（常见：前后还有说明句）
+  const re = /\{[^{}]*"say"\s*:\s*"(?:\\.|[^"\\])*"[\s\S]*?\}/g
+  let hit = false
+  const replaced = src.replace(re, (chunk) => {
+    const say = tryParse(chunk)
+    if (say === null) return chunk
+    hit = true
+    return say
+  })
+  return hit ? replaced.trim() : src
+}
+
+/**
  * 群聊按微信纯文本显示：去掉工具噪音，并剥掉常见 Markdown 标记
  *（模型偶发仍输出 # / ** / 表格时，界面也不渲染成「文档腔」）。
  */
-function formatBodyText(raw: string): string {
+export function formatBodyText(raw: string): string {
   let t = String(raw || '')
   t = t.replace(/\[工具:[^\]]*\][^\n]*/g, '')
   t = t.replace(/^\s*（发言失败）\s*/gm, '')
@@ -190,6 +231,8 @@ function formatBodyText(raw: string): string {
   // fenced code → 保留内文
   t = t.replace(/```[\w-]*\r?\n?([\s\S]*?)```/g, (_, body: string) => String(body || '').trim())
   t = t.replace(/```+/g, '')
+  // 口播 JSON 放在剥 fence 之后，避免 ```json {…} ``` 漏网
+  t = unwrapSpokenReplyJson(t)
   // 标题 / 引用
   t = t.replace(/^\s{0,3}#{1,6}\s+/gm, '')
   t = t.replace(/^\s{0,3}>\s?/gm, '')
@@ -968,31 +1011,8 @@ export function HomeDeptGroupChat({
         })
       }
 
-      // chatSend 前钉右栏跟岗会话，否则右侧无实时过程（群气泡在流、摘要只有状态词）
-      const ownerSk =
-        String(shellSessionKey || '').trim() || deptChatSessionKey(dept.id)
-      void import('../../lib/right-stage/open-employee-process-stage.js')
-        .then(async (m) => {
-          try {
-            const { ensureRightStageKindsRegistered } = await import(
-              '../right-stage/register-kinds.js'
-            )
-            ensureRightStageKindsRegistered()
-          } catch {
-            /* optional */
-          }
-          m.openDeptGroupWakeProcessInRightStage({
-            deptId: dept.id,
-            agentCode: person.agent_code,
-            roleName: person.role_name,
-            shellSessionKey: ownerSk,
-            employeeSessionKey: workSessionKey,
-            depth: input.depth,
-          })
-        })
-        .catch(() => {
-          /* 右栏失败不挡群气泡 */
-        })
+      // 不在唤醒时自动撑开右栏「实时过程」——用户点资料卡「查看实时过程」再开。
+      // 群气泡仍照常流式更新。
 
       try {
         let live = false

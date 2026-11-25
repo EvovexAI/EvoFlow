@@ -35,6 +35,27 @@ class DataRetentionConfig(BaseModel):
         le=512 * 1024,
         description="Max stored bytes per model invocation request/response JSON",
     )
+    usage_events_days: int = Field(
+        default=14,
+        ge=7,
+        le=3650,
+        description=(
+            "Delete evoflow_usage_events older than this many days "
+            "(meta_json can be multi-MB/row; desktop default profile grew to ~1GB+)."
+        ),
+    )
+    usage_meta_json_limit_bytes: int = Field(
+        default=16 * 1024,
+        ge=1024,
+        le=512 * 1024,
+        description="Truncate evoflow_usage_events.meta_json above this size (keeps ledger totals)",
+    )
+    v4_event_log_days: int = Field(
+        default=14,
+        ge=3,
+        le=365,
+        description="Delete evoflow_v4_event_log rows older than this (writer also prunes on interval)",
+    )
     task_stream_days: int = Field(
         default=90,
         ge=1,

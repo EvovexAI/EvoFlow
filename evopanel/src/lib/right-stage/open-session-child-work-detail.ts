@@ -86,7 +86,7 @@ export function openSessionChildWorkDetail(
         title,
         status: String(work.status || ''),
       },
-      { sessionKey: sk },
+      { sessionKey: sk, forceExpand: true },
     )
     return true
   }
