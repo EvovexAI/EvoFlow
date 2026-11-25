@@ -6,7 +6,6 @@ import json
 import logging
 import os
 import subprocess
-import sys
 import threading
 from typing import Any
 
@@ -17,9 +16,14 @@ _proc: subprocess.Popen[bytes] | None = None
 
 
 def _spawn() -> subprocess.Popen[bytes]:
+    from evoflow.utils.frozen_modules import python_module_argv
     from evoflow.utils.subprocess_platform import subprocess_hide_window_kwargs
 
-    cmd = [sys.executable, "-m", "evoflow.knowledge.embedding.embed_worker"]
+    # 【self-evolution-bot · 2026-11-24 · 模型:deepseek-v4.1-flash】
+    # 与 code_index 的 build_worker 同一个缺陷、同一个修法：冻结后 sys.executable 是
+    # evoflow-gateway.exe，`-m evoflow.knowledge.embedding.embed_worker` 会被 gateway
+    # argparse 拒绝 → embed worker 静默起不来 → 本地向量全部降级。
+    cmd = python_module_argv("evoflow.knowledge.embedding.embed_worker")
     env = os.environ.copy()
     env["EVOFLOW_LOCAL_EMBED_WORKER"] = "1"
     env["EVOFLOW_CODE_INDEX_BUILD_WORKER"] = "1"

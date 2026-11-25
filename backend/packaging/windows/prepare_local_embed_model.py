@@ -8,15 +8,35 @@ import shutil
 import sys
 from pathlib import Path
 
+_LFS_POINTER_MAGIC = b"version https://git-lfs.github.com/spec/"
+
+
+def _is_lfs_pointer(path: Path) -> bool:
+    """【self-evolution-bot · 2026-11-25】LFS 指针 ≠ 已就绪（见 bundled.is_lfs_pointer）。"""
+    try:
+        if path.stat().st_size > 1024:
+            return False
+        with path.open("rb") as fh:
+            return fh.read(len(_LFS_POINTER_MAGIC)) == _LFS_POINTER_MAGIC
+    except OSError:
+        return False
+
 
 def _already_staged(out: Path) -> bool:
     if not (out / "config.json").is_file():
         return False
-    return (
-        (out / "model.safetensors").is_file()
-        or (out / "pytorch_model.bin").is_file()
-        or (out / "modules.json").is_file()
-    )
+    weight_present = False
+    for name in ("model.safetensors", "pytorch_model.bin"):
+        weight = out / name
+        if not weight.is_file():
+            continue
+        weight_present = True
+        # 有真实权重才算就绪；LFS 指针必须继续走下载分支。
+        if not _is_lfs_pointer(weight):
+            return True
+    if weight_present:
+        return False
+    return (out / "modules.json").is_file()
 
 
 def _candidate_endpoints() -> list[str | None]:

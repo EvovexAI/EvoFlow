@@ -3417,9 +3417,18 @@ def _spawn_build_subprocess(
     force: bool,
     job_key: str,
 ) -> _SubprocessBuildJob:
+    from evoflow.utils.frozen_modules import python_module_argv
     from evoflow.utils.subprocess_platform import subprocess_hide_window_kwargs
 
-    cmd = [sys.executable, "-m", "evoflow.code_index.build_worker"]
+    # 【self-evolution-bot · 2026-11-24 · 模型:deepseek-v4.1-flash】
+    # 改了什么：`[sys.executable, "-m", "evoflow.code_index.build_worker"]`
+    #   → `python_module_argv("evoflow.code_index.build_worker")`。
+    # 为什么：冻结（PyInstaller）后 `sys.executable` 是 evoflow-gateway.exe，
+    #   `-m <module>` 会被 gateway 自己的 argparse 判成 unrecognized arguments
+    #   （实测 exitCode=2，0.2s 就死，且 stdout/stderr=DEVNULL 完全静默）
+    #   → 安装版索引库永远是空表，search_code_index 永远回「索引未就绪」。
+    #   非冻结路径 argv 与原来逐字节相同，dev/测试零影响。
+    cmd = python_module_argv("evoflow.code_index.build_worker")
     if workspace_root:
         cmd.extend(["--workspace-root", str(workspace_root)])
     if thread_id:
@@ -3441,8 +3450,9 @@ def _spawn_build_subprocess(
     job = _SubprocessBuildJob(proc)
 
     def _reap() -> None:
+        rc: int | None = None
         try:
-            proc.wait()
+            rc = proc.wait()
         except Exception:
             logger.debug("code_index: reap wait failed key=%s", job_key, exc_info=True)
         finally:
@@ -3450,6 +3460,21 @@ def _spawn_build_subprocess(
                 cur = _build_jobs.get(job_key)
                 if cur is job:
                     _build_jobs.pop(job_key, None)
+        # 【self-evolution-bot · 2026-11-24 · 模型:deepseek-v4.1-flash】
+        # 改了什么：回收构建子进程时检查退出码，非 0 就 **ERROR 级别** 记一条。
+        # 为什么：worker 的 stdout/stderr 都被丢进 DEVNULL（见上面的 Popen），
+        #   于是「一启动就死」在日志里**一个字节痕迹都没有**——安装版索引库空了几个月，
+        #   现场只剩用户看到的一句「索引未就绪」，根因（argparse 拒绝 -m）完全不可见。
+        #   退出码是这张静默网里唯一能低成本捞出来的事实，必须记下来。
+        # 边界：只加一条日志，不改调度/重试/返回值。
+        if rc not in (None, 0):
+            logger.error(
+                "code_index: 构建子进程异常退出 rc=%s key=%s root=%s "
+                "（worker stdout/stderr 已丢弃；rc=2 通常意味着命令行被 entry 的 argparse 拒绝）",
+                rc,
+                job_key[:8],
+                workspace_root or "",
+            )
 
     threading.Thread(
         target=_reap,
