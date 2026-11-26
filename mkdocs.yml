@@ -103,6 +103,7 @@ nav:
             - 预设角色与团队: user/guides/chat/preset-roles.md
             - Plan（任务协作）: user/guides/chat/plan-mode.md
             - 项目级 Plan 流程: user/guides/chat/project-team-plan-workflow.md
+            - 部门群聊: user/guides/chat/dept-group-chat.md
             - 思维导图: user/guides/chat/knowledge-map.md
             - 目标 Agent: user/guides/chat/goal-agent.md
             - 工作空间: user/guides/chat/workspace.md
@@ -112,7 +113,6 @@ nav:
             - 任务中心: user/guides/tasks/task-center.md
             - 自动化: user/guides/tasks/scheduled-tasks.md
             - 自动化调度: user/guides/tasks/automation-scheduler.md
-            
           - 配置与面板:
             - 面板设置: user/guides/configuration/settings.md
             - EvoFlow 桌面端指南: user/guides/configuration/evopanel-guide.md
@@ -121,13 +121,15 @@ nav:
             - 技能管理: user/guides/configuration/skill-management.md
             - 工具与 MCP: user/guides/configuration/tools-mcp.md
             - 记忆管理: user/guides/configuration/memory-management.md
-            - 上传文档（RAG）: user/guides/configuration/document-knowledge-base.md
-            - 应用中心: user/guides/configuration/app-center.md
+            - 资产中心: user/guides/configuration/asset-center.md
+            - 资源包与资源市场: user/guides/configuration/resource-packs.md
+            - 知识库: user/guides/configuration/knowledge-base.md
+            - 工作流: user/guides/configuration/app-center.md
             - 沙箱配置: user/guides/configuration/sandbox-config.md
-            - Obsidian 知识库集成已移除。如需知识管理，请使用自研知识库（知识库页面）或上传文档（RAG）。
           - IM 与渠道:
             - 飞书集成: user/guides/integration/feishu-integration.md
             - IM 渠道总览: user/guides/integration/im-channels.md
+            - 员工·知识库·工作流·任务中心接口与 CLI: user/guides/integration/api-cli-employees-knowledge-workflow-tasks.md
           - 安全:
             - 安全护栏: user/guides/security/guardrails.md
           - 常见问题: user/guides/faq.md
@@ -146,6 +148,10 @@ nav:
           - 生态对照（DF / 爱马仕 / Codex / 小龙虾）: user/explanation/ecosystem-comparison.md
           - Agent 系统: user/explanation/agent-system.md
           - 智能体员工: user/explanation/smart-employees.md
+          - 任务中心: user/explanation/task-center.md
+          - 自动化中心: user/explanation/automation-center.md
+          - 资产中心: user/explanation/asset-center.md
+          - Agent 应用: user/explanation/agent-applications.md
           - 子 Agent 系统: user/explanation/subagent-system.md
           - 技能系统: user/explanation/skill-system.md
           - 记忆系统: user/explanation/memory-system.md

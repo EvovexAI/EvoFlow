@@ -225,16 +225,31 @@ export function RequestDetailDrawer({ request, onClose }: { request: RequestReco
                   : ''}
               </em>
             </div>
-            {(request.cacheReadTokens || request.cacheCreationTokens || request.cacheMissTokens) ? (
+            {(request.cacheReadTokens ||
+              request.cacheCreationTokens ||
+              request.cacheMissTokens ||
+              request.cacheHitRatePct != null) ? (
               <div>
                 <span>Prompt Cache</span>
                 <strong title={requestTokenTitle(request)}>
-                  {request.cacheReadTokens ? `命中 ${request.cacheReadTokens.toLocaleString()}` : '—'}
+                  {request.cacheHitRatePct != null
+                    ? `命中率 ${
+                        Number.isInteger(request.cacheHitRatePct)
+                          ? `${request.cacheHitRatePct}%`
+                          : `${request.cacheHitRatePct.toFixed(1)}%`
+                      }`
+                    : '—'}
+                  {request.cacheReadTokens ? ` · 命中 ${request.cacheReadTokens.toLocaleString()}` : ''}
                   {request.cacheMissTokens ? ` · 未命中 ${request.cacheMissTokens.toLocaleString()}` : ''}
                   {request.cacheCreationTokens
                     ? ` · 写入 ${request.cacheCreationTokens.toLocaleString()}`
                     : ''}
                 </strong>
+                {request.cacheHitNotes && request.cacheHitNotes.length > 0 ? (
+                  <em className={request.cacheHitStatus === 'low' || request.cacheHitStatus === 'none' ? 'text-danger' : undefined}>
+                    {request.cacheHitNotes.join('；')}
+                  </em>
+                ) : null}
               </div>
             ) : null}
             <div>
@@ -460,6 +475,22 @@ export function RequestDetailDrawer({ request, onClose }: { request: RequestReco
               <strong>{request.completionTokens.toLocaleString()}</strong>
             </div>
             <div>
+              <span>缓存命中率</span>
+              <strong
+                className={
+                  request.cacheHitStatus === 'low' || request.cacheHitStatus === 'none'
+                    ? 'text-danger'
+                    : undefined
+                }
+              >
+                {request.cacheHitRatePct != null
+                  ? Number.isInteger(request.cacheHitRatePct)
+                    ? `${request.cacheHitRatePct}%`
+                    : `${request.cacheHitRatePct.toFixed(1)}%`
+                  : '—'}
+              </strong>
+            </div>
+            <div>
               <span>缓存命中</span>
               <strong>{request.cacheReadTokens ? request.cacheReadTokens.toLocaleString() : '—'}</strong>
             </div>
@@ -471,6 +502,20 @@ export function RequestDetailDrawer({ request, onClose }: { request: RequestReco
               <span>写入缓存</span>
               <strong>{request.cacheCreationTokens ? request.cacheCreationTokens.toLocaleString() : '—'}</strong>
             </div>
+            {request.cacheHitNotes && request.cacheHitNotes.length > 0 ? (
+              <div>
+                <span>命中诊断</span>
+                <strong
+                  className={
+                    request.cacheHitStatus === 'low' || request.cacheHitStatus === 'none'
+                      ? 'text-danger'
+                      : undefined
+                  }
+                >
+                  {request.cacheHitNotes.join('；')}
+                </strong>
+              </div>
+            ) : null}
             <div>
               <span>Cost</span>
               <strong>{costLabel}</strong>

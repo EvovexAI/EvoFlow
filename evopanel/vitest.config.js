@@ -341,6 +341,7 @@ export default defineConfig({
       // 渲染期冒烟：tsc 抓不到渲染异常，必须真挂载组件看 DOM
       'tests/dept-group-chat-render.test.tsx',
       'tests/dept-group-format-body.test.js',
+      'tests/functional-page-right-stage.test.js',
       'tests/dept-chat-list-cache.test.ts',
       'tests/dept-member-work-session.test.js',
       'tests/close-removed-entity-stage.test.js',

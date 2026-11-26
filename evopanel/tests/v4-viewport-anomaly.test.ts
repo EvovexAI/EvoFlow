@@ -42,7 +42,8 @@ describe('collectViewportAnomalies', () => {
       ],
     })
     expect(anomalies.some((a) => a.code === 'STREAM_AHEAD_OF_WINDOW')).toBe(true)
-    expect(formatAnomalyBadge(anomalies)).toContain('STREAM_AHEAD_OF_WINDOW')
+    expect(formatAnomalyBadge(anomalies)).toContain('流式已推进')
+    expect(formatAnomalyBadge(anomalies)).not.toContain('STREAM_AHEAD_OF_WINDOW')
   })
 
   it('flags AG-UI busy with optimistic bubble but no V4 tip', () => {
@@ -307,7 +308,8 @@ describe('collectViewportAnomalies', () => {
     expect(hit?.severity).toBe('error')
     expect(hit?.detail).toContain('叠层×1')
     expect(hit?.detail).toContain('-120')
-    expect(formatAnomalyBadge(anomalies)).toContain('DOM_OVERLAP')
+    expect(formatAnomalyBadge(anomalies)).toContain('视口卡片叠字')
+    expect(formatAnomalyBadge(anomalies)).not.toContain('DOM_OVERLAP')
   })
 
   it('returns empty badge when healthy', () => {

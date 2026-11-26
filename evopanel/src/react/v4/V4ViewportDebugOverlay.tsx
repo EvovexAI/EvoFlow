@@ -2060,7 +2060,17 @@ export function V4ViewportDebugOverlay() {
     originLeft: number;
     originTop: number;
   } | null>(null);
+  type OverlayResizeEdge =
+    | "n"
+    | "s"
+    | "e"
+    | "w"
+    | "ne"
+    | "nw"
+    | "se"
+    | "sw";
   const resizeRef = useRef<{
+    edge: OverlayResizeEdge;
     startX: number;
     startY: number;
     originW: number;
@@ -2417,10 +2427,14 @@ export function V4ViewportDebugOverlay() {
     dragRef.current = null;
   };
 
-  const onPointerDownResize = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerDownResize = (
+    edge: OverlayResizeEdge,
+    e: ReactPointerEvent<HTMLDivElement>,
+  ) => {
     e.stopPropagation();
     e.preventDefault();
     resizeRef.current = {
+      edge,
       startX: e.clientX,
       startY: e.clientY,
       originW: size.width,
@@ -2433,23 +2447,89 @@ export function V4ViewportDebugOverlay() {
   const onPointerMoveResize = (e: ReactPointerEvent<HTMLDivElement>) => {
     const r = resizeRef.current;
     if (!r) return;
-    const next = clampOverlaySize(
-      r.originW + (e.clientX - r.startX),
-      r.originH + (e.clientY - r.startY),
-    );
+    const dx = e.clientX - r.startX;
+    const dy = e.clientY - r.startY;
+    const edge = r.edge;
+    const isCorner = edge.length === 2;
+    let nextW = r.originW;
+    let nextH = r.originH;
+    let nextLeft = r.originLeft;
+    let nextTop = r.originTop;
+
+    if (isCorner) {
+      // 对角：按比例缩放（保持宽高比）
+      const aspect = r.originW / Math.max(1, r.originH);
+      let scale = 1;
+      if (edge.includes("e")) scale = Math.max(scale, (r.originW + dx) / r.originW);
+      if (edge.includes("w")) scale = Math.max(scale, (r.originW - dx) / r.originW);
+      if (edge.includes("s")) scale = Math.max(scale, (r.originH + dy) / r.originH);
+      if (edge.includes("n")) scale = Math.max(scale, (r.originH - dy) / r.originH);
+      // 缩小时用较小比例，避免单轴回拉时卡住
+      const shrinkCandidates: number[] = [];
+      if (edge.includes("e")) shrinkCandidates.push((r.originW + dx) / r.originW);
+      if (edge.includes("w")) shrinkCandidates.push((r.originW - dx) / r.originW);
+      if (edge.includes("s")) shrinkCandidates.push((r.originH + dy) / r.originH);
+      if (edge.includes("n")) shrinkCandidates.push((r.originH - dy) / r.originH);
+      const minCand = Math.min(...shrinkCandidates);
+      if (minCand < 1) scale = Math.min(scale, minCand);
+      scale = Number.isFinite(scale) && scale > 0 ? scale : 1;
+      nextW = r.originW * scale;
+      nextH = nextW / aspect;
+      if (edge.includes("w")) nextLeft = r.originLeft + (r.originW - nextW);
+      if (edge.includes("n")) nextTop = r.originTop + (r.originH - nextH);
+    } else {
+      if (edge === "e") nextW = r.originW + dx;
+      if (edge === "w") {
+        nextW = r.originW - dx;
+        nextLeft = r.originLeft + dx;
+      }
+      if (edge === "s") nextH = r.originH + dy;
+      if (edge === "n") {
+        nextH = r.originH - dy;
+        nextTop = r.originTop + dy;
+      }
+    }
+
+    const next = clampOverlaySize(nextW, nextH);
+    // 夹紧尺寸后，若是从左/上拉，补偿位置，避免反向跳动
+    if (edge.includes("w")) {
+      nextLeft = r.originLeft + (r.originW - next.width);
+    }
+    if (edge.includes("n")) {
+      nextTop = r.originTop + (r.originH - next.height);
+    }
     setSize(next);
-    setPos(clampToViewport(r.originLeft, r.originTop, next.width, next.height));
+    setPos(clampToViewport(nextLeft, nextTop, next.width, next.height));
   };
   const onPointerUpResize = () => {
     const r = resizeRef.current;
     resizeRef.current = null;
     if (!r) return;
-    // 松手时再落一次当前尺寸（避免闭包读到拖拽前的旧 size）
     setSize((cur) => {
       writeOverlaySize(cur);
       return cur;
     });
   };
+
+  const resizeHandle = (
+    edge: OverlayResizeEdge,
+    style: CSSProperties,
+    title: string,
+  ) => (
+    <div
+      key={edge}
+      onPointerDown={(e) => onPointerDownResize(edge, e)}
+      onPointerMove={onPointerMoveResize}
+      onPointerUp={onPointerUpResize}
+      onPointerCancel={onPointerUpResize}
+      title={title}
+      style={{
+        position: "absolute",
+        zIndex: 3,
+        ...style,
+      }}
+    />
+  );
 
   const resetPos = () => {
     const next = defaultOverlaySize();
@@ -4732,25 +4812,99 @@ export function V4ViewportDebugOverlay() {
         </div>
       ) : null}
       {!minimized ? (
-        <div
-          onPointerDown={onPointerDownResize}
-          onPointerMove={onPointerMoveResize}
-          onPointerUp={onPointerUpResize}
-          onPointerCancel={onPointerUpResize}
-          title="拖右下角缩放"
-          style={{
-            position: "absolute",
-            right: 2,
-            bottom: 2,
-            width: 18,
-            height: 18,
-            cursor: "nwse-resize",
-            borderRadius: 3,
-            background:
-              "linear-gradient(135deg, transparent 0 45%, rgba(148,163,184,0.55) 46% 54%, transparent 55% 70%, rgba(148,163,184,0.75) 71% 79%, transparent 80%)",
-            zIndex: 2,
-          }}
-        />
+        <>
+          {resizeHandle(
+            "n",
+            {
+              top: 0,
+              left: 14,
+              right: 14,
+              height: 6,
+              cursor: "ns-resize",
+            },
+            "拖上边缩放高度",
+          )}
+          {resizeHandle(
+            "s",
+            {
+              bottom: 0,
+              left: 14,
+              right: 14,
+              height: 6,
+              cursor: "ns-resize",
+            },
+            "拖下边缩放高度",
+          )}
+          {resizeHandle(
+            "e",
+            {
+              top: 14,
+              bottom: 14,
+              right: 0,
+              width: 6,
+              cursor: "ew-resize",
+            },
+            "拖右边缩放宽度",
+          )}
+          {resizeHandle(
+            "w",
+            {
+              top: 14,
+              bottom: 14,
+              left: 0,
+              width: 6,
+              cursor: "ew-resize",
+            },
+            "拖左边缩放宽度",
+          )}
+          {resizeHandle(
+            "nw",
+            {
+              top: 0,
+              left: 0,
+              width: 14,
+              height: 14,
+              cursor: "nwse-resize",
+            },
+            "拖左上角按比例缩放",
+          )}
+          {resizeHandle(
+            "ne",
+            {
+              top: 0,
+              right: 0,
+              width: 14,
+              height: 14,
+              cursor: "nesw-resize",
+            },
+            "拖右上角按比例缩放",
+          )}
+          {resizeHandle(
+            "sw",
+            {
+              bottom: 0,
+              left: 0,
+              width: 14,
+              height: 14,
+              cursor: "nesw-resize",
+            },
+            "拖左下角按比例缩放",
+          )}
+          {resizeHandle(
+            "se",
+            {
+              right: 2,
+              bottom: 2,
+              width: 18,
+              height: 18,
+              cursor: "nwse-resize",
+              borderRadius: 3,
+              background:
+                "linear-gradient(135deg, transparent 0 45%, rgba(148,163,184,0.55) 46% 54%, transparent 55% 70%, rgba(148,163,184,0.75) 71% 79%, transparent 80%)",
+            },
+            "拖右下角按比例缩放",
+          )}
+        </>
       ) : null}
     </div>
   );

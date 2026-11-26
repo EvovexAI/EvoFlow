@@ -62,6 +62,14 @@ describe('toUserFacingError', () => {
     expect(toUserFacingError('Error\n  File "foo.py", line 1')).toBe('操作失败，请稍后重试')
   })
 
+  it('maps concurrent viewed_images graph update away from generic fallback', () => {
+    const raw =
+      "At key 'viewed_images': Can receive only one value per step. Use an Annotated key to handle multiple values.\nFor troubleshooting, visit: https://docs.langchain.com/oss/python/langgraph/errors/INVALID_CONCURRENT_GRAPH_UPDATE"
+    const out = toUserFacingError(raw)
+    expect(out).toMatch(/并行生图/)
+    expect(out).not.toBe('操作失败，请稍后重试')
+  })
+
   it('suppresses user_interrupt variants (underscore/space/camel)', () => {
     expect(toUserFacingError('user_interrupt')).toBe('')
     expect(toUserFacingError('user interrupt')).toBe('')

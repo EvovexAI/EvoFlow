@@ -103,14 +103,27 @@ function mapCacheFields(row: {
   cache_read_tokens?: number | null
   cache_creation_tokens?: number | null
   cache_miss_tokens?: number | null
+  cache_hit_rate_pct?: number | null
+  cache_hit_status?: string | null
+  cache_hit_notes?: string[] | null
 }) {
   const cacheRead = Number(row.cache_read_tokens) || 0
   const cacheCreation = Number(row.cache_creation_tokens) || 0
   const cacheMiss = Number(row.cache_miss_tokens) || 0
+  const hitPct =
+    row.cache_hit_rate_pct != null && Number.isFinite(Number(row.cache_hit_rate_pct))
+      ? Number(row.cache_hit_rate_pct)
+      : null
+  const notes = Array.isArray(row.cache_hit_notes)
+    ? row.cache_hit_notes.map((n) => String(n || '').trim()).filter(Boolean)
+    : []
   return {
     ...(cacheRead > 0 ? { cacheReadTokens: cacheRead } : {}),
     ...(cacheCreation > 0 ? { cacheCreationTokens: cacheCreation } : {}),
     ...(cacheMiss > 0 ? { cacheMissTokens: cacheMiss } : {}),
+    cacheHitRatePct: hitPct,
+    ...(row.cache_hit_status ? { cacheHitStatus: String(row.cache_hit_status) } : {}),
+    ...(notes.length ? { cacheHitNotes: notes } : {}),
   }
 }
 
@@ -236,6 +249,14 @@ export function apiModelListRowToRequestRecord(row: Record<string, unknown>): Re
         : row.cache_miss_tokens != null
           ? Number(row.cache_miss_tokens)
           : null,
+    cache_hit_rate_pct:
+      row.cache_hit_rate_pct != null && Number.isFinite(Number(row.cache_hit_rate_pct))
+        ? Number(row.cache_hit_rate_pct)
+        : null,
+    cache_hit_status: row.cache_hit_status != null ? String(row.cache_hit_status) : null,
+    cache_hit_notes: Array.isArray(row.cache_hit_notes)
+      ? (row.cache_hit_notes as unknown[]).map((n) => String(n || ''))
+      : null,
     tokens: Number(row.usage_total_tokens || 0),
     cost_usd: row.estimated_cost_cny != null ? Number(row.estimated_cost_cny) : null,
     estimated_cost_cny: row.estimated_cost_cny != null ? Number(row.estimated_cost_cny) : null,

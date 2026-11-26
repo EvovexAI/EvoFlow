@@ -1351,11 +1351,32 @@ def list_model_invocations(
                 row["usage_cache_creation_tokens"] = cache.get("cache_creation_tokens") or row.get("cache_creation_tokens")
                 row["usage_cache_miss_tokens"] = cache.get("cache_miss_tokens") or row.get("cache_miss_tokens")
     if isinstance(items, list):
-        from evoflow.observability.cache_metrics import enrich_model_row_cost
+        from evoflow.observability.cache_metrics import diagnose_cache_hit, enrich_model_row_cost
 
         for row in items:
-            if isinstance(row, dict):
-                enrich_model_row_cost(row)
+            if not isinstance(row, dict):
+                continue
+            enrich_model_row_cost(row)
+            # 单条调用记录：命中率 + 偏低原因（运维观测列表/详情排查用）
+            diag = diagnose_cache_hit(
+                cache_read_tokens=row.get("usage_cache_read_tokens")
+                if row.get("usage_cache_read_tokens") is not None
+                else row.get("cache_read_tokens"),
+                cache_miss_tokens=row.get("usage_cache_miss_tokens")
+                if row.get("usage_cache_miss_tokens") is not None
+                else row.get("cache_miss_tokens"),
+                cache_creation_tokens=row.get("usage_cache_creation_tokens")
+                if row.get("usage_cache_creation_tokens") is not None
+                else row.get("cache_creation_tokens"),
+                model_call_seq=row.get("model_call_seq"),
+                message_count=row.get("message_count"),
+                invocation_kind=row.get("invocation_kind"),
+                prompt_tokens=row.get("usage_input_tokens"),
+            )
+            row["cache_hit_rate"] = diag.get("hit_rate")
+            row["cache_hit_rate_pct"] = diag.get("hit_rate_pct")
+            row["cache_hit_status"] = diag.get("status")
+            row["cache_hit_notes"] = diag.get("notes") or []
         _enrich_total_cycle_ms(items)
     if status and isinstance(items, list):
         want = status.strip().lower()

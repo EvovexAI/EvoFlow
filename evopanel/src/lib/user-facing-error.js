@@ -155,6 +155,17 @@ export function toUserFacingError(raw, fallback = DEFAULT_FALLBACK) {
     return facing
   }
 
+  // Parallel platform 生图 → multiple viewed_images updates in one graph step.
+  // 2026-11-26：raw 含 INVALID_CONCURRENT_GRAPH_UPDATE，旧逻辑当栈痕迹 → 「操作失败」。
+  if (
+    /INVALID_CONCURRENT_GRAPH_UPDATE|Can receive only one value per step/i.test(msg) ||
+    (/viewed_images/i.test(msg) && /Annotated key|only one value/i.test(msg))
+  ) {
+    const facing = '本轮生成失败：并行生图状态冲突，可再发一次；批量出图请稍等或分批'
+    logRawUserFacingError(raw, facing)
+    return facing
+  }
+
   // Bare AG-UI RUN_ERROR code / model disconnect — do not leave users with only "run_error".
   if (
     /^(run_error|error|unknown|failed|failure)$/i.test(msg) ||

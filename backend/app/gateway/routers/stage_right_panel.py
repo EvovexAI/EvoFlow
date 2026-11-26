@@ -147,6 +147,12 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         hit = next((t for t in tabs if t.get("key") == active_key), None)
         if hit is not None:
             top_session_key = str(hit.get("sessionKey") or "").strip() or None
+    raw_order = payload.get("tabOrder")
+    tab_order: list[str] = []
+    if isinstance(raw_order, list):
+        tab_order = [str(x) for x in raw_order if str(x or "").strip()]
+    if not tab_order:
+        tab_order = [str(t.get("key") or "") for t in tabs if t.get("key")]
     return {
         "activeKey": active_key,
         "activeKind": active_kind,
@@ -154,6 +160,7 @@ def _clean_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "collapsed": payload.get("collapsed") is True,
         "sessionKey": top_session_key,
         "tabs": tabs,
+        "tabOrder": tab_order,
         # 【self-evolution-bot · 2026-11-20 · 第100轮续】补不了 key 时如实标记：
         # 模型据此知道「能读当前页、但还不能按 key 切签」，而不是拿到一堆空键瞎切。
         "keysRepairable": keys_repairable,
@@ -432,6 +439,13 @@ def store_right_stage_state(payload: dict[str, Any]) -> dict[str, Any]:
         _STATE.clear()
         _STATE.update(clean)
     _write_state_file(clean)
+    # SQLite 落库丢后台：不堵 POST /state；连续上报只写最新一份。
+    try:
+        from evoflow.persistence.right_stage_tables import schedule_persist_right_stage_report
+
+        schedule_persist_right_stage_report(clean)
+    except Exception:  # noqa: BLE001
+        pass
     return clean
 
 
@@ -541,6 +555,37 @@ def _audit_state(phase: str, saved: dict[str, Any]) -> None:
 def get_right_stage_state() -> dict:
     """模型/调试读回用户当前右栏停在哪一页。"""
     return read_right_stage_state()
+
+
+@router.get("/current")
+def get_right_stage_current(sessionKey: str | None = None) -> dict:
+    """读 SQLite 实时表：已开签、顺序、当前激活页。
+
+    - 不传 ``sessionKey`` → ``__live__``（用户此刻 UI）
+    - 传了 → 该会话冻结/上报过的最后一份
+    """
+    try:
+        from evoflow.persistence.right_stage_tables import LIVE_SCOPE, read_right_stage_current
+
+        scope = str(sessionKey or "").strip() or LIVE_SCOPE
+        row = read_right_stage_current(scope)
+        if not row:
+            return {"ok": True, "known": False, "reason": "no_db_row"}
+        return {"ok": True, "known": True, **row}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "known": False, "error": str(exc)}
+
+
+@router.get("/trail")
+def get_right_stage_trail(sessionKey: str | None = None, limit: int = 100) -> dict:
+    """读 SQLite 轨迹表：open/close/activate/collapse/expand/reorder。"""
+    try:
+        from evoflow.persistence.right_stage_tables import read_right_stage_trail
+
+        rows = read_right_stage_trail(session_key=sessionKey, limit=limit)
+        return {"ok": True, "count": len(rows), "events": rows}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "count": 0, "events": [], "error": str(exc)}
 
 
 @router.get("/kinds")

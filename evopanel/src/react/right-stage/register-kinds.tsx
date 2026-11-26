@@ -22,7 +22,7 @@ export function ensureRightStageKindsRegistered() {
     render: () => <XiaomiRightStagePane />,
   })
 
-  // 功能页 GlobalRightStageHost / 事项详情等无 ChatApp renderContent 时也要能开员工签
+  // 员工过程：ChatApp / 事项详情宿主渲染；功能页 GlobalRightStageHost 已过滤不展示此 kind
   registerRightStageKind({
     kind: 'employeeProcess',
     render: ({ surface, onClose }) => {

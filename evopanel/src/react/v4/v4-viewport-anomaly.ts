@@ -623,12 +623,12 @@ export function formatAnomalyBadge(anomalies: readonly ViewportAnomaly[]): strin
   if (anomalies.length === 0) return "";
   const errors = anomalies.filter((a) => a.severity === "error");
   const warns = anomalies.filter((a) => a.severity === "warn");
-  const codes = (errors.length > 0 ? errors : warns.length > 0 ? warns : anomalies)
-    .slice(0, 4)
-    .map((a) => `!${a.code}`);
-  const more =
-    anomalies.length > codes.length ? ` +${anomalies.length - codes.length}` : "";
-  return `${codes.join(" ")}${more}`;
+  // 标题栏给人看：用中文 title，不要 !STREAM_AHEAD_OF_WINDOW 这种内部码
+  const pool = errors.length > 0 ? errors : warns.length > 0 ? warns : anomalies;
+  const head = String(pool[0]?.title || pool[0]?.code || "").trim();
+  if (!head) return "";
+  const rest = anomalies.length - 1;
+  return rest > 0 ? `${head} · 另${rest}条` : head;
 }
 
 /** 浮层用：error/warn 锁定，避免 700ms 轮询 + 时间窗证据滑出后标题栏一闪一闪。 */

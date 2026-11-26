@@ -871,6 +871,14 @@ def _run_error_info(ev: dict[str, Any], *, now_ms: int) -> dict[str, Any]:
         facing = "本轮生成失败：工具参数 schema 异常（可点「详情/复制」反馈）"
         if "knowledge" in low:
             facing = "本轮生成失败：knowledge 工具 schema 异常（可点「详情/复制」反馈）"
+    elif (
+        "invalid_concurrent_graph_update" in low
+        or "can receive only one value per step" in low
+        or ("viewed_images" in low and "annotated key" in low)
+    ):
+        # 2026-11-26：并行 platform 生图多路写 viewed_images；FE toUserFacingError
+        # 曾收成「操作失败，请稍后重试」，诊断抓不到真因。
+        facing = "本轮生成失败：并行生图状态冲突（可再发一次；批量出图请稍等或分批）"
     elif "rate limit" in low or "429" in low:
         facing = "本轮生成失败：模型限流，请稍后重试"
     elif (

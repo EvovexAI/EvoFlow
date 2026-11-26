@@ -16,6 +16,7 @@
 | 模型与场景、对话基础 | [basic-functions.md](chat/basic-functions.md) [[guides/chat/basic-functions|对话基础]] |
 | Plan 任务协作 | [plan-mode.md](chat/plan-mode.md) [[guides/chat/plan-mode|Plan 模式]] |
 | 项目级 Plan 流程（project-* 团队） | [project-team-plan-workflow.md](chat/project-team-plan-workflow.md) [[guides/chat/project-team-plan-workflow|项目级 Plan 流程]] |
+| **部门群聊**（组织指挥台 / @ 点名） | [dept-group-chat.md](chat/dept-group-chat.md) [[guides/chat/dept-group-chat|部门群聊]] |
 | 目标 Agent | [goal-agent.md](chat/goal-agent.md) [[guides/chat/goal-agent|目标 Agent]] |
 | 工作空间（workspace 场景） | [workspace.md](chat/workspace.md) [[guides/chat/workspace|工作空间]] |
 | Claude Code 编码助手 | ~~chat/claude-code.md~~ 已移除（Claude Code 模式用 `/claude` 指令，见 [快捷指令](chat/shortcut-commands.md)） |
@@ -37,15 +38,15 @@
 | 面板设置 | [settings.md](configuration/settings.md) [[guides/configuration/settings|面板设置]] |
 | EvoFlow 桌面端使用指南 | [evopanel-guide.md](configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|桌面端使用指南]] |
 | 智能体（角色）管理 | [agent-management.md](configuration/agent-management.md) [[guides/configuration/agent-management|智能体管理]] |
-| 员工（值班岗） | [smart-employees.md](configuration/smart-employees.md) · 教程 [加人](../tutorials/hire-first-smart-employee.md) · 概念 [是什么](../explanation/smart-employees.md) |
+| BOT / 员工（值班岗） | [smart-employees.md](configuration/smart-employees.md) · 教程 [加人](../tutorials/hire-first-smart-employee.md) · 概念 [是什么](../explanation/smart-employees.md) · 群聊 [部门群聊](chat/dept-group-chat.md) |
 | 技能管理 | [skill-management.md](configuration/skill-management.md) |
 | 连接器（MCP 插件） | [tools-mcp.md](configuration/tools-mcp.md) |
 | 记忆管理 | [memory-management.md](configuration/memory-management.md) [[guides/configuration/memory-management|记忆管理]] |
 | **资产中心** | [asset-center.md](configuration/asset-center.md) [[guides/configuration/asset-center|资产中心]] · 概念 [是什么](../explanation/asset-center.md) [[explanation/asset-center|资产中心概念]] |
 | **资源中心 / 资源包** | [resource-packs.md](configuration/resource-packs.md) [[guides/configuration/resource-packs|资源包与资源市场]] |
-| 知识库 | [knowledge-base.md](configuration/knowledge-base.md) |
-| 旧上传文档 / 旧 Vault 入口 | [document-knowledge-base.md](configuration/document-knowledge-base.md) · [knowledge-vault.md](configuration/knowledge-vault.md) |
-| 工作流（旧名「应用中心」） | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
+| **知识库**（主文档） | [knowledge-base.md](configuration/knowledge-base.md) [[guides/configuration/knowledge-base|知识库]] |
+| 旧上传文档 / 旧 Vault（历史跳转） | [document-knowledge-base.md](configuration/document-knowledge-base.md) · [knowledge-vault.md](configuration/knowledge-vault.md) |
+| 工作流（旧名「应用中心」；节点能力编排） | [app-center.md](configuration/app-center.md) [[guides/configuration/app-center|工作流]] |
 | **Agent 应用**（业务承载 + AI 连接） | 操作 [settings-capabilities.md](configuration/settings-capabilities.md) · 开发者 [install-own-project-as-extension.md](configuration/install-own-project-as-extension.md) · 概念 [agent-applications.md](../explanation/agent-applications.md) |
 | 沙箱配置 | [sandbox-config.md](configuration/sandbox-config.md) [[guides/configuration/sandbox-config|沙箱配置]] |
 

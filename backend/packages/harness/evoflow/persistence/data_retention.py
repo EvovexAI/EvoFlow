@@ -43,6 +43,7 @@ class RetentionRunResult:
     task_status_deleted: int = 0
     automation_runs_deleted: int = 0
     soft_deleted_messages: int = 0
+    right_stage_trail_deleted: int = 0
     checkpoint_threads_purged: int = 0
     checkpoint_rows_deleted: int = 0
     checkpoint_history_rows_deleted: int = 0
@@ -1246,6 +1247,15 @@ def run_data_retention(
     except Exception as exc:
         result.errors.append(f"app_db:v4_event_log: {exc}")
         logger.warning("retention: v4_event_log prune failed", exc_info=True)
+    try:
+        from evoflow.persistence.right_stage_tables import prune_right_stage_trail
+
+        result.right_stage_trail_deleted = int(
+            prune_right_stage_trail(days=int(cfg.right_stage_trail_days)) or 0
+        )
+    except Exception as exc:
+        result.errors.append(f"app_db:right_stage_trail: {exc}")
+        logger.warning("retention: right_stage_trail prune failed", exc_info=True)
     try:
         result.task_stream_deleted = prune_task_stream_events(days=cfg.task_stream_days)
     except Exception as exc:

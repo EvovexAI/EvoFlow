@@ -1,12 +1,15 @@
 ﻿# 智能体员工：谁在用、组织怎么配、怎么协作
 
 > **这篇单独讲「落地画像」**：什么人、什么行业、组织树长什么样、每岗是什么员工、一天里他们怎么互相叫醒/交工。覆盖研发运维，也覆盖教师、学生、白领、销售、电商、财务法务辅助、科研、医护行政、机关材料岗等。  
-> 机制细则（状态、同意派发、两条通道）见 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；逐步点哪里见 [操作指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|操作指南]] 与 [雇佣教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣教程]]。
+> 机制细则（状态、同意派发、协作通道）见 [智能体员工是什么](../explanation/smart-employees.md) [[explanation/smart-employees|智能体员工是什么]]；逐步点哪里见 [操作指南](../guides/configuration/smart-employees.md) [[guides/configuration/smart-employees|操作指南]] 与 [雇佣教程](../tutorials/hire-first-smart-employee.md) [[tutorials/hire-first-smart-employee|雇佣教程]]。部门同屏点名见 [部门群聊](../guides/chat/dept-group-chat.md)。
 
-**读之前先记住两句：**
+**读之前先记住三句：**
 
 1. **正式交工**可派给**直属下级**，或**同一上级下的平级**（你可改派）。  
-2. **同级要对齐**用 **派发 / 小V / 同事叫醒**最省事；同一上级下的平级也可以直接填 handlers。
+2. **同级要对齐**用 **派发 / 小V / 同事叫醒**最省事；同一上级下的平级也可以直接填 handlers。  
+3. **同部门多人旁观**走 **部门群聊**：首页指挥台或 BOT「进群」，`@岗位名` 点名；无人 `@` 时负责人承接。
+
+面板侧栏入口叫 **BOT**，页头总开关叫 **自动巡检**；加人时写的是 **系统提示词**（不是单独的「岗位职责」清单）。下文表里若出现「职责」字样，请按「系统提示词要点」理解。
 
 每个示例都按同一模板：**组织是什么 → 智能体员工是什么 → 怎么协作干活 → 你（人）干什么**。
 

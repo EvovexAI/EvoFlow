@@ -579,6 +579,72 @@ def test_catchup_force_rehydrates_when_tip_mismatches_fingerprint() -> None:
     assert any("第二版更新" in t for t in texts)
 
 
+def test_catchup_defers_tip_mismatch_while_run_active_inflight_tip() -> None:
+    """DB running + 库尾后仍有 streaming tip → 不 tip-mismatch-rehydrate。
+
+    remint 后 mirror_live 常仍为 false，但投影 tip 是本轮 live 行；
+    若仍 force rehydrate 会周期性 recovery dump，体感「没流式、突然整段」。
+    """
+    thread = "tip-mismatch-live-defer-001"
+    hub = V4ConversationHub()
+    with _msgs(MESSAGES_V2):
+        hub.catchup_from_transcript(thread)
+    sess = hub.get_session(thread)
+    assert sess is not None and sess.rows
+    fp = transcript_fingerprint(MESSAGES_V2)
+    assert sess.catchup_fp == fp
+    base_rid = int(sess.next_row_id)
+    sess.next_row_id = base_rid + 2
+    sess.rows[base_rid] = {
+        "rowId": base_rid,
+        "kind": "turnHeader",
+        "state": "running",
+        "turnId": "run-remint-live",
+        "createdAt": 9_000,
+        "startedAt": 9_000,
+    }
+    sess.rows[base_rid + 1] = {
+        "rowId": base_rid + 1,
+        "kind": "assistantText",
+        "state": "streaming",
+        "text": "正在流式…",
+        "turnId": "run-remint-live",
+        "createdAt": 9_001,
+    }
+    prev = len(sess.rows)
+    # 写手刚停（或 remint 间隙）：靠 DB running / inflight tip 触发 defer，
+    # 不依赖 mirror_live / turn_task。
+    sess.last_author_at_ms = 0.0
+    with (
+        _msgs(MESSAGES_V2),
+        patch(
+            "app.gateway.v4.hydration.read_run_status_row",
+            return_value={
+                "status": "running",
+                "updated_at_ms": 9_000,
+                "run_id": "run-remint-live",
+            },
+        ),
+        patch(
+            "app.gateway.v4.agui_mirror.mirror_thread_is_live",
+            return_value=False,
+        ),
+    ):
+        out = hub.catchup_from_transcript(thread)
+    assert out["ok"] is True
+    assert out.get("reason") != "tip-mismatch-rehydrated"
+    assert out.get("changed") is False or out.get("reason") == "fingerprint-unchanged"
+    sess2 = hub.get_session(thread)
+    assert len(sess2.rows) == prev
+    assert any(
+        str(r.get("turnId") or "") == "run-remint-live" for r in sess2.rows.values()
+    )
+    assert any(
+        r.get("kind") == "assistantText" and r.get("state") == "streaming"
+        for r in sess2.rows.values()
+    )
+
+
 def test_catchup_keeps_running_control_while_run_active() -> None:
     """DB run_status 仍 running（后台 run 真在跑、无 mirror 喂流）→ 不收口，
     且 DB transcript 是唯一真源，行照常 rehydrate（修「盯着看也冻结」）。"""

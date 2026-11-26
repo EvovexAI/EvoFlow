@@ -56,6 +56,15 @@ class DataRetentionConfig(BaseModel):
         le=365,
         description="Delete evoflow_v4_event_log rows older than this (writer also prunes on interval)",
     )
+    right_stage_trail_days: int = Field(
+        default=2,
+        ge=1,
+        le=30,
+        description=(
+            "Delete evoflow_right_stage_trail rows older than this many days "
+            "(default 2 = keep today+yesterday, purge day-before-yesterday)"
+        ),
+    )
     task_stream_days: int = Field(
         default=90,
         ge=1,

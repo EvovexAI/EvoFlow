@@ -2,6 +2,8 @@
  * 功能页（知识库/自动化…）上的全局 right-stage：
  * 与 ChatApp 共用 rightStageStore + RightStagePanel，在 #content 旁做真正左右分割。
  * Chat 工作台可见时不渲染（由 ChatApp 挂载）。
+ *
+ * 只展示小V 等功能页白名单 kind——对话会话签不得串台到知识库/工作流页。
  */
 import { useCallback, useLayoutEffect, useMemo, useSyncExternalStore, type ReactNode } from 'react'
 import {
@@ -11,6 +13,11 @@ import {
 import { rightStageStore } from '../../lib/right-stage/right-stage-store.js'
 import { getRightStageKind } from '../../lib/right-stage/right-stage-registry.js'
 import { normalizeRightStageKind, type RightStageSurface } from '../../lib/right-stage/right-stage-types.js'
+import {
+  filterTabsForFunctionalPage,
+  resolveFunctionalPageActiveKey,
+  tabKeyOfSurface,
+} from '../../lib/right-stage/functional-page-right-stage.js'
 import {
   getChatHostVisible,
   subscribeChatHostVisible,
@@ -75,7 +82,24 @@ export function GlobalRightStageHost() {
   )
   const snap = useSyncExternalStore(subscribeStore, getStoreSnapshot, getStoreSnapshot)
 
-  const open = !snap.collapsed && snap.tabs.length > 0
+  const visibleTabs = useMemo(
+    () => filterTabsForFunctionalPage(snap.tabs),
+    [snap.tabs],
+  )
+  const visibleActiveKey = useMemo(
+    () => resolveFunctionalPageActiveKey(snap.tabs, snap.activeKey),
+    [snap.tabs, snap.activeKey],
+  )
+  const visibleRecentClosed = useMemo(
+    () =>
+      (snap.recentClosed || []).filter((e) =>
+        filterTabsForFunctionalPage(e?.tab ? [e.tab] : []).length > 0,
+      ),
+    [snap.recentClosed],
+  )
+
+  // 只有白名单签才撑开功能页右栏；对话签留在 store 里，回聊天再看
+  const open = !snap.collapsed && visibleTabs.length > 0
   const show = !chatVisible && open
 
   useLayoutEffect(() => {
@@ -124,10 +148,18 @@ export function GlobalRightStageHost() {
     rightStageStore.closeTab(key)
   }, [])
   const onCloseOtherTabs = useCallback((keepKey: string) => {
-    rightStageStore.closeOtherTabs(keepKey)
+    // 功能页只关白名单里的「其它」签，避免误关对话会话签
+    const snapNow = rightStageStore.getSnapshot()
+    for (const t of filterTabsForFunctionalPage(snapNow.tabs)) {
+      const k = tabKeyOfSurface(t)
+      if (k && k !== keepKey) rightStageStore.closeTab(k)
+    }
   }, [])
   const onCloseAllTabs = useCallback(() => {
-    rightStageStore.closeAllTabs()
+    const snapNow = rightStageStore.getSnapshot()
+    for (const t of filterTabsForFunctionalPage(snapNow.tabs)) {
+      rightStageStore.closeTab(tabKeyOfSurface(t))
+    }
   }, [])
   const onReorderTab = useCallback((activeId: string, overId: string) => {
     rightStageStore.reorderTab(activeId, overId)
@@ -149,9 +181,9 @@ export function GlobalRightStageHost() {
 
   return (
     <RightStagePanel
-      tabs={snap.tabs}
-      activeKey={snap.activeKey}
-      recentClosed={snap.recentClosed}
+      tabs={visibleTabs}
+      activeKey={visibleActiveKey}
+      recentClosed={visibleRecentClosed}
       onActivateTab={onActivateTab}
       onCloseTab={onCloseTab}
       onCloseOtherTabs={onCloseOtherTabs}

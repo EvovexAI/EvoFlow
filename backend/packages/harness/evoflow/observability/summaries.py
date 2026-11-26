@@ -881,7 +881,7 @@ def enrich_recent_request_row(row: dict[str, Any]) -> dict[str, Any]:
                 model_call_seq = None
         except (TypeError, ValueError):
             model_call_seq = None
-    from evoflow.observability.cache_metrics import enrich_model_row_cost
+    from evoflow.observability.cache_metrics import diagnose_cache_hit, enrich_model_row_cost
 
     row["usage_input_tokens"] = prompt
     row["usage_output_tokens"] = completion
@@ -889,6 +889,15 @@ def enrich_recent_request_row(row: dict[str, Any]) -> dict[str, Any]:
     row["usage_cache_creation_tokens"] = cache_creation
     row["usage_cache_miss_tokens"] = cache_miss
     enrich_model_row_cost(row)
+    cache_diag = diagnose_cache_hit(
+        cache_read_tokens=int(cache_read) if cache_read is not None else None,
+        cache_miss_tokens=int(cache_miss) if cache_miss is not None else None,
+        cache_creation_tokens=int(cache_creation) if cache_creation is not None else None,
+        model_call_seq=model_call_seq,
+        message_count=message_count,
+        invocation_kind=kind,
+        prompt_tokens=prompt,
+    )
     return {
         "id": str(row.get("id") or ""),
         "status": status,
@@ -903,6 +912,10 @@ def enrich_recent_request_row(row: dict[str, Any]) -> dict[str, Any]:
         "cache_read_tokens": int(cache_read) if cache_read is not None else None,
         "cache_creation_tokens": int(cache_creation) if cache_creation is not None else None,
         "cache_miss_tokens": int(cache_miss) if cache_miss is not None else None,
+        "cache_hit_rate": cache_diag.get("hit_rate"),
+        "cache_hit_rate_pct": cache_diag.get("hit_rate_pct"),
+        "cache_hit_status": cache_diag.get("status"),
+        "cache_hit_notes": cache_diag.get("notes") or [],
         "estimated_cost_cny": row.get("estimated_cost_cny"),
         "cost_usd": None,
         "occurred_at": str(row.get("requested_at") or ""),

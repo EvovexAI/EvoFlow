@@ -22,18 +22,99 @@ def compute_cache_hit_rate(
     cache_miss_tokens: int,
     cache_creation_tokens: int = 0,
 ) -> float | None:
-    """Share of prompt-cache-eligible tokens served from cache (0–1)."""
+    """Share of prompt-cache-eligible tokens served from cache (0–1).
+
+    - ``None``：供应商未回报任何缓存字段（无法判断）
+    - ``0.0``：有未命中/写入但无命中（真·零命中，便于排查偏低）
+    """
     read = max(0, int(cache_read_tokens or 0))
     miss = max(0, int(cache_miss_tokens or 0))
     create = max(0, int(cache_creation_tokens or 0))
-    if read <= 0:
-        return None
     denom = read + miss
     if denom <= 0:
         denom = read + create
     if denom <= 0:
         return None
     return round(min(1.0, read / denom), 4)
+
+
+# 偏低阈值：低于此比例标成 low（运维观测列表/详情可着色）
+CACHE_HIT_RATE_LOW = 0.30
+
+
+def diagnose_cache_hit(
+    *,
+    cache_read_tokens: int | None = None,
+    cache_miss_tokens: int | None = None,
+    cache_creation_tokens: int | None = None,
+    model_call_seq: int | None = None,
+    message_count: int | None = None,
+    invocation_kind: str | None = None,
+    prompt_tokens: int | None = None,
+) -> dict[str, Any]:
+    """单次模型调用的缓存命中诊断（给人看的短句，便于异常排查）。
+
+    返回字段：
+    - ``hit_rate`` / ``hit_rate_pct``
+    - ``status``: unknown | none | write | low | ok
+    - ``notes``: 中文原因列表（为何低 / 是什么情况）
+    """
+    read = max(0, int(cache_read_tokens or 0))
+    miss = max(0, int(cache_miss_tokens or 0))
+    create = max(0, int(cache_creation_tokens or 0))
+    hit_rate = compute_cache_hit_rate(read, miss, create)
+    notes: list[str] = []
+    kind = str(invocation_kind or "").strip().lower() or "main"
+    seq = int(model_call_seq) if model_call_seq is not None else None
+    msgs = int(message_count) if message_count is not None else None
+    prompt = int(prompt_tokens) if prompt_tokens is not None else None
+
+    if hit_rate is None:
+        status = "unknown"
+        notes.append("供应商未回报 cache_read/miss（无法计算命中率）")
+        if kind not in {"main", ""}:
+            notes.append(f"调用类型 {kind}：部分辅助调用本身不走长前缀缓存")
+    elif read <= 0 and create > 0 and miss <= 0:
+        status = "write"
+        notes.append("本轮在写入 prompt cache（creation>0），尚未读到命中")
+        if seq == 1:
+            notes.append("本 run 第 1 次模型调用：前缀缓存通常从本轮开始建立")
+    elif hit_rate <= 0:
+        status = "none"
+        notes.append("命中 0：有未命中 token，但无 cache_read")
+        if seq == 1:
+            notes.append("本 run 第 1 次调用：冷启动常见，看同 run 后续 seq 是否回升")
+        if create > 0:
+            notes.append("同时有 cache_creation：前缀在变或首次落盘")
+        if msgs is not None and msgs >= 40:
+            notes.append(f"消息条数 {msgs} 偏多：工具结果/长上下文插在可缓存前缀后会打碎命中")
+        if prompt is not None and prompt >= 50_000:
+            notes.append(f"输入约 {prompt // 1000}k tokens：前缀变动成本高，优先稳住 system/工具 schema")
+    elif hit_rate < CACHE_HIT_RATE_LOW:
+        status = "low"
+        notes.append(
+            f"命中率 {hit_rate * 100:.1f}% 偏低（<{CACHE_HIT_RATE_LOW * 100:.0f}%）："
+            f"命中 {read} / 未命中 {miss}"
+        )
+        if create > 0:
+            notes.append("有 cache_creation：提示词或工具列表可能相对上轮有变")
+        if msgs is not None and msgs >= 30:
+            notes.append(f"消息条数 {msgs}：检查是否每轮把大段工具输出塞进前缀附近")
+        if seq is not None and seq >= 2 and read < miss:
+            notes.append("同 run 已非首轮仍未命中占主导：更像前缀不稳定，而非冷启动")
+    else:
+        status = "ok"
+        notes.append(f"命中率 {hit_rate * 100:.1f}%（命中 {read} / 未命中 {miss}）")
+
+    return {
+        "hit_rate": hit_rate,
+        "hit_rate_pct": round(hit_rate * 100, 1) if hit_rate is not None else None,
+        "status": status,
+        "notes": notes,
+        "cache_read_tokens": read,
+        "cache_miss_tokens": miss,
+        "cache_creation_tokens": create,
+    }
 
 
 def _row_cache_triplet(

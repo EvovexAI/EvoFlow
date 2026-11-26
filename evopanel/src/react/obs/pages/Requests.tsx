@@ -6,7 +6,15 @@ import { StatusBadge } from '../components/StatusBadge'
 import { ThreadLabel, useRegisterThreadIds } from '../components/ThreadLabel'
 import { TopFilterBar } from '../components/TopFilterBar'
 import { fetchObsModels } from '../lib/obs-api'
-import { fmtCacheHitTok, fmtCnyEstimate, fmtMs, fmtUsageTok, requestTokenTitle } from '../lib/obs-formatters'
+import {
+  cacheHitRateTone,
+  fmtCacheHitRatePct,
+  fmtCacheHitTok,
+  fmtCnyEstimate,
+  fmtMs,
+  fmtUsageTok,
+  requestTokenTitle,
+} from '../lib/obs-formatters'
 import { useObsCachedFetch } from '../hooks/useObsCachedFetch'
 import type { RequestRecord } from '../types'
 
@@ -54,8 +62,13 @@ export function Requests() {
   const stats = useMemo(() => {
     const success = safeRows.filter((r) => r.status === 'success').length
     const failed = safeRows.filter((r) => r.status === 'failed').length
-    const cacheHits = safeRows.reduce((sum, r) => sum + (r.cacheReadTokens ?? 0), 0)
-    return { total: safeRows.length, success, failed, cacheHits }
+    const withRate = safeRows.filter((r) => r.cacheHitRatePct != null && Number.isFinite(r.cacheHitRatePct))
+    const avgHitPct =
+      withRate.length > 0
+        ? withRate.reduce((sum, r) => sum + Number(r.cacheHitRatePct), 0) / withRate.length
+        : null
+    const lowHit = safeRows.filter((r) => r.cacheHitStatus === 'low' || r.cacheHitStatus === 'none').length
+    return { total: safeRows.length, success, failed, avgHitPct, lowHit }
   }, [safeRows])
 
   return (
@@ -85,7 +98,12 @@ export function Requests() {
           <ObsStatItem label="总记录" value={total.toLocaleString()} hint="符合筛选" variant="accent" />
           <ObsStatItem label="本页成功" value={stats.success} hint={`第 ${page} 页`} />
           <ObsStatItem label="本页失败" value={stats.failed} hint="需关注" variant="danger" />
-          <ObsStatItem label="本页缓存命中" value={stats.cacheHits.toLocaleString()} hint="Token" />
+          <ObsStatItem
+            label="本页命中率"
+            value={stats.avgHitPct != null ? fmtCacheHitRatePct(stats.avgHitPct) : '—'}
+            hint={stats.lowHit ? `${stats.lowHit} 条偏低` : 'Token 命中'}
+            variant={stats.lowHit ? 'danger' : undefined}
+          />
         </ObsStatStrip>
 
         <ObsTablePanel
@@ -157,9 +175,31 @@ export function Requests() {
             { key: 'promptTokens', label: '输入', render: (row) => <span title={requestTokenTitle(row)}>{fmtUsageTok(row.promptTokens)}</span> },
             { key: 'completionTokens', label: '输出', render: (row) => <span title={requestTokenTitle(row)}>{fmtUsageTok(row.completionTokens)}</span> },
             {
+              key: 'cacheHitRatePct',
+              label: '命中率',
+              render: (row) => {
+                const tone = cacheHitRateTone(row.cacheHitStatus)
+                const title = [...(row.cacheHitNotes || []), requestTokenTitle(row)].filter(Boolean).join('\n')
+                return (
+                  <span
+                    title={title || undefined}
+                    className={
+                      tone === 'danger' ? 'text-danger' : tone === 'warning' ? 'text-warning' : undefined
+                    }
+                  >
+                    {fmtCacheHitRatePct(row.cacheHitRatePct)}
+                  </span>
+                )
+              },
+            },
+            {
               key: 'cacheReadTokens',
               label: '缓存',
-              render: (row) => <span title={requestTokenTitle(row)}>{fmtCacheHitTok(row.cacheReadTokens, row.cacheMissTokens)}</span>,
+              render: (row) => (
+                <span title={requestTokenTitle(row)}>
+                  {fmtCacheHitTok(row.cacheReadTokens, row.cacheMissTokens)}
+                </span>
+              ),
             },
             { key: 'tokens', label: '合计', render: (row) => row.tokens.toLocaleString() },
             { key: 'cost', label: '费用', render: (row) => fmtCnyEstimate(row.estimatedCostCny) },

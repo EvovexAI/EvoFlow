@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.56] - 2026-11-26
+
+相对 **1.3.55**：右栏持久化；观测缓存命中；V4 视口诊断；用户文档更新。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.56.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **右栏表持久化**：功能页右栏状态可落库
+- **观测缓存命中**：请求详情展示缓存命中诊断
+
+### Fixed
+
+- **V4 视口异常**：检测与调试浮层更准
+- **看过的图并发**：并发 reducer 更稳
+- **用户可见错误**：部分失败文案更清楚
+
+### Changed
+
+- **用户文档**：员工/知识库/资产中心等说明更新；部门群聊天指南
+
+
 ## [1.3.55] - 2026-11-26
 
 相对 **1.3.54**：冻结 EXE 内代码索引/本地向量 worker 可启动；拒绝 LFS 指针当模型权重（#118）。

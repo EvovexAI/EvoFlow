@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Annotated, Any
 
 try:
-    from typing import NotRequired, override
+    from typing import override
 except ImportError:
-    from typing import NotRequired
-
     from typing_extensions import override
 
 from langchain.agents import AgentState
@@ -18,7 +16,7 @@ from langchain.agents.middleware.types import ModelCallResult, ModelRequest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.runtime import Runtime
 
-from evoflow.agents.thread_state import ViewedImageData
+from evoflow.agents.thread_state import ViewedImageData, merge_viewed_images
 from evoflow.tools.builtins.vision_analysis_core import (
     MODEL_INJECT_MAX_BASE64_BYTES,
     bytes_to_data_url,
@@ -125,9 +123,18 @@ def _content_has_omitted_placeholder(msg: HumanMessage) -> bool:
 
 
 class ViewImageMiddlewareState(AgentState):
-    """Compatible with the `ThreadState` schema."""
+    """Compatible with the `ThreadState` schema.
 
-    viewed_images: NotRequired[dict[str, ViewedImageData] | None]
+    ``viewed_images`` **must** keep the same ``Annotated`` merge reducer as
+    ``ThreadState``. ``create_agent`` merges middleware + base schemas via a
+    ``set`` (hash iteration order); a plain ``NotRequired[dict]`` here can
+    overwrite ``ThreadState``'s reducer → LangGraph ``LastValue`` channel →
+    parallel ``platform`` 生图 (multiple Commands writing ``viewed_images`` in
+    one step) raises ``INVALID_CONCURRENT_GRAPH_UPDATE`` and the UI shows
+    a fake 「操作失败，请稍后重试」. 2026-11-26 manju-director batch gen.
+    """
+
+    viewed_images: Annotated[dict[str, ViewedImageData], merge_viewed_images]
 
 
 class ViewImageMiddleware(AgentMiddleware[ViewImageMiddlewareState]):

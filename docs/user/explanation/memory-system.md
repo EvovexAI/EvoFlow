@@ -7,11 +7,13 @@
 > - 下次你再跟它聊天，它知道你的名字和工作背景
 > - 你问"帮我写个 API"，它知道你是后端开发，会写 Python 而不是 Java
 >
-> 每个自定义角色有独立的记忆，互不污染。请到侧栏「资产中心」查看与校对；概念见 [资产中心](asset-center.md) [[explanation/asset-center|资产中心]]。
+> **产品入口**：侧栏 **资产中心**（`#/assets`）——实体 **我 / BOT**，记忆 Tab 看 **长期记忆 + 过程**。用户记忆与各 BOT 记忆平行独立；用户画像可授权复用。概念与操作见 [资产中心](asset-center.md) [[explanation/asset-center|资产中心]] · [操作指南](../guides/configuration/asset-center.md)。
 >
-> 记忆存的是「用户偏好和事实」，跟[知识库](../guides/configuration/knowledge-base.md)（你上传的文档）不是一回事。
+> 记忆存的是「用户偏好和事实 / 岗位沉淀」，跟[知识库](../guides/configuration/knowledge-base.md)（本地文件夹同步的文档）不是一回事。
 >
-> **功能关系**：记忆系统是 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 中间件链的一部分——`MemoryMiddleware` 在每次对话完成后触发记忆更新。记忆通过 `<memory>` 标签注入到系统提示中，与[技能系统](skill-system.md) [[explanation/skill-system|技能系统]] 的 SKILL.md 内容、子 Agent 指令共同构成系统提示。与[思维导图系统](mind-map-system.md) [[explanation/mind-map-system|思维导图系统]] 互补：记忆解决"跨会话连续性"（记住你是谁、你喜欢什么），思维导图解决"单会话可追溯性"（记住这次排查查了什么）。
+> **实现说明（偏研发）**：下文 `MemoryMiddleware` / `memory.json` / `<memory>` 标签描述的是运行时路径之一；默认产品注入以 **资产中心**（`injection_mode: asset`，长期记忆 standing）为准。旧 facts 数组属遗留形态，面板以资产中心为准。
+>
+> **功能关系**：记忆相关中间件挂在 [Agent 系统](agent-system.md) [[explanation/agent-system|Agent 系统]] 链上。与[技能系统](skill-system.md) [[explanation/skill-system|技能系统]]、[思维导图系统](mind-map-system.md) [[explanation/mind-map-system|思维导图系统]] 互补：记忆解决"跨会话连续性"，思维导图解决"单会话可追溯性"。
 
 ## 背景
 

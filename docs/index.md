@@ -11,6 +11,10 @@
 | 🗺️ [产品总览](user/getting-started/product-overview.md) | 人群 · 问题 · 功能地图 |
 | ⚙️ [配置模型](user/tutorials/configure-models.md) | Provider 与 API Key |
 | 💬 [Plan 模式](user/guides/chat/plan-mode.md) | 长任务规划与协作 |
+| 👥 [部门群聊](user/guides/chat/dept-group-chat.md) | 组织指挥台 · @ 点名 |
+| 🧑‍💼 [智能体员工](user/guides/configuration/smart-employees.md) | 值班岗 · 交工 · 部门群 |
+| 🔀 [工作流](user/guides/configuration/app-center.md) | 节点能力编排 · 填参再跑 |
+| 📖 [知识库](user/guides/configuration/knowledge-base.md) | 文档检索 · 内置用户指南 |
 | 🤖 [Agent / 团队](user/guides/configuration/agent-management.md) | 智能体与预设团队 |
 | 📚 [技能管理](user/guides/configuration/skill-management.md) | `SKILL.md` 技能包 |
 | 🔌 [工具与 MCP](user/guides/configuration/tools-mcp.md) | 扩展工具 |

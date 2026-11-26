@@ -27,6 +27,8 @@
 | 按功能查操作 | [操作指南总目录](guides/README.md) [[guides/README|操作指南总目录]] |
 | 员工 / 知识库 / 工作流 / 任务中心接口或 CLI | [接口与 CLI](guides/integration/api-cli-employees-knowledge-workflow-tasks.md) [[guides/integration/api-cli-employees-knowledge-workflow-tasks|接口与 CLI]] |
 | 面板入口速查 | [EvoPanel 指南](guides/configuration/evopanel-guide.md) [[guides/configuration/evopanel-guide|EvoPanel 指南]] |
+| 部门群聊 | [部门群聊](guides/chat/dept-group-chat.md) [[guides/chat/dept-group-chat|部门群聊]] |
+| 员工 / 工作流 / 知识库 | [员工](guides/configuration/smart-employees.md) · [工作流](guides/configuration/app-center.md) · [知识库](guides/configuration/knowledge-base.md) |
 | 设计理念 | [为什么是 EvoFlow](explanation/why-evoflow.md) [[explanation/why-evoflow|为什么是 EvoFlow]] |
 | 踩坑 | [FAQ](guides/faq.md) [[guides/faq|FAQ]] |
 

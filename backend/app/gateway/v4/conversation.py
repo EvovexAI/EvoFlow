@@ -767,7 +767,23 @@ class V4ConversationHub:
             and sess.catchup_fp == fp
             and not self._projection_tip_matches_fingerprint(sess, fp)
         )
-        if tip_mismatch:
+        # Live / remint 中：库尾后的 tip 往往是本轮 AG-UI 正在写的行，不是幽灵 tip。
+        # 若仍 force rehydrate → 每 ~16s recovery 整页替换，用户体感「SSE 没流式、
+        # 突然整段出来」（2026-11-26 agent:main:new-ab756a82 404 remint 实锤）。
+        if tip_mismatch and self._should_defer_tip_mismatch_rehydrate(
+            tid,
+            sess=sess,
+            mirror_live=mirror_live,
+            fingerprint=fp,
+        ):
+            logger.info(
+                "[v4.catchup] tip-mismatch deferred (live run) session=%s rows=%s fp=%s",
+                tid,
+                len(sess.rows),
+                fp,
+            )
+            tip_mismatch = False
+        elif tip_mismatch:
             logger.warning(
                 "[v4.catchup] tip mismatch vs transcript fingerprint session=%s "
                 "rows=%s fp=%s — force rehydrate",
@@ -2296,6 +2312,81 @@ class V4ConversationHub:
                 max(int(r.get("rowId") or 0) for r in sess.rows.values()) + 1,
             )
         return removed
+
+    def _should_defer_tip_mismatch_rehydrate(
+        self,
+        session_id: str,
+        *,
+        sess: _SessionState,
+        mirror_live: bool,
+        fingerprint: str,
+    ) -> bool:
+        """True when tip-after-fingerprint is an active live turn, not a ghost tip.
+
+        ``tip_mismatch`` was built for completed ghost tips (394bc37f). During an
+        active run — especially right after 404 remint when ``mirror_live`` is
+        still false — live rows after the transcript tip are expected. Force
+        rehydrate would thrash recovery snapshots and kill token streaming.
+        """
+        if mirror_live:
+            return True
+        if sess.turn_running():
+            return True
+        # 不用 last_author 近时窗：本路径前面的 settle→patch_phase 会刷新
+        # last_author_at_ms，8s 启发式会把真正的幽灵 tip 误判成 live（ghost
+        # tip-mismatch 回归会挂）。remint 间隙靠 DB running / trailing inflight。
+        try:
+            from app.gateway.v4.hydration import read_run_status_row
+
+            rs = str((read_run_status_row(session_id) or {}).get("status") or "").strip().lower()
+        except Exception:
+            rs = ""
+        if rs in {"running", "pending"}:
+            return True
+        return self._fingerprint_trailing_tip_is_inflight(sess, fingerprint)
+
+    @staticmethod
+    def _fingerprint_trailing_tip_is_inflight(
+        sess: _SessionState, fingerprint: str
+    ) -> bool:
+        """库尾 message 之后是否仍有 streaming/running 行（本轮 live，非幽灵终态）。"""
+        parts = str(fingerprint or "").split(":")
+        if len(parts) < 2 or not sess.rows:
+            return False
+        last_mid = str(parts[1] or "").strip()
+        if not last_mid:
+            return False
+        tip_mid_rid = 0
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            ids = (
+                str(row.get("entityId") or "").strip(),
+                str(row.get("messageId") or "").strip(),
+                str(row.get("assistantResponseId") or "").strip(),
+            )
+            if last_mid not in ids:
+                continue
+            try:
+                rid = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid > tip_mid_rid:
+                tip_mid_rid = rid
+        if tip_mid_rid <= 0:
+            return False
+        for row in sess.rows.values():
+            if not isinstance(row, dict):
+                continue
+            try:
+                rid = int(row.get("rowId") or 0)
+            except (TypeError, ValueError):
+                continue
+            if rid <= tip_mid_rid:
+                continue
+            if V4ConversationHub._row_is_inflight(row):
+                return True
+        return False
 
     @staticmethod
     def _projection_tip_matches_fingerprint(sess: _SessionState, fingerprint: str) -> bool:

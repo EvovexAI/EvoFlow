@@ -252,16 +252,38 @@ export function fmtCacheHitTok(cacheRead: number | null | undefined, cacheMiss?:
   return `⚡${fmtTok(hit)}`
 }
 
+/** 单次调用缓存命中率：0% 也要显示（便于发现异常偏低）。 */
+export function fmtCacheHitRatePct(pct: number | null | undefined): string {
+  if (pct == null || !Number.isFinite(Number(pct))) return '—'
+  const n = Number(pct)
+  if (Number.isInteger(n)) return `${n}%`
+  return `${n.toFixed(1)}%`
+}
+
+export function cacheHitRateTone(
+  status: string | null | undefined,
+): 'danger' | 'warning' | 'muted' | undefined {
+  const s = String(status || '').trim()
+  if (s === 'none' || s === 'low') return 'danger'
+  if (s === 'write' || s === 'unknown') return 'warning'
+  if (s === 'ok') return 'muted'
+  return undefined
+}
+
 export function requestTokenTitle(row: {
   promptTokens?: number
   completionTokens?: number
   cacheReadTokens?: number
   cacheCreationTokens?: number
   cacheMissTokens?: number
+  cacheHitRatePct?: number | null
 }): string {
   const parts: string[] = []
   if (row.promptTokens) parts.push(`输入 ${row.promptTokens.toLocaleString()}`)
   if (row.completionTokens) parts.push(`输出 ${row.completionTokens.toLocaleString()}`)
+  if (row.cacheHitRatePct != null && Number.isFinite(row.cacheHitRatePct)) {
+    parts.push(`命中率 ${fmtCacheHitRatePct(row.cacheHitRatePct)}`)
+  }
   if (row.cacheReadTokens) parts.push(`缓存命中 ${row.cacheReadTokens.toLocaleString()}`)
   if (row.cacheCreationTokens) parts.push(`写入缓存 ${row.cacheCreationTokens.toLocaleString()}`)
   if (row.cacheMissTokens) parts.push(`未命中 ${row.cacheMissTokens.toLocaleString()}`)

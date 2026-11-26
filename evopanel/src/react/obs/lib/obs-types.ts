@@ -74,6 +74,14 @@ export type ObsRecentRequest = {
   cache_read_tokens?: number | null
   cache_creation_tokens?: number | null
   cache_miss_tokens?: number | null
+  /** 0–1；无缓存字段时为 null */
+  cache_hit_rate?: number | null
+  /** 0–100；无缓存字段时为 null */
+  cache_hit_rate_pct?: number | null
+  /** unknown | none | write | low | ok */
+  cache_hit_status?: string | null
+  /** 偏低/零命中等排查短句 */
+  cache_hit_notes?: string[] | null
   tokens: number
   cost_usd?: number | null
   /** Estimated API cost from published CNY list prices (百炼 / 火山). */

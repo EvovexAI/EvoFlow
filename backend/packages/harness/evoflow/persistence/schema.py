@@ -2714,6 +2714,16 @@ def _ensure_duty_runs_table(conn: sqlite3.Connection) -> None:
     logger.info("schema: created evoflow_duty_runs (duty trail index)")
 
 
+def _ensure_right_stage_tables(conn: sqlite3.Connection) -> None:
+    """Idempotent: right-stage current + trail tables."""
+    try:
+        from evoflow.persistence.right_stage_tables import ensure_right_stage_tables
+
+        ensure_right_stage_tables(conn)
+    except Exception:
+        logger.debug("schema: ensure right_stage tables failed", exc_info=True)
+
+
 def _ensure_session_runtime_tables(conn: sqlite3.Connection) -> None:
     """Idempotent: session child-work registry + one-shot inject receipts."""
     created: list[str] = []
@@ -2850,6 +2860,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _apply_baseline(conn)
         _ensure_asset_memory_runs_table(conn)
         _ensure_session_runtime_tables(conn)
+        _ensure_right_stage_tables(conn)
         _ensure_person_affect_hormones(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
@@ -2862,6 +2873,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
             _ensure_duty_runs_table(conn)
             _ensure_asset_memory_runs_table(conn)
             _ensure_session_runtime_tables(conn)
+            _ensure_right_stage_tables(conn)
             _ensure_person_affect_hormones(conn)
             _ensure_post_baseline_tables(conn)
             _ensure_post_baseline_columns(conn)
@@ -2872,6 +2884,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _ensure_duty_runs_table(conn)
         _ensure_asset_memory_runs_table(conn)
         _ensure_session_runtime_tables(conn)
+        _ensure_right_stage_tables(conn)
         _ensure_person_affect_hormones(conn)
         _ensure_post_baseline_tables(conn)
         _ensure_post_baseline_columns(conn)
@@ -2882,6 +2895,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     _ensure_duty_runs_table(conn)
     _ensure_asset_memory_runs_table(conn)
     _ensure_session_runtime_tables(conn)
+    _ensure_right_stage_tables(conn)
     _ensure_person_affect_hormones(conn)
     _ensure_automation_slot_claims(conn)
     # Columns shipped after the baseline epoch, so a DB already stamped with

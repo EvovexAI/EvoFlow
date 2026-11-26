@@ -151,6 +151,52 @@ def report_volume_by_agent(cur: sqlite3.Cursor, days: int, top: int) -> None:
               f"合计{float(total or 0) / 3600000:6.1f}h ({float(total or 0) * 100 / grand:4.1f}%)")
 
 
+def report_low_cache_hits(cur: sqlite3.Cursor, days: int, top: int) -> None:
+    """命中率偏低的单次调用，方便对照 run/seq/消息条数排查。"""
+    print(f"\n=== 缓存命中偏低样本（近 {days} 天，main，命中率<30%）===")
+    cur.execute(
+        f"""SELECT id, model, model_call_seq, message_count,
+                   COALESCE(cache_read_tokens,0), COALESCE(cache_miss_tokens,0),
+                   COALESCE(cache_creation_tokens,0), started_at, thread_id
+            FROM evoflow_obs_model_invocations
+            WHERE {_window(days)} AND invocation_kind='main'
+              AND (COALESCE(cache_read_tokens,0) + COALESCE(cache_miss_tokens,0)
+                   + COALESCE(cache_creation_tokens,0)) > 0
+            ORDER BY
+              CASE
+                WHEN (COALESCE(cache_read_tokens,0)+COALESCE(cache_miss_tokens,0)) > 0
+                THEN CAST(COALESCE(cache_read_tokens,0) AS REAL)
+                     / (COALESCE(cache_read_tokens,0)+COALESCE(cache_miss_tokens,0))
+                ELSE 0 END ASC,
+              COALESCE(cache_miss_tokens,0) DESC
+            LIMIT {int(top) * 3}"""
+    )
+    rows = cur.fetchall()
+    shown = 0
+    for row in rows:
+        _id, model, seq, msgs, read, miss, create, started, thread = row
+        denom = float(read or 0) + float(miss or 0)
+        if denom <= 0:
+            denom = float(read or 0) + float(create or 0)
+        rate = (float(read or 0) * 100.0 / denom) if denom else None
+        if rate is not None and rate >= 30:
+            continue
+        shown += 1
+        rate_s = f"{rate:.1f}%" if rate is not None else "—"
+        print(
+            f"  {rate_s:>6s} read={int(read or 0):6d} miss={int(miss or 0):6d} "
+            f"seq={seq or '—'} msgs={msgs or '—'} "
+            f"model={str(model or '')[:28]} thread={str(thread or '')[:16]} "
+            f"at={str(started or '')[:19]}"
+        )
+        if shown >= int(top):
+            break
+    if not shown:
+        print("  （无偏低样本，或窗口内无缓存字段）")
+    else:
+        print("  → 点开运维观测「调用记录」详情看 cache_hit_notes；首轮冷启动属正常")
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="上下文成本报表（只读观测库）")
     ap.add_argument("--days", type=int, default=7)
@@ -166,6 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     report_model_context(cur, args.days)
     report_ttft_buckets(cur, args.days)
     report_volume_by_agent(cur, args.days, args.top)
+    report_low_cache_hits(cur, args.days, args.top)
     conn.close()
     return 0
 

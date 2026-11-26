@@ -138,6 +138,12 @@ export interface RequestRecord {
   cacheReadTokens?: number;
   cacheCreationTokens?: number;
   cacheMissTokens?: number;
+  /** 0–100；无数据为 null */
+  cacheHitRatePct?: number | null;
+  /** unknown | none | write | low | ok */
+  cacheHitStatus?: string | null;
+  /** 命中偏低时的排查说明 */
+  cacheHitNotes?: string[];
   tokens: number;
   cost: number;
   /** Estimated per-request cost (CNY) from observability pricing rules. */
