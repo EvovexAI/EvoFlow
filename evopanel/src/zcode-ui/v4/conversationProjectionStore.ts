@@ -293,17 +293,58 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
   if (!previous?.rows?.window?.length || !incoming?.rows?.window?.length) {
     return incoming;
   }
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+  // thread remint（rehydrate 换新线程）是「新基线」而非「过期帧」：网关 11:02:44 实证
+  // `[v4.hydration] remint rehydrate old=5d93c631 → new=4239e743 rows=17`，同时
+  // `client_epoch=2 hub_epoch=2` —— epoch 没变、seq 归零。旧逻辑先把 sessionId 不同
+  // 误当同一条线续传，再被 seq 变小规则整帧丢掉，前端窗口永远停在旧 tip。
+  // sessionId 变了 = 权威换基线：允许整窗替换（行号也重排），不粘旧行、不抬 seq。
+  const prevSid = String((previous as { sessionId?: string }).sessionId || "");
+  const incSid = String((incoming as { sessionId?: string }).sessionId || "");
+  if (prevSid && incSid && prevSid !== incSid) {
+    return incoming;
+  }
   if (String(previous.logEpoch || "") !== String(incoming.logEpoch || "")) {
     return incoming;
   }
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】修 seq 回退误判
+  // 只凭 seq 数值变小就丢整快照是错的：服务端 rehydrate 后帧序号会重置回 0/1
+  // （网关 11:04:41 实证 [v4.hydration] seq=0 → seq=1，随后 [v4.flush] snapshot
+  //  seq=1 rows=17 kind=recovery）。旧判据把这份带 17 行的权威恢复快照当「过期尾窗」
+  //  整帧丢掉 → 前端窗口停在旧 tip（fe=10 / hub=17 Δ+7），屏幕那头就是「发了没反应」。
+  // 新判据：seq 变小不算证据，还要看 incoming 是否真的比 previous 旧——即 incoming 窗尾
+  // 行号严格小于 previous 窗尾，且 incoming 未声明更高的权威 totalCount。
   const prevSeq = Number(previous.seq);
   const incSeq = Number(incoming.seq);
   if (Number.isFinite(prevSeq) && Number.isFinite(incSeq) && incSeq < prevSeq) {
-    // 过期 snapshot：客户端 delta 已推进到更高 seq，整窗替换会把最新轮裁回旧尾。
-    return previous;
+    const prevLastRowId =
+      previous.rows.window[previous.rows.window.length - 1]?.rowId;
+    const incLastRowId =
+      incoming.rows.window[incoming.rows.window.length - 1]?.rowId;
+    const incTotal = Number(incoming.rows.totalCount);
+    const incomingTrulyStale =
+      typeof prevLastRowId === "number" &&
+      typeof incLastRowId === "number" &&
+      incLastRowId < prevLastRowId &&
+      !(Number.isFinite(incTotal) && incTotal >= prevLastRowId);
+    if (incomingTrulyStale) {
+      // 过期 snapshot：行数据本身确实更旧，整窗替换会把最新轮裁回旧尾。
+      return previous;
+    }
+    // seq 变小但行数据不旧（rehydrate 重置帧序号 / 服务端补发权威恢复快照）：
+    // 继续走下面的粘回合并，别把整帧扔掉。seq 在出口处取 max(inc,prev) 保序。
   }
+  // 三条提前 return 分支都必须走这里：rehydrate 重置帧序号后 incSeq 可能远小于 prevSeq，
+  // 若原样返回 incoming 会把自己的 seq 也退回 0/1，下一帧 delta 的 fromSeq 立刻对不上 →
+  // 再断档一轮。只抬 seq，不动行。
+  const clampSeqFloor = (s: ConversationSnapshot): ConversationSnapshot => {
+    if (!(incSeq < prevSeq)) return s;
+    const floored = Math.max(incSeq || 0, prevSeq || 0);
+    if (floored === Number(s.seq)) return s;
+    return { ...s, seq: floored };
+  };
   const cut = incoming.rows.window[0]?.rowId;
-  if (cut === undefined) return incoming;
+  if (cut === undefined) return clampSeqFloor(incoming);
   const incomingLast =
     incoming.rows.window[incoming.rows.window.length - 1]?.rowId ?? cut;
   const older = previous.rows.window.filter((row) => row.rowId < cut);
@@ -322,7 +363,7 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
     if (authorityTip != null && row.rowId > authorityTip) return false;
     return true;
   });
-  if (older.length === 0 && newer.length === 0) return incoming;
+  if (older.length === 0 && newer.length === 0) return clampSeqFloor(incoming);
   const byId = new Map<number, ConversationRow>();
   for (const row of older) byId.set(row.rowId, row);
   for (const row of incoming.rows.window) byId.set(row.rowId, row);
@@ -369,7 +410,7 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
     const same =
       finalWindow.length === incoming.rows.window.length &&
       finalWindow.every((row, i) => row.rowId === incoming.rows.window[i]?.rowId);
-    if (same) return incoming;
+    if (same) return clampSeqFloor(incoming);
   }
   return {
     ...incoming,

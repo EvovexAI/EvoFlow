@@ -187,6 +187,33 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
   });
 });
 
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+  // 现网实证（网关 2026-11-27 11:04:41）：rehydrate 后帧序号重置[seq=0 → seq=1]，
+  // 随后 [v4.flush] snapshot seq=1 rows=17 kind=recovery —— 行数是新的、帧序号比本地小。
+  // 旧判据只看 seq 变小就整帧丢，前端窗口停在旧 tip（fe=10 / hub=17 Δ+7），用户看到「发了没反应」。
+  it("rehydrate 重置帧序号（seq 变小但行是新的）时不得整帧丢弃", () => {
+    const previous = snap(
+      [textRow(80, "t6666", "666")],
+      { firstRowId: 1, totalCount: 90 },
+    );
+    previous.seq = 17;
+    const incoming = snap(
+      [
+        textRow(80, "t6666", "666"),
+        { ...textRow(90, "t777", "777"), kind: "userInput", origin: "realUser", text: "啊" } as ConversationRow,
+        textRow(91, "t777", "这声「啊」,听着像刚想起什么又忘了。"),
+      ],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    incoming.seq = 1;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    // 行必须接受（否则屏幕永远停在旧窗口）
+    expect(merged.rows.window.map((r) => r.rowId)).toEqual([80, 90, 91]);
+    // seq 不得倒退，否则下一帧 delta 的 fromSeq 对不上又断档一轮
+    expect(Number(merged.seq)).toBeGreaterThanOrEqual(17);
+  });
+
 describe("applyMemoryPressureToProjectionWindow", () => {
   it("上滚在途或已上拉大窗：不裁行数（防 2004↔52 抖动）", () => {
     const rows: ConversationRow[] = [];
