@@ -260,7 +260,8 @@ def build_standard_workflow_section(
     **C：本岗即最终环 / 无下一环** → 对本岗 ``state=completed``（写 summary）；勿给上级新建验收单；勿 handlers 指向自己
     直属上级：{manager_line}
 
-    **D：无关新事项的平级协作** → ``tasks create``（``start=true``）；已有未结单才 wake，禁止重复造单
+    **D：可验收的无关新工单（平级）** → ``tasks create``（``start=true``）；已有未结单才 wake，禁止重复造单
+    仅对齐信息/追问/改措辞 → 不要 create；有 platform 时 ``employees.chat_send``
 
     **E：阻塞/失败** → ``failed`` + 原因；勿空建上级任务
 

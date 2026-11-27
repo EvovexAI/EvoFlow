@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.59] - 2026-11-27
+
+相对 **1.3.58**：V4 remint 镜像更稳；小米助手与部门群微调；平台反馈/流预览。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.59.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **V4 remint / 镜像**：thread 重铸后行映射与视口诊断更准
+- **平台反馈 / 流预览**：AG-UI 平台结果与流式写预览更稳
+
+### Changed
+
+- **小米助手**：人设与工具策略提示更新
+- **部门群 / 工作区**：群聊与信息栏体验微调
+
 ## [1.3.58] - 2026-11-27
 
 相对 **1.3.57**：修复 macOS x64 DMG（Permission denied）；会话列表按组加载更多；V4 remint/rehydrate 与内存压力。

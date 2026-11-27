@@ -133,10 +133,12 @@ def build_employee_collab_block(
             "## 规则",
             "- **向下（直属下级）**：``state=completed`` + **handlers**（系统建单并叫醒）。空 handlers 会断链，系统拒绝。",
             "- **平级（同一上级）**：下一环优先 ``completed`` + **handlers**（与向下相同机制）；"
-            "仅新开无关事项才 ``tasks create``（``start=true``）。已有未结单才 ``wake``，禁止自造重复单。",
+            "仅**可验收的无关新工单**才 ``tasks create``（``start=true``）。已有未结单才 ``wake``，禁止自造重复单。"
+            "仅对齐信息、追问、改措辞：不要 ``tasks create``；有 platform 时用 ``employees.chat_send`` 同线程续聊。",
             "- **向上**：叶子/平级结案即可；禁止给上级新建「验收」单；禁止指望上级代派本可平级交接的下一环。",
             "- **写权限**：只能 ``progress/state`` 自己的单（``assigned_to``=本岗）；小V 代用户除外。",
-            "- **wake**：仅续跑/催办已有未结单；禁止刚 create 完立刻再 wake；禁止 handlers/create 指向自己。",
+            "- **wake**：仅续跑/催办已有未结单；禁止刚 create 完立刻再 wake；禁止 handlers/create 指向自己；"
+            "禁止用 create+wake 代替对话。",
             "- **资源**：交付用的端口/进程写进 handlers content；结案后勿再 taskkill 他人已接管的服务。",
             COLLAB_CLOSE,
         ]

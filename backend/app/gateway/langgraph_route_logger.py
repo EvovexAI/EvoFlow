@@ -912,11 +912,39 @@ class LangGraphRouteLoggerMiddleware:
                     )
                 try:
                     setattr(ui_transform, "thread_id", new_thread_id)
-                    if getattr(ui_transform, "normalizer", None) is not None:
-                        setattr(ui_transform.normalizer, "thread_id", new_thread_id)
+                    normalizer = getattr(ui_transform, "normalizer", None)
+                    if normalizer is not None:
+                        setattr(normalizer, "thread_id", new_thread_id)
+                        # 【self-evolution-bot · 2026-11-27 · 第139轮 · 模型:deepseek-v4-1-flash-261017】
+                        # 上面那个 setattr 只改了类属性，AG-UI 编码器真正读的是
+                        # ``_state.thread_id``（独立 dataclass 字段）→ 改了等于没改，
+                        # 镜像继续往旧投影写。现网取证：旧 tid feed_events 3060 条、
+                        # 新 tid 0 条，本轮流式行在用户屏幕上永不出现，轮尾 catchup
+                        # 一次性灌进来 = 用户说的「流式没返回、过一会突然整段显示」。
+                        rebind = getattr(normalizer, "rebind_thread", None)
+                        if callable(rebind):
+                            rebind(new_thread_id)
                 except Exception:
                     logger.debug(
                         "404 fallback: re-bind ui_transform thread_id failed",
+                        exc_info=True,
+                    )
+                # 镜像 per-thread 状态机跟到新 tid，否则本轮进度留在旧投影。
+                try:
+                    from app.gateway.v4.agui_mirror import mirror_remap_thread
+
+                    remapped = mirror_remap_thread(old_tid, new_thread_id)
+                    logger.info(
+                        "[LG-ROUTE] 404 remint mirror remap old=%s new=%s cleared_row_ids=%s",
+                        old_tid,
+                        new_thread_id,
+                        remapped,
+                    )
+                except Exception:
+                    logger.warning(
+                        "[LG-ROUTE] 404 remint mirror remap failed old=%s new=%s",
+                        old_tid,
+                        new_thread_id,
                         exc_info=True,
                     )
                 try:

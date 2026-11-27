@@ -224,11 +224,14 @@ export function collectV4PathProbe(input: V4PathProbeInput): V4PathProbe {
   } else if (
     input.hasOptimistic &&
     streamMax == null &&
-    !input.windowHasLive
+    !input.windowHasLive &&
+    // 乐观泡先于 tip 是正常竞态；tip 已对齐或近期仍有 V4 帧 → 不算根因
+    !(tipDelta != null && Math.abs(tipDelta) < TIP_DIVERGE_MIN) &&
+    (lastV4AgeMs == null || lastV4AgeMs >= STALE_V4_MS)
   ) {
     verdict = "WIRE_WITHOUT_V4_TIP";
     title = "AG-UI 在跑，V4 投影 tip 未跟上";
-    detail = `乐观泡有、streamMax=∅、窗无 streaming；sub=${subscriptionId.slice(0, 12)} active=${subActive === true ? 1 : subActive === false ? 0 : "∅"}`;
+    detail = `乐观泡有、streamMax=∅、窗无 streaming；sub=${subscriptionId.slice(0, 12)} active=${subActive === true ? 1 : subActive === false ? 0 : "∅"} lastV4AgeMs=${lastV4AgeMs ?? "∅"}`;
   } else if (
     streamMax != null &&
     feTip != null &&

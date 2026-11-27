@@ -2104,35 +2104,13 @@ export function injectPageUsageGuide(root) {
 // ─── Onboarding 自动弹出 ────────────────────────────────────
 
 /**
- * 检查当前页是否需要自动弹出指南（首次访问）
+ * 曾：各页 first-visit 自动弹「使用指南」（路由一切换就查 storageKey）。
+ * 每页一把 versioned key（chat.v7 / proactive.v8…），换页或升 key 都会再弹，很烦。
+ * 现改为不自动弹；侧栏 / 顶栏 ? / 快捷键 ? 仍可手动打开。
  * @param {string} [route]
  */
-export function checkOnboardingGuide(route) {
-  const current = String(route || getCurrentRoute() || '/chat').split('?')[0]
-  const normalized = current.startsWith('/') ? current : `/${current}`
-  const guide = getHelpForRoute(normalized)
-
-  if (!guide || !guide.onboarding) return
-  if (guide.onboarding.trigger !== 'first-visit') return
-
-  const key = guide.onboarding.storageKey
-  if (!key) return
-
-  try {
-    if (localStorage.getItem(key) === '1') return
-  } catch {
-    return
-  }
-
-  // 延迟一点，等页面渲染完再弹
-  setTimeout(() => {
-    showPageHelpPanel(normalized, 'overview')
-    try {
-      localStorage.setItem(key, '1')
-    } catch {
-      /* ignore */
-    }
-  }, 600)
+export function checkOnboardingGuide(_route) {
+  return
 }
 
 // ─── 快捷键 ? 打开指南 ──────────────────────────────────────
@@ -2140,7 +2118,7 @@ export function checkOnboardingGuide(route) {
 let _shortcutBound = false
 
 /**
- * 绑定全局快捷键：? 打开当前页指南
+ * 绑定全局快捷键：? 打开当前页指南（不要绑 / —— 太容易误触）
  */
 export function bindGuideShortcut() {
   if (_shortcutBound) return
@@ -2151,7 +2129,8 @@ export function bindGuideShortcut() {
     const tag = (e.target && e.target.tagName) || ''
     if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target?.isContentEditable) return
 
-    if (e.key === '?' || e.key === '/') {
+    // 仅 Shift+/ 产生的 '?'；单独的 '/' 不打开，避免经常性误弹
+    if (e.key === '?') {
       e.preventDefault()
       showPageHelpPanel()
     }

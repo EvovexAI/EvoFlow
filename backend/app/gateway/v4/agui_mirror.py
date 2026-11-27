@@ -44,13 +44,38 @@ _diag.setLevel(logging.INFO)
 _diag_file_ready = False
 
 
+def _diag_log_path() -> Path:
+    """诊断文件路径。
+
+    【self-evolution-bot · 2026-11-27 · 第140轮 · 模型:deepseek-v4-1-flash-261017】
+    （第139轮修完 remint 迁移后，本轮复验时发现的新缺陷：诊断文件被单测写脏）
+    **pytest 运行中必须隔离到进程私有临时目录**。为什么必须：本函数是
+    「流式没返回」的唯一取证入口（配方 craft/对话流式没返回-过一会才整段显示-排查配方.md
+    全靠按 tid 分桶读这个文件），而单测会用字面量 tid（``remint-old-thread``）
+    直接调 ``mirror_remap_thread`` / ``feed_events``。不隔离的实测后果：
+    我跑一轮 6 条用例，往现网诊断文件里写进 **19 条 remap_thread（18 条 old 是测试字面量）
+    + 14 条测试 tid 的 feed_events**，把「旧 tid 3060 / 新 tid 0」这类现网数字淹没在噪声里，
+    下次排查先得手工排除测试行——取证文件一旦不可信，配方就等于没有。
+    与 ``evoflow/collab/cua_glow_state.py`` 同口径（那里是防测单清掉用户 CUA 提示条）。
+    """
+    override = (os.getenv("EVOFLOW_V4_MIRROR_DIAG_DIR") or "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
+    if (os.getenv("PYTEST_CURRENT_TEST") or "").strip():
+        import tempfile
+
+        # 带 pid：并发跑两个 pytest 进程时不争同一文件（同 cua_glow_state 口径）。
+        return Path(tempfile.gettempdir()) / f"v4-mirror-diag-test-{os.getpid()}"
+    from evoflow.runtime.log_policy import resolve_product_logs_dir
+
+    return Path(resolve_product_logs_dir())
+
+
 def _diag_log(event: str, **fields: Any) -> None:
     global _diag_file_ready
     try:
         if not _diag_file_ready:
-            from evoflow.runtime.log_policy import resolve_product_logs_dir
-
-            log_dir = Path(resolve_product_logs_dir())
+            log_dir = _diag_log_path()
             log_dir.mkdir(parents=True, exist_ok=True)
             handler = logging.FileHandler(
                 log_dir / f"v4-mirror-diag-{time.strftime('%Y%m%d')}.log",
@@ -3786,6 +3811,79 @@ def mirror_reset_thread(thread_id: str) -> None:
         mirror._states.pop(tid, None)  # noqa: SLF001 — 同模块协作
     except Exception:
         logger.debug("[v4-mirror] reset_thread skipped thread=%s", tid, exc_info=True)
+
+
+def mirror_remap_thread(old_thread_id: str, new_thread_id: str) -> int:
+    """【self-evolution-bot · 2026-11-27 · 第139轮 · 模型:deepseek-v4-1-flash-261017】
+    404 remint 后把镜像状态从旧 tid 迁到新 tid；否则镜像继续往旧 tid 写投影，
+    而 FE 订阅/快照都在新 tid → 本轮流式行在用户屏幕上永不出现，等轮尾
+    catchup rehydrate 拿 transcript 一次性灌进来，表现为「流式没返回、过一会
+    突然整段显示」。
+
+    迁什么：镜像是 per-thread 状态机（``turn_id`` / ``turn_header_row_id`` /
+    ``user_text`` / 各 messageId → rowId 映射）。remint 只换投影命名空间，
+    本轮的**语义进度**必须跟着走，否则重发流在新 tid 上从零开始，用户先看到
+    半截回复、再被 transcript 整段覆盖。
+
+    清什么：所有 rowId 映射 + 轮锚点。新投影里根本不存在旧 tid 的行号，
+    继续按旧 rowId upsert 会改坏历史行；轮锚点（``turn_header_row_id``）指向
+    的行也不在新投影里，``_ensure_active_turn_for_stream`` 会拿它当「已有轮头」
+    直接放行，把正文挂到一个不存在的 turn 上。清成 0 后由重发流的
+    RUN_STARTED 在新投影里重新建轮头。
+
+    返回迁移时清掉的 rowId 映射条数（0 = 无状态可迁，属正常）。
+    """
+    old = str(old_thread_id or "").strip()
+    new = str(new_thread_id or "").strip()
+    if not old or not new or old == new or _MIRROR_DISABLED:
+        return 0
+    try:
+        mirror = _get_mirror()
+        st = mirror._states.pop(old, None)  # noqa: SLF001 — 同模块协作
+        if st is None:
+            return 0
+        dropped = (
+            len(st.text_row_ids)
+            + len(st.reasoning_row_ids)
+            + len(st.tool_row_ids)
+            + len(st.subagent_rows)
+        )
+        # 行号映射：旧行在新投影里不存在，必须全清。
+        st.text_row_ids.clear()
+        st.reasoning_row_ids.clear()
+        st.tool_row_ids.clear()
+        st.subagent_rows.clear()
+        st.subagent_turn.clear()
+        # 累计文本同清：START 会重置 acc，留着只会在新旧之间串内容。
+        st.text_acc.clear()
+        st.reasoning_acc.clear()
+        st.tool_acc.clear()
+        # 轮锚点归零：让重发流的新 RUN_STARTED 在新投影里重新建轮头。
+        st.run_started = False
+        st.turn_header_row_id = 0
+        st.turn_started_at_ms = 0
+        st.last_text_row_id = 0
+        # 空跑计时器按旧 tid 排的，留着会把结论写进没人订阅的旧投影。
+        timer = st.empty_run_timer
+        if timer is not None:
+            try:
+                timer.cancel()
+            except Exception:
+                pass
+            st.empty_run_timer = None
+        mirror._states[new] = st  # noqa: SLF001
+        _diag_log(
+            "remap_thread",
+            old=old[:24],
+            new=new[:24],
+            dropped_row_ids=dropped,
+            keep_user_text=len(str(st.user_text or "")),
+            turn_id=str(st.last_turn_id or "")[:20],
+        )
+        return dropped
+    except Exception:
+        logger.exception("[v4-mirror] remap_thread failed old=%s new=%s", old, new)
+        return 0
 
 
 def mirror_thread_is_live(thread_id: str) -> bool:

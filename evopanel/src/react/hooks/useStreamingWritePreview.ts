@@ -165,10 +165,12 @@ export function useStreamingWritePreview(opts: {
           existingEntries: turnPlatformEntriesRef.current,
         },
       )
-      // Only announce/toast when there are *new* platform UIs. Publishing the
-      // full merged list with announce=true on every tools-scan re-opens the
-      // middle summary bubble for already-notified ops after each send.
-      if (platformShown.length && platformEntries.length) {
+      // 成功态不 announce / 不 toast（发消息前会反复重放「xxx操作成功」）；
+      // 仅 warning/error 撑中间通知 + toast。
+      const alertShown = platformShown.filter(
+        (ui) => ui.kind === 'warning' || ui.kind === 'error',
+      )
+      if (alertShown.length && platformEntries.length) {
         publishPlatformEntriesRef.current(
           platformEntries,
           latestPlatformRunEntryId(platformEntries),
@@ -181,11 +183,8 @@ export function useStreamingWritePreview(opts: {
           { announce: false },
         )
       }
-      for (const ui of platformShown) {
-        toast(
-          ui.title,
-          ui.kind === 'warning' ? 'warning' : ui.kind === 'error' ? 'error' : 'success',
-        )
+      for (const ui of alertShown) {
+        toast(ui.title, ui.kind === 'warning' ? 'warning' : 'error')
       }
 
       const mode = writeStreamModeRef.current

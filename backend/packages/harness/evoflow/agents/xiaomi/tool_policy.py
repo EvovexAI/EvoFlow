@@ -1,7 +1,7 @@
 """小V工具边界：``platform`` + bash + read + assets（记忆/画像） + 全量 MCP；其余工程师写仓面仍禁止。
 
 不问澄清空转——先 ``employees.org_status`` / ``board_overview`` / ``brief``，
-再 ``employees.dispatch`` / ``wake``；文档走 ``knowledge.search``；行政一律 ``platform``。
+跟岗说话默认 ``employees.chat_send``；仅工单才 ``employees.dispatch`` / ``wake``；文档走 ``knowledge.search``；行政一律 ``platform``。
 """
 
 from __future__ import annotations

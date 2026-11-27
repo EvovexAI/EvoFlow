@@ -1583,6 +1583,12 @@ function buildViewportAnomalies(input: {
     clientHeight: snap.clientHeight,
     executing: snap.runStatus.executing,
     uiTurnSettled: snap.runStatus.uiTurnSettled,
+    feTip: input.path?.feTip ?? snap.history.windowLastRowId,
+    hubTip: input.path?.hubTip ?? null,
+    lastV4AtMs:
+      input.path?.lastV4AgeMs != null
+        ? Date.now() - input.path.lastV4AgeMs
+        : undefined,
     history: {
       hasOlder: snap.history.hasOlder,
       loadingOlder: snap.history.loadingOlder,

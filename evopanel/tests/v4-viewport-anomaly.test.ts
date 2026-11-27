@@ -71,6 +71,58 @@ describe('collectViewportAnomalies', () => {
     expect(anomalies.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP')).toBe(true)
   })
 
+  it('does not flag WIRE when fe/hub tips already aligned', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      feTip: 2210,
+      hubTip: 2208,
+      lastV4AtMs: 999_000,
+      turns: [
+        {
+          turnId: 'optimistic-1',
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+        },
+      ],
+      windowRows: [
+        {
+          rowId: 2210,
+          kind: 'assistantText',
+          state: 'complete',
+          turnId: 'old-turn',
+        },
+      ],
+      streamEntries: [],
+    })
+    expect(anomalies.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP')).toBe(false)
+  })
+
+  it('does not flag WIRE during brief optimistic race (recent V4 frame)', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      lastV4AtMs: 999_500,
+      turns: [
+        {
+          turnId: 'optimistic-1',
+          orphanHeaderNoUser: false,
+          emptyAssistantCompleted: false,
+          hasUserInput: true,
+        },
+      ],
+      windowRows: [
+        {
+          rowId: 2210,
+          kind: 'assistantText',
+          state: 'complete',
+          turnId: 'old-turn',
+        },
+      ],
+      streamEntries: [],
+    })
+    expect(anomalies.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP')).toBe(false)
+  })
+
   it('flags rows_range success that did not advance winFirst', () => {
     const anomalies = collectViewportAnomalies({
       ...base,
@@ -225,6 +277,35 @@ describe('collectViewportAnomalies', () => {
       ],
     })
     expect(anomalies.some((a) => a.code === 'PAINT_MEDIA_BURIED')).toBe(true)
+  })
+
+  it('sticky WIRE_WITHOUT_V4_TIP 安静即丢（不粘「曾」）', () => {
+    const live = [
+      {
+        code: 'WIRE_WITHOUT_V4_TIP' as const,
+        severity: 'error' as const,
+        title: 'AG-UI 在跑，V4 投影未跟上',
+        detail: 'optimistic race',
+      },
+    ]
+    const first = mergeStickyViewportAnomalies({
+      tid: 'tid-1',
+      prevTid: null,
+      prev: [],
+      live,
+      nowMs: 1_000_000,
+    })
+    expect(first.items.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP' && a.live)).toBe(
+      true,
+    )
+    const held = mergeStickyViewportAnomalies({
+      tid: 'tid-1',
+      prevTid: 'tid-1',
+      prev: first.items,
+      live: [],
+      nowMs: 1_000_500,
+    })
+    expect(held.items.some((a) => a.code === 'WIRE_WITHOUT_V4_TIP')).toBe(false)
   })
 
   it('sticky merge keeps JUMP warn after live evidence leaves; DOM_OVERLAP 安静即丢', () => {

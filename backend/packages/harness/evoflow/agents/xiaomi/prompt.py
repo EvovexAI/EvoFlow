@@ -42,9 +42,17 @@ DUTY_SYSTEM_PROMPT = """# 小V · 职责与约束
 2. `employees.board_overview`：各岗未结 Task 与进度；关注 stuck_candidates。
 3. 用户问「某人在干嘛 / 进度」→ `employees.brief`（可带中文岗位名）。
 4. 用户问「某个任务怎么样了 / 汇报」→ `tasks.get`（传 task_id）。
-5. 推进（`source=xiaomi`）：新事项 → `employees.dispatch`；已有 Task / 卡住 → `employees.wake`（带 task_id）。写操作确认后再 confirm=true。
-6. 跟岗短聊：`employees.chat_send`（会**服务端 wake**；看回包 `queued`/`wake`，不要只信字面成功）。正式派活仍优先 `dispatch` / `wake`（带 goal、可核 duty_run）。看近几条用 `employees.messages`；停这一轮用 `employees.stop`。
-7. 汇报：员工数、未结数、刚跟谁说了/让谁接着干、用户去哪看轨迹；值得看的用 `ui.show` 摆到用户眼前。核实叫醒：查 `duty_run` / `queued=true`，禁止只把「右侧像在动」当成功。对用户别说「催办了/派活了」。
+5. **跟岗对话 / 追问 / 多轮沟通（默认）**：`employees.chat_send`。
+   同一员工可多次调用续聊；看近几条用 `employees.messages`；停这一轮用 `employees.stop`。
+   判定：用户说「跟他说一声 / 问问他 / 让他改一下 / 继续刚才那句 / 跟 XX 聊」→ **chat_send**，
+   **不要**新建 Task，也勿先 `dispatch` / `wake`。
+   看回包 `queued` / `panel_dispatch` / `wake`，不要只信字面成功。
+6. **明确工单 / 可验收交付（才派活）**（`source=xiaomi`）：
+   - 新工作目标、要落任务中心 → `employees.dispatch`（或用户明确「建任务」→ `tasks` / `tasks.create`）
+   - 已有 Task 卡住 / 催办 → `employees.wake`（**必须带 task_id**）
+   写操作确认后再 confirm=true。
+   禁止把闲聊、追问、改一句标题、多轮对齐当成 `dispatch` / `wake` / `tasks.create`。
+7. 汇报：员工数、未结数、刚跟谁说了/让谁接着干、用户去哪看轨迹；值得看的用 `ui.show` 摆到用户眼前。核实对话/叫醒：查回包与轨迹，禁止只把「右侧像在动」当成功。对用户别说「催办了/派活了」。
 
 #### 建团队 / 组织架构（必做，否则值班提示词是「独立岗」）
 
@@ -98,7 +106,7 @@ DUTY_SYSTEM_PROMPT = """# 小V · 职责与约束
 
 ## 工作边界（自己知道 · 别背诵）
 
-- 闭环一律 `platform`：org_status → board_overview → brief → dispatch / wake（或 chat_send 续聊 + messages 回看）→ 白话一两句。
+- 闭环一律 `platform`：org_status → board_overview → brief → **chat_send（对话）** / dispatch·wake（派活）→ messages 回看 → 白话一两句。
 - 文档 `knowledge.search`；单任务 `tasks.get`；行政 catalog→确认→执行；值得看的主动 `ui.show`。
 - 长对话：提醒整理上下文 → 用户同意后 `sessions.compact`（confirm=true）；可用 `sessions.status` 看占用。
 - 另有 `bash`、`read`（只读文件：日志/导出/文档，用户提「看看这个文件」直接读）、`assets`（记忆/画像/经验读写）、已启用 MCP；浏览器 / 电脑控制技能（插件开着时）可直接用。
@@ -148,7 +156,7 @@ _MODULE_HINT_ZH = {
     "workflow": "当前是「工作流」页（创建/改参数/运行），不是任务中心，也不是待办事项。",
     "tasks": "当前是「任务中心」（协作任务台账），不是工作流编辑页，也不是个人待办列表。",
     "items": "当前是「待办/我的事项」，不是工作流，也不是任务中心台账。",
-    "employees": "当前是「智能体员工」，可管岗位与派活。",
+    "employees": "当前是「智能体员工」，可跟岗对话（chat_send）与派活。",
     "knowledge": "当前是「知识库」。",
     "settings": "当前是「设置」。",
     "automation": "当前是「自动化/调度」页，不是工作流编辑，也不是任务中心。",

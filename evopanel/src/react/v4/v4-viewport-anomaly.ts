@@ -86,6 +86,13 @@ export type ViewportAnomalyInput = {
     displayKind?: string;
     hasMedia?: boolean;
   }>;
+  /**
+   * 投递路径健康度（可选）。有则用于压制 WIRE_WITHOUT_V4_TIP 误报：
+   * 乐观泡先于 V4 tip 是正常竞态；fe/hub tip 已对齐或近期有 V4 帧时不报。
+   */
+  feTip?: number | null;
+  hubTip?: number | null;
+  lastV4AtMs?: number | null;
   streamEntries?: ReadonlyArray<{
     atMs: number;
     channel: string;
@@ -508,6 +515,7 @@ export function collectViewportAnomalies(
 
   // AG-UI 在跑（工作中）但 V4 投影 tip 不涨：乐观泡在、投影无此轮、streamMax 空。
   // 现场 19:11：mirror 已 feed，FE v4行钉死 2041，用户只见「工作中」。
+  // 发信后乐观泡先于 V4 tip 是正常竞态（数百 ms）；fe/hub 已对齐或近期有 V4 帧时不报。
   if (input.executing && !input.uiTurnSettled) {
     const hasOptimistic = input.turns.some((t) =>
       String(t.turnId || "").startsWith("optimistic"),
@@ -529,13 +537,39 @@ export function collectViewportAnomalies(
         return status === "running" || status === "executing";
       });
     if (hasOptimistic && streamMax == null && !windowHasLive) {
-      out.push({
-        code: "WIRE_WITHOUT_V4_TIP",
-        severity: "error",
-        title: "AG-UI 在跑，V4 投影未跟上",
-        detail:
-          "乐观泡/工作中有，但 streamMax=∅ 且窗内无 streaming——多半 frames 丢了；catchup 应 client-behind-resync",
-      });
+      const TIP_OK_SLACK = 5;
+      const WIRE_STALL_MS = 3_000;
+      const feTip =
+        typeof input.feTip === "number" && Number.isFinite(input.feTip)
+          ? input.feTip
+          : null;
+      const hubTip =
+        typeof input.hubTip === "number" && Number.isFinite(input.hubTip)
+          ? input.hubTip
+          : null;
+      const tipDelta =
+        feTip != null && hubTip != null ? hubTip - feTip : null;
+      const tipsAligned =
+        tipDelta != null && Math.abs(tipDelta) < TIP_OK_SLACK;
+      const lastV4AgeMs =
+        typeof input.lastV4AtMs === "number" &&
+        Number.isFinite(input.lastV4AtMs)
+          ? Math.max(0, now - input.lastV4AtMs)
+          : null;
+      // lastV4AtMs 未接线（单测旧口径）→ 仍按症状报；接上后必须卡住 ≥3s 才报。
+      const stalled =
+        input.lastV4AtMs === undefined
+          ? true
+          : lastV4AgeMs == null || lastV4AgeMs >= WIRE_STALL_MS;
+      if (!tipsAligned && stalled) {
+        out.push({
+          code: "WIRE_WITHOUT_V4_TIP",
+          severity: "error",
+          title: "AG-UI 在跑，V4 投影未跟上",
+          detail:
+            "乐观泡/工作中有，但 streamMax=∅ 且窗内无 streaming——多半 frames 丢了；catchup 应 client-behind-resync",
+        });
+      }
     }
   }
 
@@ -707,6 +741,7 @@ export function isLoadOlderNoAdvanceResolved(input: {
  * - error/warn：锁定到手动清或换会话；live=false 时仍展示（标「曾现」）
  * - LOADOLDER：若窗首已小于证据里的 before=，视为已前进，直接丢掉（避免粘滞误报）
  * - DOM_OVERLAP：本帧已无叠层则丢掉（估高 thrash 的「曾」在肉眼正常时只会吓人）
+ * - WIRE_WITHOUT_V4_TIP：乐观泡竞态自愈后丢掉（「曾」只会吓人；真卡住会再 live）
  * - info：不锁定，只跟本帧
  */
 export function mergeStickyViewportAnomalies(input: {
@@ -760,8 +795,12 @@ export function mergeStickyViewportAnomalies(input: {
     ) {
       continue;
     }
-    // 叠层只跟本帧：测高恢复后肉眼已正常，不必再挂「曾·DOM_OVERLAP」
-    if (sticky.code === "DOM_OVERLAP" && !liveCodes.has(sticky.code)) {
+    // 叠层 / wire-tip 竞态只跟本帧：自愈后不必再挂「曾」吓人
+    if (
+      (sticky.code === "DOM_OVERLAP" ||
+        sticky.code === "WIRE_WITHOUT_V4_TIP") &&
+      !liveCodes.has(sticky.code)
+    ) {
       continue;
     }
     items.push({

@@ -555,7 +555,7 @@ evoflow eval show <run_id>
 - 用户说「记住 / 记偏好 / 沉淀经验 / 审计资产」→ **`assets`** + [`assets-contract.md`](references/assets-contract.md)；勿再提已退役的 `evoflow-assets` 技能名。
 - 用户说「角色 / 新建助手 / 设计角色配置」→ 按 [`references/preset-role.md`](references/preset-role.md) 盘点后再 `agents create` / `platform` 落盘；勿再提已退役的 `preset-role-assistant` 技能名；不是单轮扮演。
 - 用户说「安排岗位 / 雇员工 / 改职责 KPI」→ `agents`（如需）+ `employees hire|update`。
-- 用户说「今天员工干了啥 / 谁在值班 / 让 XX 去查」→ `employees list|worklog|trail|dispatch|wake`。
+- 用户说「跟 XX 说一声 / 问问他 / 继续聊」→ `employees chat`（platform `employees.chat_send`，可多轮）；「让 XX 去做可验收的活 / 催已有 Task」→ `employees dispatch|wake`；「今天员工干了啥 / 谁在值班」→ `employees list|worklog|trail`。
 - 用户说「记待办 / 个人事项」→ `items`（或 platform `items.*`），不要建成协作 `tasks`。
 - 用户说「任务中心 / 结案 / 改进度」→ `tasks`（或 platform `tasks.*`）。
 - 用户说「审批 / 批一下」→ `approvals list|approve|reject`。

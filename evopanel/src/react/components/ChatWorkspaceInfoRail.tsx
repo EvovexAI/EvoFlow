@@ -2099,7 +2099,16 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
                 }`}
                 onClick={() => setSelectedCode(code)}
                 onDoubleClick={() => openProcess(code, name, liveBusy)}
-                title={`${name} · ${state}`}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  requestDeptGroupInsertMention({
+                    deptId,
+                    agentCode: code,
+                    roleName: name,
+                  })
+                }}
+                title={`${name} · ${state} · 右键 @点名`}
               >
                 <span className="react-chat-dept-pane-avatar" aria-hidden>
                   <EmployeeStageAvatar

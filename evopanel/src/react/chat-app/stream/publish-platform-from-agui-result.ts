@@ -1,13 +1,13 @@
 /**
- * LEGACY / AG-UI 热路径：从 TOOL_CALL_RESULT 发右上角「平台」toast +（可选）autoOpen。
+ * LEGACY / AG-UI 热路径：从 TOOL_CALL_RESULT 写入平台条目 +（可选）autoOpen。
  *
  * ⚠️ 默认产品聊天是 V4 时间线。工作流侧栏 autoOpen 的权威入口在：
  *   `zcode-ui/v4/ConversationTurnGroup.tsx` → `applyV4PlatformProgressAutoOpen`
  * 修「workflow.run 侧栏没开」请先改 V4 + `agui_mirror._platform_ui_display_block`，
  * 不要只改本文件以为就够了。
  *
- * 本文件仍保留：V4 闸门下 TOOL_CALL_RESULT 仍放行，双轨要同步 toast / seen；
- * 必须在 shouldApplyChatEvent gate 之前调用，否则 sealing 期间 RESULT 被丢掉。
+ * 成功态不再弹右上角 toast / 撑开中间「平台」通知（信息量低、发消息前易重放）；
+ * warning / error 仍 toast + announce。必须在 shouldApplyChatEvent gate 之前调用。
  */
 import { EventType } from '@ag-ui/core'
 import {
@@ -44,7 +44,11 @@ export type PublishPlatformFromAgUiResultCtx = {
   argsText?: string
   platformFeedbackSeenRef: { current: Set<string> }
   turnPlatformEntriesRef: { current: PlatformRunEntry[] }
-  publishPlatformEntries: (entries: PlatformRunEntry[], focusEntryId?: string) => void
+  publishPlatformEntries: (
+    entries: PlatformRunEntry[],
+    focusEntryId?: string,
+    opts?: { announce?: boolean },
+  ) => void
   toast: (message: string, kind?: string) => void
 }
 
@@ -176,14 +180,16 @@ export function publishPlatformFromAgUiResult(ctx: PublishPlatformFromAgUiResult
     toolCallId,
     latestPlatformRunEntryId(feedback.entries),
   )
-  ctx.publishPlatformEntries(feedback.entries, latestPlatformRunEntryId(feedback.entries))
-  // ui.* 界面操控：不弹「操作成功」类 toast（烦且无信息量）
-  const feedbackAction = String(feedback.ui.action || '').trim().toLowerCase()
-  if (!feedbackAction.startsWith('ui.')) {
-    ctx.toast(
-      feedback.ui.title,
-      feedback.ui.kind === 'warning' ? 'warning' : feedback.ui.kind === 'error' ? 'error' : 'success',
-    )
+  const kind = feedback.ui.kind
+  const isAlert = kind === 'warning' || kind === 'error'
+  // 成功：静默写入条目（对话卡 / 右栏仍可看）；不 toast、不撑中间通知气泡
+  ctx.publishPlatformEntries(
+    feedback.entries,
+    latestPlatformRunEntryId(feedback.entries),
+    { announce: isAlert },
+  )
+  if (isAlert) {
+    ctx.toast(feedback.ui.title, kind)
   }
   // workflow.run / resume / recover：结果一到就拉开右栏工作流，不必再调 ui.show
   maybeAutoOpenPlatformProgress(feedback.ui)

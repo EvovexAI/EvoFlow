@@ -1068,6 +1068,30 @@ class AgUiStreamNormalizer:
         if rid:
             self._state.run_id = rid
 
+    def rebind_thread(self, thread_id: str) -> None:
+        """【self-evolution-bot · 2026-11-27 · 第139轮 · 模型:deepseek-v4-1-flash-261017】
+        404 remint 换线程后，把编码器与内层的 thread_id 一起改到新 tid。
+
+        为什么必须有这个方法：``_mirror_feed`` 用的是 ``self._state.thread_id``，
+        而 ``_state`` 是 dataclass 里的**独立字段**，不是类的 ``thread_id`` 属性。
+        调用点原来写的是 ``setattr(normalizer, "thread_id", new_tid)`` —— 给一个
+        没人读的属性赋值，``_state.thread_id`` 原地不动，于是镜像每一条 delta
+        都继续写进旧投影。现网取证（2026-11-27 18:52:57~18:55:40，
+        v4-mirror-diag）：旧 tid ``8e530cea`` 收到 ``feed_events`` **3060** 条，
+        新 tid ``5b70611d`` / ``0cf1edf2`` / ``4474ec8f`` 各 **0** 条 ——
+        上游流是好的，全部内容都落在没人订阅的投影上。
+        """
+        tid = str(thread_id or "").strip()
+        if not tid:
+            return
+        self._state.thread_id = tid
+        inner_tid = str(getattr(self._inner, "thread_id", "") or "").strip()
+        if inner_tid != tid:
+            try:
+                setattr(self._inner, "thread_id", tid)
+            except Exception:
+                pass
+
     @property
     def inner(self) -> UiStreamNormalizer:
         return self._inner

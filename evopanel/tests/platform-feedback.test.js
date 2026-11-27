@@ -809,7 +809,7 @@ describe('workflow.run autoOpen 右栏', () => {
 })
 
 describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => {
-  it('平台 TOOL_CALL_RESULT 立刻 publish', () => {
+  it('平台 TOOL_CALL_RESULT 立刻 publish；成功不 toast、不 announce', () => {
     const publish = vi.fn()
     const toast = vi.fn()
     const seen = new Set()
@@ -838,10 +838,11 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
     expect(ok).toBe(true)
     expect(seen.has('tc-hire-1')).toBe(true)
     expect(publish).toHaveBeenCalledTimes(1)
-    expect(toast).toHaveBeenCalledWith('已添加智能体员工「小助手」', 'success')
+    expect(publish.mock.calls[0][2]).toEqual({ announce: false })
+    expect(toast).not.toHaveBeenCalled()
   })
 
-  it('wire platform_ui + 空 content 也能发布（truncated 场景）', () => {
+  it('wire platform_ui + 空 content 也能发布（truncated 场景）；成功不 toast', () => {
     const publish = vi.fn()
     const toast = vi.fn()
     const ok = publishPlatformFromAgUiResult({
@@ -870,12 +871,48 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
     })
     expect(ok).toBe(true)
     expect(publish).toHaveBeenCalledTimes(1)
-    expect(toast).toHaveBeenCalledWith('扫码绑定本岗 AI 员工', 'success')
+    expect(publish.mock.calls[0][2]).toEqual({ announce: false })
+    expect(toast).not.toHaveBeenCalled()
   })
 
-  it('发消息后不清 seen：同 toolCallId 不再 toast', () => {
+  it('warning / error 仍 toast + announce', () => {
+    const publish = vi.fn()
+    const toast = vi.fn()
+    // parsePlatformUiFeedback 在 ok===false 时直接丢；告警走 ok:true + kind:warning
+    const ok = publishPlatformFromAgUiResult({
+      isBackground: false,
+      aguiEvent: {
+        type: EventType.TOOL_CALL_RESULT,
+        toolCallId: 'tc-warn-1',
+        toolCallName: 'platform',
+        content: JSON.stringify({
+          ok: true,
+          action: 'employees.delete',
+          ui: {
+            kind: 'warning',
+            title: '已删除员工「小助手」',
+            domain: 'employees',
+            action: 'employees.delete',
+          },
+        }),
+      },
+      platformFeedbackSeenRef: { current: new Set() },
+      turnPlatformEntriesRef: { current: [] },
+      publishPlatformEntries: publish,
+      toast,
+    })
+    expect(ok).toBe(true)
+    expect(publish).toHaveBeenCalledWith(
+      expect.any(Array),
+      expect.anything(),
+      { announce: true },
+    )
+    expect(toast).toHaveBeenCalledWith('已删除员工「小助手」', 'warning')
+  })
+
+  it('发消息后不清 seen：同 toolCallId 不再 publish', () => {
     // 模拟 handle-send 旧 bug：每发清空 seen → 历史平台结果再弹。
-    // 正确行为：seen 跨回合保留，RESULT / tools-scan 同 id 只补 autoOpen、不 publish/toast。
+    // 正确行为：seen 跨回合保留，RESULT / tools-scan 同 id 只补 autoOpen、不 publish。
     const seen = new Set()
     const publish = vi.fn()
     const toast = vi.fn()
@@ -904,7 +941,7 @@ describe('publishPlatformFromAgUiResult — 流式右上角平台通知', () => 
         toast,
       }),
     ).toBe(true)
-    expect(toast).toHaveBeenCalledTimes(1)
+    expect(toast).not.toHaveBeenCalled()
     expect(publish).toHaveBeenCalledTimes(1)
 
     // 模拟「下一轮发送」：seen 保留（不再 new Set()）

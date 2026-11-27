@@ -80,7 +80,9 @@ def org_status() -> dict[str, Any]:
         "departments": departments,
         "department_count": len(departments),
         "hint": (
-            "先看忙闲再派活；派新目标 employees.dispatch，催已有 Task employees.wake。"
+            "先看忙闲；日常对话/追问用 employees.chat_send（可多轮），"
+            "不要把追问当成 dispatch。"
+            "新工单 employees.dispatch；催已有 Task employees.wake。"
             "只要部门目录用 employees.departments。"
         ),
     }
@@ -438,7 +440,8 @@ def employee_brief(
         "person_workplace": person_brief,
         "hint": (
             "用白话说明忙闲、未结任务与最近在干啥；person_workplace 仅脱敏职场摘要。"
-            "单任务 → tasks.get；新派 → employees.dispatch；催办 → employees.wake。"
+            "跟岗说话 → employees.chat_send；单任务 → tasks.get；"
+            "新工单 → employees.dispatch；催办 → employees.wake(task_id)。"
         ),
         "watch_path": f"/proactive/{code}?live=1",
     }

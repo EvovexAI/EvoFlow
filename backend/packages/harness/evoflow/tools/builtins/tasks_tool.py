@@ -31,11 +31,12 @@ handlers_empty_reason: 本岗有下级但本轮确实不派时必填短因（如
 
 写权限：progress / state / delete 仅本岗（assigned_to=当前员工）；禁止改他人/上级状态。
 小V（系统前台）代用户可更新任意单。身份由运行时绑定，勿自报 agent_code。
-create：assignee/role=派给谁；raised_by 系统盖章勿传。
+create：只用于**可验收工单**（assignee/role=派给谁；raised_by 系统盖章勿传）。
+跟同事说话/追问/改一句文案/多轮对齐 → **不要 create**；走 platform ``employees.chat_send``（或部门群 @）。
 start=true（默认）=建单即开工（系统叫醒对方），勿再单独 wake；start=false=只建单不叫醒。
 同题去重（第86轮）：同一 assignee 已有**同名未结案**单时 create 会被拒（报错带旧单 id）——
   先结案/续跑旧单；确需并行另建传 allow_duplicate=true。自测/锚点/探针单传 probe=true（任务中心默认折叠）。
-wake 仅用于续跑已有未结单 / busy 重试。
+wake 仅用于续跑已有未结单 / busy 重试；禁止用 create+wake 冒充「跟他说一声」。
 
 任务 id 见 <proactive_live_tasks> 或看板。list 默认只返回最新 10 条主任务（不含子任务）、
 每条为索引卡（含 description 预览，不含 summary/outputs 等详情）；翻页用 offset，

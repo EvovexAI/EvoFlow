@@ -91,7 +91,7 @@ describe('collectV4PathProbe', () => {
     expect(probe.verdict).toBe('FRAMES_SSE_DOWN')
   })
 
-  it('falls back to WIRE_WITHOUT_V4_TIP when tips align but streamMax empty', () => {
+  it('tips 对齐 + 近期有 V4 帧时不因乐观泡报 WIRE（正常竞态）', () => {
     const probe = collectV4PathProbe({
       ...base,
       hubTip: 715,
@@ -101,6 +101,22 @@ describe('collectV4PathProbe', () => {
       catchupReason: 'ready-soft',
       catchupAtMs: 999_000,
       subscriberCount: 1,
+    })
+    expect(probe.verdict).toBe('OK')
+  })
+
+  it('flags WIRE_WITHOUT_V4_TIP when optimistic stall with no recent V4 frames', () => {
+    const probe = collectV4PathProbe({
+      ...base,
+      hubTip: null,
+      feTip: 100,
+      streamMax: null,
+      lastV4AtMs: 980_000, // age 20s ≥ STALE
+      catchupReason: 'ready-soft',
+      catchupAtMs: 990_000,
+      subscriberCount: 1,
+      hasOptimistic: true,
+      windowHasLive: false,
     })
     expect(probe.verdict).toBe('WIRE_WITHOUT_V4_TIP')
   })

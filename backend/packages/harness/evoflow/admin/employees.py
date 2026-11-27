@@ -2900,8 +2900,9 @@ def chat_send(
 
     Now: resolve session key for the right-stage UI, then ``wake`` with the
     message as goal so a real duty round starts. ``queued`` is true only when
-    wake accepted (not skipped). Prefer ``dispatch`` / ``wake`` for explicit
-    work items; use chat_send for short follow-ups.
+    wake accepted (not skipped). Prefer ``chat_send`` for conversation /
+    follow-ups / multi-turn chat; use ``dispatch`` / ``wake`` only for
+    explicit work items (new goals or existing Task nudges).
 
     【self-evolution-bot · 2026-11-21 · 第108/109轮 · 模型:deepseek-v4.1-flash-1017】
     ``deliver`` 决定这一句话由谁真正发出去：

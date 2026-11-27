@@ -108,8 +108,9 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
             "列部门目录（departments）、"
             "雇佣/暂停/恢复/唤醒/派新活/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
             "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
-            "新目标用 employees.dispatch；已有 Task / 卡住用 employees.wake；"
-            "要跟岗对话用 employees.chat_send，看近几条用 employees.messages；"
+            "日常对话/续聊/追问用 employees.chat_send（默认可多轮同线程）；"
+            "仅新工单用 employees.dispatch；已有 Task 催办用 employees.wake；"
+            "看近几条用 employees.messages；"
             "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
             "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
         ),
@@ -118,7 +119,10 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
     "tasks": {
         "title": "协作任务台账（行政视角）",
         "when": "从行政侧列/查/建/改进度与状态/清理噪音或僵尸任务时",
-        "not": ("值班过程中开单/带 handlers 结案也可优先用专用工具 tasks；用户备忘录用 items；对话 checklist 用 todo"),
+        "not": (
+            "跟员工闲聊/追问/多轮对齐不要建 Task，用 employees.chat_send；"
+            "值班过程中开单/带 handlers 结案也可优先用专用工具 tasks；用户备忘录用 items；对话 checklist 用 todo"
+        ),
     },
     "items": {
         "title": "用户事项/备忘",
@@ -916,7 +920,8 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.chat_send",
             "employees",
-            "打开/续聊员工对话：发一条消息并拉开右栏对话页（可多次调用续聊）。"
+            "默认跟员工说话、追问、多轮续聊（同线程可多次调用）；不要为此建 Task。"
+            "发一条消息并拉开右栏对话页。"
             "默认 deliver=auto：面板在就由面板自己 chatSend（live SSE 逐字流），"
             "面板不在才回落后台 wake",
             "write",
@@ -925,6 +930,7 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.employees_chat_send,
             "跟拆解岗说：先列三步计划",
             "继续问文案助手刚才那个标题再短一点",
+            "跟小李聊一下方案里第二段怎么改",
         ),
         _A(
             "employees.messages",
@@ -966,22 +972,24 @@ def _build_registry() -> dict[str, PlatformAction]:
         _A(
             "employees.dispatch",
             "employees",
-            "把新目标派给指定员工（后台值班轮；小V/前台 source=xiaomi）",
+            "把**可验收的新工单目标**派给指定员工（后台值班轮；小V/前台 source=xiaomi）。"
+            "闲聊/追问/改一句措辞请用 employees.chat_send，不要 dispatch",
             "write",
             "agent_code/role_name, goal, description?, source?, from_agent?, task_id?, priority?",
             H.employees_dispatch,
-            "派给拆解岗：把这份需求拆成子任务",
-            "让文案助手写个标题",
+            "派给拆解岗：把这份需求拆成子任务并回写验收清单",
+            "派给前端：本周把登录页 P0 缺陷清零并回写验收说明",
         ),
         _A(
             "employees.wake",
             "employees",
-            "唤醒员工（按 agent_code 或 role_name；可带 goal/task）",
+            "催办/续跑**已有** Task（优先带 task_id）。"
+            "跟员工说话请用 employees.chat_send，不要用 wake 冒充对话",
             "write",
             "target/agent_code/role_name, goal?, task_id?, from_agent?, priority?, resume_round?, fresh_round?",
             H.employees_wake,
-            "叫醒拆解岗处理一下",
-            "@文案助手 帮我写个标题",
+            "叫醒拆解岗继续推进 task_id=…（卡在 40%）",
+            "催一下前端那张未结登录页缺陷单",
         ),
         _A(
             "employees.migrate",

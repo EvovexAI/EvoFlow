@@ -2040,15 +2040,25 @@ export function HomeDeptGroupChat({
                       if (e.detail >= 2) return
                       insertMention(m)
                     }}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      e.stopPropagation()
+                      insertMention(m)
+                    }}
                     onDoubleClick={() => void loadThread(m.agent_code)}
-                    title={`${m.role_name} · ${steward ? '群管家' : personDutyLabel(m)}`}
+                    title={`${m.role_name} · ${steward ? '群管家' : personDutyLabel(m)} · 右键 @点名`}
                   >
                     <span
                       className="evo-home-cmd__gc-chip-avatar"
-                      title={`${m.role_name} · 资料`}
+                      title={`${m.role_name} · 资料 · 右键 @点名`}
                       onClick={(e) => {
                         e.stopPropagation()
                         openProfile(m, e.clientX, e.clientY)
+                      }}
+                      onContextMenu={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        insertMention(m)
                       }}
                     >
                       <EmployeeStageAvatar
@@ -2164,8 +2174,8 @@ export function HomeDeptGroupChat({
                         <button
                           type="button"
                           className="dept-im__avatar-btn"
-                          title={`${agentName} · 资料`}
-                          aria-label={`查看 ${agentName} 资料`}
+                          title={`${agentName} · 左键资料 · 右键 @点名`}
+                          aria-label={`查看 ${agentName} 资料；右键点名`}
                           onClick={(e) => {
                             e.stopPropagation()
                             openProfile(
@@ -2176,6 +2186,25 @@ export function HomeDeptGroupChat({
                               },
                               e.clientX,
                               e.clientY,
+                            )
+                          }}
+                          onContextMenu={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            const code = String(msg.agentCode || '').trim()
+                            if (!code) return
+                            const known = roster.find((m) => m.agent_code === code)
+                            insertMention(
+                              known ||
+                                ({
+                                  agent_code: code,
+                                  role_name: agentName,
+                                  department: '',
+                                  reports_to: '',
+                                  status: '',
+                                  busy: !!msg.streaming,
+                                  summary: '',
+                                } as HomeCmdPerson),
                             )
                           }}
                         >
@@ -2194,13 +2223,32 @@ export function HomeDeptGroupChat({
                             {msg.agentCode ? (
                               <span
                                 className="dept-im__head-name is-clickable"
-                                title={`${agentName} · 资料`}
+                                title={`${agentName} · 左键资料 · 右键 @点名`}
                                 onClick={(e) => {
                                   e.stopPropagation()
                                   openProfile(
                                     { agent_code: msg.agentCode!, role_name: agentName },
                                     e.clientX,
                                     e.clientY,
+                                  )
+                                }}
+                                onContextMenu={(e) => {
+                                  e.preventDefault()
+                                  e.stopPropagation()
+                                  const code = String(msg.agentCode || '').trim()
+                                  if (!code) return
+                                  const known = roster.find((m) => m.agent_code === code)
+                                  insertMention(
+                                    known ||
+                                      ({
+                                        agent_code: code,
+                                        role_name: agentName,
+                                        department: '',
+                                        reports_to: '',
+                                        status: '',
+                                        busy: false,
+                                        summary: '',
+                                      } as HomeCmdPerson),
                                   )
                                 }}
                               >
