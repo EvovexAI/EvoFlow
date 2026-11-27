@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.57] - 2026-11-27
+
+相对 **1.3.56**：补回被 gitignore 误忽略的待发送队列会话模块，正式包前端构建可过。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.57.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **正式包前端构建**：补齐 `pending-send-queue-session`，vite 不再因缺失模块失败
+- **gitignore**：仓库根 `/hooks/` 不再误伤 `evopanel/src/react/hooks/`
+
 ## [1.3.56] - 2026-11-26
 
 相对 **1.3.55**：右栏持久化；观测缓存命中；V4 视口诊断；用户文档更新。

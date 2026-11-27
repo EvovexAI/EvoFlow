@@ -100,7 +100,9 @@ backend/scripts/_e2e_out/
 
 # Local git hooks (keep only on this machine, do not push)
 .githooks/
-hooks/
+# Anchor to repo root — bare `hooks/` also matched evopanel/src/react/hooks/
+# and silently dropped new modules (broke CI vite resolve on 1.3.53–1.3.56).
+/hooks/
 
 # pnpm
 .pnpm-store
