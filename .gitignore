@@ -623,3 +623,7 @@ evopanel/src-tauri/gen/
 
 # Local voice TTS fix scratch logs (never ship)
 .tmp_voice_tts_fix/
+
+# Local AIGC craft drafts (not product source)
+backend/craft/
+
