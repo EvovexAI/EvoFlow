@@ -108,6 +108,10 @@ export type ViewportAnomalyInput = {
     jump: boolean;
     source: string;
     followingAttr: string | null;
+    /** 与跳变同帧的 scrollTop 变化（正=朝底）；用于与 dHeight 比较判定「必然贴底」 */
+    dTop?: number | null;
+    /** 与跳变同帧的 scrollHeight 变化：贴底在内容真长高时必然大跳，不算「猛跳」。 */
+    dHeight?: number | null;
   }>;
 };
 
@@ -126,6 +130,11 @@ export function extractStreamMaxRowId(
     if (e.atMs < sinceMs) continue;
     if (e.channel !== "v4") continue;
     if (tid && e.sessionId && e.sessionId !== tid) continue;
+  // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】extractStreamMaxRowId 跳过终态事件（cancelled/failed/complete），
+  // 原因：一条已收口的 `platform · cancelled` 快照被当成"流式仍在推"，凭空造出 STREAM_AHEAD。
+    // 终态事件不是「流式仍在推」的证据：现场一条 `platform · cancelled` 的
+    // 工具事件被当成直播流，凭空触发 STREAM_AHEAD/NO_INFLIGHT。
+    if (streamEntryIsTerminal(e)) continue;
     const fromHead = /#(\d+)/.exec(e.headline);
     const fromJson = /"rowId"\s*:\s*(\d+)/.exec(e.jsonText);
     for (const m of [fromHead, fromJson]) {
@@ -137,6 +146,28 @@ export function extractStreamMaxRowId(
   }
   return max;
 }
+
+  // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】新增 streamEntryIsTerminal()，判「这条流式快照是否已收口」。
+  // 原因：抓取 rowId 时只认 headline 不认状态，收口后仍会被算成"在推"。
+/**
+ * 该流式条目是否已收口（cancelled / 失败 / 终态）。
+ *
+ * 为什么需要：`extractStreamMaxRowId` 只认 rowId 不认状态，一条
+ * 「工具 seq=3→3 · platform · cancelled」的快照事件也会被算成「流式在推」，
+ * 于是已完成轮被报 STREAM_AHEAD_OF_WINDOW / NO_INFLIGHT_IN_WINDOW——
+ * 诊断表自己制造了 2/5 条异常，把真正的缺陷藏进噪声里。
+ */
+export function streamEntryIsTerminal(
+  e: NonNullable<ViewportAnomalyInput["streamEntries"]>[number],
+): boolean {
+  const blob = `${e.kindLabel || ""} ${e.summary || ""} ${e.headline || ""} ${e.jsonText || ""}`;
+  if (/\bcancelled\b|\bcanceled\b|\baborted\b/i.test(blob)) return true;
+  if (/\b(status|state)\s*[:=]\s*"?(failed|error|cancelled|complete|completed|success)"?/i.test(blob)) {
+    return true;
+  }
+  return false;
+}
+
 
 function parseRowsRangeNoAdvance(
   entries: NonNullable<ViewportAnomalyInput["apiEntries"]>,
@@ -514,6 +545,9 @@ export function collectViewportAnomalies(
     const recentLiveStream = (input.streamEntries ?? []).some((e) => {
       if (e.atMs < now - STREAM_RECENT_MS) return false;
       if (e.sessionId && e.sessionId !== input.tid) return false;
+      // 已收口（cancelled/failed/complete）的快照不是「仍在推」，否则每个
+      // 正常回合收尾后都会残留一条假的 STREAM_AHEAD。
+      if (streamEntryIsTerminal(e)) return false;
       const blob = `${e.kindLabel || ""} ${e.summary || ""} ${e.headline || ""}`;
       return /正文|工具|streaming|Δ|platform|bash/i.test(blob);
     });
@@ -598,12 +632,22 @@ export function collectViewportAnomalies(
     });
   }
 
+  // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】FOLLOW_STREAM_JUMP 加"高度真长高就不算猛跳"豁免（dHeight≥80 且 ≥|dTop|/2）。
+  // 原因：现场 4 条 !JUMP 的 dH 与 Δ 同号等幅，是跟底的必然位移，不是抢吸底。
+  // 贴底大跳只有在「高度没变」时才算异常：内容真长高 24500px 后跟底必然跟着跳，
+  // 把它当「测高中间帧抢吸底」会让每一次正常长内容的回合同时报一条假警告
+  // （现场：dH 与 Δ 同号等幅 ±24427/±24501，纯属必然位移）。
   const recentJumps = (input.scrollEntries ?? []).filter(
     (e) =>
       e.atMs >= now - SCROLL_RECENT_MS &&
       e.jump &&
       e.source === "scrollToBottom" &&
-      e.followingAttr !== "false",
+      e.followingAttr !== "false" &&
+      !(
+        typeof e.dHeight === "number" &&
+        Math.abs(e.dHeight) >= 80 &&
+        Math.abs(e.dHeight) >= Math.abs((e as { dTop?: number }).dTop ?? 0) * 0.5
+      ),
   );
   if (input.executing && recentJumps.length >= 2) {
     out.push({

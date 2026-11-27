@@ -841,6 +841,19 @@ def _build_registry() -> dict[str, PlatformAction]:
             "部门列表",
             "组织架构有几个部门",
         ),
+        # 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+        # 加这个动作的原因：改部门负责人此前只有「前端组织架构下拉框 + 裸 HTTP PUT」两条路，
+        # 工具层没有写动作，我只能绕去 curl。把现成的 DepartmentRepository.set_head 接上来。
+        _A(
+            "employees.set_department_head",
+            "employees",
+            "设部门负责人（必须是本部门成员）；只换负责人，默认不动成员汇报链",
+            "write",
+            "dept_id/name（二选一）, head_agent_code（空=清空）, align_unmanaged?（默认 false）",
+            H.employees_set_department_head,
+            "把自我进化BOT设为EvoFlow研发部负责人",
+            "清空研发部负责人",
+        ),
         _A(
             "employees.org_status",
             "employees",

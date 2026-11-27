@@ -204,6 +204,40 @@ describe('chat turn waterline', () => {
     expect(mod.classifyChatTurnTimingVerdict(live).level).toBe('ok')
   })
 
+  it('does not fire stream_end_missing while V4/tool activity keeps heartbeating', async () => {
+    const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
+    const sk = 'sk-long-run'
+    mod.logChatTurnSendClick({ sessionKey: sk, text: '长跑' })
+    mod.logChatTurnUserBubbleVisible({ sessionKey: sk })
+    mod.logChatTurnSendWire({ sessionKey: sk })
+    mod.logChatTurnRunStarted({ sessionKey: sk, runId: 'r-long' })
+    mod.logChatTurnFirstResponse({
+      sessionKey: sk,
+      kind: 'tool',
+      preview: 'bash',
+      runId: 'r-long',
+    })
+    // 每隔 2 分钟有活动，共 12 分钟——旧逻辑会在首字后 5 分钟误报
+    for (let i = 0; i < 6; i++) {
+      vi.advanceTimersByTime(2 * 60_000)
+      mod.noteChatTurnStreamActivity({ sessionKey: sk, kind: 'tool', preview: `tick-${i}` })
+    }
+    const anomaliesQuiet = mod
+      .listChatTurnAnomalies()
+      .filter((a) => a.event === 'stream_end_missing' && a.sessionKey === sk)
+    expect(anomaliesQuiet).toHaveLength(0)
+    const row = mod.listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === 'r-long')
+    expect(mod.classifyChatTurnTimingVerdict(row).level).toBe('pending')
+
+    // 真正静默 5 分钟才应记死
+    vi.advanceTimersByTime(5 * 60_000 + 100)
+    const anomaliesDead = mod
+      .listChatTurnAnomalies()
+      .filter((a) => a.event === 'stream_end_missing' && a.sessionKey === sk)
+    expect(anomaliesDead.length).toBeGreaterThanOrEqual(1)
+    expect(anomaliesDead[0].zh).toMatch(/静默/)
+  })
+
   it('prunes old ok turns but keeps abnormal', async () => {
     const mod = await import('../src/react/lib/chat-turn-timing-log.ts')
     for (let i = 0; i < 12; i++) {

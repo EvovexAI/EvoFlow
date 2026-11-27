@@ -830,6 +830,10 @@ import {
 import {
   STORAGE_MODEL_KEY,
   LS_LAST_SELECTED_SESSION,
+  loadLastChatSurface,
+  loadLastEmployeeSession,
+  saveLastChatSurface,
+  saveLastEmployeeSession,
   THINKING_LEVEL_OPTIONS,
   type ThinkingLevel,
 } from './utils/storage.js'
@@ -954,10 +958,20 @@ export function useChatAppController() {
 
     // Restore last selected session from localStorage (persists across page refresh)
     try {
-      const lastSelected = localStorage.getItem(LS_LAST_SELECTED_SESSION)
-      if (lastSelected && String(lastSelected).trim()) {
-        return String(lastSelected).trim()
+      const lastSelected = String(localStorage.getItem(LS_LAST_SELECTED_SESSION) || '').trim()
+      const lastEmployee = loadLastEmployeeSession()
+      const surface = loadLastChatSurface()
+      // 用户最近主动面是员工，或 last_selected 被部门群聊占住且并未显式进过群
+      // （first-selectable 误选第一个群的常见残留）→ 优先恢复员工会话。
+      if (
+        lastEmployee &&
+        (!lastSelected || isDeptChatSessionKey(lastSelected)) &&
+        surface !== 'dept'
+      ) {
+        return lastEmployee
       }
+      if (lastSelected) return lastSelected
+      if (lastEmployee) return lastEmployee
     } catch (e) {
       console.error('[ChatApp] 读取上次选中会话失败:', e)
     }
@@ -1055,15 +1069,21 @@ export function useChatAppController() {
       /* ignore */
     }
   }, [selectedSessionKey, selectedThreadId])
-  // 运维浮窗读取当前会话（Perf HUD 对话链路区）
+  // 运维浮窗 / 协作回执刷新：暴露当前会话 + thread + wsClient
   useEffect(() => {
     try {
-      ;(window as Window & { __evoflowSelectedSessionKey?: string }).__evoflowSelectedSessionKey =
-        String(selectedSessionKey || '').trim()
+      const w = window as Window & {
+        __evoflowSelectedSessionKey?: string
+        __evoflowSelectedThreadId?: string
+        __evoflowWsClient?: typeof wsClient
+      }
+      w.__evoflowSelectedSessionKey = String(selectedSessionKey || '').trim()
+      w.__evoflowSelectedThreadId = String(selectedThreadId || '').trim()
+      w.__evoflowWsClient = wsClient
     } catch {
       /* ignore */
     }
-  }, [selectedSessionKey])
+  }, [selectedSessionKey, selectedThreadId, wsClient])
 
   // 已选会话但还没有 threadId：主动 ensure，否则 V4 会停在 no-thread→「加载中…」
   // 部门群聊是本地 IM 面（dept:{id}:chat），不要 ensure-thread / 建假会话，否则会卡住导航。
@@ -3901,6 +3921,14 @@ export function useChatAppController() {
     if (sk) {
       try {
         localStorage.setItem(LS_LAST_SELECTED_SESSION, sk)
+        if (isDeptChatSessionKey(sk)) {
+          saveLastChatSurface('dept')
+        } else if (isProactiveSessionKey(sk)) {
+          saveLastEmployeeSession(sk)
+          saveLastChatSurface('employee')
+        } else {
+          saveLastChatSurface('task')
+        }
       } catch {
         /* ignore */
       }

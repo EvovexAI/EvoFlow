@@ -13,6 +13,7 @@ const KIND_LABEL: Record<string, string> = {
   workflow: '工作流',
   collab_subtask: '工作流节点',
   duty: 'BOT 任务',
+  employee: '员工',
   warm_bash: '会话终端',
 }
 
@@ -109,16 +110,28 @@ export function openSessionChildWorkDetail(
     return true
   }
 
-  if (kind === 'duty') {
-    const agentCode = String(work.title || '').trim() || 'employee'
+  if (kind === 'duty' || kind === 'employee') {
+    const extra = work.extra && typeof work.extra === 'object' ? work.extra : null
+    const agentCode =
+      String(extra?.agent_code || extra?.agentCode || work.refId || work.title || '')
+        .trim()
+        .replace(/@[\w-]+$/, '') || 'employee'
+    const roleName =
+      String(extra?.role_name || extra?.roleName || title || agentCode).trim() || agentCode
+    const empSk = String(
+      extra?.employee_session_key || extra?.employeeSessionKey || extra?.session_key || '',
+    ).trim()
+    const taskId =
+      String(extra?.task_id || extra?.taskId || ref || '').trim() || `live:${agentCode}`
     openEmployeeProcessInRightStage(
       {
-        taskId: ref || `live:${agentCode}`,
+        taskId,
         agentCode,
-        roleName: title || agentCode,
-        title: title || '执行过程',
+        roleName,
+        title: roleName || '执行过程',
         busy: isActive(work.status),
-        employeeSessionKey: sk,
+        // Prefer the employee's own proactive session; fall back only when missing.
+        employeeSessionKey: empSk || undefined,
       },
       { sessionKey: sk, forceExpand: true },
     )

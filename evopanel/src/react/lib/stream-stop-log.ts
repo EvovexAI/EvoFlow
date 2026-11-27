@@ -38,6 +38,17 @@ const PROGRESS_TRIGGERS = new Set([
   'ui_idle_after_stop',
 ])
 
+/**
+ * 发送预备动作：新消息发出前**主动**清掉上一轮的残留 wire。
+ * 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】
+ * 归 normal，不是 abnormal——现网 131 条该 trigger 全被记成 abnormal/ERROR，
+ * 其中 109 条同一会话的上一事件已是 sse_final / stop_runtime_idle（说明那条 wire 早就收口了，
+ * 这里清的是空壳），被诊断表当成「莫名其妙断流」，把真问题埋进噪声里。
+ * 判据边界：只在 abortStreamWire 返回 true（真掐到活跃 wire）时才会记这条，
+ * 记到就是「上一轮确有未收口 wire 被预备清理」，whoZh 已明确写「非用户点停」。
+ */
+const PREP_TRIGGERS = new Set(['send_prep_abort_stale_stream'])
+
 const USER_CLICK_STOP_TRIGGERS = new Set([
   'composer_stop_button',
   'shell_sidebar_stop',
@@ -422,10 +433,12 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
   const trigger = String(input.trigger || input.reason || 'unknown').trim() || 'unknown'
   const hasEndMarker = !!input.hasEndMarker
   const fromUiStopButton = !!(input.fromUiStopButton ?? input.userInitiated)
-  // 点停进度（api_done / runtime_idle / ui_idle）不是异常断流，一律 normal。
-  const kind = PROGRESS_TRIGGERS.has(trigger)
-    ? 'normal'
-    : classifyStreamStop({ hasEndMarker, fromUiStopButton })
+  // 点停进度（api_done / runtime_idle / ui_idle）不是异常断流，一律 normal；
+  // 发送预备清旧 wire 同理（见 PREP_TRIGGERS 注释）。
+  const kind =
+    PROGRESS_TRIGGERS.has(trigger) || PREP_TRIGGERS.has(trigger)
+      ? 'normal'
+      : classifyStreamStop({ hasEndMarker, fromUiStopButton })
   const detailWhoZh =
     input.detail && typeof input.detail.whoZh === 'string' ? input.detail.whoZh : undefined
   const whoZh = resolveStreamStopWhoZh(trigger, {

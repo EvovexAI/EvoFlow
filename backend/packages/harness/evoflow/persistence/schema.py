@@ -536,6 +536,41 @@ CREATE TABLE IF NOT EXISTS "evoflow_v4_event_log" (
             UNIQUE(session_id, log_epoch, seq)
         );
 
+CREATE TABLE IF NOT EXISTS evoflow_collab_chat_calls (
+            call_id TEXT PRIMARY KEY,
+            target_agent TEXT NOT NULL,
+            target_session_key TEXT NOT NULL DEFAULT '',
+            target_duty_run_id TEXT NOT NULL DEFAULT '',
+            initiator_agent TEXT NOT NULL DEFAULT '',
+            initiator_session_key TEXT NOT NULL DEFAULT '',
+            initiator_principal_id TEXT NOT NULL DEFAULT '',
+            notify_on_complete INTEGER NOT NULL DEFAULT 1,
+            auto_resume INTEGER NOT NULL DEFAULT 1,
+            source TEXT NOT NULL DEFAULT 'chat_send',
+            goal_preview TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'open',
+            run_status TEXT NOT NULL DEFAULT '',
+            summary TEXT NOT NULL DEFAULT '',
+            error TEXT NOT NULL DEFAULT '',
+            desktop_notified_at TEXT,
+            session_injected_at TEXT,
+            resume_woke_at TEXT,
+            processed_at TEXT,
+            processed_by TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            finished_at TEXT
+        );
+
+CREATE TABLE IF NOT EXISTS evoflow_collab_chat_call_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            call_id TEXT NOT NULL,
+            at TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            detail_json TEXT NOT NULL DEFAULT '{}',
+            actor TEXT NOT NULL DEFAULT ''
+        );
+
 CREATE TABLE IF NOT EXISTS evoflow_collab_peer_messages (
             message_id TEXT NOT NULL PRIMARY KEY,
             main_task_id TEXT NOT NULL,
@@ -2002,6 +2037,18 @@ CREATE INDEX IF NOT EXISTS idx_evo_session_child_works_parent
 CREATE INDEX IF NOT EXISTS idx_evo_session_inject_receipts_session
     ON evoflow_session_inject_receipts(session_key, injected_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_target_session
+    ON evoflow_collab_chat_calls(target_session_key, status);
+
+CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_duty_run
+    ON evoflow_collab_chat_calls(target_duty_run_id, status);
+
+CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_initiator
+    ON evoflow_collab_chat_calls(initiator_agent, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_call_events_call
+    ON evoflow_collab_chat_call_events(call_id, id);
+
 CREATE INDEX IF NOT EXISTS idx_evo_proactive_cost_principal
                 ON evoflow_proactive_cost_log(principal_id);
 
@@ -2386,6 +2433,9 @@ _POST_BASELINE_TABLES: tuple[str, ...] = (
     "evoflow_v4_event_log",
     # Workflow list folders (nestable); stamped DBs need post-baseline create.
     "evoflow_app_folders",
+    # Collab chat completion callback audit (initiator ← target run end).
+    "evoflow_collab_chat_calls",
+    "evoflow_collab_chat_call_events",
 )
 
 
@@ -2724,6 +2774,32 @@ def _ensure_right_stage_tables(conn: sqlite3.Connection) -> None:
         logger.debug("schema: ensure right_stage tables failed", exc_info=True)
 
 
+def _ensure_collab_chat_call_indexes(conn: sqlite3.Connection) -> None:
+    if not _table_exists(conn, "evoflow_collab_chat_calls"):
+        return
+    try:
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_target_session "
+            "ON evoflow_collab_chat_calls(target_session_key, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_duty_run "
+            "ON evoflow_collab_chat_calls(target_duty_run_id, status)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_calls_initiator "
+            "ON evoflow_collab_chat_calls(initiator_agent, created_at DESC)"
+        )
+        if _table_exists(conn, "evoflow_collab_chat_call_events"):
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_evo_collab_chat_call_events_call "
+                "ON evoflow_collab_chat_call_events(call_id, id)"
+            )
+        conn.commit()
+    except Exception:
+        logger.debug("schema: ensure collab_chat_call indexes failed", exc_info=True)
+
+
 def _ensure_session_runtime_tables(conn: sqlite3.Connection) -> None:
     """Idempotent: session child-work registry + one-shot inject receipts."""
     created: list[str] = []
@@ -2862,6 +2938,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _ensure_session_runtime_tables(conn)
         _ensure_right_stage_tables(conn)
         _ensure_person_affect_hormones(conn)
+        _ensure_collab_chat_call_indexes(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
@@ -2877,6 +2954,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
             _ensure_person_affect_hormones(conn)
             _ensure_post_baseline_tables(conn)
             _ensure_post_baseline_columns(conn)
+            _ensure_collab_chat_call_indexes(conn)
             _ensure_timing_schema(conn)
             _ensure_media_assets_schema(conn)
             return
@@ -2888,6 +2966,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
         _ensure_person_affect_hormones(conn)
         _ensure_post_baseline_tables(conn)
         _ensure_post_baseline_columns(conn)
+        _ensure_collab_chat_call_indexes(conn)
         _ensure_timing_schema(conn)
         _ensure_media_assets_schema(conn)
         return
@@ -2902,6 +2981,7 @@ def ensure_app_schema(conn: sqlite3.Connection) -> None:
     # APP_SCHEMA_VERSION still needs them (e.g. evoflow_apps.project_path).
     _ensure_post_baseline_tables(conn)
     _ensure_post_baseline_columns(conn)
+    _ensure_collab_chat_call_indexes(conn)
     # Timing columns shipped after the baseline epoch, so a DB already stamped
     # with APP_SCHEMA_VERSION still needs them. Idempotent and cheap (a
     # PRAGMA table_info per table).

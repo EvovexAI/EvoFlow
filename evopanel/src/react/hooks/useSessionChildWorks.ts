@@ -85,10 +85,20 @@ export function useSessionChildWorks(sessionKey: string | null | undefined) {
       if (!document.hidden) void tick()
     }
     document.addEventListener('visibilitychange', onVis)
+    const onCollabRefresh = (ev: Event) => {
+      const detail = (ev as CustomEvent)?.detail
+      const hit = String(detail?.sessionKey || detail?.initiator_session_key || '').trim()
+      if (hit && hit !== sk) return
+      void refresh()
+    }
+    window.addEventListener('evopanel:collab-chat-complete', onCollabRefresh)
+    window.addEventListener('evopanel:session-child-work-refresh', onCollabRefresh)
     return () => {
       cancelled = true
       window.clearInterval(timer)
       document.removeEventListener('visibilitychange', onVis)
+      window.removeEventListener('evopanel:collab-chat-complete', onCollabRefresh)
+      window.removeEventListener('evopanel:session-child-work-refresh', onCollabRefresh)
     }
   }, [sk, refresh])
 

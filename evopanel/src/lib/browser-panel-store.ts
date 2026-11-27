@@ -109,6 +109,42 @@ function isBrowserUiBackground(sessionKey?: string | null): boolean {
   return true
 }
 
+/** 合并「把聊天切到浏览器归属会话」请求，避免工具连发刷屏切会话。 */
+let pendingSurfaceBrowserOwner = ''
+let pendingSurfaceBrowserOwnerTimer: ReturnType<typeof setTimeout> | null = null
+
+/**
+ * 后台会话在跑浏览器、前台又不在看浏览器时：切回该会话，让侧栏恢复其 browser 签。
+ * 走现有 ``evopanel:shell-select-session``（ChatApp 会 switchRightStageSession）。
+ */
+export function requestSurfaceBrowserOwnerSession(sessionKey: string): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  if (typeof window === 'undefined') return
+  if (sk === getCurrentRightStageSessionKey()) return
+  pendingSurfaceBrowserOwner = sk
+  if (pendingSurfaceBrowserOwnerTimer) return
+  pendingSurfaceBrowserOwnerTimer = setTimeout(() => {
+    pendingSurfaceBrowserOwnerTimer = null
+    const target = pendingSurfaceBrowserOwner
+    pendingSurfaceBrowserOwner = ''
+    if (!target) return
+    if (target === getCurrentRightStageSessionKey()) return
+    try {
+      blogTimeline('切回浏览器会话', `归属=${target}（前台未在看浏览器）`)
+      window.dispatchEvent(
+        new CustomEvent('evopanel:shell-select-session', {
+          detail: { sessionKey: target },
+        }),
+      )
+    } catch (e) {
+      dbgWarn(
+        `[browser-panel-store] surface owner session failed: ${String((e as Error)?.message || e)}`,
+      )
+    }
+  }, 80)
+}
+
 function emit() {
   for (const listener of listeners) {
     try {
@@ -482,7 +518,8 @@ export function ensureBrowserStage(opts?: {
   )
   const stageSessionKey = voiceSurface ? currentSk : sessionKey
 
-  // 后台会话：不碰当前 UI 右栏。
+  // 后台会话：先写入该会话冻结记忆；若前台并没在看浏览器，再把聊天切回归属会话，
+  // 否则双开会话时工具在 A 跑、人盯着 B，表现为「操作正常但页面没打开」。
   if (sessionKey && currentSk && sessionKey !== currentSk && !voiceSurface) {
     dbgLog(
       `[browser-panel-store] ensureBrowserStage background session=${sessionKey} (ui=${currentSk}) id=${id}`,
@@ -495,11 +532,11 @@ export function ensureBrowserStage(opts?: {
       pageTitle: opts?.title,
       activate: true,
     })
-    // 前台正在看浏览器时绝不能改共享 HWND（否则 B 的画面会变成 A 的 URL）。
-    // 前台无浏览器时：managed 导航 + park，切回归属会话再由 stage-restore 贴位。
     const uiSnap = rightStageStore.getSnapshot()
     const uiShowsBrowser =
       !uiSnap.collapsed && String(uiSnap.activeKey || '').startsWith('browser:')
+    // 前台正在看浏览器时绝不能改共享 HWND（否则 B 的画面会变成 A 的 URL）。
+    // 前台无浏览器时：managed 导航 + park，切回归属会话再由 stage-restore 贴位。
     if (
       !skipHwndNav &&
       !uiShowsBrowser &&
@@ -513,6 +550,15 @@ export function ensureBrowserStage(opts?: {
         replace: true,
         forceHidden: true,
       })
+    }
+    if (!uiShowsBrowser) {
+      requestSurfaceBrowserOwnerSession(sessionKey)
+    } else {
+      blogTimeline(
+        '后台浏览器',
+        `归属=${sessionKey} 前台=${currentSk} 已在看浏览器，只写记忆不抢前台`,
+        'warn',
+      )
     }
     return
   }

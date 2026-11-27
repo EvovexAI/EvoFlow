@@ -624,7 +624,7 @@ export function HomeOrgCommandBoard({
                       }}
                       onOpenChat={() => {
                         try {
-                          rememberDeptChatMeta(dept)
+                          rememberDeptChatMeta(dept, { focus: true })
                         } catch {
                           /* ignore */
                         }

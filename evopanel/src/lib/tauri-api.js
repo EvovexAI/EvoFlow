@@ -3345,6 +3345,21 @@ export const api = {
       rejection_reason: rejectionReason || (decision === 'rejected' ? comment || '' : ''),
     }),
   proactiveDashboard: async () => gatewayProxy('GET', '/proactive/dashboard'),
+  proactiveListCollabChatCalls: async (params = {}) =>
+    gatewayProxy('GET', '/proactive/collab-chat-calls', null, {
+      initiator_agent: params.initiator_agent || params.initiatorAgent || undefined,
+      target_agent: params.target_agent || params.targetAgent || undefined,
+      status: params.status || undefined,
+      limit: params.limit,
+    }),
+  proactiveGetCollabChatCall: async (callId) =>
+    gatewayProxy('GET', `/proactive/collab-chat-calls/${encodeURIComponent(String(callId || ''))}`),
+  proactiveMarkCollabChatCallProcessed: async (callId, processedBy = '') =>
+    gatewayProxy(
+      'POST',
+      `/proactive/collab-chat-calls/${encodeURIComponent(String(callId || ''))}/processed`,
+      { processed_by: processedBy || '' },
+    ),
   /** O3.1 event bus: git_push | ci_failed | pr_created | pr_updated */
   proactiveEmitEvent: async (payload) =>
     gatewayProxy('POST', '/proactive/events', payload || {}),

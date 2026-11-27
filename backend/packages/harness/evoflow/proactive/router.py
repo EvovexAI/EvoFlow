@@ -1450,6 +1450,58 @@ async def get_role_performance(
     return {"ok": True, **report.to_dict()}
 
 
+@router.get("/collab-chat-calls")
+async def list_collab_chat_calls(
+    request: Request,
+    initiator_agent: str = Query(""),
+    target_agent: str = Query(""),
+    status: str = Query(""),
+    limit: int = Query(50, ge=1, le=200),
+) -> dict[str, Any]:
+    """Audit list: who called whom, status, whether delivered/processed."""
+    _ = request
+    from evoflow.persistence import collab_chat_call_repositories as repo
+
+    rows = await asyncio.to_thread(
+        repo.list_calls,
+        initiator_agent=initiator_agent,
+        target_agent=target_agent,
+        status=status,
+        limit=limit,
+    )
+    return {"ok": True, "calls": rows, "count": len(rows)}
+
+
+@router.get("/collab-chat-calls/{call_id}")
+async def get_collab_chat_call(request: Request, call_id: str) -> dict[str, Any]:
+    """Single call + append-only event trail."""
+    _ = request
+    from evoflow.collab.chat_callback import get_call_with_trail
+
+    doc = await asyncio.to_thread(get_call_with_trail, call_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="collab chat call not found")
+    return {"ok": True, **doc}
+
+
+@router.post("/collab-chat-calls/{call_id}/processed")
+async def mark_collab_chat_call_processed(request: Request, call_id: str) -> dict[str, Any]:
+    """Mark that the initiator actually handled the receipt."""
+    _ = request
+    from evoflow.collab.chat_callback import mark_call_processed
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    who = str((body or {}).get("processed_by") or (body or {}).get("processedBy") or "").strip()
+    doc = await asyncio.to_thread(mark_call_processed, call_id, processed_by=who)
+    if not doc:
+        raise HTTPException(status_code=404, detail="collab chat call not found")
+    return {"ok": True, **doc}
+
+
 @router.get("/roles/{agent_code}/growth")
 async def get_role_growth(
     request: Request,

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { RightStageStore, rightStageStore } from '../src/lib/right-stage/right-stage-store.js'
 import {
+  getCurrentRightStageSessionKey,
   resolveTabSessionKey,
   scopeOfKind,
   setCurrentRightStageSessionKey,
@@ -15,7 +16,9 @@ import {
   saveRightStageSessionMemory,
   switchRightStageSession,
   upsertTabInSessionMemory,
+  upsertBrowserTabInSessionMemory,
 } from '../src/lib/right-stage/right-stage-session-memory.js'
+import { ensureBrowserStage } from '../src/lib/browser-panel-store.js'
 import { filterRightStageTabsForSession } from '../src/lib/right-stage/right-stage-session-visibility.js'
 import { openProgressFromPanelSet } from '../src/lib/right-stage/open-progress-from-panel-set.js'
 
@@ -82,6 +85,89 @@ describe('session memory ownership routing', () => {
     expect(tabs[0]?.sessionKey).toBe('sess-bg')
   })
 
+  it('background browser activate clears userCollapsed so switch-back expands', () => {
+    setCurrentRightStageSessionKey('sess-ui')
+    // 先让后台会话带上「用户收起」记忆
+    setCurrentRightStageSessionKey('sess-bg')
+    rightStageStore.show({ kind: 'browser', id: 'primary', forceExpand: true })
+    rightStageStore.collapse()
+    saveRightStageSessionMemory('sess-bg')
+    expect(rightStageStore.exportSessionMemory().userCollapsed).toBe(true)
+
+    setCurrentRightStageSessionKey('sess-ui')
+    rightStageStore.hideAll()
+    const wrote = upsertBrowserTabInSessionMemory({
+      sessionKey: 'sess-bg',
+      id: 'primary',
+      pageUrl: 'https://example.test/offer',
+      activate: true,
+    })
+    expect(wrote).toBe(true)
+
+    restoreRightStageSessionMemory('sess-bg')
+    const snap = rightStageStore.getSnapshot()
+    expect(snap.collapsed).toBe(false)
+    expect(rightStageStore.isUserCollapsed).toBe(false)
+    expect(snap.activeKey).toBe('browser:primary')
+  })
+
+  it('ensureBrowserStage surfaces owner session when UI is not watching browser', async () => {
+    setCurrentRightStageSessionKey('sess-ui')
+    rightStageStore.hideAll()
+    rightStageStore.setCollapsed(true)
+
+    const events: string[] = []
+    const onSelect = (ev: Event) => {
+      events.push(String((ev as CustomEvent).detail?.sessionKey || ''))
+    }
+    window.addEventListener('evopanel:shell-select-session', onSelect)
+    try {
+      ensureBrowserStage({
+        sessionKey: 'sess-bg',
+        id: 'primary',
+        pageUrl: 'https://example.test/bg',
+        replacePageUrl: true,
+        skipHwndNav: true,
+      })
+      await new Promise((r) => setTimeout(r, 120))
+      expect(events).toContain('sess-bg')
+    } finally {
+      window.removeEventListener('evopanel:shell-select-session', onSelect)
+    }
+  })
+
+  it('ensureBrowserStage does not steal focus while UI watches browser', async () => {
+    setCurrentRightStageSessionKey('sess-ui')
+    rightStageStore.show({
+      kind: 'browser',
+      id: 'primary',
+      forceExpand: true,
+      data: { pageUrl: 'https://ui.test' },
+    })
+
+    const events: string[] = []
+    const onSelect = (ev: Event) => {
+      events.push(String((ev as CustomEvent).detail?.sessionKey || ''))
+    }
+    window.addEventListener('evopanel:shell-select-session', onSelect)
+    try {
+      ensureBrowserStage({
+        sessionKey: 'sess-bg',
+        id: 'primary',
+        pageUrl: 'https://example.test/bg',
+        replacePageUrl: true,
+        skipHwndNav: true,
+      })
+      await new Promise((r) => setTimeout(r, 120))
+      expect(events).toEqual([])
+      // 前台仍是 UI 会话的浏览器
+      expect(rightStageStore.getSnapshot().activeKey).toBe('browser:primary')
+      expect(getCurrentRightStageSessionKey()).toBe('sess-ui')
+    } finally {
+      window.removeEventListener('evopanel:shell-select-session', onSelect)
+    }
+  })
+
   it('workspace-scoped tabs are not frozen into per-session memory', () => {
     setCurrentRightStageSessionKey('sess-a')
     rightStageStore.show({ kind: 'workspace-browse', id: 'primary' })
@@ -122,13 +208,13 @@ describe('session memory ownership routing', () => {
   it('hides session-scoped tabs when current UI session is empty (new draft)', () => {
     const tabs = [
       { id: 'a', kind: 'browser' as const, sessionKey: 'sess-a', data: {} },
+      // 会话级无归属：不可放行（防串台）；workspace 级才跨会话可见
       { id: 'proc', kind: 'employeeProcess' as const, data: {} },
       { id: 'tree', kind: 'workspace-browse' as const, data: {} },
     ]
     expect(filterRightStageTabsForSession(tabs, '').map((t) => t.id)).toEqual(['tree'])
     expect(filterRightStageTabsForSession(tabs, 'sess-a').map((t) => t.id)).toEqual([
       'a',
-      'proc',
       'tree',
     ])
   })

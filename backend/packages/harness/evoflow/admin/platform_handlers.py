@@ -1293,6 +1293,42 @@ def employees_departments(_args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+# 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+# 设部门负责人：此前工具层只有 employees.departments（只读），改负责人得走前端下拉框或裸 HTTP PUT。
+# 这里复用 DepartmentRepository.set_head，校验（必须是本部门成员）与成环跳过都在仓储层。
+def employees_set_department_head(args: dict[str, Any]) -> dict[str, Any]:
+    from evoflow.proactive.departments import DepartmentRepository
+
+    dept_id = _arg_str(args, "dept_id", "deptId", "id")
+    if not dept_id:
+        target = _arg_str(args, "name", "department")
+        if target:
+            DepartmentRepository.ensure_from_roles()
+            for d in DepartmentRepository.list_departments(with_members=False):
+                if str(d.get("name") or "").strip() == target.strip():
+                    dept_id = str(d.get("id") or "")
+                    break
+    if not dept_id:
+        raise ValidationError("dept_id 或 name 必填")
+    head = _arg_str(args, "head_agent_code", "headAgentCode", "agent_code")
+    align = _arg_bool(args, "align_unmanaged", False)
+    try:
+        row = DepartmentRepository.set_head(
+            dept_id, head_agent_code=head, align_unmanaged=align
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    skipped = row.get("align_skipped") if isinstance(row, dict) else None
+    return {
+        "ok": True,
+        "department": row,
+        "dept_id": dept_id,
+        "head_agent_code": str((row or {}).get("head_agent_code") or ""),
+        "align_skipped": skipped or [],
+        "hint": "负责人变更已落库；align_skipped 里是因成环被跳过的成员（汇报链保持原样）。",
+    }
+
+
 def employees_org_status(_args: dict[str, Any]) -> dict[str, Any]:
     """名册汇总：人数 / 忙闲 / 待审批（原 xiaomi_org_status）。"""
     from evoflow.admin.employee_front_desk import org_status
@@ -1403,6 +1439,12 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
     role = emp.resolve_role_ref(target)
     if is_xiaomi_agent(role.agent_code):
         raise ValidationError("cannot chat_send to xiaomi herself")
+    def _opt_bool(*keys: str) -> bool | None:
+        for k in keys:
+            if k in args:
+                return _arg_bool(args, k, True)
+        return None
+
     data = emp.chat_send(
         role.agent_code,
         message,
@@ -1419,6 +1461,8 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
         # 为什么：用户要的是「和我在面板手打一样能看到流」，默认走后台 wake 就是
         #   页面上啥也看不到。auto = 面板在就驱面板（真流式），面板不在才回落 wake。
         deliver=_arg_str(args, "deliver", "delivery") or "auto",
+        notify_on_complete=_opt_bool("notify_on_complete", "notifyOnComplete"),
+        auto_resume=_opt_bool("auto_resume", "autoResume"),
     )
     # Display: Chinese role_name, else agent_name; never use English agent_code as title.
     display = str(role.role_name or "").strip()
@@ -1561,6 +1605,8 @@ def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
     # 小V 前台：source=xiaomi 且未传 from_agent 时盖章，便于轨迹归因
     if source == "xiaomi" and not from_agent:
         from_agent = XIAOMI_AGENT_CODE
+    # Ambient platform session_key = caller screen for bottom-dock running avatar.
+    origin_sk = _arg_str(args, "session_key", "sessionKey") or ""
     data = emp.dispatch(
         role.agent_code,
         goal,
@@ -1573,6 +1619,7 @@ def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
         resume_round=_arg_bool(args, "resume_round", False) or _arg_bool(args, "resumeRound", False),
         fresh_round=_arg_bool(args, "fresh_round", False) or _arg_bool(args, "freshRound", False),
         skip_done_guard=_arg_bool(args, "skip_done_guard", False) or _arg_bool(args, "skipDoneGuard", False),
+        origin_session_key=origin_sk,
     )
     return {
         "ok": True,
@@ -1593,6 +1640,7 @@ def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
     source = _arg_str(args, "source") or "role"
     if source == "xiaomi" and not from_agent:
         from_agent = XIAOMI_AGENT_CODE
+    origin_sk = _arg_str(args, "session_key", "sessionKey") or ""
     data = emp.wake(
         target,
         _arg_str(args, "goal") or "",
@@ -1605,6 +1653,7 @@ def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
         resume_round=_arg_bool(args, "resume_round", False) or _arg_bool(args, "resumeRound", False),
         fresh_round=_arg_bool(args, "fresh_round", False) or _arg_bool(args, "freshRound", False),
         skip_done_guard=_arg_bool(args, "skip_done_guard", False) or _arg_bool(args, "skipDoneGuard", False),
+        origin_session_key=origin_sk,
     )
     return {"ok": True, **(data if isinstance(data, dict) else {"result": data}), "name": target}
 

@@ -18,6 +18,56 @@ export const STORAGE_MODEL_KEY = 'evopanel-chat-selected-model'
 /** 最近一次手动选中的 session key(localStorage)。 */
 export const LS_LAST_SELECTED_SESSION = 'evopanel_last_selected_session'
 
+/**
+ * 最近一次「员工对话」session key（非 dept:{id}:chat）。
+ * 冷启动若 last_selected 被部门群聊占住，用它把主区拉回员工会话。
+ */
+export const LS_LAST_EMPLOYEE_SESSION = 'evopanel_last_employee_session'
+
+/**
+ * 用户最近主动进入的对话面：employee | dept | task。
+ * first-selectable 误选部门群不会改这个；冷启动按它优先恢复员工会话。
+ */
+export const LS_LAST_CHAT_SURFACE = 'evopanel_last_chat_surface'
+
+export type LastChatSurface = 'employee' | 'dept' | 'task'
+
+export function loadLastChatSurface(): LastChatSurface | null {
+  try {
+    const raw = String(localStorage.getItem(LS_LAST_CHAT_SURFACE) || '').trim()
+    if (raw === 'employee' || raw === 'dept' || raw === 'task') return raw
+  } catch {
+    /* ignore */
+  }
+  return null
+}
+
+export function saveLastChatSurface(surface: LastChatSurface): void {
+  try {
+    localStorage.setItem(LS_LAST_CHAT_SURFACE, surface)
+  } catch {
+    /* ignore */
+  }
+}
+
+export function loadLastEmployeeSession(): string {
+  try {
+    return String(localStorage.getItem(LS_LAST_EMPLOYEE_SESSION) || '').trim()
+  } catch {
+    return ''
+  }
+}
+
+export function saveLastEmployeeSession(sessionKey: string): void {
+  const sk = String(sessionKey || '').trim()
+  if (!sk) return
+  try {
+    localStorage.setItem(LS_LAST_EMPLOYEE_SESSION, sk)
+  } catch {
+    /* ignore */
+  }
+}
+
 /** 模型切换分隔线持久化标记前缀(存为 user 消息,回放时识别并转成 system 分隔行)。 */
 export const MODEL_SWITCH_SEPARATOR_PREFIX = '[MODEL_SWITCH]'
 

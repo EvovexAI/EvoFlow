@@ -58,31 +58,41 @@ export function deptChatSessionKey(deptId: string): string {
   return `${DEPT_CHAT_SESSION_PREFIX}${id}${DEPT_CHAT_SESSION_SUFFIX}`
 }
 
-export function rememberDeptChatMeta(meta: DeptChatMeta) {
+/**
+ * 缓存部门 meta。默认不写 LS_FOCUSED_DEPT_ID——批量拉目录时若逐个 remember，
+ * 会把「当前聚焦部门」冲成列表最后一个，冷启动/侧栏表现像乱跳到某个群。
+ * 用户真正进群时再传 ``{ focus: true }``。
+ */
+export function rememberDeptChatMeta(
+  meta: DeptChatMeta,
+  opts?: { focus?: boolean; touchTitle?: boolean },
+) {
   const id = String(meta?.id || '').trim()
   if (!id) return
   metaById.set(id, { ...meta, id })
   try {
-    localStorage.setItem(LS_FOCUSED_DEPT_ID, id)
+    if (opts?.focus) localStorage.setItem(LS_FOCUSED_DEPT_ID, id)
     sessionStorage.setItem(`evo-dept-meta:${id}`, JSON.stringify(metaById.get(id)))
   } catch {
     /* ignore */
   }
-  // 顶栏标题写成「部门名 N 人」，覆盖残留的 chat 主题
-  try {
-    const sk = deptChatSessionKey(id)
-    const title = deptChatDisplayTitle(id)
-    if (sk && title) {
-      void import('./session-list/display.js').then((m) => {
-        try {
-          m.setSessionTitle(sk, title)
-        } catch {
-          /* ignore */
-        }
-      })
+  // 顶栏标题写成「部门名 N 人」，覆盖残留的 chat 主题（仅进群时）
+  if (opts?.touchTitle !== false && opts?.focus) {
+    try {
+      const sk = deptChatSessionKey(id)
+      const title = deptChatDisplayTitle(id)
+      if (sk && title) {
+        void import('./session-list/display.js').then((m) => {
+          try {
+            m.setSessionTitle(sk, title)
+          } catch {
+            /* ignore */
+          }
+        })
+      }
+    } catch {
+      /* ignore */
     }
-  } catch {
-    /* ignore */
   }
   notify()
 }
@@ -160,7 +170,8 @@ export function setCachedDeptList(rows: DeptChatMeta[]) {
   cachedDeptListAt = Date.now()
   for (const row of rows) {
     try {
-      rememberDeptChatMeta(row)
+      // 只暖 meta，不改 focused dept / 不刷 session 标题
+      rememberDeptChatMeta(row, { focus: false, touchTitle: false })
     } catch {
       /* ignore */
     }

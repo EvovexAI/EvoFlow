@@ -180,6 +180,37 @@ def _set_role_reports_to(conn: Any, agent_code: str, reports_to: str, now: str) 
     )
 
 
+# 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+# 改了什么：新增 reports_to 成环检测（在同一连接上查全量汇报链）。为什么：
+# DepartmentRepository.set_head(align_unmanaged=True) 会把「reports_to 为空」的成员
+# 指向新负责人，但没做 admin/employees.py::_normalize_reports_to 那套 would_create_cycle
+# 校验。实测场景：把下属设为部门负责人时，原负责人（reports_to 为空）会被指回该下属，
+# 而下属本就 reports_to 原负责人 → 成环，组织树遍历会打转。前端该勾选框默认选中，
+# 一次点击即可触发，所以必须在写侧拦住。
+def _reports_cycle_would_form(conn: Any, agent_code: str, new_mgr: str) -> bool:
+    """``agent_code.reports_to = new_mgr`` 是否成环（沿汇报链往上走，撞到自己即环）。"""
+    code = str(agent_code or "").strip()
+    mgr = str(new_mgr or "").strip()
+    if not code or not mgr:
+        return False
+    if code == mgr:
+        return True
+    rows = conn.execute(
+        "SELECT agent_code, reports_to, config_json FROM evoflow_proactive_roles"
+    ).fetchall()
+    parent = {
+        str(r["agent_code"] or "").strip(): _role_reports_to_from_row(r) for r in rows
+    }
+    seen: set[str] = {code}
+    cur = mgr
+    while cur:
+        if cur in seen:
+            return True
+        seen.add(cur)
+        cur = parent.get(cur, "")
+    return False
+
+
 class DepartmentRepository:
     @staticmethod
     def ensure_from_roles() -> int:
@@ -494,6 +525,10 @@ class DepartmentRepository:
             if str(row["department"] or "").strip() != name:
                 raise ValueError("负责人必须是本部门成员，请先加入部门")
 
+        # 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+        # 记录因成环被跳过的成员，随返回值带出（前端/日志能看到「这次没对齐谁、为什么」）。
+        skipped: list[str] = []
+
         def _work(conn: Any) -> None:
             conn.execute(
                 """
@@ -519,6 +554,17 @@ class DepartmentRepository:
                     cur = _role_reports_to_from_row(m)
                     if cur:
                         continue
+                    # 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+                    # 对齐前先测成环：原负责人（reports_to 为空）会被指回新负责人，而新负责人
+                    # 本就汇报给他 → 环。只跳过这一条，不动负责人变更本身。
+                    if _reports_cycle_would_form(conn, code, head):
+                        skipped.append(code)
+                        logger.warning(
+                            "departments: set_head align skipped %s -> %s (would create reporting cycle)",
+                            code,
+                            head,
+                        )
+                        continue
                     _set_role_reports_to(conn, code, head, now)
                 # Head should not report to someone inside the same dept by default
                 # when they become the root — leave their reports_to as-is
@@ -528,8 +574,14 @@ class DepartmentRepository:
         listed = DepartmentRepository.list_departments(with_members=True)
         for d in listed:
             if str(d.get("id")) == did:
-                return d
-        return {**existing, "head_agent_code": head}
+                out = dict(d)
+                if skipped:
+                    out["align_skipped"] = list(skipped)
+                return out
+        out = {**existing, "head_agent_code": head}
+        if skipped:
+            out["align_skipped"] = list(skipped)
+        return out
 
     @staticmethod
     def delete(dept_id: str, *, clear_members: bool = True) -> None:

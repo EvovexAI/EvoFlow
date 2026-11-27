@@ -2279,6 +2279,105 @@ def resolve_role_ref(ref: str) -> ProactiveRole:
     return matches[0]
 
 
+def _maybe_register_origin_employee_icon(
+    out: dict[str, Any],
+    *,
+    agent_code: str,
+    role_name: str = "",
+    origin_session_key: str = "",
+    employee_session_key: str = "",
+    task_id: str = "",
+    duty_run_id: str = "",
+    source: str = "",
+    goal_preview: str = "",
+    from_agent: str = "",
+    register_collab: bool = False,
+) -> None:
+    """Best-effort: bottom-dock avatar on the caller chat; optional collab notify row."""
+    if not isinstance(out, dict):
+        return
+    # Panel-delivered chat_send sets wake.skipped=true / out.skipped=true, but the
+    # employee IS still running in the right-stage pane — still need the dock icon.
+    if out.get("skipped"):
+        wake = out.get("wake") if isinstance(out.get("wake"), dict) else {}
+        reason = str(out.get("skip_reason") or wake.get("reason") or "").strip()
+        panel_running = (
+            reason in {"panel_dispatched", "panel_delivery_requested"}
+            or bool(out.get("panel_delivery") or out.get("panel_dispatch"))
+            or bool(out.get("busy") or out.get("queued"))
+        )
+        if not panel_running:
+            return
+    origin = str(origin_session_key or "").strip()
+    if not origin:
+        origin = str(out.get("origin_session_key") or "").strip()
+    if not origin:
+        origin = str(out.get("ignored_caller_session_key") or "").strip()
+    if not origin:
+        return
+    try:
+        from evoflow.collab.employee_child_work import safe_register_origin_employee_child_work
+
+        row = safe_register_origin_employee_child_work(
+            origin_session_key=origin,
+            agent_code=agent_code,
+            role_name=role_name,
+            employee_session_key=employee_session_key
+            or str(out.get("session_key") or "").strip(),
+            duty_run_id=duty_run_id
+            or str(out.get("duty_run_id") or out.get("run_id") or "").strip(),
+            task_id=task_id or str(out.get("task_id") or out.get("related_task_id") or "").strip(),
+            source=source,
+            goal_preview=goal_preview,
+        )
+        if row and row.get("work_id"):
+            out["origin_employee_child_work_id"] = row.get("work_id")
+            out["origin_session_key"] = origin
+    except Exception:
+        logger.debug(
+            "employees: origin employee icon register failed agent=%s",
+            agent_code,
+            exc_info=True,
+        )
+    if not register_collab:
+        return
+    try:
+        from evoflow.authz.agent_actor import resolve_invoker_stamp
+        from evoflow.collab.chat_callback import register_collab_chat_call
+
+        stamp = resolve_invoker_stamp()
+        init_agent = (
+            str(from_agent or "").strip() or str(stamp.get("raised_by") or "").strip()
+        )
+        call = register_collab_chat_call(
+            target_agent=agent_code,
+            target_session_key=str(
+                employee_session_key or out.get("session_key") or ""
+            ).strip(),
+            target_duty_run_id=str(
+                duty_run_id or out.get("duty_run_id") or out.get("run_id") or ""
+            ).strip(),
+            initiator_agent=init_agent,
+            initiator_session_key=origin,
+            initiator_principal_id=str(
+                stamp.get("principal_id") or stamp.get("created_by") or ""
+            ).strip(),
+            notify_on_complete=True,
+            auto_resume=True,
+            source=source or "dispatch",
+            goal_preview=str(goal_preview or "")[:240],
+        )
+        if call.get("call_id") and not out.get("collab_chat_call_id"):
+            out["collab_chat_call_id"] = call["call_id"]
+            out["collab_chat_call_status"] = call.get("status")
+    except Exception:
+        logger.debug(
+            "employees: collab call register on dispatch failed agent=%s",
+            agent_code,
+            exc_info=True,
+        )
+
+
 def dispatch(
     agent_code: str,
     goal: str,
@@ -2295,6 +2394,8 @@ def dispatch(
     # 【self-evolution-bot · 2026-11-17 · 第28轮】透传「投回哪一屏对话」。
     # 空 = 原行为（task/duty 自动分桶），对现有调用方零影响。
     session_key: str = "",
+    # Caller chat for bottom-dock running avatar (empty = no icon).
+    origin_session_key: str = "",
 ) -> dict[str, Any]:
     """Fire-and-forget dispatch via Gateway HTTP (requires running Gateway)."""
     code = str(agent_code or "").strip()
@@ -2396,7 +2497,7 @@ def dispatch(
                     logger.exception("employees.dispatch in-process failed agent=%s", code)
 
             fut.add_done_callback(_log_done)
-            return {
+            out_inproc = {
                 "ok": True,
                 "dispatched": True,
                 "scheduled": True,
@@ -2411,6 +2512,19 @@ def dispatch(
                 "round_id": round_id_s or None,
                 "resume_round": bool(resume_round) or None,
             }
+            _maybe_register_origin_employee_icon(
+                out_inproc,
+                agent_code=code,
+                role_name=str(role.role_name or ""),
+                origin_session_key=origin_session_key,
+                employee_session_key=sk_s,
+                task_id=related_tid,
+                source="dispatch",
+                goal_preview=goal_s,
+                from_agent=from_agent_s,
+                register_collab=bool(str(origin_session_key or "").strip()),
+            )
+            return out_inproc
 
     try:
         with httpx.Client(timeout=15.0) as client:
@@ -2437,8 +2551,33 @@ def dispatch(
 
     if isinstance(data, dict):
         data.setdefault("watch_path", f"/proactive/{code}?live=1")
+        _maybe_register_origin_employee_icon(
+            data,
+            agent_code=code,
+            role_name=str(role.role_name or ""),
+            origin_session_key=origin_session_key,
+            employee_session_key=sk_s,
+            task_id=related_tid,
+            source="dispatch",
+            goal_preview=goal_s,
+            from_agent=from_agent_s,
+            register_collab=bool(str(origin_session_key or "").strip()),
+        )
         return data
-    return {"ok": True, "agent_code": code, "goal": goal_s, "raw": data}
+    out_raw = {"ok": True, "agent_code": code, "goal": goal_s, "raw": data}
+    _maybe_register_origin_employee_icon(
+        out_raw,
+        agent_code=code,
+        role_name=str(role.role_name or ""),
+        origin_session_key=origin_session_key,
+        employee_session_key=sk_s,
+        task_id=related_tid,
+        source="dispatch",
+        goal_preview=goal_s,
+        from_agent=from_agent_s,
+        register_collab=bool(str(origin_session_key or "").strip()),
+    )
+    return out_raw
 
 
 def wake(
@@ -2464,6 +2603,12 @@ def wake(
     #   latest_human_session_key 比；新 mint 的 chat 会话里还没有真人消息 → pinned_ms=0 →
     #   gap 判据不成立 → 被 retarget 回**旧屏**，刚算出来的键白算。默认 False = 原有协商语义不变。
     pin_is_fresh: bool = False,
+    # Caller chat for bottom-dock running avatar (empty = no icon).
+    origin_session_key: str = "",
+    initiator_session_key: str = "",
+    # Explicit True only — wake does not auto-register collab notify.
+    notify_on_complete: bool | None = None,
+    auto_resume: bool | None = None,
 ) -> dict[str, Any]:
     """Wake a teammate (``@``) — resolve by agent_code or role_name, then dispatch.
 
@@ -2637,6 +2782,7 @@ def wake(
         except Exception:
             logger.debug("employees.wake: session retarget failed (keep caller pin)", exc_info=True)
 
+    origin_sk = str(origin_session_key or initiator_session_key or "").strip()
     result = dispatch(
         target_role.agent_code,
         goal_s,
@@ -2652,6 +2798,8 @@ def wake(
         # 【self-evolution-bot · 2026-11-17 · 第28轮】把「回哪一屏」透传到底
         # 【self-evolution-bot · 2026-11-20 · 第97轮】改为传校正后的键（未过期的那一屏）
         session_key=wake_session_key,
+        # Avoid double icon from dispatch when wake owns the origin path.
+        origin_session_key="",
     )
     if isinstance(result, dict):
         result.setdefault("woken", True)
@@ -2666,6 +2814,49 @@ def wake(
             result.setdefault("round_id", round_id_s)
         if skip_done_guard:
             result.setdefault("skip_done_guard", True)
+        _maybe_register_origin_employee_icon(
+            result,
+            agent_code=target_role.agent_code,
+            role_name=str(target_role.role_name or ""),
+            origin_session_key=origin_sk,
+            employee_session_key=str(wake_session_key or "").strip(),
+            task_id=tid,
+            source="wake",
+            goal_preview=goal_s,
+            from_agent=(from_role.agent_code if from_role else from_s),
+            register_collab=False,
+        )
+        if notify_on_complete is True and not result.get("skipped"):
+            try:
+                from evoflow.authz.agent_actor import resolve_invoker_stamp
+                from evoflow.collab.chat_callback import register_collab_chat_call
+
+                stamp = resolve_invoker_stamp()
+                init_agent = (
+                    (from_role.agent_code if from_role else from_s)
+                    or str(stamp.get("raised_by") or "").strip()
+                )
+                init_sk = str(initiator_session_key or origin_sk or "").strip()
+                call = register_collab_chat_call(
+                    target_agent=target_role.agent_code,
+                    target_session_key=str(wake_session_key or "").strip(),
+                    initiator_agent=str(init_agent or "").strip(),
+                    initiator_session_key=init_sk,
+                    initiator_principal_id=str(stamp.get("principal_id") or "").strip(),
+                    notify_on_complete=True,
+                    auto_resume=True if auto_resume is None else bool(auto_resume),
+                    source="wake",
+                    goal_preview=goal_s[:240],
+                )
+                if call.get("call_id"):
+                    result["collab_chat_call_id"] = call["call_id"]
+                    result["collab_chat_call_status"] = call.get("status")
+            except Exception:
+                logger.debug(
+                    "employees.wake: collab call register failed agent=%s",
+                    target_role.agent_code,
+                    exc_info=True,
+                )
     return result
 
 
@@ -2696,6 +2887,9 @@ def chat_send(
     task_id: str = "",
     source: str = "xiaomi",
     deliver: str = "auto",
+    initiator_session_key: str = "",
+    notify_on_complete: bool | None = None,
+    auto_resume: bool | None = None,
 ) -> dict[str, Any]:
     """Send a free-chat turn and **server-side wake** the employee.
 
@@ -2746,6 +2940,9 @@ def chat_send(
     tid = str(task_id or "").strip()
     raw_sk = str(session_key or "").strip()
     ignored_caller_session = False
+    # Ambient platform session_key is the *caller* screen — capture as initiator
+    # before we discard it as a non-owned target key.
+    caller_ambient_sk = ""
     # 【self-evolution-bot · 2026-11-22 · 第125轮 · 模型:deepseek-v4.1-flash】
     # 本次自动选会话时，被「目标正在跑」规则避开的那个 busy 会话键（没避开就是空）。
     busy_avoided_sk = ""
@@ -2753,6 +2950,7 @@ def chat_send(
     if sk and not _employee_owns_session_key(sk, code):
         # Do not raise: platform always setdefaults the ambient chat key.
         ignored_caller_session = True
+        caller_ambient_sk = sk
         sk = ""
 
     if sk:
@@ -3053,6 +3251,77 @@ def chat_send(
         )
     if ignored_caller_session:
         out["ignored_caller_session_key"] = raw_sk
+
+    init_sk_icon = (
+        str(initiator_session_key or "").strip()
+        or caller_ambient_sk
+        or (raw_sk if ignored_caller_session else "")
+    )
+
+    # Collab completion callback (desktop toast + hidden task-notification resume).
+    # Default on when initiator screen is known; explicit False wins.
+    try:
+        from evoflow.authz.agent_actor import resolve_invoker_stamp
+        from evoflow.collab.chat_callback import register_collab_chat_call
+
+        stamp = resolve_invoker_stamp()
+        init_sk = init_sk_icon or str(stamp.get("session_key") or "").strip()
+        init_agent = (
+            str(stamp.get("raised_by") or "").strip()
+            or str(from_agent or "").strip()
+        )
+        init_pid = str(stamp.get("principal_id") or stamp.get("created_by") or "").strip()
+        notify = True if notify_on_complete is None else bool(notify_on_complete)
+        resume = True if auto_resume is None else bool(auto_resume)
+        target_sk = str(out.get("session_key") or sk or "").strip()
+        duty_run_id = ""
+        if isinstance(wake_result, dict):
+            duty_run_id = str(
+                wake_result.get("duty_run_id") or wake_result.get("run_id") or ""
+            ).strip()
+        call = register_collab_chat_call(
+            target_agent=code,
+            target_session_key=target_sk,
+            target_duty_run_id=duty_run_id,
+            initiator_agent=init_agent,
+            initiator_session_key=init_sk,
+            initiator_principal_id=init_pid,
+            notify_on_complete=notify,
+            auto_resume=resume,
+            source="chat_send",
+            goal_preview=text[:240],
+        )
+        if call.get("call_id"):
+            out["collab_chat_call_id"] = call["call_id"]
+            out["collab_chat_call_status"] = call.get("status")
+            out["notify_on_complete"] = bool(call.get("notify_on_complete"))
+    except Exception:
+        logger.debug("chat_send: collab callback register failed agent=%s", code, exc_info=True)
+
+    # Bottom-dock avatar on the caller chat.
+    try:
+        _maybe_register_origin_employee_icon(
+            out if isinstance(out, dict) else {},
+            agent_code=code,
+            role_name=str(role.role_name or ""),
+            origin_session_key=init_sk_icon,
+            employee_session_key=str(out.get("session_key") or sk or "").strip(),
+            task_id=tid,
+            duty_run_id=str(
+                (wake_result or {}).get("duty_run_id")
+                or (wake_result or {}).get("run_id")
+                or ""
+            ).strip()
+            if isinstance(wake_result, dict)
+            else "",
+            source="chat_send",
+            goal_preview=text,
+            from_agent=from_agent,
+            register_collab=False,
+        )
+    except Exception:
+        logger.debug("chat_send: origin employee icon failed agent=%s", code, exc_info=True)
+
     return out
 
 

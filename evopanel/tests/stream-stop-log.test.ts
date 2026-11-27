@@ -83,4 +83,27 @@ describe('stream stop sinceStopMs', () => {
     expect(row?.outcome).toBe('stream_error')
     expect(row?.endErrMsg).toContain('模型服务临时内部错误')
   })
+
+  // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】
+  // 现网 131 条「新发送前清理旧 SSE wire」全被记成 abnormal/ERROR，诊断表据此报「异常断流」，
+  // 但复算 109 条同一会话上一事件已是 sse_final——那是正常空转，不是断流。
+  it('records send-prep abort as normal, not abnormal', () => {
+    const kind = logStreamStop({
+      sessionKey: 'agent:main:prep',
+      trigger: 'send_prep_abort_stale_stream',
+      hasEndMarker: false,
+      skipDedupe: true,
+    })
+    expect(kind).toBe('normal')
+  })
+
+  it('keeps genuinely unterminated streams abnormal', () => {
+    const kind = logStreamStop({
+      sessionKey: 'agent:main:real-abnormal',
+      trigger: 'sse_aborted',
+      hasEndMarker: false,
+      skipDedupe: true,
+    })
+    expect(kind).toBe('abnormal')
+  })
 })

@@ -511,9 +511,44 @@ export function resolveSessionReselectAfterRefresh(opts: {
     return { type: 'select', sessionKey: pendingSession, reason: 'pending-shell-session' }
   }
 
-  const firstSelectable = mergedSessions.find(
-    (s) => !isDefaultMainSessionKey(s.sessionKey) && String(s.sessionKey || '').trim(),
-  )
+  // 空选中时优先恢复 localStorage 里的上次会话；部门群聊不当自动落地目标
+  // （否则会稳定落到「第一个群聊」，员工对话刷新后对不上）。
+  try {
+    const lastSelected = String(
+      localStorage.getItem('evopanel_last_selected_session') || '',
+    ).trim()
+    const lastEmployee = String(
+      localStorage.getItem('evopanel_last_employee_session') || '',
+    ).trim()
+    const prefer =
+      (lastSelected &&
+        !isDefaultMainSessionKey(lastSelected) &&
+        !isDeptChatSessionKey(lastSelected) &&
+        lastSelected) ||
+      (lastEmployee &&
+        !isDefaultMainSessionKey(lastEmployee) &&
+        !isDeptChatSessionKey(lastEmployee) &&
+        lastEmployee) ||
+      ''
+    if (prefer) {
+      ssLog('refresh.reselect', {
+        refreshId,
+        reason: 'last-selected-storage',
+        to: skTail(prefer),
+      })
+      return { type: 'select', sessionKey: prefer, reason: 'last-selected-storage' }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  const firstSelectable = mergedSessions.find((s) => {
+    const sk = String(s.sessionKey || '').trim()
+    if (!sk || isDefaultMainSessionKey(sk)) return false
+    // 部门群聊只该由用户点「进群」进入，禁止 refresh 自动选中
+    if (isDeptChatSessionKey(sk)) return false
+    return true
+  })
   if (firstSelectable) {
     const sk = String(firstSelectable.sessionKey || '').trim()
     ssLog('refresh.reselect', { refreshId, reason: 'first-selectable', to: skTail(sk) })

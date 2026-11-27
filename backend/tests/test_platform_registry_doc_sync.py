@@ -20,7 +20,10 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 # + ui.close（关掉指定那一个标签，不等于整栏收起）→ 185；
 # + ui.move（调换标签先后顺序，前端 reorderTab）→ 186。
 # 为什么加：用户要求「像人一样操作右栏」——能切、能关单个、能调顺序。
-EXPECTED_PLATFORM_ACTION_COUNT = 186
+# 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+# + employees.set_department_head（设部门负责人；此前工具层只有只读 employees.departments，
+#   改负责人得绕前端下拉框或裸 HTTP PUT）→ 187。
+EXPECTED_PLATFORM_ACTION_COUNT = 187
 
 
 def test_assets_in_platform_domains() -> None:

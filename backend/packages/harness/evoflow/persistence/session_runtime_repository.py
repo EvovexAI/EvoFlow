@@ -28,6 +28,7 @@ KIND_SUBAGENT = "subagent"
 KIND_COLLAB_SUBTASK = "collab_subtask"
 KIND_WORKFLOW = "workflow"
 KIND_DUTY = "duty"
+KIND_EMPLOYEE = "employee"  # origin-session icon for chat_send / dispatch / wake
 KIND_WARM_BASH = "warm_bash"
 
 _ACTIVE_STATUSES = frozenset({"pending", "running"})
@@ -148,16 +149,18 @@ def upsert_child_work(
             merged = dict(prev_extra)
             if extra:
                 merged.update(extra)
-            started = str(existing["started_at"] or now)
-            prev_ended = existing["ended_at"]
-            ended_at = ended if ended is not None else prev_ended
+            # Re-open must clear ended_at; keeping the old stamp makes icons look dead.
+            ended_at = ended if st in _TERMINAL_STATUSES else None
+            # Fresh start clock when flipping terminal → active again.
+            prev_started = str(existing["started_at"] or now)
+            started = now if ended_at is None and existing["ended_at"] else prev_started
             db.execute(
                 """
                 UPDATE evoflow_session_child_works
                 SET status = ?, thread_id = CASE WHEN ? != '' THEN ? ELSE thread_id END,
                     parent_thread_id = CASE WHEN ? != '' THEN ? ELSE parent_thread_id END,
                     title = CASE WHEN ? != '' THEN ? ELSE title END,
-                    extra_json = ?, updated_at = ?, ended_at = ?
+                    extra_json = ?, started_at = ?, updated_at = ?, ended_at = ?
                 WHERE work_id = ?
                 """,
                 (
@@ -169,6 +172,7 @@ def upsert_child_work(
                     title_s,
                     title_s,
                     _dumps(merged),
+                    started,
                     now,
                     ended_at,
                     str(existing["work_id"]),

@@ -323,6 +323,68 @@ def mark_session_run_ended(
         _write(conn)
     else:
         run_db_transaction(_write)
+    # Panel / chat path: session terminal also closes open collab chat calls.
+    try:
+        from evoflow.collab.chat_callback import on_target_run_finished
+
+        on_target_run_finished(
+            session_key=sk,
+            run_status=st,
+            summary=f"session_run_ended:{reason or source or st}",
+            error="",
+        )
+    except Exception:
+        logger.debug(
+            "mark_session_run_ended: collab chat callback skipped session=%s",
+            sk,
+            exc_info=True,
+        )
+    # Initiator side: flush soft-wakes deferred while this chat was busy.
+    try:
+        from evoflow.collab.chat_callback import try_resume_awaiting_for_initiator_session
+
+        try_resume_awaiting_for_initiator_session(sk)
+    except Exception:
+        logger.debug(
+            "mark_session_run_ended: deferred collab resume skipped session=%s",
+            sk,
+            exc_info=True,
+        )
+    try:
+        from evoflow.collab.employee_child_work import (
+            safe_complete_origin_employee_child_works,
+            soft_session_end_may_complete_icons,
+        )
+        from evoflow.proactive.chat_session import parse_proactive_session_key
+
+        agent_code = str(parse_proactive_session_key(sk).get("agent_code") or "").strip()
+        if agent_code and st in {
+            "completed",
+            "failed",
+            "error",
+            "cancelled",
+            "canceled",
+            "done",
+            "idle",
+        }:
+            why = f"{reason or ''}|{source or ''}|{st}"
+            if soft_session_end_may_complete_icons(
+                employee_session_key=sk,
+                agent_code=agent_code,
+                run_status=st,
+                reason=why,
+            ):
+                safe_complete_origin_employee_child_works(
+                    agent_code=agent_code,
+                    employee_session_key=sk,
+                    status="completed" if st in {"completed", "done", "idle"} else st,
+                )
+    except Exception:
+        logger.debug(
+            "mark_session_run_ended: origin employee icon complete skipped session=%s",
+            sk,
+            exc_info=True,
+        )
     return True
 
 

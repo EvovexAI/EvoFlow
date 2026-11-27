@@ -230,6 +230,17 @@ def _record_duty_trigger(
                     "agent_code": str(getattr(role, "agent_code", "") or ""),
                 },
             )
+            # task_create / chat_send may register collab calls before duty_run_id exists.
+            try:
+                from evoflow.collab.chat_callback import bind_open_calls_for_target
+
+                bind_open_calls_for_target(
+                    target_agent=str(getattr(role, "agent_code", "") or ""),
+                    duty_run_id=rid,
+                    target_session_key=sk,
+                )
+            except Exception:
+                logger.debug("proactive.runner: bind collab chat calls skipped", exc_info=True)
     except Exception:
         logger.debug("proactive.runner: duty child-work register skipped", exc_info=True)
     return doc
@@ -268,6 +279,60 @@ def _finish_duty_run(
         )
     except Exception:
         logger.debug("proactive.runner: duty_run finish failed run_id=%s", run_id, exc_info=True)
+    try:
+        st = str(status or "completed").strip().lower() or "completed"
+        # Only real run terminals — busy/skipped are not "colleague finished".
+        if st in {"completed", "failed", "error", "cancelled", "canceled"}:
+            try:
+                from evoflow.collab.chat_callback import on_target_run_finished
+
+                on_target_run_finished(
+                    duty_run_id=str(run_id or "").strip(),
+                    session_key=str(session_key or "").strip(),
+                    run_status=st or "completed",
+                    summary="",
+                    error=str(error or "").strip(),
+                )
+            except Exception:
+                logger.debug(
+                    "proactive.runner: collab chat callback failed run_id=%s",
+                    run_id,
+                    exc_info=True,
+                )
+            try:
+                from evoflow.collab.employee_child_work import (
+                    safe_complete_origin_employee_child_works,
+                )
+                from evoflow.proactive.chat_session import parse_proactive_session_key
+
+                agent_code = ""
+                sk = str(session_key or "").strip()
+                if sk:
+                    agent_code = str(
+                        parse_proactive_session_key(sk).get("agent_code") or ""
+                    ).strip()
+                if not agent_code:
+                    try:
+                        from evoflow.proactive.duty_runs import get_duty_run
+
+                        doc = get_duty_run(str(run_id or "").strip()) or {}
+                        agent_code = str(doc.get("agent_code") or "").strip()
+                    except Exception:
+                        agent_code = ""
+                safe_complete_origin_employee_child_works(
+                    agent_code=agent_code,
+                    duty_run_id=str(run_id or "").strip(),
+                    employee_session_key=sk,
+                    status=st or "completed",
+                )
+            except Exception:
+                logger.debug(
+                    "proactive.runner: origin employee icon complete failed run_id=%s",
+                    run_id,
+                    exc_info=True,
+                )
+    except Exception:
+        logger.debug("proactive.runner: collab/icon complete skipped", exc_info=True)
     try:
         from evoflow.persistence.session_runtime_repository import (
             KIND_DUTY,

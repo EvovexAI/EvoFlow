@@ -464,9 +464,9 @@ export function upsertBrowserTabInSessionMemory(opts: {
     tabs,
     activeKey: activate ? tabKey : prev.activeKey || tabKey,
     collapsed: activate ? false : prev.collapsed,
-    // 【self-evolution-bot · 2026-11-21 · 第103轮 · 模型:deepseek-v4.1-flash-1017】
-    // 带上用户收起意图：手写字段表漏一个就是静默抹掉（见 shellOutMemory 注释）。
-    userCollapsed: prev.userCollapsed === true,
+    // Agent 后台开浏览器：必须清收起锁。否则切回该会话时 userCollapsed 仍 true，
+    // 侧栏继续收着 —— 表现成「工具在跑、浏览器没打开」（双会话串台常见）。
+    userCollapsed: activate ? false : prev.userCollapsed === true,
     recentClosed: prev.recentClosed || [],
   })
   return true

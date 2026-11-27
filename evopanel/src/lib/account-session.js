@@ -19,6 +19,8 @@ const ACCOUNT_LS_KEYS = [
   'evopanel-chat-session-names',
   'evopanel-chat-selected-session',
   'evopanel_last_selected_session',
+  'evopanel_last_employee_session',
+  'evopanel_last_chat_surface',
   'evoflow_tasks_cache',
   'evoflow_panel_state',
   'evoflow_event_stream_state',

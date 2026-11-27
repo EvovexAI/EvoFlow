@@ -1630,6 +1630,10 @@ function buildViewportAnomalies(input: {
       jump: e.jump,
       source: e.source,
       followingAttr: e.followingAttr,
+      // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】补传 dTop/dHeight，
+      // 否则新豁免条件吃不到数据、永远是 undefined（改了判据但接线没通＝等于没改）。
+      dTop: e.dTop,
+      dHeight: e.dHeight,
     })),
   });
   if (input.path) {

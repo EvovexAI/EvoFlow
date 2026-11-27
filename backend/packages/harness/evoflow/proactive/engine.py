@@ -17,6 +17,7 @@ import os
 import re
 from typing import Any
 
+from evoflow.langgraph_connectivity import create_langgraph_thread
 from evoflow.models import create_chat_model
 from evoflow.proactive.models import (
     Initiative,
@@ -58,6 +59,57 @@ def _role_name_for_agent(agent_code: str | None) -> str | None:
 
 
 _DEFAULT_ASSISTANT_ID = os.getenv("EVOFLOW_PROACTIVE_ASSISTANT_ID", "lead_agent")
+
+
+async def _resolve_pinned_thread(
+    client: Any,
+    *,
+    pinned_thread_id: str,
+    metadata: dict[str, Any],
+) -> tuple[str, str]:
+    """Resolve the thread id a pinned (human-facing) session must run on.
+
+    【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+    改了什么：``pinned_thread_id`` 交给 ``runs.wait`` 之前先探活；
+    上游 404（thread 确实不在）就按**同一个 thread_id** 补建（``if_exists="do_nothing"``）。
+    为什么：全仓只有 proactive 这条路径直接把库里的 thread_id 拿去跑，chat 侧
+    （``chat_session_service`` / ``goal_service`` / ``notify_continuation``）都先过
+    ``ensure_langgraph_thread_exists``。所以重启后老会话 404 全咬在值班/派单这一侧：
+    2026-11-27 07:46 现场两单，``ce27a8d1``（11-04 建）→ 404，``efd99386``（当日在用）→ 200，
+    新建 → 200；今日 6 次 / 昨日 66 次，同事一个字都没干就 failed。
+    为什么不换新 id：``evoflow_chat_sessions.thread_id`` 与历史消息都指向原 id，
+    换 id = thread 漂移，用户下一句接不上（第17轮已踩过这个坑）。
+    边界：只有 404 判「不存在」→ 补建；连接类错误沿用原 id（探不到≠没有，
+    此刻补建同样拿不到上游，让 ``runs.wait`` 报真实错更好定位）。
+
+    Returns ``(thread_id, state)`` where state ∈ ``{"reused", "repaired", "created"}``.
+    """
+    tid = str(pinned_thread_id or "").strip()
+    if not tid:
+        thread = await create_langgraph_thread(client, metadata=metadata)
+        return str(thread["thread_id"]), "created"
+
+    from evoflow.langgraph_run_config import (
+        ensure_langgraph_thread_exists,
+        is_thread_or_assistant_not_found_error,
+    )
+
+    probe_err: BaseException | None = None
+    try:
+        await client.threads.get(tid)
+    except Exception as exc:  # noqa: BLE001 — 分类判据在下面，不吞语义
+        probe_err = exc
+    if probe_err is None:
+        return tid, "reused"
+    if is_thread_or_assistant_not_found_error(probe_err):
+        repaired = await ensure_langgraph_thread_exists(client, tid, metadata=metadata)
+        return str(repaired), "repaired"
+    logger.debug(
+        "proactive.think.pinned_thread_probe_inconclusive thread_id=%s err=%s",
+        tid,
+        type(probe_err).__name__,
+    )
+    return tid, "reused"
 
 
 async def _cancel_running_langgraph_runs(
@@ -564,7 +616,6 @@ class ProactiveEngine:
         """
         import asyncio
 
-        from evoflow.langgraph_connectivity import create_langgraph_thread
         from evoflow.proactive.chat_session import (
             finalize_proactive_chat_session,
             prepare_proactive_chat_session,
@@ -587,24 +638,36 @@ class ProactiveEngine:
         # 取不到线程（老键被清/首轮）时退回新建，行为与改动前完全一致。
         _reuse_tid = str(pinned_thread_id or "").strip()
         _pinned_session = bool(str(pinned_session_key or "").strip())
-        if _reuse_tid:
-            thread_id = _reuse_tid
+        # 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+        # 改了什么：pinned thread 交给 `runs.wait` 前先探活，404 时按**同一 id**补建。
+        # 为什么不换新 id / 为什么只在这里修：见 `_resolve_pinned_thread` 的 docstring
+        # （chat 侧都走 `ensure_langgraph_thread_exists`，只有 proactive 这条路径直接复用库里
+        #  的 thread_id，所以重启后老会话 404 全咬在值班/派单这一侧）。
+        _thread_meta = {
+            "session_key": session_key,
+            "round_id": round_id,
+            "proactive_role": role.agent_code,
+            "source": "proactive_think",
+        }
+        thread_id, _thread_state = await _resolve_pinned_thread(
+            client,
+            pinned_thread_id=_reuse_tid,
+            metadata=_thread_meta,
+        )
+        if _thread_state == "reused" and _reuse_tid:
             logger.info(
                 "proactive.think.reuse_pinned_thread session_key=%s thread_id=%s",
                 session_key,
                 thread_id,
             )
-        else:
-            thread = await create_langgraph_thread(
-                client,
-                metadata={
-                    "session_key": session_key,
-                    "round_id": round_id,
-                    "proactive_role": role.agent_code,
-                    "source": "proactive_think",
-                },
+        elif _thread_state == "repaired":
+            logger.warning(
+                "proactive.think.pinned_thread_missing session_key=%s stale_thread=%s"
+                " repaired_thread=%s",
+                session_key,
+                _reuse_tid,
+                thread_id,
             )
-            thread_id = thread["thread_id"]
 
         related_task = str(task_id or "").strip() or None
         task_title = ""

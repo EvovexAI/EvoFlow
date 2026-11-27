@@ -762,6 +762,13 @@ async function boot() {
     } catch (e) {
       console.warn('[boot] startProactiveApprovalNotify failed', e)
     }
+    // 协作完成：桌面 toast +（仅盯着发起方时）V4 catchup；不强制 rebind
+    try {
+      const { startCollabChatCompleteNotify } = await import('./lib/collab-chat-complete-notify.js')
+      startCollabChatCompleteNotify()
+    } catch (e) {
+      console.warn('[boot] startCollabChatCompleteNotify failed', e)
+    }
   }
 
   initRouter(content, { chatHostEl: document.getElementById('chat-persistent-host') })

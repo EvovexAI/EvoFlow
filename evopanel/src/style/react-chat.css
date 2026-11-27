@@ -15595,6 +15595,22 @@ html.dark .react-chat-icon-stop-btn:hover {
   display: inline-flex;
   z-index: 1;
 }
+.react-chat-session-child-work-icon.is-employee {
+  width: 28px;
+  height: 28px;
+  padding: 2px;
+  overflow: hidden;
+}
+.react-chat-session-child-work-icon.is-employee .react-chat-session-child-work-icon__glyph {
+  border-radius: 999px;
+  overflow: hidden;
+  line-height: 0;
+}
+.react-chat-session-child-work-icon.is-employee .agent-avatar {
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 999px !important;
+}
 .react-chat-session-child-work-icon__spin {
   position: absolute;
   inset: 1px;

@@ -4,6 +4,7 @@ import {
   collectViewportAnomalies,
   formatAnomalyBadge,
   mergeStickyViewportAnomalies,
+  streamEntryIsTerminal,
 } from '../src/react/v4/v4-viewport-anomaly.ts'
 
 describe('collectViewportAnomalies', () => {
@@ -322,5 +323,60 @@ describe('collectViewportAnomalies', () => {
         }),
       ),
     ).toBe('')
+  })
+
+  // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】
+  // 现场诊断表 5 条异常里 2 条是判据自噪声：已收口的 cancelled 工具快照被当成
+  // 「流式仍在推」。终态事件必须挡在 extractStreamMaxRowId 之外。
+  it('ignores terminal (cancelled/complete) stream snapshots when computing streamMax', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      executing: true,
+      uiTurnSettled: false,
+      streamEntries: [
+        {
+          atMs: 999_600,
+          channel: 'v4',
+          sessionId: 'tid-1',
+          kindLabel: '工具',
+          summary: 'platform · cancelled',
+          headline: '#2300 工具',
+          jsonText: '{"action":"sessions.compact","status":"cancelled"}',
+        },
+      ],
+      windowRows: [
+        { rowId: 2210, kind: 'assistantText', state: 'complete', turnId: 't1' },
+      ],
+    })
+    expect(anomalies.some((a) => a.code === 'STREAM_AHEAD_OF_WINDOW')).toBe(false)
+    expect(streamEntryIsTerminal({
+      atMs: 0, channel: 'v4', sessionId: 'tid-1',
+      headline: '#2112 工具', kindLabel: '工具', summary: 'platform · cancelled', jsonText: '',
+    })).toBe(true)
+    expect(streamEntryIsTerminal({
+      atMs: 0, channel: 'v4', sessionId: 'tid-1',
+      headline: '#2111 快照 rows=74', kindLabel: '快照', summary: '', jsonText: '',
+    })).toBe(false)
+  })
+
+  // 贴底在内容真长高时必然大跳（现场 dH=±24427 与 Δ 等幅）；只有「高度没变还猛跳」
+  // 才是测高中间帧抢吸底。把必然位移算成异常会让每回合都挂一条假 warn。
+  it('does not flag scrollToBottom jumps that merely follow real height growth', () => {
+    const anomalies = collectViewportAnomalies({
+      ...base,
+      scrollEntries: [
+        { atMs: 999_000, jump: true, source: 'scrollToBottom', followingAttr: 'true', dTop: 24427, dHeight: 24427 },
+        { atMs: 999_100, jump: true, source: 'scrollToBottom', followingAttr: 'true', dTop: 24501, dHeight: 24427 },
+      ],
+    })
+    expect(anomalies.some((a) => a.code === 'FOLLOW_STREAM_JUMP')).toBe(false)
+    const stillReal = collectViewportAnomalies({
+      ...base,
+      scrollEntries: [
+        { atMs: 999_000, jump: true, source: 'scrollToBottom', followingAttr: 'true', dTop: 24427, dHeight: 0 },
+        { atMs: 999_100, jump: true, source: 'scrollToBottom', followingAttr: 'true', dTop: 24501, dHeight: 0 },
+      ],
+    })
+    expect(stillReal.some((a) => a.code === 'FOLLOW_STREAM_JUMP')).toBe(true)
   })
 })

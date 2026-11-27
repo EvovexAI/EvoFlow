@@ -56,6 +56,7 @@ import {
   resolveRendererMemoryLevel,
   shouldContinueCriticalEviction,
 } from "../lib/renderer-memory-pressure.js";
+import { noteChatTurnStreamActivity } from "../lib/chat-turn-timing-log.js";
 import { shrinkAllLiveProjectionWindows } from "../../zcode-ui/v4/conversationProjectionStore.js";
 
 export interface V4TimelinePayload {
@@ -327,6 +328,12 @@ function _pushPinBusyFromStore(
       setV4TimelineBusy(sk, busy);
       if (busy) {
         noteSessionEvent(sk, rt, { at: Date.now(), silent: true });
+        // 长跑工具轮：V4 投影还在 bump 就续命收口看门狗，避免 5min 误报 stream_end_missing
+        noteChatTurnStreamActivity({
+          sessionKey: sk,
+          kind: "tool",
+          preview: "V4 投影更新",
+        });
       }
     } catch {
       /* best-effort */

@@ -46,7 +46,7 @@ async function loadDeptMeta(deptId: string): Promise<DeptChatMeta | null> {
     const rows = await loadDeptChatList({ force: !cached?.members?.length })
     const hit = rows.find((d) => d.id === deptId)
     if (hit) {
-      rememberDeptChatMeta(hit)
+      rememberDeptChatMeta(hit, { focus: false, touchTitle: false })
       return hit
     }
     return cached

@@ -636,18 +636,50 @@ export function ShellSessionList({
   }, [displaySelectedKey])
 
   /**
-   * 冷启动 / 切到员工会话：若员工筛选与当前选中会话岗位不一致，清到「全部员工」，
-   * 避免右侧已打开某员工会话、左侧因筛选隐藏该行。运行时点选会话不改写筛选（见下方注释）。
+   * 冷启动：刷新/重启后已恢复员工会话时，左侧 BOT 筛选对齐到该岗位。
+   * 旧逻辑在不一致时清成「全部员工」，展开侧栏会落到花名册第一个，与当前对话对不上。
+   * 仅同步一次；之后「全部员工」/点选会话仍不强制改写（见 openNewEmployeeChat / 右键「只看此人」）。
+   */
+  const employeeFocusColdSyncedRef = useRef(false)
+  useEffect(() => {
+    if (employeeFocusColdSyncedRef.current) return
+    if (!displaySelectedKey) return
+    if (
+      !isProactiveSessionKey(displaySelectedKey) ||
+      isDeptChatSessionKey(displaySelectedKey)
+    ) {
+      employeeFocusColdSyncedRef.current = true
+      return
+    }
+    const code = String(proactiveAgentCodeFromSessionKey(displaySelectedKey) || '').trim()
+    if (!code) {
+      employeeFocusColdSyncedRef.current = true
+      return
+    }
+    employeeFocusColdSyncedRef.current = true
+    const focused = String(focusedEmployeeCodeRef.current || '').trim()
+    if (focused && focused.toLowerCase() === code.toLowerCase()) return
+    setFocusedEmployeeCode(code)
+    saveFocusedEmployeeCode(code)
+    setFocusedBotDeptKey(null)
+    saveFocusedBotDeptKey(null)
+  }, [displaySelectedKey])
+
+  /**
+   * 运行中：若已锁定「只看某人」但与当前员工会话岗位不一致，对齐到会话岗位
+   * （不清成全部，避免侧栏又回到花名册第一个）。
+   * focused 为空表示用户刻意看全部，不改写。
    */
   useEffect(() => {
     if (!displaySelectedKey || !isProactiveSessionKey(displaySelectedKey)) return
-    const focused = focusedEmployeeCodeRef.current
+    if (isDeptChatSessionKey(displaySelectedKey)) return
+    const focused = String(focusedEmployeeCodeRef.current || '').trim()
     if (!focused) return
-    const code = proactiveAgentCodeFromSessionKey(displaySelectedKey)
+    const code = String(proactiveAgentCodeFromSessionKey(displaySelectedKey) || '').trim()
     if (!code) return
     if (focused.toLowerCase() === code.toLowerCase()) return
-    setFocusedEmployeeCode(null)
-    saveFocusedEmployeeCode(null)
+    setFocusedEmployeeCode(code)
+    saveFocusedEmployeeCode(code)
   }, [displaySelectedKey])
 
   /** 进入员工 Tab：已有数据则静默补拉，避免再亮一次底部 loading */
@@ -1164,7 +1196,7 @@ export function ShellSessionList({
     [toppedRankMap],
   )
 
-  // 「只看此人」只跟右键菜单手动选择走：点进某会话不改写筛选。
+  // 「只看此人」：右键菜单 / 开新员工对话会写入；点进某会话不改写（冷启动对齐见上方 effect）。
 
   useEffect(() => {
     if (!botDeptMenuOpen) return
@@ -1195,11 +1227,19 @@ export function ShellSessionList({
     (agentCode: string) => {
       const code = String(agentCode || '').trim()
       if (!code) return
+      // 与会话一并锁定左侧，刷新后冷启动才能对上人（不只依赖右键「只看此人」）
+      setFocusedEmployeeCode(code)
+      saveFocusedEmployeeCode(code)
+      setFocusedBotDeptKey(null)
+      saveFocusedBotDeptKey(null)
       const stamp = new Date().toISOString().replace(/[:/\\]/g, '-')
       const sk = `proactive:${code}:chat:${stamp}`
       clearPendingShellSession()
       try {
         sessionStorage.setItem(SS_PENDING_SHELL_SESSION, sk)
+        // 提前写下员工面，避免进聊前 refresh 先把主区填成部门群聊
+        localStorage.setItem('evopanel_last_employee_session', sk)
+        localStorage.setItem('evopanel_last_chat_surface', 'employee')
       } catch {
         /* ignore */
       }
@@ -1213,7 +1253,7 @@ export function ShellSessionList({
   const openDeptGroupChat = useCallback(
     (dept: DeptChatMeta) => {
       try {
-        rememberDeptChatMeta(dept)
+        rememberDeptChatMeta(dept, { focus: true })
       } catch {
         /* ignore */
       }

@@ -796,31 +796,40 @@ export async function handleSend(
         suppressNextAbortToastRef.current = true
         // 只掐本地 SSE wire。勿 api.chatAbort：它会 emit state=aborted，
         // 排队续发/新发送会被当成「用户停止」（V4 completedInterrupted）。
-        void import('../../lib/stream-stop-log.js')
-          .then(({ logStreamStop }) => {
-            logStreamStop({
-              sessionKey,
-              trigger: 'send_prep_abort_stale_stream',
-              hasEndMarker: false,
-              detail: {
-                whoZh: stalledPrior?.stalled
-                  ? '上一轮还在等首帧，新发送前清理旧 SSE（非用户点停）'
-                  : '新发送前清理旧 SSE wire（非用户点停）',
-                note: 'handleSend 预备：abortStreamWire 清旧 wire；不 emit aborted、不调 execution/stop',
-                stalledPriorMs: stalledPrior?.sinceMs ?? undefined,
-                stalledPriorPreview: stalledPrior?.textPreview
-                  ? String(stalledPrior.textPreview).slice(0, 80)
-                  : undefined,
-                stalledPriorWire: stalledPrior?.wireLogged ?? undefined,
-                stalledPriorRunStarted: stalledPrior?.runStartedLogged ?? undefined,
-              },
-            })
-          })
-          .catch(() => {})
+        // 【self-evolution-bot · 2026-11-26 · 第133轮 · 模型:deepseek-v4-1-flash-261017】先问「有没有活 wire 可掐」，
+        // 只有真掐到才记 send_prep 日志；无 wire 时 abortStreamWire 返回 false，属正常空转（不是断流）。
+        // 原因：现网 131 条 send_prep 全被记成 abnormal/ERROR，其中 89 条上一事件已是 sse_final——
+        //       诊断表把它们当「异常断流」，把真问题埋了。
+        let abortedLiveWire = false
         try {
-          wsClient.abortStreamWire(sessionKey)
+          abortedLiveWire = !!wsClient.abortStreamWire(sessionKey)
         } catch {
           /* ignore */
+        }
+        if (abortedLiveWire) {
+          // 只有真掐断了一条活跃 wire 才记（否则这条事件根本没发生）。
+          // kind 交给 stream-stop-log 的「预备动作」判据归为 normal，不再冒充异常断流。
+          void import('../../lib/stream-stop-log.js')
+            .then(({ logStreamStop }) => {
+              logStreamStop({
+                sessionKey,
+                trigger: 'send_prep_abort_stale_stream',
+                hasEndMarker: false,
+                detail: {
+                  whoZh: stalledPrior?.stalled
+                    ? '上一轮还在等首帧，新发送前清理旧 SSE（非用户点停）'
+                    : '新发送前清理旧 SSE wire（非用户点停）',
+                  note: 'handleSend 预备：abortStreamWire 确实掐掉了一条活跃 wire；不 emit aborted、不调 execution/stop',
+                  stalledPriorMs: stalledPrior?.sinceMs ?? undefined,
+                  stalledPriorPreview: stalledPrior?.textPreview
+                    ? String(stalledPrior.textPreview).slice(0, 80)
+                    : undefined,
+                  stalledPriorWire: stalledPrior?.wireLogged ?? undefined,
+                  stalledPriorRunStarted: stalledPrior?.runStartedLogged ?? undefined,
+                },
+              })
+            })
+            .catch(() => {})
         }
       } catch {
         /* ignore */

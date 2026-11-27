@@ -66,6 +66,10 @@ let stallWatchTimer: ReturnType<typeof setInterval> | null = null
 /** 本轮已打过的首字阈值（ms），避免重复刷 */
 const stallStepsFired = new Set<number>()
 let streamEndWatchTimer: ReturnType<typeof setTimeout> | null = null
+/**
+ * 收口静默阈值：距**最近一次流式活动**超过此时长仍无 stream_end 才记 `stream_end_missing`。
+ * 长跑工具轮（十余分钟～一小时）只要 V4/工具还在推事件就不该误报「流死了」。
+ */
 const STREAM_END_DEAD_MS = 5 * 60_000
 
 export type ChatTurnSendTrace = {
@@ -73,6 +77,8 @@ export type ChatTurnSendTrace = {
   startedAt: number
   textPreview: string
   attachmentCount: number
+  /** 最近一次可见流式活动（首包 / 工具 / V4 投影 bump） */
+  lastActivityAt?: number
   /** 中文「点击发送」是否已落盘（避免 Composer + handle-send 双记） */
   sendClickLogged?: boolean
   firstResponseLogged?: boolean
@@ -413,12 +419,19 @@ export function classifyChatTurnTimingVerdict(
   if (row.firstResponseAt == null && age >= 12_000) {
     return { level: 'warn', zh: '等首字中' }
   }
-  if (
-    row.firstResponseAt != null &&
-    row.streamEndAt == null &&
-    age >= STREAM_END_DEAD_MS
-  ) {
-    return { level: 'error', zh: '久等无收口' }
+  if (row.firstResponseAt != null && row.streamEndAt == null) {
+    // 未收口：只在「整轮已超过静默阈值」时升 error；长跑有活动仍算流式中。
+    // 活动心跳在 sendTrace.lastActivityAt；无 sendTrace 时退回 sendAt+age 旧逻辑。
+    const silentFor =
+      sendTrace &&
+      sendTrace.startedAt === row.sendAt &&
+      typeof sendTrace.lastActivityAt === 'number'
+        ? Math.max(0, nowMs - sendTrace.lastActivityAt)
+        : age
+    if (silentFor >= STREAM_END_DEAD_MS) {
+      return { level: 'error', zh: '久等无收口' }
+    }
+    return { level: 'pending', zh: '流式中' }
   }
   if (row.firstResponseAt != null) {
     return { level: 'pending', zh: '流式中' }
@@ -949,12 +962,21 @@ function armStreamEndWatch(): void {
   if (typeof window === 'undefined' || !sendTrace) return
   const startedAt = sendTrace.startedAt
   const sessionKey = sendTrace.sessionKey
+  const lastAct = sendTrace.lastActivityAt || sendTrace.startedAt
+  const waitMs = Math.max(250, STREAM_END_DEAD_MS - Math.max(0, Date.now() - lastAct))
   streamEndWatchTimer = setTimeout(() => {
     streamEndWatchTimer = null
     if (!sendTrace || sendTrace.startedAt !== startedAt) return
     if (sendTrace.streamEndLogged || !sendTrace.firstResponseLogged) return
-    const since = Math.max(0, Date.now() - sendTrace.startedAt)
-    const zh = `整轮未收口：已有首字但 ${since}ms 仍无 stream_end · 可能挂死或只停了 UI busy`
+    const now = Date.now()
+    const silentFor = Math.max(0, now - (sendTrace.lastActivityAt || sendTrace.startedAt))
+    // 期间又有工具/投影活动 → 只续命，不报死
+    if (silentFor < STREAM_END_DEAD_MS) {
+      armStreamEndWatch()
+      return
+    }
+    const since = Math.max(0, now - sendTrace.startedAt)
+    const zh = `整轮未收口：已有首字且静默 ${silentFor}ms 仍无 stream_end · 距发送 ${since}ms · 可能挂死或只停了 UI busy`
     emit(
       zh,
       {
@@ -963,6 +985,7 @@ function armStreamEndWatch(): void {
         sessionKey: sendTrace.sessionKey || sessionKey || undefined,
         runId: sendTrace.runId || undefined,
         sinceSendMs: since,
+        silentForMs: silentFor,
         wireLogged: true,
         runStartedLogged: true,
         firstResponseLogged: true,
@@ -971,7 +994,7 @@ function armStreamEndWatch(): void {
     )
     pushAnomaly({
       id: `stream_end_missing-${startedAt}`,
-      at: Date.now(),
+      at: now,
       sessionKey: sendTrace.sessionKey || sessionKey || '',
       event: 'stream_end_missing',
       stage: 'await_stream_end',
@@ -983,7 +1006,42 @@ function armStreamEndWatch(): void {
       zh,
       runId: sendTrace.runId,
     })
-  }, STREAM_END_DEAD_MS)
+  }, waitMs)
+}
+
+/** 投影帧风暴里不要每个 delta 都 clearTimeout/setTimeout */
+let lastStreamEndRearmAt = 0
+const STREAM_END_REARM_MIN_MS = 10_000
+
+/**
+ * V4 投影 / 工具卡仍在推时调用：续命收口看门狗，避免长跑误报 stream_end_missing。
+ * 若尚未记首包，顺带按 tool 记一帧（工具可见即算「流活着」）。
+ */
+export function noteChatTurnStreamActivity(opts?: {
+  sessionKey?: string | null
+  kind?: 'text' | 'reasoning' | 'tool' | 'other'
+  preview?: string | null
+}): void {
+  const sessionKey = String(opts?.sessionKey || '').trim()
+  if (!sendTrace) return
+  if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
+  if (sendTrace.streamEndLogged) return
+  const now = Date.now()
+  sendTrace.lastActivityAt = now
+  if (!sendTrace.firstResponseLogged) {
+    logChatTurnFirstResponse({
+      sessionKey: sessionKey || sendTrace.sessionKey,
+      kind: opts?.kind || 'tool',
+      preview: opts?.preview || '流式活动',
+      eventType: 'stream_activity',
+      runId: sendTrace.runId || undefined,
+      gatedByV4: true,
+    })
+    return
+  }
+  if (now - lastStreamEndRearmAt < STREAM_END_REARM_MIN_MS) return
+  lastStreamEndRearmAt = now
+  armStreamEndWatch()
 }
 
 /**
@@ -1342,6 +1400,7 @@ export function logChatTurnFirstResponse(opts: {
   if (sendTrace) {
     if (sessionKey && sendTrace.sessionKey && sessionKey !== sendTrace.sessionKey) return
     sendTrace.firstResponseLogged = true
+    sendTrace.lastActivityAt = Date.now()
     if (sessionKey && !sendTrace.sessionKey) sendTrace.sessionKey = sessionKey
   }
   clearUnansweredIfMatched(sessionKey || sendTrace?.sessionKey)
