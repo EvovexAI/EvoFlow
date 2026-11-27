@@ -209,8 +209,41 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
     // 行必须接受（否则屏幕永远停在旧窗口）
     expect(merged.rows.window.map((r) => r.rowId)).toEqual([80, 90, 91]);
-    // seq 不得倒退，否则下一帧 delta 的 fromSeq 对不上又断档一轮
-    expect(Number(merged.seq)).toBeGreaterThanOrEqual(17);
+    // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+    // 水位必须跟随 hub（=1），不许被本地抬高到 17。
+    // 我上一版这里断言的是 `>= 17`，理由是「避免下一帧 fromSeq 对不上」——理由反了：
+    // hub remint 后就是从 seq=1 起步，本地抬到 17 会让 applyDelta 规则 2a
+    // （`frame.toSeq <= current.seq` 静默丢弃）把后续每一帧流式内容全吞掉，
+    // 屏幕那头就是「发了没反应」。行可以比 hub 多，水位必须跟 hub 一致。
+    expect(Number(merged.seq)).toBe(1);
+  });
+
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+  // 上一条用例命中的是「older/newer 都空 → 直接 return incoming」的早退分支，
+  // 粘回合并的出口（`return { ...incoming, seq: ... }`）根本没被走到 →
+  // 我把出口改回旧 `Math.max(incSeq, prevSeq)` 反向验证照样全绿（自撞一次）。
+  // 这条用例必须让 older 非空（旧行落在新窗首之前），才会真走到出口。
+  it("粘回更早行时水位仍跟随 hub（remint 后 seq=1 不得被本地抬回 17）", () => {
+    const previous = snap(
+      [textRow(70, "t333", "上拉补进的老行"), textRow(80, "t6666", "666")],
+      { firstRowId: 1, totalCount: 90 },
+    );
+    previous.seq = 17;
+    const incoming = snap(
+      [
+        textRow(80, "t6666", "666"),
+        { ...textRow(90, "t777", "777"), kind: "userInput", origin: "realUser", text: "啊" } as ConversationRow,
+        textRow(91, "t777", "这声「啊」,听着像刚想起什么又忘了。"),
+      ],
+      { firstRowId: 1, totalCount: 91 },
+    );
+    incoming.seq = 1;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    // 更早行必须被粘回（上滚进度不能丢）
+    expect(merged.rows.window.map((r) => r.rowId)).toEqual([70, 80, 90, 91]);
+    // 但水位必须跟 hub=1：抬回 17 会让 applyDelta 规则 2a 把后续流式帧全吞掉
+    expect(Number(merged.seq)).toBe(1);
   });
 
   // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】

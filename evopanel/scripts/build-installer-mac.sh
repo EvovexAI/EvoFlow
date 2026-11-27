@@ -56,6 +56,26 @@ fi
 echo "[build-installer-mac] gateway bundle: ${GATEWAY_DIR} (dir)"
 echo "[build-installer-mac] gateway executable: ${GATEWAY_EXE} ($(du -h "${GATEWAY_EXE}" | cut -f1))"
 
+# GHA macOS x64: after the first `tauri build --bundles app`, a subsequent
+# full rebuild fingerprints every resource via cargo:rerun-if-changed and can
+# hit `Permission denied (os error 13)` on the large local-embed weight
+# (model.safetensors). Ensure owner rwx before any Tauri/Cargo pass.
+ensure_gateway_readable() {
+  if [[ ! -d "${GATEWAY_DIR}" ]]; then
+    return 0
+  fi
+  chmod -R u+rwX "${GATEWAY_DIR}" 2>/dev/null || true
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "${GATEWAY_DIR}" 2>/dev/null || true
+  fi
+  local weight="${GATEWAY_DIR}/tools/local-embed/models/BAAI/bge-small-zh-v1.5/model.safetensors"
+  if [[ -e "${weight}" ]]; then
+    chmod u+rw "${weight}" 2>/dev/null || true
+    echo "[build-installer-mac] embed weight: $(ls -la "${weight}" 2>/dev/null || echo missing)"
+  fi
+}
+ensure_gateway_readable
+
 cd "${EVOPANEL_DIR}"
 
 # Wipe stale Vite output so orphaned public/ copies cannot re-enter the DMG.
@@ -122,11 +142,23 @@ export NODE_OPTIONS="--max-old-space-size=8192"
 echo "[build-installer-mac] NODE_OPTIONS=${NODE_OPTIONS}"
 
 echo "[build-installer-mac] building .app (no dmg yet)..."
+ensure_gateway_readable
 npm run tauri -- "${TAURI_BUILD_ARGS[@]}" --bundles app
+
+# Bundle-only for DMG: do NOT re-run `tauri build` (that re-fingerprints every
+# gateway resource and was the Permission-denied failure mode on GHA macOS x64).
+TAURI_BUNDLE_ARGS=(bundle --verbose --ci)
+if [[ -n "${NOCONFIG}" ]]; then
+  TAURI_BUNDLE_ARGS+=("${NOCONFIG}")
+fi
+if [[ -n "${TAURI_BUILD_TARGET:-}" ]]; then
+  TAURI_BUNDLE_ARGS+=(--target "${TAURI_BUILD_TARGET}")
+fi
 
 DMG_ATTEMPTS="${TAURI_DMG_ATTEMPTS:-5}"
 dmg_ok=0
 for i in $(seq 1 "${DMG_ATTEMPTS}"); do
+  ensure_gateway_readable
   cleanup_hdiutil_state
   if [[ "${i}" -gt 1 ]]; then
     delay=$(( (i - 1) * 8 ))
@@ -135,7 +167,7 @@ for i in $(seq 1 "${DMG_ATTEMPTS}"); do
   else
     echo "[build-installer-mac] bundling DMG (attempt ${i}/${DMG_ATTEMPTS})..."
   fi
-  if npm run tauri -- "${TAURI_BUILD_ARGS[@]}" --bundles dmg; then
+  if npm run tauri -- "${TAURI_BUNDLE_ARGS[@]}" --bundles dmg; then
     dmg_ok=1
     break
   fi
@@ -143,7 +175,7 @@ for i in $(seq 1 "${DMG_ATTEMPTS}"); do
 done
 
 if [[ "${dmg_ok}" -ne 1 ]]; then
-  echo "[build-installer-mac] ERROR: DMG bundling failed after ${DMG_ATTEMPTS} attempts (hdiutil Resource busy?)"
+  echo "[build-installer-mac] ERROR: DMG bundling failed after ${DMG_ATTEMPTS} attempts (check hdiutil Resource busy / resource Permission denied)"
   exit 1
 fi
 

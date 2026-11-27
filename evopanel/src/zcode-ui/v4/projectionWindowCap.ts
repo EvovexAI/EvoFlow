@@ -54,6 +54,17 @@ export const PROJECTION_WINDOW_BALLOON_RATIO = 1.5;
 
 const MIN_KEEP = 40;
 const LIGHT_TOOL_TEXT_CAP = 2_048;
+/**
+ * 瘦身标记。必须参与「是否还需要裁」的判据，否则裁完的文本长度
+ * = 2048 + 标记长度 > 上限，每轮巡检都判成「还要裁」→ 每次重建新对象
+ * → 内存巡检 2s 一轮永不收敛。
+ *
+ * 【self-evolution-bot · 2026-11-27 · 第136轮 · 模型:deepseek-v4-1-flash-261017】
+ * 现网实证：空闲段 03:00–07:00 发生 8074 次 mem_pressure_evict_warm，其中
+ * 7835 次 shrunk=3（恒定 3 个 store），白天活跃段也只有 2341/2838 是 shrunk=3。
+ * 即「有没有对话」都在裁——不是内存真的紧，是幂等性缺陷在空转。
+ */
+const TRIM_MARK = "\n…[trimmed for memory]";
 
 /**
  * 直播轮行数顶满 / 超过 softCap 时，仍至少留给「上一问」的锚点预算。
@@ -775,7 +786,12 @@ function lightenToolCallRow(
     ? (output as { text: string }).text
     : "";
   const hasDisplay = (output as { display?: unknown }).display != null;
-  const needsTextTrim = text.length > LIGHT_TOOL_TEXT_CAP;
+  // 【self-evolution-bot · 2026-11-27 · 第136轮 · 模型:deepseek-v4-1-flash-261017】
+  // 已带标记的行不再裁：裁过之后的长度 = 2048 + 标记，恒 > 2048，原来那句
+  // `text.length > LIGHT_TOOL_TEXT_CAP` 永远为真 → 每轮巡检都重建对象、
+  // 回一个「变了」，shrunk 计数永不归零（现网 7835/8074 次 shrunk=3 的来源）。
+  const alreadyTrimmed = text.endsWith(TRIM_MARK);
+  const needsTextTrim = !alreadyTrimmed && text.length > LIGHT_TOOL_TEXT_CAP;
   const needsDisplayDrop = opts?.stripDisplay === true && hasDisplay;
   if (!needsTextTrim && !needsDisplayDrop) return row;
   return {
@@ -783,7 +799,7 @@ function lightenToolCallRow(
     output: {
       ...output,
       text: needsTextTrim
-        ? `${text.slice(0, LIGHT_TOOL_TEXT_CAP)}\n…[trimmed for memory]`
+        ? `${text.slice(0, LIGHT_TOOL_TEXT_CAP)}${TRIM_MARK}`
         : text,
       ...(needsDisplayDrop ? { display: undefined } : {}),
     },

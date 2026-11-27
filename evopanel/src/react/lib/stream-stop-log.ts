@@ -23,7 +23,7 @@
  */
 
 import { logChatRuntimeTurn } from './chat-runtime-log.js'
-import { logChatTurnStreamEnd } from './chat-turn-timing-log.js'
+import { logChatTurnStreamEnd, type ChatTurnStreamEndOutcome } from './chat-turn-timing-log.js'
 
 const PREFIX = '[stream-stop]'
 const DEDUPE_MS = 8_000
@@ -541,20 +541,46 @@ export function logStreamStop(input: StreamStopLogInput): StreamStopKind {
   }
 
   // 回合生命周期专属文件：只在「流真正收口」记 stream_end（点停按钮本身不算结束）
-  const isLifecycleEnd =
-    trigger === 'sse_final' ||
-    trigger === 'sse_aborted' ||
-    trigger === 'stream_error' ||
-    trigger === 'sse_aborted_after_ui_stop'
-  if (isLifecycleEnd) {
-    const outcome =
-      trigger === 'sse_final'
-        ? 'sse_final'
-        : trigger === 'stream_error'
-          ? 'stream_error'
-          : trigger === 'sse_aborted_after_ui_stop'
-            ? 'ui_stop'
-            : 'sse_aborted'
+  // 【self-evolution-bot · 2026-11-27 · 第138轮 · 模型:deepseek-v4-1-flash-261017】
+  // 修：白名单原来只收 4 个 trigger，其余收口路径一律不写 stream_end →「未收口率」虚高。
+  // 现网取证（frontend-2026-11-27.log 全量 55 条 [stream-stop] 分桶）：
+  //   sse_final 26 / client_attach_skip 5 / stop_api_done 5 / stop_runtime_idle 5 /
+  //   ui_idle_after_stop 5 / interrupt_flush_queue 3 / sse_aborted_after_ui_stop 3 /
+  //   composer_stop_button 2 / stale_busy_poll_clear 1
+  // AG-UI 终态（agui_run_error / agui_model_error_finished）、user_interrupt_error、
+  // activity_model_error、stale_* watchdog、refresh_backend_done、client_attach*
+  // 都是「这一轮确实结束了」，必须落 stream_end，否则统计把它们全算成没收口。
+  // （stop_api_done / stop_runtime_idle / ui_idle_after_stop 是点停后的进度行，
+  //   真收口由 sse_aborted_after_ui_stop 记，故不重复计入。）
+  const LIFECYCLE_END_TRIGGERS: Record<string, ChatTurnStreamEndOutcome> = {
+    sse_final: 'sse_final',
+    sse_aborted: 'sse_aborted',
+    stream_error: 'stream_error',
+    sse_aborted_after_ui_stop: 'ui_stop',
+    // 用户点停本身：点停按钮即为「这一轮结束」，收口方式 ui_stop
+    composer_stop_button: 'ui_stop',
+    shell_sidebar_stop: 'ui_stop',
+    v4_stop_button: 'ui_stop',
+    v4_escape: 'ui_stop',
+    user_interrupt_error: 'ui_stop',
+    // AG-UI 终态：模型/运行错误是正常终态（不再有后续 delta），算收口
+    agui_run_error: 'other',
+    agui_model_error_finished: 'other',
+    activity_model_error: 'other',
+    // 看门狗/后端确认结束：前端强制收尾，也是真结束
+    stale_sending_watchdog: 'other',
+    stale_busy_poll_clear: 'other',
+    stale_turn_watchdog: 'other',
+    refresh_backend_done: 'other',
+    client_attach: 'other',
+    client_restart: 'other',
+    // 【self-evolution-bot · 2026-11-27 · 第138轮】故意**不收** *_skip：
+    // `client_attach_skip` / `client_restart_skip` 的 whoZh 写的是「默认未批量停止 panel run」，
+    // 即这一轮并没有被结束；把它算成收口就是谎报「界面已停止转圈」。
+  }
+  const lifecycleOutcome = LIFECYCLE_END_TRIGGERS[trigger]
+  if (lifecycleOutcome) {
+    const outcome = lifecycleOutcome
     const errMsg =
       typeof detail?.errMsg === 'string' && detail.errMsg.trim()
         ? detail.errMsg.trim().slice(0, 200)

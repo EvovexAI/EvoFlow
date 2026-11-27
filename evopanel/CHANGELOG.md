@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.58] - 2026-11-27
+
+相对 **1.3.57**：修复 macOS x64 DMG（Permission denied）；会话列表按组加载更多；V4 remint/rehydrate 与内存压力。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.58.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **macOS x64 正式包**：DMG 重试用 `tauri bundle` + embed 权重可读，避免 cargo 指纹 Permission denied
+- **会话列表**：分组树「加载更多」挂组内
+- **V4 尾快照**：remint / rehydrate 场景处理更准
+
+### Changed
+
+- **渲染内存压力 / 投影窗**：cap 与停流日志
+- **数据保留 / 执行态查询**：后台与查询补强
+
 ## [1.3.57] - 2026-11-27
 
 相对 **1.3.56**：补回被 gitignore 误忽略的待发送队列会话模块，正式包前端构建可过。

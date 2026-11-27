@@ -159,6 +159,21 @@ describe('lightenProjectionRowsForMemory', () => {
     const rows = [row(1), row(2), heavyTool(3)]
     expect(lightenProjectionRowsForMemory(rows, 60)).toBe(rows)
   })
+
+  it('is idempotent: already-trimmed rows are not re-trimmed on the next pass', () => {
+    // 【self-evolution-bot · 2026-11-27 · 第136轮 · 模型:deepseek-v4-1-flash-261017】
+    // 回归锁：裁过的文本长度 = 上限 + 标记，若判据只看 length > 上限，第二遍仍会重建
+    // 新对象并回「变了」→ 内存巡检每 2s 一轮永不收敛（现网空闲段 8074 次 evict、
+    // 7835 次 shrunk=3 就是它）。反向验证：把 alreadyTrimmed 判据去掉，本用例必红。
+    const rows: ConversationRow[] = []
+    for (let i = 1; i <= 100; i += 1) {
+      rows.push(i <= 40 ? heavyTool(i) : row(i))
+    }
+    const first = lightenProjectionRowsForMemory(rows, 60, { stripDisplay: true })
+    expect(first).not.toBe(rows)
+    const second = lightenProjectionRowsForMemory(first, 60, { stripDisplay: true })
+    expect(second).toBe(first)
+  })
 })
 
 describe('ensureLiveTurnInProjectionWindow', () => {

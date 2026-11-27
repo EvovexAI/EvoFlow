@@ -14,6 +14,10 @@ type EmployeeGroupContextMenuPortalProps = {
   focused?: boolean
   /** 该员工下是否有正在执行的会话 */
   canStop?: boolean
+  /** 组下会话数；>0 时显示「删除全部会话」 */
+  sessionCount?: number
+  /** 飞书 ou_/oc_ 等非花名册渠道组：弱化「打开 BOT 页」 */
+  isChannelOrphan?: boolean
   onClose: () => void
   onFocusOnly: () => void
   onClearFocus?: () => void
@@ -21,12 +25,15 @@ type EmployeeGroupContextMenuPortalProps = {
   onRefresh?: () => void
   onStop?: () => void
   onOpenEmployeePage: () => void
+  onDeleteAllSessions?: () => void
 }
 
 export function EmployeeGroupContextMenuPortal({
   menu,
   focused = false,
   canStop = false,
+  sessionCount = 0,
+  isChannelOrphan = false,
   onClose,
   onFocusOnly,
   onClearFocus,
@@ -34,6 +41,7 @@ export function EmployeeGroupContextMenuPortal({
   onRefresh,
   onStop,
   onOpenEmployeePage,
+  onDeleteAllSessions,
 }: EmployeeGroupContextMenuPortalProps) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null)
@@ -118,13 +126,24 @@ export function EmployeeGroupContextMenuPortal({
           停止执行
         </button>
       ) : null}
-      <button
-        type="button"
-        className="react-chat-workspace-context-menu-item"
-        onClick={() => onOpenEmployeePage()}
-      >
-        打开 BOT 页
-      </button>
+      {!isChannelOrphan ? (
+        <button
+          type="button"
+          className="react-chat-workspace-context-menu-item"
+          onClick={() => onOpenEmployeePage()}
+        >
+          打开 BOT 页
+        </button>
+      ) : null}
+      {sessionCount > 0 && onDeleteAllSessions ? (
+        <button
+          type="button"
+          className="react-chat-workspace-context-menu-item react-chat-workspace-context-menu-item--danger"
+          onClick={() => onDeleteAllSessions()}
+        >
+          {isChannelOrphan ? '清理渠道会话' : `删除全部会话（${sessionCount}）`}
+        </button>
+      ) : null}
     </div>,
     document.body,
   )

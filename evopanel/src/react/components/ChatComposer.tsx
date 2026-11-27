@@ -771,6 +771,10 @@ export const ChatComposer = memo(function ChatComposer({
         return
       }
       logChatTurnSendClick({
+        // 【self-evolution-bot · 2026-11-27 · 第137轮 · 模型:deepseek-v4-1-flash-261017】
+        // 补 sessionKey：此前漏传，导致 frontend 日志里 40 条 send_click 只有 3 条带会话号，
+        // 「发出去有没有收口」只能靠时序反推（容差配对会误判跨日志的那一轮）。传了就 100% 精确。
+        sessionKey,
         text: t,
         attachmentCount: 0,
         source: 'composer_queue_while_busy',
@@ -821,6 +825,9 @@ export const ChatComposer = memo(function ChatComposer({
       return
     }
     logChatTurnSendClick({
+      // 【self-evolution-bot · 2026-11-27 · 第137轮 · 模型:deepseek-v4-1-flash-261017】
+      // 同上一处：这是主发送路径（点发送按钮），漏传会话号让统计只能靠时序反推。
+      sessionKey,
       text: t,
       attachmentCount: attachments.length,
       source: 'composer_send_button',

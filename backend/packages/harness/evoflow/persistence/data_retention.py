@@ -971,21 +971,51 @@ def purge_orphan_checkpoints(
         conn.close()
 
 
+_pending_rebuild_fail_until: dict[str, float] = {}
+
+
 def apply_pending_sqlite_rebuild(db_path: Path) -> bool:
     """Install ``{db}.rebuild`` over *db_path* when a prior VACUUM INTO could not rename.
 
-    Call before opening the live DB (Gateway startup). Returns True when swapped.
+    Call once from Gateway cold start / retention — **not** from ``ensure_data_layout``
+    (hot path). Returns True when swapped.
+
+    Safety: if the live DB was written after the rebuild file (mtime), the rebuild
+    is stale and would clobber newer rows — delete it instead of applying.
     """
+    import time
+
     rebuilt = db_path.with_suffix(db_path.suffix + ".rebuild")
     if not rebuilt.is_file() or rebuilt.stat().st_size <= 0:
         return False
-    if db_path.is_file() and rebuilt.stat().st_size >= db_path.stat().st_size:
-        # Rebuild not smaller — likely stale; drop it.
-        try:
-            rebuilt.unlink()
-        except OSError:
-            pass
+    key = str(db_path.resolve())
+    now = time.monotonic()
+    cool_until = _pending_rebuild_fail_until.get(key, 0.0)
+    if now < cool_until:
         return False
+    try:
+        live_stat = db_path.stat() if db_path.is_file() else None
+        rebuild_stat = rebuilt.stat()
+    except OSError:
+        return False
+    if live_stat is not None:
+        # Stale snapshot: live grew / was written after vacuum-into finished.
+        if rebuild_stat.st_mtime < live_stat.st_mtime - 1.0:
+            logger.info(
+                "discard stale sqlite rebuild %s (live newer mtime); not applying",
+                rebuilt.name,
+            )
+            try:
+                rebuilt.unlink()
+            except OSError:
+                pass
+            return False
+        if rebuild_stat.st_size >= live_stat.st_size:
+            try:
+                rebuilt.unlink()
+            except OSError:
+                pass
+            return False
     backup = db_path.with_suffix(db_path.suffix + ".bak")
     try:
         if backup.exists():
@@ -1005,6 +1035,7 @@ def apply_pending_sqlite_rebuild(db_path: Path) -> bool:
                 backup.unlink()
             except OSError:
                 pass
+        _pending_rebuild_fail_until.pop(key, None)
         logger.info(
             "applied pending sqlite rebuild %s -> %s (%.2f GB)",
             rebuilt.name,
@@ -1013,8 +1044,9 @@ def apply_pending_sqlite_rebuild(db_path: Path) -> bool:
         )
         return True
     except Exception as exc:
+        # WinError 32 while Navicat/Gateway holds the file — back off 30m.
+        _pending_rebuild_fail_until[key] = now + 1800.0
         logger.warning("apply pending sqlite rebuild failed for %s: %s", db_path, exc)
-        # Roll back live file if we moved it aside.
         if backup.is_file() and not db_path.is_file():
             try:
                 _replace_sqlite_file(backup, db_path)

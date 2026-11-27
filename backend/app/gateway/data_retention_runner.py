@@ -156,6 +156,14 @@ def run_retention_once() -> dict[str, Any]:
 
     base = get_paths().base_dir
     ensure_data_layout(base)
+    try:
+        from evoflow.config.data_paths import app_db_path, checkpoints_db_path, observability_db_path
+        from evoflow.persistence.data_retention import apply_pending_sqlite_rebuild
+
+        for pending in (app_db_path(base), observability_db_path(base), checkpoints_db_path(base)):
+            apply_pending_sqlite_rebuild(pending)
+    except Exception:
+        logger.debug("pending sqlite rebuild before retention skipped", exc_info=True)
     cfg = get_app_config().data_retention
     result = run_data_retention(
         cfg,

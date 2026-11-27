@@ -263,11 +263,45 @@ def mark_session_run_ended(
 ) -> bool:
     sk = _resolve_session_key(session_key=session_key, thread_id=thread_id)
     if not sk:
-        logger.warning(
-            "mark_session_run_ended: cannot resolve session_key session_key=%s thread_id=%s — DB run_status NOT updated",
-            session_key,
-            thread_id,
-        )
+        # 【self-evolution-bot · 2026-11-27 · 第138轮 · 模型:deepseek-v4-1-flash-261017】
+        # 修：原来只有一句 WARNING「cannot resolve session_key」，把两种性质完全不同的事混成一栏：
+        #   ① 孤儿线程——thread_remint 换了 thread_id 后旧 id 在 sessions 表里**一行都没有**，
+        #      没有行可写，返回 False 是**正确行为**，不是缺陷；
+        #   ② 有行但解析失败——真问题（该写的没写）。
+        # 现网取证（2026-11-27 统计脚本报的 6 次）：三个 thread_id（5d93c631×3 /
+        # 5c4e090e×2 / 4bd04c9d×1）在 evoflow_chat_sessions（含 is_deleted=1）、
+        # evoflow_chat_messages、evoflow_chat_live_runs 三张表**全 0 行**，
+        # 全库 run_status='running' 仅 1 行 → 这 6 次没有一次是真未收口。
+        # 若不拆开，统计会把「无目标可写」当成产品故障报给用户。
+        tid = str(thread_id or "").strip()
+        orphan = False
+        if tid:
+            try:
+                row = (
+                    get_db()
+                    .execute(
+                        "SELECT 1 FROM evoflow_chat_sessions WHERE thread_id = ? LIMIT 1",
+                        (tid,),
+                    )
+                    .fetchone()
+                )
+                orphan = row is None
+            except Exception:
+                orphan = False
+        if orphan:
+            logger.info(
+                "mark_session_run_ended: orphan thread (no session row for thread_id=%s) "
+                "session_key=%s source=%s — nothing to write, not a defect",
+                tid,
+                session_key,
+                source,
+            )
+        else:
+            logger.warning(
+                "mark_session_run_ended: cannot resolve session_key session_key=%s thread_id=%s — DB run_status NOT updated",
+                session_key,
+                thread_id,
+            )
         return False
     st = _coerce_terminal_status(terminal_status, reason=reason, source=source)
     now = utc_now_iso_z()

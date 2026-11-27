@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { Folder as FolderIcon, FolderOpen as FolderOpenIcon, Ellipsis, Plus } from 'lucide-react'
 import { getCurrentRoute, navigate } from '../../router.js'
 import { toast } from '../../components/toast.js'
+import { showConfirm, suppressModalBackdropDismiss } from '../../components/modal.js'
 import {
   mutateSessionPinned,
   persistPinnedOrderFromRows,
@@ -1297,6 +1298,59 @@ export function ShellSessionList({
       onRefreshSession,
       selectedSessionKey,
     ],
+  )
+
+  const isChannelOrphanOwner = useCallback((agentCode: string) => {
+    const code = String(agentCode || '').trim()
+    if (!code) return false
+    if (/^(ou_|oc_|on_|om_|od_)/i.test(code)) return true
+    const roles = Array.isArray(employeeRoles) ? employeeRoles : []
+    if (!roles.length) return false
+    const lc = code.toLowerCase()
+    return !roles.some((r) => String(r?.agent_code || '').trim().toLowerCase() === lc)
+  }, [employeeRoles])
+
+  const deleteEmployeeGroupSessions = useCallback(
+    async (agentCode: string, label: string, rows: ShellSidebarSyncRow[]) => {
+      const keys = rows
+        .map((r) => String(r.sessionKey || '').trim())
+        .filter(Boolean)
+      if (!keys.length) {
+        toast('没有可删除的会话', 'info')
+        return
+      }
+      const orphan = isChannelOrphanOwner(agentCode)
+      suppressModalBackdropDismiss(300)
+      const yes = await showConfirm(
+        orphan
+          ? `清理「${label || agentCode}」下的 ${keys.length} 条过时渠道会话？`
+          : `删除「${label || agentCode}」下的全部 ${keys.length} 条会话？此操作不可恢复。`,
+      )
+      if (!yes) return
+      try {
+        const { api } = await import('../../lib/tauri-api.js')
+        let failed = 0
+        for (const key of keys) {
+          try {
+            setArchivedKeys(setSessionArchived(key, false))
+            setUnreadKeys(markSessionUnread(key, false))
+            removeToppedSession(key)
+            await api.chatSessionsDelete(key, { clearWorkspaceHistory: false })
+          } catch {
+            failed += 1
+          }
+        }
+        await Promise.resolve(onRefreshSessionList()).catch(() => {})
+        if (failed > 0) {
+          toast(`已清理 ${keys.length - failed} 条，${failed} 条失败`, 'warn')
+        } else {
+          toast(orphan ? `已清理 ${keys.length} 条渠道会话` : `已删除 ${keys.length} 条会话`, 'success')
+        }
+      } catch (e) {
+        toast(String((e as Error)?.message || e), 'error')
+      }
+    },
+    [isChannelOrphanOwner, onRefreshSessionList],
   )
 
   const stopEmployeeGroup = useCallback(
@@ -3026,6 +3080,17 @@ export function ShellSessionList({
             (r) => !!r.executing || !!runningSessionMap?.[String(r.sessionKey || '')],
           )
         })()}
+        sessionCount={(() => {
+          const code = String(employeeContextMenu?.agentCode || '')
+            .trim()
+            .toLowerCase()
+          if (!code) return 0
+          const g = employeeGroups.find((x) => x.agentCode.toLowerCase() === code)
+          return g?.sessions?.length || 0
+        })()}
+        isChannelOrphan={
+          !!employeeContextMenu && isChannelOrphanOwner(employeeContextMenu.agentCode)
+        }
         onClose={() => setEmployeeContextMenu(null)}
         onFocusOnly={() => {
           const code = employeeContextMenu?.agentCode
@@ -3066,6 +3131,16 @@ export function ShellSessionList({
           const code = employeeContextMenu?.agentCode
           setEmployeeContextMenu(null)
           if (code) navigate(`/proactive/${encodeURIComponent(code)}`)
+        }}
+        onDeleteAllSessions={() => {
+          const code = String(employeeContextMenu?.agentCode || '').trim()
+          const label = String(employeeContextMenu?.label || '').trim()
+          setEmployeeContextMenu(null)
+          if (!code) return
+          const g = employeeGroups.find(
+            (x) => x.agentCode.toLowerCase() === code.toLowerCase(),
+          )
+          void deleteEmployeeGroupSessions(code, label, g?.sessions || [])
         }}
       />
     </>

@@ -334,17 +334,15 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
     // seq 变小但行数据不旧（rehydrate 重置帧序号 / 服务端补发权威恢复快照）：
     // 继续走下面的粘回合并，别把整帧扔掉。seq 在出口处取 max(inc,prev) 保序。
   }
-  // 三条提前 return 分支都必须走这里：rehydrate 重置帧序号后 incSeq 可能远小于 prevSeq，
-  // 若原样返回 incoming 会把自己的 seq 也退回 0/1，下一帧 delta 的 fromSeq 立刻对不上 →
-  // 再断档一轮。只抬 seq，不动行。
-  const clampSeqFloor = (s: ConversationSnapshot): ConversationSnapshot => {
-    if (!(incSeq < prevSeq)) return s;
-    const floored = Math.max(incSeq || 0, prevSeq || 0);
-    if (floored === Number(s.seq)) return s;
-    return { ...s, seq: floored };
-  };
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】撤销抬 seq
+  // 上一版我在这里写了个 clampSeqFloor：seq 变小时把本地 seq 抬回 prevSeq，理由注释写着
+  // 「否则下一帧 delta 的 fromSeq 对不上」。这条理由是**反的**：seq 是 hub 的对齐水位
+  // （见本文件 applyDelta 规则 2：frame.fromSeq !== current.seq 就判断档并重订阅）。
+  // remint/rehydrate 后 hub 的 seq 确实从 0 重排（网关 11:02:44 seq=0 → 11:04:41 seq=1），
+  // 本地若把 seq 抬到 10，hub 下一帧 fromSeq=1 就永远对不上 → 每帧断档 → 重订阅 →
+  // 又收到 seq=1 快照 → 又抬回 10，无限循环。**seq 必须原样跟随 incoming**，不许本地抬高。
   const cut = incoming.rows.window[0]?.rowId;
-  if (cut === undefined) return clampSeqFloor(incoming);
+  if (cut === undefined) return incoming;
   const incomingLast =
     incoming.rows.window[incoming.rows.window.length - 1]?.rowId ?? cut;
   const older = previous.rows.window.filter((row) => row.rowId < cut);
@@ -363,7 +361,7 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
     if (authorityTip != null && row.rowId > authorityTip) return false;
     return true;
   });
-  if (older.length === 0 && newer.length === 0) return clampSeqFloor(incoming);
+  if (older.length === 0 && newer.length === 0) return incoming;
   const byId = new Map<number, ConversationRow>();
   for (const row of older) byId.set(row.rowId, row);
   for (const row of incoming.rows.window) byId.set(row.rowId, row);
@@ -410,12 +408,17 @@ export function mergePreservedOlderRowsIntoTailSnapshot(
     const same =
       finalWindow.length === incoming.rows.window.length &&
       finalWindow.every((row, i) => row.rowId === incoming.rows.window[i]?.rowId);
-    if (same) return clampSeqFloor(incoming);
+    if (same) return incoming;
   }
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+  // 这里原先是 `seq: Math.max(incSeq || 0, prevSeq || 0) || incoming.seq`（1.3.37 起），
+  // 注释理由「避免后续 delta 因 fromSeq 对不上被拒」同样是反的：seq 是 **hub 的水位**，
+  // 不是本地进度。本地抬到 prevSeq 后，hub remint 回来从 seq=1 发 delta，
+  // applyDelta 规则 2a（`frame.toSeq <= current.seq` 静默丢弃）会把整段流式帧全吞掉，
+  // 用户看到的就是「发了没反应」。行可以比 hub 多（粘回），水位必须跟 hub 一致。
   return {
     ...incoming,
-    // 粘回更新行时 seq 至少不低于 prev，避免后续 delta 因 fromSeq 对不上被拒。
-    seq: Math.max(incSeq || 0, prevSeq || 0) || incoming.seq,
+    seq: incoming.seq,
     rows: {
       ...incoming.rows,
       window: [...finalWindow],

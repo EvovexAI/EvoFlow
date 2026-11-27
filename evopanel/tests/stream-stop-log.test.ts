@@ -97,6 +97,54 @@ describe('stream stop sinceStopMs', () => {
     expect(kind).toBe('normal')
   })
 
+  // 【self-evolution-bot · 2026-11-27 · 第138轮 · 模型:deepseek-v4-1-flash-261017】
+  // 正例：AG-UI 终态（agui_run_error / agui_model_error_finished）此前**不落 stream_end**，
+  // 于是这轮被「发出去有没有收口」统计算成未收口（现网 18/43 = 41.9% 里就有这种假数）。
+  it('records AG-UI terminal triggers as stream_end (lifecycle close)', async () => {
+    const { listChatTurnTimingRows, logChatTurnSendClick, logChatTurnSendWire, logChatTurnRunStarted, logChatTurnFirstResponse } =
+      await import('../src/react/lib/chat-turn-timing-log.ts')
+    for (const trigger of ['agui_run_error', 'agui_model_error_finished', 'user_interrupt_error']) {
+      const sk = `agent:main:agui-${trigger}`
+      logChatTurnSendClick({ sessionKey: sk, text: trigger })
+      logChatTurnSendWire({ sessionKey: sk })
+      logChatTurnRunStarted({ sessionKey: sk, runId: `run-${trigger}` })
+      logChatTurnFirstResponse({ sessionKey: sk, kind: 'text', preview: 'hi', runId: `run-${trigger}` })
+      logStreamStop({
+        sessionKey: sk,
+        runId: `run-${trigger}`,
+        trigger,
+        hasEndMarker: trigger.startsWith('agui'),
+        skipDedupe: true,
+      })
+      const row = listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === `run-${trigger}`)
+      expect(row?.outcome, trigger).toBeTruthy()
+      expect(row?.endTrigger, trigger).toBe(trigger)
+    }
+  })
+
+  // 反证：*_skip 的 whoZh 明写「默认未批量停止 panel run」，那轮**并没有结束**。
+  // 若把它算成收口，统计就会把「界面还在转圈」谎报成「已收口」——比漏报更危险。
+  it('does not treat client_attach_skip as a lifecycle end', async () => {
+    const { listChatTurnTimingRows, logChatTurnSendClick, logChatTurnSendWire, logChatTurnRunStarted, logChatTurnFirstResponse } =
+      await import('../src/react/lib/chat-turn-timing-log.ts')
+    const sk = 'agent:main:skip-not-end'
+    logChatTurnSendClick({ sessionKey: sk, text: 'skip' })
+    logChatTurnSendWire({ sessionKey: sk })
+    logChatTurnRunStarted({ sessionKey: sk, runId: 'run-skip' })
+    logChatTurnFirstResponse({ sessionKey: sk, kind: 'text', preview: 'hi', runId: 'run-skip' })
+    logStreamStop({
+      sessionKey: sk,
+      runId: 'run-skip',
+      trigger: 'client_attach_skip',
+      hasEndMarker: false,
+      skipDedupe: true,
+    })
+    const row = listChatTurnTimingRows({ sessionKey: sk }).find((r) => r.runId === 'run-skip')
+    // 字段可能是 null（列存在但未赋值），判「没有收口」用 falsy
+    expect(row?.outcome ?? undefined).toBeUndefined()
+    expect(row?.endTrigger ?? undefined).toBeUndefined()
+  })
+
   it('keeps genuinely unterminated streams abnormal', () => {
     const kind = logStreamStop({
       sessionKey: 'agent:main:real-abnormal',

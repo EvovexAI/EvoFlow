@@ -15,12 +15,17 @@ describe('resolveRendererMemoryLevel', () => {
     expect(resolveRendererMemoryLevel(Number.NaN)).toBe('normal')
   })
 
-  it('thresholds high / critical early enough to leave headroom', () => {
+  it('thresholds high / critical at the machine baseline, not at the old 384/512', () => {
+    // 【self-evolution-bot · 2026-11-27 · 第136轮 · 模型:deepseek-v4-1-flash-261017】旧断言 384=high / 512=critical 是错的：
+    // 今日现网 1486 次采样 p50=1115MB、p90=1730MB，98.7% ≥384MB —— 「危急」是常态基线，
+    // 导致 2s 一轮的 critical 巡检永不收敛（今日 evict 19999 次，真 OOM 0 次）。
     expect(resolveRendererMemoryLevel(100)).toBe('normal')
-    expect(resolveRendererMemoryLevel(384)).toBe('high')
-    expect(resolveRendererMemoryLevel(500)).toBe('high')
-    expect(resolveRendererMemoryLevel(512)).toBe('critical')
-    expect(resolveRendererMemoryLevel(1200)).toBe('critical')
+    expect(resolveRendererMemoryLevel(1100)).toBe('normal')
+    expect(resolveRendererMemoryLevel(1599)).toBe('normal')
+    expect(resolveRendererMemoryLevel(1600)).toBe('high')
+    expect(resolveRendererMemoryLevel(2000)).toBe('high')
+    expect(resolveRendererMemoryLevel(2200)).toBe('critical')
+    expect(resolveRendererMemoryLevel(3341)).toBe('critical')
   })
 })
 

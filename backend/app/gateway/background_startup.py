@@ -185,6 +185,32 @@ async def run_background_startup(app: FastAPI, st_log: StLogFn, _st: Any) -> Non
                 logger.info("Migrated SQLite files into data/ layout: %s", layout.moved)
         except Exception:
             logger.warning("data/ layout migration at startup failed", exc_info=True)
+        # Apply leftover VACUUM INTO rebuilds before opening shared connections.
+        try:
+            from evoflow.config.data_paths import (
+                app_db_path,
+                checkpoints_db_path,
+                observability_db_path,
+            )
+            from evoflow.config.paths import get_paths
+            from evoflow.persistence.data_retention import apply_pending_sqlite_rebuild
+
+            base = get_paths().base_dir
+
+            def _apply_pending() -> list[str]:
+                applied: list[str] = []
+                for p in (app_db_path(base), observability_db_path(base), checkpoints_db_path(base)):
+                    if apply_pending_sqlite_rebuild(p):
+                        applied.append(p.name)
+                return applied
+
+            _t_pending = _st.perf_counter()
+            pending_applied = await asyncio.to_thread(_apply_pending)
+            st_log(f"phase1.db.pending_rebuild ({(_st.perf_counter() - _t_pending) * 1000:.0f}ms)")
+            if pending_applied:
+                logger.info("Applied pending sqlite rebuild(s): %s", pending_applied)
+        except Exception:
+            logger.warning("pending sqlite rebuild at startup failed", exc_info=True)
         # DB schema init
         try:
             from evoflow.persistence.db import get_db, resolve_evolflow_db_path

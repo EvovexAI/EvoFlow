@@ -190,6 +190,30 @@ def _load_execution_state_db(session_key: str) -> dict[str, Any]:
     if sess_repo.is_session_deleted(key):
         raise ValueError("session not found")
     db_row = _read_chat_session_run_row(key)
+    # 【self-evolution-bot · 2026-11-27 · 第137轮 · 模型:deepseek-v4-1-flash-261017】
+    # 为什么加这层兜底：前端轮询 execution/state 时偶尔会把 LangGraph 的 thread_id
+    # （UUID 形态）当成 session_key 传进来 —— 实测 2026-11-27 全天 55 次
+    # `execution/state :: session not found`、12 个不同 id，其中 2 个能在会话表里
+    # 按 thread_id 精确命中（c3505a1f… / 8d0c6c33…）。这些假 404 会让前端一直轮询
+    # 一个"查无此人"的编号，界面表现与"发消息没反应"完全一样。
+    # 注意：只做 thread_id → session_key 的**读侧解析**，不改任何写入语义。
+    if not db_row:
+        try:
+            from evoflow.persistence.session_repositories import (
+                find_session_key_by_thread_id,
+            )
+
+            resolved = find_session_key_by_thread_id(key)
+        except Exception:
+            resolved = None
+        if resolved and resolved != key:
+            logger.info(
+                "execution_state: auto-resolved thread_id→session_key thread=%s session=%s",
+                key[:48],
+                resolved[:48],
+            )
+            key = resolved
+            db_row = _read_chat_session_run_row(key)
     if not db_row:
         raise ValueError("session not found")
     try:

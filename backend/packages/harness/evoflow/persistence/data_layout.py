@@ -105,16 +105,8 @@ def ensure_data_layout(base_dir: Path) -> DataLayoutMigrationResult:
 
     if not root.exists():
         root.mkdir(parents=True, exist_ok=True)
-
-    # Install any ``*.db.rebuild`` left by VACUUM INTO when Windows rename was locked
-    # (panel often respawns Gateway mid-swap). Must run before the app opens the DB.
-    try:
-        from evoflow.persistence.data_retention import apply_pending_sqlite_rebuild
-
-        for pending in (app_db_path(base), observability_db_path(base), checkpoints_db_path(base)):
-            if apply_pending_sqlite_rebuild(pending):
-                result.moved.append(f"{pending.name}:pending_rebuild")
-    except Exception:
-        logger.debug("data layout: pending sqlite rebuild apply skipped", exc_info=True)
-
+    # Do NOT apply ``*.db.rebuild`` here — ensure_data_layout is on the hot path
+    # (get_db / observability store open) and would spam WinError 32 + risk
+    # installing a stale vacuum snapshot over newer live writes. Pending rebuild
+    # is applied once from Gateway startup / retention (apply_pending_sqlite_rebuild).
     return result

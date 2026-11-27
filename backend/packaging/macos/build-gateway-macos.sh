@@ -198,6 +198,11 @@ if [[ "${bundle_local_embed}" == "1" && -f "${LOCAL_EMBED_SRC}/config.json" ]]; 
   rm -rf "${LOCAL_EMBED_TARGET}"
   mkdir -p "$(dirname "${LOCAL_EMBED_TARGET}")"
   cp -R "${LOCAL_EMBED_SRC}" "${LOCAL_EMBED_TARGET}"
+  # Owner-readable for cargo resource fingerprinting (GHA macOS x64 saw EACCES).
+  chmod -R u+rwX "${LOCAL_EMBED_TARGET}" 2>/dev/null || true
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -cr "${LOCAL_EMBED_TARGET}" 2>/dev/null || true
+  fi
   echo "[gateway-build-macos] bundled local embed model -> ${LOCAL_EMBED_TARGET}"
 elif [[ "${bundle_local_embed}" == "1" ]]; then
   echo "[gateway-build-macos] WARNING: local-embed model missing at ${LOCAL_EMBED_SRC}" >&2

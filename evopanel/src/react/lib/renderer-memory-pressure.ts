@@ -14,9 +14,19 @@ export type RendererMemoryLevel = 'normal' | 'high' | 'critical'
  * 必须远早于 WebView2 杀进程阈值动手。
  * 实测 2026-11-17：critical@768 时 heap 已 2.3–3.1GB 仍「每次只挤 2 条」，最终 Out of Memory。
  * high@384 / critical@512：给收缩留出几十秒窗口，而不是等到 sad tab。
+ *
+ * 【self-evolution-bot · 2026-11-27 · 第136轮 · 模型:deepseek-v4-1-flash-261017】
+ * 上面那组 384/512 是错的，现网数字推翻了它：今日 1486 次采样 p50=1115MB、p90=1730MB，
+ * 而 **98.7% 的采样 ≥384MB、93.5% ≥512MB**——说明「high/critical」不是异常水位，
+ * 而是这台机器的**常态基线**。结果：2s 一轮的 critical 巡检几乎永不停机，每轮都清
+ * keep-warm + 清全部 sticky 快照（今日 evict 19999 次，其中空闲段 03:00–07:00 就 8074 次），
+ * 切会话/回到会话时没有快照可画 → 用户体感「发消息没反应 / 界面不动」。
+ * 今日没有任何一次真 OOM（排除本文件自己那句 zh 文案后计数 = 0），而 max 3341MB 也活下来了。
+ * 新阈值按分位数定：high@1600（约 12.7% 时间）、critical@2200（约 6%），
+ * 相对实测崩溃区（2.3–3.1GB）仍留 ~1GB 余量，但不再把常态当危急。
  */
-const HIGH_HEAP_MB = 384
-const CRITICAL_HEAP_MB = 512
+const HIGH_HEAP_MB = 1600
+const CRITICAL_HEAP_MB = 2200
 
 type HeapSnap = { usedJSHeapSize: number; totalJSHeapSize?: number }
 
