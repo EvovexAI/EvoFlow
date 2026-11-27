@@ -185,7 +185,6 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
       ),
     ).toBe(true);
   });
-});
 
   // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
   // 现网实证（网关 2026-11-27 11:04:41）：rehydrate 后帧序号重置[seq=0 → seq=1]，
@@ -213,6 +212,30 @@ describe("mergePreservedOlderRowsIntoTailSnapshot", () => {
     // seq 不得倒退，否则下一帧 delta 的 fromSeq 对不上又断档一轮
     expect(Number(merged.seq)).toBeGreaterThanOrEqual(17);
   });
+
+  // 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
+  // thread remint 实证：网关 11:02:44 `remint rehydrate old=5d93c631 → new=4239e743 rows=17`，
+  // 且 client_epoch=2 / hub_epoch=2（epoch 没变）。新线程的行号也从 1 重排，
+  // 旧窗口的 rowId 与新世数值重叠但语义不同 —— 必须整窗换基线，绝不能粘旧行。
+  it("sessionId 变了（thread remint）时必须整窗换新基线，不粘旧行", () => {
+    // 旧世行 rowId 必须落在新窗首「之前」，否则天然不参与粘回，用例测不到东西
+    // （我第一版就写成 rowId=1 vs 窗首=1，反向验证照样全绿，等于没测）。
+    const previous = snap([textRow(3, "old", "旧世行")], { firstRowId: 1, totalCount: 10 });
+    previous.seq = 17;
+    const incoming = {
+      ...snap([textRow(10, "new", "新世行 10"), textRow(17, "new", "新世行 17")], {
+        firstRowId: 1,
+        totalCount: 17,
+      }),
+      sessionId: "s1-reminted",
+    };
+    incoming.seq = 1;
+
+    const merged = mergePreservedOlderRowsIntoTailSnapshot(previous, incoming);
+    expect(merged.rows.window.map((r) => r.turnId)).toEqual(["new", "new"]);
+    expect(merged.rows.window.some((r) => r.turnId === "old")).toBe(false);
+  });
+});
 
 describe("applyMemoryPressureToProjectionWindow", () => {
   it("上滚在途或已上拉大窗：不裁行数（防 2004↔52 抖动）", () => {

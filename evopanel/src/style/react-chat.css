@@ -4459,7 +4459,7 @@ html.dark .shell-account-menu {
   transition: height var(--dur-base) ease-out;
 }
 
-/* 侧栏可见「加载更多对话」——分组树改造后不能只靠 height:0 sentinel */
+/* 侧栏可见「加载更多会话」——挂在工作空间组内会话列表底部，不与文件夹同级 */
 .react-chat-session-workspace-load-more {
   list-style: none;
   margin: 6px 8px 10px;
