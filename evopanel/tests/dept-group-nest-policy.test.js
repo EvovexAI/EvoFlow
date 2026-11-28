@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  canNestFurther,
   deptGroupWakeChainKey,
+  headCatcherNestDepth,
   isTrivialGroupNestGoal,
   shouldAutoNestWake,
 } from '../src/react/lib/dept-group-nest-policy.ts'
@@ -62,5 +64,18 @@ describe('dept-group-nest-policy', () => {
         goal: '你接上，提气一点，像带队喊号子那样两三句',
       }),
     ).toBe(true)
+  })
+
+  it('caps head-catcher depth so head can still @ specialists', () => {
+    expect(headCatcherNestDepth(0, 2)).toBe(1)
+    expect(headCatcherNestDepth(1, 2)).toBe(1)
+    expect(headCatcherNestDepth(2, 2)).toBe(1)
+    expect(headCatcherNestDepth(1, 3)).toBe(2)
+  })
+
+  it('lets department head nest one more hop at max depth', () => {
+    expect(canNestFurther({ fromDepth: 1, maxDepth: 2 })).toBe(true)
+    expect(canNestFurther({ fromDepth: 2, maxDepth: 2 })).toBe(false)
+    expect(canNestFurther({ fromDepth: 2, maxDepth: 2, speakerIsHead: true })).toBe(true)
   })
 })

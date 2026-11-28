@@ -26,11 +26,83 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         help="List department catalog (name, members, head)",
         description=(
             "Same source as Panel GET /api/proactive/departments and platform "
-            "employees.departments. Syncs labels from role.department on read."
+            "employees.departments. Syncs labels from role.department on read.\n"
+            "Writes: department-create / department-rename / department-delete / "
+            "department-set-head / department-set-members."
         ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     add_output_flags(depts_p)
     depts_p.set_defaults(handler=_departments)
+
+    dept_create = sub.add_parser(
+        "department-create",
+        help="Create a department (platform: employees.create_department)",
+    )
+    dept_create.add_argument("--name", "-n", required=True, help="Department display name")
+    dept_create.add_argument("--avatar", default="", help="Optional avatar preset id")
+    dept_create.add_argument("--sort-order", type=int, default=None, help="Optional sort order")
+    add_output_flags(dept_create)
+    dept_create.set_defaults(handler=_department_create)
+
+    dept_rename = sub.add_parser(
+        "department-rename",
+        help="Rename a department (platform: employees.rename_department)",
+    )
+    dept_rename.add_argument("--id", dest="dept_id", default="", help="Department id")
+    dept_rename.add_argument("--name", default="", help="Current department name (locator)")
+    dept_rename.add_argument("--to", dest="new_name", required=True, help="New department name")
+    add_output_flags(dept_rename)
+    dept_rename.set_defaults(handler=_department_rename)
+
+    dept_delete = sub.add_parser(
+        "department-delete",
+        help="Delete a department (platform: employees.delete_department)",
+    )
+    dept_delete.add_argument("--id", dest="dept_id", default="", help="Department id")
+    dept_delete.add_argument("--name", default="", help="Department name")
+    dept_delete.add_argument(
+        "--keep-members",
+        action="store_true",
+        help="Keep role.department labels (default: clear them)",
+    )
+    add_output_flags(dept_delete)
+    dept_delete.set_defaults(handler=_department_delete)
+
+    dept_head = sub.add_parser(
+        "department-set-head",
+        help="Set department head (platform: employees.set_department_head)",
+    )
+    dept_head.add_argument("--id", dest="dept_id", default="", help="Department id")
+    dept_head.add_argument("--name", default="", help="Department name")
+    dept_head.add_argument(
+        "--head",
+        dest="head_agent_code",
+        default="",
+        help="Head agent_code (empty clears)",
+    )
+    dept_head.add_argument(
+        "--align-unmanaged",
+        action="store_true",
+        help="Point members with empty reports_to at the new head",
+    )
+    add_output_flags(dept_head)
+    dept_head.set_defaults(handler=_department_set_head)
+
+    dept_members = sub.add_parser(
+        "department-set-members",
+        help="Overwrite department roster (platform: employees.set_department_members)",
+    )
+    dept_members.add_argument("--id", dest="dept_id", default="", help="Department id")
+    dept_members.add_argument("--name", default="", help="Department name")
+    dept_members.add_argument(
+        "--members",
+        "-m",
+        required=True,
+        help="Comma-separated agent_codes (empty string clears roster)",
+    )
+    add_output_flags(dept_members)
+    dept_members.set_defaults(handler=_department_set_members)
 
     get_p = sub.add_parser("get", help="Get one employee role + recent initiatives")
     get_p.add_argument("agent_code", help="Employee agent_code")
@@ -295,6 +367,65 @@ def _departments(_args: argparse.Namespace):
     from evoflow.admin.platform_handlers import employees_departments
 
     return employees_departments({})
+
+
+def _department_locator(args: argparse.Namespace) -> dict:
+    body: dict = {}
+    did = str(getattr(args, "dept_id", "") or "").strip()
+    name = str(getattr(args, "name", "") or "").strip()
+    if did:
+        body["dept_id"] = did
+    if name:
+        body["name"] = name
+    return body
+
+
+def _department_create(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_create_department
+
+    body: dict = {"name": str(args.name)}
+    avatar = str(getattr(args, "avatar", "") or "").strip()
+    if avatar:
+        body["avatar"] = avatar
+    sort = getattr(args, "sort_order", None)
+    if sort is not None:
+        body["sort_order"] = int(sort)
+    return employees_create_department(body)
+
+
+def _department_rename(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_rename_department
+
+    body = _department_locator(args)
+    body["new_name"] = str(args.new_name)
+    return employees_rename_department(body)
+
+
+def _department_delete(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_delete_department
+
+    body = _department_locator(args)
+    if bool(getattr(args, "keep_members", False)):
+        body["keep_members"] = True
+    return employees_delete_department(body)
+
+
+def _department_set_head(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_set_department_head
+
+    body = _department_locator(args)
+    body["head_agent_code"] = str(getattr(args, "head_agent_code", "") or "")
+    if bool(getattr(args, "align_unmanaged", False)):
+        body["align_unmanaged"] = True
+    return employees_set_department_head(body)
+
+
+def _department_set_members(args: argparse.Namespace):
+    from evoflow.admin.platform_handlers import employees_set_department_members
+
+    body = _department_locator(args)
+    body["members"] = str(getattr(args, "members", "") or "")
+    return employees_set_department_members(body)
 
 
 def _get(args: argparse.Namespace):

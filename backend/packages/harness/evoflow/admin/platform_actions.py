@@ -105,7 +105,8 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
         "title": "智能体员工岗位",
         "when": (
             "看名册汇总/跨岗看板/单岗近况（org_status、board_overview、brief）、"
-            "列部门目录（departments）、"
+            "列/建/改名/删部门、设成员与负责人（departments / create_department / "
+            "rename_department / delete_department / set_department_members / set_department_head）、"
             "雇佣/暂停/恢复/唤醒/派新活/删除员工、改心跳、看工作日志、迁移旧事项到 Task、"
             "为岗位扫码绑飞书/企微（绑定本岗 AI 员工）时；新建优先 capability_pack=duty。"
             "日常对话/续聊/追问用 employees.chat_send（默认可多轮同线程）；"
@@ -114,7 +115,7 @@ DOMAIN_GUIDES: dict[str, dict[str, str]] = {
             "create/hire 后读 assistant_guide.say_to_user 告诉用户怎么用；"
             "绑渠道用 employees.bind_channel_*（不是 channels.registration_*）"
         ),
-        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch；禁止 tools:null 灌全表；全局主机器人用 channels",
+        "not": "改角色模板用 agents；开可执行工单用 tasks / items.dispatch；禁止 tools:null 灌全表；全局主机器人用 channels；部门群聊开合/@兜底是面板行为不是 platform",
     },
     "tasks": {
         "title": "协作任务台账（行政视角）",
@@ -857,6 +858,45 @@ def _build_registry() -> dict[str, PlatformAction]:
             H.employees_set_department_head,
             "把自我进化BOT设为EvoFlow研发部负责人",
             "清空研发部负责人",
+        ),
+        # 【self-evolution-bot · 2026-11-27】部门 CRUD / 成员名册此前只有 Panel HTTP，CLI/platform 缺写口。
+        _A(
+            "employees.create_department",
+            "employees",
+            "新建部门目录条目（不自动加人；加人用 set_department_members）",
+            "write",
+            "name, avatar?, sort_order?",
+            H.employees_create_department,
+            "新建一个叫内容运营的部门",
+            "创建部门研发二组",
+        ),
+        _A(
+            "employees.rename_department",
+            "employees",
+            "重命名部门（同步成员 role.department 标签）",
+            "write",
+            "dept_id/name（定位）, new_name（或与 dept_id 同传 name）",
+            H.employees_rename_department,
+            "把研发部改名为产品研发部",
+        ),
+        _A(
+            "employees.delete_department",
+            "employees",
+            "删除部门目录；默认清空成员 department 标签（keep_members=true 则保留标签）",
+            "destructive",
+            "dept_id/name, keep_members?",
+            H.employees_delete_department,
+            "删除内容运营这个空部门",
+        ),
+        _A(
+            "employees.set_department_members",
+            "employees",
+            "覆盖设置部门成员名册（不在列表里的原成员移出本部门；负责人不在名册则清空）",
+            "write",
+            "dept_id/name, members（agent_code 列表或逗号串）",
+            H.employees_set_department_members,
+            "把甲乙丙三人设为研发部成员",
+            "清空某部门成员",
         ),
         _A(
             "employees.org_status",

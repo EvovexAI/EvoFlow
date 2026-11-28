@@ -72,15 +72,89 @@ def test_build_dept_group_im_steward_block():
     assert "<dept_group_instruction>" in block
     assert "agent_code" in block or "内部编码" in block
     assert "employees.dispatch" in block
-    assert "禁止用派发代替" in block or "优先 @" in block
+    assert "同群说话走群聊会话" in block or "群聊 sticky" in block
+    assert "chat_send" in block
     assert "被点名" not in block
     assert not any(line.lstrip().startswith("# ") for line in block.splitlines())
 
 
 def test_build_dept_group_im_member_block_forbids_dispatch_instead_of_at():
     block = build_dept_group_im_block(dept_name="氛围部")
-    assert "employees.dispatch" in block
-    assert "私有岗" in block or "本群看不见" in block
+    assert "chat_send" in block
+    assert "dispatch" in block
+    assert "同群说话走群聊会话" in block or "群聊 sticky" in block
+    assert "私有岗" in block or "本群看不见" in block or "1:1" in block
+
+
+def test_reject_dept_group_private_ping_blocks_roster_mate(monkeypatch):
+    from evoflow.proactive.employee_prompting import dept_group_im as mod
+
+    monkeypatch.setattr(
+        mod,
+        "resolve_dept_group_im_from_session",
+        lambda _sk: (True, "AIGC部", False, ["AIGC 导演", "漫剧编剧"]),
+    )
+    reason = mod.reject_dept_group_private_ping(
+        caller_session_key="proactive:manju-director:chat:dept-x",
+        target_agent_code="manju-writer",
+        target_role_name="漫剧编剧",
+    )
+    assert reason
+    assert "@" in reason
+    assert "dispatch" in reason or "wake" in reason
+
+
+def test_reject_dept_group_private_ping_allows_outside_group(monkeypatch):
+    from evoflow.proactive.employee_prompting import dept_group_im as mod
+
+    monkeypatch.setattr(
+        mod,
+        "resolve_dept_group_im_from_session",
+        lambda _sk: (True, "AIGC部", False, ["AIGC 导演", "漫剧编剧"]),
+    )
+
+    def _no_db_dept(*_a, **_k):
+        class _Fake:
+            def execute(self, *_args, **_kwargs):
+                class _R:
+                    def fetchone(self):
+                        return {"department": "内容运营部", "role_name": "别人"}
+
+                return _R()
+
+        return _Fake()
+
+    import evoflow.persistence.db as db_mod
+
+    monkeypatch.setattr(db_mod, "get_db", _no_db_dept)
+    reason = mod.reject_dept_group_private_ping(
+        caller_session_key="proactive:manju-director:chat:dept-x",
+        target_agent_code="content-ops",
+        target_role_name="内容运营",
+    )
+    assert reason is None
+
+
+def test_resolve_dept_group_chat_route_pins_sticky(monkeypatch):
+    from evoflow.proactive.employee_prompting import dept_group_im as mod
+
+    monkeypatch.setattr(
+        mod,
+        "resolve_dept_group_im_from_session",
+        lambda _sk: (True, "AIGC部", False, ["AIGC 导演", "漫剧编剧"]),
+    )
+    monkeypatch.setattr(
+        "evoflow.persistence.session_repositories.get_session_context_for_run_config",
+        lambda _sk: {"dept_group_id": "d40263165395", "dept_group_im": True},
+    )
+    route = mod.resolve_dept_group_chat_route(
+        caller_session_key="proactive:manju-director:chat:dept-d40263165395",
+        target_agent_code="manju-writer",
+        target_role_name="漫剧编剧",
+    )
+    assert route is not None
+    assert route["sticky_session_key"] == "proactive:manju-writer:chat:dept-d40263165395"
+    assert route["timeline_session_key"] == "dept:d40263165395:chat"
 
 
 def test_build_dept_group_im_steward_empty_roster():

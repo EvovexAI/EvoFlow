@@ -107,6 +107,19 @@ class DeptGroupWakeRouterTest(unittest.TestCase):
         self.assertEqual(r.status_code, 200, r.text)
         self.assertEqual(r.json()["job"]["status"], "queued")
 
+    def test_status_queued_without_requeue_does_not_demote_claimed(self) -> None:
+        """恢复入队会旁路抄送 status=queued；不得拆掉 claim 认领锁。"""
+        from evoflow.persistence.dept_group_wake_repositories import claim_next, get_wake_job
+
+        self._enqueue()
+        claim_next(dept_id="d1", agent_code="a", owner="evopanel")
+        r = self.client.post(
+            "/api/dept-groups/wake-jobs/status",
+            json={"job_id": "wake-a-1-1000", "status": "queued"},
+        )
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertEqual(get_wake_job("wake-a-1-1000")["status"], "running")
+
     # ── 4. §核心接线：pending 读路径必须回收死任务 ────────────────────
     def test_pending_reclaims_stale_running(self) -> None:
         from evoflow.persistence.db import get_db

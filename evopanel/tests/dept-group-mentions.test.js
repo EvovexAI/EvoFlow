@@ -66,4 +66,28 @@ describe('dept-group-mentions', () => {
       'self-evolution-bot',
     ])
   })
+
+  it('resolves spoken short names: @分镜师 → 漫剧分镜师', () => {
+    const aigc = [
+      { agent_code: 'manju-director', role_name: 'AIGC 导演' },
+      { agent_code: 'manju-storyboarder', role_name: '漫剧分镜师' },
+      { agent_code: 'aigc-prompt-reverser', role_name: 'AIGC 反推师' },
+    ]
+    expect(parseMentions('@分镜师 有一批现成的东西要看', aigc).map((h) => h.agent_code)).toEqual([
+      'manju-storyboarder',
+    ])
+    expect(parseMentions('@反推师 第 3 环打回', aigc).map((h) => h.agent_code)).toEqual([
+      'aigc-prompt-reverser',
+    ])
+    expect(parseMentions('@导演 接住', aigc).map((h) => h.agent_code)).toEqual(['manju-director'])
+  })
+
+  it('does not bind ambiguous short names when two roles share a suffix', () => {
+    const two = [
+      { agent_code: 'a', role_name: '漫剧分镜师' },
+      { agent_code: 'b', role_name: '广告分镜师' },
+    ]
+    expect(parseMentions('@分镜师 看一下', two)).toEqual([])
+    expect(hasUnresolvedAtMentions('@分镜师 看一下', two)).toBe(true)
+  })
 })

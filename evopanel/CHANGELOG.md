@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.60] - 2026-11-28
+
+相对 **1.3.59**：部门群唤醒/@提及/嵌套策略；员工部门 platform 动作；部门群 UI。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.60.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Added
+
+- **员工部门 platform**：部门相关治理动作与反馈更完整
+- **部门群嵌套策略**：嵌套与唤醒队列规则更清晰
+
+### Fixed
+
+- **部门群唤醒 / @提及**：提示、队列与路由更稳
+- **部门群 UI**：首页群聊与会话列表衔接更顺
+
+### Changed
+
+- **员工 CLI**：部门相关命令能力补强
+
 ## [1.3.59] - 2026-11-27
 
 相对 **1.3.58**：V4 remint 镜像更稳；小米助手与部门群微调；平台反馈/流预览。

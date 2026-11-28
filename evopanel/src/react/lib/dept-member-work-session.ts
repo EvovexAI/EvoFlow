@@ -311,7 +311,7 @@ export async function runDeptMemberWorkTurn(
     hints.push({
       kind: 'behavior',
       text:
-        '用户未 @ 任何人；你是本部门负责人，请先接住本条。'
+        '本条无人点名（用户或成员发言都未 @）；你是本部门负责人，请先接住本条。'
         + '能自己答就答；确实需要专人时再在正文 @ 岗位名交代。'
         + '对用户说话用岗位名，不要写内部编码。',
     })
@@ -336,6 +336,8 @@ export async function runDeptMemberWorkTurn(
       text:
         '把该你说的说完即可。打招呼/报到不要再 @ 同事或小V；'
         + '只有本轮明确要推进的新活才 @，且不要重复点名已经出过面的人。'
+        + '同群说话优先正文 @；若用 employees.chat_send 会进对方群聊会话（不是 1:1 私聊）。'
+        + '禁止再用 dispatch / wake 开私有值班轮。'
         + '对用户说话用岗位名，不要写 agent_code / 内部编码。',
     })
   }

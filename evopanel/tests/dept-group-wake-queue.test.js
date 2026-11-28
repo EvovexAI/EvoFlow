@@ -69,6 +69,27 @@ describe('DeptGroupWakeQueue', () => {
     q.dispose()
   })
 
+  it('reuses explicit job id (restore must not mint a second id)', async () => {
+    const ids = []
+    const q = new DeptGroupWakeQueue({
+      sleep: async () => {},
+      run: async (input) => {
+        ids.push(input.jobId)
+      },
+    })
+    await q.enqueue({
+      id: 'wake-claimed-42',
+      agentCode: 'a',
+      roleName: '甲',
+      goal: '恢复重跑',
+      depth: 0,
+    })
+    expect(ids).toEqual(['wake-claimed-42'])
+    const snap = q.snapshot().find((j) => j.agentCode === 'a')
+    expect(snap?.id).toBe('wake-claimed-42')
+    q.dispose()
+  })
+
   it('merges similar goals in short window', async () => {
     const goals = []
     const q = new DeptGroupWakeQueue({

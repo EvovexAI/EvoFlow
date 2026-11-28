@@ -42,6 +42,11 @@ export type WakeEnqueueInput = {
   sourceMsgId?: string
   /** A→B 防环键；已存在则跳过 */
   chainKey?: string
+  /**
+   * 恢复队列时必须传入后端 claim 得到的 job_id。
+   * 不传会 mint 新 id → claim 行永远 running，超时回收后又被重跑（切进群聊像自动再发）。
+   */
+  id?: string
 }
 
 export type WakeRunInput = WakeEnqueueInput & {
@@ -276,8 +281,35 @@ export class DeptGroupWakeQueue {
       })
     }
 
+    const reuseId = String(input.id || '').trim()
+    if (reuseId && this.all.has(reuseId)) {
+      // 同 id 已在队列：并入既有 Promise，勿再 mint / 再跑
+      const existing = this.all.get(reuseId)!
+      logDeptGroupWake({
+        event: 'enqueue_skip',
+        zh: `入队跳过·同 id · @${input.roleName || agentCode}`,
+        agentCode,
+        roleName: input.roleName,
+        jobId: reuseId,
+        sourceMsgId: input.sourceMsgId || existing.sourceMsgId,
+        detail: { reason: 'same_job_id', status: existing.status },
+      })
+      return new Promise((resolve, reject) => {
+        const prevResolve = existing.resolve
+        const prevReject = existing.reject
+        existing.resolve = () => {
+          prevResolve()
+          resolve()
+        }
+        existing.reject = (e) => {
+          prevReject(e)
+          reject(e)
+        }
+      })
+    }
+
     return new Promise((resolve, reject) => {
-      const id = `wake-${agentCode}-${++this.seq}-${now}`
+      const id = reuseId || `wake-${agentCode}-${++this.seq}-${now}`
       const job: InternalJob = {
         ...input,
         agentCode,

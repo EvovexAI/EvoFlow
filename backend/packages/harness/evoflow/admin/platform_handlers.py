@@ -1259,37 +1259,176 @@ def employees_list(args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _slim_department(d: dict[str, Any]) -> dict[str, Any]:
+    members = d.get("members") if isinstance(d.get("members"), list) else []
+    member_codes = [
+        str(m.get("agent_code") or "").strip()
+        for m in members
+        if isinstance(m, dict) and str(m.get("agent_code") or "").strip()
+    ]
+    return {
+        "id": d.get("id"),
+        "name": d.get("name"),
+        "member_count": int(d.get("member_count") or len(member_codes) or 0),
+        "head_agent_code": str(d.get("head_agent_code") or "").strip(),
+        "head_name": str(d.get("head_name") or d.get("head_role_name") or "").strip(),
+        "members": member_codes,
+        "avatar": str(d.get("avatar") or "").strip(),
+        "sort_order": d.get("sort_order"),
+    }
+
+
+def _resolve_department_id(args: dict[str, Any], *, required: bool = True) -> str:
+    """Resolve dept_id from id / name / department fields."""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    dept_id = _arg_str(args, "dept_id", "deptId", "id")
+    if dept_id:
+        return dept_id
+    target = _arg_str(args, "name", "department", "dept_name", "deptName")
+    if target:
+        DepartmentRepository.ensure_from_roles()
+        hit = DepartmentRepository.get_by_name(target)
+        if hit:
+            return str(hit.get("id") or "")
+        for d in DepartmentRepository.list_departments(with_members=False):
+            if str(d.get("name") or "").strip().casefold() == target.casefold():
+                return str(d.get("id") or "")
+    if required:
+        raise ValidationError("dept_id 或 name 必填")
+    return ""
+
+
 def employees_departments(_args: dict[str, Any]) -> dict[str, Any]:
     """部门目录：名称、人数、负责人、成员（与 Panel GET /api/proactive/departments 同源）。"""
     from evoflow.proactive.departments import DepartmentRepository
 
     DepartmentRepository.ensure_from_roles()
     items = DepartmentRepository.list_departments(with_members=True)
-    slim: list[dict[str, Any]] = []
-    for d in items or []:
-        if not isinstance(d, dict):
-            continue
-        members = d.get("members") if isinstance(d.get("members"), list) else []
-        member_codes = [
-            str(m.get("agent_code") or "").strip()
-            for m in members
-            if isinstance(m, dict) and str(m.get("agent_code") or "").strip()
-        ]
-        slim.append(
-            {
-                "id": d.get("id"),
-                "name": d.get("name"),
-                "member_count": int(d.get("member_count") or len(member_codes) or 0),
-                "head_agent_code": str(d.get("head_agent_code") or "").strip(),
-                "head_name": str(d.get("head_name") or d.get("head_role_name") or "").strip(),
-                "members": member_codes,
-            }
-        )
+    slim = [_slim_department(d) for d in (items or []) if isinstance(d, dict)]
     return {
         "ok": True,
         "departments": slim,
         "count": len(slim),
         "hint": "雇佣/改岗时 department 填这里的 name；要看成员忙闲再用 employees.org_status / employees.list。",
+    }
+
+
+def employees_create_department(args: dict[str, Any]) -> dict[str, Any]:
+    """新建部门目录条目（不自动加人）。"""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    name = _arg_str(args, "name", "department", "dept_name", "deptName")
+    if not name:
+        raise ValidationError("name 必填")
+    avatar = _arg_str(args, "avatar")
+    sort_raw = args.get("sort_order", args.get("sortOrder"))
+    sort_order: int | None = None
+    if sort_raw is not None and str(sort_raw).strip() != "":
+        try:
+            sort_order = int(sort_raw)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError("sort_order 必须是整数") from exc
+    try:
+        row = DepartmentRepository.create(
+            name=name,
+            sort_order=sort_order,
+            avatar=avatar or None,
+        )
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return {
+        "ok": True,
+        "department": _slim_department({**row, "members": [], "member_count": 0, "head_role_name": ""}),
+        "dept_id": str(row.get("id") or ""),
+        "hint": "部门已创建；加人用 employees.set_department_members，设负责人用 employees.set_department_head。",
+    }
+
+
+def employees_rename_department(args: dict[str, Any]) -> dict[str, Any]:
+    """重命名部门（同步改成员 role.department 标签）。"""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    dept_id = _resolve_department_id(args)
+    new_name = _arg_str(args, "new_name", "newName", "to", "rename_to")
+    if not new_name:
+        # Allow ``name`` as the *new* name only when dept was resolved by id.
+        if _arg_str(args, "dept_id", "deptId", "id"):
+            new_name = _arg_str(args, "name", "department")
+    if not new_name:
+        raise ValidationError("new_name 必填（或与 dept_id 同传 name）")
+    try:
+        row = DepartmentRepository.rename(dept_id, name=new_name)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    listed = DepartmentRepository.list_departments(with_members=True)
+    full = next((d for d in listed if str(d.get("id")) == dept_id), row)
+    return {
+        "ok": True,
+        "department": _slim_department(full if isinstance(full, dict) else row),
+        "dept_id": dept_id,
+        "hint": "部门名已改，成员 department 标签已同步。",
+    }
+
+
+def employees_delete_department(args: dict[str, Any]) -> dict[str, Any]:
+    """删除部门目录；默认清空成员 department 标签。"""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    dept_id = _resolve_department_id(args)
+    existing = DepartmentRepository.get(dept_id)
+    if not existing:
+        raise ValidationError("部门不存在")
+    # keep_members=true → 不 clear；clear_members 默认 True
+    keep = _arg_bool(args, "keep_members", False)
+    name = str(existing.get("name") or "")
+    try:
+        DepartmentRepository.delete(dept_id, clear_members=not keep)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    return {
+        "ok": True,
+        "dept_id": dept_id,
+        "name": name,
+        "members_cleared": not keep,
+        "hint": "部门已删除"
+        + ("；成员 department 已清空" if not keep else "；成员 department 标签保留"),
+    }
+
+
+def employees_set_department_members(args: dict[str, Any]) -> dict[str, Any]:
+    """覆盖设置部门成员名册（不在列表里的原成员会被移出本部门）。"""
+    from evoflow.proactive.departments import DepartmentRepository
+
+    dept_id = _resolve_department_id(args)
+    raw = args.get("members")
+    if raw is None:
+        raw = args.get("agent_codes", args.get("agentCodes", args.get("codes")))
+    codes: list[str] = []
+    if isinstance(raw, str):
+        codes = [p.strip() for p in raw.replace(";", ",").split(",") if p.strip()]
+    elif isinstance(raw, list):
+        for item in raw:
+            if isinstance(item, dict):
+                c = str(item.get("agent_code") or item.get("code") or "").strip()
+            else:
+                c = str(item or "").strip()
+            if c:
+                codes.append(c)
+    else:
+        raise ValidationError("members 必填（agent_code 列表或逗号分隔字符串）")
+    try:
+        row = DepartmentRepository.set_members(dept_id, codes)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
+    listed = DepartmentRepository.list_departments(with_members=True)
+    full = next((d for d in listed if str(d.get("id")) == dept_id), row)
+    return {
+        "ok": True,
+        "department": _slim_department(full if isinstance(full, dict) else {**row, "members": []}),
+        "dept_id": dept_id,
+        "member_count": len(codes),
+        "hint": "成员名册已覆盖写入；负责人若不在名册里会被清空。",
     }
 
 
@@ -1299,18 +1438,8 @@ def employees_departments(_args: dict[str, Any]) -> dict[str, Any]:
 def employees_set_department_head(args: dict[str, Any]) -> dict[str, Any]:
     from evoflow.proactive.departments import DepartmentRepository
 
-    dept_id = _arg_str(args, "dept_id", "deptId", "id")
-    if not dept_id:
-        target = _arg_str(args, "name", "department")
-        if target:
-            DepartmentRepository.ensure_from_roles()
-            for d in DepartmentRepository.list_departments(with_members=False):
-                if str(d.get("name") or "").strip() == target.strip():
-                    dept_id = str(d.get("id") or "")
-                    break
-    if not dept_id:
-        raise ValidationError("dept_id 或 name 必填")
-    head = _arg_str(args, "head_agent_code", "headAgentCode", "agent_code")
+    dept_id = _resolve_department_id(args)
+    head = _arg_str(args, "head_agent_code", "headAgentCode", "agent_code", "head")
     align = _arg_bool(args, "align_unmanaged", False)
     try:
         row = DepartmentRepository.set_head(
@@ -1321,7 +1450,7 @@ def employees_set_department_head(args: dict[str, Any]) -> dict[str, Any]:
     skipped = row.get("align_skipped") if isinstance(row, dict) else None
     return {
         "ok": True,
-        "department": row,
+        "department": _slim_department(row) if isinstance(row, dict) else row,
         "dept_id": dept_id,
         "head_agent_code": str((row or {}).get("head_agent_code") or ""),
         "align_skipped": skipped or [],
@@ -1425,6 +1554,20 @@ def employees_stop(args: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, **emp.stop_role(code)}
 
 
+def _reject_if_dept_group_private_ping(args: dict[str, Any], *, target_code: str, target_name: str = "") -> None:
+    """群聊 sticky 回合：禁止对同群成员 chat_send/dispatch/wake 私发。"""
+    from evoflow.proactive.employee_prompting.dept_group_im import reject_dept_group_private_ping
+
+    caller_sk = _arg_str(args, "session_key", "sessionKey", "origin_session_key", "originSessionKey")
+    reason = reject_dept_group_private_ping(
+        caller_session_key=caller_sk,
+        target_agent_code=target_code,
+        target_role_name=target_name,
+    )
+    if reason:
+        raise ValidationError(reason)
+
+
 def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
     """Open / continue employee chat: queue message for Panel chatSend + right-stage."""
     from evoflow.admin import employees as emp
@@ -1445,10 +1588,34 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
                 return _arg_bool(args, k, True)
         return None
 
+    # 群聊语境下对同群成员：chat 可以，但必须钉到群 sticky，勿落到 1:1 私聊。
+    caller_sk = _arg_str(args, "session_key", "sessionKey", "origin_session_key", "originSessionKey")
+    target_sk = ""
+    group_routed = False
+    try:
+        from evoflow.proactive.employee_prompting.dept_group_im import (
+            ensure_dept_group_sticky_context,
+            resolve_dept_group_chat_route,
+        )
+
+        route = resolve_dept_group_chat_route(
+            caller_session_key=caller_sk,
+            target_agent_code=role.agent_code,
+            target_role_name=str(role.role_name or ""),
+        )
+        if route:
+            ensure_dept_group_sticky_context(route)
+            target_sk = str(route.get("sticky_session_key") or "").strip()
+            group_routed = bool(target_sk)
+    except Exception:
+        group_routed = False
+        target_sk = ""
+
     data = emp.chat_send(
         role.agent_code,
         message,
-        session_key=_arg_str(args, "session_key", "sessionKey") or "",
+        # 群聊路由成功时显式钉 sticky；否则沿用注入键（chat_send 会丢掉非本人键再自动选）
+        session_key=target_sk if group_routed else caller_sk,
         task_id=_arg_str(args, "task_id", "taskId", "related_task_id", "relatedTaskId") or "",
         source=_arg_str(args, "source") or "xiaomi",
         # 【self-evolution-bot · 2026-11-21 · 第108轮 · 模型:deepseek-v4.1-flash-1017】
@@ -1461,6 +1628,7 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
         # 为什么：用户要的是「和我在面板手打一样能看到流」，默认走后台 wake 就是
         #   页面上啥也看不到。auto = 面板在就驱面板（真流式），面板不在才回落 wake。
         deliver=_arg_str(args, "deliver", "delivery") or "auto",
+        initiator_session_key=caller_sk if group_routed else "",
         notify_on_complete=_opt_bool("notify_on_complete", "notifyOnComplete"),
         auto_resume=_opt_bool("auto_resume", "autoResume"),
     )
@@ -1475,13 +1643,21 @@ def employees_chat_send(args: dict[str, Any]) -> dict[str, Any]:
             display = ""
     if isinstance(data, dict) and display:
         data.setdefault("role_name", display)
-    return {
+    out = {
         "ok": True,
         **(data if isinstance(data, dict) else {"result": data}),
         "name": display or role.role_name or role.agent_code,
         "agent_code": role.agent_code,
         "role_name": display or str(role.role_name or "").strip(),
     }
+    if group_routed and target_sk:
+        out["dept_group_routed"] = True
+        out["session_key"] = target_sk
+        out.setdefault(
+            "hint",
+            "已钉到部门群聊会话；对方回复会回群时间线，勿再开 1:1 私聊。",
+        )
+    return out
 
 
 def employees_messages(args: dict[str, Any]) -> dict[str, Any]:
@@ -1600,6 +1776,9 @@ def employees_dispatch(args: dict[str, Any]) -> dict[str, Any]:
     role = emp.resolve_role_ref(target)
     if is_xiaomi_agent(role.agent_code):
         raise ValidationError("cannot dispatch to xiaomi herself")
+    _reject_if_dept_group_private_ping(
+        args, target_code=role.agent_code, target_name=str(role.role_name or "")
+    )
     from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
     source = _arg_str(args, "source") or "role"
     # 小V 前台：source=xiaomi 且未传 from_agent 时盖章，便于轨迹归因
@@ -1636,6 +1815,11 @@ def employees_wake(args: dict[str, Any]) -> dict[str, Any]:
     target = _arg_str(args, "target", "agent_code", "agentCode", "code", "role", "role_name")
     if not target:
         raise ValidationError("target is required（agent_code 或 role_name）")
+    # Resolve early so群聊同人私发能拦（wake 目标可为 role_name）
+    role = emp.resolve_role_ref(target)
+    _reject_if_dept_group_private_ping(
+        args, target_code=role.agent_code, target_name=str(role.role_name or "")
+    )
     from_agent = _arg_str(args, "from_agent", "fromAgent") or ""
     source = _arg_str(args, "source") or "role"
     if source == "xiaomi" and not from_agent:

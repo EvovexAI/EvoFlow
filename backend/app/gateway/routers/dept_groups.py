@@ -111,7 +111,9 @@ async def update_wake_status(body: WakeStatusBody) -> dict[str, Any]:
         elif st == wake_repo.STATUS_RUNNING:
             ok = wake_repo.mark_running(body.job_id)
         elif st == wake_repo.STATUS_QUEUED:
-            ok = wake_repo.requeue_for_retry(body.job_id, error=body.error)
+            # 仅显式 requeue=true 才退队。裸 status=queued 是前端入队旁路抄送，
+            # 若对已 claim 的 running 再走 requeue，会把认领锁拆掉 → 恢复重跑幽灵任务。
+            ok = True
         elif st in wake_repo.TERMINAL_STATUSES:
             ok = wake_repo.finish_wake_job(body.job_id, status=st, error=body.error)
         else:

@@ -23,7 +23,8 @@ from evoflow.admin.platform_actions import PLATFORM_DOMAINS, get_registry
 # 【self-evolution-bot · 2026-11-27 · 第135轮 · 模型:deepseek-v4-1-flash-261017】
 # + employees.set_department_head（设部门负责人；此前工具层只有只读 employees.departments，
 #   改负责人得绕前端下拉框或裸 HTTP PUT）→ 187。
-EXPECTED_PLATFORM_ACTION_COUNT = 187
+# 【self-evolution-bot · 2026-11-27】+ create/rename/delete/set_department_members → 191。
+EXPECTED_PLATFORM_ACTION_COUNT = 191
 
 
 def test_assets_in_platform_domains() -> None:

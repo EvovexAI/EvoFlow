@@ -90,3 +90,25 @@ export function shouldAutoNestWake(opts: {
   if (opts.fromDepth >= 1 && isTrivialGroupNestGoal(opts.goal)) return false
   return true
 }
+
+/**
+ * 负责人兜底的入队 depth：不超过 maxDepth-1，给负责人留下一次再 @ 专人的余量。
+ * 否则成员 depth1 → 兜底 depth2 → 触顶后 @生成师 会静默「未入队」。
+ */
+export function headCatcherNestDepth(fromDepth: number, maxDepth: number): number {
+  const max = Math.max(1, Number(maxDepth) || 1)
+  const from = Math.max(0, Number(fromDepth) || 0)
+  return Math.min(from + 1, max - 1)
+}
+
+/** 是否还允许再嵌套 @：触顶时仅负责人可再派一次 */
+export function canNestFurther(opts: {
+  fromDepth: number
+  maxDepth: number
+  speakerIsHead?: boolean
+}): boolean {
+  const max = Math.max(1, Number(opts.maxDepth) || 1)
+  const from = Math.max(0, Number(opts.fromDepth) || 0)
+  if (from < max) return true
+  return !!opts.speakerIsHead
+}

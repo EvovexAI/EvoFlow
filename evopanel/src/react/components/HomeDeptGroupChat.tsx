@@ -33,6 +33,7 @@ import {
 import {
   extractMentionGoal,
   findMentionSpans,
+  hasUnresolvedAtMentions,
   parseMentions,
   stripLeadingMentions,
 } from '../lib/dept-group-mentions.js'
@@ -49,6 +50,8 @@ import {
 } from '../lib/dept-group-audit.js'
 import {
   deptGroupWakeChainKey,
+  canNestFurther,
+  headCatcherNestDepth,
   shouldAutoNestWake,
 } from '../lib/dept-group-nest-policy.js'
 // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
@@ -1190,16 +1193,58 @@ export function HomeDeptGroupChat({
             reply)
           : await streamBodyIntoBubble(bubbleId, reply)
 
-        if (input.depth >= MAX_NEST_DEPTH) return {}
         // 嵌套接力只叫醒部门员工，避免 @小V 自循环。
         // 勿因「本轮目标是寒暄」整段 return：负责人被叫醒后 @ 下属做观众口播必须能入队
         // （逐条用 shouldAutoNestWake / isTrivialGroupNestGoal 判断子目标即可）。
         const nestRoster = membersRef.current.filter(
           (m) => !isDeptGroupStewardCode(m.agent_code),
         )
+        const headCode = String(dept.head_agent_code || '').trim()
+        const speakerIsHead =
+          !!headCode &&
+          String(person.agent_code || '')
+            .trim()
+            .toLowerCase() === headCode.toLowerCase()
+        // depth 触顶：普通成员停；负责人仍可再 @ 专人一次。
+        // 现网：成员 depth1 → 负责人兜底 depth2 → 再 @ 会被 MAX=2 静默丢掉（派工条「未入队」）。
+        if (
+          !canNestFurther({
+            fromDepth: input.depth,
+            maxDepth: MAX_NEST_DEPTH,
+            speakerIsHead,
+          })
+        ) {
+          if (
+            parseMentions(finalText, nestRoster).some(
+              (x) =>
+                x.agent_code !== person.agent_code &&
+                !isDeptGroupStewardCode(x.agent_code),
+            )
+          ) {
+            appendMsg({
+              id: `sys-nest-depth-${person.agent_code}-${Date.now()}`,
+              kind: 'system',
+              text: `${person.role_name} 的 @ 未入队（嵌套过深）；请负责人在群里再 @ 一次专人`,
+              ts: Date.now(),
+            })
+          }
+          return {}
+        }
         const nestedFromAt = parseMentions(finalText, nestRoster).filter(
           (x) => x.agent_code !== person.agent_code && !isDeptGroupStewardCode(x.agent_code),
         )
+        // 写了 @某人但花名册没对上（如 @分镜师 vs 漫剧分镜师）→ 明示，避免「上边没人待回复」 silently
+        if (
+          nestedFromAt.length === 0 &&
+          hasUnresolvedAtMentions(finalText, nestRoster)
+        ) {
+          appendMsg({
+            id: `sys-unresolved-at-${person.agent_code}-${Date.now()}`,
+            kind: 'system',
+            text: `${person.role_name} 的 @ 未能匹配本群成员（请用花名册全称或唯一简称）`,
+            ts: Date.now(),
+          })
+        }
         const woken = new Set<string>()
         const nested: Array<{ person: HomeCmdPerson; goal: string }> = []
         for (const next of nestedFromAt) {
@@ -1236,6 +1281,35 @@ export function HomeDeptGroupChat({
             })
           }
         }
+        // 成员未 @、也没有流转目标：负责人兜底（同用户发消息未 @ 的油逻辑）。
+        // 负责人自己说完不再套娃；已有 @/handoff 目标时不抢戏。
+        let headCatcher = false
+        if (!speakerIsHead && headCode && nested.length === 0) {
+          const head = nestRoster.find(
+            (m) =>
+              String(m.agent_code || '')
+                .trim()
+                .toLowerCase() === headCode.toLowerCase(),
+          )
+          if (head && !woken.has(head.agent_code)) {
+            const goal =
+              `「${person.role_name}」在群里发了话但没有 @ 任何人；` +
+              `你是本部门负责人，请接住并回复，或再 @ 专人安排。\n\n` +
+              `对方说：${finalText.slice(0, 400)}`
+            if (shouldAutoNestWake({ fromDepth: input.depth, goal })) {
+              woken.add(head.agent_code)
+              nested.push({ person: head, goal })
+              headCatcher = true
+              appendMsg({
+                id: `sys-head-catch-${head.agent_code}-${Date.now()}`,
+                kind: 'system',
+                text: `${person.role_name} 未点名 · 负责人 ${head.role_name} 承接`,
+                ts: Date.now(),
+                mentions: [head.agent_code],
+              })
+            }
+          }
+        }
         const q = wakeQueueRef.current
         if (!q || !nested.length) return {}
         const ctx = `【${person.role_name}】：${finalText.slice(0, 400)}`
@@ -1243,11 +1317,21 @@ export function HomeDeptGroupChat({
         // chain 用本轮用户根消息防环；sourceMsgId 用当前气泡——派工条挂在谁说的 @ 上就对谁
         const rootId = String(input.sourceMsgId || bubbleId || '').trim()
         const mentionMsgId = String(bubbleId || rootId).trim()
+        // 负责人兜底不占满 depth：最多落到 MAX-1，否则兜底层再 @ 专人会被触顶丢掉
+        const headCatchDepth = headCatcherNestDepth(input.depth, MAX_NEST_DEPTH)
         // 只入队、不 await：否则父任务会一直 running，名单上「回复中」卡到所有下级说完
         for (const item of nested) {
+          const isHeadCatch =
+            headCatcher &&
+            String(item.person.agent_code || '')
+              .trim()
+              .toLowerCase() === headCode.toLowerCase()
+          const nestDepth = isHeadCatch ? headCatchDepth : input.depth + 1
           logDeptGroupWake({
             event: 'nest_enqueue',
-            zh: `嵌套 @ · ${person.role_name} → @${item.person.role_name}`,
+            zh: isHeadCatch
+              ? `负责人兜底 · ${person.role_name} 未 @ → @${item.person.role_name}`
+              : `嵌套 @ · ${person.role_name} → @${item.person.role_name}`,
             deptId: dept.id,
             agentCode: item.person.agent_code,
             roleName: item.person.role_name,
@@ -1255,7 +1339,8 @@ export function HomeDeptGroupChat({
             detail: {
               fromAgentCode: person.agent_code,
               fromAgentName: person.role_name,
-              depth: input.depth + 1,
+              depth: nestDepth,
+              headDefaultCatcher: isHeadCatch,
               goal: String(item.goal || '').slice(0, 160),
             },
           })
@@ -1264,14 +1349,17 @@ export function HomeDeptGroupChat({
               agentCode: item.person.agent_code,
               roleName: item.person.role_name,
               goal: item.goal,
-              depth: input.depth + 1,
+              depth: nestDepth,
               fromAgentName: person.role_name,
               contextSummary: ctx,
               sourceMsgId: mentionMsgId,
-              chainKey: deptGroupWakeChainKey(rootId || bubbleId, item.person.agent_code, {
-                fromAgentCode: person.agent_code,
-                goal: item.goal,
-              }),
+              headDefaultCatcher: isHeadCatch,
+              chainKey: isHeadCatch
+                ? `${rootId || bubbleId}|head-catch|${person.agent_code}->${item.person.agent_code}`
+                : deptGroupWakeChainKey(rootId || bubbleId, item.person.agent_code, {
+                    fromAgentCode: person.agent_code,
+                    goal: item.goal,
+                  }),
             })
             .catch((err: unknown) => {
               logDeptGroupWake({
@@ -1509,9 +1597,12 @@ export function HomeDeptGroupChat({
             continue
           }
           try {
+            // 必须复用 claim 的 job_id。mint 新 id 会让认领行永远卡在 running，
+            // 心跳超时回收后每次切进群聊又重跑一遍（用户感知：自动给某人发消息）。
             await q.enqueue({
+              id: claimed.job_id,
               agentCode: person.agent_code,
-              roleName: person.role_name,
+              roleName: person.role_name || claimed.role_name,
               goal: claimed.goal,
               depth: claimed.depth,
               fromAgentName: claimed.from_agent_name || undefined,
@@ -1521,6 +1612,11 @@ export function HomeDeptGroupChat({
             })
           } catch (err) {
             console.warn('[dept-group] restore enqueue failed', claimed.job_id, err)
+            void persistWake.recordStatus({
+              jobId: claimed.job_id,
+              status: 'failed',
+              error: `恢复入队失败：${String((err as { message?: string })?.message || err || '失败')}`,
+            })
           }
         }
       } catch (err) {

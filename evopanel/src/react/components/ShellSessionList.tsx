@@ -1791,10 +1791,15 @@ export function ShellSessionList({
     }
   }, [isEmployeesTab, groupedRecentSections, collapsedGroupKeys, onWorkspaceExpand])
 
-  // 顶栏选了某部门时强制展开该组，避免筛完还要再点一次折叠头
+  // 顶栏选了某部门：部门本身展开；其下各员工会话组默认折叠（点组头再看对话）
+  const pendingCollapseEmployeesForDeptRef = useRef<string | null>(null)
   useEffect(() => {
     const key = String(focusedBotDeptKey || '').trim()
-    if (!key) return
+    if (!key) {
+      pendingCollapseEmployeesForDeptRef.current = null
+      return
+    }
+    pendingCollapseEmployeesForDeptRef.current = key
     setCollapsedBotDeptKeys((prev) => {
       if (!prev.has(key)) return prev
       const next = new Set(prev)
@@ -1802,6 +1807,28 @@ export function ShellSessionList({
       return next
     })
   }, [focusedBotDeptKey])
+
+  useEffect(() => {
+    const pending = String(pendingCollapseEmployeesForDeptRef.current || '').trim()
+    if (!pending) return
+    const dept = botDeptRenderTree.find((d) => d.key === pending)
+    if (!dept) return
+    const empKeys = [...dept.headSections, ...dept.memberSections]
+      .map((s) => String(s.key || '').trim())
+      .filter(Boolean)
+    if (!empKeys.length) return
+    setCollapsedGroupKeys((prev) => {
+      let changed = false
+      const next = new Set(prev)
+      for (const k of empKeys) {
+        if (next.has(k)) continue
+        next.add(k)
+        changed = true
+      }
+      return changed ? next : prev
+    })
+    pendingCollapseEmployeesForDeptRef.current = null
+  }, [focusedBotDeptKey, botDeptRenderTree])
 
   const toggleGroupCollapsed = useCallback((key: string) => {
     setCollapsedGroupKeys((prev) => {

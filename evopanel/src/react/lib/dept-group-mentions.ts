@@ -22,7 +22,38 @@ const MENTION_ALIASES: Array<{ alias: string; roleIncludes: string[] }> = [
   { alias: '全站工程师', roleIncludes: ['自我进化', '全栈工程师'] },
   { alias: '全站开发', roleIncludes: ['自我进化', '全栈开发'] },
   { alias: '全站', roleIncludes: ['自我进化', '全栈'] },
+  { alias: '分镜师', roleIncludes: ['分镜'] },
+  { alias: '编剧', roleIncludes: ['编剧'] },
+  { alias: '生成师', roleIncludes: ['生成师'] },
+  { alias: '反推师', roleIncludes: ['反推'] },
+  { alias: '复刻师', roleIncludes: ['复刻'] },
+  { alias: '出图师', roleIncludes: ['出图'] },
+  { alias: '导演', roleIncludes: ['导演'] },
 ]
+
+/** 从全称拆出口语简称：``漫剧分镜师``→``分镜师``，``AIGC 反推师``→``反推师``。 */
+export function deriveMentionShortLabels(roleName: string): string[] {
+  const name = String(roleName || '').trim()
+  if (!name) return []
+  const out: string[] = []
+  const push = (s: string) => {
+    const t = String(s || '').trim()
+    if (!t || t === name || t.length < 2) return
+    if (!out.includes(t)) out.push(t)
+  }
+  // 去常见前缀（部门/品类口头省略）
+  push(name.replace(/^(?:AIGC|AI|漫剧|电商|直播)\s*/i, ''))
+  // 末尾职衔块：…分镜师 / …总监 / …BOT
+  const tail = name.match(/([\u4e00-\u9fffA-Za-z0-9]{2,8}(?:师|总监|BOT|助手|专员|经理|导演))$/i)
+  if (tail?.[1]) push(tail[1])
+  // 去空格后再取尾（``AIGC 导演`` → ``导演``）
+  const compact = name.replace(/\s+/g, '')
+  if (compact !== name) {
+    const cTail = compact.match(/([\u4e00-\u9fffA-Za-z0-9]{2,8}(?:师|总监|BOT|助手|专员|经理|导演))$/i)
+    if (cTail?.[1]) push(cTail[1])
+  }
+  return out
+}
 
 function escapeReg(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -47,12 +78,27 @@ function buildMentionLabels(members: DeptMentionMember[]): LabelHit[] {
     push(m.agent_code, m)
   }
 
+  // 口语简称：仅当本群花名册里唯一命中该简称时才挂（避免两个「…师」抢同一个短名）
+  for (const m of members) {
+    for (const short of deriveMentionShortLabels(m.role_name)) {
+      const hits = members.filter((other) => {
+        const n = String(other.role_name || '')
+        if (n === short || n.endsWith(short)) return true
+        return deriveMentionShortLabels(n).includes(short)
+      })
+      if (hits.length === 1 && hits[0].agent_code === m.agent_code) {
+        push(short, m)
+      }
+    }
+  }
+
   for (const { alias, roleIncludes } of MENTION_ALIASES) {
-    const hit = members.find((m) => {
+    const matched = members.filter((m) => {
       const name = String(m.role_name || '')
       return roleIncludes.some((k) => name.includes(k))
     })
-    if (hit) push(alias, hit)
+    // 别名也要求唯一，避免「导演」误绑到氛围部同群里另一个导演
+    if (matched.length === 1) push(alias, matched[0])
   }
 
   out.sort((a, b) => b.label.length - a.label.length || a.label.localeCompare(b.label, 'zh-CN'))

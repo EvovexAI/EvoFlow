@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-DEPT_GROUP_IM_OPEN = '<dept_group_im version="3">'
+DEPT_GROUP_IM_OPEN = '<dept_group_im version="4">'
 DEPT_GROUP_IM_CLOSE = "</dept_group_im>"
 
 _RE_DEPT_GROUP_IM = re.compile(
@@ -103,14 +103,16 @@ def build_dept_group_im_block(
                 "· 已经 @ 过的人不要再重复点名催一轮；不要让用户自己去 @。",
                 "硬规则：",
                 "1. 直接口语回群；不要问「要不要转到这儿」。",
-                "2. 【群内出面优先 @，禁止用派发代替】"
-                "「让他们说说 / 欢迎一下 / 表个态 / 回一句」这类要人在群里开口的请求，"
-                "只许正文 @，禁止改用 employees.dispatch / employees.wake / employees.chat_send / "
-                "「智能体员工岗位·派发」等后台派单。"
-                "派发会把人叫醒到私有岗会话，本群看不到对方说话。",
-                "3. 改提示词、改配置、跑长任务等后台活可以用 platform / dispatch；"
-                "但若同时还要对方在群里开口，同一条回复里仍必须 @。"
-                "禁止只报任务号/派单号却不 @，也禁止说「已经派给他们了」就当群内对话完成。",
+                "2. 【同群说话走群聊会话】"
+                "对本群花名册里的人交代活/追问：优先正文「@岗位名 + 具体交代」。"
+                "若用 employees.chat_send，系统会钉到对方「本部门群聊 sticky」"
+                "（proactive:…:chat:dept-…），回复会回群时间线；"
+                "禁止落到对方 1:1 私聊或另开无关 chat。"
+                "禁止对这些人用 employees.dispatch / employees.wake 开私有值班轮次代替群聊。"
+                "工具层会对同群成员的 dispatch/wake 拒绝。",
+                "3. 改配置、跑工作流、建台账等不针对同群某人开口的后台活仍可用 platform / tasks；"
+                "但若同时还要同群某人开工，同一条回复里仍应 @（或 chat_send 进群 sticky），"
+                "不要只报任务号/queued 回执就当群内对话完成。",
                 "4. 【称呼】@ 与用户可见正文一律用岗位/角色名（花名册里的名字）。"
                 "禁止在对用户可见的句子里写 agent_code / 内部编码"
                 "（如 dev-backend、dev-fullstack）；工具入参可用编码，说话必须用人名。",
@@ -142,15 +144,20 @@ def build_dept_group_im_block(
         "何时才 @：",
         "· 你需要另一个人做他职责内的新工作（改/查/修/交付/接手），"
         "且本轮用户/上级明确要你推进这件事，对方还没被交代过："
-        "在正文写「@角色名 + 具体交代」。系统只认正文 @（以及工具 handlers 经前端镜像）。",
+        "在正文写「@角色名 + 具体交代」。系统只认正文 @（以及工具 handlers 经前端镜像）。"
+        "同群派活优先正文 @；若用 employees.chat_send，必须走本部门群聊 sticky，"
+        "不要再 dispatch/wake 开私有值班轮。",
         "硬规则：",
         "1. 直接口语回群；不要问「要不要转到这儿」；禁止把群聊当私聊收件箱。",
         "2. 真有派活才 @；没有派活就不要为了「礼貌」或「完整流程」硬 @。",
-        "3. 要别人在本群接着说/表态时，正文 @；"
-        "禁止改用 employees.dispatch / wake / chat_send 等后台派单代替群内点名"
-        "（派发进私有岗，本群看不见）。"
-        "用 tasks / handlers 做实质流转时，同一条回复里仍要 @，群里才看得见；"
-        "禁止只报任务号/派单号却不 @。",
+        "3. 【同群说话走群聊会话】"
+        "对本群同事交代活/追问：优先正文 @；"
+        "employees.chat_send 可以，但系统会钉到对方群聊 sticky（回复回群），"
+        "禁止落到 1:1 私聊。"
+        "禁止再用 employees.dispatch / wake 私发值班轮代替群聊"
+        "（工具会拒绝对同群成员的 dispatch/wake）。"
+        "用 tasks / handlers 做实质流转时，同一条回复里仍要 @；"
+        "禁止只报任务号/派单号/queued 回执却不 @。",
         "4. 【称呼】@ 与用户可见正文一律用岗位/角色名。"
         "禁止对用户说 agent_code / 内部编码（如 dev-backend）；工具里可用编码，嘴上必须用人名。",
         "5. 【纯文本】群聊像微信：只输出普通文字。"
@@ -162,6 +169,164 @@ def build_dept_group_im_block(
         DEPT_GROUP_IM_CLOSE,
     ]
     return "\n".join(lines)
+
+
+def _target_is_dept_group_mate(
+    *,
+    dept_name: str,
+    roster: list[str],
+    target_agent_code: str,
+    target_role_name: str = "",
+) -> tuple[bool, str]:
+    """Return (is_mate, display_name)."""
+    code = str(target_agent_code or "").strip()
+    role_name = str(target_role_name or "").strip()
+    if not code:
+        return False, ""
+    roster_cf = {str(r).strip().casefold() for r in roster if str(r).strip()}
+    on_roster = bool(
+        (role_name and role_name.casefold() in roster_cf)
+        or (code.casefold() in roster_cf)
+    )
+    if not on_roster:
+        try:
+            from evoflow.persistence.db import get_db
+
+            row = get_db().execute(
+                "SELECT department, role_name FROM evoflow_proactive_roles WHERE agent_code = ?",
+                (code,),
+            ).fetchone()
+            target_dept = str((row["department"] if row else "") or "").strip()
+            hint = str(dept_name or "").strip()
+            if target_dept and hint and target_dept == hint:
+                on_roster = True
+                if not role_name:
+                    role_name = str((row["role_name"] if row else "") or code).strip()
+        except Exception:
+            on_roster = False
+    return on_roster, (role_name or code)
+
+
+def resolve_dept_group_chat_route(
+    *,
+    caller_session_key: str,
+    target_agent_code: str,
+    target_role_name: str = "",
+) -> dict[str, Any] | None:
+    """群聊回合里对同群成员 chat_send：应钉到的群 sticky 路由。
+
+    返回 None = 不是群聊语境 / 不是同群成员 → 走普通 1:1 选会话。
+    """
+    sk = str(caller_session_key or "").strip()
+    code = str(target_agent_code or "").strip()
+    if not sk or not code:
+        return None
+    enabled, dept_name, _steward, roster = resolve_dept_group_im_from_session(sk)
+    if not enabled:
+        return None
+    # 从调用方会话再取 dept_id（花名册解析只带了 name）
+    dept_id = ""
+    try:
+        from evoflow.persistence.session_repositories import get_session_context_for_run_config
+
+        sess = get_session_context_for_run_config(sk) or {}
+        dept_id = str(sess.get("dept_group_id") or "").strip()
+    except Exception:
+        dept_id = ""
+    if not dept_id:
+        return None
+    is_mate, who = _target_is_dept_group_mate(
+        dept_name=dept_name,
+        roster=roster,
+        target_agent_code=code,
+        target_role_name=target_role_name,
+    )
+    if not is_mate:
+        return None
+    sticky = f"proactive:{code}:chat:dept-{dept_id}"
+    timeline = f"dept:{dept_id}:chat"
+    return {
+        "sticky_session_key": sticky,
+        "timeline_session_key": timeline,
+        "dept_id": dept_id,
+        "dept_name": dept_name,
+        "roster": list(roster),
+        "target_role_name": who,
+        "target_agent_code": code,
+    }
+
+
+def ensure_dept_group_sticky_context(route: dict[str, Any]) -> None:
+    """给目标群 sticky 打上 dept_group_*，保证回复能镜像回群时间线。"""
+    if not isinstance(route, dict):
+        return
+    sticky = str(route.get("sticky_session_key") or "").strip()
+    dept_id = str(route.get("dept_id") or "").strip()
+    if not sticky or not dept_id:
+        return
+    code = str(route.get("target_agent_code") or "").strip()
+    who = str(route.get("target_role_name") or code).strip()
+    dept_name = str(route.get("dept_name") or "").strip()
+    timeline = str(route.get("timeline_session_key") or f"dept:{dept_id}:chat").strip()
+    roster = route.get("roster") if isinstance(route.get("roster"), list) else []
+    try:
+        from evoflow.persistence.session_repositories import upsert_session_row
+
+        upsert_session_row(
+            sticky,
+            title=f"{dept_name or '部门'} · {who}" if who else None,
+            context={
+                "source": "proactive",
+                "proactive_agent_code": code,
+                "agent_id": code,
+                "agent_name": who,
+                "employee_talk_mode": "chat",
+                "workspace_kind": "chat",
+                "dept_group_id": dept_id,
+                "dept_group_name": dept_name,
+                "dept_group_im": True,
+                "dept_group_timeline_session": timeline,
+                "dept_group_steward": False,
+                "dept_group_roster": roster,
+            },
+            updated_at_ms=0,
+        )
+    except Exception:
+        # best-effort：钉会话失败时仍让 chat_send 用 sticky key，镜像可能稍晚由前端补上下文
+        return
+
+
+def reject_dept_group_private_ping(
+    *,
+    caller_session_key: str,
+    target_agent_code: str,
+    target_role_name: str = "",
+) -> str | None:
+    """群聊回合里对同群成员 dispatch/wake 私发值班轮时返回拒因，否则 None。
+
+    chat_send 不走这里——应改钉到群 sticky（见 ``resolve_dept_group_chat_route``）。
+    """
+    sk = str(caller_session_key or "").strip()
+    code = str(target_agent_code or "").strip()
+    if not sk or not code:
+        return None
+    enabled, dept_name, _steward, roster = resolve_dept_group_im_from_session(sk)
+    if not enabled:
+        return None
+    is_mate, who = _target_is_dept_group_mate(
+        dept_name=dept_name,
+        roster=roster,
+        target_agent_code=code,
+        target_role_name=target_role_name,
+    )
+    if not is_mate:
+        return None
+    return (
+        f"部门群聊内给「{who}」派活请正文 @岗位名，"
+        "或用 employees.chat_send（会进群聊会话）；"
+        "不要用 employees.dispatch / wake 开私有值班轮"
+        "（私有岗本群看不见对方回复）。"
+    )
 
 
 def resolve_dept_group_im_from_session(
