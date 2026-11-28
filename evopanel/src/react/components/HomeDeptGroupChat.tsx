@@ -61,6 +61,7 @@ import { DeptGroupWakePersist } from '../lib/dept-group-wake-persist.js'
 import {
   mergeWakeJobSnapshots,
   resolveMentionDispatchStatus,
+  wakeStatusLabel,
 } from '../lib/dept-group-dispatch-status.js'
 import {
   clearDeptGroupLiveMap,
@@ -126,7 +127,33 @@ function oneLineLiveTool(raw: string | undefined, max = 72): string {
     .replace(/\s+/g, ' ')
     .trim()
   if (!t) return ''
+  // 排队态只挂摘要轨，不进气泡
+  if (/^排队/.test(t)) return ''
   return t.length > max ? `${t.slice(0, max)}…` : t
+}
+
+/** 流式正文过长时只留最新一段，前面用 … */
+function streamingTextPreview(raw: string | undefined, max = 320): string {
+  const t = String(raw || '')
+    .replace(/\r\n/g, '\n')
+    .trim()
+  if (!t) return ''
+  if (t.length <= max) return t
+  const tail = t.slice(-max)
+  const cut = tail.indexOf('\n')
+  const body = cut >= 0 && cut < 48 ? tail.slice(cut + 1) : tail
+  return `…${body}`
+}
+
+function streamingBubbleContent(msg: {
+  text?: string
+  liveTool?: string
+}): { kind: 'text' | 'tool' | 'pending'; text: string } {
+  const body = streamingTextPreview(msg.text)
+  if (body) return { kind: 'text', text: body }
+  const tool = oneLineLiveTool(msg.liveTool)
+  if (tool) return { kind: 'tool', text: tool }
+  return { kind: 'pending', text: '回复中…' }
 }
 
 type ThreadLine = {
@@ -356,7 +383,7 @@ function hasLaterAgentReply(
   return false
 }
 
-/** 气泡下挂派工条：谁被 @、队列态（排队/回答中/已回） */
+/** 气泡下挂派工条：谁被 @、队列态（排队/回答中/已回）；含负责人兜底 */
 function MentionDispatchStrip({
   text,
   members,
@@ -371,7 +398,13 @@ function MentionDispatchStrip({
   msgs: GroupChatMsg[]
 }) {
   const hits = parseMentions(text, members)
-  if (!hits.length) return null
+  const sid = String(sourceMsgId || '').trim()
+  const headCatchJobs = (wakeJobs || []).filter((j) => {
+    if (!sid || String(j.sourceMsgId || '').trim() !== sid) return false
+    if (j.headDefaultCatcher) return true
+    return String(j.chainKey || '').includes('|head-catch|')
+  })
+  if (!hits.length && !headCatchJobs.length) return null
   return (
     <div className="dept-im__dispatch" aria-label="已点名成员">
       {hits.map((h) => {
@@ -401,6 +434,29 @@ function MentionDispatchStrip({
               {resolved.label}
             </span>
             {preview ? <span className="dept-im__dispatch-goal">{preview}</span> : null}
+          </span>
+        )
+      })}
+      {headCatchJobs.map((j) => {
+        const st = j.status
+        const label = wakeStatusLabel(st) || '承接'
+        const later = hasLaterAgentReply(msgs, sourceMsgId, j.agentCode)
+        const show = later && st !== 'queued' && st !== 'running' ? '已回' : label
+        return (
+          <span
+            key={`head-${j.id}`}
+            className={`dept-im__dispatch-chip${st ? ` is-${st}` : ''}${
+              later && st === 'done' ? ' is-done' : ''
+            }`}
+            title="负责人兜底承接"
+          >
+            <span className="dept-im__dispatch-arrow" aria-hidden>
+              →
+            </span>
+            <EmployeeStageAvatar agentCode={j.agentCode} title={j.roleName} size={14} />
+            <span className="dept-im__dispatch-who">{j.roleName}</span>
+            <span className="dept-im__dispatch-status">{later ? '已回' : show}</span>
+            <span className="dept-im__dispatch-goal">负责人承接</span>
           </span>
         )
       })}
@@ -996,7 +1052,7 @@ export function HomeDeptGroupChat({
           kind: 'agent',
           agentCode: person.agent_code,
           agentName: person.role_name,
-          text: input.attempt > 1 ? '排队后重试…' : '',
+          text: '',
           ts: Date.now(),
           streaming: true,
           fromAgentName: input.fromAgentName,
@@ -1005,10 +1061,10 @@ export function HomeDeptGroupChat({
         })
       } else {
         patchMsg(bubbleId, {
-          text: input.attempt > 1 ? '正忙，排队重试中…' : '',
+          text: '',
           streaming: true,
           error: false,
-          liveTool: input.attempt > 1 ? '排队重试中…' : '',
+          liveTool: '',
           workSessionKey,
           wakeJobId: input.jobId,
         })
@@ -1205,31 +1261,13 @@ export function HomeDeptGroupChat({
           String(person.agent_code || '')
             .trim()
             .toLowerCase() === headCode.toLowerCase()
-        // depth 触顶：普通成员停；负责人仍可再 @ 专人一次。
-        // 现网：成员 depth1 → 负责人兜底 depth2 → 再 @ 会被 MAX=2 静默丢掉（派工条「未入队」）。
-        if (
-          !canNestFurther({
-            fromDepth: input.depth,
-            maxDepth: MAX_NEST_DEPTH,
-            speakerIsHead,
-          })
-        ) {
-          if (
-            parseMentions(finalText, nestRoster).some(
-              (x) =>
-                x.agent_code !== person.agent_code &&
-                !isDeptGroupStewardCode(x.agent_code),
-            )
-          ) {
-            appendMsg({
-              id: `sys-nest-depth-${person.agent_code}-${Date.now()}`,
-              kind: 'system',
-              text: `${person.role_name} 的 @ 未入队（嵌套过深）；请负责人在群里再 @ 一次专人`,
-              ts: Date.now(),
-            })
-          }
-          return {}
-        }
+        // depth 触顶：挡住成员再 @ 专人，但**不能**提前 return——否则交活未 @ 时
+        // 负责人兜底永远进不来（分镜师 depth=2 要导演拍板就会哑火）。
+        const canNest = canNestFurther({
+          fromDepth: input.depth,
+          maxDepth: MAX_NEST_DEPTH,
+          speakerIsHead,
+        })
         const nestedFromAt = parseMentions(finalText, nestRoster).filter(
           (x) => x.agent_code !== person.agent_code && !isDeptGroupStewardCode(x.agent_code),
         )
@@ -1245,44 +1283,55 @@ export function HomeDeptGroupChat({
             ts: Date.now(),
           })
         }
+        if (!canNest && nestedFromAt.length > 0) {
+          appendMsg({
+            id: `sys-nest-depth-${person.agent_code}-${Date.now()}`,
+            kind: 'system',
+            text: `${person.role_name} 的 @ 未入队（嵌套过深）；请负责人在群里再 @ 一次专人`,
+            ts: Date.now(),
+          })
+        }
         const woken = new Set<string>()
         const nested: Array<{ person: HomeCmdPerson; goal: string }> = []
-        for (const next of nestedFromAt) {
-          const goal =
-            extractMentionGoal(finalText, next) ||
-            `「${person.role_name}」在群里 @ 了你，请直接在群里回复。`
-          // 成员互相「你也打个招呼」不再自动叫醒；对观众口播/带队发言放行（见 nest-policy）
-          if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
-          woken.add(next.agent_code)
-          nested.push({ person: next, goal })
-        }
-        for (const h of turn.handoffs || []) {
-          if (!h.agentCode || h.agentCode === person.agent_code || woken.has(h.agentCode)) {
-            continue
+        if (canNest) {
+          for (const next of nestedFromAt) {
+            const goal =
+              extractMentionGoal(finalText, next) ||
+              `「${person.role_name}」在群里 @ 了你，请直接在群里回复。`
+            // 成员互相「你也打个招呼」不再自动叫醒；对观众口播/带队发言放行（见 nest-policy）
+            if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
+            woken.add(next.agent_code)
+            nested.push({ person: next, goal })
           }
-          if (isDeptGroupStewardCode(h.agentCode)) continue
-          const next = nestRoster.find((m) => m.agent_code === h.agentCode)
-          if (!next) continue
-          const goal =
-            String(h.content || '').trim() ||
-            `「${person.role_name}」经任务流转派给你，请在群里接手并回复。`
-          if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
-          woken.add(h.agentCode)
-          nested.push({ person: next, goal })
-          if (!new RegExp(`@${escapeReg(next.role_name)}`, 'i').test(finalText)) {
-            appendMsg({
-              id: `sys-handoff-${next.agent_code}-${Date.now()}`,
-              kind: 'system',
-              text: `${person.role_name} 已流转给 @${next.role_name}${
-                h.content ? `：${h.content.slice(0, 120)}` : ''
-              }`,
-              ts: Date.now(),
-              mentions: [next.agent_code],
-            })
+          for (const h of turn.handoffs || []) {
+            if (!h.agentCode || h.agentCode === person.agent_code || woken.has(h.agentCode)) {
+              continue
+            }
+            if (isDeptGroupStewardCode(h.agentCode)) continue
+            const next = nestRoster.find((m) => m.agent_code === h.agentCode)
+            if (!next) continue
+            const goal =
+              String(h.content || '').trim() ||
+              `「${person.role_name}」经任务流转派给你，请在群里接手并回复。`
+            if (!shouldAutoNestWake({ fromDepth: input.depth, goal })) continue
+            woken.add(h.agentCode)
+            nested.push({ person: next, goal })
+            if (!new RegExp(`@${escapeReg(next.role_name)}`, 'i').test(finalText)) {
+              appendMsg({
+                id: `sys-handoff-${next.agent_code}-${Date.now()}`,
+                kind: 'system',
+                text: `${person.role_name} 已流转给 @${next.role_name}${
+                  h.content ? `：${h.content.slice(0, 120)}` : ''
+                }`,
+                ts: Date.now(),
+                mentions: [next.agent_code],
+              })
+            }
           }
         }
         // 成员未 @、也没有流转目标：负责人兜底（同用户发消息未 @ 的油逻辑）。
         // 负责人自己说完不再套娃；已有 @/handoff 目标时不抢戏。
+        // 触顶时仍要兜底——否则「交活要拍板」会落在时间线无人接。
         let headCatcher = false
         if (!speakerIsHead && headCode && nested.length === 0) {
           const head = nestRoster.find(
@@ -1300,10 +1349,18 @@ export function HomeDeptGroupChat({
               woken.add(head.agent_code)
               nested.push({ person: head, goal })
               headCatcher = true
+              const headBusy = (wakeQueueRef.current?.snapshot() || []).some(
+                (j) =>
+                  String(j.agentCode || '').trim().toLowerCase() ===
+                    head.agent_code.toLowerCase() &&
+                  (j.status === 'queued' || j.status === 'running'),
+              )
               appendMsg({
                 id: `sys-head-catch-${head.agent_code}-${Date.now()}`,
                 kind: 'system',
-                text: `${person.role_name} 未点名 · 负责人 ${head.role_name} 承接`,
+                text: headBusy
+                  ? `${person.role_name} 未点名 · 负责人 ${head.role_name} 忙碌，已排队承接`
+                  : `${person.role_name} 未点名 · 负责人 ${head.role_name} 承接`,
                 ts: Date.now(),
                 mentions: [head.agent_code],
               })
@@ -1389,12 +1446,9 @@ export function HomeDeptGroupChat({
             jobId: input.jobId,
             detail: { error: String((e as { message?: string })?.message || e) },
           })
-          patchMsg(bubbleId, {
-            text: `「${person.role_name}」正忙，已加入排队…`,
-            streaming: true,
-            liveTool: '排队中…',
-            error: false,
-          })
+          // 排队态不进对话气泡（摘要轨 / 本轮待回复条已有）；清掉空占位，等真正开跑再建
+          setMsgs((prev) => prev.filter((m) => m.id !== bubbleId || !!String(m.text || '').trim()))
+          bubbleByJobRef.current.delete(input.jobId)
           return { busy: true, error: String((e as { message?: string })?.message || e) }
         }
         const msg = String((e as { message?: string })?.message || e || '点名失败')
@@ -1503,10 +1557,29 @@ export function HomeDeptGroupChat({
         }
         if (!aliveRef.current) return
         setWakeJobs(jobs)
-        // @ 入队后立刻挂「正在回复」占位（不必等 pump→run 才建气泡）
+        // 排队只挂摘要轨 /「本轮待回复」；对话区仅在 running 时占位（避免满屏「排队中」）
+        const queuedIds = new Set(
+          jobs.filter((j) => j.status === 'queued').map((j) => j.id),
+        )
+        if (queuedIds.size) {
+          setMsgs((prev) => {
+            let changed = false
+            const next = prev.filter((m) => {
+              const jid = String(m.wakeJobId || '')
+              if (!jid || !queuedIds.has(jid)) return true
+              if (m.streaming && !String(m.text || '').trim()) {
+                bubbleByJobRef.current.delete(jid)
+                changed = true
+                return false
+              }
+              return true
+            })
+            return changed ? next : prev
+          })
+        }
         const placeholders: GroupChatMsg[] = []
         for (const j of jobs) {
-          if (j.status !== 'queued' && j.status !== 'running') continue
+          if (j.status !== 'running') continue
           if (bubbleByJobRef.current.has(j.id)) continue
           const bubbleId = `agent-${j.agentCode}-${j.id}`
           bubbleByJobRef.current.set(j.id, bubbleId)
@@ -1518,7 +1591,7 @@ export function HomeDeptGroupChat({
             text: '',
             ts: j.updatedAt || Date.now(),
             streaming: true,
-            liveTool: j.status === 'queued' ? '排队中…' : '',
+            liveTool: '',
             workSessionKey: workSessionKeyForSpeaker(dept.id, j.agentCode),
             wakeJobId: j.id,
           })
@@ -1532,12 +1605,12 @@ export function HomeDeptGroupChat({
               persistMsgRef.current(m, 'streaming')
               logDeptGroupWake({
                 event: 'bubble',
-                zh: `气泡占位 · @${m.agentName || m.agentCode}（${m.liveTool || '回复中'}）`,
+                zh: `气泡占位 · @${m.agentName || m.agentCode}（回复中）`,
                 deptId: dept.id,
                 agentCode: m.agentCode,
                 roleName: m.agentName,
                 jobId: m.wakeJobId,
-                detail: { bubbleId: m.id, liveTool: m.liveTool || undefined },
+                detail: { bubbleId: m.id },
               })
             }
             return [...prev, ...add]
@@ -2354,11 +2427,7 @@ export function HomeDeptGroupChat({
                               <span className="dept-im__head-name">{agentName}</span>
                             )}
                             {msg.streaming ? (
-                              <span className="dept-im__head-state">
-                                {!msg.text && /^排队/.test(String(msg.liveTool || ''))
-                                  ? '排队中'
-                                  : '回复中'}
-                              </span>
+                              <span className="dept-im__head-state">回复中</span>
                             ) : null}
                           </div>
                         ) : null}
@@ -2376,17 +2445,33 @@ export function HomeDeptGroupChat({
                           }
                         >
                           <div className="dept-im__bubble-text">
-                            {msg.streaming && !msg.text ? (
-                              <span className="evo-home-cmd__gc-thinking">正在回复…</span>
-                            ) : (
-                              renderTextWithMentions(msg.text, roster)
-                            )}
-                            {msg.streaming && msg.text ? (
-                              <span className="evo-home-cmd__gc-caret" aria-hidden />
-                            ) : null}
+                            {(() => {
+                              if (!msg.streaming) {
+                                return renderTextWithMentions(msg.text, roster)
+                              }
+                              const live = streamingBubbleContent(msg)
+                              if (live.kind === 'text') {
+                                return (
+                                  <>
+                                    {renderTextWithMentions(live.text, roster)}
+                                    <span className="evo-home-cmd__gc-caret" aria-hidden />
+                                  </>
+                                )
+                              }
+                              if (live.kind === 'tool') {
+                                return (
+                                  <span className="evo-home-cmd__gc-thinking">{live.text}</span>
+                                )
+                              }
+                              return (
+                                <span className="evo-home-cmd__gc-thinking">{live.text}</span>
+                              )
+                            })()}
                           </div>
                         </button>
-                        {msg.streaming && oneLineLiveTool(msg.liveTool) ? (
+                        {msg.streaming &&
+                        streamingBubbleContent(msg).kind === 'text' &&
+                        oneLineLiveTool(msg.liveTool) ? (
                           <div
                             className="dept-im__live-line"
                             title={oneLineLiveTool(msg.liveTool, 200)}
@@ -2434,16 +2519,35 @@ export function HomeDeptGroupChat({
                       </div>
                     )}
                     <div className="evo-home-cmd__gc-msg-text">
-                      {msg.streaming && !msg.text ? (
-                        <span className="evo-home-cmd__gc-thinking">正在回复…</span>
-                      ) : (
-                        renderTextWithMentions(msg.text, roster, 'evo-home-cmd__gc-mention')
-                      )}
-                      {msg.streaming && msg.text ? (
-                        <span className="evo-home-cmd__gc-caret" aria-hidden />
-                      ) : null}
+                      {(() => {
+                        if (!msg.streaming) {
+                          return renderTextWithMentions(
+                            msg.text,
+                            roster,
+                            'evo-home-cmd__gc-mention',
+                          )
+                        }
+                        const live = streamingBubbleContent(msg)
+                        if (live.kind === 'text') {
+                          return (
+                            <>
+                              {renderTextWithMentions(
+                                live.text,
+                                roster,
+                                'evo-home-cmd__gc-mention',
+                              )}
+                              <span className="evo-home-cmd__gc-caret" aria-hidden />
+                            </>
+                          )
+                        }
+                        return (
+                          <span className="evo-home-cmd__gc-thinking">{live.text}</span>
+                        )
+                      })()}
                     </div>
-                    {msg.streaming && oneLineLiveTool(msg.liveTool) ? (
+                    {msg.streaming &&
+                    streamingBubbleContent(msg).kind === 'text' &&
+                    oneLineLiveTool(msg.liveTool) ? (
                       <div
                         className="evo-home-cmd__gc-live-line"
                         title={oneLineLiveTool(msg.liveTool, 200)}

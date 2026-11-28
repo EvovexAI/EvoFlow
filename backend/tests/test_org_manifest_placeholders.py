@@ -61,6 +61,6 @@ def test_solo_org_block_injects_agent_code_and_resolves_placeholder() -> None:
     block = build_employee_org_roster_block(role, roster=[role])
     assert block.startswith("<employee_org>")
     assert 'version="' not in block
-    assert "agent_code=`solo-bot`" in block
+    assert "`solo-bot`" in block
     assert "${org_workspace}" not in block
-    assert "独立岗" in block
+    assert "工作空间" in block

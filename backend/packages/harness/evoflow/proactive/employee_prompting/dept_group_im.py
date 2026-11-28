@@ -20,7 +20,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
-DEPT_GROUP_IM_OPEN = '<dept_group_im version="4">'
+DEPT_GROUP_IM_OPEN = "<dept_group_im>"
 DEPT_GROUP_IM_CLOSE = "</dept_group_im>"
 
 _RE_DEPT_GROUP_IM = re.compile(

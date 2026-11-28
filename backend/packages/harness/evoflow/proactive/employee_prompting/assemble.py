@@ -8,11 +8,11 @@ from evoflow.proactive.models import ProactiveRole
 
 EmployeePromptMode = Literal["chat", "duty"]
 
-DUTY_BRIEF_OPEN = '<proactive_duty_brief version="1">'
+DUTY_BRIEF_OPEN = "<proactive_duty_brief>"
 DUTY_BRIEF_CLOSE = "</proactive_duty_brief>"
 DUTY_CONTRACT_MARKER = "<proactive_duty_brief"
 
-EMPLOYEE_CHAT_FRAME_OPEN = '<employee_chat_frame version="1">'
+EMPLOYEE_CHAT_FRAME_OPEN = "<employee_chat_frame>"
 EMPLOYEE_CHAT_FRAME_CLOSE = "</employee_chat_frame>"
 EMPLOYEE_V2_OPEN = ""
 EMPLOYEE_V2_CLOSE = ""

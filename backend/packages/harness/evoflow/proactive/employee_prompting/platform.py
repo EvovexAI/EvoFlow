@@ -65,7 +65,23 @@ def build_employee_contract_block(
 ) -> str:
     _ = prompt_language
     resp = [str(x).strip() for x in (identity.get("responsibilities") or []) if str(x).strip()]
-    workspace = str(identity.get("workspace_path") or "").strip()
+    raw_ws = str(identity.get("workspace_path") or "").strip()
+    agent_code = str(identity.get("agent_code") or "").strip()
+    workspace = ""
+    if raw_ws:
+        try:
+            from evoflow.proactive.models import ProactiveRole, ProactiveRoleConfig
+            from evoflow.proactive.org import role_workspace_display
+
+            workspace = role_workspace_display(
+                ProactiveRole(
+                    agent_code=agent_code or "agent",
+                    role_name=str(identity.get("role_name") or agent_code or "agent"),
+                    config=ProactiveRoleConfig(workspace_path=raw_ws),
+                )
+            )
+        except Exception:
+            workspace = "" if "${" in raw_ws else raw_ws.replace("\\", "/")
     lines = ["<contract>"]
     if resp:
         lines.append("本职职责：")

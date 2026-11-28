@@ -80,15 +80,41 @@ def _capability_extra_fingerprint(extra_json: str | None) -> str:
     return f"kb={vault_fp or '-'}|inj={inj_fp}|scope={scope_fp}"
 
 
+def _disk_profile_fp(agent_code: str) -> str:
+    """mtime/size of disk-authoritative profile files (hand-edits must bust caches)."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return "-"
+    try:
+        from evoflow.assets.paths import EntityRef, profile_path
+
+        ent = EntityRef("agent", code)
+        parts: list[str] = []
+        for name in ("system.md", "capabilities.json", "SOUL.md"):
+            try:
+                path = profile_path(ent, name)
+            except ValueError:
+                parts.append(f"{name}:-")
+                continue
+            if path.is_file():
+                st = path.stat()
+                parts.append(f"{name}:{st.st_mtime_ns}:{st.st_size}")
+            else:
+                parts.append(f"{name}:-")
+        return "|".join(parts) if parts else "-"
+    except Exception:
+        logger.debug("disk profile fp failed agent=%s", agent_code, exc_info=True)
+        return "-"
+
+
 def probe_agent_capability_revision(agent_code: str | None) -> str:
-    """Cheap SQLite stamp for tools/MCP/skills/KB edits (cross-process hot reload).
+    """Stamp for tools/MCP/skills/KB/prompt edits (cross-process hot reload).
 
     Fingerprints:
-    - ``updated_at``
-    - list items: tools / mcp_servers / skills
-    - ``extra_json`` capability mirrors: knowledge_vault_ids / kb_injection
+    - SQLite ``updated_at`` + list rows + ``extra_json`` capability mirrors
+    - Disk ``system.md`` / ``capabilities.json`` / ``SOUL.md`` mtime+size
 
-    So a whitelist or KB bind change is visible even if ``updated_at`` collides.
+    Hand-editing profile files must flip this even when the DB row is unchanged.
     """
     code = str(agent_code or "").strip().lower()
     if not code:
@@ -114,7 +140,8 @@ def probe_agent_capability_revision(agent_code: str | None) -> str:
         ).fetchall()
         parts = [f"{r[0]}={r[1]}" for r in (list_rows or []) if r and r[0] is not None]
         lists_fp = "|".join(parts) if parts else "-"
-        return f"{updated}#{lists_fp}#{extra_fp}"
+        disk_fp = _disk_profile_fp(code)
+        return f"{updated}#{lists_fp}#{extra_fp}#{disk_fp}"
     except Exception:
         logger.debug("agent capability revision probe failed agent=%s", code, exc_info=True)
         return ""
@@ -653,11 +680,16 @@ def _normalize_agent_config_data(data: dict[str, Any], name: str) -> dict[str, A
 
 
 def load_agent_config(name: str | None) -> AgentConfig | None:
-    """Load agent config from SQLite ``evoflow_agents``.
+    """Load agent config: SQLite shell + **disk SoT** for prompt / tools / MCP / skills.
+
+    - ``profile/system.md`` → ``system_prompt``（文件优先，表作镜像）
+    - ``profile/capabilities.json`` → ``tools`` / ``mcp_servers`` / ``skills``
+    - 其余标量仍以 ``evoflow_agents`` 为准
 
     Uses a 10-second TTL cache to avoid redundant reads across the middleware chain
     (4+ middlewares call this per model turn). Call ``invalidate_agent_config_cache``
-    after ``save_agent_config`` to ensure freshness.
+    after ``save_agent_config`` to ensure freshness. Hand-edits flip
+    ``probe_agent_capability_revision`` via file mtime so workers still hot-reload.
     """
     if name is None:
         return None
@@ -678,13 +710,14 @@ def load_agent_config(name: str | None) -> AgentConfig | None:
         raise FileNotFoundError(f"Agent config not found in database: {name!r}")
 
     data = _normalize_agent_config_data(dict(data), name)
+    data = _apply_agent_disk_overlays(data, key)
     result = AgentConfig(**data)
     _agent_config_cache[key] = (result, now)
     return result
 
 
 def save_agent_config(agent_code: str, config_data: dict) -> None:
-    """Save agent configuration to SQLite ``evoflow_agents``."""
+    """Save agent config: **disk first** for prompt/tools, SQLite as mirror + shell."""
     if not AGENT_NAME_PATTERN.match(agent_code):
         raise ValueError(f"Invalid agent code '{agent_code}'. Must match pattern: {AGENT_NAME_PATTERN.pattern}")
 
@@ -714,15 +747,27 @@ def save_agent_config(agent_code: str, config_data: dict) -> None:
         )
         if inferred_tags:
             payload["tags"] = inferred_tags
-    cfg_repo.upsert_agent(agent_code, payload)
-    invalidate_agent_config_cache(agent_code)
-    # Mirror system_prompt → profile/system.md so role fingerprint mtime flips;
-    # also bust per-thread DynamicSystemPrompt cache (same session next turn).
+
+    # Disk SoT first — panel / CLI / hand-edit all land here; DB stays a mirror.
     if "system_prompt" in payload:
         try:
             _write_agent_system_prompt_file(agent_code, str(payload.get("system_prompt") or ""))
         except Exception:
-            logger.debug("write system.md skipped for %s", agent_code, exc_info=True)
+            logger.debug("write system.md failed for %s", agent_code, exc_info=True)
+    if any(k in payload for k in ("tools", "mcp_servers", "skills")):
+        try:
+            _write_agent_capabilities_file(
+                agent_code,
+                tools=payload["tools"] if "tools" in payload else _CAPS_UNSET,
+                mcp_servers=payload["mcp_servers"] if "mcp_servers" in payload else _CAPS_UNSET,
+                skills=payload["skills"] if "skills" in payload else _CAPS_UNSET,
+            )
+        except Exception:
+            logger.debug("write capabilities.json failed for %s", agent_code, exc_info=True)
+
+    cfg_repo.upsert_agent(agent_code, payload)
+    invalidate_agent_config_cache(agent_code)
+    if "system_prompt" in payload:
         try:
             from evoflow.agents.middlewares.dynamic_system_prompt_middleware import (
                 invalidate_dynamic_system_prompt_cache,
@@ -1809,20 +1854,178 @@ def _write_agent_soul_file(agent_code: str, soul_md: str) -> None:
     tmp.replace(path)
 
 
-def _write_agent_system_prompt_file(agent_code: str, system_prompt: str) -> None:
-    """Mirror ``system_prompt`` to profile/system.md for role fingerprint mtimes."""
-    from evoflow.assets.hub import ensure_entity_tree
+_CAPS_UNSET = object()
+_CAPS_DISK_KEYS = ("tools", "mcp_servers", "skills")
+
+
+def _agent_system_prompt_file(agent_code: str) -> Path:
     from evoflow.assets.paths import EntityRef, profile_path
+
+    return profile_path(EntityRef("agent", agent_code), "system.md")
+
+
+def _agent_capabilities_file(agent_code: str) -> Path:
+    from evoflow.assets.paths import EntityRef, profile_path
+
+    return profile_path(EntityRef("agent", agent_code), "capabilities.json")
+
+
+def _write_agent_system_prompt_file(agent_code: str, system_prompt: str) -> None:
+    """Write disk SoT ``profile/system.md`` (SQLite column is the mirror)."""
+    from evoflow.assets.hub import ensure_entity_tree
+    from evoflow.assets.paths import EntityRef
 
     code = str(agent_code or "").strip().lower()
     if not code:
         return
     ensure_entity_tree(EntityRef("agent", code))
-    path = profile_path(EntityRef("agent", code), "system.md")
+    path = _agent_system_prompt_file(code)
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(system_prompt or "", encoding="utf-8")
     tmp.replace(path)
+
+
+def _read_agent_system_prompt_file(agent_code: str) -> str | None:
+    """Return file text when ``system.md`` exists; ``None`` if missing."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return None
+    try:
+        from evoflow.assets.hub import ensure_entity_tree
+        from evoflow.assets.paths import EntityRef
+
+        ensure_entity_tree(EntityRef("agent", code))
+        path = _agent_system_prompt_file(code)
+        if not path.is_file():
+            return None
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        logger.debug("read system.md failed for %s", code, exc_info=True)
+        return None
+
+
+def _normalize_cap_list(raw: Any) -> list[str] | None:
+    """JSON null → inherit (None); list → stripped strings (may be empty)."""
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        return None
+    out: list[str] = []
+    for item in raw:
+        s = str(item or "").strip()
+        if s:
+            out.append(s)
+    return out
+
+
+def _read_agent_capabilities_file(agent_code: str) -> dict[str, Any] | None:
+    """Parse ``capabilities.json``; ``None`` if missing/invalid."""
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return None
+    try:
+        from evoflow.assets.hub import ensure_entity_tree
+        from evoflow.assets.paths import EntityRef
+
+        ensure_entity_tree(EntityRef("agent", code))
+        path = _agent_capabilities_file(code)
+        if not path.is_file():
+            return None
+        raw = json.loads(path.read_text(encoding="utf-8") or "{}")
+        if not isinstance(raw, dict):
+            return None
+        out: dict[str, Any] = {}
+        for key in _CAPS_DISK_KEYS:
+            if key not in raw:
+                continue
+            out[key] = _normalize_cap_list(raw.get(key))
+        return out
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        logger.debug("read capabilities.json failed for %s", code, exc_info=True)
+        return None
+
+
+def _write_agent_capabilities_file(
+    agent_code: str,
+    *,
+    tools: Any = _CAPS_UNSET,
+    mcp_servers: Any = _CAPS_UNSET,
+    skills: Any = _CAPS_UNSET,
+) -> None:
+    """Merge-write disk SoT ``profile/capabilities.json``."""
+    from evoflow.assets.hub import ensure_entity_tree
+    from evoflow.assets.paths import EntityRef
+
+    code = str(agent_code or "").strip().lower()
+    if not code:
+        return
+    ensure_entity_tree(EntityRef("agent", code))
+    path = _agent_capabilities_file(code)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing = _read_agent_capabilities_file(code) or {}
+    updates = {
+        "tools": tools,
+        "mcp_servers": mcp_servers,
+        "skills": skills,
+    }
+    for key, val in updates.items():
+        if val is _CAPS_UNSET:
+            continue
+        existing[key] = _normalize_cap_list(val)
+    # Stable key order for hand-edit friendliness
+    payload = {k: existing.get(k) for k in _CAPS_DISK_KEYS if k in existing}
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp.replace(path)
+
+
+def _apply_agent_disk_overlays(data: dict[str, Any], agent_code: str) -> dict[str, Any]:
+    """Overlay DB doc with disk SoT; backfill missing files from DB once."""
+    code = str(agent_code or "").strip().lower()
+    out = dict(data)
+
+    file_sp = _read_agent_system_prompt_file(code)
+    if file_sp is not None:
+        # File exists (even empty) wins — hand-clearing system.md is intentional.
+        out["system_prompt"] = file_sp
+    else:
+        db_sp = str(out.get("system_prompt") or "")
+        if db_sp.strip():
+            try:
+                _write_agent_system_prompt_file(code, db_sp)
+            except Exception:
+                logger.debug("backfill system.md skipped for %s", code, exc_info=True)
+
+    caps = _read_agent_capabilities_file(code)
+    if caps is None:
+        # First load after upgrade: seed disk from DB whitelist rows.
+        seed: dict[str, Any] = {}
+        for key in _CAPS_DISK_KEYS:
+            if key in out:
+                seed[key] = out.get(key)
+        if seed:
+            try:
+                _write_agent_capabilities_file(
+                    code,
+                    tools=seed["tools"] if "tools" in seed else _CAPS_UNSET,
+                    mcp_servers=seed["mcp_servers"] if "mcp_servers" in seed else _CAPS_UNSET,
+                    skills=seed["skills"] if "skills" in seed else _CAPS_UNSET,
+                )
+            except Exception:
+                logger.debug("backfill capabilities.json skipped for %s", code, exc_info=True)
+    else:
+        for key in _CAPS_DISK_KEYS:
+            if key not in caps:
+                # Key omitted on disk → inherit-all (None); drop DB list if present.
+                out.pop(key, None)
+                continue
+            val = caps[key]
+            if val is None:
+                out.pop(key, None)
+            else:
+                out[key] = val
+    return out
 
 
 def load_agent_soul(agent_name: str | None) -> str | None:

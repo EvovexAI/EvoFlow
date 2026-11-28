@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.3.61] - 2026-11-28
+
+相对 **1.3.60**：Agent 配置落盘 SoT；协作回执通知；部门群 UI。
+GitHub Release 说明见 scripts/maintainer/windows/release-notes/PRODUCT-NOTES-1.3.61.md；升级横幅见 scripts/maintainer/update/latest.json。
+
+### Fixed
+
+- **Agent 配置 / 落盘**：agents 配置与资产路径对齐
+- **协作回执通知**：完成通知去重与投递更稳
+- **部门群 UI**：首页群聊与工作区信息栏衔接更顺
+
+### Changed
+
+- **员工提示组装**：组织花名册 / platform / 部门群 IM 提示对齐
+
 ## [1.3.60] - 2026-11-28
 
 相对 **1.3.59**：部门群唤醒/@提及/嵌套策略；员工部门 platform 动作；部门群 UI。

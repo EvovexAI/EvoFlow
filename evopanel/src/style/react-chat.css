@@ -2131,7 +2131,7 @@ html.dark .dept-im__avatar--self {
   color: #8b9bb0;
 }
 
-/* 群气泡「正在回复」下一行实时态（排队 / 当前工具） */
+/* 群气泡「回复中」下一行实时态（当前工具；排队态只挂摘要轨） */
 .dept-im__live-line,
 .evo-home-cmd__gc-live-line {
   margin-top: 4px;

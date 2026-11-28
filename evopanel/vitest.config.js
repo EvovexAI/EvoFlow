@@ -63,6 +63,7 @@ export default defineConfig({
       'tests/web-embed-url.test.js',
       'tests/global-assistant.test.js',
       'tests/proactive-approval-notify.test.js',
+      'tests/collab-chat-complete-notify.test.js',
       'tests/assistant-display-noise.test.js',
       'tests/chat-normalize.test.js',
       'tests/evo-asset-citation.test.js',

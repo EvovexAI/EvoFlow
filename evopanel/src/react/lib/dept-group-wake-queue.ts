@@ -18,6 +18,8 @@ export type WakeJobSnapshot = {
   error?: string
   /** 触发这条叫醒的消息（用于派工条对状态） */
   sourceMsgId?: string
+  /** 无人 @ 时由负责人默认承接 */
+  headDefaultCatcher?: boolean
   /**
    * 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
    * 恢复队列时需要它们才能重建防环语义：depth 决定「是不是新一轮用户点名」，
@@ -177,6 +179,7 @@ export class DeptGroupWakeQueue {
         attempts: j.attempts,
         error: j.error,
         sourceMsgId: j.sourceMsgId,
+        headDefaultCatcher: !!j.headDefaultCatcher,
         // 【self-evolution-bot · 2026-11-20 · 第88轮 · 模型:deepseek-v4.1-flash-1017】
         // 必须透出，否则恢复队列时防环语义丢失
         depth: j.depth,

@@ -2041,9 +2041,6 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           </button>
         ) : null}
       </header>
-      <p className="react-chat-dept-pane-hint">
-        单击看信息；双击或「实时过程」看对话；群里 @ 点名派活。摘要里「回复中/排队中」= 本轮该他说话。
-      </p>
       {(() => {
         const live = roster.filter((m) => {
           const code = String(m.agent_code || '').trim()
@@ -2072,6 +2069,9 @@ export function DeptGroupPane({ sessionKey }: { sessionKey: string }) {
           </div>
         )
       })()}
+      <p className="react-chat-dept-pane-hint">
+        单击看信息；双击或「实时过程」看对话；群里 @ 点名派活。上方「回复中/排队中」= 本轮该他说话（不进群聊气泡）。
+      </p>
       <ul className="react-chat-dept-pane-roster" role="list" aria-label="群成员">
         {roster.map((m) => {
           const code = String(m.agent_code || '').trim()

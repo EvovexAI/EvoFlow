@@ -25,7 +25,15 @@ WORKSPACE_ASSET_REL = Path(".evoflow")
 
 # User vault holds USER.md + main-agent 情感 (profile/affect.md).
 _USER_PROFILE_FILES = ("USER.md", "README.md", "affect.md")
-_AGENT_PROFILE_FILES = ("identity.md", "SOUL.md", "system.md", "soul-summary.md", "affect.md")
+_AGENT_PROFILE_FILES = (
+    "identity.md",
+    "SOUL.md",
+    "system.md",
+    "soul-summary.md",
+    "affect.md",
+    # 工具 / MCP / 技能白名单（磁盘权威；SQLite 镜像）
+    "capabilities.json",
+)
 
 _SAFE_SEGMENT = re.compile(r"^[a-z0-9][a-z0-9_-]*$", re.I)
 # Relative asset paths may contain CJK / other Unicode word characters: craft

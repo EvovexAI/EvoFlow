@@ -16,9 +16,13 @@ import { api, appendFrontendLog } from './tauri-api.js'
 const POLL_MS = 15_000
 const EVENT_NAME = 'evopanel:collab-chat-complete'
 const LOG_PREFIX = '[collab-chat-complete]'
+/** 跨重启记住已弹过的 call_id，避免网关冷启首轮 poll 失败后把历史积压全弹一遍 */
+const SEEN_STORAGE_KEY = 'evopanel.collab-chat-complete.seen.v1'
+const SEEN_STORAGE_MAX = 200
 
 /** @type {ReturnType<typeof setInterval> | null} */
 let _timer = null
+let _listenerBound = false
 /** @type {Set<string>} */
 const _seen = new Set()
 let _bootstrapped = false
@@ -29,6 +33,55 @@ const FOLLOWUP_CATCHUP_MS = [2500, 8000]
 
 function callId(payload) {
   return String(payload?.call_id || payload?.callId || '').trim()
+}
+
+function loadSeenFromStorage() {
+  try {
+    const raw = localStorage.getItem(SEEN_STORAGE_KEY)
+    if (!raw) return
+    const arr = JSON.parse(raw)
+    if (!Array.isArray(arr)) return
+    for (const id of arr) {
+      const s = String(id || '').trim()
+      if (s) _seen.add(s)
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function persistSeenToStorage() {
+  try {
+    const ids = [..._seen]
+    const trimmed = ids.length > SEEN_STORAGE_MAX ? ids.slice(-SEEN_STORAGE_MAX) : ids
+    localStorage.setItem(SEEN_STORAGE_KEY, JSON.stringify(trimmed))
+  } catch {
+    /* ignore */
+  }
+}
+
+function rememberSeen(id) {
+  const s = String(id || '').trim()
+  if (!s) return
+  if (_seen.has(s)) return
+  _seen.add(s)
+  if (_seen.size > SEEN_STORAGE_MAX) {
+    const overflow = _seen.size - SEEN_STORAGE_MAX
+    let n = 0
+    for (const old of _seen) {
+      _seen.delete(old)
+      n += 1
+      if (n >= overflow) break
+    }
+  }
+  persistSeenToStorage()
+}
+
+// 模块加载即灌入上次已弹过的 id（重启后首轮 poll 失败也不该重弹）
+try {
+  loadSeenFromStorage()
+} catch {
+  /* ignore */
 }
 
 function initiatorHref(payload) {
@@ -354,11 +407,7 @@ export async function handleCollabChatComplete(payload) {
       clog('info', '忽略重复回执', { callId: id })
       return
     }
-    _seen.add(id)
-    if (_seen.size > 100) {
-      const first = _seen.values().next().value
-      if (first) _seen.delete(first)
-    }
+    rememberSeen(id)
   }
   const title = String(payload?.title || '协作完成').trim()
   const body = String(payload?.body || payload?.summary || '').trim()
@@ -439,7 +488,8 @@ async function pollOnce() {
       const id = callId(row)
       if (!id || _seen.has(id)) continue
       if (!_bootstrapped) {
-        _seen.add(id)
+        // 冷启动：历史 delivered/resumed 只吞进 seen，绝不 toast
+        rememberSeen(id)
         continue
       }
       const target = String(row?.target_agent || '').trim()
@@ -464,35 +514,71 @@ async function pollOnce() {
         ok,
       })
     }
+    // 只有成功拉到列表才结束 bootstrap。以前 finally 无条件置 true：
+    // 重启后首轮网关未就绪 → seen 空 + boot 已完成 → 下一轮把积压全当新通知弹爆。
     if (wasBoot) {
+      _bootstrapped = true
+      persistSeenToStorage()
+      clog('info', 'bootstrap 完成：历史回执已吞，后续才弹新完成', {
+        seenCount: _seen.size,
+        rowCount: rows.length,
+      })
       await bootstrapCatchupIfViewing(rows)
     }
   } catch (err) {
     clog('warn', '轮询 collab calls 失败（网关可能挂了）', {
       error: err instanceof Error ? err.message : String(err || ''),
+      bootstrapped: _bootstrapped,
     })
-  } finally {
-    _bootstrapped = true
+    // 失败不置 _bootstrapped：下一轮仍走「吞历史」路径
   }
 }
 
 export function startCollabChatCompleteNotify() {
   if (typeof window === 'undefined') return
   window.__evoflowHandleCollabChatComplete = handleCollabChatComplete
-  window.addEventListener('evoflow:gateway-event', (ev) => {
-    const detail = /** @type {CustomEvent} */ (ev).detail
-    const type = String(detail?.type || detail?.event_type || '').trim()
-    if (type !== 'collab_chat_complete') return
-    const data = detail?.data && typeof detail.data === 'object' ? detail.data : detail
-    clog('info', 'gateway-event 推送 collab_chat_complete', {
-      callId: callId(data || {}),
+  if (!_listenerBound) {
+    _listenerBound = true
+    window.addEventListener('evoflow:gateway-event', (ev) => {
+      const detail = /** @type {CustomEvent} */ (ev).detail
+      const type = String(detail?.type || detail?.event_type || '').trim()
+      if (type !== 'collab_chat_complete') return
+      const data = detail?.data && typeof detail.data === 'object' ? detail.data : detail
+      clog('info', 'gateway-event 推送 collab_chat_complete', {
+        callId: callId(data || {}),
+      })
+      void handleCollabChatComplete(data || {})
     })
-    void handleCollabChatComplete(data || {})
-  })
+  }
   if (_timer) return
   clog('info', '启动协作完成监听（SSE + 15s 轮询）')
   void pollOnce()
   _timer = setInterval(() => {
     void pollOnce()
   }, POLL_MS)
+}
+
+/** @internal vitest / 诊断 */
+export function __collabChatCompleteNotifyTestReset() {
+  _seen.clear()
+  _bootstrapped = false
+  if (_timer) {
+    clearInterval(_timer)
+    _timer = null
+  }
+  _listenerBound = false
+  try {
+    localStorage.removeItem(SEEN_STORAGE_KEY)
+  } catch {
+    /* ignore */
+  }
+}
+
+/** @internal */
+export function __collabChatCompleteNotifyTestState() {
+  return {
+    bootstrapped: _bootstrapped,
+    seenCount: _seen.size,
+    seen: [..._seen],
+  }
 }

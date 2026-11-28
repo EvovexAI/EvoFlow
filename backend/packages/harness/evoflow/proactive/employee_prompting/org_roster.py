@@ -90,24 +90,24 @@ def build_employee_org_roster_block(
     peers_same_mgr = _peers_same_manager(role, peers)
 
     if wiring.get("is_true_solo"):
-        who = f"agent_code=`{self_code}`" if self_code else "本岗"
+        who = f"本岗 `{self_code}`" if self_code else "本岗"
         if self_ws:
-            tip = f"独立岗（{who} · workspace=`{self_ws}`）；无上下级/平级名册。"
+            tip = f"{who} · 工作空间 `{self_ws}`；无上下级/平级名册。"
         else:
-            tip = f"独立岗（{who}）；未绑 workspace、无上下级/平级。"
+            tip = f"{who}；未绑工作空间、无上下级/平级。"
         return "\n".join([ORG_OPEN, tip, ORG_CLOSE])
 
     if self_key:
         ws_label = self_ws or self_key
         boundary = (
-            f"组织边界：相同 ``workspace_path``（`{ws_label}`）；本岗 ``agent_code``=`{self_code or '—'}`。"
-            "上下级由 ``reports_to``（直属上级 agent_code）定义；``department`` 仅展示。"
-            "顶级可无上级；有下级时由下属的 ``reports_to`` 指向本岗。"
+            f"本岗 `{self_code or '—'}` 与同事共用工作空间 `{ws_label}`（同路径即同组织）。"
+            "上下级看 ``reports_to``（直属上级的 agent_code）；``department`` 只作展示。"
+            "顶级可无上级；有下属时由对方的 ``reports_to`` 指向本岗。"
         )
     else:
         boundary = (
-            "组织边界：未绑定 workspace → 名册为全部 active。"
-            "上下级由 ``reports_to`` 定义；绑定 workspace 后按同 workspace 划分。"
+            "本岗未绑工作空间 → 名册为全部在岗同事。"
+            "上下级看 ``reports_to``；绑上工作空间后按同路径划分组织。"
         )
 
     lines: list[str] = [
